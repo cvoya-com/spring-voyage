@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <PackageReference Include="Octokit" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" />
   </ItemGroup>
 
 </Project>
