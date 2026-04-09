@@ -21,7 +21,7 @@ if (isLocalDev)
 
 builder.Services
     .AddCvoyaSpringCore()
-    .AddCvoyaSpringDapr();
+    .AddCvoyaSpringDapr(builder.Configuration);
 
 builder.Services.AddProblemDetails();
 builder.Services.AddEndpointsApiExplorer();
