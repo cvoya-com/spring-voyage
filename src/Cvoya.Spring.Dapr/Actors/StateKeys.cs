@@ -35,6 +35,12 @@ public static class StateKeys
     public const string AgentDefinition = "Agent:Definition";
 
     /// <summary>
+    /// State key prefix for agent checkpoints, suffixed with the conversation ID.
+    /// Full key format: <c>Agent:Checkpoint:{ConversationId}</c>.
+    /// </summary>
+    public const string CheckpointPrefix = "Agent:Checkpoint:";
+
+    /// <summary>
     /// State key for the agent's initiative state.
     /// </summary>
     public const string InitiativeState = "Agent:InitiativeState";

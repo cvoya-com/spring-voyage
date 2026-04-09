@@ -1,0 +1,85 @@
+/*
+ * Copyright CVOYA LLC.
+ *
+ * This source code is proprietary and confidential.
+ * Unauthorized copying, modification, distribution, or use of this file,
+ * via any medium, is strictly prohibited without the prior written consent of CVOYA LLC.
+ */
+
+namespace Cvoya.Spring.Dapr.Tests.Tools;
+
+using System.Text.Json;
+using Cvoya.Spring.Core;
+using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Tools;
+using Cvoya.Spring.Dapr.Tools;
+using FluentAssertions;
+using global::Dapr.Actors.Runtime;
+using Microsoft.Extensions.Logging;
+using NSubstitute;
+using Xunit;
+
+/// <summary>
+/// Unit tests for <see cref="ToolDispatcher"/>.
+/// </summary>
+public class ToolDispatcherTests
+{
+    private readonly PlatformToolRegistry _registry = new();
+    private readonly ToolExecutionContextAccessor _contextAccessor = new();
+    private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
+    private readonly ToolDispatcher _dispatcher;
+
+    public ToolDispatcherTests()
+    {
+        _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
+        _dispatcher = new ToolDispatcher(_registry, _contextAccessor, _loggerFactory);
+    }
+
+    [Fact]
+    public async Task DispatchAsync_KnownTool_DispatchesToCorrectTool()
+    {
+        var expectedResult = JsonSerializer.SerializeToElement(new { Result = "ok" });
+        var tool = Substitute.For<IPlatformTool>();
+        tool.Name.Returns("myTool");
+        tool.ExecuteAsync(Arg.Any<JsonElement>(), Arg.Any<JsonElement>(), Arg.Any<CancellationToken>())
+            .Returns(expectedResult);
+        _registry.Register(tool);
+
+        var stateManager = Substitute.For<IActorStateManager>();
+        var executionContext = new ToolExecutionContext(
+            new Address("agent", "test-agent"),
+            "conv-1",
+            stateManager);
+
+        var result = await _dispatcher.DispatchAsync(
+            "myTool",
+            JsonSerializer.SerializeToElement(new { }),
+            executionContext,
+            TestContext.Current.CancellationToken);
+
+        result.GetProperty("Result").GetString().Should().Be("ok");
+        await tool.Received(1).ExecuteAsync(
+            Arg.Any<JsonElement>(),
+            Arg.Any<JsonElement>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DispatchAsync_UnknownTool_ThrowsSpringException()
+    {
+        var stateManager = Substitute.For<IActorStateManager>();
+        var executionContext = new ToolExecutionContext(
+            new Address("agent", "test-agent"),
+            "conv-1",
+            stateManager);
+
+        var act = async () => await _dispatcher.DispatchAsync(
+            "unknownTool",
+            JsonSerializer.SerializeToElement(new { }),
+            executionContext,
+            TestContext.Current.CancellationToken);
+
+        await act.Should().ThrowAsync<SpringException>()
+            .WithMessage("Unknown tool: unknownTool");
+    }
+}
