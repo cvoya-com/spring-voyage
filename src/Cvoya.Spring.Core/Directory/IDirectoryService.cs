@@ -36,4 +36,13 @@ public interface IDirectoryService
     /// <param name="address">The address of the component to unregister.</param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     Task UnregisterAsync(Address address, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Resolves all directory entries that match the specified role.
+    /// Used for multicast delivery to role-based addresses.
+    /// </summary>
+    /// <param name="role">The role to search for.</param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    /// <returns>A list of matching directory entries.</returns>
+    Task<IReadOnlyList<DirectoryEntry>> ResolveByRoleAsync(string role, CancellationToken cancellationToken = default);
 }
