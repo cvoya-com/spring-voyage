@@ -82,5 +82,12 @@ public class DirectoryService(DirectoryCache cache, ILoggerFactory loggerFactory
         return Task.FromResult<IReadOnlyList<DirectoryEntry>>(matches);
     }
 
+    /// <inheritdoc />
+    public Task<IReadOnlyList<DirectoryEntry>> ListAllAsync(CancellationToken cancellationToken = default)
+    {
+        _ = cancellationToken;
+        return Task.FromResult<IReadOnlyList<DirectoryEntry>>(_entries.Values.ToList());
+    }
+
     private static string ToKey(Address address) => $"{address.Scheme}://{address.Path}";
 }

@@ -45,4 +45,11 @@ public interface IDirectoryService
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     /// <returns>A list of matching directory entries.</returns>
     Task<IReadOnlyList<DirectoryEntry>> ResolveByRoleAsync(string role, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns all registered directory entries.
+    /// </summary>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    /// <returns>A list of all directory entries.</returns>
+    Task<IReadOnlyList<DirectoryEntry>> ListAllAsync(CancellationToken cancellationToken = default);
 }
