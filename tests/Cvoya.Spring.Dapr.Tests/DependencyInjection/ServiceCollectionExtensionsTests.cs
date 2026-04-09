@@ -1,0 +1,86 @@
+/*
+ * Copyright CVOYA LLC.
+ *
+ * This source code is proprietary and confidential.
+ * Unauthorized copying, modification, distribution, or use of this file,
+ * via any medium, is strictly prohibited without the prior written consent of CVOYA LLC.
+ */
+
+namespace Cvoya.Spring.Dapr.Tests.DependencyInjection;
+
+using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Orchestration;
+using Cvoya.Spring.Dapr.DependencyInjection;
+using Cvoya.Spring.Dapr.Orchestration;
+using Cvoya.Spring.Dapr.Routing;
+using global::Dapr.Actors.Client;
+using FluentAssertions;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using NSubstitute;
+using Xunit;
+
+/// <summary>
+/// Verifies that <see cref="ServiceCollectionExtensions"/> registers all expected services.
+/// </summary>
+public class ServiceCollectionExtensionsTests
+{
+    private static ServiceProvider BuildProvider()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
+        services.AddSingleton(Substitute.For<IActorProxyFactory>());
+        services.AddCvoyaSpringDapr();
+
+        return services.BuildServiceProvider();
+    }
+
+    [Fact]
+    public void AddCvoyaSpringDapr_RegistersMessageRouter()
+    {
+        using var provider = BuildProvider();
+
+        var router = provider.GetService<MessageRouter>();
+
+        router.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void AddCvoyaSpringDapr_RegistersDirectoryService()
+    {
+        using var provider = BuildProvider();
+
+        var directoryService = provider.GetService<IDirectoryService>();
+
+        directoryService.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void AddCvoyaSpringDapr_RegistersOrchestrationStrategies()
+    {
+        using var provider = BuildProvider();
+
+        var ai = provider.GetKeyedService<IOrchestrationStrategy>("ai");
+        var workflow = provider.GetKeyedService<IOrchestrationStrategy>("workflow");
+        var hybrid = provider.GetKeyedService<IOrchestrationStrategy>("hybrid");
+
+        ai.Should().NotBeNull().And.BeOfType<AiOrchestrationStrategy>();
+        workflow.Should().NotBeNull().And.BeOfType<WorkflowOrchestrationStrategy>();
+        hybrid.Should().NotBeNull().And.BeOfType<HybridOrchestrationStrategy>();
+    }
+
+    [Fact]
+    public void AddCvoyaSpringDapr_RegistersExecutionDispatchers()
+    {
+        using var provider = BuildProvider();
+
+        var hosted = provider.GetKeyedService<IExecutionDispatcher>("hosted");
+        var delegated = provider.GetKeyedService<IExecutionDispatcher>("delegated");
+
+        hosted.Should().NotBeNull().And.BeOfType<Cvoya.Spring.Dapr.Execution.HostedExecutionDispatcher>();
+        delegated.Should().NotBeNull().And.BeOfType<Cvoya.Spring.Dapr.Execution.DelegatedExecutionDispatcher>();
+    }
+}
