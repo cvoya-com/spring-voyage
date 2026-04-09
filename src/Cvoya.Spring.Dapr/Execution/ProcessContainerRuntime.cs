@@ -51,7 +51,7 @@ public class ProcessContainerRuntime(
         try
         {
             var (exitCode, stdout, stderr) = await RunProcessAsync(
-                binaryName, arguments, timeoutCts.Token).ConfigureAwait(false);
+                binaryName, arguments, timeoutCts.Token);
 
             _logger.LogInformation(
                 "Container {ContainerName} exited with code {ExitCode}",
@@ -63,14 +63,14 @@ public class ProcessContainerRuntime(
         {
             // Timeout expired — stop the container.
             _logger.LogWarning("Container {ContainerName} timed out after {Timeout}", containerName, timeout);
-            await StopAsync(containerName, CancellationToken.None).ConfigureAwait(false);
+            await StopAsync(containerName, CancellationToken.None);
             throw new TimeoutException($"Container {containerName} exceeded timeout of {timeout}.");
         }
         catch (OperationCanceledException)
         {
             // Caller cancelled — stop the container.
             _logger.LogWarning("Container {ContainerName} was cancelled", containerName);
-            await StopAsync(containerName, CancellationToken.None).ConfigureAwait(false);
+            await StopAsync(containerName, CancellationToken.None);
             throw;
         }
     }
@@ -86,7 +86,7 @@ public class ProcessContainerRuntime(
 
         try
         {
-            await RunProcessAsync(binaryName, $"stop {containerId}", ct).ConfigureAwait(false);
+            await RunProcessAsync(binaryName, $"stop {containerId}", ct);
         }
         catch (Exception ex)
         {
@@ -95,7 +95,7 @@ public class ProcessContainerRuntime(
 
         try
         {
-            await RunProcessAsync(binaryName, $"rm -f {containerId}", ct).ConfigureAwait(false);
+            await RunProcessAsync(binaryName, $"rm -f {containerId}", ct);
         }
         catch (Exception ex)
         {
@@ -160,10 +160,10 @@ public class ProcessContainerRuntime(
         var stdoutTask = process.StandardOutput.ReadToEndAsync(ct);
         var stderrTask = process.StandardError.ReadToEndAsync(ct);
 
-        await process.WaitForExitAsync(ct).ConfigureAwait(false);
+        await process.WaitForExitAsync(ct);
 
-        var stdout = await stdoutTask.ConfigureAwait(false);
-        var stderr = await stderrTask.ConfigureAwait(false);
+        var stdout = await stdoutTask;
+        var stderr = await stderrTask;
 
         return (process.ExitCode, stdout, stderr);
     }

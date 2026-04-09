@@ -36,9 +36,9 @@ public class HumanActor(ActorHost host, ILoggerFactory loggerFactory) : Actor(ho
         {
             return message.Type switch
             {
-                MessageType.StatusQuery => await HandleStatusQueryAsync(message, cancellationToken).ConfigureAwait(false),
+                MessageType.StatusQuery => await HandleStatusQueryAsync(message, cancellationToken),
                 MessageType.HealthCheck => HandleHealthCheck(message),
-                MessageType.Domain => await HandleDomainMessageAsync(message, cancellationToken).ConfigureAwait(false),
+                MessageType.Domain => await HandleDomainMessageAsync(message, cancellationToken),
                 _ => throw new SpringException($"Unknown message type: {message.Type}")
             };
         }
@@ -55,7 +55,7 @@ public class HumanActor(ActorHost host, ILoggerFactory loggerFactory) : Actor(ho
     {
         var result = await StateManager
             .TryGetStateAsync<PermissionLevel>(StateKeys.HumanPermission, cancellationToken)
-            .ConfigureAwait(false);
+            ;
 
         return result.HasValue ? result.Value : PermissionLevel.Viewer;
     }
@@ -70,7 +70,7 @@ public class HumanActor(ActorHost host, ILoggerFactory loggerFactory) : Actor(ho
     {
         await StateManager
             .SetStateAsync(StateKeys.HumanPermission, level, cancellationToken)
-            .ConfigureAwait(false);
+            ;
 
         _logger.LogInformation("Human actor {ActorId} permission changed to {Permission}", Id.GetId(), level);
     }
@@ -80,10 +80,10 @@ public class HumanActor(ActorHost host, ILoggerFactory loggerFactory) : Actor(ho
     /// </summary>
     private async Task<Message?> HandleStatusQueryAsync(Message message, CancellationToken cancellationToken)
     {
-        var permission = await GetPermissionAsync(cancellationToken).ConfigureAwait(false);
+        var permission = await GetPermissionAsync(cancellationToken);
         var identity = await StateManager
             .TryGetStateAsync<string>(StateKeys.HumanIdentity, cancellationToken)
-            .ConfigureAwait(false);
+            ;
 
         var statusPayload = JsonSerializer.SerializeToElement(new
         {
@@ -125,7 +125,7 @@ public class HumanActor(ActorHost host, ILoggerFactory loggerFactory) : Actor(ho
     /// </summary>
     private async Task<Message?> HandleDomainMessageAsync(Message message, CancellationToken cancellationToken)
     {
-        var permission = await GetPermissionAsync(cancellationToken).ConfigureAwait(false);
+        var permission = await GetPermissionAsync(cancellationToken);
 
         if (permission == PermissionLevel.Viewer)
         {

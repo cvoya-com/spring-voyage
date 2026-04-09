@@ -48,7 +48,7 @@ public class DelegatedExecutionDispatcher(
             "Dispatching delegated execution for message {MessageId} to {Destination}",
             message.Id, message.To);
 
-        var prompt = await promptAssembler.AssembleAsync(message, cancellationToken).ConfigureAwait(false);
+        var prompt = await promptAssembler.AssembleAsync(message, cancellationToken);
 
         var envVars = new Dictionary<string, string>
         {
@@ -71,7 +71,7 @@ public class DelegatedExecutionDispatcher(
             }
         });
 
-        var result = await containerRuntime.RunAsync(config, cancellationToken).ConfigureAwait(false);
+        var result = await containerRuntime.RunAsync(config, cancellationToken);
         containerName = result.ContainerId;
 
         _logger.LogInformation(

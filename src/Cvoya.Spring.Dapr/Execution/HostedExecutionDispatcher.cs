@@ -34,10 +34,10 @@ public class HostedExecutionDispatcher(
         }
 
         _logger.LogDebug("Assembling prompt for message {MessageId}.", message.Id);
-        var prompt = await promptAssembler.AssembleAsync(message, cancellationToken).ConfigureAwait(false);
+        var prompt = await promptAssembler.AssembleAsync(message, cancellationToken);
 
         _logger.LogDebug("Sending prompt to AI provider for message {MessageId}.", message.Id);
-        var response = await aiProvider.CompleteAsync(prompt, cancellationToken).ConfigureAwait(false);
+        var response = await aiProvider.CompleteAsync(prompt, cancellationToken);
 
         _logger.LogDebug("Received AI response for message {MessageId}.", message.Id);
 

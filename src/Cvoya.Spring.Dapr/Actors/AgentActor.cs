@@ -38,11 +38,11 @@ public class AgentActor(ActorHost host, ILoggerFactory loggerFactory) : Actor(ho
         {
             return message.Type switch
             {
-                MessageType.Cancel => await HandleCancelAsync(message, cancellationToken).ConfigureAwait(false),
-                MessageType.StatusQuery => await HandleStatusQueryAsync(message, cancellationToken).ConfigureAwait(false),
-                MessageType.HealthCheck => await HandleHealthCheckAsync(message, cancellationToken).ConfigureAwait(false),
-                MessageType.PolicyUpdate => await HandlePolicyUpdateAsync(message, cancellationToken).ConfigureAwait(false),
-                MessageType.Domain => await HandleDomainMessageAsync(message, cancellationToken).ConfigureAwait(false),
+                MessageType.Cancel => await HandleCancelAsync(message, cancellationToken),
+                MessageType.StatusQuery => await HandleStatusQueryAsync(message, cancellationToken),
+                MessageType.HealthCheck => await HandleHealthCheckAsync(message, cancellationToken),
+                MessageType.PolicyUpdate => await HandlePolicyUpdateAsync(message, cancellationToken),
+                MessageType.Domain => await HandleDomainMessageAsync(message, cancellationToken),
                 _ => throw new SpringException($"Unknown message type: {message.Type}")
             };
         }
@@ -64,20 +64,20 @@ public class AgentActor(ActorHost host, ILoggerFactory loggerFactory) : Actor(ho
 
         if (_activeWorkCancellation is not null)
         {
-            await _activeWorkCancellation.CancelAsync().ConfigureAwait(false);
+            await _activeWorkCancellation.CancelAsync();
             _activeWorkCancellation.Dispose();
             _activeWorkCancellation = null;
         }
 
         var activeConversation = await StateManager
             .TryGetStateAsync<ConversationChannel>(StateKeys.ActiveConversation, cancellationToken)
-            .ConfigureAwait(false);
+            ;
 
         if (activeConversation.HasValue &&
             activeConversation.Value.ConversationId == message.ConversationId)
         {
-            await StateManager.TryRemoveStateAsync(StateKeys.ActiveConversation, cancellationToken).ConfigureAwait(false);
-            await PromoteNextPendingAsync(cancellationToken).ConfigureAwait(false);
+            await StateManager.TryRemoveStateAsync(StateKeys.ActiveConversation, cancellationToken);
+            await PromoteNextPendingAsync(cancellationToken);
         }
 
         return CreateAckResponse(message);
@@ -88,13 +88,13 @@ public class AgentActor(ActorHost host, ILoggerFactory loggerFactory) : Actor(ho
     /// </summary>
     private async Task<Message?> HandleStatusQueryAsync(Message message, CancellationToken cancellationToken)
     {
-        var status = await GetCurrentStatusAsync(cancellationToken).ConfigureAwait(false);
+        var status = await GetCurrentStatusAsync(cancellationToken);
         var activeConversation = await StateManager
             .TryGetStateAsync<ConversationChannel>(StateKeys.ActiveConversation, cancellationToken)
-            .ConfigureAwait(false);
+            ;
         var pending = await StateManager
             .TryGetStateAsync<List<ConversationChannel>>(StateKeys.PendingConversations, cancellationToken)
-            .ConfigureAwait(false);
+            ;
 
         var statusPayload = JsonSerializer.SerializeToElement(new
         {
@@ -141,7 +141,7 @@ public class AgentActor(ActorHost host, ILoggerFactory loggerFactory) : Actor(ho
         _logger.LogInformation("Actor {ActorId} received policy update", Id.GetId());
 
         // Store the policy update payload for future reference.
-        await StateManager.SetStateAsync("Agent:LastPolicyUpdate", message.Payload, cancellationToken).ConfigureAwait(false);
+        await StateManager.SetStateAsync("Agent:LastPolicyUpdate", message.Payload, cancellationToken);
 
         return CreateAckResponse(message);
     }
@@ -158,7 +158,7 @@ public class AgentActor(ActorHost host, ILoggerFactory loggerFactory) : Actor(ho
 
         var activeConversation = await StateManager
             .TryGetStateAsync<ConversationChannel>(StateKeys.ActiveConversation, cancellationToken)
-            .ConfigureAwait(false);
+            ;
 
         // Case 1: No active conversation — make this the active one.
         if (!activeConversation.HasValue)
@@ -170,7 +170,7 @@ public class AgentActor(ActorHost host, ILoggerFactory loggerFactory) : Actor(ho
                 CreatedAt = DateTimeOffset.UtcNow
             };
 
-            await StateManager.SetStateAsync(StateKeys.ActiveConversation, channel, cancellationToken).ConfigureAwait(false);
+            await StateManager.SetStateAsync(StateKeys.ActiveConversation, channel, cancellationToken);
             _activeWorkCancellation = new CancellationTokenSource();
 
             _logger.LogInformation("Actor {ActorId} activated conversation {ConversationId}",
@@ -184,7 +184,7 @@ public class AgentActor(ActorHost host, ILoggerFactory loggerFactory) : Actor(ho
         {
             var channel = activeConversation.Value;
             channel.Messages.Add(message);
-            await StateManager.SetStateAsync(StateKeys.ActiveConversation, channel, cancellationToken).ConfigureAwait(false);
+            await StateManager.SetStateAsync(StateKeys.ActiveConversation, channel, cancellationToken);
 
             _logger.LogInformation("Actor {ActorId} appended message to active conversation {ConversationId}",
                 Id.GetId(), conversationId);
@@ -193,7 +193,7 @@ public class AgentActor(ActorHost host, ILoggerFactory loggerFactory) : Actor(ho
         }
 
         // Case 3: Different conversation — route to pending.
-        await EnqueuePendingMessageAsync(conversationId, message, cancellationToken).ConfigureAwait(false);
+        await EnqueuePendingMessageAsync(conversationId, message, cancellationToken);
 
         _logger.LogInformation("Actor {ActorId} queued message for pending conversation {ConversationId}",
             Id.GetId(), conversationId);
@@ -210,7 +210,7 @@ public class AgentActor(ActorHost host, ILoggerFactory loggerFactory) : Actor(ho
     {
         var activeConversation = await StateManager
             .TryGetStateAsync<ConversationChannel>(StateKeys.ActiveConversation, cancellationToken)
-            .ConfigureAwait(false);
+            ;
 
         if (!activeConversation.HasValue)
         {
@@ -219,20 +219,20 @@ public class AgentActor(ActorHost host, ILoggerFactory loggerFactory) : Actor(ho
 
         if (_activeWorkCancellation is not null)
         {
-            await _activeWorkCancellation.CancelAsync().ConfigureAwait(false);
+            await _activeWorkCancellation.CancelAsync();
             _activeWorkCancellation.Dispose();
             _activeWorkCancellation = null;
         }
 
         var pending = await StateManager
             .TryGetStateAsync<List<ConversationChannel>>(StateKeys.PendingConversations, cancellationToken)
-            .ConfigureAwait(false);
+            ;
 
         var pendingList = pending.HasValue ? pending.Value : [];
         pendingList.Add(activeConversation.Value);
 
-        await StateManager.SetStateAsync(StateKeys.PendingConversations, pendingList, cancellationToken).ConfigureAwait(false);
-        await StateManager.TryRemoveStateAsync(StateKeys.ActiveConversation, cancellationToken).ConfigureAwait(false);
+        await StateManager.SetStateAsync(StateKeys.PendingConversations, pendingList, cancellationToken);
+        await StateManager.TryRemoveStateAsync(StateKeys.ActiveConversation, cancellationToken);
 
         _logger.LogInformation("Actor {ActorId} suspended conversation {ConversationId}",
             Id.GetId(), activeConversation.Value.ConversationId);
@@ -247,7 +247,7 @@ public class AgentActor(ActorHost host, ILoggerFactory loggerFactory) : Actor(ho
     {
         var pending = await StateManager
             .TryGetStateAsync<List<ConversationChannel>>(StateKeys.PendingConversations, cancellationToken)
-            .ConfigureAwait(false);
+            ;
 
         if (!pending.HasValue || pending.Value.Count == 0)
         {
@@ -258,15 +258,15 @@ public class AgentActor(ActorHost host, ILoggerFactory loggerFactory) : Actor(ho
         var next = pendingList[0];
         pendingList.RemoveAt(0);
 
-        await StateManager.SetStateAsync(StateKeys.ActiveConversation, next, cancellationToken).ConfigureAwait(false);
+        await StateManager.SetStateAsync(StateKeys.ActiveConversation, next, cancellationToken);
 
         if (pendingList.Count > 0)
         {
-            await StateManager.SetStateAsync(StateKeys.PendingConversations, pendingList, cancellationToken).ConfigureAwait(false);
+            await StateManager.SetStateAsync(StateKeys.PendingConversations, pendingList, cancellationToken);
         }
         else
         {
-            await StateManager.TryRemoveStateAsync(StateKeys.PendingConversations, cancellationToken).ConfigureAwait(false);
+            await StateManager.TryRemoveStateAsync(StateKeys.PendingConversations, cancellationToken);
         }
 
         _activeWorkCancellation = new CancellationTokenSource();
@@ -282,7 +282,7 @@ public class AgentActor(ActorHost host, ILoggerFactory loggerFactory) : Actor(ho
     {
         var pending = await StateManager
             .TryGetStateAsync<List<ConversationChannel>>(StateKeys.PendingConversations, cancellationToken)
-            .ConfigureAwait(false);
+            ;
 
         var pendingList = pending.HasValue ? pending.Value : [];
 
@@ -301,7 +301,7 @@ public class AgentActor(ActorHost host, ILoggerFactory loggerFactory) : Actor(ho
             });
         }
 
-        await StateManager.SetStateAsync(StateKeys.PendingConversations, pendingList, cancellationToken).ConfigureAwait(false);
+        await StateManager.SetStateAsync(StateKeys.PendingConversations, pendingList, cancellationToken);
     }
 
     /// <summary>
@@ -311,7 +311,7 @@ public class AgentActor(ActorHost host, ILoggerFactory loggerFactory) : Actor(ho
     {
         var activeConversation = await StateManager
             .TryGetStateAsync<ConversationChannel>(StateKeys.ActiveConversation, cancellationToken)
-            .ConfigureAwait(false);
+            ;
 
         if (!activeConversation.HasValue)
         {

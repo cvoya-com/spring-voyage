@@ -274,7 +274,6 @@ public class AgentActorTests : ActorTestBase<AgentActor>
 - `CancellationToken` as last parameter on all public async methods
 - Never block on async: no `.Result`, no `.Wait()`, no `.GetAwaiter().GetResult()`
 - Use `ValueTask` for hot paths that often complete synchronously
-- `ConfigureAwait(false)` in library code (Core, Dapr). Not needed in ASP.NET Core host.
 
 ## 8. Serialization
 

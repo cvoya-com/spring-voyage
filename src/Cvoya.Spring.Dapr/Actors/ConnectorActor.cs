@@ -36,9 +36,9 @@ public class ConnectorActor(ActorHost host, ILoggerFactory loggerFactory) : Acto
         {
             return message.Type switch
             {
-                MessageType.StatusQuery => await HandleStatusQueryAsync(message, cancellationToken).ConfigureAwait(false),
+                MessageType.StatusQuery => await HandleStatusQueryAsync(message, cancellationToken),
                 MessageType.HealthCheck => HandleHealthCheck(message),
-                MessageType.Domain => await HandleDomainMessageAsync(message, cancellationToken).ConfigureAwait(false),
+                MessageType.Domain => await HandleDomainMessageAsync(message, cancellationToken),
                 _ => throw new SpringException($"Unknown message type: {message.Type}")
             };
         }
@@ -55,7 +55,7 @@ public class ConnectorActor(ActorHost host, ILoggerFactory loggerFactory) : Acto
     {
         var result = await StateManager
             .TryGetStateAsync<ConnectionStatus>(StateKeys.ConnectorStatus, cancellationToken)
-            .ConfigureAwait(false);
+            ;
 
         return result.HasValue ? result.Value : ConnectionStatus.Disconnected;
     }
@@ -70,7 +70,7 @@ public class ConnectorActor(ActorHost host, ILoggerFactory loggerFactory) : Acto
     {
         await StateManager
             .SetStateAsync(StateKeys.ConnectorStatus, status, cancellationToken)
-            .ConfigureAwait(false);
+            ;
 
         _logger.LogInformation("Connector {ActorId} status changed to {Status}", Id.GetId(), status);
     }
@@ -80,10 +80,10 @@ public class ConnectorActor(ActorHost host, ILoggerFactory loggerFactory) : Acto
     /// </summary>
     private async Task<Message?> HandleStatusQueryAsync(Message message, CancellationToken cancellationToken)
     {
-        var status = await GetConnectionStatusAsync(cancellationToken).ConfigureAwait(false);
+        var status = await GetConnectionStatusAsync(cancellationToken);
         var connectorType = await StateManager
             .TryGetStateAsync<string>(StateKeys.ConnectorType, cancellationToken)
-            .ConfigureAwait(false);
+            ;
 
         var statusPayload = JsonSerializer.SerializeToElement(new
         {
@@ -129,7 +129,7 @@ public class ConnectorActor(ActorHost host, ILoggerFactory loggerFactory) : Acto
         _logger.LogInformation("Connector {ActorId} received domain message {MessageId}; event translation is not yet implemented",
             Id.GetId(), message.Id);
 
-        return await Task.FromResult<Message?>(CreateAckResponse(message)).ConfigureAwait(false);
+        return await Task.FromResult<Message?>(CreateAckResponse(message));
     }
 
     /// <summary>

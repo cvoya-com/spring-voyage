@@ -55,7 +55,7 @@ public class AnthropicProvider(
             HttpResponseMessage response;
             try
             {
-                response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+                response = await httpClient.SendAsync(request, cancellationToken);
             }
             catch (OperationCanceledException)
             {
@@ -69,7 +69,7 @@ public class AnthropicProvider(
                 }
 
                 _logger.LogWarning(ex, "Anthropic API request failed on attempt {Attempt}, retrying.", attempt);
-                await DelayBeforeRetryAsync(attempt, cancellationToken).ConfigureAwait(false);
+                await DelayBeforeRetryAsync(attempt, cancellationToken);
                 continue;
             }
 
@@ -77,7 +77,7 @@ public class AnthropicProvider(
             {
                 if (attempt >= MaxRetries)
                 {
-                    var errorBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                    var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
                     throw new SpringException(
                         $"Anthropic API returned {response.StatusCode} after {MaxRetries} attempts. Response: {errorBody}");
                 }
@@ -85,24 +85,24 @@ public class AnthropicProvider(
                 _logger.LogWarning("Anthropic API returned {StatusCode} on attempt {Attempt}, retrying.",
                     response.StatusCode, attempt);
                 response.Dispose();
-                await DelayBeforeRetryAsync(attempt, cancellationToken).ConfigureAwait(false);
+                await DelayBeforeRetryAsync(attempt, cancellationToken);
                 continue;
             }
 
             if (!response.IsSuccessStatusCode)
             {
-                var errorBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
                 throw new SpringException(
                     $"Anthropic API returned {response.StatusCode}. Response: {errorBody}");
             }
 
-            return await ParseResponseAsync(response, cancellationToken).ConfigureAwait(false);
+            return await ParseResponseAsync(response, cancellationToken);
         }
     }
 
     private async Task<string> ParseResponseAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {
-        var json = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken).ConfigureAwait(false);
+        var json = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken);
 
         if (json.TryGetProperty("usage", out var usage))
         {
@@ -126,6 +126,6 @@ public class AnthropicProvider(
     private static async Task DelayBeforeRetryAsync(int attempt, CancellationToken cancellationToken)
     {
         var delay = TimeSpan.FromMilliseconds(500 * Math.Pow(2, attempt - 1));
-        await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+        await Task.Delay(delay, cancellationToken);
     }
 }

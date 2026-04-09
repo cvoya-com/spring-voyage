@@ -51,11 +51,11 @@ public class UnitActor : Actor, IUnitActor
         {
             return message.Type switch
             {
-                MessageType.Cancel => await HandleCancelAsync(message, ct).ConfigureAwait(false),
-                MessageType.StatusQuery => await HandleStatusQueryAsync(ct).ConfigureAwait(false),
+                MessageType.Cancel => await HandleCancelAsync(message, ct),
+                MessageType.StatusQuery => await HandleStatusQueryAsync(ct),
                 MessageType.HealthCheck => HandleHealthCheck(message),
-                MessageType.PolicyUpdate => await HandlePolicyUpdateAsync(message, ct).ConfigureAwait(false),
-                MessageType.Domain => await HandleDomainMessageAsync(message, ct).ConfigureAwait(false),
+                MessageType.PolicyUpdate => await HandlePolicyUpdateAsync(message, ct),
+                MessageType.Domain => await HandleDomainMessageAsync(message, ct),
                 _ => throw new SpringException($"Unknown message type: {message.Type}")
             };
         }
@@ -71,7 +71,7 @@ public class UnitActor : Actor, IUnitActor
     /// <inheritdoc />
     public async Task AddMemberAsync(Address member, CancellationToken ct = default)
     {
-        var members = await GetMembersListAsync(ct).ConfigureAwait(false);
+        var members = await GetMembersListAsync(ct);
 
         if (members.Exists(m => m == member))
         {
@@ -80,7 +80,7 @@ public class UnitActor : Actor, IUnitActor
         }
 
         members.Add(member);
-        await StateManager.SetStateAsync(StateKeys.Members, members, ct).ConfigureAwait(false);
+        await StateManager.SetStateAsync(StateKeys.Members, members, ct);
 
         _logger.LogInformation("Unit {ActorId} added member {Member}. Total members: {Count}",
             Id.GetId(), member, members.Count);
@@ -89,7 +89,7 @@ public class UnitActor : Actor, IUnitActor
     /// <inheritdoc />
     public async Task RemoveMemberAsync(Address member, CancellationToken ct = default)
     {
-        var members = await GetMembersListAsync(ct).ConfigureAwait(false);
+        var members = await GetMembersListAsync(ct);
         var removed = members.RemoveAll(m => m == member);
 
         if (removed == 0)
@@ -98,7 +98,7 @@ public class UnitActor : Actor, IUnitActor
             return;
         }
 
-        await StateManager.SetStateAsync(StateKeys.Members, members, ct).ConfigureAwait(false);
+        await StateManager.SetStateAsync(StateKeys.Members, members, ct);
 
         _logger.LogInformation("Unit {ActorId} removed member {Member}. Total members: {Count}",
             Id.GetId(), member, members.Count);
@@ -107,7 +107,7 @@ public class UnitActor : Actor, IUnitActor
     /// <inheritdoc />
     public async Task<IReadOnlyList<Address>> GetMembersAsync(CancellationToken ct = default)
     {
-        var members = await GetMembersListAsync(ct).ConfigureAwait(false);
+        var members = await GetMembersListAsync(ct);
         return members.AsReadOnly();
     }
 
@@ -128,7 +128,7 @@ public class UnitActor : Actor, IUnitActor
     /// </summary>
     private async Task<Message?> HandleStatusQueryAsync(CancellationToken ct)
     {
-        var members = await GetMembersListAsync(ct).ConfigureAwait(false);
+        var members = await GetMembersListAsync(ct);
 
         var statusPayload = JsonSerializer.SerializeToElement(new
         {
@@ -169,7 +169,7 @@ public class UnitActor : Actor, IUnitActor
     private async Task<Message?> HandlePolicyUpdateAsync(Message message, CancellationToken ct)
     {
         _logger.LogInformation("Unit {ActorId} received policy update", Id.GetId());
-        await StateManager.SetStateAsync(StateKeys.Policies, message.Payload, ct).ConfigureAwait(false);
+        await StateManager.SetStateAsync(StateKeys.Policies, message.Payload, ct);
         return CreateAckResponse(message);
     }
 
@@ -178,14 +178,14 @@ public class UnitActor : Actor, IUnitActor
     /// </summary>
     private async Task<Message?> HandleDomainMessageAsync(Message message, CancellationToken ct)
     {
-        var members = await GetMembersListAsync(ct).ConfigureAwait(false);
+        var members = await GetMembersListAsync(ct);
         var context = new UnitContext(Address, members.AsReadOnly(), _logger);
 
         _logger.LogInformation(
             "Unit {ActorId} delegating domain message {MessageId} to orchestration strategy with {MemberCount} members",
             Id.GetId(), message.Id, members.Count);
 
-        return await _orchestrationStrategy.OrchestrateAsync(message, context, ct).ConfigureAwait(false);
+        return await _orchestrationStrategy.OrchestrateAsync(message, context, ct);
     }
 
     /// <summary>
@@ -195,7 +195,7 @@ public class UnitActor : Actor, IUnitActor
     {
         var result = await StateManager
             .TryGetStateAsync<List<Address>>(StateKeys.Members, ct)
-            .ConfigureAwait(false);
+            ;
 
         return result.HasValue ? result.Value : [];
     }
