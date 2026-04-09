@@ -7,7 +7,9 @@
  */
 
 using Cvoya.Spring.Dapr.DependencyInjection;
+using Cvoya.Spring.Host.Api.Auth;
 using Cvoya.Spring.Host.Api.Endpoints;
+using Microsoft.AspNetCore.Authentication;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -23,6 +25,19 @@ builder.Services
     .AddCvoyaSpringCore()
     .AddCvoyaSpringDapr(builder.Configuration);
 
+if (isLocalDev)
+{
+    builder.Services.AddAuthentication(AuthConstants.LocalDevScheme)
+        .AddScheme<AuthenticationSchemeOptions, LocalDevAuthHandler>(AuthConstants.LocalDevScheme, null);
+}
+else
+{
+    builder.Services.AddAuthentication(AuthConstants.ApiTokenScheme)
+        .AddScheme<AuthenticationSchemeOptions, ApiTokenAuthHandler>(AuthConstants.ApiTokenScheme, null);
+}
+
+builder.Services.AddAuthorization();
+
 builder.Services.AddProblemDetails();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -36,16 +51,19 @@ if (app.Environment.IsDevelopment() || isLocalDev)
 }
 
 app.UseExceptionHandler();
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.MapGet("/health", () => Results.Ok(new { Status = "Healthy" }))
     .WithTags("Health")
     .WithName("Health")
     .ExcludeFromDescription();
 
-app.MapAgentEndpoints();
-app.MapUnitEndpoints();
-app.MapMessageEndpoints();
-app.MapDirectoryEndpoints();
+app.MapAuthEndpoints();
+app.MapAgentEndpoints().RequireAuthorization();
+app.MapUnitEndpoints().RequireAuthorization();
+app.MapMessageEndpoints().RequireAuthorization();
+app.MapDirectoryEndpoints().RequireAuthorization();
 
 await app.RunAsync();
 

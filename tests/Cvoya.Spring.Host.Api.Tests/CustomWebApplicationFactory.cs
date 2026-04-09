@@ -9,10 +9,12 @@
 namespace Cvoya.Spring.Host.Api.Tests;
 
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Routing;
 using global::Dapr.Actors.Client;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
@@ -20,6 +22,7 @@ using NSubstitute;
 /// <summary>
 /// Custom <see cref="WebApplicationFactory{TEntryPoint}"/> that replaces Dapr-dependent
 /// services with test doubles, allowing integration tests to run without a Dapr sidecar.
+/// Uses local dev mode to bypass authentication in tests.
 /// </summary>
 public class CustomWebApplicationFactory : WebApplicationFactory<Program>
 {
@@ -35,8 +38,27 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
+        // Use --local mode to enable LocalDevAuthHandler (bypasses auth).
+        builder.UseSetting("LocalDev", "true");
+
         builder.ConfigureServices(services =>
         {
+            // Replace the real SpringDbContext with an in-memory database.
+            var dbDescriptors = services
+                .Where(d => d.ServiceType == typeof(DbContextOptions<SpringDbContext>)
+                         || d.ServiceType == typeof(DbContextOptions)
+                         || d.ServiceType == typeof(SpringDbContext))
+                .ToList();
+
+            foreach (var descriptor in dbDescriptors)
+            {
+                services.Remove(descriptor);
+            }
+
+            var dbName = $"TestDb_{Guid.NewGuid()}";
+            services.AddDbContext<SpringDbContext>(options =>
+                options.UseInMemoryDatabase(dbName));
+
             // Remove existing registrations that depend on Dapr runtime.
             var typesToRemove = new[]
             {
