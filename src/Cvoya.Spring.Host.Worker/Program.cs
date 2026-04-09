@@ -6,8 +6,37 @@
  * via any medium, is strictly prohibited without the prior written consent of CVOYA LLC.
  */
 
-var builder = Host.CreateDefaultBuilder(args);
+using Cvoya.Spring.Dapr.Actors;
+using Cvoya.Spring.Dapr.DependencyInjection;
+using Dapr.Actors;
+using Dapr.Actors.Runtime;
 
-var host = builder.Build();
+var builder = WebApplication.CreateBuilder(args);
 
-await host.RunAsync();
+// Register Spring services
+builder.Services
+    .AddCvoyaSpringCore()
+    .AddCvoyaSpringDapr();
+
+// Register Dapr actors
+builder.Services.AddActors(options =>
+{
+    options.Actors.RegisterActor<AgentActor>();
+    options.Actors.RegisterActor<UnitActor>();
+    options.Actors.RegisterActor<ConnectorActor>();
+    options.Actors.RegisterActor<HumanActor>();
+
+    options.ActorIdleTimeout = TimeSpan.FromHours(1);
+    options.ActorScanInterval = TimeSpan.FromSeconds(30);
+    options.ReentrancyConfig = new ActorReentrancyConfig { Enabled = false };
+});
+
+var app = builder.Build();
+
+// Health check
+app.MapGet("/health", () => Results.Ok(new { Status = "Healthy" }));
+
+// Dapr actor endpoints
+app.MapActorsHandlers();
+
+await app.RunAsync();
