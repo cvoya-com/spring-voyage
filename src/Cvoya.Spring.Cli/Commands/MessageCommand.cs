@@ -1,0 +1,59 @@
+/*
+ * Copyright CVOYA LLC.
+ *
+ * This source code is proprietary and confidential.
+ * Unauthorized copying, modification, distribution, or use of this file,
+ * via any medium, is strictly prohibited without the prior written consent of CVOYA LLC.
+ */
+
+namespace Cvoya.Spring.Cli.Commands;
+
+using System.CommandLine;
+using Cvoya.Spring.Cli.Output;
+
+/// <summary>
+/// Builds the "message" command tree for sending messages.
+/// </summary>
+public static class MessageCommand
+{
+    /// <summary>
+    /// Creates the "message" command with the "send" subcommand.
+    /// </summary>
+    public static Command Create(Option<string> outputOption)
+    {
+        var messageCommand = new Command("message", "Send and manage messages");
+
+        messageCommand.Subcommands.Add(CreateSendCommand(outputOption));
+
+        return messageCommand;
+    }
+
+    private static Command CreateSendCommand(Option<string> outputOption)
+    {
+        var addressArg = new Argument<string>("address") { Description = "Destination address (e.g. agent://ada)" };
+        var textArg = new Argument<string>("text") { Description = "Message text" };
+        var conversationOption = new Option<string?>("--conversation") { Description = "Conversation identifier" };
+        var command = new Command("send", "Send a message to an address");
+        command.Arguments.Add(addressArg);
+        command.Arguments.Add(textArg);
+        command.Options.Add(conversationOption);
+
+        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var address = parseResult.GetValue(addressArg)!;
+            var text = parseResult.GetValue(textArg)!;
+            var conversationId = parseResult.GetValue(conversationOption);
+            var output = parseResult.GetValue(outputOption) ?? "table";
+            var (scheme, path) = AddressParser.Parse(address);
+            var client = ClientFactory.Create();
+
+            var result = await client.SendMessageAsync(scheme, path, text, conversationId, ct);
+
+            Console.WriteLine(output == "json"
+                ? OutputFormatter.FormatJson(result)
+                : $"Message sent to {address}.");
+        });
+
+        return command;
+    }
+}

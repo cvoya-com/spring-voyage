@@ -8,13 +8,4 @@
 
 namespace Cvoya.Spring.Cli.Tests;
 
-using Xunit;
-
-public class CliTests
-{
-    [Fact]
-    public void Placeholder_test_passes()
-    {
-        Assert.True(true);
-    }
-}
+// Placeholder removed — tests are now in dedicated test files.
