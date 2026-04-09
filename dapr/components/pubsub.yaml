@@ -2,7 +2,6 @@ apiVersion: dapr.io/v1alpha1
 kind: Component
 metadata:
   name: pubsub
-  namespace: spring
 spec:
   type: pubsub.redis
   version: v1
