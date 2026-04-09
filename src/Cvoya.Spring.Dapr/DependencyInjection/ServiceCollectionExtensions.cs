@@ -11,10 +11,14 @@ namespace Cvoya.Spring.Dapr.DependencyInjection;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Orchestration;
+using Cvoya.Spring.Dapr.Data;
+using Cvoya.Spring.Dapr.Data.Entities;
 using Cvoya.Spring.Dapr.Execution;
 using Cvoya.Spring.Dapr.Orchestration;
 using Cvoya.Spring.Dapr.Prompts;
 using Cvoya.Spring.Dapr.Routing;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
 /// <summary>
@@ -37,9 +41,23 @@ public static class ServiceCollectionExtensions
     /// Registers all Dapr-backed implementations for routing, execution, orchestration, and prompt assembly.
     /// </summary>
     /// <param name="services">The service collection to configure.</param>
+    /// <param name="configuration">The application configuration, used to resolve the PostgreSQL connection string.</param>
     /// <returns>The same service collection for chaining.</returns>
-    public static IServiceCollection AddCvoyaSpringDapr(this IServiceCollection services)
+    public static IServiceCollection AddCvoyaSpringDapr(this IServiceCollection services, IConfiguration configuration)
     {
+        // EF Core / PostgreSQL
+        var connectionString = configuration.GetConnectionString("SpringDb");
+        services.AddDbContext<SpringDbContext>(options =>
+        {
+            if (!string.IsNullOrEmpty(connectionString))
+            {
+                options.UseNpgsql(connectionString);
+            }
+        });
+
+        // Repositories
+        services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
+
         // Options
         services.AddOptions<AiProviderOptions>().BindConfiguration(AiProviderOptions.SectionName);
         services.AddOptions<ContainerRuntimeOptions>().BindConfiguration("ContainerRuntime");

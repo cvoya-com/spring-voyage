@@ -1,0 +1,46 @@
+/*
+ * Copyright CVOYA LLC.
+ *
+ * This source code is proprietary and confidential.
+ * Unauthorized copying, modification, distribution, or use of this file,
+ * via any medium, is strictly prohibited without the prior written consent of CVOYA LLC.
+ */
+
+namespace Cvoya.Spring.Dapr.Data.Entities;
+
+/// <summary>
+/// Represents an API token used for authenticating requests to the platform.
+/// Tokens are scoped to a tenant and optionally to a specific user.
+/// </summary>
+public class ApiTokenEntity
+{
+    /// <summary>Gets or sets the unique identifier for the API token.</summary>
+    public Guid Id { get; set; }
+
+    /// <summary>Gets or sets the tenant that owns this API token.</summary>
+    public Guid TenantId { get; set; }
+
+    /// <summary>Gets or sets the identifier of the user associated with this token.</summary>
+    public string? UserId { get; set; }
+
+    /// <summary>Gets or sets the hash of the token value. The raw token is never stored.</summary>
+    public string TokenHash { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the display name of the token.</summary>
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the comma-separated list of scopes granted to this token.</summary>
+    public string? Scopes { get; set; }
+
+    /// <summary>Gets or sets the expiration timestamp, or null if the token does not expire.</summary>
+    public DateTimeOffset? ExpiresAt { get; set; }
+
+    /// <summary>Gets or sets the timestamp when the token was created.</summary>
+    public DateTimeOffset CreatedAt { get; set; }
+
+    /// <summary>Gets or sets the timestamp when the token was revoked, or null if active.</summary>
+    public DateTimeOffset? RevokedAt { get; set; }
+
+    /// <summary>Gets or sets the navigation property to the owning tenant.</summary>
+    public TenantEntity? Tenant { get; set; }
+}

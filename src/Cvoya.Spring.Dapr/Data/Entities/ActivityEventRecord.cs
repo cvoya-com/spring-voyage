@@ -1,0 +1,51 @@
+/*
+ * Copyright CVOYA LLC.
+ *
+ * This source code is proprietary and confidential.
+ * Unauthorized copying, modification, distribution, or use of this file,
+ * via any medium, is strictly prohibited without the prior written consent of CVOYA LLC.
+ */
+
+namespace Cvoya.Spring.Dapr.Data.Entities;
+
+using System.Text.Json;
+
+/// <summary>
+/// Represents a persisted activity event record.
+/// Activity events capture observable actions within the platform for audit, analytics, and debugging.
+/// </summary>
+public class ActivityEventRecord
+{
+    /// <summary>Gets or sets the unique identifier for the activity event.</summary>
+    public Guid Id { get; set; }
+
+    /// <summary>Gets or sets the tenant that owns this activity event.</summary>
+    public Guid TenantId { get; set; }
+
+    /// <summary>Gets or sets the source address of the event (e.g., "agent:ada").</summary>
+    public string Source { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the type of the event.</summary>
+    public string EventType { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the severity level of the event.</summary>
+    public string Severity { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets a human-readable summary of the event.</summary>
+    public string Summary { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets additional event details stored as JSON.</summary>
+    public JsonElement? Details { get; set; }
+
+    /// <summary>Gets or sets the correlation identifier for tracing related events.</summary>
+    public string? CorrelationId { get; set; }
+
+    /// <summary>Gets or sets the cost associated with this event (e.g., token usage).</summary>
+    public decimal? Cost { get; set; }
+
+    /// <summary>Gets or sets the timestamp when the event occurred.</summary>
+    public DateTimeOffset Timestamp { get; set; }
+
+    /// <summary>Gets or sets the navigation property to the owning tenant.</summary>
+    public TenantEntity? Tenant { get; set; }
+}

@@ -17,6 +17,8 @@
     <PackageReference Include="Dapr.AspNetCore" />
     <PackageReference Include="Dapr.Actors" />
     <PackageReference Include="Dapr.Actors.AspNetCore" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
     <PackageReference Include="Dapr.Workflow" />
     <PackageReference Include="Microsoft.Extensions.Http" />
     <PackageReference Include="Microsoft.Extensions.Options" />

@@ -19,7 +19,7 @@ var builder = WebApplication.CreateBuilder(args);
 // Register Spring services
 builder.Services
     .AddCvoyaSpringCore()
-    .AddCvoyaSpringDapr();
+    .AddCvoyaSpringDapr(builder.Configuration);
 
 // Register Dapr workflows
 builder.Services.AddDaprWorkflow(options =>

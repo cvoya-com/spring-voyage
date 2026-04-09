@@ -30,10 +30,11 @@ public class ServiceCollectionExtensionsTests
     private static ServiceProvider BuildProvider()
     {
         var services = new ServiceCollection();
+        var config = new ConfigurationBuilder().Build();
         services.AddLogging();
-        services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
+        services.AddSingleton<IConfiguration>(config);
         services.AddSingleton(Substitute.For<IActorProxyFactory>());
-        services.AddCvoyaSpringDapr();
+        services.AddCvoyaSpringDapr(config);
 
         return services.BuildServiceProvider();
     }

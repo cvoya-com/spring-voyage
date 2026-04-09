@@ -1,0 +1,51 @@
+/*
+ * Copyright CVOYA LLC.
+ *
+ * This source code is proprietary and confidential.
+ * Unauthorized copying, modification, distribution, or use of this file,
+ * via any medium, is strictly prohibited without the prior written consent of CVOYA LLC.
+ */
+
+namespace Cvoya.Spring.Dapr.Data.Entities;
+
+using System.Text.Json;
+
+/// <summary>
+/// Represents a unit (team) definition stored in the database.
+/// A unit groups agents together under a shared orchestration strategy.
+/// </summary>
+public class UnitDefinitionEntity
+{
+    /// <summary>Gets or sets the unique identifier for the unit definition.</summary>
+    public Guid Id { get; set; }
+
+    /// <summary>Gets or sets the tenant that owns this unit definition.</summary>
+    public Guid TenantId { get; set; }
+
+    /// <summary>Gets or sets the user-facing identifier for the unit.</summary>
+    public string UnitId { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the display name of the unit.</summary>
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets an optional description of the unit.</summary>
+    public string? Description { get; set; }
+
+    /// <summary>Gets or sets the full unit definition stored as JSON.</summary>
+    public JsonElement? Definition { get; set; }
+
+    /// <summary>Gets or sets the list of member identifiers stored as JSON.</summary>
+    public JsonElement? Members { get; set; }
+
+    /// <summary>Gets or sets the timestamp when the unit definition was created.</summary>
+    public DateTimeOffset CreatedAt { get; set; }
+
+    /// <summary>Gets or sets the timestamp when the unit definition was last updated.</summary>
+    public DateTimeOffset UpdatedAt { get; set; }
+
+    /// <summary>Gets or sets the timestamp when the unit definition was soft-deleted, or null if active.</summary>
+    public DateTimeOffset? DeletedAt { get; set; }
+
+    /// <summary>Gets or sets the navigation property to the owning tenant.</summary>
+    public TenantEntity? Tenant { get; set; }
+}
