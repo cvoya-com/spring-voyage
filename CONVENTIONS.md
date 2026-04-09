@@ -6,7 +6,7 @@ These conventions ensure that code from parallel agents merges cleanly. All agen
 
 - **Architecture plan:** `v2/docs/SpringVoyage-v2-plan.md` — the source of truth for all design decisions
 - **Namespace root:** `Cvoya.Spring.*`
-- **Target framework:** .NET 9
+- **Target framework:** .NET 10
 - **Runtime:** Dapr sidecar pattern
 
 ## 0. File Layout
@@ -356,7 +356,7 @@ Multiple agents work on v2 simultaneously. Follow these rules:
 ```xml
 <Project>
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>

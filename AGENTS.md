@@ -1,6 +1,6 @@
 # Spring Voyage V2
 
-AI agent orchestration platform — general-purpose, domain-agnostic. Built on .NET 9 and Dapr. Namespace: `Cvoya.Spring.*`.
+AI agent orchestration platform — general-purpose, domain-agnostic. Built on .NET 10 and Dapr. Namespace: `Cvoya.Spring.*`.
 
 ## Coding Conventions
 
@@ -30,7 +30,7 @@ cd v2 && dotnet format --verify-no-changes  # check formatting
 - All v2 code lives under `/v2`.
 - `Cvoya.Spring.Core` must have ZERO external NuGet package references.
 - System.Text.Json only. No Newtonsoft.Json.
-- .NET 9 target framework.
+- .NET 10 target framework.
 - Always create PRs against `main`. Never push directly.
 - Run `dotnet format` before committing.
 - Reference GitHub issues in commit messages with `Closes #N`.

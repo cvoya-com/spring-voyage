@@ -5,7 +5,7 @@ globs: v2/**
 
 # Spring Voyage V2
 
-AI agent orchestration platform built on .NET 9 and Dapr. Namespace: `Cvoya.Spring.*`.
+AI agent orchestration platform built on .NET 10 and Dapr. Namespace: `Cvoya.Spring.*`.
 
 ## Essential References
 
