@@ -16,10 +16,24 @@ using Dapr.Workflow;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Allow the host to shut down within 5 seconds so Ctrl+C isn't blocked
-// by the Durable Task gRPC worker retrying a dead sidecar.
+// Force-exit after 5 seconds when Ctrl+C is pressed. The Durable Task gRPC
+// worker ignores cancellation and retries indefinitely when the sidecar is
+// down, which makes the process unkillable via normal shutdown.
 builder.Services.Configure<HostOptions>(options =>
     options.ShutdownTimeout = TimeSpan.FromSeconds(5));
+
+var lifetime = new CancellationTokenSource();
+Console.CancelKeyPress += (_, e) =>
+{
+    e.Cancel = true;
+    if (lifetime.IsCancellationRequested)
+    {
+        // Second Ctrl+C — force exit immediately
+        Environment.Exit(1);
+    }
+    lifetime.Cancel();
+    _ = Task.Delay(TimeSpan.FromSeconds(5)).ContinueWith(_ => Environment.Exit(1));
+};
 
 // Register Spring services
 builder.Services
@@ -57,4 +71,4 @@ app.MapGet("/health", () => Results.Ok(new { Status = "Healthy" }));
 // Dapr actor endpoints
 app.MapActorsHandlers();
 
-await app.RunAsync();
+await app.RunAsync(lifetime.Token);
