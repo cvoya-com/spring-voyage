@@ -36,6 +36,9 @@ public class SpringDbContext(DbContextOptions<SpringDbContext> options) : DbCont
     /// <summary>Gets the set of API token entities.</summary>
     public DbSet<ApiTokenEntity> ApiTokens => Set<ApiTokenEntity>();
 
+    /// <summary>Gets the set of user entities.</summary>
+    public DbSet<UserEntity> Users => Set<UserEntity>();
+
     /// <inheritdoc />
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

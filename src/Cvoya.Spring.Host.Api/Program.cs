@@ -25,6 +25,9 @@ builder.Services
     .AddCvoyaSpringCore()
     .AddCvoyaSpringDapr(builder.Configuration);
 
+builder.Services.Configure<OAuthOptions>(builder.Configuration.GetSection(OAuthOptions.SectionName));
+builder.Services.AddHttpClient("GitHub");
+
 if (isLocalDev)
 {
     builder.Services.AddAuthentication(AuthConstants.LocalDevScheme)
@@ -32,8 +35,31 @@ if (isLocalDev)
 }
 else
 {
-    builder.Services.AddAuthentication(AuthConstants.ApiTokenScheme)
-        .AddScheme<AuthenticationSchemeOptions, ApiTokenAuthHandler>(AuthConstants.ApiTokenScheme, null);
+    builder.Services.AddAuthentication(options =>
+        {
+            options.DefaultScheme = "MultiScheme";
+            options.DefaultChallengeScheme = "MultiScheme";
+        })
+        .AddScheme<AuthenticationSchemeOptions, ApiTokenAuthHandler>(AuthConstants.ApiTokenScheme, null)
+        .AddScheme<AuthenticationSchemeOptions, OAuthAuthHandler>(AuthConstants.OAuthScheme, null)
+        .AddPolicyScheme("MultiScheme", "API Token or OAuth", options =>
+        {
+            options.ForwardDefaultSelector = context =>
+            {
+                var authHeader = context.Request.Headers.Authorization.ToString();
+                if (!string.IsNullOrEmpty(authHeader) && authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+                {
+                    return AuthConstants.ApiTokenScheme;
+                }
+
+                if (context.Request.Cookies.ContainsKey(OAuthAuthHandler.SessionCookieName))
+                {
+                    return AuthConstants.OAuthScheme;
+                }
+
+                return AuthConstants.ApiTokenScheme;
+            };
+        });
 }
 
 builder.Services.AddAuthorization();

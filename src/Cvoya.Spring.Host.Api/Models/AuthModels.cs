@@ -8,6 +8,8 @@
 
 namespace Cvoya.Spring.Host.Api.Models;
 
+using System.Text.Json.Serialization;
+
 /// <summary>
 /// Request body for creating a new API token.
 /// </summary>
@@ -41,3 +43,54 @@ public record TokenResponse(
 public record CreateTokenResponse(
     string Token,
     string Name);
+
+/// <summary>
+/// Response body returned from the /me endpoint with the current user's profile.
+/// </summary>
+/// <param name="Id">The user's unique identifier.</param>
+/// <param name="GitHubLogin">The user's GitHub username.</param>
+/// <param name="DisplayName">The user's display name.</param>
+/// <param name="Email">The user's email address, if available.</param>
+/// <param name="AvatarUrl">The URL to the user's avatar image.</param>
+public record UserProfileResponse(
+    Guid Id,
+    string GitHubLogin,
+    string DisplayName,
+    string? Email,
+    string? AvatarUrl);
+
+/// <summary>
+/// Response body from GitHub's OAuth access token endpoint.
+/// </summary>
+internal record GitHubTokenResponse
+{
+    [JsonPropertyName("access_token")]
+    public string AccessToken { get; init; } = string.Empty;
+
+    [JsonPropertyName("token_type")]
+    public string TokenType { get; init; } = string.Empty;
+
+    [JsonPropertyName("scope")]
+    public string Scope { get; init; } = string.Empty;
+}
+
+/// <summary>
+/// Response body from GitHub's user profile API endpoint.
+/// </summary>
+internal record GitHubUserResponse
+{
+    [JsonPropertyName("id")]
+    public long Id { get; init; }
+
+    [JsonPropertyName("login")]
+    public string Login { get; init; } = string.Empty;
+
+    [JsonPropertyName("name")]
+    public string? Name { get; init; }
+
+    [JsonPropertyName("email")]
+    public string? Email { get; init; }
+
+    [JsonPropertyName("avatar_url")]
+    public string? AvatarUrl { get; init; }
+}

@@ -39,7 +39,8 @@ void ForceExitOnSignal()
     {
         Thread.Sleep(5000);
         Environment.FailFast("Shutdown timed out after 5 seconds");
-    }) { IsBackground = true }.Start();
+    })
+    { IsBackground = true }.Start();
 }
 
 using var sigInt = PosixSignalRegistration.Create(PosixSignal.SIGINT, _ => ForceExitOnSignal());
