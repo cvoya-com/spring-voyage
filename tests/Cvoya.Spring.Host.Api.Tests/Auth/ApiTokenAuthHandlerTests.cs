@@ -11,6 +11,7 @@ namespace Cvoya.Spring.Host.Api.Tests.Auth;
 using System.Net;
 using System.Net.Http.Headers;
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.State;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
 using Cvoya.Spring.Dapr.Routing;
@@ -66,7 +67,8 @@ public class ApiTokenAuthHandlerTests : IDisposable
                         typeof(IDirectoryService),
                         typeof(MessageRouter),
                         typeof(DirectoryCache),
-                        typeof(IActorProxyFactory)
+                        typeof(IActorProxyFactory),
+                        typeof(IStateStore)
                     };
 
                     var descriptors = services
@@ -80,6 +82,7 @@ public class ApiTokenAuthHandlerTests : IDisposable
 
                     services.AddSingleton(directoryService);
                     services.AddSingleton(actorProxyFactory);
+                    services.AddSingleton(Substitute.For<IStateStore>());
                     services.AddSingleton(new DirectoryCache());
 
                     services.AddSingleton(sp =>

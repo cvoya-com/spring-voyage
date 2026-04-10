@@ -11,12 +11,14 @@ namespace Cvoya.Spring.Dapr.DependencyInjection;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Orchestration;
+using Cvoya.Spring.Core.State;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
 using Cvoya.Spring.Dapr.Execution;
 using Cvoya.Spring.Dapr.Orchestration;
 using Cvoya.Spring.Dapr.Prompts;
 using Cvoya.Spring.Dapr.Routing;
+using Cvoya.Spring.Dapr.State;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -84,6 +86,10 @@ public static class ServiceCollectionExtensions
         // Prompt
         services.AddSingleton<UnitContextBuilder>();
         services.AddSingleton<ConversationContextBuilder>();
+
+        // State
+        services.AddOptions<DaprStateStoreOptions>().BindConfiguration(DaprStateStoreOptions.SectionName);
+        services.AddSingleton<IStateStore, DaprStateStore>();
 
         return services;
     }

@@ -9,6 +9,7 @@
 namespace Cvoya.Spring.Host.Api.Tests;
 
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.State;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Routing;
 using global::Dapr.Actors.Client;
@@ -65,7 +66,8 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
                 typeof(IDirectoryService),
                 typeof(MessageRouter),
                 typeof(DirectoryCache),
-                typeof(IActorProxyFactory)
+                typeof(IActorProxyFactory),
+                typeof(IStateStore)
             };
 
             var descriptors = services
@@ -80,6 +82,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
             // Re-register with test doubles.
             services.AddSingleton(DirectoryService);
             services.AddSingleton(ActorProxyFactory);
+            services.AddSingleton(Substitute.For<IStateStore>());
             services.AddSingleton(new DirectoryCache());
 
             services.AddSingleton(sp =>
