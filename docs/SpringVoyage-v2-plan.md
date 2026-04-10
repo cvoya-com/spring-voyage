@@ -2130,7 +2130,65 @@ Initiative adds ~6-8% to total cost while enabling proactive value.
 
 ---
 
-## 27. Open Design Questions
+## 27. Open Source Strategy
+
+Spring Voyage is developed as an open-source project with a private extension layer for hosted service features.
+
+### Two-Repo Model
+
+| Repo | Visibility | Purpose |
+|------|-----------|---------|
+| `spring-voyage` | Public | Core platform — agents, messaging, orchestration, connectors, CLI, dashboard |
+| `spring-voyage-cloud` | Private | Hosted service — multi-tenancy, OAuth/SSO, billing, advanced features |
+
+The private repo includes the public repo as a **git submodule** and extends it via dependency injection. The OSS repo is a fully functional single-user platform. The private repo layers multi-tenancy, enterprise auth, and premium features on top.
+
+### License
+
+Decision pending — evaluating Apache 2.0, AGPL-3.0+CLA, and BSL 1.1.
+
+### Feature Split
+
+**Private repo (`spring-voyage-cloud`) features:**
+- Multi-tenancy (tenant isolation, scoping, admin)
+- OAuth / SSO / SAML, user management, billing
+- Hybrid orchestration strategy (AI+Workflow)
+- GitHub Copilot SDK integration
+- Advanced budget enforcement / alerting
+- Proactive + Autonomous initiative levels
+- Persistent cloning (clone evolution, recursive cloning)
+- Alwyse cognitive backbone
+- Expertise marketplace, cross-org federation
+- Advanced analytics dashboard, audit logging (compliance-grade)
+
+**Everything else is OSS** — core actors, messaging, routing, AI-orchestrated + Workflow strategies, execution, connectors, CLI, basic RBAC, ephemeral cloning, observability, basic cost tracking, Passive + Attentive initiative, A2A protocol, unit nesting, package system (local), dashboard.
+
+### Extension Model
+
+The private repo overrides OSS defaults via DI:
+
+```
+spring-voyage-cloud/
+├── oss/                                    # git submodule → spring-voyage
+├── src/
+│   ├── Cvoya.Spring.Cloud.Tenancy/         # Tenant-scoped IRepository<T>
+│   ├── Cvoya.Spring.Cloud.Auth/            # OAuth handler replaces LocalDevAuthHandler
+│   ├── Cvoya.Spring.Cloud.Billing/         # Usage metering
+│   ├── Cvoya.Spring.Cloud.Orchestration/   # HybridOrchestrationStrategy
+│   ├── Cvoya.Spring.Cloud.Initiative/      # Proactive + Autonomous levels
+│   ├── Cvoya.Spring.Cloud.Alwyse/          # Cognitive backbone
+│   └── Cvoya.Spring.Cloud.Hosting/         # Deployment, scaling
+```
+
+The OSS codebase must not reference tenant concepts. Entities have no `TenantId`. The private repo adds tenant-scoped wrappers around OSS repositories and services.
+
+### Open-Source Preparation
+
+Tracked in GitHub issue #752 (parent) with sub-issues #741-#751 covering: secrets scrub, copyright headers, dependency audit, trademark, CLA, community files, README, and final review.
+
+---
+
+## 28. Open Design Questions
 
 ### Resolved
 
