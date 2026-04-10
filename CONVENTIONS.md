@@ -16,13 +16,8 @@ These conventions ensure that code from parallel agents merges cleanly. All agen
 Required on all C# source files:
 
 ```csharp
-/*
- * Copyright CVOYA LLC.
- *
- * This source code is proprietary and confidential.
- * Unauthorized copying, modification, distribution, or use of this file,
- * via any medium, is strictly prohibited without the prior written consent of CVOYA LLC.
- */
+// Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
+// See LICENSE.md in the project root for full license terms.
 ```
 
 ### Namespace and Using Order
@@ -30,9 +25,8 @@ Required on all C# source files:
 File-scoped namespaces. Namespace declaration immediately after the copyright header, `using` statements after:
 
 ```csharp
-/*
- * Copyright CVOYA LLC. ...
- */
+// Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
+// See LICENSE.md in the project root for full license terms.
 
 namespace Cvoya.Spring.Core.Messaging;
 

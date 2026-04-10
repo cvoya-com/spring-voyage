@@ -183,3 +183,15 @@ The platform uses the **Dapr sidecar pattern**. Each host process runs alongside
 ```
 
 For the full architecture, see `docs/SpringVoyage-v2-plan.md`.
+
+## License
+
+Spring Voyage is licensed under the [Business Source License 1.1](LICENSE.md).
+
+**What this means:**
+
+- **Free to use** for personal projects, development, testing, and internal non-production use
+- **Free for production** except for offering it as a competing managed AI agent orchestration service
+- **Converts to Apache 2.0** on 2030-04-10 (four years from initial release)
+
+See the [LICENSE](LICENSE.md) file for the full terms and the [NOTICE](NOTICE.md) file for third-party attributions.
