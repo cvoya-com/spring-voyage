@@ -82,6 +82,29 @@ dapr run --app-id spring-api --app-port 5000 \
   -- dotnet run --project src/Cvoya.Spring.Host.Api
 ```
 
+## Web Dashboard
+
+The web dashboard is a React/Next.js + TypeScript application at `src/Cvoya.Spring.Web/`.
+
+```bash
+cd src/Cvoya.Spring.Web
+npm install       # install dependencies
+npm run dev       # dev server at http://localhost:3000
+npm run build     # static export to out/
+npm test          # run component tests (Vitest)
+```
+
+**Stack:** Next.js 16, React 19, TypeScript 5.8, Tailwind CSS 4.1
+
+**Pages:**
+
+- **Dashboard** (`/`) — agent list, unit list, cost overview, real-time activity feed
+- **Activity Feed** (`/activity`) — real-time event stream via SSE
+- **Agent Detail** (`/agents?id=name`) — status, cost breakdown, clones
+- **Unit Detail** (`/units?id=name`) — members, cost, orchestration status
+
+The dashboard consumes the API host endpoints. For local development, start the API host on port 5000 and the dashboard dev server on port 3000.
+
 ## Project Structure
 
 ```
@@ -93,7 +116,7 @@ dapr run --app-id spring-api --app-port 5000 \
 │   ├── Cvoya.Spring.Host.Worker/       # Headless worker host (Dapr actor runtime)
 │   ├── Cvoya.Spring.Cli/              # CLI ("spring" command)
 │   ├── Cvoya.Spring.A2A/              # A2A protocol (stub)
-│   └── Cvoya.Spring.Web/             # Web UI (stub)
+│   └── Cvoya.Spring.Web/             # Web dashboard (React/Next.js)
 ├── tests/                             # xUnit test projects
 ├── dapr/components/                   # Dapr component YAML (Redis, secrets)
 ├── packages/software-engineering/     # Domain package (agent templates, skills, workflows)
