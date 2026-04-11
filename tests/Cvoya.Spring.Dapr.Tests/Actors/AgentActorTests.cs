@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Dapr.Tests.Actors;
 
 using System.Text.Json;
 
+using Cvoya.Spring.Core.Cloning;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Dapr.Actors;
 
@@ -408,5 +409,83 @@ public class AgentActorTests
                 list[0].ConversationId == "conv-pending" &&
                 list[0].Messages.Count == 2),
             Arg.Any<CancellationToken>());
+    }
+
+    // --- Clone Awareness Tests ---
+
+    [Fact]
+    public async Task IsCloneAsync_NoCloneIdentity_ReturnsFalse()
+    {
+        _stateManager.TryGetStateAsync<CloneIdentity>(StateKeys.CloneIdentity, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<CloneIdentity>(false, default!));
+
+        var result = await _actor.IsCloneAsync(TestContext.Current.CancellationToken);
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task IsCloneAsync_HasCloneIdentity_ReturnsTrue()
+    {
+        var identity = new CloneIdentity("parent-agent", "test-agent",
+            CloningPolicy.EphemeralNoMemory, AttachmentMode.Detached);
+        _stateManager.TryGetStateAsync<CloneIdentity>(StateKeys.CloneIdentity, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<CloneIdentity>(true, identity));
+
+        var result = await _actor.IsCloneAsync(TestContext.Current.CancellationToken);
+
+        result.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task GetCloneIdentityAsync_NoCloneIdentity_ReturnsNull()
+    {
+        _stateManager.TryGetStateAsync<CloneIdentity>(StateKeys.CloneIdentity, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<CloneIdentity>(false, default!));
+
+        var result = await _actor.GetCloneIdentityAsync(TestContext.Current.CancellationToken);
+
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task GetCloneIdentityAsync_HasCloneIdentity_ReturnsIdentity()
+    {
+        var identity = new CloneIdentity("parent-agent", "test-agent",
+            CloningPolicy.EphemeralWithMemory, AttachmentMode.Attached);
+        _stateManager.TryGetStateAsync<CloneIdentity>(StateKeys.CloneIdentity, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<CloneIdentity>(true, identity));
+
+        var result = await _actor.GetCloneIdentityAsync(TestContext.Current.CancellationToken);
+
+        result.Should().NotBeNull();
+        result!.ParentAgentId.Should().Be("parent-agent");
+        result.CloneId.Should().Be("test-agent");
+        result.CloningPolicy.Should().Be(CloningPolicy.EphemeralWithMemory);
+        result.AttachmentMode.Should().Be(AttachmentMode.Attached);
+    }
+
+    [Fact]
+    public async Task GetCostAttributionTargetAsync_IsClone_ReturnsParentId()
+    {
+        var identity = new CloneIdentity("parent-agent", "test-agent",
+            CloningPolicy.EphemeralNoMemory, AttachmentMode.Detached);
+        _stateManager.TryGetStateAsync<CloneIdentity>(StateKeys.CloneIdentity, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<CloneIdentity>(true, identity));
+
+        var result = await _actor.GetCostAttributionTargetAsync(TestContext.Current.CancellationToken);
+
+        result.Should().Be("parent-agent");
+    }
+
+    [Fact]
+    public async Task GetCostAttributionTargetAsync_NotClone_ReturnsNull()
+    {
+        _stateManager.TryGetStateAsync<CloneIdentity>(StateKeys.CloneIdentity, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<CloneIdentity>(false, default!));
+
+        var result = await _actor.GetCostAttributionTargetAsync(TestContext.Current.CancellationToken);
+
+        result.Should().BeNull();
     }
 }

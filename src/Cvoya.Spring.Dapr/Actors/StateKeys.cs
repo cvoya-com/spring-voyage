@@ -99,4 +99,12 @@ public static class StateKeys
     /// State key for the unit actor's human permission entries (humanId to UnitPermissionEntry).
     /// </summary>
     public const string HumanPermissions = "Unit:HumanPermissions";
+    /// State key for the clone identity record, stored on clone agents.
+    /// </summary>
+    public const string CloneIdentity = "Agent:CloneIdentity";
+
+    /// <summary>
+    /// State key for the list of child clone IDs, stored on parent agents.
+    /// </summary>
+    public const string CloneChildren = "Agent:CloneChildren";
 }
