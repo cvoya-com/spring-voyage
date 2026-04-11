@@ -52,6 +52,11 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
     /// </summary>
     public IActivityObservable ActivityObservable { get; } = Substitute.For<IActivityObservable>();
 
+    /// <summary>
+    /// Gets the mock <see cref="IStateStore"/> registered in the test DI container.
+    /// </summary>
+    public IStateStore StateStore { get; } = Substitute.For<IStateStore>();
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         // Use --local mode to enable LocalDevAuthHandler (bypasses auth).
@@ -101,7 +106,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
             // Re-register with test doubles.
             services.AddSingleton(DirectoryService);
             services.AddSingleton(ActorProxyFactory);
-            services.AddSingleton(Substitute.For<IStateStore>());
+            services.AddSingleton(StateStore);
             services.AddSingleton(Substitute.For<ICostTracker>());
             services.AddSingleton(ActivityQueryService);
             services.AddSingleton(ActivityObservable);

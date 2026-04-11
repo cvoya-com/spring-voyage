@@ -6,6 +6,8 @@ namespace Cvoya.Spring.Host.Api.Endpoints;
 using Cvoya.Spring.Core.Cloning;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.State;
+using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Workflows;
 using Cvoya.Spring.Host.Api.Models;
 
@@ -95,6 +97,7 @@ public static class CloneEndpoints
     private static async Task<IResult> ListClonesAsync(
         string agentId,
         IDirectoryService directoryService,
+        IStateStore stateStore,
         CancellationToken cancellationToken)
     {
         var parentAddress = new Address("agent", agentId);
@@ -105,14 +108,53 @@ public static class CloneEndpoints
             return Results.NotFound(new { Error = $"Agent '{agentId}' not found" });
         }
 
-        // Full implementation depends on directory tracking clones; return empty list for now.
-        return Results.Ok(Array.Empty<CloneResponse>());
+        var childrenKey = $"{agentId}:{StateKeys.CloneChildren}";
+        var cloneIds = await stateStore.GetAsync<List<string>>(childrenKey, cancellationToken);
+
+        if (cloneIds is null || cloneIds.Count == 0)
+        {
+            return Results.Ok(Array.Empty<CloneResponse>());
+        }
+
+        var clones = new List<CloneResponse>();
+        foreach (var cloneId in cloneIds)
+        {
+            var identityKey = $"{cloneId}:{StateKeys.CloneIdentity}";
+            var identity = await stateStore.GetAsync<CloneIdentity>(identityKey, cancellationToken);
+
+            var cloneAddress = new Address("agent", cloneId);
+            var cloneEntry = await directoryService.ResolveAsync(cloneAddress, cancellationToken);
+
+            var cloneType = identity?.CloningPolicy switch
+            {
+                CloningPolicy.EphemeralWithMemory => "ephemeral-with-memory",
+                CloningPolicy.EphemeralNoMemory => "ephemeral-no-memory",
+                _ => "ephemeral-no-memory"
+            };
+
+            var attachmentMode = identity?.AttachmentMode switch
+            {
+                AttachmentMode.Attached => "attached",
+                _ => "detached"
+            };
+
+            clones.Add(new CloneResponse(
+                cloneId,
+                agentId,
+                cloneType,
+                attachmentMode,
+                cloneEntry is not null ? "active" : "unknown",
+                cloneEntry?.RegisteredAt ?? DateTimeOffset.UtcNow));
+        }
+
+        return Results.Ok(clones);
     }
 
     private static async Task<IResult> GetCloneAsync(
         string agentId,
         string cloneId,
         IDirectoryService directoryService,
+        IStateStore stateStore,
         CancellationToken cancellationToken)
     {
         var cloneAddress = new Address("agent", cloneId);
@@ -123,11 +165,27 @@ public static class CloneEndpoints
             return Results.NotFound(new { Error = $"Clone '{cloneId}' not found" });
         }
 
+        var identityKey = $"{cloneId}:{StateKeys.CloneIdentity}";
+        var identity = await stateStore.GetAsync<CloneIdentity>(identityKey, cancellationToken);
+
+        var cloneType = identity?.CloningPolicy switch
+        {
+            CloningPolicy.EphemeralWithMemory => "ephemeral-with-memory",
+            CloningPolicy.EphemeralNoMemory => "ephemeral-no-memory",
+            _ => "ephemeral-no-memory"
+        };
+
+        var attachmentMode = identity?.AttachmentMode switch
+        {
+            AttachmentMode.Attached => "attached",
+            _ => "detached"
+        };
+
         var response = new CloneResponse(
             cloneId,
-            agentId,
-            "ephemeral-no-memory",
-            "detached",
+            identity?.ParentAgentId ?? agentId,
+            cloneType,
+            attachmentMode,
             "active",
             cloneEntry.RegisteredAt);
 
@@ -138,6 +196,8 @@ public static class CloneEndpoints
         string agentId,
         string cloneId,
         IDirectoryService directoryService,
+        IStateStore stateStore,
+        DaprWorkflowClient workflowClient,
         CancellationToken cancellationToken)
     {
         var cloneAddress = new Address("agent", cloneId);
@@ -148,8 +208,19 @@ public static class CloneEndpoints
             return Results.NotFound(new { Error = $"Clone '{cloneId}' not found" });
         }
 
-        await directoryService.UnregisterAsync(cloneAddress, cancellationToken);
+        // Look up clone identity to determine cloning policy for memory flow-back.
+        var identityKey = $"{cloneId}:{StateKeys.CloneIdentity}";
+        var identity = await stateStore.GetAsync<CloneIdentity>(identityKey, cancellationToken);
 
-        return Results.NoContent();
+        var cloningPolicy = identity?.CloningPolicy ?? CloningPolicy.EphemeralNoMemory;
+        var attachmentMode = identity?.AttachmentMode ?? AttachmentMode.Detached;
+
+        var input = new CloningInput(agentId, cloneId, cloningPolicy, attachmentMode);
+
+        await workflowClient.ScheduleNewWorkflowAsync(
+            nameof(CloneDestructionWorkflow),
+            input: input);
+
+        return Results.Accepted($"/api/v1/agents/{agentId}/clones/{cloneId}");
     }
 }
