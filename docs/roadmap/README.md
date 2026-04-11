@@ -7,7 +7,7 @@ For architectural details, see [`docs/architecture/`](../architecture/README.md)
 | Phase | Name | Status | Details |
 | --- | --- | --- | --- |
 | 1 | [Platform Foundation + Software Engineering](phase-1.md) | Complete | Core actors, messaging, orchestration, GitHub connector, CLI |
-| 2 | [Observability + Multi-Human](phase-2.md) | In progress | Activity events, cost tracking, cloning, RBAC, web dashboard |
+| 2 | [Observability + Multi-Human](phase-2.md) | In progress | Activity events, cost tracking, cloning, RBAC, web dashboard (2 items remaining) |
 | 3 | [Initiative + Product Management](phase-3.md) | Not started | Initiative levels, tiered cognition, second domain |
 | 4 | [A2A + Additional Strategies](phase-4.md) | Not started | Cross-framework interop, rule-based/peer strategies |
 | 5 | [Unit Nesting + Directory + Boundaries](phase-5.md) | Not started | Recursive composition, expertise directory, boundaries |
