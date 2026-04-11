@@ -2,7 +2,7 @@
 
 > **[Roadmap Index](README.md)** | **Status: Not started**
 
-Agents start taking initiative. A second domain proves the platform is genuinely domain-agnostic.
+Agents start taking initiative. A product management domain package (templates only, no connector) proves the platform is domain-agnostic.
 
 ## Deliverables
 
@@ -17,8 +17,8 @@ Agents start taking initiative. A second domain proves the platform is genuinely
 - [ ] CancellationManager + execution propagation (#70) — [Messaging](../architecture/messaging.md)
 - [ ] Initiative API endpoints (#71) — [Initiative](../architecture/initiative.md)
 - [ ] DI registration for initiative services (#72) — [Initiative](../architecture/initiative.md)
-- [ ] Product management domain package — structure only (#73) — [Packages](../architecture/packages.md)
+- [ ] Product management domain package — agent/unit/skill templates, no connector (#73) — [Packages](../architecture/packages.md)
 - [ ] Initiative dashboard page (#74) — [CLI & Web](../architecture/cli-and-web.md)
 - [ ] Initiative cost views in dashboard (#75) — [Observability](../architecture/observability.md)
 
-**Delivers:** Agents that take initiative; second domain proves platform generality.
+**Delivers:** Agents that take initiative; second domain (templates only) proves platform generality. Connector implementation (Linear, Notion, or Jira) deferred to a future phase.

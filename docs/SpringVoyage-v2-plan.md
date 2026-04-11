@@ -2102,8 +2102,8 @@ Initiative adds ~6-8% to total cost while enabling proactive value.
 - Tier 1 screening (small LLM), Tier 2 reflection
 - Initiative policies, event-triggered cognition
 - Cancellation flow (CancellationToken propagation to execution environments)
-- `product-management` domain package with second connector (Linear, Notion, or Jira)
-- **Delivers:** agents take initiative; second domain proves platform generality
+- `product-management` domain package (agent/unit/skill templates only — connector deferred to a future phase)
+- **Delivers:** agents take initiative; second domain (templates only) proves platform generality
 
 **Phase 4: A2A + Additional Strategies**
 
