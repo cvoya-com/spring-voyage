@@ -4,8 +4,8 @@
   </PropertyGroup>
   <ItemGroup>
     <!-- Dapr SDK -->
-    <PackageVersion Include="Dapr.Client" Version="1.15.3" />
-    <PackageVersion Include="Dapr.AspNetCore" Version="1.15.3" />
+    <PackageVersion Include="Dapr.Client" Version="1.17.8" />
+    <PackageVersion Include="Dapr.AspNetCore" Version="1.17.8" />
     <PackageVersion Include="Dapr.Actors" Version="1.15.3" />
     <PackageVersion Include="Dapr.Actors.AspNetCore" Version="1.15.3" />
     <PackageVersion Include="Dapr.Workflow" Version="1.17.8" />
