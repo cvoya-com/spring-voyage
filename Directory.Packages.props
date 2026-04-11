@@ -4,14 +4,14 @@
   </PropertyGroup>
   <ItemGroup>
     <!-- Dapr SDK -->
-    <PackageVersion Include="Dapr.Client" Version="1.15.3" />
-    <PackageVersion Include="Dapr.AspNetCore" Version="1.15.3" />
-    <PackageVersion Include="Dapr.Actors" Version="1.15.3" />
-    <PackageVersion Include="Dapr.Actors.AspNetCore" Version="1.15.3" />
+    <PackageVersion Include="Dapr.Client" Version="1.17.8" />
+    <PackageVersion Include="Dapr.AspNetCore" Version="1.17.8" />
+    <PackageVersion Include="Dapr.Actors" Version="1.17.8" />
+    <PackageVersion Include="Dapr.Actors.AspNetCore" Version="1.17.8" />
     <PackageVersion Include="Dapr.Workflow" Version="1.17.8" />
 
     <!-- GitHub -->
-    <PackageVersion Include="Octokit" Version="13.0.1" />
+    <PackageVersion Include="Octokit" Version="14.0.0" />
     <PackageVersion Include="System.IdentityModel.Tokens.Jwt" Version="8.17.0" />
 
     <!-- CLI -->
@@ -32,7 +32,7 @@
 
     <!-- Testing (Microsoft Testing Platform + xUnit v3) -->
     <PackageVersion Include="xunit.v3.mtp-v2" Version="3.2.2" />
-    <PackageVersion Include="Microsoft.Testing.Extensions.CodeCoverage" Version="18.5.2" />
+    <PackageVersion Include="Microsoft.Testing.Extensions.CodeCoverage" Version="18.6.2" />
     <PackageVersion Include="FluentAssertions" Version="8.9.0" />
     <PackageVersion Include="NSubstitute" Version="5.3.0" />
   </ItemGroup>
