@@ -37,6 +37,6 @@ public class Program
             }
         };
 
-        return await rootCommand.Parse(args).InvokeAsync(CancellationToken.None);
+        return await rootCommand.Parse(args).InvokeAsync(null, CancellationToken.None);
     }
 }
