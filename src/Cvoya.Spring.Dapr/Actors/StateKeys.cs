@@ -89,4 +89,14 @@ public static class StateKeys
     /// State key for the human actor's notification preferences.
     /// </summary>
     public const string HumanNotificationPreferences = "Human:NotificationPreferences";
+
+    /// <summary>
+    /// State key for the clone identity record, stored on clone agents.
+    /// </summary>
+    public const string CloneIdentity = "Agent:CloneIdentity";
+
+    /// <summary>
+    /// State key for the list of child clone IDs, stored on parent agents.
+    /// </summary>
+    public const string CloneChildren = "Agent:CloneChildren";
 }

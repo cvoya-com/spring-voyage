@@ -3,17 +3,55 @@
 
 namespace Cvoya.Spring.Dapr.Workflows;
 
+using Cvoya.Spring.Dapr.Workflows.Activities;
+
 using global::Dapr.Workflow;
 
 /// <summary>
-/// Dapr Workflow stub for agent cloning. Returns a not-implemented result in Phase 1.
+/// Dapr Workflow that orchestrates the full lifecycle of an ephemeral agent clone:
+/// validate the request, create the clone actor, and register it in the directory.
 /// </summary>
 public class CloningLifecycleWorkflow : Workflow<CloningInput, CloningOutput>
 {
     /// <inheritdoc />
-    public override Task<CloningOutput> RunAsync(WorkflowContext context, CloningInput input)
+    public override async Task<CloningOutput> RunAsync(WorkflowContext context, CloningInput input)
     {
-        return Task.FromResult(new CloningOutput(
-            Success: false, Error: "Cloning not implemented in Phase 1"));
+        // Step 1: Validate the clone request.
+        var isValid = await context.CallActivityAsync<bool>(
+            nameof(ValidateCloneRequestActivity), input);
+
+        if (!isValid)
+        {
+            return new CloningOutput(
+                Success: false,
+                Error: "Clone request validation failed");
+        }
+
+        // Step 2: Create the clone actor and copy state if needed.
+        var created = await context.CallActivityAsync<bool>(
+            nameof(CreateCloneActorActivity), input);
+
+        if (!created)
+        {
+            return new CloningOutput(
+                Success: false,
+                Error: "Failed to create clone actor");
+        }
+
+        // Step 3: Register the clone in the directory.
+        var registered = await context.CallActivityAsync<bool>(
+            nameof(RegisterCloneActivity), input);
+
+        if (!registered)
+        {
+            return new CloningOutput(
+                Success: false,
+                Error: "Failed to register clone in directory");
+        }
+
+        return new CloningOutput(
+            Success: true,
+            CloneAgentAddress: $"agent/{input.TargetAgentId}",
+            CloneId: input.TargetAgentId);
     }
 }
