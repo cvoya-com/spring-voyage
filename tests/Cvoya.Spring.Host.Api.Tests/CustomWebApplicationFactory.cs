@@ -48,9 +48,9 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
     public IActivityQueryService ActivityQueryService { get; } = Substitute.For<IActivityQueryService>();
 
     /// <summary>
-    /// Gets the mock <see cref="IActivityObservable"/> registered in the test DI container.
+    /// Gets the mock <see cref="IActivityEventBus"/> registered in the test DI container.
     /// </summary>
-    public IActivityObservable ActivityObservable { get; } = Substitute.For<IActivityObservable>();
+    public IActivityEventBus ActivityEventBus { get; } = Substitute.For<IActivityEventBus>();
 
     /// <summary>
     /// Gets the mock <see cref="IStateStore"/> registered in the test DI container.
@@ -90,8 +90,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
                 typeof(IStateStore),
                 typeof(ICostTracker),
                 typeof(IActivityQueryService),
-                typeof(IActivityObservable),
-                typeof(ActivityBus)
+                typeof(IActivityEventBus)
             };
 
             var descriptors = services
@@ -109,7 +108,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
             services.AddSingleton(StateStore);
             services.AddSingleton(Substitute.For<ICostTracker>());
             services.AddSingleton(ActivityQueryService);
-            services.AddSingleton(ActivityObservable);
+            services.AddSingleton(ActivityEventBus);
             services.AddSingleton(new DirectoryCache());
 
             // Remove and re-register permission service.

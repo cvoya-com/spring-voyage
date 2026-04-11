@@ -56,7 +56,7 @@ public static class ActivityEndpoints
 
     private static async Task StreamActivityAsync(
         HttpContext httpContext,
-        IActivityObservable activityObservable,
+        IActivityEventBus activityEventBus,
         IPermissionService permissionService,
         string? source,
         string? severity,
@@ -73,7 +73,7 @@ public static class ActivityEndpoints
             return;
         }
 
-        var stream = activityObservable.ActivityStream;
+        var stream = activityEventBus.ActivityStream;
 
         // Apply permission-based filtering: only show events from sources the user can observe.
         stream = stream.Where(evt => IsAuthorizedToObserve(evt, humanId, permissionService));
