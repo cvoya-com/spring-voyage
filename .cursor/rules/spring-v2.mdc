@@ -14,11 +14,12 @@ AI agent orchestration platform built on .NET 10 and Dapr. Namespace: `Cvoya.Spr
 
 ## Quick Rules
 
-- **Copyright header** on all C# files (see CONVENTIONS.md § 0).
+- **Copyright header** on all C# files (see CONVENTIONS.md Section 0).
 - **Namespace first, usings after:** file-scoped namespace immediately after copyright, then `using` statements.
-- **Namespace = folder path:** `Cvoya.Spring.Core.Messaging` → `src/Cvoya.Spring.Core/Messaging/`
+- **Namespace = folder path:** `Cvoya.Spring.Core.Messaging` lives in `src/Cvoya.Spring.Core/Messaging/`
 - **One public type per file.** File name matches type name.
 - **`Cvoya.Spring.Core` has ZERO NuGet dependencies.** Domain abstractions only.
+- **Interface-first:** define in `Cvoya.Spring.Core`, implement in `Cvoya.Spring.Dapr`.
 - **System.Text.Json only.** No Newtonsoft.Json.
 - **Primary constructor injection.** No service locator.
 - **`Async` suffix** on all async methods. `CancellationToken` as last parameter.
