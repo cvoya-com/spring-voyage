@@ -8,7 +8,7 @@ Spring Voyage V2 is developed in six phases. Each phase delivers a complete, usa
 
 The foundation. Everything else builds on this.
 
-**Status: Complete** (3 remaining items tracked below)
+**Status: Complete**
 
 **What ships:**
 - [x] .NET host with Dapr actors (AgentActor, UnitActor, ConnectorActor, HumanActor)
@@ -24,8 +24,8 @@ The foundation. Everything else builds on this.
 - [x] Basic API host (with single-user local dev mode), CLI (`spring` command)
 - [x] Skill format: prompt fragments + optional tool definitions, composable via declaration order
 - [x] `software-engineering` domain package (agent templates, unit templates, skills, workflow container)
-- [ ] Workflow-as-container deployment with Dapr sidecars
-- [ ] Dapr state store wrapper integration
+- [x] Workflow-as-container deployment with Dapr sidecars
+- [x] Dapr state store wrapper integration
 
 **Milestone:** v1 feature parity on the new architecture.
 
@@ -35,17 +35,21 @@ The foundation. Everything else builds on this.
 
 Real-time visibility into what agents are doing, and support for multiple human participants.
 
-**Status: Planning complete, not started**
+**Status: In progress** (4 remaining items tracked below)
 
 **What ships:**
-- [ ] Enrich ActivityEvent model + Rx.NET pipeline
-- [ ] Streaming event types + Dapr pub/sub transport
-- [ ] Basic cost tracking service + aggregation
-- [ ] Multi-human RBAC with unit-scoped permissions
-- [ ] Clone state model + ephemeral lifecycle
-- [ ] Clone API endpoints + cost attribution
-- [ ] Real-time SSE endpoint + activity query API
-- [ ] React/Next.js web dashboard
+- [x] Enrich ActivityEvent model + Rx.NET pipeline (models + schema; #1)
+- [x] Streaming event types + Dapr pub/sub transport (#2)
+- [x] Basic cost tracking service + aggregation (schema; #3)
+- [x] Multi-human RBAC with unit-scoped permissions (#4)
+- [x] Clone state model + ephemeral lifecycle (model; #5)
+- [x] Clone API endpoints + cost attribution (model; #6)
+- [x] Real-time SSE endpoint + activity query API (model; #7)
+- [ ] Wire Rx.NET reactive pipeline end-to-end (#44)
+- [ ] Implement cost tracking aggregation service + API endpoints (#41)
+- [ ] Implement agent cloning lifecycle workflow + clone API (#43)
+- [ ] Implement SSE activity stream endpoint + activity query API (#42)
+- [ ] React/Next.js web dashboard (#8, in progress)
 
 **Delivers:** Real-time observation of agent work, multi-human participation, elastic agent scaling.
 
