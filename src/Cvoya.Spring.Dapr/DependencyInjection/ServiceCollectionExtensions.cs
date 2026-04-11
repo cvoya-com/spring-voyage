@@ -21,9 +21,13 @@ using Cvoya.Spring.Dapr.Prompts;
 using Cvoya.Spring.Dapr.Routing;
 using Cvoya.Spring.Dapr.State;
 
+using global::Dapr.Actors.Client;
+using global::Dapr.Workflow;
+
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 /// <summary>
 /// Extension methods for registering Spring Voyage services with the dependency injection container.
@@ -49,8 +53,10 @@ public static class ServiceCollectionExtensions
     /// <returns>The same service collection for chaining.</returns>
     public static IServiceCollection AddCvoyaSpringDapr(this IServiceCollection services, IConfiguration configuration)
     {
-        // Dapr client
+        // Dapr client, actor proxy factory, and workflow client
         services.AddDaprClient();
+        services.TryAddSingleton<IActorProxyFactory>(_ => new ActorProxyFactory());
+        services.AddDaprWorkflow(options => { });
 
         // EF Core / PostgreSQL
         var connectionString = configuration.GetConnectionString("SpringDb");
