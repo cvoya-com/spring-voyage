@@ -23,6 +23,7 @@
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" />
     <PackageReference Include="Dapr.Actors" />
+    <PackageReference Include="Dapr.Workflow" />
   </ItemGroup>
 
 </Project>

@@ -18,6 +18,7 @@ using FluentAssertions;
 
 using global::Dapr.Actors.Client;
 using global::Dapr.Client;
+using global::Dapr.Workflow;
 
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -89,6 +90,18 @@ public class ApiTokenAuthHandlerTests : IDisposable
                     services.AddSingleton(new DirectoryCache());
 
                     services.AddSingleton(Substitute.For<DaprClient>());
+                    services.AddDaprWorkflow(options => { });
+
+                    // Remove and re-register ICostTracker.
+                    var costDescriptors = services
+                        .Where(d => d.ServiceType == typeof(Cvoya.Spring.Core.Costs.ICostTracker))
+                        .ToList();
+                    foreach (var d in costDescriptors)
+                    {
+                        services.Remove(d);
+                    }
+
+                    services.AddSingleton(Substitute.For<Cvoya.Spring.Core.Costs.ICostTracker>());
 
                     services.AddSingleton(sp =>
                     {

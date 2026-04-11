@@ -109,6 +109,7 @@ public static class ServiceCollectionExtensions
         services.AddHostedService<CostTracker>();
         services.AddScoped<ICostQueryService, CostAggregation>();
         services.AddHostedService<BudgetEnforcer>();
+        services.AddScoped<ICostTracker, CloneCostTracker>();
 
         return services;
     }

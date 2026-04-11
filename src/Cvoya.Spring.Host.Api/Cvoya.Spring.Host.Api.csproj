@@ -12,6 +12,7 @@
 
   <ItemGroup>
     <PackageReference Include="Dapr.AspNetCore" />
+    <PackageReference Include="Dapr.Workflow" />
     <PackageReference Include="Swashbuckle.AspNetCore" />
   </ItemGroup>
 

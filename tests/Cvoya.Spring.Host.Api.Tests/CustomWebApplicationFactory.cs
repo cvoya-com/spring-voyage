@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Host.Api.Tests;
 
+using Cvoya.Spring.Core.Costs;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.State;
 using Cvoya.Spring.Dapr.Auth;
@@ -11,6 +12,7 @@ using Cvoya.Spring.Dapr.Routing;
 
 using global::Dapr.Actors.Client;
 using global::Dapr.Client;
+using global::Dapr.Workflow;
 
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -67,7 +69,8 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
                 typeof(MessageRouter),
                 typeof(DirectoryCache),
                 typeof(IActorProxyFactory),
-                typeof(IStateStore)
+                typeof(IStateStore),
+                typeof(ICostTracker)
             };
 
             var descriptors = services
@@ -83,6 +86,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
             services.AddSingleton(DirectoryService);
             services.AddSingleton(ActorProxyFactory);
             services.AddSingleton(Substitute.For<IStateStore>());
+            services.AddSingleton(Substitute.For<ICostTracker>());
             services.AddSingleton(new DirectoryCache());
 
             // Remove and re-register permission service.
@@ -99,6 +103,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
 
             // Dapr runtime dependencies.
             services.AddSingleton(Substitute.For<DaprClient>());
+            services.AddDaprWorkflow(options => { });
 
             services.AddSingleton(sp =>
             {
