@@ -7,10 +7,13 @@ globs: "**"
 
 AI agent orchestration platform built on .NET 10 and Dapr. Namespace: `Cvoya.Spring.*`.
 
+**This is the open-source core platform.** A private repository (Spring Voyage Cloud) extends it via git submodule and DI to add multi-tenancy, OAuth, billing, and premium features. Design every change for clean extensibility — the private repo must be able to override, wrap, or compose OSS behavior without forking or patching.
+
 ## Essential References
 
 - **Full conventions:** `CONVENTIONS.md` (MUST read before writing code)
 - **Architecture plan:** `docs/SpringVoyage-v2-plan.md`
+- **Extensibility model:** `AGENTS.md` § "Open-Source Platform & Extensibility"
 
 ## Quick Rules
 
@@ -22,9 +25,12 @@ AI agent orchestration platform built on .NET 10 and Dapr. Namespace: `Cvoya.Spr
 - **Interface-first:** define in `Cvoya.Spring.Core`, implement in `Cvoya.Spring.Dapr`.
 - **System.Text.Json only.** No Newtonsoft.Json.
 - **Primary constructor injection.** No service locator.
+- **`TryAdd*` for all DI registrations** so the private repo can pre-register overrides.
 - **`Async` suffix** on all async methods. `CancellationToken` as last parameter.
 - **Never let exceptions escape actor turns.** Catch, log, update state.
 - **Use `Result<T, TError>`** for expected failures (routing, resolution).
+- **Don't seal extensible types.** Services, handlers, strategies, and base classes must remain unsealed.
+- **No tenant concepts.** No `TenantId`, no multi-tenancy — the private repo layers that on.
 
 ## Build & Test
 

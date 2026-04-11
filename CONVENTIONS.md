@@ -129,6 +129,15 @@ public static class ServiceCollectionExtensions
   services.AddKeyedSingleton<IOrchestrationStrategy, AiOrchestrationStrategy>("ai");
   services.AddKeyedSingleton<IOrchestrationStrategy, WorkflowOrchestrationStrategy>("workflow");
   ```
+- **Use `TryAdd*` for all service registrations** so downstream consumers (e.g., the private cloud repo) can override implementations by registering their own before calling `AddCvoyaSpring*()`:
+  ```csharp
+  public static IServiceCollection AddCvoyaSpringDapr(this IServiceCollection services)
+  {
+      services.TryAddSingleton<IMessageRouter, MessageRouter>();
+      services.TryAddScoped<IDirectoryService, DaprDirectoryService>();
+      return services;
+  }
+  ```
 - Registration in `Program.cs`:
   ```csharp
   builder.Services
@@ -317,3 +326,19 @@ Multiple agents work on v2 simultaneously. Follow these rules:
 ```
 
 **Central package management** via `Directory.Packages.props` — all NuGet versions pinned centrally.
+
+## 13. Extensibility Conventions
+
+This repo is the OSS core of a two-repo model. A private repository extends it via DI and git submodule. All code must be designed for clean extension. See `AGENTS.md` § "Open-Source Platform & Extensibility" for the full rationale.
+
+**Service registration:** Always use `TryAdd*` (`TryAddSingleton`, `TryAddScoped`, `TryAddTransient`). This lets the private repo pre-register overrides.
+
+**Sealing policy:** Don't `seal` services, handlers, base classes, or strategy implementations. Seal only leaf types that are not extension points (e.g., record DTOs, internal helpers).
+
+**Visibility:** Types that are part of the extension contract must be `public`. Use `internal` only for true implementation details that no consumer would ever need to access or replace.
+
+**Base class hooks:** When creating base classes (`ConnectorBase`, `ActorBase`, etc.), make template/hook methods `protected virtual` so they can be overridden.
+
+**No tenant assumptions:** Don't embed single-user or single-deployment assumptions. Use injected services for anything the private repo might scope per-tenant: repositories, configuration providers, policy evaluators.
+
+**No statics for state or services:** Everything goes through DI. No static service locators, no ambient contexts, no `static` mutable state.
