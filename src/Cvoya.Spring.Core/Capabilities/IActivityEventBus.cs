@@ -11,6 +11,11 @@ namespace Cvoya.Spring.Core.Capabilities;
 public interface IActivityEventBus
 {
     /// <summary>
+    /// Gets the observable stream of activity events flowing through the bus.
+    /// </summary>
+    IObservable<ActivityEvent> ActivityStream { get; }
+
+    /// <summary>
     /// Publishes an activity event to all registered subscribers.
     /// </summary>
     /// <param name="activityEvent">The activity event to publish.</param>

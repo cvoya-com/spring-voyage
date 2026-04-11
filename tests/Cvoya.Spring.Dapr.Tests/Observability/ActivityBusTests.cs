@@ -16,7 +16,7 @@ public class ActivityBusTests
     [Fact]
     public void Publish_WithSubscriber_DeliversEvent()
     {
-        using var bus = new ActivityBus();
+        using var bus = new ActivityEventBus();
         var received = new List<ActivityEvent>();
         using var sub = bus.ActivityStream.Subscribe(received.Add);
 
@@ -32,7 +32,7 @@ public class ActivityBusTests
     [Fact]
     public void Publish_MultipleSubscribers_AllReceiveEvent()
     {
-        using var bus = new ActivityBus();
+        using var bus = new ActivityEventBus();
         var received1 = new List<ActivityEvent>();
         var received2 = new List<ActivityEvent>();
         using var sub1 = bus.ActivityStream.Subscribe(received1.Add);
@@ -51,7 +51,7 @@ public class ActivityBusTests
     [Fact]
     public void Publish_AfterUnsubscribe_DoesNotDeliver()
     {
-        using var bus = new ActivityBus();
+        using var bus = new ActivityEventBus();
         var received = new List<ActivityEvent>();
         var sub = bus.ActivityStream.Subscribe(received.Add);
         sub.Dispose();

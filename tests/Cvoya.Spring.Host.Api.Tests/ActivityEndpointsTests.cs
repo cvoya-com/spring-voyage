@@ -79,7 +79,7 @@ public class ActivityEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     public async Task StreamActivity_ReturnsCorrectContentType()
     {
         var ct = TestContext.Current.CancellationToken;
-        _factory.ActivityObservable.ActivityStream.Returns(Observable.Never<ActivityEvent>());
+        _factory.ActivityEventBus.ActivityStream.Returns(Observable.Never<ActivityEvent>());
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(TimeSpan.FromSeconds(3));

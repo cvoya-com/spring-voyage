@@ -18,6 +18,12 @@ public sealed class ActivityEventBus : IActivityEventBus, IDisposable
     /// <summary>
     /// Gets the observable stream of all activity events flowing through the bus.
     /// </summary>
+    /// <inheritdoc />
+    public IObservable<ActivityEvent> ActivityStream => _subject;
+
+    /// <summary>
+    /// Gets the observable stream of all activity events flowing through the bus.
+    /// </summary>
     public IObservable<ActivityEvent> Events => _subject;
 
     /// <summary>

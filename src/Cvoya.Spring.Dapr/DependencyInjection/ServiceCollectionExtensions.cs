@@ -124,10 +124,6 @@ public static class ServiceCollectionExtensions
         // Observability — query service
         services.AddScoped<IActivityQueryService, ActivityQueryService>();
 
-        // Activity bus
-        services.AddSingleton<ActivityBus>();
-        services.AddSingleton<IActivityObservable>(sp => sp.GetRequiredService<ActivityBus>());
-
         return services;
     }
 }
