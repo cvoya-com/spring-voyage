@@ -6,11 +6,15 @@ namespace Cvoya.Spring.Host.Api.Tests;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Host.Api.Models;
+
 using FluentAssertions;
+
 using NSubstitute;
+
 using Xunit;
 
 public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>

@@ -5,8 +5,11 @@ namespace Cvoya.Spring.Dapr.Tests.Data;
 
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
+
 using FluentAssertions;
+
 using Microsoft.EntityFrameworkCore;
+
 using Xunit;
 
 /// <summary>

@@ -2,17 +2,6 @@
 
 Thank you for your interest in contributing to Spring Voyage. This document covers the workflow for the open-source platform.
 
-## Repository Model
-
-Spring Voyage uses a two-repo model:
-
-| Repo | Visibility | Purpose |
-|------|-----------|---------|
-| `spring-voyage` (this repo) | Public | Core platform — agents, messaging, orchestration, connectors, CLI |
-| `spring` | Private | Hosted service — multi-tenancy, OAuth/SSO, billing, advanced features |
-
-The private repo consumes this repo as a git submodule. Some issues in this repo are driven by cloud requirements — these are tagged with the `cloud-dependency` label and explain the motivation in public terms.
-
 ## Development Setup
 
 See [docs/developer/setup.md](docs/developer/setup.md) for prerequisites and build instructions.
@@ -22,8 +11,8 @@ See [docs/developer/setup.md](docs/developer/setup.md) for prerequisites and bui
 ### Issues
 
 - **Bug reports:** Use the "Bug Report" template.
-- **Feature requests:** Use the "Feature Request" template. Check the box if driven by a cloud need.
-- **New interfaces/extension points:** Use the "OSS Interface" template when a downstream consumer needs a new abstraction. This ensures the design rationale is public.
+- **Feature requests:** Use the "Feature Request" template.
+- **New interfaces/extension points:** Use the "OSS Interface" template when proposing a new abstraction or extension point.
 
 ### Branches and PRs
 
@@ -42,16 +31,6 @@ All PRs require review before merging. Reviewers check:
 - Test coverage
 - Architecture alignment with [the plan](docs/SpringVoyage-v2-plan.md)
 - No breaking changes to Core interfaces without discussion
-
-### Cross-Repo Changes
-
-When a cloud feature needs OSS changes:
-
-1. The OSS issue is created first, explaining the abstraction and why it's needed.
-2. The OSS PR is merged first.
-3. The cloud repo updates its submodule and implements the private part.
-
-This ensures all design decisions that affect the OSS platform are visible to contributors.
 
 ## Contributor License Agreement (CLA)
 
@@ -88,8 +67,7 @@ All conventions are in [CONVENTIONS.md](CONVENTIONS.md). Key points:
 |-------|---------|
 | `bug` | Something is broken |
 | `enhancement` | New feature or improvement |
-| `oss-interface` | New interface/extension point for downstream consumers |
-| `cloud-dependency` | Driven by a cloud/private requirement |
+| `oss-interface` | New interface/extension point |
 | `phase-1` through `phase-6` | Roadmap phase |
 | `breaking-change` | Requires coordinated updates |
 | `good first issue` | Suitable for new contributors |

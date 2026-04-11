@@ -4,10 +4,13 @@
 namespace Cvoya.Spring.Dapr.Tests.Prompts;
 
 using System.Text.Json;
+
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Dapr.Prompts;
+
 using FluentAssertions;
+
 using Xunit;
 
 /// <summary>

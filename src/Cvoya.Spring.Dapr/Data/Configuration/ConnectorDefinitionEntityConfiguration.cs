@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Dapr.Data.Configuration;
 
 using Cvoya.Spring.Dapr.Data.Entities;
+
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 

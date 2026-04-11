@@ -4,7 +4,7 @@
 
 If you discover a security issue in Spring Voyage, please report it responsibly. **Do not open a public GitHub issue.**
 
-Instead, please email security findings to the project maintainers privately. We will acknowledge receipt within 48 hours and provide a timeline for a fix.
+Instead, please use [GitHub's private vulnerability reporting](https://github.com/savasp/spring-voyage/security/advisories/new) to submit your findings. If you are unable to use that, contact [@savasp](https://github.com/savasp) directly on GitHub. We will acknowledge receipt within 48 hours and provide a timeline for a fix.
 
 ## Supported Versions
 

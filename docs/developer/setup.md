@@ -28,12 +28,14 @@ dotnet build src/Cvoya.Spring.Host.Api/Cvoya.Spring.Host.Api.csproj
 
 ### Start Infrastructure
 
-Start PostgreSQL and Redis (via containers or local installations):
+Start PostgreSQL and Redis using containers or local installations. For example, with Podman:
 
 ```
-# Using Podman Compose
-podman compose -f docker-compose.dev.yaml up -d
+podman run -d --name spring-postgres -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:17
+podman run -d --name spring-redis -p 6379:6379 redis:7
 ```
+
+Or use Docker equivalents. If you already have PostgreSQL and Redis running locally, skip this step.
 
 ### Initialize Dapr
 

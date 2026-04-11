@@ -4,7 +4,9 @@
 namespace Cvoya.Spring.Dapr.State;
 
 using Cvoya.Spring.Core.State;
+
 using global::Dapr.Client;
+
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 

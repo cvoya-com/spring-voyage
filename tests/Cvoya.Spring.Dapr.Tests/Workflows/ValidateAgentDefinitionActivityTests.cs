@@ -5,10 +5,15 @@ namespace Cvoya.Spring.Dapr.Tests.Workflows;
 
 using Cvoya.Spring.Dapr.Workflows;
 using Cvoya.Spring.Dapr.Workflows.Activities;
-using global::Dapr.Workflow;
+
 using FluentAssertions;
+
+using global::Dapr.Workflow;
+
 using Microsoft.Extensions.Logging;
+
 using NSubstitute;
+
 using Xunit;
 
 /// <summary>

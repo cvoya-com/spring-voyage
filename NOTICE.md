@@ -15,7 +15,10 @@ This product includes or depends on the following third-party software:
 | Dependency | License | Source |
 |------------|---------|--------|
 | Dapr SDK for .NET | Apache License 2.0 | [dapr/dotnet-sdk](https://github.com/dapr/dotnet-sdk) |
-| Microsoft .NET and Extensions (ASP.NET Core, Entity Framework Core, System.CommandLine, System.IdentityModel.Tokens.Jwt, Microsoft.Extensions.*) | MIT License | [dotnet/runtime](https://github.com/dotnet/runtime) |
+| Microsoft .NET and Extensions (ASP.NET Core, Entity Framework Core, System.CommandLine, System.IdentityModel.Tokens.Jwt, Microsoft.Extensions.*, Microsoft.Testing.Extensions.CodeCoverage) | MIT License | [dotnet/runtime](https://github.com/dotnet/runtime) |
 | Npgsql / Npgsql.EntityFrameworkCore.PostgreSQL | PostgreSQL License | [npgsql/npgsql](https://github.com/npgsql/npgsql) |
 | Octokit.net | MIT License | [octokit/octokit.net](https://github.com/octokit/octokit.net) |
 | Swashbuckle.AspNetCore | MIT License | [domaindrivendev/Swashbuckle.AspNetCore](https://github.com/domaindrivendev/Swashbuckle.AspNetCore) |
+| xunit.v3 | Apache License 2.0 | [xunit/xunit](https://github.com/xunit/xunit) |
+| FluentAssertions | Apache License 2.0 | [fluentassertions/fluentassertions](https://github.com/fluentassertions/fluentassertions) |
+| NSubstitute | BSD 3-Clause | [nsubstitute/NSubstitute](https://github.com/nsubstitute/NSubstitute) |

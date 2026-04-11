@@ -4,11 +4,17 @@
 namespace Cvoya.Spring.Connector.GitHub.Tests;
 
 using System.Reflection;
-using FluentAssertions;
-using Microsoft.Extensions.Logging;
-using NSubstitute;
-using Octokit;
+
 using Cvoya.Spring.Connector.GitHub.Skills;
+
+using FluentAssertions;
+
+using Microsoft.Extensions.Logging;
+
+using NSubstitute;
+
+using Octokit;
+
 using Xunit;
 
 public class ReadFileSkillTests

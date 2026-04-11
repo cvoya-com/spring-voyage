@@ -32,7 +32,7 @@ dotnet format --verify-no-changes  # check formatting
 - System.Text.Json only. No Newtonsoft.Json.
 - .NET 10 target framework.
 - Always create PRs against `main`. Never push directly.
-- When creating PRs, issues, or comments on GitHub, always authenticate as the GitHub App using the `github-app` skill (`.claude/skills/github-app/`). Never use personal credentials. See `.claude/github-app-config.json` for reviewer/assignee settings. After creating a PR, always enable auto-merge with `gh pr merge <number> --auto --squash`.
+- After creating a PR, always enable auto-merge with `gh pr merge <number> --auto --squash`.
 - Run `dotnet format` before committing.
 - Reference GitHub issues in commit messages with `Closes #N`.
 

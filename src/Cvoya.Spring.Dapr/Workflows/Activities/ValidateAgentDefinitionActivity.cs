@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Dapr.Workflows.Activities;
 
 using global::Dapr.Workflow;
+
 using Microsoft.Extensions.Logging;
 
 /// <summary>

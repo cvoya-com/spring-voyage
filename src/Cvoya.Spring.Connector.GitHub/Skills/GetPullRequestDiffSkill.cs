@@ -4,7 +4,9 @@
 namespace Cvoya.Spring.Connector.GitHub.Skills;
 
 using System.Text.Json;
+
 using Microsoft.Extensions.Logging;
+
 using Octokit;
 
 /// <summary>

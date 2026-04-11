@@ -5,7 +5,9 @@ namespace Cvoya.Spring.Cli.Tests;
 
 using System.Net;
 using System.Text.Json;
+
 using FluentAssertions;
+
 using Xunit;
 
 public class SpringApiClientTests

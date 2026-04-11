@@ -7,10 +7,15 @@ using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Dapr.Workflows;
 using Cvoya.Spring.Dapr.Workflows.Activities;
-using global::Dapr.Workflow;
+
 using FluentAssertions;
+
+using global::Dapr.Workflow;
+
 using Microsoft.Extensions.Logging;
+
 using NSubstitute;
+
 using Xunit;
 
 /// <summary>

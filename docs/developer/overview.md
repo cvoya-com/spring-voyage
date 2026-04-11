@@ -8,7 +8,7 @@ This guide is for developers contributing to the Spring Voyage V2 platform itsel
 |----------|-------------|
 | [Development Setup](setup.md) | Prerequisites, building, running locally |
 | [Creating Packages](creating-packages.md) | Building domain packages: agents, skills, workflows, connectors |
-| [Platform Operations](operations.md) | Tenant management, upgrades, monitoring, and administration |
+| [Platform Operations](operations.md) | Running locally, health checks, and troubleshooting |
 
 ## Project Layout
 

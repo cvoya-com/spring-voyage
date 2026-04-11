@@ -5,8 +5,11 @@ namespace Cvoya.Spring.Host.Api.Tests.Auth;
 
 using System.Net;
 using System.Net.Http.Json;
+
 using Cvoya.Spring.Host.Api.Models;
+
 using FluentAssertions;
+
 using Xunit;
 
 /// <summary>

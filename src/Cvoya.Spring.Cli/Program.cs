@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Cli;
 
 using System.CommandLine;
+
 using Cvoya.Spring.Cli.Commands;
 
 /// <summary>

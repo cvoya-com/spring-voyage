@@ -4,8 +4,11 @@
 namespace Cvoya.Spring.Cli.Tests;
 
 using System.Text.Json;
+
 using Cvoya.Spring.Cli.Output;
+
 using FluentAssertions;
+
 using Xunit;
 
 public class OutputFormatterTests

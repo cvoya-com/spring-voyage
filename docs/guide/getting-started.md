@@ -4,22 +4,22 @@ This guide walks you through setting up Spring Voyage V2 and creating your first
 
 ## Installation
 
-### Option A: dotnet tool (requires .NET SDK)
+Build the CLI from source (requires [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)):
 
 ```
-dotnet tool install -g spring-cli
+git clone https://github.com/savasp/spring-voyage.git
+cd spring-voyage
+dotnet build src/Cvoya.Spring.Cli/Cvoya.Spring.Cli.csproj
+
+# Run the CLI directly
+dotnet run --project src/Cvoya.Spring.Cli -- <command>
+
+# Or publish a self-contained executable
+dotnet publish src/Cvoya.Spring.Cli -c Release -o ./out
+./out/spring <command>
 ```
 
-Update with:
-```
-dotnet tool update -g spring-cli
-```
-
-### Option B: Standalone executable
-
-Download the latest release from GitHub releases, Homebrew, or direct download. No .NET SDK required.
-
-The command name is `spring` in both cases.
+The command name is `spring`.
 
 ## Authentication
 

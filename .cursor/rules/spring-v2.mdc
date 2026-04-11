@@ -1,6 +1,6 @@
 ---
 description: Spring Voyage V2 coding conventions and architecture
-globs: v2/**
+globs: "**"
 ---
 
 # Spring Voyage V2
@@ -9,8 +9,8 @@ AI agent orchestration platform built on .NET 10 and Dapr. Namespace: `Cvoya.Spr
 
 ## Essential References
 
-- **Full conventions:** `v2/CONVENTIONS.md` (MUST read before writing code)
-- **Architecture plan:** `v2/docs/SpringVoyage-v2-plan.md`
+- **Full conventions:** `CONVENTIONS.md` (MUST read before writing code)
+- **Architecture plan:** `docs/SpringVoyage-v2-plan.md`
 
 ## Quick Rules
 
@@ -28,9 +28,9 @@ AI agent orchestration platform built on .NET 10 and Dapr. Namespace: `Cvoya.Spr
 ## Build & Test
 
 ```bash
-cd v2 && dotnet build
-cd v2 && dotnet test
-cd v2 && dotnet format --verify-no-changes
+dotnet build
+dotnet test
+dotnet format --verify-no-changes
 ```
 
 ## Test Conventions

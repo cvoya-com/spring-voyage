@@ -5,7 +5,9 @@ namespace Cvoya.Spring.Host.Api.Tests;
 
 using System.Net;
 using System.Net.Http.Json;
+
 using FluentAssertions;
+
 using Xunit;
 
 public class HealthEndpointTests : IClassFixture<CustomWebApplicationFactory>

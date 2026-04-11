@@ -45,7 +45,7 @@ For contributors to the Spring Voyage V2 platform.
 
 - [Development Setup](developer/setup.md) -- prerequisites, building, running locally
 - [Creating Packages](developer/creating-packages.md) -- agents, skills, workflows, connectors
-- [Platform Operations](developer/operations.md) -- tenant management, upgrades, monitoring
+- [Platform Operations](developer/operations.md) -- running locally, health checks, troubleshooting
 
 ### Reference
 

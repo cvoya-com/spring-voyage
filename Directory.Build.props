@@ -6,6 +6,16 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
   <PropertyGroup>
+    <Authors>CVOYA LLC</Authors>
+    <Company>CVOYA LLC</Company>
+    <Product>Spring Voyage</Product>
+    <Description>AI agent orchestration platform built on .NET and Dapr</Description>
+    <Copyright>Copyright 2025 CVOYA LLC</Copyright>
+    <PackageLicenseExpression>LicenseRef-BSL-1.1</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/savasp/spring-voyage</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+  </PropertyGroup>
+  <PropertyGroup>
     <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
   </PropertyGroup>
 </Project>

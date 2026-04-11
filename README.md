@@ -20,6 +20,7 @@ AI agent orchestration platform built on .NET and Dapr. Agents organize into com
 - [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
 - [Dapr CLI](https://docs.dapr.io/getting-started/install-dapr-cli/)
 - [Docker](https://docs.docker.com/get-docker/) or [Podman](https://podman.io/) (for Dapr runtime components)
+- [jq](https://jqlang.github.io/jq/) (for testing commands below)
 - Redis running on localhost:6379 (provided automatically by `dapr init`)
 
 ## Quick Start
@@ -110,15 +111,13 @@ The platform uses the **Dapr sidecar pattern**. Each host process runs alongside
 - **State Store** -- persistent state for actors (Redis for local dev)
 - **Bindings** -- external system integration (webhooks, etc.)
 
-For the full architecture, see `docs/SpringVoyage-v2-plan.md`.
+For the full architecture, see `docs/SpringVoyage-v2-plan.md`. Browse all documentation at [docs/README.md](docs/README.md).
 
 ## Open Core Model
 
-Spring Voyage follows an open core model:
+Spring Voyage follows an open core model. This repository contains the complete, fully functional platform: agents, messaging, routing, orchestration (AI + Workflow strategies), execution, connectors, CLI, basic auth (API key), ephemeral cloning, observability, basic cost tracking, A2A, unit nesting, package system, and dashboard.
 
-**This repo (open source):** Core platform -- agents, messaging, routing, orchestration (AI + Workflow strategies), execution, connectors, CLI, basic auth (API key), ephemeral cloning, observability, basic cost tracking, A2A, unit nesting, package system, and dashboard.
-
-**Private repo (commercial):** Multi-tenancy, OAuth/SSO/SAML, billing, hybrid orchestration, advanced budget enforcement, proactive and autonomous initiative levels, persistent cloning, cross-org federation, and advanced analytics.
+Commercial extensions (multi-tenancy, OAuth/SSO/SAML, billing, and advanced features) are developed separately and are not part of this repository.
 
 ## Contributing
 

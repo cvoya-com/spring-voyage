@@ -1,164 +1,43 @@
 # Platform Operations
 
-This guide covers platform administration: tenant management, deployment, upgrades, monitoring, and troubleshooting.
+This guide covers running and managing a local Spring Voyage deployment.
 
-## Tenant Management
-
-### Creating a Tenant
-
-```
-spring-admin tenant create acme --admin user@acme.com
-```
-
-This creates the Dapr namespace, state store schema, pub/sub consumer group, and root unit.
-
-### Tenant Administration
-
-| Operation | Command |
-|-----------|---------|
-| View tenant info | `spring-admin tenant info acme` |
-| List all tenants | `spring-admin tenant list` |
-| Manage users | `spring-admin tenant users list/add/remove acme` |
-| Suspend tenant | `spring-admin tenant suspend acme --reason "..."` |
-| View usage | `spring-admin tenant usage acme --period last-30d` |
-
-### Tenant Policies
-
-Set tenant-wide defaults:
-
-```
-spring-admin tenant policy set acme initiative.max-level=proactive
-spring-admin tenant policy set acme cost.monthly-budget=5000
-spring-admin tenant policy set acme execution.max-containers=50
-```
-
-### API Key Management
-
-Tenant admins can manage all API keys for their tenant:
-
-```
-spring tenant apikeys list
-spring tenant apikeys create --name "ci-pipeline"
-spring tenant apikeys revoke ci-pipeline
-```
-
-Platform admins can manage keys across tenants.
-
-## Deployment
+## Running Locally
 
 ### Local Development
 
 API Host in single-tenant mode + Dapr sidecar + Podman containers. Single machine.
 
 ```
-dapr run --app-id spring-api --app-port 5000 -- dotnet run --project src/Spring.Host.Api -- --local
+dapr run --app-id spring-api --app-port 5000 -- dotnet run --project src/Cvoya.Spring.Host.Api -- --local
 ```
 
-### Docker Compose (Staging)
+See [setup.md](setup.md) for full setup instructions.
 
-API Host + Worker Host behind a reverse proxy. PostgreSQL + Redis:
-
-```
-docker compose -f docker-compose.yaml up -d
-```
-
-### Kubernetes (Production)
-
-Kubernetes with Dapr operator. Helm chart deployment:
+## Health Checks
 
 ```
-helm install spring-voyage spring/spring-voyage \
-  --set apiHost.replicas=3 \
-  --set workerHost.replicas=5
-```
-
-Key production components:
-- API Host replicas behind load balancer
-- Worker Hosts scaled by workload
-- Execution environments as ephemeral pods
-- Kafka for pub/sub
-- Azure Key Vault for secrets
-- PostgreSQL for persistence
-
-## Platform Upgrades
-
-### Pre-Upgrade Check
-
-```
-spring-admin platform upgrade --version 2.1.0 --dry-run
-```
-
-Reports required changes: database migrations, component config changes, compatibility notes.
-
-### Upgrade Process
-
-```
-# 1. Apply database migrations
-spring-admin migrate --version 2.1.0
-
-# 2. Rolling update of hosts (zero-downtime)
-# Kubernetes:
-helm upgrade spring-voyage spring/spring-voyage --version 2.1.0
-# Docker Compose:
-docker compose pull && docker compose up -d
-
-# 3. Verify
-spring-admin platform health
-spring-admin platform version
-```
-
-### Migration Layers
-
-| Layer | Strategy |
-|-------|---------|
-| **Database schema** | EF Core migrations. Backwards-compatible within major version. |
-| **Actor state** | Versioned serialization with in-place migration chains. Lazy or eager. |
-| **Dapr components** | YAML configs versioned alongside the platform. |
-| **Agent/Unit definitions** | Schema versioned. Older definitions auto-upgraded on apply. |
-| **Workflow containers** | Independent of host. Running instances complete on old container; new instances use new image. |
-
-## Monitoring
-
-### Health Checks
-
-```
-spring-admin platform health
+curl http://localhost:5001/health
 ```
 
 Checks:
 - API Host and Worker Host liveness
 - Dapr sidecar connectivity
-- PostgreSQL connectivity
+- State store connectivity
 - Pub/sub broker connectivity
 - Actor runtime health
 
-### Metrics
+## Database Migrations
+
+Schema changes use EF Core migrations:
 
 ```
-spring-admin platform metrics
+# Add a new migration
+dotnet ef migrations add <MigrationName> --project src/Cvoya.Spring.Host.Api
+
+# Apply migrations
+dotnet ef database update --project src/Cvoya.Spring.Host.Api
 ```
-
-Key metrics:
-- Active actors by type
-- Message throughput
-- Workflow execution counts
-- LLM API latency and error rates
-- Container count and resource usage
-
-### Log Aggregation
-
-All hosts and sidecars emit structured logs. In production:
-- OpenTelemetry collector for aggregation
-- Centralized logging (Loki, Elasticsearch, Azure Monitor)
-- Dapr emits distributed traces automatically
-
-### Cost Monitoring
-
-```
-spring-admin tenant usage --all --period last-30d
-```
-
-Platform-wide cost visibility across all tenants.
 
 ## Troubleshooting
 
@@ -176,19 +55,12 @@ Platform-wide cost visibility across all tenants.
 3. Check the workflow container logs
 4. Check for dead-lettered pub/sub messages
 
-### Cost Spike
-
-1. Check cost breakdown: `spring cost breakdown --unit <unit> --period today`
-2. Look for runaway initiative loops: high Tier 2 call counts
-3. Check for retry loops on failing LLM calls
-4. Review initiative policies: `spring unit get <unit> --policies`
-
 ## Backup and Recovery
 
 ### Database
 
 PostgreSQL backups cover all platform data:
-- Tenant data, agent definitions, activity history
+- Agent definitions, activity history
 - Actor runtime state (stored in PostgreSQL via Dapr state store)
 
 Use standard PostgreSQL backup tools: `pg_dump`, continuous archiving, or managed database backups.
@@ -196,16 +68,3 @@ Use standard PostgreSQL backup tools: `pg_dump`, continuous archiving, or manage
 ### Secret Rotation
 
 Dapr Secrets building block supports rotation. Connectors re-authenticate when secrets change via Dapr Configuration change subscriptions.
-
-## Resource Limits
-
-Per-tenant resource quotas in production:
-
-```
-spring-admin tenant quota set acme \
-  --max-containers 50 \
-  --max-agents 100 \
-  --max-storage 10GB
-```
-
-Enforced via Kubernetes ResourceQuotas and platform-level policies.

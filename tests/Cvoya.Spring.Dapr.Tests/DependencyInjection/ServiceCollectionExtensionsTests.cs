@@ -9,12 +9,17 @@ using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Dapr.DependencyInjection;
 using Cvoya.Spring.Dapr.Orchestration;
 using Cvoya.Spring.Dapr.Routing;
-using global::Dapr.Actors.Client;
+
 using FluentAssertions;
+
+using global::Dapr.Actors.Client;
+
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+
 using NSubstitute;
+
 using Xunit;
 
 /// <summary>

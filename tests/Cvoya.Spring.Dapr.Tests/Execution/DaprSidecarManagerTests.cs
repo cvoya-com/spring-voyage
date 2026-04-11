@@ -5,7 +5,9 @@ namespace Cvoya.Spring.Dapr.Tests.Execution;
 
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Dapr.Execution;
+
 using FluentAssertions;
+
 using Xunit;
 
 /// <summary>

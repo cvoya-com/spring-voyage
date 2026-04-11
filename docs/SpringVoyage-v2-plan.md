@@ -2130,61 +2130,21 @@ Initiative adds ~6-8% to total cost while enabling proactive value.
 
 ---
 
-## 27. Open Source Strategy
+## 27. Open Core Model
 
-Spring Voyage is developed as an open-source project with a private extension layer for hosted service features.
+Spring Voyage follows an open core model. This repository contains the complete, fully functional platform: agents, messaging, routing, orchestration strategies, execution, connectors, CLI, basic RBAC, ephemeral cloning, observability, basic cost tracking, A2A protocol, unit nesting, package system, and dashboard.
 
-### Two-Repo Model
-
-| Repo | Visibility | Purpose |
-|------|-----------|---------|
-| `spring-voyage` | Public | Core platform — agents, messaging, orchestration, connectors, CLI, dashboard |
-| `spring-voyage-cloud` | Private | Hosted service — multi-tenancy, OAuth/SSO, billing, advanced features |
-
-The private repo includes the public repo as a **git submodule** and extends it via dependency injection. The OSS repo is a fully functional single-user platform. The private repo layers multi-tenancy, enterprise auth, and premium features on top.
+Commercial extensions (multi-tenancy, OAuth/SSO/SAML, billing, and advanced features) are developed separately and extend this codebase via dependency injection without modifying it.
 
 ### License
 
-Decision pending — evaluating Apache 2.0, AGPL-3.0+CLA, and BSL 1.1.
-
-### Feature Split
-
-**Private repo (`spring-voyage-cloud`) features:**
-- Multi-tenancy (tenant isolation, scoping, admin)
-- OAuth / SSO / SAML, user management, billing
-- Hybrid orchestration strategy (AI+Workflow)
-- GitHub Copilot SDK integration
-- Advanced budget enforcement / alerting
-- Proactive + Autonomous initiative levels
-- Persistent cloning (clone evolution, recursive cloning)
-- Alwyse cognitive backbone
-- Expertise marketplace, cross-org federation
-- Advanced analytics dashboard, audit logging (compliance-grade)
-
-**Everything else is OSS** — core actors, messaging, routing, AI-orchestrated + Workflow strategies, execution, connectors, CLI, basic RBAC, ephemeral cloning, observability, basic cost tracking, Passive + Attentive initiative, A2A protocol, unit nesting, package system (local), dashboard.
+Spring Voyage is licensed under the Business Source License 1.1 (BSL 1.1). On the Change Date (2030-04-10), the license converts to the Apache License, Version 2.0.
 
 ### Extension Model
 
-The private repo overrides OSS defaults via DI:
+The platform is designed for extensibility via DI. All core abstractions are defined as interfaces in `Cvoya.Spring.Core` and implemented in `Cvoya.Spring.Dapr`. External extensions can override default implementations by registering their own services after the default registrations.
 
-```
-spring-voyage-cloud/
-├── oss/                                    # git submodule → spring-voyage
-├── src/
-│   ├── Cvoya.Spring.Cloud.Tenancy/         # Tenant-scoped IRepository<T>
-│   ├── Cvoya.Spring.Cloud.Auth/            # OAuth handler replaces LocalDevAuthHandler
-│   ├── Cvoya.Spring.Cloud.Billing/         # Usage metering
-│   ├── Cvoya.Spring.Cloud.Orchestration/   # HybridOrchestrationStrategy
-│   ├── Cvoya.Spring.Cloud.Initiative/      # Proactive + Autonomous levels
-│   ├── Cvoya.Spring.Cloud.Alwyse/          # Cognitive backbone
-│   └── Cvoya.Spring.Cloud.Hosting/         # Deployment, scaling
-```
-
-The OSS codebase must not reference tenant concepts. Entities have no `TenantId`. The private repo adds tenant-scoped wrappers around OSS repositories and services.
-
-### Open-Source Preparation
-
-Tracked in GitHub issue #752 (parent) with sub-issues #741-#751 covering: secrets scrub, copyright headers, dependency audit, trademark, CLA, community files, README, and final review.
+The OSS codebase must not reference tenant concepts. Entities have no `TenantId`. Extensions can add tenant-scoped wrappers around repositories and services.
 
 ---
 

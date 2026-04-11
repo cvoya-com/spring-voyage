@@ -4,7 +4,9 @@
 namespace Cvoya.Spring.Connector.GitHub.Tests;
 
 using System.Text.Json;
+
 using FluentAssertions;
+
 using Xunit;
 
 public class GitHubSkillRegistryTests

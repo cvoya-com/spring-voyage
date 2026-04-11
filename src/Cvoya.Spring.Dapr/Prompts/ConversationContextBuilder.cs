@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Dapr.Prompts;
 
 using System.Text;
 using System.Text.Json;
+
 using Cvoya.Spring.Core.Messaging;
 
 /// <summary>

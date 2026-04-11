@@ -4,12 +4,17 @@
 namespace Cvoya.Spring.Integration.Tests;
 
 using System.Text.Json;
+
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Integration.Tests.TestHelpers;
-using global::Dapr.Actors.Runtime;
+
 using FluentAssertions;
+
+using global::Dapr.Actors.Runtime;
+
 using NSubstitute;
+
 using Xunit;
 
 /// <summary>

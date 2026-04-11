@@ -6,9 +6,13 @@ namespace Cvoya.Spring.Dapr.Tests.Workflows;
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Dapr.Workflows;
 using Cvoya.Spring.Dapr.Workflows.Activities;
-using global::Dapr.Workflow;
+
 using FluentAssertions;
+
+using global::Dapr.Workflow;
+
 using NSubstitute;
+
 using Xunit;
 
 /// <summary>

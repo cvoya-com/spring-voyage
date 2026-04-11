@@ -5,11 +5,15 @@ namespace Cvoya.Spring.Dapr.Tests.Execution;
 
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Dapr.Execution;
+
 using FluentAssertions;
+
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
+
 using Xunit;
 
 /// <summary>

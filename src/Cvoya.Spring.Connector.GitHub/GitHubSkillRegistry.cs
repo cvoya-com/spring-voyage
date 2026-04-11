@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Connector.GitHub;
 
 using System.Text.Json;
+
 using Cvoya.Spring.Core.Skills;
 
 /// <summary>

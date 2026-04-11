@@ -4,8 +4,11 @@
 namespace Cvoya.Spring.Cli.Tests;
 
 using System.CommandLine;
+
 using Cvoya.Spring.Cli.Commands;
+
 using FluentAssertions;
+
 using Xunit;
 
 public class CommandParsingTests

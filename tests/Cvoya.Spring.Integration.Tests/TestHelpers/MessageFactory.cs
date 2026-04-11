@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Integration.Tests.TestHelpers;
 
 using System.Text.Json;
+
 using Cvoya.Spring.Core.Messaging;
 
 /// <summary>

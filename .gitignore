@@ -1,11 +1,29 @@
 ## .NET
 bin/
 obj/
+TestResults/
+*.user
 
 ## IDE
 .vs/
-*.user
 *.suo
+.idea/
+*.DotSettings.user
+
+## macOS
+.DS_Store
+._*
+
+## Windows
+Thumbs.db
+Desktop.ini
+
+## Linux
+*~
+
+## Logs and coverage
+*.log
+coverage/
 
 ## Dapr local secrets (not committed)
 dapr/secrets.json

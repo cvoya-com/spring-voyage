@@ -4,11 +4,16 @@
 namespace Cvoya.Spring.Dapr.Tests.State;
 
 using Cvoya.Spring.Dapr.State;
+
 using FluentAssertions;
+
 using global::Dapr.Client;
+
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+
 using NSubstitute;
+
 using Xunit;
 
 /// <summary>

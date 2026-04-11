@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Cli.Tests;
 
 using FluentAssertions;
+
 using Xunit;
 
 public class AddressParserTests

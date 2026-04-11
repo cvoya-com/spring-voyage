@@ -4,8 +4,10 @@
 namespace Cvoya.Spring.Dapr.Prompts;
 
 using System.Text;
+
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
+
 using Microsoft.Extensions.Logging;
 
 /// <summary>

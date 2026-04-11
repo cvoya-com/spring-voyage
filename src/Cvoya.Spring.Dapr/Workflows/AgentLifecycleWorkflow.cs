@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Dapr.Workflows;
 
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Dapr.Workflows.Activities;
+
 using global::Dapr.Workflow;
 
 /// <summary>

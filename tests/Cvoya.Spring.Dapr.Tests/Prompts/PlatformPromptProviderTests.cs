@@ -4,7 +4,9 @@
 namespace Cvoya.Spring.Dapr.Tests.Prompts;
 
 using Cvoya.Spring.Dapr.Prompts;
+
 using FluentAssertions;
+
 using Xunit;
 
 /// <summary>

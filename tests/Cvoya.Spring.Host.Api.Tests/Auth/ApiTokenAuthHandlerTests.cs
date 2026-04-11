@@ -5,20 +5,26 @@ namespace Cvoya.Spring.Host.Api.Tests.Auth;
 
 using System.Net;
 using System.Net.Http.Headers;
+
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.State;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
 using Cvoya.Spring.Dapr.Routing;
 using Cvoya.Spring.Host.Api.Auth;
-using global::Dapr.Actors.Client;
+
 using FluentAssertions;
+
+using global::Dapr.Actors.Client;
+
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+
 using NSubstitute;
+
 using Xunit;
 
 /// <summary>

@@ -4,11 +4,14 @@
 namespace Cvoya.Spring.Connector.GitHub;
 
 using System.Text.Json;
+
 using Cvoya.Spring.Connector.GitHub.Auth;
 using Cvoya.Spring.Connector.GitHub.Webhooks;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Skills;
+
 using Microsoft.Extensions.Logging;
+
 using Octokit;
 
 /// <summary>
