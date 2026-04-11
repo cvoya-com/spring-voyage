@@ -9,7 +9,7 @@ All test projects — unit tests, integration tests, and end-to-end tests across
 ## Required Reading
 
 1. `CONVENTIONS.md` — Section 6 (Testing)
-2. `docs/SpringVoyage-v2-plan.md` — the relevant sections for the feature under test
+2. `docs/architecture/` — the relevant architecture document for the feature under test (see `docs/architecture/README.md` for the index)
 
 ## Working Style
 

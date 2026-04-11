@@ -9,7 +9,7 @@ Core platform implementation: domain interfaces and types, Dapr actor implementa
 ## Required Reading
 
 1. `CONVENTIONS.md` — coding patterns (mandatory)
-2. `docs/SpringVoyage-v2-plan.md` — architecture (relevant sections for your issue)
+2. `docs/architecture/` — architecture (the relevant document for your issue; see `docs/architecture/README.md` for the index)
 3. `CONTRIBUTING.md` — issue and PR workflow
 
 ## Working Style

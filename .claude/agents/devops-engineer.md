@@ -9,7 +9,7 @@ Build and deployment infrastructure: Dapr component configuration (pub/sub, stat
 ## Required Reading
 
 1. `CONVENTIONS.md` — Section 12 (Build Configuration)
-2. `docs/SpringVoyage-v2-plan.md` — Section 4 (Dapr), Section 10 (Workflows), Section 14 (Execution Modes)
+2. `docs/architecture/infrastructure.md` (Dapr), `docs/architecture/workflows.md`, `docs/architecture/deployment.md` (execution modes)
 
 ## Working Style
 

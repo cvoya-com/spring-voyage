@@ -12,7 +12,7 @@ AI agent orchestration platform built on .NET 10 and Dapr. Namespace: `Cvoya.Spr
 ## Essential References
 
 - **Full conventions:** `CONVENTIONS.md` (MUST read before writing code)
-- **Architecture plan:** `docs/SpringVoyage-v2-plan.md`
+- **Architecture:** `docs/architecture/README.md` (index of all architecture documents)
 - **Extensibility model:** `AGENTS.md` § "Open-Source Platform & Extensibility"
 
 ## Quick Rules

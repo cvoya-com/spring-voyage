@@ -17,17 +17,22 @@ The abstractions and mental model behind Spring Voyage V2. Start here.
 - [Packages and Skills](concepts/packages.md) -- reusable domain knowledge
 - [Tenants and Permissions](concepts/tenants.md) -- multi-tenancy and access control
 
-### [Architecture](architecture/overview.md)
+### [Architecture](architecture/README.md)
 
 How the concepts are realized as a running system.
 
-- [Infrastructure: Dapr](architecture/infrastructure.md) -- the runtime foundation
-- [Actor Model](architecture/actors.md) -- agents as virtual actors
-- [Workflows and Orchestration](architecture/workflows.md) -- structured coordination
-- [Execution Environments](architecture/execution.md) -- container isolation and streaming
-- [Data Persistence](architecture/data.md) -- storage and state management
-- [API and Hosting](architecture/api-hosting.md) -- deployment and the CLI
-- [Security and Resilience](architecture/security.md) -- auth, isolation, and failure recovery
+- [Infrastructure](architecture/infrastructure.md) -- Dapr, IAddressable, data persistence
+- [Messaging](architecture/messaging.md) -- mailbox, addressing, routing, activation
+- [Units & Agents](architecture/units.md) -- agent model, cloning, orchestration strategies
+- [Initiative](architecture/initiative.md) -- initiative levels, tiered cognition
+- [Workflows](architecture/workflows.md) -- workflow-as-container, A2A, patterns
+- [Connectors](architecture/connectors.md) -- connector model, skills, implementation tiers
+- [Observability](architecture/observability.md) -- activity events, cost tracking
+- [CLI & Web](architecture/cli-and-web.md) -- API surface, hosting, CLI, deployment
+- [Deployment](architecture/deployment.md) -- execution modes, solution structure
+- [Security](architecture/security.md) -- RBAC, authentication, resilience
+- [Packages](architecture/packages.md) -- domain packages, skill format
+- [Open Questions](architecture/open-questions.md) -- design questions, future work
 
 ### [User Guide](guide/overview.md)
 
@@ -51,5 +56,5 @@ For contributors to the Spring Voyage V2 platform.
 
 - [Glossary](glossary.md) -- definitions of all key terms
 - [Design Decisions](design-decisions.md) -- the "why" behind major architectural choices
-- [Roadmap](roadmap.md) -- phased implementation plan
-- [Architecture Plan](SpringVoyage-v2-plan.md) -- the full technical specification
+- [Roadmap](roadmap/README.md) -- phased implementation plan
+- [Architecture Plan](SpringVoyage-v2-plan.md) -- original monolithic specification (deprecated, see `architecture/`)

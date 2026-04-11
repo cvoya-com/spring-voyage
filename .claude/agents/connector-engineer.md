@@ -9,7 +9,7 @@ All connector implementations — currently GitHub (Octokit.net), and future con
 ## Required Reading
 
 1. `CONVENTIONS.md` — coding patterns (mandatory)
-2. `docs/SpringVoyage-v2-plan.md` — Section 11 (Connectors), Section 7 (Agent Model, skills)
+2. `docs/architecture/connectors.md`, `docs/architecture/units.md` (agent model, skills)
 
 ## Working Style
 
