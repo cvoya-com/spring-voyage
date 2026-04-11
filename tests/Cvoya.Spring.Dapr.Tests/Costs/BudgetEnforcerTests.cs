@@ -170,6 +170,95 @@ public class BudgetEnforcerTests : IDisposable
         enforcer.Dispose();
     }
 
+    [Fact]
+    public async Task CheckBudget_AtErrorThreshold_PausesInitiative()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        _stateStore.GetAsync<decimal?>($"agent-a:{StateKeys.AgentCostBudget}", Arg.Any<CancellationToken>())
+            .Returns(10.0m);
+
+        var enforcer = CreateEnforcer();
+        await enforcer.StartAsync(ct);
+
+        _bus.Publish(CreateCostEvent("agent-a", 10.5m)); // 105% of budget
+        await Task.Delay(500, ct);
+
+        await _stateStore.Received(1).SetAsync(
+            $"agent-a:{StateKeys.InitiativeState}",
+            Arg.Is<Cvoya.Spring.Dapr.Costs.InitiativePausedState>(s => s.Reason == "BudgetExceeded"),
+            Arg.Any<CancellationToken>());
+
+        await enforcer.StopAsync(ct);
+        enforcer.Dispose();
+    }
+
+    [Fact]
+    public async Task CheckBudget_TenantBudgetWarning_EmitsWarning()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        _stateStore.GetAsync<decimal?>($"default:{StateKeys.TenantCostBudget}", Arg.Any<CancellationToken>())
+            .Returns(10.0m);
+
+        var enforcer = CreateEnforcer();
+        await enforcer.StartAsync(ct);
+
+        _bus.Publish(CreateCostEvent("agent-a", 8.5m)); // 85% of tenant budget
+        await Task.Delay(500, ct);
+
+        await _eventBus.Received().PublishAsync(
+            Arg.Is<ActivityEvent>(e =>
+                e.Severity == ActivitySeverity.Warning &&
+                e.Source.Scheme == "tenant"),
+            Arg.Any<CancellationToken>());
+
+        await enforcer.StopAsync(ct);
+        enforcer.Dispose();
+    }
+
+    [Fact]
+    public async Task CheckBudget_TenantBudgetExceeded_EmitsError()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        _stateStore.GetAsync<decimal?>($"default:{StateKeys.TenantCostBudget}", Arg.Any<CancellationToken>())
+            .Returns(10.0m);
+
+        var enforcer = CreateEnforcer();
+        await enforcer.StartAsync(ct);
+
+        _bus.Publish(CreateCostEvent("agent-a", 10.5m)); // 105% of tenant budget
+        await Task.Delay(500, ct);
+
+        await _eventBus.Received().PublishAsync(
+            Arg.Is<ActivityEvent>(e =>
+                e.Severity == ActivitySeverity.Error &&
+                e.Source.Scheme == "tenant"),
+            Arg.Any<CancellationToken>());
+
+        await enforcer.StopAsync(ct);
+        enforcer.Dispose();
+    }
+
+    [Fact]
+    public async Task CheckBudget_NoTenantBudget_NoTenantEventEmitted()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        _stateStore.GetAsync<decimal?>($"default:{StateKeys.TenantCostBudget}", Arg.Any<CancellationToken>())
+            .Returns((decimal?)null);
+
+        var enforcer = CreateEnforcer();
+        await enforcer.StartAsync(ct);
+
+        _bus.Publish(CreateCostEvent("agent-a", 100.0m));
+        await Task.Delay(500, ct);
+
+        await _eventBus.DidNotReceive().PublishAsync(
+            Arg.Is<ActivityEvent>(e => e.Source.Scheme == "tenant"),
+            Arg.Any<CancellationToken>());
+
+        await enforcer.StopAsync(ct);
+        enforcer.Dispose();
+    }
+
     public void Dispose()
     {
         _bus.Dispose();

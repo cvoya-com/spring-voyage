@@ -129,4 +129,9 @@ public static class StateKeys
     /// State key for the agent's cost budget limit.
     /// </summary>
     public const string AgentCostBudget = "Agent:CostBudget";
+
+    /// <summary>
+    /// State key for the tenant-level cost budget limit.
+    /// </summary>
+    public const string TenantCostBudget = "Tenant:CostBudget";
 }
