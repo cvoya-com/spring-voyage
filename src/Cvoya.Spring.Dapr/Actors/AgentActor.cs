@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Dapr.Actors;
 using System.Text.Json;
 
 using Cvoya.Spring.Core;
+using Cvoya.Spring.Core.Cloning;
 using Cvoya.Spring.Core.Messaging;
 
 using global::Dapr.Actors;
@@ -317,6 +318,41 @@ public class AgentActor(ActorHost host, ILoggerFactory loggerFactory) : Actor(ho
         }
 
         return AgentStatus.Active;
+    }
+
+    /// <summary>
+    /// Determines whether this agent is a clone by checking for a stored <see cref="CloneIdentity"/>.
+    /// </summary>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    /// <returns><c>true</c> if this agent is a clone; otherwise <c>false</c>.</returns>
+    internal async Task<bool> IsCloneAsync(CancellationToken cancellationToken = default)
+    {
+        var result = await StateManager
+            .TryGetStateAsync<CloneIdentity>(StateKeys.CloneIdentity, cancellationToken);
+        return result.HasValue;
+    }
+
+    /// <summary>
+    /// Gets the clone identity of this agent, if it is a clone.
+    /// </summary>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    /// <returns>The <see cref="CloneIdentity"/> if this agent is a clone; otherwise <c>null</c>.</returns>
+    internal async Task<CloneIdentity?> GetCloneIdentityAsync(CancellationToken cancellationToken = default)
+    {
+        var result = await StateManager
+            .TryGetStateAsync<CloneIdentity>(StateKeys.CloneIdentity, cancellationToken);
+        return result.HasValue ? result.Value : null;
+    }
+
+    /// <summary>
+    /// Gets the parent agent ID if this agent is a clone, used for cost attribution.
+    /// </summary>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    /// <returns>The parent agent ID if this is a clone; otherwise <c>null</c>.</returns>
+    internal async Task<string?> GetCostAttributionTargetAsync(CancellationToken cancellationToken = default)
+    {
+        var identity = await GetCloneIdentityAsync(cancellationToken);
+        return identity?.ParentAgentId;
     }
 
     /// <summary>

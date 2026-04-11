@@ -56,6 +56,10 @@ builder.Services.AddDaprWorkflow(options =>
     options.RegisterActivity<ValidateAgentDefinitionActivity>();
     options.RegisterActivity<RegisterAgentActivity>();
     options.RegisterActivity<UnregisterAgentActivity>();
+    options.RegisterActivity<ValidateCloneRequestActivity>();
+    options.RegisterActivity<CreateCloneActorActivity>();
+    options.RegisterActivity<RegisterCloneActivity>();
+    options.RegisterActivity<DestroyCloneActivity>();
 });
 
 // Register Dapr actors
