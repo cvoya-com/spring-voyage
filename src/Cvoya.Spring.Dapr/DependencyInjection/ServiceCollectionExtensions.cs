@@ -7,6 +7,7 @@ using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Costs;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Observability;
 using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.State;
 using Cvoya.Spring.Dapr.Auth;
@@ -110,6 +111,9 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ICostQueryService, CostAggregation>();
         services.AddHostedService<BudgetEnforcer>();
         services.AddScoped<ICostTracker, CloneCostTracker>();
+
+        // Observability — query service
+        services.AddScoped<IActivityQueryService, ActivityQueryService>();
 
         return services;
     }

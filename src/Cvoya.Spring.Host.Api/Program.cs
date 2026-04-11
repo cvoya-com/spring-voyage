@@ -66,6 +66,8 @@ app.MapMessageEndpoints().RequireAuthorization();
 app.MapDirectoryEndpoints().RequireAuthorization();
 app.MapCloneEndpoints().RequireAuthorization();
 app.MapCostEndpoints().RequireAuthorization();
+app.MapActivityEndpoints().RequireAuthorization();
+app.MapDashboardEndpoints().RequireAuthorization();
 
 await app.RunAsync();
 

@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Host.Api.Tests;
 
 using Cvoya.Spring.Core.Costs;
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Observability;
 using Cvoya.Spring.Core.State;
 using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Data;
@@ -39,6 +40,11 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
     /// </summary>
     public IActorProxyFactory ActorProxyFactory { get; } = Substitute.For<IActorProxyFactory>();
 
+    /// <summary>
+    /// Gets the mock <see cref="IActivityQueryService"/> registered in the test DI container.
+    /// </summary>
+    public IActivityQueryService ActivityQueryService { get; } = Substitute.For<IActivityQueryService>();
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         // Use --local mode to enable LocalDevAuthHandler (bypasses auth).
@@ -70,7 +76,8 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
                 typeof(DirectoryCache),
                 typeof(IActorProxyFactory),
                 typeof(IStateStore),
-                typeof(ICostTracker)
+                typeof(ICostTracker),
+                typeof(IActivityQueryService)
             };
 
             var descriptors = services
@@ -87,6 +94,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
             services.AddSingleton(ActorProxyFactory);
             services.AddSingleton(Substitute.For<IStateStore>());
             services.AddSingleton(Substitute.For<ICostTracker>());
+            services.AddSingleton(ActivityQueryService);
             services.AddSingleton(new DirectoryCache());
 
             // Remove and re-register permission service.
