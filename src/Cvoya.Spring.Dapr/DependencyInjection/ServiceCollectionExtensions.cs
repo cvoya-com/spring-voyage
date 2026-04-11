@@ -49,6 +49,9 @@ public static class ServiceCollectionExtensions
     /// <returns>The same service collection for chaining.</returns>
     public static IServiceCollection AddCvoyaSpringDapr(this IServiceCollection services, IConfiguration configuration)
     {
+        // Dapr client
+        services.AddDaprClient();
+
         // EF Core / PostgreSQL
         var connectionString = configuration.GetConnectionString("SpringDb");
         services.AddDbContext<SpringDbContext>(options =>

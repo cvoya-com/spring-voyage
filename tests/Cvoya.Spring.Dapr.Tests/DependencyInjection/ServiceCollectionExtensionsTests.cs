@@ -13,7 +13,6 @@ using Cvoya.Spring.Dapr.Routing;
 using FluentAssertions;
 
 using global::Dapr.Actors.Client;
-using global::Dapr.Client;
 
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -35,7 +34,6 @@ public class ServiceCollectionExtensionsTests
         services.AddLogging();
         services.AddSingleton<IConfiguration>(config);
         services.AddSingleton(Substitute.For<IActorProxyFactory>());
-        services.AddSingleton(Substitute.For<DaprClient>());
         services.AddCvoyaSpringDapr(config);
 
         return services.BuildServiceProvider();
