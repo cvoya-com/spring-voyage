@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Dapr.Actors;
 
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Dapr.Auth;
 
 using global::Dapr.Actors;
 
@@ -44,4 +45,27 @@ public interface IUnitActor : IActor
     /// <param name="ct">A token to cancel the operation.</param>
     /// <returns>A read-only list of member addresses.</returns>
     Task<IReadOnlyList<Address>> GetMembersAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Sets the permission level for a human within this unit.
+    /// </summary>
+    /// <param name="humanId">The human's identifier.</param>
+    /// <param name="entry">The permission entry to set.</param>
+    /// <param name="ct">A token to cancel the operation.</param>
+    Task SetHumanPermissionAsync(string humanId, UnitPermissionEntry entry, CancellationToken ct = default);
+
+    /// <summary>
+    /// Gets the permission level for a human within this unit.
+    /// </summary>
+    /// <param name="humanId">The human's identifier.</param>
+    /// <param name="ct">A token to cancel the operation.</param>
+    /// <returns>The permission level, or <c>null</c> if the human has no permission entry.</returns>
+    Task<PermissionLevel?> GetHumanPermissionAsync(string humanId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Gets all human permission entries for this unit.
+    /// </summary>
+    /// <param name="ct">A token to cancel the operation.</param>
+    /// <returns>A read-only list of all human permission entries.</returns>
+    Task<IReadOnlyList<UnitPermissionEntry>> GetHumanPermissionsAsync(CancellationToken ct = default);
 }

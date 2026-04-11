@@ -89,4 +89,14 @@ public static class StateKeys
     /// State key for the human actor's notification preferences.
     /// </summary>
     public const string HumanNotificationPreferences = "Human:NotificationPreferences";
+
+    /// <summary>
+    /// State key for the human actor's unit-scoped permission map (unitId to PermissionLevel).
+    /// </summary>
+    public const string HumanUnitPermissions = "Human:UnitPermissions";
+
+    /// <summary>
+    /// State key for the unit actor's human permission entries (humanId to UnitPermissionEntry).
+    /// </summary>
+    public const string HumanPermissions = "Unit:HumanPermissions";
 }

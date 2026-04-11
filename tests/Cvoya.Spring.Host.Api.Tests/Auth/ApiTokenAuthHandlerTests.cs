@@ -8,6 +8,7 @@ using System.Net.Http.Headers;
 
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.State;
+using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
 using Cvoya.Spring.Dapr.Routing;
@@ -89,7 +90,8 @@ public class ApiTokenAuthHandlerTests : IDisposable
                     services.AddSingleton(sp =>
                     {
                         var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
-                        return new MessageRouter(directoryService, actorProxyFactory, loggerFactory);
+                        var permSvc = Substitute.For<IPermissionService>();
+                        return new MessageRouter(directoryService, actorProxyFactory, permSvc, loggerFactory);
                     });
                 });
             });

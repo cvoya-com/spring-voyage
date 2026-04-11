@@ -9,6 +9,7 @@ using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Dapr.Actors;
+using Cvoya.Spring.Dapr.Auth;
 
 using global::Dapr.Actors;
 using global::Dapr.Actors.Client;
@@ -23,6 +24,7 @@ using Microsoft.Extensions.Logging;
 public class MessageRouter(
     IDirectoryService directoryService,
     IActorProxyFactory actorProxyFactory,
+    IPermissionService permissionService,
     ILoggerFactory loggerFactory)
 {
     private readonly ILogger _logger = loggerFactory.CreateLogger<MessageRouter>();
@@ -62,6 +64,19 @@ public class MessageRouter(
         }
 
         var (actorId, actorScheme) = resolution.Value!;
+
+        // Permission check: if the destination is a unit and the sender is a human,
+        // verify the human has at least Viewer permission in the unit.
+        if (string.Equals(actorScheme, "unit", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(message.From.Scheme, "human", StringComparison.OrdinalIgnoreCase))
+        {
+            var permissionCheck = await CheckUnitPermissionAsync(
+                message.From.Path, actorId, PermissionLevel.Viewer, message.To, cancellationToken);
+            if (!permissionCheck.IsSuccess)
+            {
+                return Result<Message?, RoutingError>.Failure(permissionCheck.Error!);
+            }
+        }
 
         return await DeliverAsync(message, actorId, actorScheme, cancellationToken);
     }
@@ -139,6 +154,26 @@ public class MessageRouter(
             return Result<Message?, RoutingError>.Failure(
                 RoutingError.DeliveryFailed(message.To, ex.Message));
         }
+    }
+
+    /// <summary>
+    /// Checks that a human has at least the specified permission level in a unit.
+    /// </summary>
+    private async Task<Result<bool, RoutingError>> CheckUnitPermissionAsync(
+        string humanId, string unitId, PermissionLevel minimumLevel,
+        Address targetAddress, CancellationToken cancellationToken)
+    {
+        var permission = await permissionService.ResolvePermissionAsync(humanId, unitId, cancellationToken);
+
+        if (permission is null || permission.Value < minimumLevel)
+        {
+            _logger.LogWarning(
+                "Permission denied: human {HumanId} requires {Required} but has {Actual} in unit {UnitId}",
+                humanId, minimumLevel, permission?.ToString() ?? "none", unitId);
+            return Result<bool, RoutingError>.Failure(RoutingError.PermissionDenied(targetAddress));
+        }
+
+        return Result<bool, RoutingError>.Success(true);
     }
 
     /// <summary>

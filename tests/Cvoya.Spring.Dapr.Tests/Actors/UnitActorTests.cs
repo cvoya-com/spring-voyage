@@ -8,6 +8,7 @@ using System.Text.Json;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Dapr.Actors;
+using Cvoya.Spring.Dapr.Auth;
 
 using FluentAssertions;
 
@@ -341,5 +342,69 @@ public class UnitActorTests
         result.Should().NotBeNull();
         var payload = result!.Payload.Deserialize<JsonElement>();
         payload.GetProperty("Error").GetString().Should().Contain("Strategy failed");
+    }
+
+    // --- Human Permission Tests ---
+
+    [Fact]
+    public async Task SetHumanPermissionAsync_NewHuman_StoresPermissionEntry()
+    {
+        _stateManager.TryGetStateAsync<Dictionary<string, UnitPermissionEntry>>(
+            StateKeys.HumanPermissions, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<Dictionary<string, UnitPermissionEntry>>(false, default!));
+
+        var entry = new UnitPermissionEntry("human-1", PermissionLevel.Operator, "Alice", true);
+        await _actor.SetHumanPermissionAsync("human-1", entry, TestContext.Current.CancellationToken);
+
+        await _stateManager.Received(1).SetStateAsync(
+            StateKeys.HumanPermissions,
+            Arg.Is<Dictionary<string, UnitPermissionEntry>>(d =>
+                d.ContainsKey("human-1") && d["human-1"].Permission == PermissionLevel.Operator),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task GetHumanPermissionAsync_ExistingHuman_ReturnsPermissionLevel()
+    {
+        var permissions = new Dictionary<string, UnitPermissionEntry>
+        {
+            ["human-1"] = new("human-1", PermissionLevel.Owner, "Alice", true)
+        };
+        _stateManager.TryGetStateAsync<Dictionary<string, UnitPermissionEntry>>(
+            StateKeys.HumanPermissions, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<Dictionary<string, UnitPermissionEntry>>(true, permissions));
+
+        var result = await _actor.GetHumanPermissionAsync("human-1", TestContext.Current.CancellationToken);
+
+        result.Should().Be(PermissionLevel.Owner);
+    }
+
+    [Fact]
+    public async Task GetHumanPermissionAsync_NonExistentHuman_ReturnsNull()
+    {
+        _stateManager.TryGetStateAsync<Dictionary<string, UnitPermissionEntry>>(
+            StateKeys.HumanPermissions, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<Dictionary<string, UnitPermissionEntry>>(false, default!));
+
+        var result = await _actor.GetHumanPermissionAsync("unknown", TestContext.Current.CancellationToken);
+
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task GetHumanPermissionsAsync_MultipleHumans_ReturnsAllEntries()
+    {
+        var permissions = new Dictionary<string, UnitPermissionEntry>
+        {
+            ["human-1"] = new("human-1", PermissionLevel.Owner, "Alice", true),
+            ["human-2"] = new("human-2", PermissionLevel.Viewer, "Bob", false)
+        };
+        _stateManager.TryGetStateAsync<Dictionary<string, UnitPermissionEntry>>(
+            StateKeys.HumanPermissions, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<Dictionary<string, UnitPermissionEntry>>(true, permissions));
+
+        var result = await _actor.GetHumanPermissionsAsync(TestContext.Current.CancellationToken);
+
+        result.Should().HaveCount(2);
     }
 }

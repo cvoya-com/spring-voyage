@@ -8,6 +8,7 @@ using System.Text.Json;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Dapr.Actors;
+using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Routing;
 
 using FluentAssertions;
@@ -29,6 +30,7 @@ public class MessageRouterTests
 {
     private readonly IDirectoryService _directoryService = Substitute.For<IDirectoryService>();
     private readonly IActorProxyFactory _actorProxyFactory = Substitute.For<IActorProxyFactory>();
+    private readonly IPermissionService _permissionService = Substitute.For<IPermissionService>();
     private readonly ILoggerFactory _loggerFactory;
     private readonly MessageRouter _router;
 
@@ -36,7 +38,7 @@ public class MessageRouterTests
     {
         _loggerFactory = Substitute.For<ILoggerFactory>();
         _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
-        _router = new MessageRouter(_directoryService, _actorProxyFactory, _loggerFactory);
+        _router = new MessageRouter(_directoryService, _actorProxyFactory, _permissionService, _loggerFactory);
     }
 
     [Fact]
@@ -169,6 +171,89 @@ public class MessageRouterTests
         result.IsSuccess.Should().BeFalse();
         result.Error!.Code.Should().Be("DELIVERY_FAILED");
     }
+
+    // --- Permission Check Tests ---
+
+    [Fact]
+    public async Task RouteAsync_HumanToUnitWithPermission_Succeeds()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var destination = new Address("unit", "engineering-team");
+        var entry = new DirectoryEntry(destination, "unit-1", "Engineering", "Team", null, DateTimeOffset.UtcNow);
+        var message = CreateMessageFromHuman(destination, "human-1");
+        var expectedResponse = CreateResponse(message);
+
+        _directoryService.ResolveAsync(destination, Arg.Any<CancellationToken>()).Returns(entry);
+        _permissionService.ResolvePermissionAsync("human-1", "unit-1", Arg.Any<CancellationToken>())
+            .Returns(PermissionLevel.Operator);
+
+        var unitProxy = Substitute.For<IUnitActor>();
+        unitProxy.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>()).Returns(expectedResponse);
+
+        _actorProxyFactory.CreateActorProxy<IUnitActor>(
+            Arg.Any<ActorId>(),
+            Arg.Any<string>())
+            .Returns(unitProxy);
+
+        var result = await _router.RouteAsync(message, ct);
+
+        result.IsSuccess.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task RouteAsync_HumanToUnitWithoutPermission_ReturnsPermissionDenied()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var destination = new Address("unit", "engineering-team");
+        var entry = new DirectoryEntry(destination, "unit-1", "Engineering", "Team", null, DateTimeOffset.UtcNow);
+        var message = CreateMessageFromHuman(destination, "unauthorized-human");
+
+        _directoryService.ResolveAsync(destination, Arg.Any<CancellationToken>()).Returns(entry);
+        _permissionService.ResolvePermissionAsync("unauthorized-human", "unit-1", Arg.Any<CancellationToken>())
+            .Returns((PermissionLevel?)null);
+
+        var result = await _router.RouteAsync(message, ct);
+
+        result.IsSuccess.Should().BeFalse();
+        result.Error!.Code.Should().Be("PERMISSION_DENIED");
+    }
+
+    [Fact]
+    public async Task RouteAsync_AgentToUnit_SkipsPermissionCheck()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var destination = new Address("unit", "engineering-team");
+        var entry = new DirectoryEntry(destination, "unit-1", "Engineering", "Team", null, DateTimeOffset.UtcNow);
+        var message = CreateMessage(destination); // From agent, not human
+        var expectedResponse = CreateResponse(message);
+
+        _directoryService.ResolveAsync(destination, Arg.Any<CancellationToken>()).Returns(entry);
+
+        var unitProxy = Substitute.For<IUnitActor>();
+        unitProxy.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>()).Returns(expectedResponse);
+
+        _actorProxyFactory.CreateActorProxy<IUnitActor>(
+            Arg.Any<ActorId>(),
+            Arg.Any<string>())
+            .Returns(unitProxy);
+
+        var result = await _router.RouteAsync(message, ct);
+
+        result.IsSuccess.Should().BeTrue();
+        // Permission service should NOT have been called for agent-to-unit routing.
+        await _permissionService.DidNotReceive().ResolvePermissionAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    private static Message CreateMessageFromHuman(Address to, string humanId) =>
+        new(
+            Guid.NewGuid(),
+            new Address("human", humanId),
+            to,
+            MessageType.Domain,
+            Guid.NewGuid().ToString(),
+            JsonSerializer.SerializeToElement(new { Content = "hello" }),
+            DateTimeOffset.UtcNow);
 
     private static Message CreateMessage(Address to) =>
         new(

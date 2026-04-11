@@ -7,6 +7,7 @@ using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.State;
+using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
 using Cvoya.Spring.Dapr.Execution;
@@ -93,6 +94,9 @@ public static class ServiceCollectionExtensions
         // Observability
         services.AddSingleton<ActivityEventBus>();
         services.AddHostedService<ActivityEventPersister>();
+
+        // Auth
+        services.AddSingleton<IPermissionService, PermissionService>();
 
         return services;
     }

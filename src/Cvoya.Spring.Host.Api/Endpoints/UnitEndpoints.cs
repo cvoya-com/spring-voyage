@@ -7,8 +7,14 @@ using System.Text.Json;
 
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Dapr.Actors;
+using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Routing;
+using Cvoya.Spring.Host.Api.Auth;
 using Cvoya.Spring.Host.Api.Models;
+
+using global::Dapr.Actors;
+using global::Dapr.Actors.Client;
 
 /// <summary>
 /// Maps unit-related API endpoints.
@@ -48,6 +54,16 @@ public static class UnitEndpoints
         group.MapDelete("/{id}/members/{memberId}", RemoveMemberAsync)
             .WithName("RemoveMember")
             .WithSummary("Remove a member from a unit");
+
+        group.MapPatch("/{id}/humans/{humanId}/permissions", SetHumanPermissionAsync)
+            .WithName("SetHumanPermission")
+            .WithSummary("Set permission level for a human within a unit")
+            .RequireAuthorization(PermissionPolicies.UnitOwner);
+
+        group.MapGet("/{id}/humans", GetHumanPermissionsAsync)
+            .WithName("GetHumanPermissions")
+            .WithSummary("Get all human permissions for a unit")
+            .RequireAuthorization(PermissionPolicies.UnitViewer);
 
         return group;
     }
@@ -227,6 +243,69 @@ public static class UnitEndpoints
         }
 
         return Results.NoContent();
+    }
+
+    private static async Task<IResult> SetHumanPermissionAsync(
+        string id,
+        string humanId,
+        SetHumanPermissionRequest request,
+        IDirectoryService directoryService,
+        IActorProxyFactory actorProxyFactory,
+        CancellationToken cancellationToken)
+    {
+        var unitAddress = new Address("unit", id);
+        var entry = await directoryService.ResolveAsync(unitAddress, cancellationToken);
+
+        if (entry is null)
+        {
+            return Results.NotFound(new { Error = $"Unit '{id}' not found" });
+        }
+
+        if (!Enum.TryParse<PermissionLevel>(request.Permission, ignoreCase: true, out var permissionLevel))
+        {
+            return Results.BadRequest(new { Error = $"Invalid permission level: '{request.Permission}'" });
+        }
+
+        var permissionEntry = new UnitPermissionEntry(
+            humanId,
+            permissionLevel,
+            request.Identity,
+            request.Notifications ?? true);
+
+        var unitProxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
+            new ActorId(entry.ActorId), nameof(IUnitActor));
+
+        await unitProxy.SetHumanPermissionAsync(humanId, permissionEntry, cancellationToken);
+
+        // Also update the human actor's unit-scoped permission map.
+        var humanProxy = actorProxyFactory.CreateActorProxy<IHumanActor>(
+            new ActorId(humanId), nameof(IHumanActor));
+
+        await humanProxy.SetPermissionForUnitAsync(id, permissionLevel, cancellationToken);
+
+        return Results.Ok(new { HumanId = humanId, Permission = permissionLevel.ToString() });
+    }
+
+    private static async Task<IResult> GetHumanPermissionsAsync(
+        string id,
+        IDirectoryService directoryService,
+        IActorProxyFactory actorProxyFactory,
+        CancellationToken cancellationToken)
+    {
+        var unitAddress = new Address("unit", id);
+        var entry = await directoryService.ResolveAsync(unitAddress, cancellationToken);
+
+        if (entry is null)
+        {
+            return Results.NotFound(new { Error = $"Unit '{id}' not found" });
+        }
+
+        var unitProxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
+            new ActorId(entry.ActorId), nameof(IUnitActor));
+
+        var permissions = await unitProxy.GetHumanPermissionsAsync(cancellationToken);
+
+        return Results.Ok(permissions);
     }
 
     private static UnitResponse ToUnitResponse(DirectoryEntry entry) =>

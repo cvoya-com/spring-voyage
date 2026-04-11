@@ -9,6 +9,7 @@ using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Dapr.Actors;
+using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Routing;
 using Cvoya.Spring.Dapr.Tools;
 
@@ -38,7 +39,8 @@ public class RequestHelpToolTests
     public RequestHelpToolTests()
     {
         _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
-        var messageRouter = new MessageRouter(_directoryService, _actorProxyFactory, _loggerFactory);
+        var permissionService = Substitute.For<IPermissionService>();
+        var messageRouter = new MessageRouter(_directoryService, _actorProxyFactory, permissionService, _loggerFactory);
         _tool = new RequestHelpTool(messageRouter, _contextAccessor, _loggerFactory);
         _contextAccessor.Current = new ToolExecutionContext(
             new Address("agent", "test-agent"),

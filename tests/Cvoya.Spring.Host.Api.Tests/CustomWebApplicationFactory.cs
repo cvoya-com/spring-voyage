@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Host.Api.Tests;
 
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.State;
+using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Routing;
 
@@ -83,10 +84,23 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
             services.AddSingleton(Substitute.For<IStateStore>());
             services.AddSingleton(new DirectoryCache());
 
+            // Remove and re-register permission service.
+            var permDescriptors = services
+                .Where(d => d.ServiceType == typeof(IPermissionService))
+                .ToList();
+            foreach (var descriptor in permDescriptors)
+            {
+                services.Remove(descriptor);
+            }
+
+            var permissionService = Substitute.For<IPermissionService>();
+            services.AddSingleton(permissionService);
+
             services.AddSingleton(sp =>
             {
                 var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
-                return new MessageRouter(DirectoryService, ActorProxyFactory, loggerFactory);
+                var permSvc = sp.GetRequiredService<IPermissionService>();
+                return new MessageRouter(DirectoryService, ActorProxyFactory, permSvc, loggerFactory);
             });
         });
     }

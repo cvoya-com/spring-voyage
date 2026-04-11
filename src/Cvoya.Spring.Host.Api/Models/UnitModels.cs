@@ -34,3 +34,14 @@ public record UnitResponse(
 /// </summary>
 /// <param name="MemberAddress">The address of the member to add (e.g., agent://my-agent).</param>
 public record AddMemberRequest(AddressDto MemberAddress);
+
+/// <summary>
+/// Request body for setting a human's permission level within a unit.
+/// </summary>
+/// <param name="Permission">The permission level (Viewer, Operator, Owner).</param>
+/// <param name="Identity">An optional display name or identity string for the human.</param>
+/// <param name="Notifications">Whether this human receives notifications. Defaults to true.</param>
+public record SetHumanPermissionRequest(
+    string Permission,
+    string? Identity = null,
+    bool? Notifications = null);

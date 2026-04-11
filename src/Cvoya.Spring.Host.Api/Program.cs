@@ -1,11 +1,13 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
+using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.DependencyInjection;
 using Cvoya.Spring.Host.Api.Auth;
 using Cvoya.Spring.Host.Api.Endpoints;
 
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authorization;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -32,7 +34,9 @@ else
         .AddScheme<AuthenticationSchemeOptions, ApiTokenAuthHandler>(AuthConstants.ApiTokenScheme, null);
 }
 
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options => options.AddUnitPermissionPolicies());
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddSingleton<IAuthorizationHandler, PermissionHandler>();
 
 builder.Services.AddProblemDetails();
 builder.Services.AddEndpointsApiExplorer();

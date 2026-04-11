@@ -178,4 +178,50 @@ public class HumanActorTests
 
         permission.Should().Be(PermissionLevel.Viewer);
     }
+
+    // --- Unit-Scoped Permission Tests ---
+
+    [Fact]
+    public async Task SetPermissionForUnitAsync_StoresUnitPermission()
+    {
+        _stateManager.TryGetStateAsync<Dictionary<string, PermissionLevel>>(
+            StateKeys.HumanUnitPermissions, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<Dictionary<string, PermissionLevel>>(false, default!));
+
+        await _actor.SetPermissionForUnitAsync("unit-1", PermissionLevel.Operator, TestContext.Current.CancellationToken);
+
+        await _stateManager.Received(1).SetStateAsync(
+            StateKeys.HumanUnitPermissions,
+            Arg.Is<Dictionary<string, PermissionLevel>>(d =>
+                d.ContainsKey("unit-1") && d["unit-1"] == PermissionLevel.Operator),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task GetPermissionForUnitAsync_ExistingUnit_ReturnsPermission()
+    {
+        var unitPermissions = new Dictionary<string, PermissionLevel>
+        {
+            ["unit-1"] = PermissionLevel.Owner
+        };
+        _stateManager.TryGetStateAsync<Dictionary<string, PermissionLevel>>(
+            StateKeys.HumanUnitPermissions, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<Dictionary<string, PermissionLevel>>(true, unitPermissions));
+
+        var result = await _actor.GetPermissionForUnitAsync("unit-1", TestContext.Current.CancellationToken);
+
+        result.Should().Be(PermissionLevel.Owner);
+    }
+
+    [Fact]
+    public async Task GetPermissionForUnitAsync_NonExistentUnit_ReturnsNull()
+    {
+        _stateManager.TryGetStateAsync<Dictionary<string, PermissionLevel>>(
+            StateKeys.HumanUnitPermissions, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<Dictionary<string, PermissionLevel>>(false, default!));
+
+        var result = await _actor.GetPermissionForUnitAsync("unknown-unit", TestContext.Current.CancellationToken);
+
+        result.Should().BeNull();
+    }
 }

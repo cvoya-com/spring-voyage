@@ -8,6 +8,7 @@ using System.Text.Json;
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Orchestration;
+using Cvoya.Spring.Dapr.Auth;
 
 using global::Dapr.Actors.Runtime;
 
@@ -107,6 +108,43 @@ public class UnitActor : Actor, IUnitActor
     {
         var members = await GetMembersListAsync(ct);
         return members.AsReadOnly();
+    }
+
+    /// <inheritdoc />
+    public async Task SetHumanPermissionAsync(string humanId, UnitPermissionEntry entry, CancellationToken ct = default)
+    {
+        var permissions = await GetHumanPermissionsMapAsync(ct);
+        permissions[humanId] = entry;
+        await StateManager.SetStateAsync(StateKeys.HumanPermissions, permissions, ct);
+
+        _logger.LogInformation(
+            "Unit {ActorId} set permission for human {HumanId} to {Permission}",
+            Id.GetId(), humanId, entry.Permission);
+    }
+
+    /// <inheritdoc />
+    public async Task<PermissionLevel?> GetHumanPermissionAsync(string humanId, CancellationToken ct = default)
+    {
+        var permissions = await GetHumanPermissionsMapAsync(ct);
+        return permissions.TryGetValue(humanId, out var entry) ? entry.Permission : null;
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<UnitPermissionEntry>> GetHumanPermissionsAsync(CancellationToken ct = default)
+    {
+        var permissions = await GetHumanPermissionsMapAsync(ct);
+        return permissions.Values.ToList().AsReadOnly();
+    }
+
+    /// <summary>
+    /// Retrieves the human permissions map from state, returning an empty dictionary if none exists.
+    /// </summary>
+    private async Task<Dictionary<string, UnitPermissionEntry>> GetHumanPermissionsMapAsync(CancellationToken ct)
+    {
+        var result = await StateManager
+            .TryGetStateAsync<Dictionary<string, UnitPermissionEntry>>(StateKeys.HumanPermissions, ct);
+
+        return result.HasValue ? result.Value : [];
     }
 
     /// <summary>

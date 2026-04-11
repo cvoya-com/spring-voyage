@@ -73,6 +73,36 @@ public class HumanActor(ActorHost host, ILoggerFactory loggerFactory) : Actor(ho
         _logger.LogInformation("Human actor {ActorId} permission changed to {Permission}", Id.GetId(), level);
     }
 
+    /// <inheritdoc />
+    public async Task<PermissionLevel?> GetPermissionForUnitAsync(string unitId, CancellationToken cancellationToken = default)
+    {
+        var unitPermissions = await GetUnitPermissionsMapAsync(cancellationToken);
+        return unitPermissions.TryGetValue(unitId, out var level) ? level : null;
+    }
+
+    /// <inheritdoc />
+    public async Task SetPermissionForUnitAsync(string unitId, PermissionLevel level, CancellationToken cancellationToken = default)
+    {
+        var unitPermissions = await GetUnitPermissionsMapAsync(cancellationToken);
+        unitPermissions[unitId] = level;
+        await StateManager.SetStateAsync(StateKeys.HumanUnitPermissions, unitPermissions, cancellationToken);
+
+        _logger.LogInformation(
+            "Human actor {ActorId} permission for unit {UnitId} changed to {Permission}",
+            Id.GetId(), unitId, level);
+    }
+
+    /// <summary>
+    /// Retrieves the unit-scoped permissions map from state.
+    /// </summary>
+    private async Task<Dictionary<string, PermissionLevel>> GetUnitPermissionsMapAsync(CancellationToken cancellationToken)
+    {
+        var result = await StateManager
+            .TryGetStateAsync<Dictionary<string, PermissionLevel>>(StateKeys.HumanUnitPermissions, cancellationToken);
+
+        return result.HasValue ? result.Value : [];
+    }
+
     /// <summary>
     /// Handles a status query message by returning the current permission level and identity.
     /// </summary>
