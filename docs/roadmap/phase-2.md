@@ -16,10 +16,10 @@ Real-time visibility into what agents are doing, and support for multiple human 
 
 ## Remaining Work
 
-- [ ] Wire Rx.NET reactive pipeline end-to-end (#44) — [Observability](../architecture/observability.md)
-- [ ] Implement cost tracking aggregation service + API endpoints (#41) — [Observability](../architecture/observability.md)
-- [ ] Implement agent cloning lifecycle workflow + clone API (#43) — [Units & Agents](../architecture/units.md)
-- [ ] Implement SSE activity stream endpoint + activity query API (#42) — [Observability](../architecture/observability.md)
+- [ ] Wire Rx.NET reactive pipeline end-to-end (#44) — [Observability](../architecture/observability.md) (ActivityBus disconnect — not truly complete)
+- [x] Implement cost tracking aggregation service + API endpoints (#41) — [Observability](../architecture/observability.md)
+- [x] Implement agent cloning lifecycle workflow + clone API (#43) — [Units & Agents](../architecture/units.md)
+- [x] Implement SSE activity stream endpoint + activity query API (#42) — [Observability](../architecture/observability.md)
 - [ ] React/Next.js web dashboard (#8, in progress) — [CLI & Web](../architecture/cli-and-web.md)
 
 **Delivers:** Real-time observation of agent work, multi-human participation, elastic agent scaling.
