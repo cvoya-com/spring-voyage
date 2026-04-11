@@ -94,6 +94,12 @@ npm run build     # static export to out/
 npm test          # run component tests (Vitest)
 ```
 
+The dashboard calls the API host for data. Set `NEXT_PUBLIC_API_URL` to point at the running API:
+
+```bash
+NEXT_PUBLIC_API_URL=http://localhost:5000 npm run dev
+```
+
 **Stack:** Next.js 16, React 19, TypeScript 5.8, Tailwind CSS 4.1
 
 **Pages:**
