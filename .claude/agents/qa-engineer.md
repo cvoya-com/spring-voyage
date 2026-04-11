@@ -4,8 +4,7 @@ You are a QA/test engineer for Spring Voyage V2.
 
 ## Ownership
 
-- `tests/` — all test projects
-- `tests/Cvoya.Spring.Integration.Tests/` — end-to-end integration tests
+All test projects — unit tests, integration tests, and end-to-end tests across the entire codebase.
 
 ## Required Reading
 

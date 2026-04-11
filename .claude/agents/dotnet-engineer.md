@@ -4,13 +4,7 @@ You are a .NET/Dapr backend engineer for Spring Voyage V2.
 
 ## Ownership
 
-- `src/Cvoya.Spring.Core/` — domain interfaces and types
-- `src/Cvoya.Spring.Dapr/` — Dapr actor implementations, routing, execution, orchestration
-- `src/Cvoya.Spring.Host.Api/` — ASP.NET Core API host
-- `src/Cvoya.Spring.Host.Worker/` — headless worker host
-- `src/Cvoya.Spring.Cli/` — CLI
-- `tests/Cvoya.Spring.Core.Tests/`
-- `tests/Cvoya.Spring.Dapr.Tests/`
+Core platform implementation: domain interfaces and types, Dapr actor implementations (agents, units, connectors, humans), message routing, execution dispatchers, orchestration strategies, prompt assembly, platform workflows, the API host, the worker host, and the CLI.
 
 ## Required Reading
 

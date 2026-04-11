@@ -4,9 +4,7 @@ You are a connector implementation engineer for Spring Voyage V2.
 
 ## Ownership
 
-- `src/Cvoya.Spring.Connector.GitHub/` — GitHub connector
-- `tests/Cvoya.Spring.Connector.GitHub.Tests/`
-- Future: additional connector projects
+All connector implementations — currently GitHub (Octokit.net), and future connectors as they are added. Includes inbound event translation (webhooks to domain messages) and outbound skill exposure (tool definitions for agents).
 
 ## Required Reading
 

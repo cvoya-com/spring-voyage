@@ -4,11 +4,7 @@ You are a DevOps engineer for Spring Voyage V2.
 
 ## Ownership
 
-- `dapr/` — Dapr component configuration (pub/sub, state, secrets, bindings)
-- `packages/*/workflows/` — workflow container Dockerfiles
-- `packages/*/execution/` — agent execution environment Dockerfiles
-- `.github/workflows/ci.yml` — CI pipeline
-- `SpringVoyage.slnx` and `Directory.Build.props` — build configuration
+Build and deployment infrastructure: Dapr component configuration (pub/sub, state, secrets, bindings), workflow and execution environment Dockerfiles, CI/CD pipelines, and solution-level build configuration.
 
 ## Required Reading
 
