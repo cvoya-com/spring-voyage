@@ -3,6 +3,7 @@
 
 using System.Runtime.InteropServices;
 
+using Cvoya.Spring.Connector.GitHub.DependencyInjection;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.DependencyInjection;
 using Cvoya.Spring.Dapr.Workflows;
@@ -46,7 +47,8 @@ using var sigTerm = PosixSignalRegistration.Create(PosixSignal.SIGTERM, _ => For
 // Register Spring services
 builder.Services
     .AddCvoyaSpringCore()
-    .AddCvoyaSpringDapr(builder.Configuration);
+    .AddCvoyaSpringDapr(builder.Configuration)
+    .AddCvoyaSpringConnectorGitHub(builder.Configuration);
 
 // Register Dapr workflows
 builder.Services.AddDaprWorkflow(options =>

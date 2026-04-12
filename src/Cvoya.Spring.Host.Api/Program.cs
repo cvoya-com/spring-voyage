@@ -1,6 +1,7 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
+using Cvoya.Spring.Connector.GitHub.DependencyInjection;
 using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.DependencyInjection;
 using Cvoya.Spring.Host.Api.Auth;
@@ -21,7 +22,8 @@ if (isLocalDev)
 
 builder.Services
     .AddCvoyaSpringCore()
-    .AddCvoyaSpringDapr(builder.Configuration);
+    .AddCvoyaSpringDapr(builder.Configuration)
+    .AddCvoyaSpringConnectorGitHub(builder.Configuration);
 
 if (isLocalDev)
 {
