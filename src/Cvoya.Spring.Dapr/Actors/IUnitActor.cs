@@ -85,4 +85,30 @@ public interface IUnitActor : IActor
     /// <param name="ct">A token to cancel the operation.</param>
     /// <returns>A <see cref="TransitionResult"/> describing success or rejection.</returns>
     Task<TransitionResult> TransitionAsync(UnitStatus target, CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns the actor-owned portion of the unit's metadata. Only
+    /// <c>Model</c> and <c>Color</c> are persisted on the actor; DisplayName
+    /// and Description live on the directory entity and are always returned
+    /// as <c>null</c> here. The API endpoint merges both sources when
+    /// projecting a response.
+    /// </summary>
+    /// <param name="ct">A token to cancel the operation.</param>
+    /// <returns>The persisted metadata. Unset fields are <c>null</c>.</returns>
+    Task<UnitMetadata> GetMetadataAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Updates the actor-owned portion of the unit's metadata. Only
+    /// non-<c>null</c> fields are written — a <c>null</c> field leaves the
+    /// corresponding state key untouched, which makes this safe for partial
+    /// PATCH-style updates. <c>DisplayName</c> and <c>Description</c> on
+    /// the incoming <paramref name="metadata"/> are ignored by the actor
+    /// (they live on the directory entity); callers that need to update
+    /// those fields must do so through the directory service. Emits a
+    /// <c>StateChanged</c> activity event describing which fields were
+    /// written when at least one actor-owned field is non-<c>null</c>.
+    /// </summary>
+    /// <param name="metadata">The metadata to apply.</param>
+    /// <param name="ct">A token to cancel the operation.</param>
+    Task SetMetadataAsync(UnitMetadata metadata, CancellationToken ct = default);
 }

@@ -207,6 +207,67 @@ public class UnitActor : Actor, IUnitActor
         return new TransitionResult(true, target, null);
     }
 
+    /// <inheritdoc />
+    public async Task<UnitMetadata> GetMetadataAsync(CancellationToken ct = default)
+    {
+        var modelResult = await StateManager.TryGetStateAsync<string>(StateKeys.UnitModel, ct);
+        var colorResult = await StateManager.TryGetStateAsync<string>(StateKeys.UnitColor, ct);
+
+        // DisplayName and Description are persisted on the directory entity,
+        // not on the actor. See IUnitActor.GetMetadataAsync for the contract.
+        return new UnitMetadata(
+            DisplayName: null,
+            Description: null,
+            Model: modelResult.HasValue ? modelResult.Value : null,
+            Color: colorResult.HasValue ? colorResult.Value : null);
+    }
+
+    /// <inheritdoc />
+    public async Task SetMetadataAsync(UnitMetadata metadata, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(metadata);
+
+        var writtenFields = new List<string>();
+
+        if (metadata.Model is not null)
+        {
+            await StateManager.SetStateAsync(StateKeys.UnitModel, metadata.Model, ct);
+            writtenFields.Add(nameof(metadata.Model));
+        }
+
+        if (metadata.Color is not null)
+        {
+            await StateManager.SetStateAsync(StateKeys.UnitColor, metadata.Color, ct);
+            writtenFields.Add(nameof(metadata.Color));
+        }
+
+        // DisplayName and Description are deliberately not persisted here; the
+        // directory entity is the source of truth. We still allow callers to
+        // pass them so higher layers can share a single metadata record.
+        if (writtenFields.Count == 0)
+        {
+            _logger.LogDebug(
+                "Unit {ActorId} SetMetadataAsync called with no actor-owned fields; nothing persisted.",
+                Id.GetId());
+            return;
+        }
+
+        _logger.LogInformation(
+            "Unit {ActorId} metadata updated. Fields: {Fields}",
+            Id.GetId(), string.Join(",", writtenFields));
+
+        await EmitActivityEventAsync(ActivityEventType.StateChanged,
+            $"Unit metadata updated: {string.Join(", ", writtenFields)}",
+            ct,
+            details: JsonSerializer.SerializeToElement(new
+            {
+                action = "MetadataUpdated",
+                fields = writtenFields,
+                model = metadata.Model,
+                color = metadata.Color
+            }));
+    }
+
     /// <summary>
     /// Reads the persisted lifecycle status, defaulting to <see cref="UnitStatus.Draft"/> when unset.
     /// </summary>

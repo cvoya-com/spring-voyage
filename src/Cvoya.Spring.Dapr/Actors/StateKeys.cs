@@ -144,4 +144,16 @@ public static class StateKeys
     /// State key for the unit's lifecycle status.
     /// </summary>
     public const string UnitStatus = "Unit:Status";
+
+    /// <summary>
+    /// State key for the unit's model hint (e.g., default LLM identifier).
+    /// Surfaced through <see cref="Core.Units.UnitMetadata"/>.
+    /// </summary>
+    public const string UnitModel = "Unit:Model";
+
+    /// <summary>
+    /// State key for the unit's UI color hint.
+    /// Surfaced through <see cref="Core.Units.UnitMetadata"/>.
+    /// </summary>
+    public const string UnitColor = "Unit:Color";
 }

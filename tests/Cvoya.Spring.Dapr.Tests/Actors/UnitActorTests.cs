@@ -682,4 +682,126 @@ public class UnitActorTests
         var payload = result!.Payload.Deserialize<JsonElement>();
         payload.GetProperty("Status").GetString().Should().Be("Running");
     }
+
+    // --- Metadata Tests ---
+
+    [Fact]
+    public async Task GetMetadataAsync_ReturnsDefaults_WhenNoStateSet()
+    {
+        _stateManager.TryGetStateAsync<string>(StateKeys.UnitModel, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<string>(false, default!));
+        _stateManager.TryGetStateAsync<string>(StateKeys.UnitColor, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<string>(false, default!));
+
+        var metadata = await _actor.GetMetadataAsync(TestContext.Current.CancellationToken);
+
+        metadata.Should().NotBeNull();
+        metadata.DisplayName.Should().BeNull();
+        metadata.Description.Should().BeNull();
+        metadata.Model.Should().BeNull();
+        metadata.Color.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task GetMetadataAsync_ReturnsPersistedModelAndColor()
+    {
+        _stateManager.TryGetStateAsync<string>(StateKeys.UnitModel, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<string>(true, "gpt-4o"));
+        _stateManager.TryGetStateAsync<string>(StateKeys.UnitColor, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<string>(true, "#ff8800"));
+
+        var metadata = await _actor.GetMetadataAsync(TestContext.Current.CancellationToken);
+
+        metadata.Model.Should().Be("gpt-4o");
+        metadata.Color.Should().Be("#ff8800");
+        // DisplayName and Description live on the directory entity, not the actor.
+        metadata.DisplayName.Should().BeNull();
+        metadata.Description.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task SetMetadataAsync_PersistsNonNullFields_OnlyWritesDirtyKeys()
+    {
+        var metadata = new UnitMetadata(
+            DisplayName: null,
+            Description: null,
+            Model: "claude-opus-4",
+            Color: null);
+
+        await _actor.SetMetadataAsync(metadata, TestContext.Current.CancellationToken);
+
+        // Model was provided -> written.
+        await _stateManager.Received(1).SetStateAsync(
+            StateKeys.UnitModel,
+            "claude-opus-4",
+            Arg.Any<CancellationToken>());
+
+        // Color was null -> must not touch that state key.
+        await _stateManager.DidNotReceive().SetStateAsync(
+            StateKeys.UnitColor,
+            Arg.Any<string>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SetMetadataAsync_AllNullFields_WritesNothingAndEmitsNoEvent()
+    {
+        _activityEventBus.ClearReceivedCalls();
+
+        var metadata = new UnitMetadata(null, null, null, null);
+
+        await _actor.SetMetadataAsync(metadata, TestContext.Current.CancellationToken);
+
+        await _stateManager.DidNotReceive().SetStateAsync(
+            StateKeys.UnitModel,
+            Arg.Any<string>(),
+            Arg.Any<CancellationToken>());
+        await _stateManager.DidNotReceive().SetStateAsync(
+            StateKeys.UnitColor,
+            Arg.Any<string>(),
+            Arg.Any<CancellationToken>());
+
+        await _activityEventBus.DidNotReceive().PublishAsync(
+            Arg.Any<ActivityEvent>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SetMetadataAsync_EmitsStateChanged()
+    {
+        _activityEventBus.ClearReceivedCalls();
+
+        var metadata = new UnitMetadata(null, null, "claude-opus-4", "#336699");
+
+        await _actor.SetMetadataAsync(metadata, TestContext.Current.CancellationToken);
+
+        await _activityEventBus.Received(1).PublishAsync(
+            Arg.Is<ActivityEvent>(e =>
+                e.EventType == ActivityEventType.StateChanged &&
+                e.Summary.Contains("metadata")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SetMetadataAsync_IgnoresDisplayNameAndDescription()
+    {
+        var metadata = new UnitMetadata(
+            DisplayName: "Platform Team",
+            Description: "Runs the ship",
+            Model: null,
+            Color: null);
+
+        await _actor.SetMetadataAsync(metadata, TestContext.Current.CancellationToken);
+
+        // DisplayName/Description live on the directory entity; the actor
+        // must not write them to state.
+        await _stateManager.DidNotReceive().SetStateAsync(
+            StateKeys.UnitModel,
+            Arg.Any<string>(),
+            Arg.Any<CancellationToken>());
+        await _stateManager.DidNotReceive().SetStateAsync(
+            StateKeys.UnitColor,
+            Arg.Any<string>(),
+            Arg.Any<CancellationToken>());
+    }
 }

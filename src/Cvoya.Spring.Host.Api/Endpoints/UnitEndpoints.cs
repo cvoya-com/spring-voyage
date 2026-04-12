@@ -47,6 +47,10 @@ public static class UnitEndpoints
             .WithName("CreateUnit")
             .WithSummary("Create a new unit");
 
+        group.MapPatch("/{id}", UpdateUnitAsync)
+            .WithName("UpdateUnit")
+            .WithSummary("Update mutable unit metadata (displayName, description, model, color)");
+
         group.MapDelete("/{id}", DeleteUnitAsync)
             .WithName("DeleteUnit")
             .WithSummary("Delete a unit");
@@ -113,6 +117,7 @@ public static class UnitEndpoints
         }
 
         var status = await TryGetUnitStatusAsync(actorProxyFactory, entry.ActorId, logger, id, cancellationToken);
+        var metadata = await TryGetUnitMetadataAsync(actorProxyFactory, entry.ActorId, logger, id, cancellationToken);
 
         // Send a StatusQuery to get unit details including members.
         var statusQuery = new Message(
@@ -128,12 +133,12 @@ public static class UnitEndpoints
 
         if (!result.IsSuccess)
         {
-            return Results.Ok(ToUnitResponse(entry, status));
+            return Results.Ok(ToUnitResponse(entry, status, metadata));
         }
 
         return Results.Ok(new
         {
-            Unit = ToUnitResponse(entry, status),
+            Unit = ToUnitResponse(entry, status, metadata),
             Details = result.Value?.Payload
         });
     }
@@ -163,9 +168,35 @@ public static class UnitEndpoints
         }
     }
 
+    private static async Task<UnitMetadata> TryGetUnitMetadataAsync(
+        IActorProxyFactory actorProxyFactory,
+        string actorId,
+        ILogger logger,
+        string unitId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
+                new ActorId(actorId), nameof(IUnitActor));
+            return await proxy.GetMetadataAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            // Non-fatal: a fresh unit may not have any metadata persisted yet,
+            // or the actor may be transiently unreachable. Returning an empty
+            // record keeps the read path working but the failure must be visible.
+            logger.LogWarning(ex,
+                "Failed to read persisted metadata for unit {UnitId}; reporting empty metadata.",
+                unitId);
+            return new UnitMetadata(null, null, null, null);
+        }
+    }
+
     private static async Task<IResult> CreateUnitAsync(
         CreateUnitRequest request,
-        IDirectoryService directoryService,
+        [FromServices] IDirectoryService directoryService,
+        [FromServices] IActorProxyFactory actorProxyFactory,
         CancellationToken cancellationToken)
     {
         var actorId = Guid.NewGuid().ToString();
@@ -180,7 +211,65 @@ public static class UnitEndpoints
 
         await directoryService.RegisterAsync(entry, cancellationToken);
 
-        return Results.Created($"/api/v1/units/{request.Name}", ToUnitResponse(entry));
+        // DisplayName/Description live on the directory entity; only forward
+        // the actor-owned fields (Model, Color) to avoid a double-write.
+        var metadata = new UnitMetadata(
+            DisplayName: null,
+            Description: null,
+            Model: request.Model,
+            Color: request.Color);
+
+        if (metadata.Model is not null || metadata.Color is not null)
+        {
+            var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
+                new ActorId(actorId), nameof(IUnitActor));
+
+            await proxy.SetMetadataAsync(metadata, cancellationToken);
+        }
+
+        return Results.Created(
+            $"/api/v1/units/{request.Name}",
+            ToUnitResponse(entry, UnitStatus.Draft, metadata));
+    }
+
+    private static async Task<IResult> UpdateUnitAsync(
+        string id,
+        UpdateUnitRequest request,
+        [FromServices] IDirectoryService directoryService,
+        [FromServices] IActorProxyFactory actorProxyFactory,
+        [FromServices] ILoggerFactory loggerFactory,
+        CancellationToken cancellationToken)
+    {
+        var logger = loggerFactory.CreateLogger("Cvoya.Spring.Host.Api.Endpoints.UnitEndpoints");
+
+        var address = new Address("unit", id);
+        var entry = await directoryService.ResolveAsync(address, cancellationToken);
+
+        if (entry is null)
+        {
+            return Results.NotFound(new { Error = $"Unit '{id}' not found" });
+        }
+
+        var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
+            new ActorId(entry.ActorId), nameof(IUnitActor));
+
+        // Forward the actor-owned subset of the metadata. DisplayName and
+        // Description live on the directory entity; the PATCH endpoint
+        // currently only updates actor-owned fields on the directory side.
+        // (DisplayName/Description edits on the directory are a follow-up —
+        // see UnitMetadata docs.)
+        var metadata = new UnitMetadata(
+            DisplayName: request.DisplayName,
+            Description: request.Description,
+            Model: request.Model,
+            Color: request.Color);
+
+        await proxy.SetMetadataAsync(metadata, cancellationToken);
+
+        var status = await TryGetUnitStatusAsync(actorProxyFactory, entry.ActorId, logger, id, cancellationToken);
+        var updatedMetadata = await TryGetUnitMetadataAsync(actorProxyFactory, entry.ActorId, logger, id, cancellationToken);
+
+        return Results.Ok(ToUnitResponse(entry, status, updatedMetadata));
     }
 
     private static async Task<IResult> DeleteUnitAsync(
@@ -499,12 +588,17 @@ public static class UnitEndpoints
         return Results.Ok(permissions);
     }
 
-    private static UnitResponse ToUnitResponse(DirectoryEntry entry, UnitStatus status = UnitStatus.Draft) =>
+    private static UnitResponse ToUnitResponse(
+        DirectoryEntry entry,
+        UnitStatus status = UnitStatus.Draft,
+        UnitMetadata? metadata = null) =>
         new(
             entry.ActorId,
             entry.Address.Path,
             entry.DisplayName,
             entry.Description,
             entry.RegisteredAt,
-            status);
+            status,
+            metadata?.Model,
+            metadata?.Color);
 }

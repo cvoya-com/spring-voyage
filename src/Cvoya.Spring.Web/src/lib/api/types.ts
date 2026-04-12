@@ -87,6 +87,9 @@ export interface UnitResponse {
   displayName: string;
   description: string;
   registeredAt: string;
+  status?: string;
+  model?: string | null;
+  color?: string | null;
 }
 
 /** GET /api/v1/units/{id} full response with details. */
