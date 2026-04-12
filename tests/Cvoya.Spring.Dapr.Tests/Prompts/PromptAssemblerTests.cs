@@ -60,7 +60,7 @@ public class PromptAssemblerTests
     public async Task AssembleAsync_IncludesAllFourLayersInOrder()
     {
         var message = CreateMessage();
-        _assembler.Context = new PromptAssemblyContext(
+        var context = new PromptAssemblyContext(
             Members: [new Address("agent", "team/alice")],
             Policies: JsonSerializer.SerializeToElement(new { maxRetries = 3 }),
             Skills: [new Skill("review", "Code review", [])],
@@ -68,7 +68,7 @@ public class PromptAssemblerTests
             LastCheckpoint: "checkpoint-1",
             AgentInstructions: "You are a code reviewer.");
 
-        var result = await _assembler.AssembleAsync(message, TestContext.Current.CancellationToken);
+        var result = await _assembler.AssembleAsync(message, context, TestContext.Current.CancellationToken);
 
         result.Should().Contain("## Platform Instructions");
         result.Should().Contain("## Unit Context");
@@ -93,7 +93,7 @@ public class PromptAssemblerTests
     public async Task AssembleAsync_OmitsEmptyLayersGracefully()
     {
         var message = CreateMessage();
-        _assembler.Context = new PromptAssemblyContext(
+        var context = new PromptAssemblyContext(
             Members: [],
             Policies: null,
             Skills: null,
@@ -101,7 +101,23 @@ public class PromptAssemblerTests
             LastCheckpoint: null,
             AgentInstructions: null);
 
-        var result = await _assembler.AssembleAsync(message, TestContext.Current.CancellationToken);
+        var result = await _assembler.AssembleAsync(message, context, TestContext.Current.CancellationToken);
+
+        result.Should().Contain("## Platform Instructions");
+        result.Should().NotContain("## Unit Context");
+        result.Should().NotContain("## Conversation Context");
+        result.Should().NotContain("## Agent Instructions");
+    }
+
+    /// <summary>
+    /// Verifies that calling with no context at all produces just the platform layer.
+    /// </summary>
+    [Fact]
+    public async Task AssembleAsync_NullContext_OnlyPlatformLayer()
+    {
+        var message = CreateMessage();
+
+        var result = await _assembler.AssembleAsync(message, context: null, TestContext.Current.CancellationToken);
 
         result.Should().Contain("## Platform Instructions");
         result.Should().NotContain("## Unit Context");
@@ -116,7 +132,7 @@ public class PromptAssemblerTests
     public async Task AssembleAsync_IncludesSkillDescriptionsInUnitContext()
     {
         var message = CreateMessage();
-        _assembler.Context = new PromptAssemblyContext(
+        var context = new PromptAssemblyContext(
             Members: [],
             Policies: null,
             Skills: [new Skill("deploy", "Deploys services", [
@@ -126,7 +142,7 @@ public class PromptAssemblerTests
             LastCheckpoint: null,
             AgentInstructions: null);
 
-        var result = await _assembler.AssembleAsync(message, TestContext.Current.CancellationToken);
+        var result = await _assembler.AssembleAsync(message, context, TestContext.Current.CancellationToken);
 
         result.Should().Contain("## Unit Context");
         result.Should().Contain("deploy");

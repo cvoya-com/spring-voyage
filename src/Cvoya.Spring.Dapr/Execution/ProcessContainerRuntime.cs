@@ -140,6 +140,19 @@ public class ProcessContainerRuntime(
             }
         }
 
+        if (config.ExtraHosts is not null)
+        {
+            foreach (var host in config.ExtraHosts)
+            {
+                args.Append($" --add-host={host}");
+            }
+        }
+
+        if (!string.IsNullOrEmpty(config.WorkingDirectory))
+        {
+            args.Append($" -w {config.WorkingDirectory}");
+        }
+
         args.Append($" {config.Image}");
 
         if (config.Command is not null)

@@ -5,23 +5,177 @@ namespace Cvoya.Spring.Connector.GitHub;
 
 using System.Text.Json;
 
+using Cvoya.Spring.Connector.GitHub.Skills;
 using Cvoya.Spring.Core.Skills;
 
+using Microsoft.Extensions.Logging;
+
+using Octokit;
+
 /// <summary>
-/// Registers all GitHub connector skills and provides their tool definitions
-/// for discovery by agents.
+/// Registers all GitHub connector tool definitions and invokes them by name,
+/// authenticating the underlying <see cref="IGitHubClient"/> lazily per call via
+/// <see cref="GitHubConnector.CreateAuthenticatedClientAsync"/>. Implements
+/// <see cref="ISkillRegistry"/> so the MCP server (and any future planner) can
+/// discover and dispatch GitHub tools through a single abstraction.
 /// </summary>
-public class GitHubSkillRegistry
+public class GitHubSkillRegistry : ISkillRegistry
 {
-    private readonly List<ToolDefinition> _tools;
+    private readonly GitHubConnector _connector;
+    private readonly ILoggerFactory _loggerFactory;
+    private readonly ILogger _logger;
+    private readonly IReadOnlyList<ToolDefinition> _tools;
+    private readonly Dictionary<string, Func<IGitHubClient, JsonElement, CancellationToken, Task<JsonElement>>> _dispatchers;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="GitHubSkillRegistry"/> class
-    /// with all GitHub tool definitions pre-registered.
+    /// Initializes the registry with the GitHub connector used to authenticate
+    /// outbound Octokit calls and a logger factory for per-skill loggers.
     /// </summary>
-    public GitHubSkillRegistry()
+    public GitHubSkillRegistry(GitHubConnector connector, ILoggerFactory loggerFactory)
     {
-        _tools =
+        _connector = connector;
+        _loggerFactory = loggerFactory;
+        _logger = loggerFactory.CreateLogger<GitHubSkillRegistry>();
+
+        _tools = BuildToolDefinitions();
+        _dispatchers = BuildDispatchers();
+    }
+
+    /// <inheritdoc />
+    public string Name => "github";
+
+    /// <inheritdoc />
+    public IReadOnlyList<ToolDefinition> GetToolDefinitions() => _tools;
+
+    /// <inheritdoc />
+    public async Task<JsonElement> InvokeAsync(
+        string toolName,
+        JsonElement arguments,
+        CancellationToken cancellationToken = default)
+    {
+        if (!_dispatchers.TryGetValue(toolName, out var dispatch))
+        {
+            throw new SkillNotFoundException(toolName);
+        }
+
+        _logger.LogInformation("Invoking GitHub skill {ToolName}", toolName);
+        var client = await _connector.CreateAuthenticatedClientAsync(cancellationToken);
+        return await dispatch(client, arguments, cancellationToken);
+    }
+
+    private Dictionary<string, Func<IGitHubClient, JsonElement, CancellationToken, Task<JsonElement>>> BuildDispatchers()
+    {
+        return new Dictionary<string, Func<IGitHubClient, JsonElement, CancellationToken, Task<JsonElement>>>(StringComparer.Ordinal)
+        {
+            ["github_create_branch"] = (client, args, ct) =>
+                new CreateBranchSkill(client, _loggerFactory).ExecuteAsync(
+                    GetString(args, "owner"),
+                    GetString(args, "repo"),
+                    GetString(args, "branchName"),
+                    GetString(args, "fromRef"),
+                    ct),
+
+            ["github_create_pull_request"] = (client, args, ct) =>
+                new CreatePullRequestSkill(client, _loggerFactory).ExecuteAsync(
+                    GetString(args, "owner"),
+                    GetString(args, "repo"),
+                    GetString(args, "title"),
+                    GetString(args, "body"),
+                    GetString(args, "head"),
+                    GetString(args, "base"),
+                    ct),
+
+            ["github_comment"] = (client, args, ct) =>
+                new CommentSkill(client, _loggerFactory).ExecuteAsync(
+                    GetString(args, "owner"),
+                    GetString(args, "repo"),
+                    GetInt(args, "number"),
+                    GetString(args, "body"),
+                    ct),
+
+            ["github_read_file"] = (client, args, ct) =>
+                new ReadFileSkill(client, _loggerFactory).ExecuteAsync(
+                    GetString(args, "owner"),
+                    GetString(args, "repo"),
+                    GetString(args, "path"),
+                    GetOptionalString(args, "ref"),
+                    ct),
+
+            ["github_list_files"] = (client, args, ct) =>
+                new ListFilesSkill(client, _loggerFactory).ExecuteAsync(
+                    GetString(args, "owner"),
+                    GetString(args, "repo"),
+                    GetString(args, "path"),
+                    GetOptionalString(args, "ref"),
+                    ct),
+
+            ["github_get_issue_details"] = (client, args, ct) =>
+                new GetIssueDetailsSkill(client, _loggerFactory).ExecuteAsync(
+                    GetString(args, "owner"),
+                    GetString(args, "repo"),
+                    GetInt(args, "number"),
+                    ct),
+
+            ["github_get_pull_request_diff"] = (client, args, ct) =>
+                new GetPullRequestDiffSkill(client, _loggerFactory).ExecuteAsync(
+                    GetString(args, "owner"),
+                    GetString(args, "repo"),
+                    GetInt(args, "number"),
+                    ct),
+
+            ["github_manage_labels"] = (client, args, ct) =>
+                new ManageLabelsSkill(client, _loggerFactory).ExecuteAsync(
+                    GetString(args, "owner"),
+                    GetString(args, "repo"),
+                    GetInt(args, "number"),
+                    GetStringArray(args, "labelsToAdd"),
+                    GetStringArray(args, "labelsToRemove"),
+                    ct),
+        };
+    }
+
+    private static string GetString(JsonElement args, string name)
+    {
+        if (!args.TryGetProperty(name, out var prop) || prop.ValueKind != JsonValueKind.String)
+        {
+            throw new ArgumentException($"Missing or non-string argument '{name}'.");
+        }
+        return prop.GetString()!;
+    }
+
+    private static string? GetOptionalString(JsonElement args, string name)
+    {
+        if (!args.TryGetProperty(name, out var prop) || prop.ValueKind == JsonValueKind.Null)
+        {
+            return null;
+        }
+        return prop.ValueKind == JsonValueKind.String ? prop.GetString() : null;
+    }
+
+    private static int GetInt(JsonElement args, string name)
+    {
+        if (!args.TryGetProperty(name, out var prop) || prop.ValueKind != JsonValueKind.Number)
+        {
+            throw new ArgumentException($"Missing or non-integer argument '{name}'.");
+        }
+        return prop.GetInt32();
+    }
+
+    private static string[] GetStringArray(JsonElement args, string name)
+    {
+        if (!args.TryGetProperty(name, out var prop) || prop.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+        return prop.EnumerateArray()
+            .Where(e => e.ValueKind == JsonValueKind.String)
+            .Select(e => e.GetString()!)
+            .ToArray();
+    }
+
+    private static IReadOnlyList<ToolDefinition> BuildToolDefinitions()
+    {
+        return
         [
             CreateToolDefinition(
                 "github_create_branch",
@@ -153,12 +307,6 @@ public class GitHubSkillRegistry
                 })
         ];
     }
-
-    /// <summary>
-    /// Gets all registered GitHub tool definitions.
-    /// </summary>
-    /// <returns>A read-only list of tool definitions.</returns>
-    public IReadOnlyList<ToolDefinition> GetToolDefinitions() => _tools.AsReadOnly();
 
     private static ToolDefinition CreateToolDefinition(string name, string description, object schema)
     {

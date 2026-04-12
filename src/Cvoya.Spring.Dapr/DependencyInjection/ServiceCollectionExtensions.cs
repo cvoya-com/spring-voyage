@@ -18,6 +18,7 @@ using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
 using Cvoya.Spring.Dapr.Execution;
 using Cvoya.Spring.Dapr.Initiative;
+using Cvoya.Spring.Dapr.Mcp;
 using Cvoya.Spring.Dapr.Observability;
 using Cvoya.Spring.Dapr.Orchestration;
 using Cvoya.Spring.Dapr.Prompts;
@@ -94,6 +95,16 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ContainerLifecycleManager>();
         services.TryAddSingleton<IUnitContainerLifecycle, UnitContainerLifecycle>();
         services.AddSingleton<IExecutionDispatcher, DelegatedExecutionDispatcher>();
+
+        // Agent definition + tool launchers used by DelegatedExecutionDispatcher.
+        services.TryAddSingleton<IAgentDefinitionProvider, DbAgentDefinitionProvider>();
+        services.AddSingleton<IAgentToolLauncher, ClaudeCodeLauncher>();
+
+        // In-process MCP server (hosted service — started automatically by the host).
+        services.AddOptions<McpServerOptions>().BindConfiguration(McpServerOptions.SectionName);
+        services.TryAddSingleton<McpServer>();
+        services.TryAddSingleton<IMcpServer>(sp => sp.GetRequiredService<McpServer>());
+        services.AddHostedService(sp => sp.GetRequiredService<McpServer>());
 
         // Initiative — use TryAdd so the private repo can override any implementation.
         services.TryAddSingleton<ICancellationManager, CancellationManager>();

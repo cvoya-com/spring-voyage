@@ -46,7 +46,7 @@ public class MessageRouter(
     /// <param name="message">The message to route.</param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     /// <returns>A result containing the actor's response or a routing error.</returns>
-    public async Task<Result<Message?, RoutingError>> RouteAsync(Message message, CancellationToken cancellationToken = default)
+    public virtual async Task<Result<Message?, RoutingError>> RouteAsync(Message message, CancellationToken cancellationToken = default)
     {
         var destination = message.To;
 

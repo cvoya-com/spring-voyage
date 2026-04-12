@@ -37,6 +37,8 @@ public interface IContainerRuntime
 /// <param name="DaprEnabled">Whether to attach a Dapr sidecar to this container.</param>
 /// <param name="DaprAppId">The app-id for the Dapr sidecar.</param>
 /// <param name="DaprAppPort">The port the app listens on for Dapr to call.</param>
+/// <param name="ExtraHosts">Additional <c>host:IP</c> entries to add to the container's <c>/etc/hosts</c>. Used to expose the MCP server to Linux containers via <c>host.docker.internal:host-gateway</c>.</param>
+/// <param name="WorkingDirectory">Optional working directory inside the container.</param>
 public record ContainerConfig(
     string Image,
     string? Command = null,
@@ -47,7 +49,9 @@ public record ContainerConfig(
     IReadOnlyDictionary<string, string>? Labels = null,
     bool DaprEnabled = false,
     string? DaprAppId = null,
-    int? DaprAppPort = null);
+    int? DaprAppPort = null,
+    IReadOnlyList<string>? ExtraHosts = null,
+    string? WorkingDirectory = null);
 
 /// <summary>
 /// Result of a container execution.

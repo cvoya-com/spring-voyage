@@ -17,7 +17,15 @@ public interface IExecutionDispatcher
     /// Dispatches a message for execution by an external agent runtime.
     /// </summary>
     /// <param name="message">The message containing the work to dispatch.</param>
+    /// <param name="context">
+    /// The prompt-assembly context (unit members, policies, skills, prior messages,
+    /// agent instructions) the caller has already assembled. May be <c>null</c>
+    /// when the dispatcher should render only the platform prompt layer.
+    /// </param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
-    /// <returns>An optional response message.</returns>
-    Task<Message?> DispatchAsync(Message message, CancellationToken cancellationToken = default);
+    /// <returns>An optional response message to route back to the sender.</returns>
+    Task<Message?> DispatchAsync(
+        Message message,
+        PromptAssemblyContext? context,
+        CancellationToken cancellationToken = default);
 }

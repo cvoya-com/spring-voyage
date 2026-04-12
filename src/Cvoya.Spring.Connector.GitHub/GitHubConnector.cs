@@ -8,7 +8,6 @@ using System.Text.Json;
 using Cvoya.Spring.Connector.GitHub.Auth;
 using Cvoya.Spring.Connector.GitHub.Webhooks;
 using Cvoya.Spring.Core.Messaging;
-using Cvoya.Spring.Core.Skills;
 
 using Microsoft.Extensions.Logging;
 
@@ -16,12 +15,13 @@ using Octokit;
 
 /// <summary>
 /// The GitHub connector translates inbound webhook events into domain messages
-/// and provides outbound skills for interacting with the GitHub API.
+/// and authenticates outbound GitHub API calls. Tool discovery and invocation
+/// live on <see cref="GitHubSkillRegistry"/> (which uses this connector to
+/// authenticate).
 /// </summary>
 public class GitHubConnector(
     GitHubAppAuth auth,
     GitHubWebhookHandler webhookHandler,
-    GitHubSkillRegistry skillRegistry,
     GitHubConnectorOptions options,
     ILoggerFactory loggerFactory)
 {
@@ -31,11 +31,6 @@ public class GitHubConnector(
     /// Gets the webhook handler for processing inbound GitHub events.
     /// </summary>
     public GitHubWebhookHandler WebhookHandler => webhookHandler;
-
-    /// <summary>
-    /// Gets the skill registry containing all available GitHub tool definitions.
-    /// </summary>
-    public GitHubSkillRegistry SkillRegistry => skillRegistry;
 
     /// <summary>
     /// Gets the authentication handler for GitHub App operations.
@@ -83,10 +78,4 @@ public class GitHubConnector(
 
         return client;
     }
-
-    /// <summary>
-    /// Gets all tool definitions provided by the GitHub connector.
-    /// </summary>
-    /// <returns>A read-only list of tool definitions.</returns>
-    public IReadOnlyList<ToolDefinition> GetToolDefinitions() => skillRegistry.GetToolDefinitions();
 }
