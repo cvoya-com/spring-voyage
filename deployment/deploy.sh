@@ -140,10 +140,20 @@ start_web() {
 }
 
 start_caddy() {
-    local caddyfile="${SCRIPT_DIR}/Caddyfile"
+    # SPRING_CADDYFILE selects which Caddyfile variant to mount. Default is
+    # the single-host path-routed "Caddyfile"; set to "Caddyfile.multi-host"
+    # for per-service hostnames. Absolute paths are also accepted.
+    local caddyfile_name="${SPRING_CADDYFILE:-Caddyfile}"
+    local caddyfile
+    if [[ "${caddyfile_name}" == /* ]]; then
+        caddyfile="${caddyfile_name}"
+    else
+        caddyfile="${SCRIPT_DIR}/${caddyfile_name}"
+    fi
     if [[ ! -f "${caddyfile}" ]]; then
         die "Caddyfile not found at ${caddyfile}"
     fi
+    log "using Caddyfile: ${caddyfile}"
     run_container spring-caddy \
         --env-file "${ENV_FILE}" \
         -p 80:80 -p 443:443 \

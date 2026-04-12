@@ -7,14 +7,16 @@ open-source single-host scenario.
 
 ## Contents
 
-| File                 | Purpose                                                           |
-| -------------------- | ----------------------------------------------------------------- |
-| `deploy.sh`          | Local Podman deployment (network, containers, images).            |
-| `deploy-remote.sh`   | SSH + rsync wrapper that runs `deploy.sh` on a remote VPS.        |
-| `Dockerfile`         | Multi-stage platform image (.NET 10 API/Worker + Web + Dapr CLI). |
-| `Dockerfile.agent`   | Slim image for delegated agent execution containers.              |
-| `Caddyfile`          | Caddy reverse-proxy config (TLS via Let's Encrypt when FQDN set). |
-| `spring.env.example` | Documented env template. Copy to `spring.env` and fill in.        |
+| File                    | Purpose                                                           |
+| ----------------------- | ----------------------------------------------------------------- |
+| `deploy.sh`             | Local Podman deployment (network, containers, images).            |
+| `deploy-remote.sh`      | SSH + rsync wrapper that runs `deploy.sh` on a remote VPS.        |
+| `Dockerfile`            | Multi-stage platform image (.NET 10 API/Worker + Web + Dapr CLI). |
+| `Dockerfile.agent`      | Slim image for delegated agent execution containers.              |
+| `Caddyfile`             | Single-host path-routed Caddy config (default).                   |
+| `Caddyfile.multi-host`  | Per-service hostnames variant (web / API / webhook each FQDN).    |
+| `relay.sh`              | Local-dev SSH reverse tunnel for webhook delivery to a laptop.    |
+| `spring.env.example`    | Documented env template. Copy to `spring.env` and fill in.        |
 
 ## Prerequisites
 
@@ -94,6 +96,96 @@ export SPRING_SKIP_SOURCE_SYNC=1
 Podman pulls images on demand when `podman run` runs — no explicit pull step
 is needed. Rotate by bumping `SPRING_IMAGE_TAG` in `spring.env` and re-running
 `./deploy-remote.sh up`.
+
+## Reverse proxy and TLS
+
+Spring Voyage fronts the web portal, API, and webhook endpoint with
+[Caddy](https://caddyserver.com/). Caddy obtains Let's Encrypt certificates
+automatically for any public FQDN it serves, provided:
+
+- The hostname's public DNS `A`/`AAAA` record points at the VPS.
+- Ports `80` and `443` on the VPS are reachable from the public internet
+  (the ACME HTTP-01 challenge requires `:80`).
+- `ACME_EMAIL` is set in `spring.env` so Let's Encrypt can email expiry
+  and revocation notices.
+
+Hostnames ending in `.localhost`, set to `localhost`, or private LAN names
+like `*.local` fall back to plain HTTP — useful for local Podman runs.
+
+### Single-host deployment (default)
+
+The default `Caddyfile` puts everything behind a single public hostname
+and disambiguates by URL path:
+
+| Path prefix           | Upstream           |
+| --------------------- | ------------------ |
+| `/api/v1/webhooks/*`  | `spring-api:8080`  |
+| `/api/*`              | `spring-api:8080`  |
+| `/swagger/*`, `/health` | `spring-api:8080`|
+| everything else       | `spring-web:3000`  |
+
+Set `DEPLOY_HOSTNAME` in `spring.env` to your FQDN and run `./deploy.sh up`.
+
+### Per-service hostnames
+
+For `app.example.com` / `api.example.com` / `hooks.example.com`, switch to
+the multi-host Caddyfile:
+
+```bash
+# in spring.env
+WEB_HOSTNAME=app.example.com
+API_HOSTNAME=api.example.com
+WEBHOOK_HOSTNAME=hooks.example.com
+ACME_EMAIL=ops@example.com
+SPRING_CADDYFILE=Caddyfile.multi-host
+```
+
+Each hostname gets its own certificate. Any unset `*_HOSTNAME` falls back
+to `DEPLOY_HOSTNAME`, so you can mix (e.g. share the API and portal on one
+host while giving the webhook endpoint its own).
+
+## Local-dev webhook tunnel (`relay.sh`)
+
+Webhook providers (GitHub, etc.) must POST to a publicly reachable URL.
+During local development the `dotnet run` API is bound to `127.0.0.1`,
+so `relay.sh` opens an SSH reverse tunnel from a small relay VPS to the
+laptop:
+
+```
+provider  --HTTPS-->  relay VPS (Caddy :443 -> 127.0.0.1:$RELAY_REMOTE_PORT)
+                         |
+                         | SSH reverse tunnel (held open by relay.sh)
+                         v
+                       laptop 127.0.0.1:$LOCAL_WEBHOOK_PORT
+```
+
+Minimum setup:
+
+1. **Relay VPS.** A separately provisioned host reachable on the public
+   internet. Install sshd with `GatewayPorts clientspecified` (so the
+   tunnel can bind an externally visible interface if desired) and a
+   dedicated `webhooks` user whose authorized key belongs to the developer.
+2. **TLS on the relay.** Run Caddy (or any reverse proxy) on the relay
+   with a hostname like `hooks.dev.example.com` proxying to
+   `127.0.0.1:$RELAY_REMOTE_PORT` — the tunnel endpoint. Let's Encrypt
+   issues a cert for that hostname. Webhook providers then POST to
+   `https://hooks.dev.example.com/api/v1/webhooks/<provider>`.
+3. **Run the tunnel on the laptop.**
+
+   ```bash
+   export RELAY_HOST=relay.example.com
+   export RELAY_USER=webhooks
+   export RELAY_REMOTE_PORT=19080
+   export LOCAL_WEBHOOK_PORT=8080      # the port spring-api listens on
+   ./relay.sh
+   ```
+
+   The script uses `autossh` when available and falls back to a plain
+   `ssh -N -R` reconnect loop. Press Ctrl-C to exit cleanly.
+
+See the top of `relay.sh` for the full environment variable reference.
+The script is only meant for local development — production webhooks
+should target a deployed `WEBHOOK_HOSTNAME` directly.
 
 ## Secrets
 

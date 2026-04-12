@@ -1,0 +1,82 @@
+# Spring Voyage — Caddy reverse proxy (multi-host).
+#
+# Use this file when the web portal, API, and webhook endpoint each live on
+# their own public FQDN (e.g. app.example.com, api.example.com,
+# hooks.example.com). For a single-hostname deployment with path-based
+# routing, use the default Caddyfile instead.
+#
+# Select this file by setting SPRING_CADDYFILE in spring.env:
+#
+#     SPRING_CADDYFILE=Caddyfile.multi-host
+#
+# deploy.sh mounts the selected file at /etc/caddy/Caddyfile.
+#
+# Environment variables (substituted by Caddy at container start):
+#
+#   WEB_HOSTNAME      FQDN for the Next.js web portal.
+#                     Default: ${DEPLOY_HOSTNAME} or "localhost".
+#   API_HOSTNAME      FQDN for the REST API + OpenAPI docs.
+#                     Default: ${DEPLOY_HOSTNAME} or "localhost".
+#   WEBHOOK_HOSTNAME  FQDN for inbound third-party webhooks.
+#                     Default: ${DEPLOY_HOSTNAME} or "localhost".
+#   ACME_EMAIL        Contact email for Let's Encrypt expiry notices.
+#
+# Automatic TLS: Caddy obtains Let's Encrypt certificates for every FQDN
+# above that is a public-DNS name with ports 80/443 reachable. Hostnames
+# ending in ".localhost" or set to "localhost" fall back to HTTP only.
+
+{
+    email {$ACME_EMAIL}
+}
+
+# --------------------------------------------------------------------------
+# Web portal (Next.js)
+# --------------------------------------------------------------------------
+{$WEB_HOSTNAME:{$DEPLOY_HOSTNAME:localhost}} {
+    encode zstd gzip
+    reverse_proxy spring-web:3000
+}
+
+# --------------------------------------------------------------------------
+# REST API + OpenAPI + health
+# --------------------------------------------------------------------------
+{$API_HOSTNAME:{$DEPLOY_HOSTNAME:localhost}} {
+    encode zstd gzip
+
+    handle /api/* {
+        reverse_proxy spring-api:8080
+    }
+
+    handle /swagger/* {
+        reverse_proxy spring-api:8080
+    }
+
+    handle /health {
+        reverse_proxy spring-api:8080
+    }
+
+    # Refuse everything else on the API hostname so the API surface
+    # stays minimal and predictable.
+    respond 404
+}
+
+# --------------------------------------------------------------------------
+# Webhook endpoint — inbound events from third-party providers.
+# Signature validation happens inside the API; Caddy only proxies.
+# --------------------------------------------------------------------------
+{$WEBHOOK_HOSTNAME:{$DEPLOY_HOSTNAME:localhost}} {
+    encode zstd gzip
+
+    handle /api/v1/webhooks/* {
+        reverse_proxy spring-api:8080
+    }
+
+    # Friendly hint for anyone poking the root.
+    handle / {
+        respond "Spring Voyage webhook endpoint. POST to /api/v1/webhooks/<provider>." 200
+    }
+
+    handle {
+        respond 404
+    }
+}

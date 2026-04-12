@@ -1,19 +1,36 @@
-# Spring Voyage — Caddy reverse proxy.
+# Spring Voyage — Caddy reverse proxy (single-host, path-routed).
 #
-# DEPLOY_HOSTNAME is provided via --env-file from spring.env. When set to a
-# real FQDN, Caddy obtains a Let's Encrypt certificate automatically. When
-# left blank or set to "localhost", Caddy listens on :80 without TLS — useful
-# for local deployments.
+# This is the default Caddyfile used when all three services (web portal,
+# API, and webhook endpoint) share a single public hostname and are
+# disambiguated by URL path. It is the simplest setup for a single VPS.
+#
+# For per-service hostnames (e.g. app.example.com, api.example.com,
+# hooks.example.com) use Caddyfile.multi-host instead — mount it to
+# /etc/caddy/Caddyfile by pointing SPRING_CADDYFILE at that path.
+#
+# Environment variables (all substituted by Caddy at container start):
+#
+#   DEPLOY_HOSTNAME  Public FQDN for all routes. Leave as "localhost"
+#                    (the default) to run on :80 without TLS. Set to a
+#                    real FQDN with public DNS + ports 80/443 reachable
+#                    to enable automatic Let's Encrypt certificates.
+#   ACME_EMAIL       Contact email for Let's Encrypt expiry / revocation
+#                    notices. Recommended for production.
 
 {
-    # Global options can be layered here (e.g. email for ACME notifications).
     email {$ACME_EMAIL}
 }
 
 {$DEPLOY_HOSTNAME:localhost} {
     encode zstd gzip
 
-    # Web dashboard (Next.js) at the root.
+    # Webhook endpoint — inbound events from third-party providers
+    # (GitHub, etc.). Signature validation happens inside the API.
+    handle /api/v1/webhooks/* {
+        reverse_proxy spring-api:8080
+    }
+
+    # REST API, OpenAPI docs, and health probe.
     handle /api/* {
         reverse_proxy spring-api:8080
     }
@@ -26,6 +43,7 @@
         reverse_proxy spring-api:8080
     }
 
+    # Everything else: Next.js web portal.
     handle {
         reverse_proxy spring-web:3000
     }
