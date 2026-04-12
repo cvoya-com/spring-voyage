@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   ArrowLeft,
   Bot,
+  DollarSign,
   ExternalLink,
   Github,
   KeyRound,
@@ -27,8 +28,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/api/client";
-import type { UnitResponse, UnitStatus } from "@/lib/api/types";
-import { cn } from "@/lib/utils";
+import type {
+  CostSummaryResponse,
+  UnitResponse,
+  UnitStatus,
+} from "@/lib/api/types";
+import { cn, formatCost } from "@/lib/utils";
 
 // Follow-up issues referenced by this page: #123 DisplayName/Description
 // wiring, #124 unit-scoped agent assignment, #125 GitHub connector config,
@@ -100,6 +105,23 @@ export default function UnitConfigClient({ id }: ClientProps) {
   const [actionPending, setActionPending] = useState(false);
 
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const [cost, setCost] = useState<CostSummaryResponse | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .getUnitCost(id)
+      .then((c) => {
+        if (!cancelled) setCost(c);
+      })
+      .catch(() => {
+        // Costs may legitimately be empty before any activity — swallow.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
 
   const applyUnit = useCallback((u: UnitResponse) => {
     setUnit(u);
@@ -313,6 +335,7 @@ export default function UnitConfigClient({ id }: ClientProps) {
         <TabsList>
           <TabsTrigger value="general">General</TabsTrigger>
           <TabsTrigger value="agents">Agents</TabsTrigger>
+          <TabsTrigger value="costs">Costs</TabsTrigger>
           <TabsTrigger value="connector">Connector</TabsTrigger>
           <TabsTrigger value="secrets">Secrets</TabsTrigger>
           <TabsTrigger value="skills">Skills</TabsTrigger>
@@ -406,6 +429,53 @@ export default function UnitConfigClient({ id }: ClientProps) {
               </Link>
             }
           />
+        </TabsContent>
+
+        <TabsContent value="costs">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <DollarSign className="h-4 w-4" /> Cost Breakdown
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 text-sm">
+              {cost === null ? (
+                <p className="text-muted-foreground">
+                  No cost data available yet.
+                </p>
+              ) : (
+                <>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Total Cost</span>
+                    <span className="font-medium">
+                      {formatCost(cost.totalCost)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Input Tokens</span>
+                    <span>{cost.totalInputTokens.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">
+                      Output Tokens
+                    </span>
+                    <span>{cost.totalOutputTokens.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Records</span>
+                    <span>{cost.recordCount}</span>
+                  </div>
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>Period</span>
+                    <span>
+                      {new Date(cost.from).toLocaleDateString()} –{" "}
+                      {new Date(cost.to).toLocaleDateString()}
+                    </span>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="connector">

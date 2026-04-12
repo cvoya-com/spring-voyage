@@ -2,11 +2,14 @@ import type {
   AgentDashboardSummary,
   AgentDetailResponse,
   ActivityQueryResult,
+  BudgetResponse,
   CloneResponse,
   CostDashboardSummary,
   CostSummaryResponse,
+  CreateCloneRequest,
   InitiativeLevelResponse,
   InitiativePolicy,
+  SetBudgetRequest,
   UnitDashboardSummary,
   UnitDetailResponse,
   UnitResponse,
@@ -54,6 +57,21 @@ async function putJSON(path: string, body: unknown): Promise<void> {
   if (!res.ok) {
     throw new Error(`API error ${res.status}: ${res.statusText}`);
   }
+}
+
+async function putJSONReturn<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(
+      `API error ${res.status}: ${res.statusText}${text ? ` — ${text}` : ""}`,
+    );
+  }
+  return res.json() as Promise<T>;
 }
 
 async function patchJSON<T>(path: string, body: unknown): Promise<T> {
@@ -153,6 +171,29 @@ export const api = {
   // Clones
   getClones: (agentId: string) =>
     fetchJSON<CloneResponse[]>(`/api/v1/agents/${encodeURIComponent(agentId)}/clones`),
+  createClone: (agentId: string, body: CreateCloneRequest) =>
+    postJSON<CloneResponse>(
+      `/api/v1/agents/${encodeURIComponent(agentId)}/clones`,
+      body,
+    ),
+  deleteClone: (agentId: string, cloneId: string) =>
+    deleteJSON(
+      `/api/v1/agents/${encodeURIComponent(agentId)}/clones/${encodeURIComponent(cloneId)}`,
+    ),
+
+  // Budgets
+  getAgentBudget: (agentId: string) =>
+    fetchJSON<BudgetResponse>(
+      `/api/v1/agents/${encodeURIComponent(agentId)}/budget`,
+    ),
+  setAgentBudget: (agentId: string, body: SetBudgetRequest) =>
+    putJSONReturn<BudgetResponse>(
+      `/api/v1/agents/${encodeURIComponent(agentId)}/budget`,
+      body,
+    ),
+  getTenantBudget: () => fetchJSON<BudgetResponse>("/api/v1/tenant/budget"),
+  setTenantBudget: (body: SetBudgetRequest) =>
+    putJSONReturn<BudgetResponse>("/api/v1/tenant/budget", body),
 
   // Activity
   queryActivity: (params?: Record<string, string>) => {

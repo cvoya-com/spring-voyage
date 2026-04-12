@@ -9,6 +9,7 @@ import {
   Moon,
   Network,
   Sun,
+  Wallet,
   X,
   Zap,
 } from "lucide-react";
@@ -27,6 +28,7 @@ const navItems: NavItem[] = [
   { href: "/units", label: "Units", icon: Network },
   { href: "/activity", label: "Activity", icon: Activity },
   { href: "/initiative", label: "Initiative", icon: Zap },
+  { href: "/budgets", label: "Budgets", icon: Wallet },
 ];
 
 export function Sidebar() {

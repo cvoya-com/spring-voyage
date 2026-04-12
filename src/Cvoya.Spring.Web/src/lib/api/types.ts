@@ -117,12 +117,36 @@ export interface CostSummaryResponse {
   to: string;
 }
 
+/** Clone lifecycle type. Matches values accepted by CreateCloneRequest. */
+export type CloneType = "ephemeral-no-memory" | "ephemeral-with-memory";
+
+/** Clone attachment mode relative to its parent. */
+export type CloneAttachmentMode = "attached" | "detached";
+
 /** GET /api/v1/agents/{agentId}/clones response item. */
 export interface CloneResponse {
-  id: string;
+  cloneId: string;
   parentAgentId: string;
-  state: string;
+  cloneType: CloneType;
+  attachmentMode: CloneAttachmentMode;
+  status: string;
   createdAt: string;
+}
+
+/** POST /api/v1/agents/{agentId}/clones request body. */
+export interface CreateCloneRequest {
+  cloneType: CloneType;
+  attachmentMode: CloneAttachmentMode;
+}
+
+/** GET/PUT budget response. */
+export interface BudgetResponse {
+  dailyBudget: number;
+}
+
+/** PUT budget request body. */
+export interface SetBudgetRequest {
+  dailyBudget: number;
 }
 
 /** GET /api/v1/activity query response. */
