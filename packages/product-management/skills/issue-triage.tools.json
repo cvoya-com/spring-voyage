@@ -1,0 +1,65 @@
+[
+  {
+    "name": "setPriority",
+    "description": "Set the priority of an incoming item in the configured issue tracker",
+    "parameters": {
+      "type": "object",
+      "required": ["itemId", "priority"],
+      "properties": {
+        "itemId": {
+          "type": "string",
+          "description": "Identifier of the item in the issue tracker"
+        },
+        "priority": {
+          "type": "string",
+          "enum": ["low", "medium", "high", "critical"],
+          "description": "Priority level to assign"
+        },
+        "rationale": {
+          "type": "string",
+          "description": "Short justification for the chosen priority"
+        }
+      }
+    }
+  },
+  {
+    "name": "linkToTheme",
+    "description": "Link an item to an existing roadmap theme",
+    "parameters": {
+      "type": "object",
+      "required": ["itemId", "themeId"],
+      "properties": {
+        "itemId": {
+          "type": "string",
+          "description": "Identifier of the item in the issue tracker"
+        },
+        "themeId": {
+          "type": "string",
+          "description": "Identifier of the roadmap theme"
+        }
+      }
+    }
+  },
+  {
+    "name": "assignToAgent",
+    "description": "Assign an item to a specific agent in the unit for follow-up",
+    "parameters": {
+      "type": "object",
+      "required": ["agentId", "itemId"],
+      "properties": {
+        "agentId": {
+          "type": "string",
+          "description": "Agent ID or role to assign to"
+        },
+        "itemId": {
+          "type": "string",
+          "description": "Identifier of the item being assigned"
+        },
+        "conversationId": {
+          "type": "string",
+          "description": "Optional — attach to existing conversation"
+        }
+      }
+    }
+  }
+]

@@ -1,0 +1,73 @@
+[
+  {
+    "name": "openSprint",
+    "description": "Open a new sprint with a goal and time window",
+    "parameters": {
+      "type": "object",
+      "required": ["name", "startDate", "endDate"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Short name identifying the sprint"
+        },
+        "goal": {
+          "type": "string",
+          "description": "Primary outcome the sprint should achieve"
+        },
+        "startDate": {
+          "type": "string",
+          "description": "Sprint start date in ISO 8601 format"
+        },
+        "endDate": {
+          "type": "string",
+          "description": "Sprint end date in ISO 8601 format"
+        }
+      }
+    }
+  },
+  {
+    "name": "addToSprint",
+    "description": "Add an item from the backlog to an open sprint",
+    "parameters": {
+      "type": "object",
+      "required": ["sprintId", "itemId"],
+      "properties": {
+        "sprintId": {
+          "type": "string",
+          "description": "Identifier of the sprint"
+        },
+        "itemId": {
+          "type": "string",
+          "description": "Identifier of the backlog item to commit"
+        },
+        "estimate": {
+          "type": "string",
+          "description": "Optional effort estimate (e.g., small, medium, large or a point value)"
+        }
+      }
+    }
+  },
+  {
+    "name": "closeSprint",
+    "description": "Close a sprint and record its outcome",
+    "parameters": {
+      "type": "object",
+      "required": ["sprintId", "outcome"],
+      "properties": {
+        "sprintId": {
+          "type": "string",
+          "description": "Identifier of the sprint to close"
+        },
+        "outcome": {
+          "type": "string",
+          "enum": ["met", "partial", "missed"],
+          "description": "Whether the sprint goal was met"
+        },
+        "retrospectiveNotes": {
+          "type": "string",
+          "description": "Optional retrospective notes"
+        }
+      }
+    }
+  }
+]

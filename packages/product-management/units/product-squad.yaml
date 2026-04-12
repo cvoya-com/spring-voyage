@@ -1,0 +1,38 @@
+unit:
+  name: product-squad
+  description: A product squad that combines product management and design to shape and prioritize work.
+  structure: hierarchical
+  ai:
+    agent: claude
+    model: claude-sonnet-4-20250514
+    prompt: |
+      You coordinate a product squad made up of a product manager and a
+      product designer. Route incoming work to the most appropriate squad
+      member based on their expertise, keep the roadmap and sprint plan
+      healthy, and ensure design and product decisions stay aligned.
+    skills:
+      - package: spring-voyage/product-management
+        skill: issue-triage
+      - package: spring-voyage/product-management
+        skill: roadmap-management
+      - package: spring-voyage/product-management
+        skill: sprint-planning
+      - package: spring-voyage/product-management
+        skill: design-review
+  members:
+    - agent: pm
+    - agent: design
+  execution:
+    image: spring-agent:latest
+    runtime: docker
+  policies:
+    communication: through-unit
+    work_assignment: capability-match
+    expertise_sharing: advertise
+    initiative:
+      max_level: attentive
+      max_actions_per_hour: 10
+  humans:
+    - identity: owner
+      permission: owner
+      notifications: ["escalation", "completion"]

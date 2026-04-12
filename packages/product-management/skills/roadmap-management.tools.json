@@ -1,0 +1,70 @@
+[
+  {
+    "name": "upsertRoadmapItem",
+    "description": "Create or update a roadmap theme or milestone",
+    "parameters": {
+      "type": "object",
+      "required": ["kind", "title"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["theme", "milestone"],
+          "description": "Whether the item is a theme or a milestone"
+        },
+        "title": {
+          "type": "string",
+          "description": "Short title of the roadmap item"
+        },
+        "description": {
+          "type": "string",
+          "description": "Detailed description of the outcome being pursued"
+        },
+        "targetDate": {
+          "type": "string",
+          "description": "Optional target date in ISO 8601 format"
+        },
+        "itemId": {
+          "type": "string",
+          "description": "Optional identifier when updating an existing item"
+        }
+      }
+    }
+  },
+  {
+    "name": "reprioritizeRoadmap",
+    "description": "Change the priority ordering of roadmap items",
+    "parameters": {
+      "type": "object",
+      "required": ["orderedItemIds", "rationale"],
+      "properties": {
+        "orderedItemIds": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Roadmap item identifiers in the new priority order"
+        },
+        "rationale": {
+          "type": "string",
+          "description": "Why the priorities are changing"
+        }
+      }
+    }
+  },
+  {
+    "name": "publishRoadmapSnapshot",
+    "description": "Publish a snapshot of the current roadmap for stakeholders",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "audience": {
+          "type": "string",
+          "enum": ["internal", "stakeholders", "public"],
+          "description": "Target audience for the snapshot"
+        },
+        "notes": {
+          "type": "string",
+          "description": "Optional notes accompanying the snapshot"
+        }
+      }
+    }
+  }
+]

@@ -1,0 +1,43 @@
+[
+  {
+    "name": "requestDesignReview",
+    "description": "Request a design review from a specific agent",
+    "parameters": {
+      "type": "object",
+      "required": ["designId", "reviewerAgentId"],
+      "properties": {
+        "designId": {
+          "type": "string",
+          "description": "Identifier of the design artifact to review"
+        },
+        "reviewerAgentId": {
+          "type": "string",
+          "description": "Agent ID or role of the reviewer"
+        }
+      }
+    }
+  },
+  {
+    "name": "submitDesignReview",
+    "description": "Submit a review decision on a design proposal",
+    "parameters": {
+      "type": "object",
+      "required": ["designId", "decision"],
+      "properties": {
+        "designId": {
+          "type": "string",
+          "description": "Identifier of the design artifact"
+        },
+        "decision": {
+          "type": "string",
+          "enum": ["approve", "request-changes", "comment"],
+          "description": "Review decision"
+        },
+        "comments": {
+          "type": "string",
+          "description": "Review comments or feedback"
+        }
+      }
+    }
+  }
+]
