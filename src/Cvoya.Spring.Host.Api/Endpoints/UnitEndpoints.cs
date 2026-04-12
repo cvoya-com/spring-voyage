@@ -99,8 +99,11 @@ public static class UnitEndpoints
         [FromServices] IDirectoryService directoryService,
         [FromServices] MessageRouter messageRouter,
         [FromServices] IActorProxyFactory actorProxyFactory,
+        [FromServices] ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
+        var logger = loggerFactory.CreateLogger("Cvoya.Spring.Host.Api.Endpoints.UnitEndpoints");
+
         var address = new Address("unit", id);
         var entry = await directoryService.ResolveAsync(address, cancellationToken);
 
@@ -109,7 +112,7 @@ public static class UnitEndpoints
             return Results.NotFound(new { Error = $"Unit '{id}' not found" });
         }
 
-        var status = await TryGetUnitStatusAsync(actorProxyFactory, entry.ActorId, cancellationToken);
+        var status = await TryGetUnitStatusAsync(actorProxyFactory, entry.ActorId, logger, id, cancellationToken);
 
         // Send a StatusQuery to get unit details including members.
         var statusQuery = new Message(
@@ -138,6 +141,8 @@ public static class UnitEndpoints
     private static async Task<UnitStatus> TryGetUnitStatusAsync(
         IActorProxyFactory actorProxyFactory,
         string actorId,
+        ILogger logger,
+        string unitId,
         CancellationToken cancellationToken)
     {
         try
@@ -146,9 +151,14 @@ public static class UnitEndpoints
                 new ActorId(actorId), nameof(IUnitActor));
             return await proxy.GetStatusAsync(cancellationToken);
         }
-        catch
+        catch (Exception ex)
         {
-            // Non-fatal: older units or unreachable actors report Draft.
+            // Non-fatal: the unit exists in the directory but its actor has not yet
+            // persisted state (fresh registration) or is unreachable. Returning Draft
+            // preserves the directory-first read path, but the failure must be visible.
+            logger.LogWarning(ex,
+                "Failed to read persisted status for unit {UnitId}; reporting Draft.",
+                unitId);
             return UnitStatus.Draft;
         }
     }
