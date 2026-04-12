@@ -80,6 +80,15 @@ export interface AgentDetailResponse {
   status?: unknown;
 }
 
+/** Matches Cvoya.Spring.Core.Units.UnitStatus enum. */
+export type UnitStatus =
+  | "Draft"
+  | "Stopped"
+  | "Starting"
+  | "Running"
+  | "Stopping"
+  | "Error";
+
 /** GET /api/v1/units/{id} response. */
 export interface UnitResponse {
   id: string;
@@ -87,7 +96,7 @@ export interface UnitResponse {
   displayName: string;
   description: string;
   registeredAt: string;
-  status?: string;
+  status?: UnitStatus | number | string;
   model?: string | null;
   color?: string | null;
 }

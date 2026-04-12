@@ -8,10 +8,105 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/api/client";
-import type { UnitDetailResponse, CostSummaryResponse } from "@/lib/api/types";
+import type {
+  CostSummaryResponse,
+  UnitDashboardSummary,
+  UnitDetailResponse,
+} from "@/lib/api/types";
 import { formatCost, timeAgo } from "@/lib/utils";
-import { ArrowLeft, DollarSign, Plus, Trash2, Users, X } from "lucide-react";
+import {
+  ArrowLeft,
+  DollarSign,
+  Network,
+  Plus,
+  Trash2,
+  Users,
+  X,
+} from "lucide-react";
 import Link from "next/link";
+
+function UnitListContent() {
+  const [units, setUnits] = useState<UnitDashboardSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .getDashboardUnits()
+      .then((u) => {
+        if (!cancelled) {
+          setUnits(u);
+          setLoading(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            <Network className="h-5 w-5" /> Units
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            Registered units in this environment.
+          </p>
+        </div>
+        <Link href="/units/create">
+          <Button>
+            <Plus className="h-4 w-4 mr-1" /> New unit
+          </Button>
+        </Link>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>All units</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <div className="space-y-2">
+              <Skeleton className="h-10" />
+              <Skeleton className="h-10" />
+              <Skeleton className="h-10" />
+            </div>
+          ) : units.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No units registered yet.
+            </p>
+          ) : (
+            <ul className="divide-y divide-border">
+              {units.map((u) => (
+                <li key={u.name}>
+                  <Link
+                    href={`/units/${encodeURIComponent(u.name)}`}
+                    className="flex items-center justify-between py-3 hover:bg-accent/50 -mx-2 px-2 rounded"
+                  >
+                    <div>
+                      <div className="font-medium">{u.displayName}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {u.name}
+                      </div>
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      Registered {timeAgo(u.registeredAt)}
+                    </div>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
 
 function UnitDetailContent() {
   const searchParams = useSearchParams();
@@ -28,7 +123,7 @@ function UnitDetailContent() {
     if (!id) return;
     try {
       const [unitData, costData] = await Promise.allSettled([
-        api.getUnit(id),
+        api.getUnitDetail(id),
         api.getUnitCost(id),
       ]);
       if (unitData.status === "fulfilled") setData(unitData.value);
@@ -89,7 +184,7 @@ function UnitDetailContent() {
   };
 
   if (!id) {
-    return <p className="text-muted-foreground">No unit ID specified.</p>;
+    return <UnitListContent />;
   }
 
   if (loading) {

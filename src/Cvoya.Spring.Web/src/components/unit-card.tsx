@@ -7,7 +7,7 @@ import Link from "next/link";
 
 export function UnitCard({ unit }: { unit: UnitDashboardSummary }) {
   return (
-    <Link href={`/units?id=${encodeURIComponent(unit.name)}`}>
+    <Link href={`/units/${encodeURIComponent(unit.name)}`}>
       <Card className="transition-colors hover:bg-accent/50">
         <CardHeader className="pb-2">
           <CardTitle>{unit.displayName}</CardTitle>

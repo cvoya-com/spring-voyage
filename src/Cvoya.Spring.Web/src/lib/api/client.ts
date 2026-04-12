@@ -9,6 +9,8 @@ import type {
   InitiativePolicy,
   UnitDashboardSummary,
   UnitDetailResponse,
+  UnitResponse,
+  UnitStatus,
 } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
@@ -16,7 +18,10 @@ const BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 async function fetchJSON<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, init);
   if (!res.ok) {
-    throw new Error(`API error ${res.status}: ${res.statusText}`);
+    const text = await res.text().catch(() => "");
+    throw new Error(
+      `API error ${res.status}: ${res.statusText}${text ? ` — ${text}` : ""}`,
+    );
   }
   return res.json() as Promise<T>;
 }
@@ -29,6 +34,17 @@ async function postJSON<T>(path: string, body: unknown): Promise<T> {
   });
 }
 
+async function postJSONNoBody<T>(path: string): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, { method: "POST" });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(
+      `API error ${res.status}: ${res.statusText}${text ? ` — ${text}` : ""}`,
+    );
+  }
+  return res.json() as Promise<T>;
+}
+
 async function putJSON(path: string, body: unknown): Promise<void> {
   const res = await fetch(`${BASE}${path}`, {
     method: "PUT",
@@ -38,6 +54,21 @@ async function putJSON(path: string, body: unknown): Promise<void> {
   if (!res.ok) {
     throw new Error(`API error ${res.status}: ${res.statusText}`);
   }
+}
+
+async function patchJSON<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(
+      `API error ${res.status}: ${res.statusText}${text ? ` — ${text}` : ""}`,
+    );
+  }
+  return res.json() as Promise<T>;
 }
 
 async function deleteJSON(path: string): Promise<void> {
@@ -63,8 +94,47 @@ export const api = {
     deleteJSON(`/api/v1/agents/${encodeURIComponent(id)}`),
 
   // Units
-  getUnit: (id: string) =>
+  // Detailed unit read — includes Members and raw status payload. Used by the
+  // legacy query-string detail view under /units?id=... and still useful for
+  // anything that needs the members/details blob.
+  getUnitDetail: (id: string) =>
     fetchJSON<UnitDetailResponse>(`/api/v1/units/${encodeURIComponent(id)}`),
+  // Lightweight unit read that returns the unit envelope only. Used by the
+  // /units/[id] config page where the tabs shell pulls data independently.
+  getUnit: async (id: string): Promise<UnitResponse> => {
+    const detail = await fetchJSON<UnitDetailResponse>(
+      `/api/v1/units/${encodeURIComponent(id)}`,
+    );
+    return detail.unit;
+  },
+  createUnit: (body: {
+    name: string;
+    displayName: string;
+    description: string;
+    model?: string;
+    color?: string;
+  }) => postJSON<UnitResponse>("/api/v1/units", body),
+  updateUnit: (
+    id: string,
+    patch: Partial<{
+      displayName: string;
+      description: string;
+      model: string;
+      color: string;
+    }>,
+  ) =>
+    patchJSON<UnitResponse>(
+      `/api/v1/units/${encodeURIComponent(id)}`,
+      patch,
+    ),
+  startUnit: (id: string) =>
+    postJSONNoBody<{ unitId: string; status: UnitStatus }>(
+      `/api/v1/units/${encodeURIComponent(id)}/start`,
+    ),
+  stopUnit: (id: string) =>
+    postJSONNoBody<{ unitId: string; status: UnitStatus }>(
+      `/api/v1/units/${encodeURIComponent(id)}/stop`,
+    ),
   deleteUnit: (id: string) =>
     deleteJSON(`/api/v1/units/${encodeURIComponent(id)}`),
   addMember: (unitId: string, memberScheme: string, memberPath: string) =>
