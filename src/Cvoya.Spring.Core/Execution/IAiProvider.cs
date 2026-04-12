@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.Core.Execution;
 
+using Cvoya.Spring.Core.Skills;
+
 /// <summary>
 /// Provides an abstraction over AI model interactions.
 /// </summary>
@@ -23,4 +25,20 @@ public interface IAiProvider
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     /// <returns>An asynchronous stream of <see cref="StreamEvent"/> instances.</returns>
     IAsyncEnumerable<StreamEvent> StreamCompleteAsync(string prompt, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Sends a multi-turn conversation with tool definitions to the AI model and returns
+    /// a structured response that may include tool invocations. The default implementation
+    /// throws <see cref="NotSupportedException"/>; providers that support tool use should
+    /// override it.
+    /// </summary>
+    /// <param name="turns">The ordered conversation turns sent to the model.</param>
+    /// <param name="tools">The tools the model is permitted to call.</param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    /// <returns>The structured AI response.</returns>
+    Task<AiResponse> CompleteWithToolsAsync(
+        IReadOnlyList<ConversationTurn> turns,
+        IReadOnlyList<ToolDefinition> tools,
+        CancellationToken cancellationToken = default)
+        => throw new NotSupportedException($"{GetType().Name} does not support tool use.");
 }
