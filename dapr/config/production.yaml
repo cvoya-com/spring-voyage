@@ -1,0 +1,17 @@
+# Dapr Configuration — production profile.
+#
+# Load via `daprd --config /dapr/config/production.yaml` (the deployment
+# image copies `dapr/config/` to `/dapr/config/`). Tracing is sampled at
+# 10% to limit overhead; point the exporter at whatever collector the
+# operator provisions (OpenTelemetry, Zipkin, Azure Monitor).
+apiVersion: dapr.io/v1alpha1
+kind: Configuration
+metadata:
+  name: production
+spec:
+  tracing:
+    samplingRate: "0.1"
+    stdout: false
+  features:
+    - name: Resiliency
+      enabled: true

@@ -92,14 +92,17 @@ spring images list
 
 ## Dapr Component Configuration
 
-Local development uses Dapr component files in `dapr/components/`:
+Dapr components are split into two profiles — see [`dapr/README.md`](../../dapr/README.md)
+for the full layout and commands:
 
-- `statestore.yaml` -- PostgreSQL state store
-- `pubsub.yaml` -- Redis pub/sub
-- `secretstore.yaml` -- local file secret store
-- `configuration.yaml` -- PostgreSQL configuration store
+- `dapr/components/local/` — localhost Redis + env-var secret store (used by `dapr run`).
+- `dapr/components/production/` — Podman-hosted Postgres + Redis, secrets via
+  `secretstores.local.env` backed by `deployment/spring.env`.
+- `dapr/config/local.yaml`, `dapr/config/production.yaml` — Dapr Configuration
+  (tracing, features) for each profile.
 
-These are automatically loaded by Dapr at startup. Production components are configured separately.
+Pass the matching directory to `dapr run` with `--resources-path dapr/components/local`
+and `--config dapr/config/local.yaml`.
 
 ## Database Migrations
 

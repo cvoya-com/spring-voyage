@@ -1,3 +1,7 @@
+# Local development pub/sub.
+#
+# Redis Streams on localhost:6379. Topic names are defined by the publishers
+# (see `StreamEventPublisher`, `CancellationManager`).
 apiVersion: dapr.io/v1alpha1
 kind: Component
 metadata:

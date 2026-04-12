@@ -30,8 +30,9 @@ AI agent orchestration platform built on .NET and Dapr. Agents organize into com
 dapr init                             # Docker (default)
 dapr init --container-runtime podman  # Podman
 
-# Create local secrets file (gitignored, add real secrets as needed)
-cp dapr/secrets.json.template dapr/secrets.json
+# The local Dapr profile uses secretstores.local.env — export any secrets
+# (e.g. POSTGRES_PASSWORD, REDIS_PASSWORD) in the shell that runs `dapr run`.
+# See dapr/README.md for details.
 
 # Build
 dotnet build
@@ -52,7 +53,8 @@ For local dev, you only need the Worker:
 ```bash
 dapr run --app-id spring-worker --app-port 5001 \
   --dapr-http-port 3500 \
-  --resources-path dapr/components \
+  --resources-path dapr/components/local \
+  --config dapr/config/local.yaml \
   -- dotnet run --project src/Cvoya.Spring.Host.Worker -- --urls http://localhost:5001
 ```
 
@@ -72,13 +74,15 @@ curl -s http://localhost:3500/v1.0/metadata | jq '.actorRuntime'
 # Terminal 1: Worker (actors)
 dapr run --app-id spring-worker --app-port 5001 \
   --dapr-http-port 3500 \
-  --resources-path dapr/components \
+  --resources-path dapr/components/local \
+  --config dapr/config/local.yaml \
   -- dotnet run --project src/Cvoya.Spring.Host.Worker -- --urls http://localhost:5001
 
 # Terminal 2: API (REST endpoints)
 dapr run --app-id spring-api --app-port 5000 \
   --dapr-http-port 3501 \
-  --resources-path dapr/components \
+  --resources-path dapr/components/local \
+  --config dapr/config/local.yaml \
   -- dotnet run --project src/Cvoya.Spring.Host.Api
 ```
 
@@ -124,7 +128,7 @@ The dashboard consumes the API host endpoints. For local development, start the 
 │   ├── Cvoya.Spring.A2A/              # A2A protocol (stub)
 │   └── Cvoya.Spring.Web/             # Web dashboard (React/Next.js)
 ├── tests/                             # xUnit test projects
-├── dapr/components/                   # Dapr component YAML (Redis, secrets)
+├── dapr/                              # Dapr components + config (local/prod profiles)
 ├── packages/software-engineering/     # Domain package (agent templates, skills, workflows)
 ├── docs/                             # Architecture plan and design docs
 ├── CONVENTIONS.md                     # Coding conventions (mandatory reading)

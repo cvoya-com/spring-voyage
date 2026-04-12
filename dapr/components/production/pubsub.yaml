@@ -1,0 +1,25 @@
+# Production pub/sub — Redis Streams.
+#
+# The Redis host is the `spring-redis` container on the `spring-net` Podman
+# bridge (see `deployment/deploy.sh`). The password (if set) is pulled from
+# the paired `secretstore` component via `secretKeyRef` so credentials never
+# ship in the image.
+#
+# Set `REDIS_PASSWORD` in `deployment/spring.env`. Leave the variable empty
+# if you run Redis without authentication (not recommended in production).
+apiVersion: dapr.io/v1alpha1
+kind: Component
+auth:
+  secretStore: secretstore
+metadata:
+  name: pubsub
+spec:
+  type: pubsub.redis
+  version: v1
+  metadata:
+    - name: redisHost
+      value: "spring-redis:6379"
+    - name: redisPassword
+      secretKeyRef:
+        name: REDIS_PASSWORD
+        key: REDIS_PASSWORD

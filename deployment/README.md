@@ -197,9 +197,14 @@ Never commit `spring.env`; it is in `.gitignore` implicitly because only
 chmod 600 /opt/spring-voyage/deployment/spring.env
 ```
 
-For production-grade secret management, replace the local-file Dapr secret
-store (`dapr/components/secretstore.yaml`) with Azure Key Vault, HashiCorp
-Vault, or Kubernetes secrets. See [Infrastructure](../docs/architecture/infrastructure.md#data-persistence--configuration).
+The production profile under `dapr/components/production/` uses
+`secretstores.local.env`, so every `secretKeyRef` in a Dapr component
+resolves against the variables in `spring.env` (loaded as `--env-file`).
+For cloud-grade secret management replace `secretstore.yaml` with Azure
+Key Vault, HashiCorp Vault, or Kubernetes secrets; the other production
+components reference the store by name (`secretstore`) so they require no
+changes. See [Infrastructure](../docs/architecture/infrastructure.md#data-persistence--configuration)
+and [`dapr/README.md`](../dapr/README.md) for profile details.
 
 ## Per-user bridge networks
 

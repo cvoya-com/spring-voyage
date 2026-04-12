@@ -1,0 +1,16 @@
+# Dapr Configuration — local development profile.
+#
+# Load via `dapr run --config dapr/config/local.yaml`. Tracing sampling is
+# set to 1.0 so every call shows up in Zipkin during development; disable
+# or lower the rate in production (see `dapr/config/production.yaml`).
+apiVersion: dapr.io/v1alpha1
+kind: Configuration
+metadata:
+  name: local
+spec:
+  tracing:
+    samplingRate: "1"
+    stdout: true
+  features:
+    - name: Resiliency
+      enabled: true

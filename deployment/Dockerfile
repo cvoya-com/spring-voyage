@@ -74,9 +74,12 @@ COPY --from=web-build /web/.next/standalone /app/web/
 COPY --from=web-build /web/.next/static     /app/web/.next/static
 COPY --from=web-build /web/public           /app/web/public
 
-# Copy Dapr components for the deployment. These are read-only at runtime;
-# override by mounting another directory at /dapr/components.
-COPY dapr/components /dapr/components
+# Copy Dapr component YAML and Dapr Configuration for both the local and
+# production profiles. Sidecars select a profile via `--resources-path`
+# (e.g. `/dapr/components/production`) and `--config` (e.g.
+# `/dapr/config/production.yaml`). Files are read-only at runtime; override
+# by mounting another directory at /dapr.
+COPY dapr /dapr
 
 EXPOSE 8080
 ENV ASPNETCORE_URLS=http://0.0.0.0:8080

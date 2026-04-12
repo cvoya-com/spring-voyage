@@ -1,0 +1,29 @@
+# Production state store — PostgreSQL.
+#
+# Backs the Dapr actor runtime (AgentActor, UnitActor, ConnectorActor, etc.)
+# and general key/value state via `DaprStateStore` (see
+# `DaprStateStoreOptions.StoreName`).
+#
+# The connection string is pulled from the paired `secretstore` component
+# (secretstores.local.env) via `secretKeyRef`, so the Postgres password
+# never lands in the image or in git. Provide it as the
+# `SPRING_POSTGRES_CONNECTION_STRING` environment variable on the Dapr
+# sidecar container (wired via `deployment/spring.env`).
+#
+# Host `spring-postgres` resolves over the `spring-net` Podman bridge.
+apiVersion: dapr.io/v1alpha1
+kind: Component
+auth:
+  secretStore: secretstore
+metadata:
+  name: statestore
+spec:
+  type: state.postgresql
+  version: v1
+  metadata:
+    - name: connectionString
+      secretKeyRef:
+        name: SPRING_POSTGRES_CONNECTION_STRING
+        key: SPRING_POSTGRES_CONNECTION_STRING
+    - name: actorStateStore
+      value: "true"
