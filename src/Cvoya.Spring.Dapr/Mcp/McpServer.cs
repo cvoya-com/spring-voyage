@@ -117,7 +117,17 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
     /// <inheritdoc />
     public async Task StopAsync(CancellationToken cancellationToken)
     {
-        _acceptCts?.Cancel();
+        try
+        {
+            _acceptCts?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // Provider disposed before host StopAsync (e.g. WebApplicationFactory
+            // disposes the TestServer before stopping the host). Accept loop has
+            // already been torn down as part of Dispose().
+        }
+
         try
         {
             _listener?.Stop();
