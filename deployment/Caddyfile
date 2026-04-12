@@ -1,0 +1,32 @@
+# Spring Voyage — Caddy reverse proxy.
+#
+# DEPLOY_HOSTNAME is provided via --env-file from spring.env. When set to a
+# real FQDN, Caddy obtains a Let's Encrypt certificate automatically. When
+# left blank or set to "localhost", Caddy listens on :80 without TLS — useful
+# for local deployments.
+
+{
+    # Global options can be layered here (e.g. email for ACME notifications).
+    email {$ACME_EMAIL}
+}
+
+{$DEPLOY_HOSTNAME:localhost} {
+    encode zstd gzip
+
+    # Web dashboard (Next.js) at the root.
+    handle /api/* {
+        reverse_proxy spring-api:8080
+    }
+
+    handle /swagger/* {
+        reverse_proxy spring-api:8080
+    }
+
+    handle /health {
+        reverse_proxy spring-api:8080
+    }
+
+    handle {
+        reverse_proxy spring-web:3000
+    }
+}
