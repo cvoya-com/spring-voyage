@@ -6,16 +6,84 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { useToast } from "@/components/ui/toast";
+import { useActivityStream } from "@/hooks/use-activity-stream";
 import { api } from "@/lib/api/client";
 import type {
+  ActivityEvent,
   AgentDetailResponse,
   CloneResponse,
   CostSummaryResponse,
 } from "@/lib/api/types";
 import { formatCost, timeAgo } from "@/lib/utils";
-import { ArrowLeft, Copy, DollarSign, Trash2 } from "lucide-react";
+import { ArrowLeft, Copy, DollarSign, Trash2, Zap } from "lucide-react";
 import Link from "next/link";
+
+type CostClass = "initiative_cost" | "work_cost";
+
+interface ClassifiedCost {
+  event: ActivityEvent;
+  classification: CostClass;
+}
+
+// Server-side split is a follow-up; see #75.
+function classifyCostEvents(
+  events: ActivityEvent[],
+  agentId: string,
+): ClassifiedCost[] {
+  // Events arrive newest-first from the stream; walk oldest-first so the
+  // "initiative mode" flag flips in chronological order.
+  const scoped = events
+    .filter((e) => e.source.scheme === "agent" && e.source.path === agentId)
+    .slice()
+    .reverse();
+
+  const QUIET_MS = 30 * 60 * 1000;
+  let initiativeMode = false;
+  let lastInitiativeTs = 0;
+  const classified: ClassifiedCost[] = [];
+
+  for (const e of scoped) {
+    const ts = new Date(e.timestamp).getTime();
+    if (
+      e.eventType === "InitiativeTriggered" ||
+      e.eventType === "ReflectionCompleted"
+    ) {
+      initiativeMode = true;
+      lastInitiativeTs = ts;
+      continue;
+    }
+
+    if (initiativeMode && ts - lastInitiativeTs > QUIET_MS) {
+      initiativeMode = false;
+    }
+
+    if (
+      initiativeMode &&
+      (e.eventType === "MessageReceived" || e.eventType === "MessageSent")
+    ) {
+      initiativeMode = false;
+    }
+
+    if (e.eventType === "CostIncurred") {
+      classified.push({
+        event: e,
+        classification: initiativeMode ? "initiative_cost" : "work_cost",
+      });
+    }
+  }
+
+  // Return newest-first for display.
+  return classified.reverse();
+}
 
 function AgentDetailContent() {
   const searchParams = useSearchParams();
@@ -26,6 +94,7 @@ function AgentDetailContent() {
   const [cost, setCost] = useState<CostSummaryResponse | null>(null);
   const [clones, setClones] = useState<CloneResponse[]>([]);
   const [loading, setLoading] = useState(true);
+  const { events } = useActivityStream();
 
   useEffect(() => {
     if (!id) return;
@@ -94,6 +163,25 @@ function AgentDetailContent() {
 
   const { agent } = data;
 
+  const classified = classifyCostEvents(events, agent.name);
+  const initiativeCostTotal = classified
+    .filter((c) => c.classification === "initiative_cost")
+    .reduce((sum, c) => sum + (c.event.cost ?? 0), 0);
+  const workCostTotal = classified
+    .filter((c) => c.classification === "work_cost")
+    .reduce((sum, c) => sum + (c.event.cost ?? 0), 0);
+
+  const now = Date.now();
+  const tier2Last24h = events.filter(
+    (e) =>
+      e.source.scheme === "agent" &&
+      e.source.path === agent.name &&
+      e.eventType === "ReflectionCompleted" &&
+      now - new Date(e.timestamp).getTime() <= 24 * 60 * 60 * 1000,
+  ).length;
+
+  const recentClassified = classified.slice(0, 20);
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -158,6 +246,82 @@ function AgentDetailContent() {
           </CardContent>
         </Card>
       )}
+
+      {/* Cost breakdown by activity (client-side heuristic; see #75) */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Zap className="h-4 w-4" /> Cost breakdown by activity
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4 text-sm">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="rounded-md border border-border p-3">
+              <div className="text-xs text-muted-foreground">
+                Initiative cost
+              </div>
+              <div className="text-lg font-semibold">
+                {formatCost(initiativeCostTotal)}
+              </div>
+            </div>
+            <div className="rounded-md border border-border p-3">
+              <div className="text-xs text-muted-foreground">Work cost</div>
+              <div className="text-lg font-semibold">
+                {formatCost(workCostTotal)}
+              </div>
+            </div>
+            <div className="rounded-md border border-border p-3">
+              <div className="text-xs text-muted-foreground">
+                Tier 2 invocations (last 24h)
+              </div>
+              <div className="text-lg font-semibold">{tier2Last24h}</div>
+            </div>
+          </div>
+
+          {recentClassified.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              No recent CostIncurred events.
+            </p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Time</TableHead>
+                  <TableHead>Class</TableHead>
+                  <TableHead>Summary</TableHead>
+                  <TableHead className="text-right">Cost</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {recentClassified.map(({ event, classification }) => (
+                  <TableRow key={event.id}>
+                    <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+                      {timeAgo(event.timestamp)}
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        variant={
+                          classification === "initiative_cost"
+                            ? "warning"
+                            : "outline"
+                        }
+                      >
+                        {classification}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-sm">{event.summary}</TableCell>
+                    <TableCell className="text-right font-mono text-xs">
+                      {event.cost != null
+                        ? `$${event.cost.toFixed(4)}`
+                        : "—"}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Status payload */}
       {data.status != null && (

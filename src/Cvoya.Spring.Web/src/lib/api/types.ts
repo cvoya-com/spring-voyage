@@ -122,3 +122,40 @@ export interface ActivityQueryResult {
   page: number;
   pageSize: number;
 }
+
+/** Matches Cvoya.Spring.Core.Initiative.InitiativeLevel enum. */
+export type InitiativeLevel =
+  | "Passive"
+  | "Attentive"
+  | "Proactive"
+  | "Autonomous";
+
+/** Tier 1 (screening) model configuration. */
+export interface Tier1Config {
+  Model: string;
+  Hosting: string;
+}
+
+/** Tier 2 (primary LLM) budget/rate-limit configuration. */
+export interface Tier2Config {
+  MaxCallsPerHour: number;
+  MaxCostPerDay: number;
+}
+
+/**
+ * Matches Cvoya.Spring.Core.Initiative.InitiativePolicy record.
+ * Field names are PascalCase because the C# record is serialised as-is.
+ */
+export interface InitiativePolicy {
+  MaxLevel: InitiativeLevel;
+  RequireUnitApproval: boolean;
+  Tier1: Tier1Config | null;
+  Tier2: Tier2Config | null;
+  AllowedActions: string[] | null;
+  BlockedActions: string[] | null;
+}
+
+/** GET /api/v1/agents/{id}/initiative/level response. */
+export interface InitiativeLevelResponse {
+  level: InitiativeLevel;
+}

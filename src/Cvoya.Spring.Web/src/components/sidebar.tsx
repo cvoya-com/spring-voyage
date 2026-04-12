@@ -9,6 +9,7 @@ import {
   Moon,
   Sun,
   X,
+  Zap,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -23,6 +24,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/activity", label: "Activity", icon: Activity },
+  { href: "/initiative", label: "Initiative", icon: Zap },
 ];
 
 export function Sidebar() {
