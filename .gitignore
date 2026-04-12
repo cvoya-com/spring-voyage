@@ -27,3 +27,6 @@ coverage/
 
 ## Dapr local secrets (not committed)
 dapr/secrets.json
+
+## Deployment env file (not committed; keep spring.env.example only)
+deployment/spring.env
