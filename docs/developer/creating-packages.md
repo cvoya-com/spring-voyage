@@ -37,7 +37,7 @@ agent:
   ai:
     agent: claude
     model: claude-sonnet-4-20250514
-    execution: hosted          # or delegated
+    tool: claude-code
 
   instructions: |
     You are a research analyst. You analyze papers,

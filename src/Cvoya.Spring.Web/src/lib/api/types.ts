@@ -17,9 +17,7 @@ export type ActivityEventType =
   | "ReflectionCompleted"
   | "WorkflowStepCompleted"
   | "CostIncurred"
-  | "TokenDelta"
-  | "ToolCallStart"
-  | "ToolCallResult";
+  | "TokenDelta";
 
 /** Matches Cvoya.Spring.Core.Capabilities.ActivitySeverity enum. */
 export type ActivitySeverity = "Debug" | "Info" | "Warning" | "Error";

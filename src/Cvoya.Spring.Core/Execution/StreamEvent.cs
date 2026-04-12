@@ -22,24 +22,6 @@ public abstract record StreamEvent(Guid Id, DateTimeOffset Timestamp)
         : StreamEvent(Id, Timestamp);
 
     /// <summary>
-    /// A tool call has started — includes the tool name and input.
-    /// </summary>
-    public sealed record ToolCallStart(Guid Id, DateTimeOffset Timestamp, string ToolName, string Input)
-        : StreamEvent(Id, Timestamp);
-
-    /// <summary>
-    /// A tool call has completed — includes the tool name and result.
-    /// </summary>
-    public sealed record ToolCallResult(Guid Id, DateTimeOffset Timestamp, string ToolName, string Result)
-        : StreamEvent(Id, Timestamp);
-
-    /// <summary>
-    /// A complete output block (text or structured) from the LLM.
-    /// </summary>
-    public sealed record OutputDelta(Guid Id, DateTimeOffset Timestamp, string Content)
-        : StreamEvent(Id, Timestamp);
-
-    /// <summary>
     /// A state checkpoint from the execution environment, enabling resume after failure.
     /// </summary>
     public sealed record Checkpoint(Guid Id, DateTimeOffset Timestamp, string ConversationId, string StateSnapshot)

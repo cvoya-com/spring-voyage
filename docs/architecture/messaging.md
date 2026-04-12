@@ -92,7 +92,7 @@ msg4: (conv-A)                   → routed to conv-A channel (active)
 
 **Conversation suspension** is a core capability. An agent can **suspend** the active conversation (e.g., blocked waiting on external input or human approval), promote the next pending conversation, and resume the original later — all with clean per-conversation state. This ensures agents are not idle when blocked.
 
-All agents use the same mailbox model: one active conversation with suspension. For hosted agents, the active period is brief (a single LLM call), so conversations cycle quickly. For delegated agents, the active period is longer (execution environment working). The uniform model keeps the mailbox implementation simple; performance optimizations for hosted agents (e.g., bypassing the pending queue when conversations are short-lived) can be added later without changing the model.
+All agents use the same mailbox model: one active conversation with suspension. The active period spans the full lifetime of a container-based agent run, which can be long (minutes to hours). The uniform model keeps the mailbox implementation simple.
 
 ### Asynchronous Work Dispatch & Cancellation
 
@@ -153,10 +153,6 @@ sequenceDiagram
     E->>A: TokenDelta("def ")
     E->>A: TokenDelta("hello")
     A->>O: ActivityEvent
-    E->>A: ToolCallStart(grep)
-    A->>O: ActivityEvent
-    E->>A: ToolCallResult(...)
-    A->>O: ActivityEvent
     E->>A: Checkpoint(state)
     Note over A: persists state
     E->>A: TokenDelta("return")
@@ -167,18 +163,15 @@ sequenceDiagram
 
 
 
-**Stream event types:**
+**Stream event types** (for lightweight platform LLM calls via `IAiProvider`; agent container tool-use shows up through the container's own stdout/stderr and higher-level completion signals):
 
 
-| Event            | Description                                                    |
-| ---------------- | -------------------------------------------------------------- |
-| `TokenDelta`     | LLM token(s) generated — enables live text streaming           |
-| `ThinkingDelta`  | Reasoning/thinking tokens (if model supports)                  |
-| `ToolCallStart`  | Agent is invoking a tool (name, arguments)                     |
-| `ToolCallResult` | Tool returned a result                                         |
-| `OutputDelta`    | Stdout/stderr from delegated execution (e.g., Claude Code CLI) |
-| `Checkpoint`     | State snapshot for recovery and progress tracking              |
-| `Completed`      | Work finished with final result                                |
+| Event           | Description                                          |
+| --------------- | ---------------------------------------------------- |
+| `TokenDelta`    | LLM token(s) generated — enables live text streaming |
+| `ThinkingDelta` | Reasoning/thinking tokens (if model supports)        |
+| `Checkpoint`    | State snapshot for recovery and progress tracking   |
+| `Completed`     | Work finished with final result                      |
 
 
 **Transport:** The execution environment publishes to a per-agent Dapr pub/sub topic (`agent/{id}/stream`). Multiple subscribers consume from this topic concurrently:

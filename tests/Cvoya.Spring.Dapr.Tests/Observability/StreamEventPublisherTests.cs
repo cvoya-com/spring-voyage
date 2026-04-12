@@ -68,10 +68,10 @@ public class StreamEventPublisherTests
     }
 
     [Fact]
-    public async Task PublishAsync_ToolCallStart_IncludesCorrectPayload()
+    public async Task PublishAsync_ThinkingDelta_IncludesCorrectPayload()
     {
-        var streamEvent = new StreamEvent.ToolCallStart(
-            Guid.NewGuid(), DateTimeOffset.UtcNow, "search", "{\"query\":\"test\"}");
+        var streamEvent = new StreamEvent.ThinkingDelta(
+            Guid.NewGuid(), DateTimeOffset.UtcNow, "Considering options...");
 
         await _publisher.PublishAsync("agent-3", streamEvent, TestContext.Current.CancellationToken);
 
@@ -79,8 +79,8 @@ public class StreamEventPublisherTests
             "test-pubsub",
             "agent/agent-3/stream",
             Arg.Is<StreamEventEnvelope>(e =>
-                e.EventType == "ToolCallStart" &&
-                e.Payload.GetProperty("ToolName").GetString() == "search"),
+                e.EventType == "ThinkingDelta" &&
+                e.Payload.GetProperty("Text").GetString() == "Considering options..."),
             Arg.Any<CancellationToken>());
     }
 }

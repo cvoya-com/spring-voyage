@@ -102,8 +102,7 @@ spring agent create <id> \
   --role <role> \
   --capabilities "<comma-separated>" \
   --ai-backend <provider> \
-  --execution hosted|delegated \
-  --tool <tool-name>           # delegated only
+  --tool <tool-name>
 ```
 
 ### Viewing Agent Status

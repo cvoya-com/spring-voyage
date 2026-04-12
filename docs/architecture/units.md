@@ -20,9 +20,8 @@ agent:
   ai:
     agent: claude                       # registered AI agent provider
     model: claude-sonnet-4-20250514
-    execution: delegated                # hosted | delegated
-    tool: claude-code                   # registered tool name (delegated only)
-    environment:                        # container definition (delegated only)
+    tool: claude-code                   # registered agent tool
+    environment:                        # container definition
       image: spring-agent:latest
       runtime: podman                   # podman | docker | kubernetes
     
@@ -53,13 +52,11 @@ agent:
       route: /issues
 ```
 
-### Execution Patterns
+### Execution Pattern
 
-**Pattern A: Hosted AI** (`execution: hosted`)
-The agent actor calls the AI agent provider directly (via .NET SDK or Python process). The LLM reasons, decides, and responds — but doesn't touch the filesystem or run tools. Requires `agent` and `model` in the `ai` block. Good for: routing, classification, triage, advisory, monitoring agents. Can be implemented in .NET (using Anthropic .NET SDK, Azure OpenAI SDK) or Python.
+The agent actor dispatches work to an execution environment (container) that launches a registered agent tool (e.g., `claude-code`). The tool drives the agentic loop — reading files, writing code, running tests, invoking MCP servers the platform exposes. The actor monitors via streaming events and collects results. Requires `tool` and `environment` in the `ai` block — `tool` names the registered agent tool, `environment` specifies the container image and runtime. Essential for: software engineering, document editing, any multi-step tool use.
 
-**Pattern B: Delegated Execution** (`execution: delegated`)
-The agent actor dispatches work to an execution environment (container) that launches a registered tool (e.g., `claude-code`). The tool drives the agentic loop — reading files, writing code, running tests. The actor monitors via streaming events and collects results. Requires `tool` and `environment` in the `ai` block — `tool` names the registered tool (e.g., `claude-code`), `environment` specifies the container image and runtime. Can be pure .NET — no Python process needed. Essential for: software engineering, document editing, any multi-step tool use.
+Spring Voyage does **not** implement its own in-platform tool-use loop. The `Hosted` execution mode that previously sat alongside delegation was removed — see [Why Spring Voyage Is Not an Agent Runtime](../design-decisions.md).
 
 **Execution environment definition** is the same for agents and units. The `ai.environment` block specifies the container:
 
@@ -70,9 +67,9 @@ ai:
     runtime: podman                    # podman | docker | kubernetes
 ```
 
-Agents that don't specify `ai.environment` inherit the default from their unit's `execution` block (see Unit Model below). Units that use `execution: delegated` for orchestration specify their own `ai.environment` for the workflow container.
+Agents that don't specify `ai.environment` inherit the default from their unit's `execution` block (see Unit Model below).
 
-The execution pattern is fixed per agent definition. An agent is either hosted or delegated — it does not switch at runtime. When an agent needs both reasoning and tool-use (e.g., a triage agent that sometimes needs to write code), the recommended pattern is **composition via `requestHelp`**: the hosted agent reasons about the work and delegates tool-use to a delegated agent in the same unit. This is cleaner than runtime mode switching because the triage decision and the code-writing are genuinely different cognitive tasks with different tool requirements, and the unit already provides the composition mechanism.
+**Lightweight LLM calls** (routing decisions, classification, summarisation) remain in-platform via `IAiProvider.CompleteAsync` / `StreamCompleteAsync`. These are utility calls — no multi-turn loop, no tool use — and do not constitute agent execution.
 
 ### Agent Cloning
 
@@ -136,7 +133,7 @@ The agent's AI needs context beyond its user-defined instructions. The actor ass
 | **4. Agent instructions**      | User-defined (`instructions` in agent YAML) | Role-specific guidance, domain knowledge, personality                        | User-controlled |
 
 
-For delegated execution, the composed prompt becomes the system prompt passed to the tool. For hosted execution, it becomes the system message in the LLM call.
+The composed prompt becomes the system prompt handed to the execution environment (typically written to `AGENTS.md` / `CLAUDE.md` in the container's working directory or passed via `SPRING_SYSTEM_PROMPT`).
 
 **Layer 3 — Conversation context** is critical for delegated agents across CLI invocations. Each invocation of a tool like Claude Code starts fresh — it has no memory of prior invocations within the same conversation. The actor composes Layer 3 from: (1) prior messages exchanged in this conversation, (2) the last checkpoint state (if the previous invocation checkpointed), and (3) any partial results from prior invocations. This ensures continuity across invocations without requiring the agent to use `recallMemory` for conversation-specific state. Layer 3 is empty for new conversations and grows as conversations progress. For suspended-then-resumed conversations, Layer 3 includes the full conversation history up to the suspension point.
 
@@ -245,14 +242,14 @@ unit:
       notifications: [email]
 ```
 
-**Unit AI — hosted vs. delegated:**
+**Unit AI:**
 
-The unit's `ai` block follows the same pattern as an agent's `ai` block. The two execution modes are mutually exclusive:
+A unit's `ai` block describes how the unit orchestrates its members. Two flavours:
 
-- **Hosted** (`execution: hosted`) — the unit uses an LLM to orchestrate. Requires `agent`, `model`, `prompt`, and optionally `skills`. The LLM receives messages, reasons about routing, and sends messages to members.
-- **Delegated** (`execution: delegated`) — the unit delegates orchestration to a workflow container. Requires `tool` and `environment`. The workflow container drives the orchestration logic — it may use an LLM internally, but that's the container's concern, not the unit definition's.
+- **AI-orchestrated** — the unit uses a lightweight LLM call to decide routing (see `AiOrchestrationStrategy` and [design decisions](../design-decisions.md)). Requires `agent`, `model`, `prompt`, and optionally `skills`. No multi-turn tool loop in the platform; this is a single prompt that returns a routing decision.
+- **Workflow** — the unit delegates orchestration to a workflow container. Requires `tool` and `environment`. The workflow container drives the sequence — it may invoke agents as activities.
 
-**Example: AI-orchestrated unit (hosted):**
+**Example: AI-orchestrated unit:**
 
 ```yaml
 unit:
@@ -260,7 +257,6 @@ unit:
   ai:
     agent: claude
     model: claude-sonnet-4-20250514
-    execution: hosted
     prompt: |
       You coordinate a research team. Route papers
       to the most relevant researcher by expertise.
@@ -603,14 +599,9 @@ Stops all agents, deactivates actors, cleans up subscriptions and execution envi
               "type": "string",
               "description": "Model identifier."
             },
-            "execution": {
-              "type": "string",
-              "enum": ["hosted", "delegated"],
-              "description": "hosted: actor calls AI directly. delegated: actor dispatches to execution environment."
-            },
             "tool": {
               "type": "string",
-              "description": "Registered tool name for delegated execution (e.g., claude-code)."
+              "description": "Registered agent tool name (e.g., claude-code)."
             },
             "environment": {
               "type": "object",
@@ -618,11 +609,10 @@ Stops all agents, deactivates actors, cleans up subscriptions and execution envi
                 "image": { "type": "string", "description": "Container image for the execution environment." },
                 "runtime": { "type": "string", "enum": ["podman", "docker", "kubernetes"] }
               },
-              "description": "Container definition for delegated execution. Inherited from unit's execution block if not specified."
+              "description": "Container definition. Inherited from unit's execution block if not specified."
             }
           },
-          "if": { "properties": { "execution": { "const": "delegated" } } },
-          "then": { "required": ["tool"] }
+          "required": ["tool"]
         },
         "cloning": {
           "type": "object",
@@ -726,24 +716,18 @@ Stops all agents, deactivates actors, cleans up subscriptions and execution envi
         },
         "ai": {
           "type": "object",
-          "required": ["execution"],
           "properties": {
-            "execution": {
-              "type": "string",
-              "enum": ["hosted", "delegated"],
-              "description": "hosted: unit uses LLM to orchestrate. delegated: unit delegates to workflow container."
-            },
             "agent": {
               "type": "string",
-              "description": "Registered AI agent provider (hosted only)."
+              "description": "Registered AI agent provider for lightweight orchestration decisions."
             },
             "model": {
               "type": "string",
-              "description": "Model identifier (hosted only)."
+              "description": "Model identifier for lightweight orchestration decisions."
             },
             "prompt": {
               "type": "string",
-              "description": "Orchestration prompt (hosted only)."
+              "description": "Orchestration prompt used when the unit's routing strategy is AI-orchestrated."
             },
             "skills": {
               "type": "array",
@@ -755,11 +739,11 @@ Stops all agents, deactivates actors, cleans up subscriptions and execution envi
                   "skill": { "type": "string" }
                 }
               },
-              "description": "Skill references (hosted only)."
+              "description": "Skill references exposed in the orchestration prompt."
             },
             "tool": {
               "type": "string",
-              "description": "Registered workflow tool name (delegated only)."
+              "description": "Registered workflow tool name when the unit delegates orchestration to a workflow container."
             },
             "environment": {
               "type": "object",
@@ -767,19 +751,9 @@ Stops all agents, deactivates actors, cleans up subscriptions and execution envi
                 "image": { "type": "string", "description": "Container image." },
                 "runtime": { "type": "string", "enum": ["podman", "docker", "kubernetes"] }
               },
-              "description": "Container definition (delegated only)."
+              "description": "Container definition for the workflow tool (when used)."
             }
-          },
-          "allOf": [
-            {
-              "if": { "properties": { "execution": { "const": "hosted" } } },
-              "then": { "required": ["agent", "model"] }
-            },
-            {
-              "if": { "properties": { "execution": { "const": "delegated" } } },
-              "then": { "required": ["tool", "environment"] }
-            }
-          ]
+          }
         },
         "members": {
           "type": "array",

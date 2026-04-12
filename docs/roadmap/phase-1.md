@@ -14,7 +14,7 @@ The foundation. Everything else builds on this.
 - [x] Four-layer prompt assembly (platform, unit context, conversation context, agent instructions) — [Units & Agents](../architecture/units.md)
 - [x] `checkMessages` platform tool for delegated agent message retrieval — [Units & Agents](../architecture/units.md)
 - [x] One connector: GitHub (C#) — [Connectors](../architecture/connectors.md)
-- [x] Brain/Hands: hosted + delegated execution — [Units & Agents](../architecture/units.md)
+- [x] Brain/Hands: container-based delegated execution — [Units & Agents](../architecture/units.md)
 - [x] Address resolution: cached directory with event-driven invalidation, permission checks at resolution time — [Messaging](../architecture/messaging.md)
 - [x] Basic API host (with single-user local dev mode), CLI (`spring` command) — [CLI & Web](../architecture/cli-and-web.md)
 - [x] Skill format: prompt fragments + optional tool definitions, composable via declaration order — [Packages](../architecture/packages.md)

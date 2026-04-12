@@ -8,7 +8,7 @@
 
 1. ~~**GitHub Connector**~~ — **Resolved: Rewrite in C#** for consistency with the .NET infrastructure layer. The Python v1 connector will not be carried forward.
 2. ~~**Second Connector**~~ — **Resolved: should serve the product-management domain** (Phase 3). Linear, Notion, or Jira — whichever best fits the product management workflow.
-3. ~~**Active Conversation Model**~~ — **Resolved: all agents use one-active-with-suspension.** Hosted agents have brief active periods; delegated agents have longer ones. Uniform model, with performance optimizations possible later. See [Messaging](messaging.md).
+3. ~~**Active Conversation Model**~~ — **Resolved: all agents use one-active-with-suspension.** The active period spans the full container-based agent run, which can be long. Uniform model, with performance optimizations possible later. See [Messaging](messaging.md).
 4. ~~**Prompt Assembly: Conversation Context**~~ — **Resolved: four-layer prompt model.** Conversation context (prior messages, checkpoints, partial results) is Layer 3, injected per invocation. See [Units & Agents](units.md).
 
 ## Remaining

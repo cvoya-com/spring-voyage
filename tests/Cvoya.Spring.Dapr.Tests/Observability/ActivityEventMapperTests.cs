@@ -24,9 +24,9 @@ public class ActivityEventMapperTests
             Guid.NewGuid(),
             DateTimeOffset.UtcNow,
             new Address("agent", "team/ada"),
-            ActivityEventType.ToolCallStart,
+            ActivityEventType.DecisionMade,
             ActivitySeverity.Debug,
-            "Starting tool call",
+            "Decision recorded",
             details,
             "corr-456",
             1.23m);
@@ -35,9 +35,9 @@ public class ActivityEventMapperTests
 
         record.Id.Should().Be(activityEvent.Id);
         record.Source.Should().Be("agent:team/ada");
-        record.EventType.Should().Be("ToolCallStart");
+        record.EventType.Should().Be("DecisionMade");
         record.Severity.Should().Be("Debug");
-        record.Summary.Should().Be("Starting tool call");
+        record.Summary.Should().Be("Decision recorded");
         record.Details!.Value.GetProperty("key").GetString().Should().Be("value");
         record.CorrelationId.Should().Be("corr-456");
         record.Cost.Should().Be(1.23m);

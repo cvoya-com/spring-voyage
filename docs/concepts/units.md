@@ -35,12 +35,11 @@ Five orchestration strategies are available:
 
 The strategy can be swapped independently of the unit's identity -- for example, upgrading from rule-based to AI-orchestrated as a team matures.
 
-### Hosted vs. Delegated Orchestration
+### AI-Orchestrated Routing
 
-Just like agents, units have two execution modes for their AI:
+When a unit uses the AI-orchestrated strategy, Spring Voyage makes a single lightweight LLM call (no tool loop — see [Why Spring Voyage Is Not an Agent Runtime](../design-decisions.md)) to decide which member should receive the incoming message. The LLM sees the message plus the unit's member directory and returns a target address. The member then runs in its own execution environment as usual.
 
-- **Hosted** -- the unit uses an LLM directly to orchestrate. The LLM receives messages, reasons about routing, and sends messages to members.
-- **Delegated** -- the unit delegates orchestration to a workflow container. The container drives the orchestration logic and may use an LLM internally.
+For workflow-based orchestration, the unit delegates to a workflow container that drives the sequence and may invoke agents as activities.
 
 ## Unit Boundary
 

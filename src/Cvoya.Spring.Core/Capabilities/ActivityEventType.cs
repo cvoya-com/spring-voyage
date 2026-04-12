@@ -20,6 +20,4 @@ public enum ActivityEventType
     WorkflowStepCompleted,
     CostIncurred,
     TokenDelta,
-    ToolCallStart,
-    ToolCallResult,
 }

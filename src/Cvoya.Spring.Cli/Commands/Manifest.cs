@@ -67,10 +67,6 @@ public class UnitManifest
 /// <summary>AI configuration for a unit (parsed; not yet applied).</summary>
 public class AiManifest
 {
-    /// <summary>Execution mode (e.g. <c>hosted</c>).</summary>
-    [YamlMember(Alias = "execution")]
-    public string? Execution { get; set; }
-
     /// <summary>Provider agent identifier (e.g. <c>claude</c>).</summary>
     [YamlMember(Alias = "agent")]
     public string? Agent { get; set; }

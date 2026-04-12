@@ -87,16 +87,19 @@ This document captures the key architectural decisions behind Spring Voyage V2 a
 
 ---
 
-## Why Not Runtime Mode Switching (Hosted/Delegated)?
+## Why Spring Voyage Is Not an Agent Runtime
 
-**Decision:** An agent is either hosted or delegated -- it does not switch at runtime.
+**Decision:** Spring Voyage coordinates external agent runtimes (Claude Code, Codex, Gemini CLI, etc.) running in containers. The platform does not implement its own multi-turn tool-use loop.
 
-**Alternatives considered:** Agents that dynamically switch between hosted (for reasoning) and delegated (for tool use) modes.
+**Alternatives considered:** Hosted execution where the platform calls an LLM's Messages API directly and runs a tool-use loop in-process, alongside delegated execution to containers.
 
-**Why fixed mode wins:**
-- **Simpler mental model.** A triage agent is always hosted. A code-writing agent is always delegated. No mode confusion.
-- **Composition over switching.** When a hosted agent needs tool use, it delegates to a delegated agent in the same unit via `requestHelp`. The triage decision and the code-writing are genuinely different cognitive tasks that benefit from different tool sets.
-- **The unit provides composition.** Units already manage multiple agents working together. Using the existing composition mechanism is cleaner than adding runtime mode complexity to a single agent.
+**Why delegation-only wins:**
+- **Don't reimplement the agent engine.** Claude Code, Codex, and similar tools already do planning, tool use, permissioning, streaming, session management, and checkpointing. A hosted loop would be a worse version of the same thing.
+- **Agent tools evolve fast.** Skills, slash commands, MCP integrations, permission models, and streaming shapes are moving targets. Letting the external tool own those keeps Spring Voyage stable while the ecosystem churns.
+- **MCP is the cross-tool contract.** Platform skills (GitHub ops, etc.) reach external agents via an MCP server the container consumes. One implementation serves every MCP-speaking tool.
+- **Lightweight calls stay lightweight.** Non-agentic LLM calls (routing decisions, classification, summarisation) remain first-class via `IAiProvider.CompleteAsync` / `StreamCompleteAsync`. They don't need an agent loop.
+
+Hosted execution and the in-platform tool-use loop were removed in spring-voyage#118. See [Units & Agents — Execution](architecture/units.md) for the remaining model.
 
 ---
 

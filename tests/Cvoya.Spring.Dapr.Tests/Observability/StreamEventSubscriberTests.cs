@@ -55,28 +55,6 @@ public class StreamEventSubscriberTests
     }
 
     [Fact]
-    public async Task HandleAsync_ToolCallStart_PublishesActivityEventWithToolName()
-    {
-        var toolCall = new StreamEvent.ToolCallStart(
-            Guid.NewGuid(), DateTimeOffset.UtcNow, "search", "{}");
-        var envelope = new StreamEventEnvelope
-        {
-            AgentId = "agent-2",
-            EventType = nameof(StreamEvent.ToolCallStart),
-            Timestamp = DateTimeOffset.UtcNow,
-            Payload = JsonSerializer.SerializeToElement(toolCall)
-        };
-
-        await _subscriber.HandleAsync(envelope, TestContext.Current.CancellationToken);
-
-        await _activityEventBus.Received(1).PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
-                e.EventType == ActivityEventType.ToolCallStart &&
-                e.Summary.Contains("search")),
-            Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
     public async Task HandleAsync_Completed_PublishesConversationCompletedEvent()
     {
         var completed = new StreamEvent.Completed(

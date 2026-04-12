@@ -17,27 +17,13 @@ Every agent has:
 
 ## How Agents Think: Brain and Hands
 
-Every agent has a separation between its **brain** (reasoning, decisions) and its **hands** (actions on external systems). This is the "Brain/Hands" model.
-
-### Hosted Agents
-
-A hosted agent's brain runs directly within the platform. The platform calls the LLM, the LLM reasons and responds, and the platform processes the response. Hosted agents are good for lightweight cognitive tasks: routing messages, classifying issues, making triage decisions, advising other agents.
-
-Hosted agents don't touch the filesystem, run tools, or interact with external systems directly. They reason and communicate.
-
-### Delegated Agents
-
-A delegated agent dispatches work to a separate **execution environment** -- an isolated container where a tool (like Claude Code) drives the full agentic loop. The tool reads files, writes code, runs tests, creates pull requests -- all within the container's sandbox.
+Every agent has a separation between its **brain** (reasoning, decisions) and its **hands** (actions on external systems). The brain is a configured AI agent tool — Claude Code, Codex, or similar — running inside a sandboxed **execution environment** (a container). The tool drives the full agentic loop: reads files, writes code, runs tests, creates pull requests, calls MCP servers. Spring Voyage orchestrates these containers; it does not implement its own agent loop.
 
 The agent actor monitors the execution environment via streaming events and collects results when the work completes. The execution environment is sandboxed: no network access, no filesystem access beyond the mounted workspace, unless explicitly granted.
 
-Delegated agents are essential for software engineering, document editing, and any multi-step tool use.
+For non-agentic platform needs — routing decisions, classification, summarisation — Spring Voyage makes lightweight LLM calls directly (no tool loop) via `IAiProvider`. These are utilities internal to the platform, not an agent execution model.
 
-### When to Use Which
-
-Use hosted agents for cognition-only tasks where the value is in the decision, not the action. Use delegated agents when the agent needs to interact with the world through tools.
-
-If an agent needs both -- for example, a triage agent that sometimes needs to write code -- the recommended pattern is composition: the hosted agent reasons about the work and delegates tool-use to a delegated agent in the same unit.
+See [Why Spring Voyage Is Not an Agent Runtime](../design-decisions.md) for the rationale.
 
 ## Agent Lifecycle
 
@@ -110,7 +96,7 @@ When an agent activates, the platform assembles its full prompt from four layers
 | **Conversation context** | Prior messages, checkpoints, partial results for the active conversation (per-invocation) |
 | **Agent instructions** | The user-defined instructions from the agent's YAML definition (user-controlled) |
 
-For delegated agents, this composed prompt becomes the system prompt passed to the execution environment. For hosted agents, it becomes the system message in the LLM call.
+The composed prompt becomes the system prompt handed to the execution environment (for example, written to `AGENTS.md` / `CLAUDE.md` in the container's working directory, or passed via `SPRING_SYSTEM_PROMPT`).
 
 ## Platform Tools
 
