@@ -31,7 +31,6 @@ Activity events cover the full spectrum of agent behavior:
 - **WorkflowStepCompleted** -- a workflow step finished
 - **CostIncurred** -- an LLM call was made (with cost)
 - **TokenDelta** -- live LLM token streaming
-- **ToolCallStart / ToolCallResult** -- tool usage events
 
 ## Observation Layers
 
@@ -48,15 +47,12 @@ Different observers see agent activity at different levels:
 
 Execution environments stream tokens and events back to the platform in real-time:
 
-- **TokenDelta** -- LLM tokens as they're generated (enables live text streaming)
+- **TokenDelta** -- LLM tokens as they're generated (enables live text streaming for lightweight platform LLM calls)
 - **ThinkingDelta** -- reasoning tokens (if the model supports it)
-- **ToolCallStart** -- the agent is invoking a tool (name, arguments)
-- **ToolCallResult** -- the tool returned a result
-- **OutputDelta** -- stdout/stderr from delegated execution (e.g., Claude Code output)
 - **Checkpoint** -- a state snapshot for recovery and progress tracking
 - **Completed** -- work finished with final result
 
-This enables live observation of agent work -- you can watch an agent write code in real-time through the web dashboard or CLI.
+This enables live observation of lightweight platform LLM calls. Agent tool-use streaming (e.g., `Tool call: Edit` shown during a Claude Code run) is surfaced by the agent container's own streaming channel, not through `StreamEvent`; the platform treats an agent container's activity as opaque stdout/stderr and higher-level completion signals.
 
 ## Cost Observability
 

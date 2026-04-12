@@ -339,7 +339,7 @@ graph TD
 1. **Control messages are never blocked.** A cancellation or other control message is processed even if the agent is mid-work. The actor handles it in the current turn by updating state (setting a cancellation flag). The execution environment checks these flags.
 2. **Active conversation gets new messages immediately.** When a message arrives for the currently active conversation (same `ConversationId`), it is placed in that conversation's channel. The sender receives an immediate acknowledgment. The platform does not distinguish between "feedback," "clarification," or any other message type — any message on the active conversation is accumulated for the agent.
 
-   **Message retrieval for delegated agents:** Delegated execution environments (e.g., Claude Code) drive their own agentic loop and don't naturally check back with the actor. The platform provides a `checkMessages` tool in the agent's tool manifest. The agent calls this at natural boundaries (between subtasks, after completing a step). The tool calls back to the actor, which returns any accumulated messages on the active conversation channel. This is pull-based — the agent decides when to check. The actor also includes a "messages pending" flag in checkpoint acknowledgments, hinting that the agent should call `checkMessages` soon. For hosted agents, accumulated messages are injected directly into the next LLM call.
+   **Message retrieval for agent containers:** Execution environments (e.g., Claude Code) drive their own agentic loop and don't naturally check back with the actor. The platform provides a `checkMessages` tool in the agent's tool manifest (surfaced via MCP). The agent calls this at natural boundaries (between subtasks, after completing a step). The tool calls back to the actor, which returns any accumulated messages on the active conversation channel. This is pull-based — the agent decides when to check. The actor also includes a "messages pending" flag in checkpoint acknowledgments, hinting that the agent should call `checkMessages` soon.
 3. **Pending conversations queue.** New conversations (new `ConversationId`) queue as pending. They are started in arrival order when the active conversation completes or is suspended.
 4. **Observation messages batch.** Activity events from observed agents and pub/sub notifications accumulate. The initiative cognition loop processes them in batch — "what happened since I last looked?" — rather than one at a time. This is more efficient and produces better reasoning.
 
@@ -359,7 +359,7 @@ msg4: (conv-A)                   → routed to conv-A channel (active)
 
 **Conversation suspension** is a core capability. An agent can **suspend** the active conversation (e.g., blocked waiting on external input or human approval), promote the next pending conversation, and resume the original later — all with clean per-conversation state. This ensures agents are not idle when blocked.
 
-All agents use the same mailbox model: one active conversation with suspension. For hosted agents, the active period is brief (a single LLM call), so conversations cycle quickly. For delegated agents, the active period is longer (execution environment working). The uniform model keeps the mailbox implementation simple; performance optimizations for hosted agents (e.g., bypassing the pending queue when conversations are short-lived) can be added later without changing the model.
+All agents use the same mailbox model: one active conversation with suspension. The active period spans the full lifetime of a container-based agent run, which can be long (minutes to hours). The uniform model keeps the mailbox implementation simple.
 
 ### Asynchronous Work Dispatch & Cancellation
 
@@ -420,10 +420,6 @@ sequenceDiagram
     E->>A: TokenDelta("def ")
     E->>A: TokenDelta("hello")
     A->>O: ActivityEvent
-    E->>A: ToolCallStart(grep)
-    A->>O: ActivityEvent
-    E->>A: ToolCallResult(...)
-    A->>O: ActivityEvent
     E->>A: Checkpoint(state)
     Note over A: persists state
     E->>A: TokenDelta("return")
@@ -434,18 +430,15 @@ sequenceDiagram
 
 
 
-**Stream event types:**
+**Stream event types** (for lightweight platform LLM calls via `IAiProvider`; agent container tool-use shows up through the container's own stdout/stderr and higher-level completion signals):
 
 
-| Event            | Description                                                    |
-| ---------------- | -------------------------------------------------------------- |
-| `TokenDelta`     | LLM token(s) generated — enables live text streaming           |
-| `ThinkingDelta`  | Reasoning/thinking tokens (if model supports)                  |
-| `ToolCallStart`  | Agent is invoking a tool (name, arguments)                     |
-| `ToolCallResult` | Tool returned a result                                         |
-| `OutputDelta`    | Stdout/stderr from delegated execution (e.g., Claude Code CLI) |
-| `Checkpoint`     | State snapshot for recovery and progress tracking              |
-| `Completed`      | Work finished with final result                                |
+| Event           | Description                                          |
+| --------------- | ---------------------------------------------------- |
+| `TokenDelta`    | LLM token(s) generated — enables live text streaming |
+| `ThinkingDelta` | Reasoning/thinking tokens (if model supports)        |
+| `Checkpoint`    | State snapshot for recovery and progress tracking    |
+| `Completed`     | Work finished with final result                      |
 
 
 **Transport:** The execution environment publishes to a per-agent Dapr pub/sub topic (`agent/{id}/stream`). Multiple subscribers consume from this topic concurrently:
@@ -473,9 +466,8 @@ agent:
   ai:
     agent: claude                       # registered AI agent provider
     model: claude-sonnet-4-20250514
-    execution: delegated                # hosted | delegated
-    tool: claude-code                   # registered tool name (delegated only)
-    environment:                        # container definition (delegated only)
+    tool: claude-code                   # registered agent tool
+    environment:                        # container definition
       image: spring-agent:latest
       runtime: podman                   # podman | docker | kubernetes
     
@@ -506,13 +498,11 @@ agent:
       route: /issues
 ```
 
-### Execution Patterns
+### Execution Pattern
 
-**Pattern A: Hosted AI** (`execution: hosted`)  
-The agent actor calls the AI agent provider directly (via .NET SDK or Python process). The LLM reasons, decides, and responds — but doesn't touch the filesystem or run tools. Requires `agent` and `model` in the `ai` block. Good for: routing, classification, triage, advisory, monitoring agents. Can be implemented in .NET (using Anthropic .NET SDK, Azure OpenAI SDK) or Python.
+The agent actor dispatches work to an execution environment (container) that launches a registered agent tool (e.g., `claude-code`). The tool drives the agentic loop — reading files, writing code, running tests, invoking MCP servers the platform exposes. The actor monitors via streaming events and collects results. Requires `tool` and `environment` in the `ai` block — `tool` names the registered agent tool, `environment` specifies the container image and runtime. Essential for: software engineering, document editing, any multi-step tool use.
 
-**Pattern B: Delegated Execution** (`execution: delegated`)  
-The agent actor dispatches work to an execution environment (container) that launches a registered tool (e.g., `claude-code`). The tool drives the agentic loop — reading files, writing code, running tests. The actor monitors via streaming events and collects results. Requires `tool` and `environment` in the `ai` block — `tool` names the registered tool (e.g., `claude-code`), `environment` specifies the container image and runtime. Can be pure .NET — no Python process needed. Essential for: software engineering, document editing, any multi-step tool use.
+Spring Voyage does **not** implement its own in-platform tool-use loop. The `Hosted` execution mode that previously sat alongside delegation was removed — see [Why Spring Voyage Is Not an Agent Runtime](design-decisions.md) for rationale.
 
 **Execution environment definition** is the same for agents and units. The `ai.environment` block specifies the container:
 
@@ -523,9 +513,9 @@ ai:
     runtime: podman                    # podman | docker | kubernetes
 ```
 
-Agents that don't specify `ai.environment` inherit the default from their unit's `execution` block (see Section 9). Units that use `execution: delegated` for orchestration specify their own `ai.environment` for the workflow container.
+Agents that don't specify `ai.environment` inherit the default from their unit's `execution` block (see Section 9).
 
-The execution pattern is fixed per agent definition. An agent is either hosted or delegated — it does not switch at runtime. When an agent needs both reasoning and tool-use (e.g., a triage agent that sometimes needs to write code), the recommended pattern is **composition via `requestHelp`**: the hosted agent reasons about the work and delegates tool-use to a delegated agent in the same unit. This is cleaner than runtime mode switching because the triage decision and the code-writing are genuinely different cognitive tasks with different tool requirements, and the unit already provides the composition mechanism.
+**Lightweight LLM calls** (routing decisions, classification, summarisation) remain in-platform via `IAiProvider.CompleteAsync` / `StreamCompleteAsync`. These are utility calls — no multi-turn loop, no tool use — and do not constitute agent execution.
 
 ### Agent Cloning
 
@@ -589,7 +579,7 @@ The agent's AI needs context beyond its user-defined instructions. The actor ass
 | **4. Agent instructions**      | User-defined (`instructions` in agent YAML) | Role-specific guidance, domain knowledge, personality                        | User-controlled |
 
 
-For delegated execution, the composed prompt becomes the system prompt passed to the tool. For hosted execution, it becomes the system message in the LLM call.
+The composed prompt becomes the system prompt handed to the execution environment (typically written to `AGENTS.md` / `CLAUDE.md` in the container's working directory or passed via `SPRING_SYSTEM_PROMPT`).
 
 **Layer 3 — Conversation context** is critical for delegated agents across CLI invocations. Each invocation of a tool like Claude Code starts fresh — it has no memory of prior invocations within the same conversation. The actor composes Layer 3 from: (1) prior messages exchanged in this conversation, (2) the last checkpoint state (if the previous invocation checkpointed), and (3) any partial results from prior invocations. This ensures continuity across invocations without requiring the agent to use `recallMemory` for conversation-specific state. Layer 3 is empty for new conversations and grows as conversations progress. For suspended-then-resumed conversations, Layer 3 includes the full conversation history up to the suspension point.
 
@@ -797,14 +787,14 @@ unit:
       notifications: [email]
 ```
 
-**Unit AI — hosted vs. delegated:**
+**Unit AI:**
 
-The unit's `ai` block follows the same pattern as an agent's `ai` block. The two execution modes are mutually exclusive:
+A unit's `ai` block describes how the unit orchestrates its members. Two flavours:
 
-- **Hosted** (`execution: hosted`) — the unit uses an LLM to orchestrate. Requires `agent`, `model`, `prompt`, and optionally `skills`. The LLM receives messages, reasons about routing, and sends messages to members.
-- **Delegated** (`execution: delegated`) — the unit delegates orchestration to a workflow container. Requires `tool` and `environment`. The workflow container drives the orchestration logic — it may use an LLM internally, but that's the container's concern, not the unit definition's.
+- **AI-orchestrated** — the unit uses a lightweight LLM call to decide routing (see `AiOrchestrationStrategy` and [design decisions](design-decisions.md)). Requires `agent`, `model`, `prompt`, and optionally `skills`. No multi-turn tool loop in the platform; this is a single prompt that returns a routing decision.
+- **Workflow** — the unit delegates orchestration to a workflow container. Requires `tool` and `environment`. The workflow container drives the sequence — it may invoke agents as activities.
 
-**Example: AI-orchestrated unit (hosted):**
+**Example: AI-orchestrated unit:**
 
 ```yaml
 unit:
@@ -812,7 +802,6 @@ unit:
   ai:
     agent: claude
     model: claude-sonnet-4-20250514
-    execution: hosted
     prompt: |
       You coordinate a research team. Route papers
       to the most relevant researcher by expertise.
@@ -1191,7 +1180,7 @@ Dapr pub/sub is broker-agnostic — Redis for development, Kafka or Azure Event 
 
 ## 14. Execution Modes
 
-The agent actor (brain) and execution environment (hands) are separate — see Section 7 for execution patterns (hosted vs. delegated) and Section 6 for async dispatch, cancellation, and streaming details. This section covers the isolation modes available for execution environments.
+The agent actor (brain) and execution environment (hands) are separate — see Section 7 for the container-based execution pattern and Section 6 for async dispatch, cancellation, and streaming details. This section covers the isolation modes available for execution environments.
 
 
 | Mode                  | Isolation   | Startup | Best For                               |
@@ -1220,7 +1209,7 @@ ActivityEvent:
   type: enum (MessageReceived, MessageSent, ConversationStarted, ConversationCompleted,
               DecisionMade, ErrorOccurred, StateChanged, InitiativeTriggered,
               ReflectionCompleted, WorkflowStepCompleted, CostIncurred,
-              TokenDelta, ToolCallStart, ToolCallResult, ...)
+              TokenDelta, ...)
   severity: enum (Debug, Info, Warning, Error)
   summary: string                    # human-readable one-liner
   details: JsonElement               # structured payload
@@ -1290,7 +1279,7 @@ Alerts:
 - **Persistent Store** — all events stored for replay and analytics
 - **Notifications** — Slack, email, GitHub comments (via connectors)
 
-> **Open issue: Event stream separation.** Currently, `ActivityEvent` covers both high-frequency execution events (`TokenDelta`, `ToolCallStart`) and higher-level activity events (`ConversationStarted`, `DecisionMade`). A single type simplifies the model and Rx.NET filtering handles volume. However, for very active agents the high-frequency token stream may overwhelm consumers interested only in summaries. A future revision may separate these into two streams: a high-frequency execution stream and a lower-frequency activity stream.
+> **Open issue: Event stream separation.** Currently, `ActivityEvent` covers both high-frequency execution events (`TokenDelta`) and higher-level activity events (`ConversationStarted`, `DecisionMade`). A single type simplifies the model and Rx.NET filtering handles volume. However, for very active agents the high-frequency token stream may overwhelm consumers interested only in summaries. A future revision may separate these into two streams: a high-frequency execution stream and a lower-frequency activity stream.
 
 ---
 
@@ -2076,7 +2065,7 @@ Initiative adds ~6-8% to total cost while enabling proactive value.
 - Four-layer prompt assembly (platform, unit context, conversation context, agent instructions)
 - `checkMessages` platform tool for delegated agent message retrieval
 - One connector: GitHub (C#)
-- Brain/Hands: hosted + delegated execution
+- Brain/Hands: container-based delegated execution
 - User authentication (OAuth via web portal, API token management, tenant admin token controls)
 - Address resolution: cached directory with event-driven invalidation, permission checks at resolution time
 - Basic API host (with single-tenant local dev mode), CLI (`spring` command)
@@ -2170,7 +2159,7 @@ The OSS codebase must not reference tenant concepts. Entities have no `TenantId`
 
 ### New Open Issues (from v2 plan review)
 
-1. ~~**Active Conversation Model**~~ — **Resolved: all agents use one-active-with-suspension.** Hosted agents have brief active periods; delegated agents have longer ones. Uniform model, with performance optimizations possible later. See Section 6.
+1. ~~**Active Conversation Model**~~ — **Resolved: all agents use one-active-with-suspension.** The active period spans the full container-based agent run, which can be long. Uniform model, with performance optimizations possible later. See Section 6.
 2. ~~**Prompt Assembly: Conversation Context**~~ — **Resolved: four-layer prompt model.** Conversation context (prior messages, checkpoints, partial results) is Layer 3, injected per invocation. See Section 7.
 3. **Initiative Policy Granularity** — Is `max_level` sufficient (each level implies capabilities), or should there be explicit per-capability flags? See Section 8.
 4. **Event Stream Separation** — Whether to split `ActivityEvent` into a high-frequency execution stream and a lower-frequency activity summary stream. See Section 15.
@@ -2286,14 +2275,9 @@ Units that evolve their own structure over time — adding new roles, adjusting 
               "type": "string",
               "description": "Model identifier."
             },
-            "execution": {
-              "type": "string",
-              "enum": ["hosted", "delegated"],
-              "description": "hosted: actor calls AI directly. delegated: actor dispatches to execution environment."
-            },
             "tool": {
               "type": "string",
-              "description": "Registered tool name for delegated execution (e.g., claude-code)."
+              "description": "Registered agent tool name (e.g., claude-code)."
             },
             "environment": {
               "type": "object",
@@ -2301,11 +2285,10 @@ Units that evolve their own structure over time — adding new roles, adjusting 
                 "image": { "type": "string", "description": "Container image for the execution environment." },
                 "runtime": { "type": "string", "enum": ["podman", "docker", "kubernetes"] }
               },
-              "description": "Container definition for delegated execution. Inherited from unit's execution block if not specified."
+              "description": "Container definition. Inherited from unit's execution block if not specified."
             }
           },
-          "if": { "properties": { "execution": { "const": "delegated" } } },
-          "then": { "required": ["tool"] }
+          "required": ["tool"]
         },
         "cloning": {
           "type": "object",
@@ -2409,24 +2392,18 @@ Units that evolve their own structure over time — adding new roles, adjusting 
         },
         "ai": {
           "type": "object",
-          "required": ["execution"],
           "properties": {
-            "execution": {
-              "type": "string",
-              "enum": ["hosted", "delegated"],
-              "description": "hosted: unit uses LLM to orchestrate. delegated: unit delegates to workflow container."
-            },
             "agent": {
               "type": "string",
-              "description": "Registered AI agent provider (hosted only)."
+              "description": "Registered AI agent provider for lightweight orchestration decisions."
             },
             "model": {
               "type": "string",
-              "description": "Model identifier (hosted only)."
+              "description": "Model identifier for lightweight orchestration decisions."
             },
             "prompt": {
               "type": "string",
-              "description": "Orchestration prompt (hosted only)."
+              "description": "Orchestration prompt used when the unit's routing strategy is AI-orchestrated."
             },
             "skills": {
               "type": "array",
@@ -2438,11 +2415,11 @@ Units that evolve their own structure over time — adding new roles, adjusting 
                   "skill": { "type": "string" }
                 }
               },
-              "description": "Skill references (hosted only)."
+              "description": "Skill references exposed in the orchestration prompt."
             },
             "tool": {
               "type": "string",
-              "description": "Registered workflow tool name (delegated only)."
+              "description": "Registered workflow tool name when the unit delegates orchestration to a workflow container."
             },
             "environment": {
               "type": "object",
@@ -2450,19 +2427,9 @@ Units that evolve their own structure over time — adding new roles, adjusting 
                 "image": { "type": "string", "description": "Container image." },
                 "runtime": { "type": "string", "enum": ["podman", "docker", "kubernetes"] }
               },
-              "description": "Container definition (delegated only)."
+              "description": "Container definition for the workflow tool (when used)."
             }
-          },
-          "allOf": [
-            {
-              "if": { "properties": { "execution": { "const": "hosted" } } },
-              "then": { "required": ["agent", "model"] }
-            },
-            {
-              "if": { "properties": { "execution": { "const": "delegated" } } },
-              "then": { "required": ["tool", "environment"] }
-            }
-          ]
+          }
         },
         "members": {
           "type": "array",

@@ -55,9 +55,6 @@ public class StreamEventSubscriber(
         {
             nameof(StreamEvent.TokenDelta) => TryGetText(envelope.Payload, "Text", "Token generated"),
             nameof(StreamEvent.ThinkingDelta) => "Thinking...",
-            nameof(StreamEvent.ToolCallStart) => $"Tool call started: {TryGetText(envelope.Payload, "ToolName", "unknown")}",
-            nameof(StreamEvent.ToolCallResult) => $"Tool call completed: {TryGetText(envelope.Payload, "ToolName", "unknown")}",
-            nameof(StreamEvent.OutputDelta) => "Output generated",
             nameof(StreamEvent.Checkpoint) => "Checkpoint saved",
             nameof(StreamEvent.Completed) => "Execution completed",
             _ => $"Stream event: {envelope.EventType}"
@@ -69,8 +66,6 @@ public class StreamEventSubscriber(
         return eventType switch
         {
             nameof(StreamEvent.TokenDelta) => ActivityEventType.TokenDelta,
-            nameof(StreamEvent.ToolCallStart) => ActivityEventType.ToolCallStart,
-            nameof(StreamEvent.ToolCallResult) => ActivityEventType.ToolCallResult,
             nameof(StreamEvent.Completed) => ActivityEventType.ConversationCompleted,
             _ => ActivityEventType.StateChanged
         };

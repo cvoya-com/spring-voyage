@@ -61,9 +61,6 @@ An isolated runtime (container) where a delegated agent's work runs. Separate fr
 **Expertise Profile**
 A structured description of what an agent knows and how well it knows it. Seeded from configuration, optionally evolved through observation and learning.
 
-**Hosted Execution**
-An execution pattern where the agent actor calls the AI provider directly. The LLM reasons and responds within the actor process. No separate container, no tool use.
-
 **Human Actor (HumanActor)**
 The Dapr virtual actor representing a human participant. Routes notifications and enforces permission levels.
 

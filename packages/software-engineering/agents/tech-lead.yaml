@@ -6,7 +6,7 @@ agent:
   ai:
     agent: claude
     model: claude-sonnet-4-20250514
-    execution: hosted
+    tool: claude-code
     environment:
       image: spring-agent:latest
       runtime: docker

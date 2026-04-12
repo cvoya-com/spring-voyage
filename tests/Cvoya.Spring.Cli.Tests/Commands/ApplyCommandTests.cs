@@ -25,7 +25,6 @@ public class ApplyCommandTests
           description: A software engineering team with a tech lead, backend engineers, and QA.
           structure: hierarchical
           ai:
-            execution: hosted
             agent: claude
             model: claude-sonnet-4-20250514
             prompt: |

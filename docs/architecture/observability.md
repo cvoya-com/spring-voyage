@@ -17,7 +17,7 @@ ActivityEvent:
   type: enum (MessageReceived, MessageSent, ConversationStarted, ConversationCompleted,
               DecisionMade, ErrorOccurred, StateChanged, InitiativeTriggered,
               ReflectionCompleted, WorkflowStepCompleted, CostIncurred,
-              TokenDelta, ToolCallStart, ToolCallResult, ...)
+              TokenDelta, ...)
   severity: enum (Debug, Info, Warning, Error)
   summary: string                    # human-readable one-liner
   details: JsonElement               # structured payload
@@ -85,7 +85,7 @@ Alerts:
 - **Persistent Store** — all events stored for replay and analytics
 - **Notifications** — Slack, email, GitHub comments (via connectors)
 
-> **Open issue: Event stream separation.** Currently, `ActivityEvent` covers both high-frequency execution events (`TokenDelta`, `ToolCallStart`) and higher-level activity events (`ConversationStarted`, `DecisionMade`). A single type simplifies the model and Rx.NET filtering handles volume. However, for very active agents the high-frequency token stream may overwhelm consumers interested only in summaries. A future revision may separate these into two streams: a high-frequency execution stream and a lower-frequency activity stream.
+> **Open issue: Event stream separation.** Currently, `ActivityEvent` covers both high-frequency execution events (`TokenDelta`) and higher-level activity events (`ConversationStarted`, `DecisionMade`). A single type simplifies the model and Rx.NET filtering handles volume. However, for very active agents the high-frequency token stream may overwhelm consumers interested only in summaries. A future revision may separate these into two streams: a high-frequency execution stream and a lower-frequency activity stream.
 
 ---
 

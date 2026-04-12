@@ -6,7 +6,7 @@
 
 ## Execution Modes
 
-The agent actor (brain) and execution environment (hands) are separate — see [Units & Agents](units.md) for execution patterns (hosted vs. delegated) and [Messaging](messaging.md) for async dispatch, cancellation, and streaming details. This section covers the isolation modes available for execution environments.
+The agent actor (brain) and execution environment (hands) are separate — see [Units & Agents](units.md) for the container-based execution pattern and [Messaging](messaging.md) for async dispatch, cancellation, and streaming details. This section covers the isolation modes available for execution environments.
 
 
 | Mode                  | Isolation   | Startup | Best For                               |
