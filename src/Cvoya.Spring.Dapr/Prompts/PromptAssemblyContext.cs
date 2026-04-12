@@ -26,4 +26,31 @@ public record PromptAssemblyContext(
     IReadOnlyList<Message> PriorMessages,
     string? LastCheckpoint,
     string? AgentInstructions,
-    ExecutionMode Mode);
+    ExecutionMode Mode)
+{
+    /// <summary>
+    /// Flattens every skill's tool definitions into a single list for the tool-use
+    /// parameter on an AI provider call. Returns an empty list when no skills are set.
+    /// </summary>
+    /// <returns>All tool definitions across all skills in this context.</returns>
+    public IReadOnlyList<ToolDefinition> GetAllTools()
+    {
+        if (Skills is null || Skills.Count == 0)
+        {
+            return Array.Empty<ToolDefinition>();
+        }
+
+        var tools = new List<ToolDefinition>();
+        foreach (var skill in Skills)
+        {
+            if (skill.Tools is null)
+            {
+                continue;
+            }
+
+            tools.AddRange(skill.Tools);
+        }
+
+        return tools;
+    }
+}

@@ -4,9 +4,11 @@
 namespace Cvoya.Spring.Dapr.Prompts;
 
 using System.Text;
+using System.Text.Json;
 
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Skills;
 
 using Microsoft.Extensions.Logging;
 
@@ -80,5 +82,35 @@ public class PromptAssembler(
 
         _logger.LogDebug("Prompt assembly complete for message {MessageId}.", message.Id);
         return builder.ToString().TrimEnd();
+    }
+
+    /// <inheritdoc />
+    public async Task<PromptAssemblyResult> AssembleForToolsAsync(Message message, CancellationToken cancellationToken = default)
+    {
+        var systemPrompt = await AssembleAsync(message, cancellationToken);
+
+        var tools = Context?.GetAllTools() ?? Array.Empty<ToolDefinition>();
+
+        var userText = ExtractUserText(message);
+        IReadOnlyList<ConversationTurn> initialTurns =
+        [
+            new ConversationTurn("user", [new ContentBlock.TextBlock(userText)])
+        ];
+
+        return new PromptAssemblyResult(systemPrompt, tools, initialTurns);
+    }
+
+    private static string ExtractUserText(Message message)
+    {
+        if (message.Payload.ValueKind == JsonValueKind.Object &&
+            message.Payload.TryGetProperty("text", out var textEl) &&
+            textEl.ValueKind == JsonValueKind.String)
+        {
+            return textEl.GetString() ?? string.Empty;
+        }
+
+        return message.Payload.ValueKind == JsonValueKind.Undefined
+            ? string.Empty
+            : message.Payload.GetRawText();
     }
 }

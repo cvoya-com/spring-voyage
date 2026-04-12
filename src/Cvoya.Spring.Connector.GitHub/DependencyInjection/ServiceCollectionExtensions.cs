@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Connector.GitHub.DependencyInjection;
 
 using Cvoya.Spring.Connector.GitHub.Auth;
 using Cvoya.Spring.Connector.GitHub.Webhooks;
+using Cvoya.Spring.Core.Skills;
 
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -43,6 +44,9 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<GitHubAppAuth>();
         services.TryAddSingleton<GitHubWebhookHandler>();
         services.TryAddSingleton<GitHubSkillRegistry>();
+        services.TryAddSingleton<GitHubSkillToolExecutor>();
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<ISkillToolExecutor, GitHubSkillToolExecutor>());
         services.TryAddSingleton<GitHubConnector>();
 
         return services;
