@@ -8,8 +8,11 @@ using System.Text.Json;
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Cloning;
+using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Initiative;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Skills;
+using Cvoya.Spring.Dapr.Routing;
 
 using global::Dapr.Actors;
 using global::Dapr.Actors.Runtime;
@@ -27,6 +30,10 @@ public class AgentActor(
     IActivityEventBus activityEventBus,
     IInitiativeEngine initiativeEngine,
     IAgentPolicyStore policyStore,
+    IExecutionDispatcher executionDispatcher,
+    MessageRouter messageRouter,
+    IAgentDefinitionProvider agentDefinitionProvider,
+    IEnumerable<ISkillRegistry> skillRegistries,
     ILoggerFactory loggerFactory) : Actor(host), IAgentActor, IRemindable
 {
     /// <summary>
@@ -41,7 +48,14 @@ public class AgentActor(
     internal const int MaxObservationChannelEntries = 100;
 
     private readonly ILogger _logger = loggerFactory.CreateLogger<AgentActor>();
+    private readonly IReadOnlyList<ISkillRegistry> _skillRegistries = skillRegistries.ToList();
     private CancellationTokenSource? _activeWorkCancellation;
+
+    /// <summary>
+    /// Exposed for tests: the currently running dispatch task (if any).
+    /// Production callers should not depend on this field.
+    /// </summary>
+    internal Task? PendingDispatchTask { get; private set; }
 
     /// <summary>
     /// Gets the address of this agent actor.
@@ -193,6 +207,7 @@ public class AgentActor(
     /// Handles a domain message by routing it to the appropriate conversation channel.
     /// New conversations are created if the ConversationId is unseen.
     /// If there is already an active conversation for a different ConversationId, the new conversation is queued as pending.
+    /// When a new conversation is activated, the actor kicks off a fire-and-forget dispatch task so the actor turn returns quickly.
     /// </summary>
     private async Task<Message?> HandleDomainMessageAsync(Message message, CancellationToken cancellationToken)
     {
@@ -203,7 +218,7 @@ public class AgentActor(
             .TryGetStateAsync<ConversationChannel>(StateKeys.ActiveConversation, cancellationToken)
             ;
 
-        // Case 1: No active conversation — make this the active one.
+        // Case 1: No active conversation — make this the active one and dispatch.
         if (!activeConversation.HasValue)
         {
             var channel = new ConversationChannel
@@ -228,6 +243,9 @@ public class AgentActor(
                 "State changed from Idle to Active",
                 cancellationToken,
                 details: JsonSerializer.SerializeToElement(new { from = "Idle", to = "Active" }));
+
+            var context = await BuildPromptAssemblyContextAsync(channel, cancellationToken);
+            PendingDispatchTask = RunDispatchAsync(message, context, _activeWorkCancellation.Token);
 
             return CreateAckResponse(message);
         }
@@ -263,6 +281,82 @@ public class AgentActor(
             correlationId: conversationId);
 
         return CreateAckResponse(message);
+    }
+
+    /// <summary>
+    /// Builds the prompt-assembly context for the active conversation. Members
+    /// and unit policies are intentionally left empty here — an agent actor does
+    /// not know its enclosing unit, so unit context must be supplied by a
+    /// UnitActor-side caller in future work. Skills come from registered
+    /// <see cref="ISkillRegistry"/> instances; agent instructions come from
+    /// <see cref="IAgentDefinitionProvider"/>.
+    /// </summary>
+    private async Task<PromptAssemblyContext> BuildPromptAssemblyContextAsync(
+        ConversationChannel channel, CancellationToken cancellationToken)
+    {
+        var definition = await agentDefinitionProvider.GetByIdAsync(Id.GetId(), cancellationToken);
+
+        var skills = _skillRegistries
+            .Select(r => new Skill(
+                Name: r.Name,
+                Description: $"Tools exposed by the {r.Name} connector.",
+                Tools: r.GetToolDefinitions()))
+            .ToList();
+
+        return new PromptAssemblyContext(
+            Members: [],
+            Policies: null,
+            Skills: skills,
+            PriorMessages: channel.Messages.ToList(),
+            LastCheckpoint: null,
+            AgentInstructions: definition?.Instructions);
+    }
+
+    /// <summary>
+    /// Runs the dispatcher and routes its response message. Runs outside the
+    /// actor turn, so it MUST NOT touch <see cref="Actor.StateManager"/>. All
+    /// failures are logged and surfaced as activity events.
+    /// </summary>
+    private async Task RunDispatchAsync(
+        Message message, PromptAssemblyContext context, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await executionDispatcher.DispatchAsync(message, context, cancellationToken);
+            if (response is null)
+            {
+                _logger.LogInformation(
+                    "Dispatcher returned no response for conversation {ConversationId}; nothing to route.",
+                    message.ConversationId);
+                return;
+            }
+
+            var routingResult = await messageRouter.RouteAsync(response, cancellationToken);
+            if (!routingResult.IsSuccess)
+            {
+                _logger.LogWarning(
+                    "Failed to route dispatcher response for conversation {ConversationId}: {Error}",
+                    message.ConversationId, routingResult.Error);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation(
+                "Dispatch cancelled for actor {ActorId} conversation {ConversationId}.",
+                Id.GetId(), message.ConversationId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex,
+                "Dispatch failed for actor {ActorId} conversation {ConversationId}.",
+                Id.GetId(), message.ConversationId);
+
+            await EmitActivityEventAsync(
+                ActivityEventType.ErrorOccurred,
+                $"Dispatch failed: {ex.Message}",
+                CancellationToken.None,
+                correlationId: message.ConversationId);
+        }
     }
 
     /// <summary>

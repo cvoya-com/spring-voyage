@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Connector.GitHub.DependencyInjection;
 
 using Cvoya.Spring.Connector.GitHub.Auth;
 using Cvoya.Spring.Connector.GitHub.Webhooks;
+using Cvoya.Spring.Core.Skills;
 
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -42,8 +43,12 @@ public static class ServiceCollectionExtensions
 
         services.TryAddSingleton<GitHubAppAuth>();
         services.TryAddSingleton<GitHubWebhookHandler>();
-        services.TryAddSingleton<GitHubSkillRegistry>();
         services.TryAddSingleton<GitHubConnector>();
+        services.TryAddSingleton<GitHubSkillRegistry>();
+
+        // Expose the GitHub skills through the cross-connector ISkillRegistry abstraction
+        // so the MCP server (and any future planner) can discover them uniformly.
+        services.AddSingleton<ISkillRegistry>(sp => sp.GetRequiredService<GitHubSkillRegistry>());
 
         return services;
     }

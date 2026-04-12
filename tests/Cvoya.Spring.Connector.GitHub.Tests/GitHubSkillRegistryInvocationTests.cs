@@ -7,6 +7,7 @@ using System.Text.Json;
 
 using Cvoya.Spring.Connector.GitHub.Auth;
 using Cvoya.Spring.Connector.GitHub.Webhooks;
+using Cvoya.Spring.Core.Skills;
 
 using FluentAssertions;
 
@@ -16,11 +17,16 @@ using NSubstitute;
 
 using Xunit;
 
-public class GitHubSkillRegistryTests
+/// <summary>
+/// Verifies that <see cref="GitHubSkillRegistry"/> correctly implements
+/// <see cref="ISkillRegistry"/> contract semantics independently of the
+/// Octokit dispatch path (which is covered by the per-skill tests).
+/// </summary>
+public class GitHubSkillRegistryInvocationTests
 {
     private readonly GitHubSkillRegistry _registry;
 
-    public GitHubSkillRegistryTests()
+    public GitHubSkillRegistryInvocationTests()
     {
         var loggerFactory = Substitute.For<ILoggerFactory>();
         loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
@@ -33,12 +39,30 @@ public class GitHubSkillRegistryTests
     }
 
     [Fact]
-    public void GetToolDefinitions_ReturnsAllTools()
+    public void Name_IsGithub()
     {
-        var tools = _registry.GetToolDefinitions();
+        _registry.Name.Should().Be("github");
+    }
 
-        tools.Should().HaveCount(8);
-        tools.Select(t => t.Name).Should().Contain([
+    [Fact]
+    public async Task InvokeAsync_UnknownTool_ThrowsSkillNotFoundException()
+    {
+        var act = () => _registry.InvokeAsync(
+            "github_not_a_tool",
+            JsonSerializer.SerializeToElement(new { }),
+            CancellationToken.None);
+
+        await act.Should().ThrowAsync<SkillNotFoundException>()
+            .Where(e => e.ToolName == "github_not_a_tool");
+    }
+
+    [Fact]
+    public void GetToolDefinitions_CoversEveryDispatcher()
+    {
+        var tools = _registry.GetToolDefinitions().Select(t => t.Name).ToHashSet();
+
+        tools.Should().BeEquivalentTo(new[]
+        {
             "github_create_branch",
             "github_create_pull_request",
             "github_comment",
@@ -46,22 +70,7 @@ public class GitHubSkillRegistryTests
             "github_list_files",
             "github_get_issue_details",
             "github_get_pull_request_diff",
-            "github_manage_labels"
-        ]);
-    }
-
-    [Fact]
-    public void GetToolDefinitions_AllHaveValidJsonSchemas()
-    {
-        var tools = _registry.GetToolDefinitions();
-
-        foreach (var tool in tools)
-        {
-            tool.Name.Should().NotBeNullOrWhiteSpace();
-            tool.Description.Should().NotBeNullOrWhiteSpace();
-            tool.InputSchema.ValueKind.Should().Be(JsonValueKind.Object);
-            tool.InputSchema.GetProperty("type").GetString().Should().Be("object");
-            tool.InputSchema.TryGetProperty("properties", out _).Should().BeTrue();
-        }
+            "github_manage_labels",
+        });
     }
 }

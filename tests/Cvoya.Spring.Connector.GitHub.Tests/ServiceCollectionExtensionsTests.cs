@@ -11,6 +11,9 @@ using FluentAssertions;
 
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+
+using NSubstitute;
 
 using Xunit;
 
@@ -100,14 +103,19 @@ public class ServiceCollectionExtensionsTests
             })
             .Build();
 
-        var customRegistry = new GitHubSkillRegistry();
-
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddSingleton(customRegistry);
         services.AddCvoyaSpringConnectorGitHub(configuration);
 
-        using var provider = services.BuildServiceProvider();
+        var connector = services.BuildServiceProvider().GetRequiredService<GitHubConnector>();
+        var customRegistry = new GitHubSkillRegistry(connector, Substitute.For<ILoggerFactory>());
+
+        var servicesWithOverride = new ServiceCollection();
+        servicesWithOverride.AddLogging();
+        servicesWithOverride.AddSingleton(customRegistry);
+        servicesWithOverride.AddCvoyaSpringConnectorGitHub(configuration);
+
+        using var provider = servicesWithOverride.BuildServiceProvider();
 
         var resolved = provider.GetRequiredService<GitHubSkillRegistry>();
         resolved.Should().BeSameAs(customRegistry);

@@ -7,13 +7,19 @@ using System.Text.Json;
 
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Cloning;
+using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Initiative;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Dapr.Actors;
+using Cvoya.Spring.Dapr.Auth;
+using Cvoya.Spring.Dapr.Routing;
 
 using FluentAssertions;
 
 using global::Dapr.Actors;
+using global::Dapr.Actors.Client;
 using global::Dapr.Actors.Runtime;
 
 using Microsoft.Extensions.Logging;
@@ -33,16 +39,36 @@ public class AgentActorTests
     private readonly IActivityEventBus _activityEventBus = Substitute.For<IActivityEventBus>();
     private readonly IInitiativeEngine _initiativeEngine = Substitute.For<IInitiativeEngine>();
     private readonly IAgentPolicyStore _policyStore = Substitute.For<IAgentPolicyStore>();
+    private readonly IExecutionDispatcher _dispatcher = Substitute.For<IExecutionDispatcher>();
+    private readonly MessageRouter _router;
+    private readonly IAgentDefinitionProvider _definitionProvider = Substitute.For<IAgentDefinitionProvider>();
     private readonly AgentActor _actor;
 
     public AgentActorTests()
     {
         _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
+        _router = Substitute.For<MessageRouter>(
+            Substitute.For<IDirectoryService>(),
+            Substitute.For<IActorProxyFactory>(),
+            Substitute.For<IPermissionService>(),
+            _loggerFactory);
+        _dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns((Message?)null);
+
         var host = ActorHost.CreateForTest<AgentActor>(new ActorTestOptions
         {
             ActorId = new ActorId("test-agent")
         });
-        _actor = new AgentActor(host, _activityEventBus, _initiativeEngine, _policyStore, _loggerFactory);
+        _actor = new AgentActor(
+            host,
+            _activityEventBus,
+            _initiativeEngine,
+            _policyStore,
+            _dispatcher,
+            _router,
+            _definitionProvider,
+            Array.Empty<ISkillRegistry>(),
+            _loggerFactory);
         SetStateManager(_actor, _stateManager);
 
         // Default: no active conversation, no pending conversations.

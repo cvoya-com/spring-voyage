@@ -14,6 +14,8 @@ using Microsoft.Extensions.Logging;
 /// Assembles prompts by composing four layers: platform instructions, unit context,
 /// conversation context, and agent instructions. The output is the system-prompt text
 /// handed to the external agent runtime by <see cref="IExecutionDispatcher"/>.
+/// Stateless and safe to share across concurrent actors — all per-invocation state is
+/// passed through <see cref="AssembleAsync"/>.
 /// </summary>
 public class PromptAssembler(
     IPlatformPromptProvider platformPromptProvider,
@@ -23,14 +25,11 @@ public class PromptAssembler(
 {
     private readonly ILogger _logger = loggerFactory.CreateLogger<PromptAssembler>();
 
-    /// <summary>
-    /// The context to use for the next prompt assembly. Must be set before calling
-    /// <see cref="AssembleAsync"/>. When not set, only the platform layer is included.
-    /// </summary>
-    public PromptAssemblyContext? Context { get; set; }
-
     /// <inheritdoc />
-    public async Task<string> AssembleAsync(Message message, CancellationToken cancellationToken = default)
+    public async Task<string> AssembleAsync(
+        Message message,
+        PromptAssemblyContext? context,
+        CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Assembling prompt for message {MessageId}.", message.Id);
 
@@ -42,13 +41,13 @@ public class PromptAssembler(
         builder.AppendLine(platform);
         builder.AppendLine();
 
-        if (Context is not null)
+        if (context is not null)
         {
             // Layer 2: Unit context
             var unitContext = unitContextBuilder.Build(
-                Context.Members,
-                Context.Policies,
-                Context.Skills);
+                context.Members,
+                context.Policies,
+                context.Skills);
 
             if (!string.IsNullOrWhiteSpace(unitContext))
             {
@@ -59,8 +58,8 @@ public class PromptAssembler(
 
             // Layer 3: Conversation context
             var conversationContext = conversationContextBuilder.Build(
-                Context.PriorMessages,
-                Context.LastCheckpoint);
+                context.PriorMessages,
+                context.LastCheckpoint);
 
             if (!string.IsNullOrWhiteSpace(conversationContext))
             {
@@ -70,10 +69,10 @@ public class PromptAssembler(
             }
 
             // Layer 4: Agent instructions
-            if (!string.IsNullOrWhiteSpace(Context.AgentInstructions))
+            if (!string.IsNullOrWhiteSpace(context.AgentInstructions))
             {
                 builder.AppendLine("## Agent Instructions");
-                builder.AppendLine(Context.AgentInstructions);
+                builder.AppendLine(context.AgentInstructions);
                 builder.AppendLine();
             }
         }
