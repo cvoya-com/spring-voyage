@@ -12,12 +12,16 @@ using Cvoya.Spring.Core.Skills;
 public interface IPromptAssembler
 {
     /// <summary>
-    /// Assembles a prompt string from the given message and execution context.
+    /// Assembles a prompt string from the given message and optional execution context.
     /// </summary>
     /// <param name="message">The message to assemble a prompt from.</param>
+    /// <param name="context">Optional context describing the unit, conversation, and agent. When null, only the platform layer and the message payload text are included.</param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     /// <returns>The assembled prompt string.</returns>
-    Task<string> AssembleAsync(Message message, CancellationToken cancellationToken = default);
+    Task<string> AssembleAsync(
+        Message message,
+        PromptAssemblyContext? context,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Assembles a prompt for a tool-use capable provider, producing the system prompt,
@@ -26,11 +30,15 @@ public interface IPromptAssembler
     /// tools or initial turns, so legacy callers keep working.
     /// </summary>
     /// <param name="message">The message to assemble a prompt from.</param>
+    /// <param name="context">Optional context describing the unit, conversation, and agent.</param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     /// <returns>The assembled prompt artefacts.</returns>
-    async Task<PromptAssemblyResult> AssembleForToolsAsync(Message message, CancellationToken cancellationToken = default)
+    async Task<PromptAssemblyResult> AssembleForToolsAsync(
+        Message message,
+        PromptAssemblyContext? context,
+        CancellationToken cancellationToken = default)
     {
-        var systemPrompt = await AssembleAsync(message, cancellationToken);
+        var systemPrompt = await AssembleAsync(message, context, cancellationToken);
         return new PromptAssemblyResult(
             systemPrompt,
             Array.Empty<ToolDefinition>(),

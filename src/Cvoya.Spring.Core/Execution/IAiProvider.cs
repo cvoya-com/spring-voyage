@@ -41,4 +41,21 @@ public interface IAiProvider
         IReadOnlyList<ToolDefinition> tools,
         CancellationToken cancellationToken = default)
         => throw new NotSupportedException($"{GetType().Name} does not support tool use.");
+
+    /// <summary>
+    /// Streams a multi-turn tool-aware conversation from the AI model. Emits the same
+    /// <see cref="StreamEvent"/> shapes as <see cref="StreamCompleteAsync"/> (so text deltas
+    /// continue to flow to users), plus <see cref="StreamEvent.ToolUseComplete"/> once each
+    /// tool-use content block finishes assembling. Providers that support tool use should
+    /// override this; the default implementation throws <see cref="NotSupportedException"/>.
+    /// </summary>
+    /// <param name="turns">The ordered conversation turns sent to the model.</param>
+    /// <param name="tools">The tools the model is permitted to call.</param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    /// <returns>An asynchronous stream of <see cref="StreamEvent"/> instances.</returns>
+    IAsyncEnumerable<StreamEvent> StreamCompleteWithToolsAsync(
+        IReadOnlyList<ConversationTurn> turns,
+        IReadOnlyList<ToolDefinition> tools,
+        CancellationToken cancellationToken = default)
+        => throw new NotSupportedException($"{GetType().Name} does not support streaming tool use.");
 }

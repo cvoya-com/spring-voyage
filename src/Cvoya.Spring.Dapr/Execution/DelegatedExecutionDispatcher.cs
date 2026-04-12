@@ -32,6 +32,7 @@ public class DelegatedExecutionDispatcher(
     /// <exception cref="SpringException">Thrown when the execution mode is not Delegated.</exception>
     public async Task<Message?> DispatchAsync(
         Message message,
+        PromptAssemblyContext? context,
         ExecutionMode mode,
         CancellationToken cancellationToken = default)
     {
@@ -45,7 +46,7 @@ public class DelegatedExecutionDispatcher(
             "Dispatching delegated execution for message {MessageId} to {Destination}",
             message.Id, message.To);
 
-        var prompt = await promptAssembler.AssembleAsync(message, cancellationToken);
+        var prompt = await promptAssembler.AssembleAsync(message, context, cancellationToken);
 
         var envVars = new Dictionary<string, string>
         {

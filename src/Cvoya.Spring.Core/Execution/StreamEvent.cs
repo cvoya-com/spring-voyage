@@ -22,7 +22,9 @@ public abstract record StreamEvent(Guid Id, DateTimeOffset Timestamp)
         : StreamEvent(Id, Timestamp);
 
     /// <summary>
-    /// A tool call has started — includes the tool name and input.
+    /// A tool call has started — includes the tool name and the input fragment observed so far.
+    /// Subsequent <see cref="OutputDelta"/> events may carry partial input JSON; the fully
+    /// assembled call is delivered by <see cref="ToolUseComplete"/>.
     /// </summary>
     public sealed record ToolCallStart(Guid Id, DateTimeOffset Timestamp, string ToolName, string Input)
         : StreamEvent(Id, Timestamp);
@@ -31,6 +33,19 @@ public abstract record StreamEvent(Guid Id, DateTimeOffset Timestamp)
     /// A tool call has completed — includes the tool name and result.
     /// </summary>
     public sealed record ToolCallResult(Guid Id, DateTimeOffset Timestamp, string ToolName, string Result)
+        : StreamEvent(Id, Timestamp);
+
+    /// <summary>
+    /// A tool-use content block has finished streaming and is ready to be dispatched. Carries
+    /// the fully assembled tool-use identifier, tool name, and parsed input. This is the event
+    /// consumed by the streaming tool-use loop in <c>HostedExecutionDispatcher</c>.
+    /// </summary>
+    public sealed record ToolUseComplete(
+        Guid Id,
+        DateTimeOffset Timestamp,
+        string ToolUseId,
+        string ToolName,
+        System.Text.Json.JsonElement Input)
         : StreamEvent(Id, Timestamp);
 
     /// <summary>

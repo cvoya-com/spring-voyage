@@ -54,13 +54,13 @@ public class PromptAssemblerTests
     }
 
     /// <summary>
-    /// Verifies that all four layers are included in order when context is set.
+    /// Verifies that all four layers are included in order when context is supplied.
     /// </summary>
     [Fact]
     public async Task AssembleAsync_IncludesAllFourLayersInOrder()
     {
         var message = CreateMessage();
-        _assembler.Context = new PromptAssemblyContext(
+        var context = new PromptAssemblyContext(
             Members: [new Address("agent", "team/alice")],
             Policies: JsonSerializer.SerializeToElement(new { maxRetries = 3 }),
             Skills: [new Skill("review", "Code review", [])],
@@ -69,7 +69,7 @@ public class PromptAssemblerTests
             AgentInstructions: "You are a code reviewer.",
             Mode: ExecutionMode.Hosted);
 
-        var result = await _assembler.AssembleAsync(message, TestContext.Current.CancellationToken);
+        var result = await _assembler.AssembleAsync(message, context, TestContext.Current.CancellationToken);
 
         result.Should().Contain("## Platform Instructions");
         result.Should().Contain("## Unit Context");
@@ -94,7 +94,7 @@ public class PromptAssemblerTests
     public async Task AssembleAsync_OmitsEmptyLayersGracefully()
     {
         var message = CreateMessage();
-        _assembler.Context = new PromptAssemblyContext(
+        var context = new PromptAssemblyContext(
             Members: [],
             Policies: null,
             Skills: null,
@@ -103,7 +103,7 @@ public class PromptAssemblerTests
             AgentInstructions: null,
             Mode: ExecutionMode.Hosted);
 
-        var result = await _assembler.AssembleAsync(message, TestContext.Current.CancellationToken);
+        var result = await _assembler.AssembleAsync(message, context, TestContext.Current.CancellationToken);
 
         result.Should().Contain("## Platform Instructions");
         result.Should().NotContain("## Unit Context");
@@ -124,7 +124,7 @@ public class PromptAssemblerTests
             "github_read_file",
             "Reads a file",
             JsonSerializer.SerializeToElement(new { type = "object" }));
-        _assembler.Context = new PromptAssemblyContext(
+        var context = new PromptAssemblyContext(
             Members: [],
             Policies: null,
             Skills: [new Skill("github", "GitHub tools", [tool])],
@@ -133,7 +133,7 @@ public class PromptAssemblerTests
             AgentInstructions: null,
             Mode: ExecutionMode.Hosted);
 
-        var result = await _assembler.AssembleForToolsAsync(message, TestContext.Current.CancellationToken);
+        var result = await _assembler.AssembleForToolsAsync(message, context, TestContext.Current.CancellationToken);
 
         result.SystemPrompt.Should().Contain("## Platform Instructions");
         result.Tools.Should().HaveCount(1);
@@ -147,14 +147,14 @@ public class PromptAssemblerTests
 
     /// <summary>
     /// Verifies that <see cref="PromptAssembler.AssembleForToolsAsync"/> returns an empty
-    /// tool list when no context is set.
+    /// tool list when no context is supplied.
     /// </summary>
     [Fact]
     public async Task AssembleForToolsAsync_NoContext_ReturnsEmptyTools()
     {
         var message = CreateMessage("hi");
 
-        var result = await _assembler.AssembleForToolsAsync(message, TestContext.Current.CancellationToken);
+        var result = await _assembler.AssembleForToolsAsync(message, context: null, TestContext.Current.CancellationToken);
 
         result.Tools.Should().BeEmpty();
         result.InitialTurns.Should().HaveCount(1);
@@ -196,7 +196,7 @@ public class PromptAssemblerTests
     public async Task AssembleAsync_IncludesSkillDescriptionsInUnitContext()
     {
         var message = CreateMessage();
-        _assembler.Context = new PromptAssemblyContext(
+        var context = new PromptAssemblyContext(
             Members: [],
             Policies: null,
             Skills: [new Skill("deploy", "Deploys services", [
@@ -207,7 +207,7 @@ public class PromptAssemblerTests
             AgentInstructions: null,
             Mode: ExecutionMode.Hosted);
 
-        var result = await _assembler.AssembleAsync(message, TestContext.Current.CancellationToken);
+        var result = await _assembler.AssembleAsync(message, context, TestContext.Current.CancellationToken);
 
         result.Should().Contain("## Unit Context");
         result.Should().Contain("deploy");

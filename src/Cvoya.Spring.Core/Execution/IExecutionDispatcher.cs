@@ -14,8 +14,13 @@ public interface IExecutionDispatcher
     /// Dispatches a message for execution in the specified mode.
     /// </summary>
     /// <param name="message">The message containing the work to dispatch.</param>
+    /// <param name="context">Optional prompt-assembly context (members, policies, skills, prior messages, agent instructions). Pass <c>null</c> to fall back to a minimal prompt.</param>
     /// <param name="mode">The execution mode determining where the work runs.</param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     /// <returns>An optional response message.</returns>
-    Task<Message?> DispatchAsync(Message message, ExecutionMode mode, CancellationToken cancellationToken = default);
+    Task<Message?> DispatchAsync(
+        Message message,
+        PromptAssemblyContext? context,
+        ExecutionMode mode,
+        CancellationToken cancellationToken = default);
 }

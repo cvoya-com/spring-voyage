@@ -86,7 +86,11 @@ public class HostedExecutionDispatcher : IExecutionDispatcher
     }
 
     /// <inheritdoc />
-    public async Task<Message?> DispatchAsync(Message message, ExecutionMode mode, CancellationToken cancellationToken = default)
+    public async Task<Message?> DispatchAsync(
+        Message message,
+        PromptAssemblyContext? context,
+        ExecutionMode mode,
+        CancellationToken cancellationToken = default)
     {
         if (mode != ExecutionMode.Hosted)
         {
@@ -95,12 +99,15 @@ public class HostedExecutionDispatcher : IExecutionDispatcher
 
         _logger.LogDebug("Assembling prompt for message {MessageId}.", message.Id);
 
-        var assembly = await _promptAssembler.AssembleForToolsAsync(message, cancellationToken);
+        var assembly = await _promptAssembler.AssembleForToolsAsync(message, context, cancellationToken);
 
-        // Streaming path: retain existing streaming behaviour (no tool-use loop) when a publisher is wired.
+        // Streaming path: when a publisher is wired, stream deltas — and run the tool-use loop
+        // if tools are available, so agents keep working while users watch the response unfold.
         if (_streamEventPublisher is not null)
         {
-            return await DispatchStreamingAsync(message, assembly.SystemPrompt, cancellationToken);
+            return assembly.Tools.Count == 0
+                ? await DispatchStreamingAsync(message, assembly.SystemPrompt, cancellationToken)
+                : await DispatchStreamingWithToolsAsync(message, assembly, cancellationToken);
         }
 
         // When no tools are advertised, preserve the original single-shot behaviour so existing
@@ -245,5 +252,117 @@ public class HostedExecutionDispatcher : IExecutionDispatcher
         _logger.LogDebug("Streaming completed for message {MessageId}.", message.Id);
 
         return BuildResponseMessage(message, responseBuilder.ToString());
+    }
+
+    private async Task<Message?> DispatchStreamingWithToolsAsync(
+        Message message,
+        PromptAssemblyResult assembly,
+        CancellationToken cancellationToken)
+    {
+        var agentId = message.To.Path;
+        var turns = assembly.InitialTurns.ToList();
+
+        for (var iteration = 0; iteration < MaxToolIterations; iteration++)
+        {
+            _logger.LogDebug("Streaming tool-use iteration {Iteration} for message {MessageId}.",
+                iteration + 1, message.Id);
+
+            var iterationText = new StringBuilder();
+            var toolUses = new List<ToolCall>();
+            string? stopReason = null;
+
+            await foreach (var streamEvent in _aiProvider.StreamCompleteWithToolsAsync(turns, assembly.Tools, cancellationToken))
+            {
+                await _streamEventPublisher!.PublishAsync(agentId, streamEvent, cancellationToken);
+
+                switch (streamEvent)
+                {
+                    case StreamEvent.TokenDelta tokenDelta:
+                        iterationText.Append(tokenDelta.Text);
+                        break;
+                    case StreamEvent.ToolUseComplete toolUse:
+                        toolUses.Add(new ToolCall(toolUse.ToolUseId, toolUse.ToolName, toolUse.Input));
+                        break;
+                    case StreamEvent.Completed completed:
+                        stopReason = completed.StopReason;
+                        break;
+                }
+            }
+
+            var assistantBlocks = new List<ContentBlock>();
+            var iterationTextString = iterationText.ToString();
+            if (iterationTextString.Length > 0)
+            {
+                assistantBlocks.Add(new ContentBlock.TextBlock(iterationTextString));
+            }
+
+            foreach (var toolUse in toolUses)
+            {
+                assistantBlocks.Add(new ContentBlock.ToolUseBlock(toolUse.Id, toolUse.Name, toolUse.Input));
+            }
+
+            if (assistantBlocks.Count > 0)
+            {
+                turns.Add(new ConversationTurn("assistant", assistantBlocks));
+            }
+
+            if (stopReason != "tool_use" || toolUses.Count == 0)
+            {
+                _logger.LogDebug(
+                    "Streaming tool-use loop completed for message {MessageId} with stop reason {StopReason}.",
+                    message.Id, stopReason);
+                return BuildResponseMessage(message, iterationTextString);
+            }
+
+            var resultBlocks = new List<ContentBlock>(toolUses.Count);
+            foreach (var call in toolUses)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var executor = _toolExecutors.FirstOrDefault(e => e.CanHandle(call.Name));
+                ToolResult result;
+                if (executor is null)
+                {
+                    _logger.LogWarning(
+                        "No executor registered for tool '{ToolName}' (id {ToolUseId}) during streaming.",
+                        call.Name, call.Id);
+                    result = new ToolResult(
+                        call.Id,
+                        $"no executor registered for tool '{call.Name}'",
+                        IsError: true);
+                }
+                else
+                {
+                    try
+                    {
+                        result = await executor.ExecuteAsync(call, cancellationToken);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(
+                            ex,
+                            "Tool executor for '{ToolName}' (id {ToolUseId}) threw during streaming.",
+                            call.Name, call.Id);
+                        result = new ToolResult(
+                            call.Id,
+                            $"tool '{call.Name}' threw an exception: {ex.Message}",
+                            IsError: true);
+                    }
+                }
+
+                resultBlocks.Add(new ContentBlock.ToolResultBlock(result.ToolUseId, result.Content, result.IsError));
+            }
+
+            turns.Add(new ConversationTurn("user", resultBlocks));
+        }
+
+        _logger.LogWarning(
+            "Streaming tool-use loop exceeded {Max} iterations for message {MessageId}; truncating conversation.",
+            MaxToolIterations, message.Id);
+        return BuildResponseMessage(message, "tool-use loop iteration cap reached; conversation truncated");
     }
 }

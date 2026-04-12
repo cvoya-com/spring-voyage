@@ -14,6 +14,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Cvoya.Spring.Core\Cvoya.Spring.Core.csproj" />
     <ProjectReference Include="..\..\src\Cvoya.Spring.Dapr\Cvoya.Spring.Dapr.csproj" />
+    <ProjectReference Include="..\..\src\Cvoya.Spring.Connector.GitHub\Cvoya.Spring.Connector.GitHub.csproj" />
   </ItemGroup>
 
   <ItemGroup>

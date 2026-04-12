@@ -55,7 +55,7 @@ public class HostedExecutionDispatcherTests
     public async Task DispatchAsync_HostedMode_CallsAssemblerAndProvider()
     {
         var message = CreateMessage();
-        _promptAssembler.AssembleForToolsAsync(message, Arg.Any<CancellationToken>())
+        _promptAssembler.AssembleForToolsAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns(new PromptAssemblyResult(
                 "assembled prompt",
                 Array.Empty<ToolDefinition>(),
@@ -63,9 +63,9 @@ public class HostedExecutionDispatcherTests
         _aiProvider.CompleteAsync("assembled prompt", Arg.Any<CancellationToken>())
             .Returns("ai response");
 
-        await _dispatcher.DispatchAsync(message, ExecutionMode.Hosted, TestContext.Current.CancellationToken);
+        await _dispatcher.DispatchAsync(message, null, ExecutionMode.Hosted, TestContext.Current.CancellationToken);
 
-        await _promptAssembler.Received(1).AssembleForToolsAsync(message, Arg.Any<CancellationToken>());
+        await _promptAssembler.Received(1).AssembleForToolsAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>());
         await _aiProvider.Received(1).CompleteAsync("assembled prompt", Arg.Any<CancellationToken>());
     }
 
@@ -77,7 +77,7 @@ public class HostedExecutionDispatcherTests
     {
         var message = CreateMessage();
 
-        var act = () => _dispatcher.DispatchAsync(message, ExecutionMode.Delegated, TestContext.Current.CancellationToken);
+        var act = () => _dispatcher.DispatchAsync(message, null, ExecutionMode.Delegated, TestContext.Current.CancellationToken);
 
         await act.Should().ThrowAsync<SpringException>()
             .WithMessage("*Hosted*Delegated*");
@@ -90,7 +90,7 @@ public class HostedExecutionDispatcherTests
     public async Task DispatchAsync_ReturnsResponseMessage()
     {
         var message = CreateMessage("conv-123");
-        _promptAssembler.AssembleForToolsAsync(message, Arg.Any<CancellationToken>())
+        _promptAssembler.AssembleForToolsAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns(new PromptAssemblyResult(
                 "prompt",
                 Array.Empty<ToolDefinition>(),
@@ -98,7 +98,7 @@ public class HostedExecutionDispatcherTests
         _aiProvider.CompleteAsync("prompt", Arg.Any<CancellationToken>())
             .Returns("response text");
 
-        var result = await _dispatcher.DispatchAsync(message, ExecutionMode.Hosted, TestContext.Current.CancellationToken);
+        var result = await _dispatcher.DispatchAsync(message, null, ExecutionMode.Hosted, TestContext.Current.CancellationToken);
 
         result.Should().NotBeNull();
         result!.From.Should().Be(message.To);
@@ -120,7 +120,7 @@ public class HostedExecutionDispatcherTests
         using var cts = new CancellationTokenSource();
         await cts.CancelAsync();
 
-        _promptAssembler.AssembleForToolsAsync(message, Arg.Any<CancellationToken>())
+        _promptAssembler.AssembleForToolsAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns<PromptAssemblyResult>(callInfo =>
             {
                 callInfo.Arg<CancellationToken>().ThrowIfCancellationRequested();
@@ -130,7 +130,7 @@ public class HostedExecutionDispatcherTests
                     Array.Empty<ConversationTurn>());
             });
 
-        var act = () => _dispatcher.DispatchAsync(message, ExecutionMode.Hosted, cts.Token);
+        var act = () => _dispatcher.DispatchAsync(message, null, ExecutionMode.Hosted, cts.Token);
 
         await act.Should().ThrowAsync<OperationCanceledException>();
     }
@@ -144,7 +144,7 @@ public class HostedExecutionDispatcherTests
     {
         var message = CreateMessage();
         var tool = CreateTool("github_read_file");
-        _promptAssembler.AssembleForToolsAsync(message, Arg.Any<CancellationToken>())
+        _promptAssembler.AssembleForToolsAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns(new PromptAssemblyResult(
                 "system",
                 [tool],
@@ -161,7 +161,7 @@ public class HostedExecutionDispatcherTests
             Array.Empty<ISkillToolExecutor>(),
             _loggerFactory);
 
-        var result = await dispatcher.DispatchAsync(message, ExecutionMode.Hosted, TestContext.Current.CancellationToken);
+        var result = await dispatcher.DispatchAsync(message, null, ExecutionMode.Hosted, TestContext.Current.CancellationToken);
 
         result.Should().NotBeNull();
         result!.Payload.GetProperty("text").GetString().Should().Be("all done");
@@ -180,7 +180,7 @@ public class HostedExecutionDispatcherTests
     {
         var message = CreateMessage();
         var tool = CreateTool("github_read_file");
-        _promptAssembler.AssembleForToolsAsync(message, Arg.Any<CancellationToken>())
+        _promptAssembler.AssembleForToolsAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns(new PromptAssemblyResult(
                 "system",
                 [tool],
@@ -203,7 +203,7 @@ public class HostedExecutionDispatcherTests
             [executor],
             _loggerFactory);
 
-        var result = await dispatcher.DispatchAsync(message, ExecutionMode.Hosted, TestContext.Current.CancellationToken);
+        var result = await dispatcher.DispatchAsync(message, null, ExecutionMode.Hosted, TestContext.Current.CancellationToken);
 
         result.Should().NotBeNull();
         result!.Payload.GetProperty("text").GetString().Should().Be("file contents summarised");
@@ -225,7 +225,7 @@ public class HostedExecutionDispatcherTests
     {
         var message = CreateMessage();
         var tool = CreateTool("unknown_tool");
-        _promptAssembler.AssembleForToolsAsync(message, Arg.Any<CancellationToken>())
+        _promptAssembler.AssembleForToolsAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns(new PromptAssemblyResult(
                 "system",
                 [tool],
@@ -247,7 +247,7 @@ public class HostedExecutionDispatcherTests
             Array.Empty<ISkillToolExecutor>(),
             _loggerFactory);
 
-        var result = await dispatcher.DispatchAsync(message, ExecutionMode.Hosted, TestContext.Current.CancellationToken);
+        var result = await dispatcher.DispatchAsync(message, null, ExecutionMode.Hosted, TestContext.Current.CancellationToken);
 
         result!.Payload.GetProperty("text").GetString().Should().Be("fallback answer");
 
@@ -269,7 +269,7 @@ public class HostedExecutionDispatcherTests
     {
         var message = CreateMessage();
         var tool = CreateTool("github_loop");
-        _promptAssembler.AssembleForToolsAsync(message, Arg.Any<CancellationToken>())
+        _promptAssembler.AssembleForToolsAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns(new PromptAssemblyResult(
                 "system",
                 [tool],
@@ -290,7 +290,7 @@ public class HostedExecutionDispatcherTests
             [executor],
             _loggerFactory);
 
-        var result = await dispatcher.DispatchAsync(message, ExecutionMode.Hosted, TestContext.Current.CancellationToken);
+        var result = await dispatcher.DispatchAsync(message, null, ExecutionMode.Hosted, TestContext.Current.CancellationToken);
 
         result!.Payload.GetProperty("text").GetString().Should().Contain("iteration cap reached");
         await _aiProvider.Received(HostedExecutionDispatcher.MaxToolIterations).CompleteWithToolsAsync(

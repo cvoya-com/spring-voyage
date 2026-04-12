@@ -299,9 +299,9 @@ public class AnthropicProvider(
     }
 
     /// <inheritdoc />
-    public async IAsyncEnumerable<StreamEvent> StreamCompleteAsync(
+    public IAsyncEnumerable<StreamEvent> StreamCompleteAsync(
         string prompt,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default)
     {
         var requestBody = new
         {
@@ -314,6 +314,38 @@ public class AnthropicProvider(
             }
         };
 
+        return StreamSseAsync(requestBody, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public IAsyncEnumerable<StreamEvent> StreamCompleteWithToolsAsync(
+        IReadOnlyList<ConversationTurn> turns,
+        IReadOnlyList<ToolDefinition> tools,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(turns);
+        ArgumentNullException.ThrowIfNull(tools);
+
+        var requestBody = new Dictionary<string, object?>
+        {
+            ["model"] = _options.Model,
+            ["max_tokens"] = _options.MaxTokens,
+            ["stream"] = true,
+            ["messages"] = turns.Select(SerializeTurn).ToArray(),
+        };
+
+        if (tools.Count > 0)
+        {
+            requestBody["tools"] = tools.Select(SerializeTool).ToArray();
+        }
+
+        return StreamSseAsync(requestBody, cancellationToken);
+    }
+
+    private async IAsyncEnumerable<StreamEvent> StreamSseAsync(
+        object requestBody,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
         using var request = new HttpRequestMessage(HttpMethod.Post, $"{_options.BaseUrl}/v1/messages");
         request.Headers.Add("x-api-key", _options.ApiKey);
         request.Headers.Add("anthropic-version", AnthropicVersion);
@@ -372,7 +404,7 @@ public class AnthropicProvider(
 
             var eventType = typeElement.GetString();
 
-            foreach (var streamEvent in ParseSseEvent(eventType, eventJson, state))
+            foreach (var streamEvent in ParseSseEvent(eventType, eventJson, state, _logger))
             {
                 yield return streamEvent;
             }
@@ -398,12 +430,15 @@ public class AnthropicProvider(
         public int OutputTokens { get; set; }
         public string? StopReason { get; set; }
         public string? CurrentToolName { get; set; }
+        public string? CurrentToolUseId { get; set; }
+        public StringBuilder? CurrentToolInputJson { get; set; }
     }
 
     private static List<StreamEvent> ParseSseEvent(
         string? eventType,
         JsonElement eventJson,
-        SseParseState state)
+        SseParseState state,
+        ILogger logger)
     {
         var events = new List<StreamEvent>();
 
@@ -416,6 +451,9 @@ public class AnthropicProvider(
                     if (blockType == "tool_use")
                     {
                         state.CurrentToolName = contentBlock.TryGetProperty("name", out var name) ? name.GetString() : "unknown";
+                        state.CurrentToolUseId = contentBlock.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
+                        state.CurrentToolInputJson = new StringBuilder();
+
                         var toolInput = contentBlock.TryGetProperty("input", out var input) ? input.ToString() : "{}";
                         events.Add(new StreamEvent.ToolCallStart(
                             Guid.NewGuid(),
@@ -448,10 +486,17 @@ public class AnthropicProvider(
                     }
                     else if (deltaType == "input_json_delta" && delta.TryGetProperty("partial_json", out var partialJson))
                     {
+                        var fragment = partialJson.GetString() ?? string.Empty;
+
+                        if (state.CurrentToolInputJson is not null)
+                        {
+                            state.CurrentToolInputJson.Append(fragment);
+                        }
+
                         events.Add(new StreamEvent.OutputDelta(
                             Guid.NewGuid(),
                             DateTimeOffset.UtcNow,
-                            partialJson.GetString() ?? string.Empty));
+                            fragment));
                     }
                 }
 
@@ -465,7 +510,41 @@ public class AnthropicProvider(
                         DateTimeOffset.UtcNow,
                         state.CurrentToolName,
                         "completed"));
+
+                    var toolUseId = state.CurrentToolUseId ?? string.Empty;
+                    var toolName = state.CurrentToolName;
+                    JsonElement parsedInput;
+
+                    var raw = state.CurrentToolInputJson?.ToString() ?? string.Empty;
+                    if (raw.Length == 0)
+                    {
+                        parsedInput = JsonSerializer.SerializeToElement(new { });
+                    }
+                    else
+                    {
+                        try
+                        {
+                            parsedInput = JsonSerializer.Deserialize<JsonElement>(raw);
+                        }
+                        catch (JsonException ex)
+                        {
+                            logger.LogWarning(ex,
+                                "Failed to parse accumulated tool_use input JSON for tool {ToolName}; emitting empty object. Raw: {Raw}",
+                                toolName, raw);
+                            parsedInput = JsonSerializer.SerializeToElement(new { });
+                        }
+                    }
+
+                    events.Add(new StreamEvent.ToolUseComplete(
+                        Guid.NewGuid(),
+                        DateTimeOffset.UtcNow,
+                        toolUseId,
+                        toolName,
+                        parsedInput));
+
                     state.CurrentToolName = null;
+                    state.CurrentToolUseId = null;
+                    state.CurrentToolInputJson = null;
                 }
 
                 break;

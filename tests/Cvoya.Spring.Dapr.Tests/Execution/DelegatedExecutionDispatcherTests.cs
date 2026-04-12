@@ -54,12 +54,12 @@ public class DelegatedExecutionDispatcherTests
         var message = CreateMessage();
         var prompt = "assembled prompt";
 
-        _promptAssembler.AssembleAsync(message, Arg.Any<CancellationToken>())
+        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns(prompt);
         _containerRuntime.RunAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
             .Returns(new ContainerResult("spring-exec-123", 0, "output", ""));
 
-        await _dispatcher.DispatchAsync(message, ExecutionMode.Delegated, TestContext.Current.CancellationToken);
+        await _dispatcher.DispatchAsync(message, null, ExecutionMode.Delegated, TestContext.Current.CancellationToken);
 
         await _containerRuntime.Received(1).RunAsync(
             Arg.Any<ContainerConfig>(),
@@ -72,7 +72,7 @@ public class DelegatedExecutionDispatcherTests
         var message = CreateMessage();
 
         var act = () => _dispatcher.DispatchAsync(
-            message, ExecutionMode.Hosted, TestContext.Current.CancellationToken);
+            message, null, ExecutionMode.Hosted, TestContext.Current.CancellationToken);
 
         await act.Should().ThrowAsync<SpringException>()
             .WithMessage("*Delegated*Hosted*");
@@ -84,13 +84,13 @@ public class DelegatedExecutionDispatcherTests
         var message = CreateMessage();
         var prompt = "test prompt";
 
-        _promptAssembler.AssembleAsync(message, Arg.Any<CancellationToken>())
+        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns(prompt);
         _containerRuntime.RunAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
             .Returns(new ContainerResult("spring-exec-456", 0, "success output", ""));
 
         var result = await _dispatcher.DispatchAsync(
-            message, ExecutionMode.Delegated, TestContext.Current.CancellationToken);
+            message, null, ExecutionMode.Delegated, TestContext.Current.CancellationToken);
 
         result.Should().NotBeNull();
         result!.From.Should().Be(message.To);
@@ -108,13 +108,13 @@ public class DelegatedExecutionDispatcherTests
     {
         var message = CreateMessage();
 
-        _promptAssembler.AssembleAsync(message, Arg.Any<CancellationToken>())
+        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("prompt");
         _containerRuntime.RunAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
             .Returns(new ContainerResult("spring-exec-789", 1, "", "error occurred"));
 
         var result = await _dispatcher.DispatchAsync(
-            message, ExecutionMode.Delegated, TestContext.Current.CancellationToken);
+            message, null, ExecutionMode.Delegated, TestContext.Current.CancellationToken);
 
         result.Should().NotBeNull();
         var payload = result!.Payload.Deserialize<JsonElement>();
@@ -128,7 +128,7 @@ public class DelegatedExecutionDispatcherTests
         var message = CreateMessage();
         using var cts = new CancellationTokenSource();
 
-        _promptAssembler.AssembleAsync(message, Arg.Any<CancellationToken>())
+        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("prompt");
         _containerRuntime.RunAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
             .Returns(callInfo =>
@@ -139,7 +139,7 @@ public class DelegatedExecutionDispatcherTests
                 return new ContainerResult("spring-exec-cancel", 0, "", "");
             });
 
-        var act = () => _dispatcher.DispatchAsync(message, ExecutionMode.Delegated, cts.Token);
+        var act = () => _dispatcher.DispatchAsync(message, null, ExecutionMode.Delegated, cts.Token);
 
         await act.Should().ThrowAsync<OperationCanceledException>();
     }
@@ -150,13 +150,13 @@ public class DelegatedExecutionDispatcherTests
         var message = CreateMessage();
         var expectedPrompt = "the assembled prompt";
 
-        _promptAssembler.AssembleAsync(message, Arg.Any<CancellationToken>())
+        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns(expectedPrompt);
         _containerRuntime.RunAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
             .Returns(new ContainerResult("spring-exec-env", 0, "output", ""));
 
         await _dispatcher.DispatchAsync(
-            message, ExecutionMode.Delegated, TestContext.Current.CancellationToken);
+            message, null, ExecutionMode.Delegated, TestContext.Current.CancellationToken);
 
         await _containerRuntime.Received(1).RunAsync(
             Arg.Is<ContainerConfig>(c =>
