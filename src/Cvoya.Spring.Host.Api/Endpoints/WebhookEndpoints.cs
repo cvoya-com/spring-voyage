@@ -55,10 +55,16 @@ public static class WebhookEndpoints
         var signature = httpContext.Request.Headers[SignatureHeader].ToString();
         var deliveryId = httpContext.Request.Headers[DeliveryHeader].ToString();
 
+        // Header values are attacker-controlled. Sanitize them before writing to logs so a
+        // crafted value cannot forge fake log entries (CR/LF/control characters) or flood
+        // the log stream. The raw value is still passed to the connector for routing.
+        var safeEventType = SanitizeForLog(eventType);
+        var safeDeliveryId = SanitizeForLog(deliveryId);
+
         if (string.IsNullOrEmpty(eventType))
         {
             logger.LogWarning("Rejected GitHub webhook: missing {Header} header (delivery {DeliveryId}).",
-                EventHeader, string.IsNullOrEmpty(deliveryId) ? "unknown" : deliveryId);
+                EventHeader, safeDeliveryId);
             return Results.Problem(
                 detail: $"Missing required header: {EventHeader}.",
                 statusCode: StatusCodes.Status400BadRequest);
@@ -67,7 +73,7 @@ public static class WebhookEndpoints
         if (string.IsNullOrEmpty(signature))
         {
             logger.LogWarning("Rejected GitHub webhook: missing {Header} header for event {EventType} (delivery {DeliveryId}).",
-                SignatureHeader, eventType, string.IsNullOrEmpty(deliveryId) ? "unknown" : deliveryId);
+                SignatureHeader, safeEventType, safeDeliveryId);
             return Results.Problem(
                 detail: $"Missing required header: {SignatureHeader}.",
                 statusCode: StatusCodes.Status400BadRequest);
@@ -89,8 +95,8 @@ public static class WebhookEndpoints
         {
             logger.LogError(ex,
                 "Failed to read GitHub webhook body for event {EventType} (delivery {DeliveryId}).",
-                eventType,
-                string.IsNullOrEmpty(deliveryId) ? "unknown" : deliveryId);
+                safeEventType,
+                safeDeliveryId);
             return Results.Problem(
                 detail: "Failed to read webhook body.",
                 statusCode: StatusCodes.Status500InternalServerError);
@@ -100,8 +106,8 @@ public static class WebhookEndpoints
         {
             logger.LogWarning(
                 "Rejected GitHub webhook: invalid signature for event {EventType} (delivery {DeliveryId}).",
-                eventType,
-                string.IsNullOrEmpty(deliveryId) ? "unknown" : deliveryId);
+                safeEventType,
+                safeDeliveryId);
             return Results.Problem(
                 detail: "Invalid webhook signature.",
                 statusCode: StatusCodes.Status401Unauthorized);
@@ -116,8 +122,8 @@ public static class WebhookEndpoints
             {
                 logger.LogInformation(
                     "GitHub webhook event {EventType} (delivery {DeliveryId}) did not produce a message; ignoring.",
-                    eventType,
-                    string.IsNullOrEmpty(deliveryId) ? "unknown" : deliveryId);
+                    safeEventType,
+                    safeDeliveryId);
                 return Results.Accepted();
             }
 
@@ -129,8 +135,8 @@ public static class WebhookEndpoints
                 // Log and acknowledge so GitHub does not retry indefinitely.
                 logger.LogWarning(
                     "GitHub webhook event {EventType} (delivery {DeliveryId}) produced a message but routing failed: {Error}",
-                    eventType,
-                    string.IsNullOrEmpty(deliveryId) ? "unknown" : deliveryId,
+                    safeEventType,
+                    safeDeliveryId,
                     routeResult.Error?.Message ?? "unknown error");
             }
 
@@ -140,11 +146,35 @@ public static class WebhookEndpoints
         {
             logger.LogError(ex,
                 "Unhandled error processing GitHub webhook event {EventType} (delivery {DeliveryId}).",
-                eventType,
-                string.IsNullOrEmpty(deliveryId) ? "unknown" : deliveryId);
+                safeEventType,
+                safeDeliveryId);
             return Results.Problem(
                 detail: "Unhandled error processing webhook.",
                 statusCode: StatusCodes.Status500InternalServerError);
         }
+    }
+
+    /// <summary>
+    /// Strips CR/LF and other control characters from attacker-controlled values before
+    /// they reach the log stream, and caps the length so a crafted header cannot flood
+    /// logs. Returns "unknown" for null/empty input so log messages remain readable.
+    /// </summary>
+    private static string SanitizeForLog(string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return "unknown";
+        }
+
+        const int MaxLogValueLength = 128;
+        var length = Math.Min(value.Length, MaxLogValueLength);
+        var builder = new StringBuilder(length);
+        for (var i = 0; i < length; i++)
+        {
+            var c = value[i];
+            builder.Append(char.IsControl(c) ? '_' : c);
+        }
+
+        return builder.ToString();
     }
 }
