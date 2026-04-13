@@ -160,6 +160,15 @@ public static class StateKeys
     public const string AgentParentUnit = "Agent:ParentUnit";
 
     /// <summary>
+    /// State key for the agent's configured skill list (tool names the agent
+    /// is allowed to invoke). Stored as <c>List&lt;string&gt;</c>. Replaced
+    /// in full by <c>SetSkillsAsync</c>; no partial-merge semantics because
+    /// an empty list is a legitimate "disable everything" state and should
+    /// not be indistinguishable from "leave alone."
+    /// </summary>
+    public const string AgentSkills = "Agent:Skills";
+
+    /// <summary>
     /// State key for the agent's cost budget limit.
     /// </summary>
     public const string AgentCostBudget = "Agent:CostBudget";

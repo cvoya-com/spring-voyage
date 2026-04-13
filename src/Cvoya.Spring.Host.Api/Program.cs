@@ -86,6 +86,7 @@ app.MapBudgetEndpoints().RequireAuthorization();
 app.MapInitiativeEndpoints().RequireAuthorization();
 app.MapActivityEndpoints().RequireAuthorization();
 app.MapDashboardEndpoints().RequireAuthorization();
+app.MapSkillsEndpoints().RequireAuthorization();
 app.MapWebhookEndpoints();
 
 await app.RunAsync();

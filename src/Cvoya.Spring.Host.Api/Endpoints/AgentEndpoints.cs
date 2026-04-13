@@ -8,6 +8,7 @@ using System.Text.Json;
 using Cvoya.Spring.Core.Agents;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Routing;
 using Cvoya.Spring.Host.Api.Models;
@@ -47,6 +48,14 @@ public static class AgentEndpoints
         group.MapPatch("/{id}", UpdateAgentMetadataAsync)
             .WithName("UpdateAgentMetadata")
             .WithSummary("Update the agent's metadata (model, specialty, enabled, execution mode)");
+
+        group.MapGet("/{id}/skills", GetAgentSkillsAsync)
+            .WithName("GetAgentSkills")
+            .WithSummary("Get the agent's configured skill list (tool names the agent is allowed to invoke)");
+
+        group.MapPut("/{id}/skills", SetAgentSkillsAsync)
+            .WithName("SetAgentSkills")
+            .WithSummary("Replace the agent's skill list in full; empty list means the agent is disabled from every tool");
 
         group.MapDelete("/{id}", DeleteAgentAsync)
             .WithName("DeleteAgent")
@@ -185,6 +194,52 @@ public static class AgentEndpoints
         await directoryService.UnregisterAsync(address, cancellationToken);
 
         return Results.NoContent();
+    }
+
+    private static async Task<IResult> GetAgentSkillsAsync(
+        string id,
+        [FromServices] IDirectoryService directoryService,
+        [FromServices] IActorProxyFactory actorProxyFactory,
+        CancellationToken cancellationToken)
+    {
+        var entry = await directoryService.ResolveAsync(new Address("agent", id), cancellationToken);
+        if (entry is null)
+        {
+            return Results.NotFound(new { Error = $"Agent '{id}' not found" });
+        }
+
+        var proxy = actorProxyFactory.CreateActorProxy<IAgentActor>(
+            new ActorId(entry.ActorId), nameof(IAgentActor));
+
+        var skills = await proxy.GetSkillsAsync(cancellationToken);
+        return Results.Ok(new AgentSkillsResponse(skills));
+    }
+
+    private static async Task<IResult> SetAgentSkillsAsync(
+        string id,
+        SetAgentSkillsRequest request,
+        [FromServices] IDirectoryService directoryService,
+        [FromServices] IActorProxyFactory actorProxyFactory,
+        CancellationToken cancellationToken)
+    {
+        if (request.Skills is null)
+        {
+            return Results.BadRequest(new { Error = "Skills list is required (use [] to clear)." });
+        }
+
+        var entry = await directoryService.ResolveAsync(new Address("agent", id), cancellationToken);
+        if (entry is null)
+        {
+            return Results.NotFound(new { Error = $"Agent '{id}' not found" });
+        }
+
+        var proxy = actorProxyFactory.CreateActorProxy<IAgentActor>(
+            new ActorId(entry.ActorId), nameof(IAgentActor));
+
+        await proxy.SetSkillsAsync(request.Skills, cancellationToken);
+
+        var updated = await proxy.GetSkillsAsync(cancellationToken);
+        return Results.Ok(new AgentSkillsResponse(updated));
     }
 
     /// <summary>

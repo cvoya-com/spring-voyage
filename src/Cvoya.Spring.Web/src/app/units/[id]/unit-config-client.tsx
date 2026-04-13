@@ -10,10 +10,10 @@ import {
   Play,
   Settings,
   Square,
-  Wrench,
 } from "lucide-react";
 
 import { AgentsTab } from "./agents-tab";
+import { SkillsTab } from "./skills-tab";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -454,11 +454,7 @@ export default function UnitConfigClient({ id }: ClientProps) {
         </TabsContent>
 
         <TabsContent value="skills">
-          <PlaceholderCard
-            icon={<Wrench className="h-5 w-5" />}
-            title="Skills"
-            body="Per-agent skill assignment lives here. Follow-up: #126."
-          />
+          <SkillsTab unitId={id} />
         </TabsContent>
       </Tabs>
     </div>

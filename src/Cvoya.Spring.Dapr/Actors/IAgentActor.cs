@@ -46,4 +46,22 @@ public interface IAgentActor : IActor
     /// which is correct for normal edits but wrong for explicit clearing.
     /// </summary>
     Task ClearParentUnitAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the agent's configured skill list (tool names the agent is
+    /// allowed to invoke). An empty list is a legitimate configured state
+    /// — the agent is explicitly disabled from every tool. A never-set
+    /// agent also returns an empty list; callers that need to distinguish
+    /// "never configured" from "configured to nothing" must track it
+    /// elsewhere.
+    /// </summary>
+    Task<IReadOnlyList<string>> GetSkillsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Replaces the agent's skill list in full. Callers pass the new
+    /// complete list; there are no merge semantics. Duplicates are
+    /// collapsed; ordering is not preserved. Emits a <c>StateChanged</c>
+    /// activity event describing the change.
+    /// </summary>
+    Task SetSkillsAsync(IReadOnlyList<string> skills, CancellationToken cancellationToken = default);
 }

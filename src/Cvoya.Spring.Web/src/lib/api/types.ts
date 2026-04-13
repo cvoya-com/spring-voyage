@@ -94,6 +94,18 @@ export interface UpdateAgentMetadataRequest {
   executionMode?: AgentExecutionMode;
 }
 
+/** Entry in the platform-wide skill catalog (GET /api/v1/skills). */
+export interface SkillCatalogEntry {
+  name: string;
+  description: string;
+  registry: string;
+}
+
+/** GET /api/v1/agents/{id}/skills response body. */
+export interface AgentSkillsResponse {
+  skills: string[];
+}
+
 /** GET /api/v1/agents/{id} full response with status. */
 export interface AgentDetailResponse {
   agent: AgentResponse;
