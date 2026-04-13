@@ -171,6 +171,28 @@ The unit actor is responsible for:
 - **Activity stream:** aggregating member activity for observation
 - **Expertise directory:** maintaining the aggregated expertise of all members
 
+### Nested Units (Units as Members of Units)
+
+Members of a unit may be either agents (`agent://`) or sub-units (`unit://`). Nesting lets you compose larger organizations from smaller ones — a platform team contains a database team, which contains individual agents — without teaching the routing layer anything special about depth. Because `IUnitActor` inherits the shared `IAgent` contract (see [Messaging](messaging.md)), a sub-unit plugged into a parent's member list receives messages through exactly the same mailbox seam that an agent member would. A parent's orchestration strategy treats both schemes uniformly: it picks one member, dispatches via `IUnitContext.SendAsync`, and the `IAgentProxyResolver` looks up the right actor type. If the selected member is a `unit://`, it runs its own orchestration turn transparently.
+
+Membership has two invariants:
+
+1. **Agents are leaves with a 1:N parent** (`parentUnit`). An agent belongs to at most one unit. This invariant is enforced at the unit-agent assignment endpoints and remains unchanged — nesting lives on the unit-unit axis.
+2. **Unit membership is acyclic.** The graph of `unit://` members must be a DAG — no unit may contain itself, directly or transitively.
+
+**Cycle detection.** Every call to `IUnitActor.AddMemberAsync` with a `unit://` member walks the candidate's sub-unit graph before persisting the new edge. The walk:
+
+- Rejects a self-loop (adding a unit to itself).
+- Rejects a back-edge of any depth — e.g., if `A` already contains `B`, adding `A` to `B` fails; if `A` → `B` → `C` already exists, adding `A` to `C` fails.
+- Is bounded by a maximum nesting depth of 64. Exceeding the bound is itself treated as a cycle signal — the add is rejected with the path walked so far.
+- Is read-only and resilient to concurrent modifications: if a sub-unit is deleted mid-walk, or the directory cannot be read, the traversal treats that path as a dead end and continues. Side-cycles in the sub-graph that do not close back on the parent are ignored.
+- Resolves each candidate path through `IDirectoryService` and reads the sub-unit's member list through a typed `IUnitActor` proxy, so the walk reflects live actor state, not a stale cache.
+- Does **not** run for `agent://` members — agents cannot introduce a cycle because they are leaves.
+
+A rejected add surfaces a `CyclicMembershipException` carrying the parent unit, the candidate member, and the full ordered cycle path. The HTTP API projects this as a 409 Conflict `ProblemDetails` response with `parentUnit`, `candidateMember`, and `cyclePath` fields so callers can show a precise diagnostic.
+
+Removing a `unit://` member is a straightforward state write — no cycle check is needed because removing an edge cannot introduce one.
+
 The unit delegates message handling to an **`IOrchestrationStrategy`**:
 
 ```csharp

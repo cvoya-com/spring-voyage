@@ -23,6 +23,8 @@ using Microsoft.Extensions.Logging;
 
 using NSubstitute;
 
+using CoreMessaging = Cvoya.Spring.Core.Messaging;
+
 /// <summary>
 /// Helper to create actor instances with mocked state managers for integration testing.
 /// Wraps the boilerplate of creating <see cref="ActorHost"/> via <c>ActorHost.CreateForTest</c>
@@ -83,15 +85,21 @@ public static class ActorTestHost
     /// </summary>
     /// <param name="strategy">The orchestration strategy to use. If null, a substitute is created.</param>
     /// <param name="actorId">The actor identifier. Defaults to a new GUID.</param>
+    /// <param name="directoryService">The directory service used for nested-unit cycle detection. Defaults to a substitute that resolves nothing.</param>
+    /// <param name="actorProxyFactory">The actor proxy factory used for nested-unit cycle detection. Defaults to a substitute.</param>
     /// <returns>A tuple of the actor instance, its mocked state manager, and the orchestration strategy.</returns>
     public static (UnitActor Actor, IActorStateManager StateManager, IOrchestrationStrategy Strategy) CreateUnitActor(
         IOrchestrationStrategy? strategy = null,
-        string? actorId = null)
+        string? actorId = null,
+        IDirectoryService? directoryService = null,
+        IActorProxyFactory? actorProxyFactory = null)
     {
         var stateManager = Substitute.For<IActorStateManager>();
         var loggerFactory = Substitute.For<ILoggerFactory>();
         loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
         strategy ??= Substitute.For<IOrchestrationStrategy>();
+        directoryService ??= Substitute.For<IDirectoryService>();
+        actorProxyFactory ??= Substitute.For<IActorProxyFactory>();
 
         var host = ActorHost.CreateForTest<UnitActor>(new ActorTestOptions
         {
@@ -99,12 +107,18 @@ public static class ActorTestHost
         });
 
         var activityEventBus = Substitute.For<Core.Capabilities.IActivityEventBus>();
-        var actor = new UnitActor(host, loggerFactory, strategy, activityEventBus);
+        var actor = new UnitActor(
+            host,
+            loggerFactory,
+            strategy,
+            activityEventBus,
+            directoryService,
+            actorProxyFactory);
         SetStateManager(actor, stateManager);
 
         // Default: no members.
-        stateManager.TryGetStateAsync<List<Core.Messaging.Address>>(StateKeys.Members, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<List<Core.Messaging.Address>>(false, default!));
+        stateManager.TryGetStateAsync<List<CoreMessaging.Address>>(StateKeys.Members, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<List<CoreMessaging.Address>>(false, default!));
 
         return (actor, stateManager, strategy);
     }

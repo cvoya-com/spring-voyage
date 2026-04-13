@@ -8,11 +8,14 @@ using System.Text.Json;
 using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Capabilities;
+using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Auth;
 
+using global::Dapr.Actors;
+using global::Dapr.Actors.Client;
 using global::Dapr.Actors.Runtime;
 
 using Microsoft.Extensions.Logging;
@@ -25,9 +28,18 @@ using Microsoft.Extensions.Logging;
 /// </summary>
 public class UnitActor : Actor, IUnitActor
 {
+    /// <summary>
+    /// Maximum number of levels walked during cycle detection before the walk
+    /// is treated as itself a cycle signal. Keeps <see cref="AddMemberAsync"/>
+    /// bounded even in the face of pathological graphs.
+    /// </summary>
+    internal const int MaxCycleDetectionDepth = 64;
+
     private readonly ILogger _logger;
     private readonly IOrchestrationStrategy _orchestrationStrategy;
     private readonly IActivityEventBus _activityEventBus;
+    private readonly IDirectoryService _directoryService;
+    private readonly IActorProxyFactory _actorProxyFactory;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="UnitActor"/> class.
@@ -36,12 +48,22 @@ public class UnitActor : Actor, IUnitActor
     /// <param name="loggerFactory">The logger factory for creating loggers.</param>
     /// <param name="orchestrationStrategy">The strategy used to orchestrate domain messages.</param>
     /// <param name="activityEventBus">The activity event bus for emitting observable events.</param>
-    public UnitActor(ActorHost host, ILoggerFactory loggerFactory, IOrchestrationStrategy orchestrationStrategy, IActivityEventBus activityEventBus)
+    /// <param name="directoryService">Directory used to resolve <c>unit://</c> member paths to actor ids during cycle detection.</param>
+    /// <param name="actorProxyFactory">Factory used to build <see cref="IUnitActor"/> proxies for sub-units during cycle detection.</param>
+    public UnitActor(
+        ActorHost host,
+        ILoggerFactory loggerFactory,
+        IOrchestrationStrategy orchestrationStrategy,
+        IActivityEventBus activityEventBus,
+        IDirectoryService directoryService,
+        IActorProxyFactory actorProxyFactory)
         : base(host)
     {
         _logger = loggerFactory.CreateLogger<UnitActor>();
         _orchestrationStrategy = orchestrationStrategy;
         _activityEventBus = activityEventBus;
+        _directoryService = directoryService;
+        _actorProxyFactory = actorProxyFactory;
     }
 
     /// <summary>
@@ -85,12 +107,22 @@ public class UnitActor : Actor, IUnitActor
     /// <inheritdoc />
     public async Task AddMemberAsync(Address member, CancellationToken ct = default)
     {
+        ArgumentNullException.ThrowIfNull(member);
+
         var members = await GetMembersListAsync(ct);
 
         if (members.Exists(m => m == member))
         {
             _logger.LogWarning("Unit {ActorId} already contains member {Member}", Id.GetId(), member);
             return;
+        }
+
+        // Cycle detection only applies to unit-typed members — agents can
+        // belong to at most one unit (1:N parent) and are leaves, so they
+        // cannot introduce a cycle in the containment graph.
+        if (string.Equals(member.Scheme, "unit", StringComparison.OrdinalIgnoreCase))
+        {
+            await EnsureNoCycleAsync(member, ct);
         }
 
         members.Add(member);
@@ -480,6 +512,135 @@ public class UnitActor : Actor, IUnitActor
 
         return result.HasValue ? result.Value : [];
     }
+
+    /// <summary>
+    /// Verifies that adding <paramref name="candidate"/> as a <c>unit://</c>
+    /// member of this unit would not introduce a cycle. Throws
+    /// <see cref="CyclicMembershipException"/> on self-loop, back-edge, or
+    /// when the walk exceeds <see cref="MaxCycleDetectionDepth"/>.
+    /// <para>
+    /// The walk resolves each candidate path to its backing
+    /// <see cref="IUnitActor"/> proxy via the directory and reads its current
+    /// members. Missing or non-unit members are treated as dead ends — they
+    /// cannot close a cycle.
+    /// </para>
+    /// </summary>
+    private async Task EnsureNoCycleAsync(Address candidate, CancellationToken ct)
+    {
+        var selfAddress = Address;
+        var selfActorId = Id.GetId();
+
+        // Fast self-loop check: candidate resolves (by address equality) to
+        // this same actor. Works even if the candidate was addressed via
+        // path-form rather than actor-id form — the path-form case is caught
+        // one level below after directory resolution.
+        if (candidate == selfAddress)
+        {
+            throw BuildCycleException(selfAddress, candidate, [candidate],
+                $"Unit '{selfAddress}' cannot be added as a member of itself.");
+        }
+
+        // Walk the candidate's sub-unit graph breadth-first. Whenever we
+        // land on an actor whose id matches this unit's actor id, a cycle
+        // exists and we must reject the add.
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        var queue = new Queue<(Address Unit, IReadOnlyList<Address> PathFromCandidate)>();
+        queue.Enqueue((candidate, [candidate]));
+
+        while (queue.Count > 0)
+        {
+            var (current, pathFromCandidate) = queue.Dequeue();
+
+            if (pathFromCandidate.Count > MaxCycleDetectionDepth)
+            {
+                _logger.LogWarning(
+                    "Unit {ActorId} rejected adding member {Candidate}: cycle-detection walk exceeded max depth {MaxDepth}. Path: {Path}",
+                    selfActorId, candidate, MaxCycleDetectionDepth, DescribePath(pathFromCandidate));
+
+                throw BuildCycleException(selfAddress, candidate, pathFromCandidate,
+                    $"Adding '{candidate}' to unit '{selfAddress}' would exceed the maximum unit-nesting depth ({MaxCycleDetectionDepth}). Treating as a cycle.");
+            }
+
+            DirectoryEntry? entry;
+            try
+            {
+                entry = await _directoryService.ResolveAsync(current, ct);
+            }
+            catch (Exception ex) when (ex is not SpringException)
+            {
+                // Directory read failures during traversal should not poison
+                // the add — they look like "unreachable" and surface as a
+                // log-worthy warning, not a cycle.
+                _logger.LogWarning(ex,
+                    "Unit {ActorId} cycle-check: failed to resolve {Unit}; treating as dead end.",
+                    selfActorId, current);
+                continue;
+            }
+
+            if (entry is null)
+            {
+                // Unknown unit — not a cycle via this path.
+                continue;
+            }
+
+            // Back-edge check: did we just land on this unit?
+            if (string.Equals(entry.ActorId, selfActorId, StringComparison.Ordinal))
+            {
+                var cyclePath = pathFromCandidate.Append(selfAddress).ToList();
+
+                _logger.LogWarning(
+                    "Unit {ActorId} rejected adding member {Candidate}: cycle detected. Path: {Path}",
+                    selfActorId, candidate, DescribePath(cyclePath));
+
+                throw BuildCycleException(selfAddress, candidate, cyclePath,
+                    $"Adding '{candidate}' to unit '{selfAddress}' would create a membership cycle: {DescribePath(cyclePath)}.");
+            }
+
+            // Mark this unit as visited by actor id so different address
+            // spellings (e.g. path-form and uuid-form of the same unit) are
+            // coalesced and we cannot get stuck on a benign sub-graph cycle
+            // that does not involve this unit.
+            if (!visited.Add(entry.ActorId))
+            {
+                continue;
+            }
+
+            IReadOnlyList<Address> subMembers;
+            try
+            {
+                var proxy = _actorProxyFactory.CreateActorProxy<IUnitActor>(
+                    new ActorId(entry.ActorId), nameof(IUnitActor));
+                subMembers = await proxy.GetMembersAsync(ct);
+            }
+            catch (Exception ex) when (ex is not SpringException)
+            {
+                // If the sub-unit is deleted or otherwise unreachable mid-walk,
+                // treat as "not a cycle via that path" and continue.
+                _logger.LogWarning(ex,
+                    "Unit {ActorId} cycle-check: failed to read members of {Unit} (actorId={SubActorId}); treating as dead end.",
+                    selfActorId, current, entry.ActorId);
+                continue;
+            }
+
+            foreach (var sub in subMembers)
+            {
+                if (!string.Equals(sub.Scheme, "unit", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var nextPath = pathFromCandidate.Append(sub).ToList();
+                queue.Enqueue((sub, nextPath));
+            }
+        }
+    }
+
+    private static string DescribePath(IReadOnlyList<Address> path) =>
+        string.Join(" -> ", path.Select(a => $"{a.Scheme}://{a.Path}"));
+
+    private static CyclicMembershipException BuildCycleException(
+        Address parent, Address candidate, IReadOnlyList<Address> path, string message) =>
+        new(parent, candidate, path, message);
 
     /// <summary>
     /// Emits an activity event through the activity event bus.

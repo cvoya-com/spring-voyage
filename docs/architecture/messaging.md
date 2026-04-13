@@ -242,6 +242,8 @@ All actors have **flat, globally-unique Dapr actor IDs** derived from their UUID
 
 **Addressing a unit** (not a specific member) sends the message to the unit actor. The unit applies its boundary filtering and delegates to its orchestration strategy, which decides how to route the message to members.
 
+**Nested dispatch.** A unit's members may themselves be units (`unit://`). Because `IUnitActor` inherits the shared `IAgent` mailbox contract, a parent unit's strategy may pick a sub-unit and forward the message through `IUnitContext.SendAsync` without branching on scheme — `IAgentProxyResolver` maps the scheme to the right actor type and the sub-unit runs its own orchestration turn. Depth is bounded to 64 levels; see [Units & Agents — Nested Units](units.md#nested-units-units-as-members-of-units) for membership invariants and cycle-detection semantics.
+
 ---
 
 ## Activation Model

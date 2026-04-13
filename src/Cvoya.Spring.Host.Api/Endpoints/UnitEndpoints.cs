@@ -101,7 +101,8 @@ public static class UnitEndpoints
             .WithName("AddMember")
             .WithSummary("Add a member to a unit")
             .Produces(StatusCodes.Status204NoContent)
-            .ProducesProblem(StatusCodes.Status404NotFound);
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
 
         group.MapDelete("/{id}/members/{memberId}", RemoveMemberAsync)
             .WithName("RemoveMember")
@@ -724,7 +725,7 @@ public static class UnitEndpoints
         string id,
         AddMemberRequest request,
         IDirectoryService directoryService,
-        MessageRouter messageRouter,
+        IActorProxyFactory actorProxyFactory,
         CancellationToken cancellationToken)
     {
         var unitAddress = new Address("unit", id);
@@ -735,30 +736,32 @@ public static class UnitEndpoints
             return Results.Problem(detail: $"Unit '{id}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
-        // Send a Domain message to the unit actor to add the member.
-        var payload = JsonSerializer.SerializeToElement(new
+        var memberAddress = new Address(request.MemberAddress.Scheme, request.MemberAddress.Path);
+
+        var unitProxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
+            new ActorId(entry.ActorId), nameof(IUnitActor));
+
+        try
         {
-            Action = "AddMember",
-            MemberScheme = request.MemberAddress.Scheme,
-            MemberPath = request.MemberAddress.Path
-        });
-
-        var message = new Message(
-            Guid.NewGuid(),
-            new Address("human", "api"),
-            unitAddress,
-            MessageType.Domain,
-            null,
-            payload,
-            DateTimeOffset.UtcNow);
-
-        var result = await messageRouter.RouteAsync(message, cancellationToken);
-
-        if (!result.IsSuccess)
+            await unitProxy.AddMemberAsync(memberAddress, cancellationToken);
+        }
+        catch (CyclicMembershipException ex)
         {
+            // #98: reject adds that would create a cycle in the unit
+            // containment graph. 409 Conflict matches the ProblemDetails
+            // shape established by #192 for rejected state changes.
             return Results.Problem(
-                detail: result.Error!.Message,
-                statusCode: StatusCodes.Status502BadGateway);
+                title: "Cyclic unit membership",
+                detail: ex.Message,
+                statusCode: StatusCodes.Status409Conflict,
+                extensions: new Dictionary<string, object?>
+                {
+                    ["parentUnit"] = $"{ex.ParentUnit.Scheme}://{ex.ParentUnit.Path}",
+                    ["candidateMember"] = $"{ex.CandidateMember.Scheme}://{ex.CandidateMember.Path}",
+                    ["cyclePath"] = ex.CyclePath
+                        .Select(a => $"{a.Scheme}://{a.Path}")
+                        .ToArray(),
+                });
         }
 
         // Previous behaviour returned `{ Status = "Member added" }`; the
@@ -772,7 +775,7 @@ public static class UnitEndpoints
         string id,
         string memberId,
         IDirectoryService directoryService,
-        MessageRouter messageRouter,
+        IActorProxyFactory actorProxyFactory,
         CancellationToken cancellationToken)
     {
         var unitAddress = new Address("unit", id);
@@ -783,30 +786,18 @@ public static class UnitEndpoints
             return Results.Problem(detail: $"Unit '{id}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
-        // Send a Domain message to the unit actor to remove the member.
-        var payload = JsonSerializer.SerializeToElement(new
-        {
-            Action = "RemoveMember",
-            MemberId = memberId
-        });
+        // The caller's memberId is an opaque path; without a scheme it is
+        // ambiguous. Historically the endpoint sent a Domain message shaped
+        // { Action = "RemoveMember", MemberId } that no handler ever read,
+        // so no member was removed. Now we try both "agent://" and "unit://"
+        // spellings against the persisted member list so existing callers
+        // continue to work regardless of member scheme. Remove is idempotent
+        // — no cycle check is required.
+        var unitProxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
+            new ActorId(entry.ActorId), nameof(IUnitActor));
 
-        var message = new Message(
-            Guid.NewGuid(),
-            new Address("human", "api"),
-            unitAddress,
-            MessageType.Domain,
-            null,
-            payload,
-            DateTimeOffset.UtcNow);
-
-        var result = await messageRouter.RouteAsync(message, cancellationToken);
-
-        if (!result.IsSuccess)
-        {
-            return Results.Problem(
-                detail: result.Error!.Message,
-                statusCode: StatusCodes.Status502BadGateway);
-        }
+        await unitProxy.RemoveMemberAsync(new Address("agent", memberId), cancellationToken);
+        await unitProxy.RemoveMemberAsync(new Address("unit", memberId), cancellationToken);
 
         return Results.NoContent();
     }
