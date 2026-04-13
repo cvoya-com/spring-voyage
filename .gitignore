@@ -28,8 +28,8 @@ coverage/
 ## Dapr local secrets (not committed)
 dapr/secrets.json
 
-## Deployment env file (not committed; keep spring.env.example only)
-deployment/spring.env
+## Local dev state (scripts/dev.sh)
+.dev/
 
 ## Generated client code — re-emitted from the committed OpenAPI
 ## contract on every `dotnet build` (CLI Kiota tree) and every

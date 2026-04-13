@@ -2,7 +2,7 @@
 #
 # Load via `dapr run --config dapr/config/local.yaml`. Tracing sampling is
 # set to 1.0 so every call shows up in Zipkin during development; disable
-# or lower the rate in production (see `dapr/config/production.yaml`).
+# or lower the rate in production.
 apiVersion: dapr.io/v1alpha1
 kind: Configuration
 metadata:

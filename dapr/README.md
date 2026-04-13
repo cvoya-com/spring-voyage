@@ -1,28 +1,23 @@
 # Dapr components and configuration
 
 This directory holds the Dapr component and configuration YAML that the
-Spring Voyage sidecars load at runtime. Two profiles live here side-by-side:
+Spring Voyage sidecars load at runtime during local development.
 
 ```
 dapr/
 ├── components/
-│   ├── local/           # localhost Redis + env-var secret store (dev)
-│   │   ├── statestore.yaml
-│   │   ├── pubsub.yaml
-│   │   └── secretstore.yaml
-│   └── production/      # Podman-hosted Postgres + Redis (deployment/)
+│   └── local/           # localhost Redis + env-var secret store (dev)
 │       ├── statestore.yaml
 │       ├── pubsub.yaml
 │       └── secretstore.yaml
 └── config/
-    ├── local.yaml       # Dapr Configuration (tracing, features) — dev
-    └── production.yaml  # Dapr Configuration (tracing, features) — prod
+    └── local.yaml       # Dapr Configuration (tracing, features) — dev
 ```
 
 Every component uses `apiVersion: dapr.io/v1alpha1` and `kind: Component`.
-Configurations use `kind: Configuration`. Both profiles expose the same
-component names (`statestore`, `pubsub`, `secretstore`), so application code
-references them identically regardless of environment.
+Configurations use `kind: Configuration`. Application code references
+component names (`statestore`, `pubsub`, `secretstore`) identically
+regardless of environment.
 
 ## Local development (`dapr run`)
 
@@ -44,47 +39,19 @@ export POSTGRES_PASSWORD=dev-password
 export REDIS_PASSWORD=
 ```
 
+Or use `scripts/dev.sh up` which handles this automatically.
+
 See `docs/developer/setup.md` for the full local-dev loop (API + Worker +
 Web dashboard).
 
-## Production (Podman deployment)
+## Production profiles
 
-The image built by `deployment/Dockerfile` bundles the entire `dapr/` tree
-under `/dapr/`. Point sidecars at the production profile:
-
-```bash
-daprd \
-  --app-id spring-worker \
-  --resources-path /dapr/components/production \
-  --config /dapr/config/production.yaml \
-  ...
-```
-
-When the platform launches delegated agent containers, the paired Dapr
-sidecar is started by `DaprSidecarManager`. Set
-`ContainerRuntime__DaprComponentsPath` to the host-side directory you want
-mounted into the sidecar container — the manager forwards it to `daprd` via
-`-v <path>:/components` + `--resources-path /components`. On the VPS this
-will typically be the repo-mounted `dapr/components/production` directory.
-
-### Secrets
-
-`dapr/components/production/secretstore.yaml` is `secretstores.local.env`.
-Credentials never appear in git or in container images — they come from the
-process environment of each sidecar. The Podman stack loads them from
-`deployment/spring.env`:
-
-| Secret key                            | Purpose                                    |
-| ------------------------------------- | ------------------------------------------ |
-| `SPRING_POSTGRES_CONNECTION_STRING`   | Full Npgsql connection string to Postgres. |
-| `REDIS_PASSWORD`                      | Redis AUTH password (leave empty to skip). |
-
-Add new secrets to `deployment/spring.env.example`, document them in
-`deployment/README.md`, and reference them from the relevant component
-YAML via `secretKeyRef`. For cloud-grade secret management (Azure Key
-Vault, HashiCorp Vault, Kubernetes Secrets) swap `secretstore.yaml` for
-the corresponding Dapr secret store — the rest of the profile is
-unchanged as long as the component is named `secretstore`.
+Production Dapr components (PostgreSQL state store, Redis pub/sub with
+authentication, etc.) live in the private Spring repository alongside the
+deployment scripts. Swap `secretstore.yaml` for Azure Key Vault, HashiCorp
+Vault, or Kubernetes Secrets for cloud-grade secret management — the other
+components reference the store by name (`secretstore`) so they require no
+changes.
 
 ## Validating components
 
@@ -94,6 +61,5 @@ sidecar exit. Lint with your editor or:
 ```bash
 python3 -c "import yaml, sys; [yaml.safe_load(open(p)) for p in sys.argv[1:]]" \
   dapr/components/local/*.yaml \
-  dapr/components/production/*.yaml \
   dapr/config/*.yaml
 ```

@@ -1,0 +1,64 @@
+# syntax=docker/dockerfile:1.7
+#
+# Spring Voyage — local development container image.
+#
+# Multi-stage build that compiles the .NET hosts and Next.js web dashboard,
+# then packages them into a runtime image with the Dapr CLI. Used by
+# `scripts/dev.sh` in container mode.
+#
+# Build from the repository root:
+#   podman build -f deployment/Dockerfile.dev -t spring-voyage-dev .
+
+# ---------- Stage 1: .NET build ----------
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS dotnet-build
+WORKDIR /src
+COPY *.slnx global.json Directory.Build.props Directory.Packages.props ./
+COPY src/ src/
+COPY packages/ packages/
+COPY tests/ tests/
+RUN dotnet restore SpringVoyage.slnx \
+ && dotnet publish src/Cvoya.Spring.Host.Api/Cvoya.Spring.Host.Api.csproj \
+        -c Release -o /publish/api --no-restore \
+ && dotnet publish src/Cvoya.Spring.Host.Worker/Cvoya.Spring.Host.Worker.csproj \
+        -c Release -o /publish/worker --no-restore
+
+# ---------- Stage 2: Web build ----------
+FROM docker.io/library/node:22-slim AS web-build
+WORKDIR /web
+COPY src/Cvoya.Spring.Web/package.json src/Cvoya.Spring.Web/package-lock.json ./
+RUN npm ci
+COPY src/Cvoya.Spring.Web/ ./
+RUN npm run build
+
+# ---------- Stage 3: Runtime ----------
+FROM mcr.microsoft.com/dotnet/aspnet:10.0
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install Dapr CLI and Node.js runtime (for Next.js standalone server)
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+ && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+ && apt-get install -y --no-install-recommends nodejs \
+ && curl -fsSL https://raw.githubusercontent.com/dapr/cli/master/install/install.sh | bash \
+ && dapr init --slim \
+ && rm -rf /var/lib/apt/lists/*
+
+# Copy published artifacts
+COPY --from=dotnet-build /publish/api /app/api/
+COPY --from=dotnet-build /publish/worker /app/worker/
+COPY --from=web-build /web/.next/standalone /app/web/
+COPY --from=web-build /web/.next/static /app/web/.next/static/
+COPY --from=web-build /web/public /app/web/public/
+
+# Symlink so dev.sh container commands can use simple paths
+RUN ln -s /app/api/Cvoya.Spring.Host.Api.dll /app/Cvoya.Spring.Host.Api.dll \
+ && ln -s /app/worker/Cvoya.Spring.Host.Worker.dll /app/Cvoya.Spring.Host.Worker.dll
+
+WORKDIR /app
+EXPOSE 5000 5001 3000
+
+# Default: worker (overridden by dev.sh per service)
+CMD ["dotnet", "/app/worker/Cvoya.Spring.Host.Worker.dll"]

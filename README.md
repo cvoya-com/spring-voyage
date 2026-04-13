@@ -30,15 +30,16 @@ AI agent orchestration platform built on .NET and Dapr. Agents organize into com
 dapr init                             # Docker (default)
 dapr init --container-runtime podman  # Podman
 
-# The local Dapr profile uses secretstores.local.env — export any secrets
-# (e.g. POSTGRES_PASSWORD, REDIS_PASSWORD) in the shell that runs `dapr run`.
-# See dapr/README.md for details.
-
 # Build
 dotnet build
 
-# Run tests
-dotnet test
+# Start everything locally
+./scripts/dev.sh up                   # container mode (default)
+./scripts/dev.sh up --process         # process mode (hot-reload)
+
+# Check status / stop
+./scripts/dev.sh status
+./scripts/dev.sh down
 ```
 
 ## Running Locally
@@ -47,6 +48,12 @@ There are two hosts:
 
 - **Worker** (`Host.Worker`) -- runs Dapr actors (AgentActor, UnitActor, etc.). This is the core runtime.
 - **API** (`Host.Api`) -- REST API for external access.
+
+The easiest way to run locally is `./scripts/dev.sh up` which starts Redis,
+both hosts with Dapr sidecars, and the web dashboard. Use `--process` for
+hot-reload and debugger attach support.
+
+### Running Manually
 
 For local dev, you only need the Worker:
 
@@ -68,7 +75,7 @@ curl http://localhost:5001/health
 curl -s http://localhost:3500/v1.0/metadata | jq '.actorRuntime'
 ```
 
-### Running Both Hosts
+### Running Both Hosts Manually
 
 ```bash
 # Terminal 1: Worker (actors)
@@ -128,7 +135,7 @@ The dashboard consumes the API host endpoints. For local development, start the 
 │   ├── Cvoya.Spring.A2A/              # A2A protocol (stub)
 │   └── Cvoya.Spring.Web/             # Web dashboard (React/Next.js)
 ├── tests/                             # xUnit test projects
-├── dapr/                              # Dapr components + config (local/prod profiles)
+├── dapr/                              # Dapr components + config (local dev profile)
 ├── packages/software-engineering/     # Domain package (agent templates, skills, workflows)
 ├── docs/                             # Architecture plan and design docs
 ├── CONVENTIONS.md                     # Coding conventions (mandatory reading)

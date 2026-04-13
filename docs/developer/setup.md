@@ -6,13 +6,43 @@ This guide covers setting up a local development environment for contributing to
 
 - **.NET SDK** (latest LTS) -- for building the platform
 - **Dapr CLI** -- for running the Dapr sidecar locally
-- **Podman** (or Docker) -- for execution environments and workflow containers
-- **PostgreSQL** -- for the primary data store (can run in a container)
-- **Redis** -- for local pub/sub (can run in a container)
+- **Podman** (or Docker) -- for Redis, execution environments, and container mode
+- **Node.js** -- if working on the web portal
 
 Optional:
 - **Python 3.11+** -- if working on Python-based agents
-- **Node.js** -- if working on the web portal
+
+## Quick Start
+
+The fastest way to get the full stack running locally:
+
+```bash
+# Build
+dotnet build
+
+# Start all services (container mode)
+./scripts/dev.sh up
+
+# Or start in process mode (hot-reload, debugger attach)
+./scripts/dev.sh up --process
+```
+
+Container mode runs everything in podman containers. Process mode runs
+Redis in podman and the .NET hosts via `dapr run` + `dotnet run` — useful
+when you want hot-reload or need to attach a debugger.
+
+```bash
+# Check status
+./scripts/dev.sh status
+
+# Follow logs
+./scripts/dev.sh logs api
+
+# Stop everything
+./scripts/dev.sh down
+```
+
+See `scripts/dev.sh --help` for all commands and environment variables.
 
 ## Building
 
@@ -24,18 +54,17 @@ dotnet build SpringVoyage.slnx
 dotnet build src/Cvoya.Spring.Host.Api/Cvoya.Spring.Host.Api.csproj
 ```
 
-## Running Locally
+## Running Manually
+
+If you prefer to start services individually instead of using `dev.sh`:
 
 ### Start Infrastructure
 
-Start PostgreSQL and Redis using containers or local installations. For example, with Podman:
+Start Redis using a container:
 
 ```
-podman run -d --name spring-postgres -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:17
-podman run -d --name spring-redis -p 6379:6379 redis:7
+podman run -d --name spring-dev-redis -p 6379:6379 redis:7
 ```
-
-Or use Docker equivalents. If you already have PostgreSQL and Redis running locally, skip this step.
 
 ### Initialize Dapr
 
@@ -45,14 +74,35 @@ dapr init
 
 This installs the Dapr sidecar and default components.
 
-### Start the API Host
+### Start the Worker
 
+```bash
+dapr run --app-id spring-worker --app-port 5001 \
+  --dapr-http-port 3500 \
+  --resources-path dapr/components/local \
+  --config dapr/config/local.yaml \
+  -- dotnet run --project src/Cvoya.Spring.Host.Worker -- --urls http://localhost:5001
 ```
-dapr run --app-id spring-api --app-port 5000 --dapr-http-port 3500 \
+
+### Start the API
+
+```bash
+dapr run --app-id spring-api --app-port 5000 \
+  --dapr-http-port 3501 \
+  --resources-path dapr/components/local \
+  --config dapr/config/local.yaml \
   -- dotnet run --project src/Cvoya.Spring.Host.Api -- --local
 ```
 
 The `--local` flag enables single-tenant mode with no authentication.
+
+### Start the Web Dashboard
+
+```bash
+cd src/Cvoya.Spring.Web
+npm install
+npm run dev
+```
 
 ### Use the CLI
 
@@ -92,17 +142,17 @@ spring images list
 
 ## Dapr Component Configuration
 
-Dapr components are split into two profiles — see [`dapr/README.md`](../../dapr/README.md)
-for the full layout and commands:
+Dapr components for local development are in `dapr/components/local/` — see
+[`dapr/README.md`](../../dapr/README.md) for the full layout and commands:
 
 - `dapr/components/local/` — localhost Redis + env-var secret store (used by `dapr run`).
-- `dapr/components/production/` — Podman-hosted Postgres + Redis, secrets via
-  `secretstores.local.env` backed by `deployment/spring.env`.
-- `dapr/config/local.yaml`, `dapr/config/production.yaml` — Dapr Configuration
-  (tracing, features) for each profile.
+- `dapr/config/local.yaml` — Dapr Configuration (tracing, features) for development.
 
 Pass the matching directory to `dapr run` with `--resources-path dapr/components/local`
 and `--config dapr/config/local.yaml`.
+
+Production Dapr components live in the private Spring repository alongside
+the deployment scripts.
 
 ## Database Migrations
 
@@ -125,5 +175,5 @@ spring-admin migrate
 2. Make changes to the relevant projects
 3. Write tests (unit tests in `tests/`, integration tests with Dapr where needed)
 4. Build and run tests locally
-5. Test end-to-end with the local API host
+5. Test end-to-end with `./scripts/dev.sh up`
 6. Open a PR against `main`
