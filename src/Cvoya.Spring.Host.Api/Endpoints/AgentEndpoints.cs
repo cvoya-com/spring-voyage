@@ -65,6 +65,7 @@ public static class AgentEndpoints
             .WithName("SetAgentSkills")
             .WithSummary("Replace the agent's skill list in full; empty list means the agent is disabled from every tool")
             .Produces<AgentSkillsResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapDelete("/{id}", DeleteAgentAsync)
@@ -107,7 +108,7 @@ public static class AgentEndpoints
 
         if (entry is null)
         {
-            return Results.NotFound(new { Error = $"Agent '{id}' not found" });
+            return Results.Problem(detail: $"Agent '{id}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
         var metadata = await TryGetAgentMetadataAsync(actorProxyFactory, entry.ActorId, cancellationToken);
@@ -145,7 +146,7 @@ public static class AgentEndpoints
 
         if (entry is null)
         {
-            return Results.NotFound(new { Error = $"Agent '{id}' not found" });
+            return Results.Problem(detail: $"Agent '{id}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
         // ParentUnit is intentionally not accepted here — changing containment
@@ -197,7 +198,7 @@ public static class AgentEndpoints
 
         if (entry is null)
         {
-            return Results.NotFound(new { Error = $"Agent '{id}' not found" });
+            return Results.Problem(detail: $"Agent '{id}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
         await directoryService.UnregisterAsync(address, cancellationToken);
@@ -214,7 +215,7 @@ public static class AgentEndpoints
         var entry = await directoryService.ResolveAsync(new Address("agent", id), cancellationToken);
         if (entry is null)
         {
-            return Results.NotFound(new { Error = $"Agent '{id}' not found" });
+            return Results.Problem(detail: $"Agent '{id}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
         var proxy = actorProxyFactory.CreateActorProxy<IAgentActor>(
@@ -233,13 +234,13 @@ public static class AgentEndpoints
     {
         if (request.Skills is null)
         {
-            return Results.BadRequest(new { Error = "Skills list is required (use [] to clear)." });
+            return Results.Problem(detail: "Skills list is required (use [] to clear).", statusCode: StatusCodes.Status400BadRequest);
         }
 
         var entry = await directoryService.ResolveAsync(new Address("agent", id), cancellationToken);
         if (entry is null)
         {
-            return Results.NotFound(new { Error = $"Agent '{id}' not found" });
+            return Results.Problem(detail: $"Agent '{id}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
         var proxy = actorProxyFactory.CreateActorProxy<IAgentActor>(

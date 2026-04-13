@@ -44,7 +44,7 @@ public static class MessageEndpoints
 
         if (!Enum.TryParse<MessageType>(request.Type, ignoreCase: true, out var messageType))
         {
-            return Results.BadRequest(new { Error = $"Invalid message type: '{request.Type}'" });
+            return Results.Problem(detail: $"Invalid message type: '{request.Type}'", statusCode: StatusCodes.Status400BadRequest);
         }
 
         var to = new Address(request.To.Scheme, request.To.Path);

@@ -62,7 +62,7 @@ public static class BudgetEndpoints
 
         if (budget is null)
         {
-            return Results.NotFound(new { Error = $"No budget set for agent '{agentId}'" });
+            return Results.Problem(detail: $"No budget set for agent '{agentId}'", statusCode: StatusCodes.Status404NotFound);
         }
 
         return Results.Ok(new BudgetResponse(budget.Value));
@@ -76,7 +76,7 @@ public static class BudgetEndpoints
     {
         if (request.DailyBudget <= 0)
         {
-            return Results.BadRequest(new { Error = "DailyBudget must be greater than zero" });
+            return Results.Problem(detail: "DailyBudget must be greater than zero", statusCode: StatusCodes.Status400BadRequest);
         }
 
         var key = $"{agentId}:{StateKeys.AgentCostBudget}";
@@ -96,7 +96,7 @@ public static class BudgetEndpoints
 
         if (budget is null)
         {
-            return Results.NotFound(new { Error = $"No budget set for tenant '{tenant}'" });
+            return Results.Problem(detail: $"No budget set for tenant '{tenant}'", statusCode: StatusCodes.Status404NotFound);
         }
 
         return Results.Ok(new BudgetResponse(budget.Value));
@@ -110,7 +110,7 @@ public static class BudgetEndpoints
     {
         if (request.DailyBudget <= 0)
         {
-            return Results.BadRequest(new { Error = "DailyBudget must be greater than zero" });
+            return Results.Problem(detail: "DailyBudget must be greater than zero", statusCode: StatusCodes.Status400BadRequest);
         }
 
         var tenant = tenantId ?? "default";
