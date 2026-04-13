@@ -7,6 +7,7 @@ using System.Reactive.Linq;
 using System.Text.Json;
 
 using Cvoya.Spring.Core.Capabilities;
+using Cvoya.Spring.Core.Costs;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Observability;
 
@@ -103,7 +104,35 @@ public sealed partial class CostTracker(
             Duration = GetDurationProperty(json, "durationMs"),
             Timestamp = activityEvent.Timestamp,
             CorrelationId = activityEvent.CorrelationId,
+            Source = GetCostSourceProperty(json),
         };
+    }
+
+    private static CostSource GetCostSourceProperty(JsonElement json)
+    {
+        // Accept either a string ("Work"/"Initiative", case-insensitive) or a
+        // numeric ordinal. Anything unrecognised falls back to Work so a
+        // typo at the emission site can't silently reclassify costs.
+        if (!json.TryGetProperty("costSource", out var prop))
+        {
+            return CostSource.Work;
+        }
+
+        switch (prop.ValueKind)
+        {
+            case JsonValueKind.String:
+                return Enum.TryParse<CostSource>(prop.GetString(), ignoreCase: true, out var parsed)
+                    ? parsed
+                    : CostSource.Work;
+
+            case JsonValueKind.Number:
+                return Enum.IsDefined(typeof(CostSource), prop.GetInt32())
+                    ? (CostSource)prop.GetInt32()
+                    : CostSource.Work;
+
+            default:
+                return CostSource.Work;
+        }
     }
 
     private static string? GetStringProperty(JsonElement json, string propertyName)

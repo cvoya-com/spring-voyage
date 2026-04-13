@@ -695,13 +695,17 @@ public class AgentActorTests
         _stateManager.TryGetStateAsync<CloneIdentity>(StateKeys.CloneIdentity, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<CloneIdentity>(false, default!));
 
-        await _actor.EmitCostIncurredAsync(0.05m, "gpt-4", 1000, 500, TestContext.Current.CancellationToken);
+        await _actor.EmitCostIncurredAsync(
+            0.05m, "gpt-4", 1000, 500,
+            Cvoya.Spring.Core.Costs.CostSource.Work,
+            TestContext.Current.CancellationToken);
 
         await _activityEventBus.Received().PublishAsync(
             Arg.Is<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.CostIncurred &&
                 e.Cost == 0.05m &&
-                e.Details.HasValue),
+                e.Details.HasValue &&
+                e.Details.Value.GetProperty("costSource").GetString() == "Work"),
             Arg.Any<CancellationToken>());
     }
 
@@ -713,14 +717,18 @@ public class AgentActorTests
         _stateManager.TryGetStateAsync<CloneIdentity>(StateKeys.CloneIdentity, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<CloneIdentity>(true, identity));
 
-        await _actor.EmitCostIncurredAsync(0.10m, "claude-3", 2000, 1000, TestContext.Current.CancellationToken);
+        await _actor.EmitCostIncurredAsync(
+            0.10m, "claude-3", 2000, 1000,
+            Cvoya.Spring.Core.Costs.CostSource.Initiative,
+            TestContext.Current.CancellationToken);
 
         await _activityEventBus.Received().PublishAsync(
             Arg.Is<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.CostIncurred &&
                 e.Cost == 0.10m &&
                 e.Details.HasValue &&
-                e.Details.Value.GetProperty("parentAgentId").GetString() == "parent-agent"),
+                e.Details.Value.GetProperty("parentAgentId").GetString() == "parent-agent" &&
+                e.Details.Value.GetProperty("costSource").GetString() == "Initiative"),
             Arg.Any<CancellationToken>());
     }
 }

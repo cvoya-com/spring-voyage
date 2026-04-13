@@ -86,6 +86,8 @@ public static class CostEndpoints
             summary.TotalInputTokens,
             summary.TotalOutputTokens,
             summary.RecordCount,
+            summary.WorkCost,
+            summary.InitiativeCost,
             summary.From,
             summary.To);
 }

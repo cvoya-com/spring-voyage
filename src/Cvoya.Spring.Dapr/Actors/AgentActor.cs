@@ -567,6 +567,14 @@ public class AgentActor(
     /// <param name="model">The LLM model name.</param>
     /// <param name="inputTokens">Number of input tokens consumed.</param>
     /// <param name="outputTokens">Number of output tokens produced.</param>
+    /// <param name="source">
+    /// Whether this cost was incurred while doing normal agent work
+    /// (<see cref="Core.Costs.CostSource.Work"/>) or inside the initiative
+    /// / reflection loop (<see cref="Core.Costs.CostSource.Initiative"/>).
+    /// The caller must know which one it is — AgentActor has no reliable way
+    /// to infer it after the fact, which is exactly the reason #101 moved
+    /// classification out of the UI.
+    /// </param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     /// <returns>A task representing the asynchronous operation.</returns>
     internal async Task EmitCostIncurredAsync(
@@ -574,6 +582,7 @@ public class AgentActor(
         string model,
         int inputTokens,
         int outputTokens,
+        Core.Costs.CostSource source,
         CancellationToken cancellationToken = default)
     {
         var costAttributionTarget = await GetCostAttributionTargetAsync(cancellationToken);
@@ -582,7 +591,8 @@ public class AgentActor(
             model,
             inputTokens,
             outputTokens,
-            parentAgentId = costAttributionTarget
+            parentAgentId = costAttributionTarget,
+            costSource = source.ToString(),
         });
 
         await EmitActivityEventAsync(

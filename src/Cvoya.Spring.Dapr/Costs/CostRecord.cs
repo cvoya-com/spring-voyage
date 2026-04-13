@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.Dapr.Costs;
 
+using Cvoya.Spring.Core.Costs;
+
 /// <summary>
 /// Represents a persisted cost record for a single AI provider interaction.
 /// Tracks token usage, cost, and duration per agent, unit, and tenant.
@@ -41,4 +43,11 @@ public class CostRecord
 
     /// <summary>Gets or sets the correlation identifier for tracing related events.</summary>
     public string? CorrelationId { get; set; }
+
+    /// <summary>
+    /// Gets or sets the origin of this cost (normal work vs. initiative loop).
+    /// Tagged at emission time by <c>AgentActor</c>; defaults to
+    /// <see cref="CostSource.Work"/> for records written before the split was tracked.
+    /// </summary>
+    public CostSource Source { get; set; } = CostSource.Work;
 }

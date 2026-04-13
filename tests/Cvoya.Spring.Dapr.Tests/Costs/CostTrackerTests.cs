@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Dapr.Tests.Costs;
 using System.Text.Json;
 
 using Cvoya.Spring.Core.Capabilities;
+using Cvoya.Spring.Core.Costs;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Dapr.Costs;
 using Cvoya.Spring.Dapr.Data;
@@ -46,8 +47,12 @@ public class CostTrackerTests : IDisposable
         decimal cost = 0.05m,
         int inputTokens = 100,
         int outputTokens = 50,
-        string model = "claude-3-opus")
+        string model = "claude-3-opus",
+        string? costSource = null)
     {
+        // The emission site writes costSource as the enum's name; keep the
+        // string form here so the test is sensitive to the contract rather
+        // than to the internal enum representation.
         var details = JsonSerializer.SerializeToElement(new
         {
             tenantId = "default",
@@ -55,7 +60,8 @@ public class CostTrackerTests : IDisposable
             model,
             inputTokens,
             outputTokens,
-            durationMs = 1500.0
+            durationMs = 1500.0,
+            costSource,
         });
 
         return new ActivityEvent(
@@ -147,6 +153,44 @@ public class CostTrackerTests : IDisposable
         record.InputTokens.ShouldBe(200);
         record.OutputTokens.ShouldBe(100);
         record.Model.ShouldBe("claude-3-haiku");
+    }
+
+    [Theory]
+    [InlineData("Work", CostSource.Work)]
+    [InlineData("work", CostSource.Work)]
+    [InlineData("Initiative", CostSource.Initiative)]
+    [InlineData("INITIATIVE", CostSource.Initiative)]
+    public void MapToRecord_CostSourceString_ParsesCaseInsensitively(string raw, CostSource expected)
+    {
+        var costEvent = CreateCostEvent(costSource: raw);
+
+        var record = CostTracker.MapToRecord(costEvent);
+
+        record.ShouldNotBeNull();
+        record!.Source.ShouldBe(expected);
+    }
+
+    [Fact]
+    public void MapToRecord_CostSourceMissing_DefaultsToWork()
+    {
+        var costEvent = CreateCostEvent(costSource: null);
+
+        var record = CostTracker.MapToRecord(costEvent);
+
+        record.ShouldNotBeNull();
+        record!.Source.ShouldBe(CostSource.Work);
+    }
+
+    [Fact]
+    public void MapToRecord_CostSourceUnrecognised_DefaultsToWork()
+    {
+        // Typo at the emission site must not silently reclassify as Initiative.
+        var costEvent = CreateCostEvent(costSource: "proactive");
+
+        var record = CostTracker.MapToRecord(costEvent);
+
+        record.ShouldNotBeNull();
+        record!.Source.ShouldBe(CostSource.Work);
     }
 
     [Fact]

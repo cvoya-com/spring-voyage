@@ -113,6 +113,10 @@ export interface CostSummaryResponse {
   totalInputTokens: number;
   totalOutputTokens: number;
   recordCount: number;
+  /** Portion of totalCost attributable to normal agent work. */
+  workCost: number;
+  /** Portion of totalCost attributable to the initiative (reflection) loop. */
+  initiativeCost: number;
   from: string;
   to: string;
 }
