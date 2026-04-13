@@ -1,167 +1,181 @@
+import createClient from "openapi-fetch";
+
+import type { paths } from "./schema";
 import type {
-  AgentDashboardSummary,
   AgentDetailResponse,
-  AgentResponse,
-  AgentSkillsResponse,
-  ActivityQueryResult,
-  BudgetResponse,
-  CloneResponse,
-  CostDashboardSummary,
-  CostSummaryResponse,
   CreateCloneRequest,
   CreateUnitFromTemplateRequest,
   CreateUnitFromYamlRequest,
-  InitiativeLevelResponse,
   InitiativePolicy,
   SetBudgetRequest,
-  SkillCatalogEntry,
-  UnitCreationResponse,
-  UnitDashboardSummary,
-  UnitDetailResponse,
   UnitResponse,
-  UnitStatus,
-  UnitTemplateSummary,
   UpdateAgentMetadataRequest,
 } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 
-async function fetchJSON<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, init);
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(
-      `API error ${res.status}: ${res.statusText}${text ? ` — ${text}` : ""}`,
+const fetchClient = createClient<paths>({ baseUrl: BASE });
+
+/**
+ * Thrown by every `api.*` method on a non-2xx response. Keeps the
+ * previous hand-rolled error shape (`message` formatted as
+ * `API error {status}: {statusText} — {body}`) so call sites that
+ * inspect `err.message` don't change.
+ */
+class ApiError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly statusText: string,
+    public readonly body: unknown,
+  ) {
+    const detail =
+      typeof body === "string"
+        ? body
+        : body
+          ? JSON.stringify(body)
+          : "";
+    super(
+      `API error ${status}: ${statusText}${detail ? ` — ${detail}` : ""}`,
+    );
+    this.name = "ApiError";
+  }
+}
+
+type FetchResult<T> = {
+  data?: T;
+  error?: unknown;
+  response: Response;
+};
+
+/**
+ * Unwrap an `openapi-fetch` result that is expected to return `T`.
+ * Throws `ApiError` on non-2xx; throws a plain `Error` if the server
+ * returned 2xx with an empty body when a payload was expected (should
+ * not happen in practice but keeps the TypeScript return type honest).
+ */
+function unwrap<T>(result: FetchResult<T>): T {
+  if (result.error !== undefined || !result.response.ok) {
+    throw new ApiError(
+      result.response.status,
+      result.response.statusText,
+      result.error ?? null,
     );
   }
-  return res.json() as Promise<T>;
-}
-
-async function postJSON<T>(path: string, body: unknown): Promise<T> {
-  return fetchJSON<T>(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-}
-
-async function postJSONNoBody<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, { method: "POST" });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
+  if (result.data === undefined) {
     throw new Error(
-      `API error ${res.status}: ${res.statusText}${text ? ` — ${text}` : ""}`,
+      `API ${result.response.status}: response body was empty (expected payload)`,
     );
   }
-  return res.json() as Promise<T>;
+  return result.data;
 }
 
-async function putJSON(path: string, body: unknown): Promise<void> {
-  const res = await fetch(`${BASE}${path}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    throw new Error(`API error ${res.status}: ${res.statusText}`);
-  }
-}
-
-async function putJSONReturn<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(
-      `API error ${res.status}: ${res.statusText}${text ? ` — ${text}` : ""}`,
+/**
+ * Unwrap an `openapi-fetch` result whose endpoint legitimately returns
+ * no body (204 NoContent, 202 Accepted without content). Throws only
+ * when the status is non-2xx.
+ */
+function assertOk(result: FetchResult<unknown>): void {
+  if (result.error !== undefined || !result.response.ok) {
+    throw new ApiError(
+      result.response.status,
+      result.response.statusText,
+      result.error ?? null,
     );
-  }
-  return res.json() as Promise<T>;
-}
-
-async function patchJSON<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(
-      `API error ${res.status}: ${res.statusText}${text ? ` — ${text}` : ""}`,
-    );
-  }
-  return res.json() as Promise<T>;
-}
-
-async function deleteJSON(path: string): Promise<void> {
-  const res = await fetch(`${BASE}${path}`, { method: "DELETE" });
-  if (!res.ok) {
-    throw new Error(`API error ${res.status}: ${res.statusText}`);
   }
 }
 
 export const api = {
   // Dashboard
-  getDashboardAgents: () =>
-    fetchJSON<AgentDashboardSummary[]>("/api/v1/dashboard/agents"),
-  getDashboardUnits: () =>
-    fetchJSON<UnitDashboardSummary[]>("/api/v1/dashboard/units"),
-  getDashboardCosts: () =>
-    fetchJSON<CostDashboardSummary>("/api/v1/dashboard/costs"),
+  getDashboardAgents: async () =>
+    unwrap(await fetchClient.GET("/api/v1/dashboard/agents")),
+  getDashboardUnits: async () =>
+    unwrap(await fetchClient.GET("/api/v1/dashboard/units")),
+  getDashboardCosts: async () =>
+    unwrap(await fetchClient.GET("/api/v1/dashboard/costs")),
 
   // Agents
-  listAgents: () => fetchJSON<AgentResponse[]>("/api/v1/agents"),
-  getAgent: (id: string) =>
-    fetchJSON<AgentDetailResponse>(`/api/v1/agents/${encodeURIComponent(id)}`),
-  updateAgentMetadata: (id: string, patch: UpdateAgentMetadataRequest) =>
-    patchJSON<AgentResponse>(
-      `/api/v1/agents/${encodeURIComponent(id)}`,
-      patch,
+  listAgents: async () => unwrap(await fetchClient.GET("/api/v1/agents")),
+  // The generated type for GET /api/v1/agents/{id} is AgentDetailResponse;
+  // the handler falls back to returning `{ agent, status: null }` when the
+  // StatusQuery to the actor fails. Existing call sites expect
+  // AgentDetailResponse, so surface that directly.
+  getAgent: async (id: string): Promise<AgentDetailResponse> =>
+    unwrap(
+      await fetchClient.GET("/api/v1/agents/{id}", {
+        params: { path: { id } },
+      }),
+    ) as AgentDetailResponse,
+  updateAgentMetadata: async (id: string, patch: UpdateAgentMetadataRequest) =>
+    unwrap(
+      await fetchClient.PATCH("/api/v1/agents/{id}", {
+        params: { path: { id } },
+        body: patch,
+      }),
     ),
-  getAgentSkills: (id: string) =>
-    fetchJSON<AgentSkillsResponse>(
-      `/api/v1/agents/${encodeURIComponent(id)}/skills`,
+  getAgentSkills: async (id: string) =>
+    unwrap(
+      await fetchClient.GET("/api/v1/agents/{id}/skills", {
+        params: { path: { id } },
+      }),
     ),
-  setAgentSkills: (id: string, skills: string[]) =>
-    putJSONReturn<AgentSkillsResponse>(
-      `/api/v1/agents/${encodeURIComponent(id)}/skills`,
-      { skills },
+  setAgentSkills: async (id: string, skills: string[]) =>
+    unwrap(
+      await fetchClient.PUT("/api/v1/agents/{id}/skills", {
+        params: { path: { id } },
+        body: { skills },
+      }),
     ),
-  deleteAgent: (id: string) =>
-    deleteJSON(`/api/v1/agents/${encodeURIComponent(id)}`),
+  deleteAgent: async (id: string): Promise<void> => {
+    assertOk(
+      await fetchClient.DELETE("/api/v1/agents/{id}", {
+        params: { path: { id } },
+      }),
+    );
+  },
 
   // Units
-  // Detailed unit read — includes Members and raw status payload. Used by the
-  // legacy query-string detail view under /units?id=... and still useful for
-  // anything that needs the members/details blob.
-  getUnitDetail: (id: string) =>
-    fetchJSON<UnitDetailResponse>(`/api/v1/units/${encodeURIComponent(id)}`),
-  // Lightweight unit read that returns the unit envelope only. Used by the
-  // /units/[id] config page where the tabs shell pulls data independently.
+  //
+  // Detailed unit read — includes Members and raw status payload. Used by
+  // the legacy query-string detail view under /units?id=... and still
+  // useful for anything that needs the members/details blob.
+  getUnitDetail: async (id: string) =>
+    unwrap(
+      await fetchClient.GET("/api/v1/units/{id}", {
+        params: { path: { id } },
+      }),
+    ),
+  // Lightweight unit read that returns the unit envelope only. Used by
+  // the /units/[id] config page where the tabs shell pulls data
+  // independently.
   getUnit: async (id: string): Promise<UnitResponse> => {
-    const detail = await fetchJSON<UnitDetailResponse>(
-      `/api/v1/units/${encodeURIComponent(id)}`,
+    const detail = unwrap(
+      await fetchClient.GET("/api/v1/units/{id}", {
+        params: { path: { id } },
+      }),
     );
-    return detail.unit;
+    return detail.unit as UnitResponse;
   },
-  createUnit: (body: {
+  createUnit: async (body: {
     name: string;
     displayName: string;
     description: string;
     model?: string;
     color?: string;
-  }) => postJSON<UnitResponse>("/api/v1/units", body),
-  createUnitFromYaml: (body: CreateUnitFromYamlRequest) =>
-    postJSON<UnitCreationResponse>("/api/v1/units/from-yaml", body),
-  createUnitFromTemplate: (body: CreateUnitFromTemplateRequest) =>
-    postJSON<UnitCreationResponse>("/api/v1/units/from-template", body),
-  listUnitTemplates: () =>
-    fetchJSON<UnitTemplateSummary[]>("/api/v1/packages/templates"),
-  updateUnit: (
+  }) =>
+    unwrap(
+      await fetchClient.POST("/api/v1/units", { body }),
+    ),
+  createUnitFromYaml: async (body: CreateUnitFromYamlRequest) =>
+    unwrap(
+      await fetchClient.POST("/api/v1/units/from-yaml", { body }),
+    ),
+  createUnitFromTemplate: async (body: CreateUnitFromTemplateRequest) =>
+    unwrap(
+      await fetchClient.POST("/api/v1/units/from-template", { body }),
+    ),
+  listUnitTemplates: async () =>
+    unwrap(await fetchClient.GET("/api/v1/packages/templates")),
+  updateUnit: async (
     id: string,
     patch: Partial<{
       displayName: string;
@@ -170,107 +184,189 @@ export const api = {
       color: string;
     }>,
   ) =>
-    patchJSON<UnitResponse>(
-      `/api/v1/units/${encodeURIComponent(id)}`,
-      patch,
+    unwrap(
+      await fetchClient.PATCH("/api/v1/units/{id}", {
+        params: { path: { id } },
+        body: patch,
+      }),
     ),
-  startUnit: (id: string) =>
-    postJSONNoBody<{ unitId: string; status: UnitStatus }>(
-      `/api/v1/units/${encodeURIComponent(id)}/start`,
+  startUnit: async (id: string) =>
+    unwrap(
+      await fetchClient.POST("/api/v1/units/{id}/start", {
+        params: { path: { id } },
+      }),
     ),
-  stopUnit: (id: string) =>
-    postJSONNoBody<{ unitId: string; status: UnitStatus }>(
-      `/api/v1/units/${encodeURIComponent(id)}/stop`,
+  stopUnit: async (id: string) =>
+    unwrap(
+      await fetchClient.POST("/api/v1/units/{id}/stop", {
+        params: { path: { id } },
+      }),
     ),
-  deleteUnit: (id: string) =>
-    deleteJSON(`/api/v1/units/${encodeURIComponent(id)}`),
-  addMember: (unitId: string, memberScheme: string, memberPath: string) =>
-    postJSON(`/api/v1/units/${encodeURIComponent(unitId)}/members`, {
-      memberAddress: { scheme: memberScheme, path: memberPath },
-    }),
-  removeMember: (unitId: string, memberId: string) =>
-    deleteJSON(`/api/v1/units/${encodeURIComponent(unitId)}/members/${encodeURIComponent(memberId)}`),
-
-  // Unit-scoped agent routes — assign / unassign maintain the
-  // agent.parentUnit ↔ unit.members invariant in one place. Per-field edits
-  // go through updateAgentMetadata (agent-scoped) because the fields are
-  // owned by the agent, not by the unit.
-  listUnitAgents: (unitId: string) =>
-    fetchJSON<AgentResponse[]>(
-      `/api/v1/units/${encodeURIComponent(unitId)}/agents`,
-    ),
-  assignUnitAgent: (unitId: string, agentId: string) =>
-    postJSONNoBody<AgentResponse>(
-      `/api/v1/units/${encodeURIComponent(unitId)}/agents/${encodeURIComponent(agentId)}`,
-    ),
-  unassignUnitAgent: (unitId: string, agentId: string) =>
-    deleteJSON(
-      `/api/v1/units/${encodeURIComponent(unitId)}/agents/${encodeURIComponent(agentId)}`,
-    ),
-
-  // Costs
-  getAgentCost: (id: string) =>
-    fetchJSON<CostSummaryResponse>(`/api/v1/costs/agents/${encodeURIComponent(id)}`),
-  getUnitCost: (id: string) =>
-    fetchJSON<CostSummaryResponse>(`/api/v1/costs/units/${encodeURIComponent(id)}`),
-
-  // Clones
-  getClones: (agentId: string) =>
-    fetchJSON<CloneResponse[]>(`/api/v1/agents/${encodeURIComponent(agentId)}/clones`),
-  createClone: (agentId: string, body: CreateCloneRequest) =>
-    postJSON<CloneResponse>(
-      `/api/v1/agents/${encodeURIComponent(agentId)}/clones`,
-      body,
-    ),
-  deleteClone: (agentId: string, cloneId: string) =>
-    deleteJSON(
-      `/api/v1/agents/${encodeURIComponent(agentId)}/clones/${encodeURIComponent(cloneId)}`,
-    ),
-
-  // Budgets
-  getAgentBudget: (agentId: string) =>
-    fetchJSON<BudgetResponse>(
-      `/api/v1/agents/${encodeURIComponent(agentId)}/budget`,
-    ),
-  setAgentBudget: (agentId: string, body: SetBudgetRequest) =>
-    putJSONReturn<BudgetResponse>(
-      `/api/v1/agents/${encodeURIComponent(agentId)}/budget`,
-      body,
-    ),
-  getTenantBudget: () => fetchJSON<BudgetResponse>("/api/v1/tenant/budget"),
-  setTenantBudget: (body: SetBudgetRequest) =>
-    putJSONReturn<BudgetResponse>("/api/v1/tenant/budget", body),
-
-  // Activity
-  queryActivity: (params?: Record<string, string>) => {
-    const qs = params ? `?${new URLSearchParams(params)}` : "";
-    return fetchJSON<ActivityQueryResult>(`/api/v1/activity${qs}`);
+  deleteUnit: async (id: string): Promise<void> => {
+    assertOk(
+      await fetchClient.DELETE("/api/v1/units/{id}", {
+        params: { path: { id } },
+      }),
+    );
+  },
+  addMember: async (
+    unitId: string,
+    memberScheme: string,
+    memberPath: string,
+  ): Promise<void> => {
+    assertOk(
+      await fetchClient.POST("/api/v1/units/{id}/members", {
+        params: { path: { id: unitId } },
+        body: { memberAddress: { scheme: memberScheme, path: memberPath } },
+      }),
+    );
+  },
+  removeMember: async (unitId: string, memberId: string): Promise<void> => {
+    assertOk(
+      await fetchClient.DELETE("/api/v1/units/{id}/members/{memberId}", {
+        params: { path: { id: unitId, memberId } },
+      }),
+    );
   },
 
-  // Initiative
-  getAgentInitiativePolicy: (id: string) =>
-    fetchJSON<InitiativePolicy>(
-      `/api/v1/agents/${encodeURIComponent(id)}/initiative/policy`,
+  // Unit-scoped agent routes — assign / unassign maintain the
+  // agent.parentUnit ↔ unit.members invariant in one place. Per-field
+  // edits go through updateAgentMetadata (agent-scoped) because the
+  // fields are owned by the agent, not by the unit.
+  listUnitAgents: async (unitId: string) =>
+    unwrap(
+      await fetchClient.GET("/api/v1/units/{id}/agents", {
+        params: { path: { id: unitId } },
+      }),
     ),
-  setAgentInitiativePolicy: (id: string, policy: InitiativePolicy) =>
-    putJSON(
-      `/api/v1/agents/${encodeURIComponent(id)}/initiative/policy`,
-      policy,
+  assignUnitAgent: async (unitId: string, agentId: string) =>
+    unwrap(
+      await fetchClient.POST("/api/v1/units/{id}/agents/{agentId}", {
+        params: { path: { id: unitId, agentId } },
+      }),
     ),
-  getAgentInitiativeLevel: (id: string) =>
-    fetchJSON<InitiativeLevelResponse>(
-      `/api/v1/agents/${encodeURIComponent(id)}/initiative/level`,
+  unassignUnitAgent: async (
+    unitId: string,
+    agentId: string,
+  ): Promise<void> => {
+    assertOk(
+      await fetchClient.DELETE("/api/v1/units/{id}/agents/{agentId}", {
+        params: { path: { id: unitId, agentId } },
+      }),
+    );
+  },
+
+  // Costs
+  getAgentCost: async (id: string) =>
+    unwrap(
+      await fetchClient.GET("/api/v1/costs/agents/{id}", {
+        params: { path: { id } },
+      }),
     ),
-  getUnitInitiativePolicy: (id: string) =>
-    fetchJSON<InitiativePolicy>(
-      `/api/v1/units/${encodeURIComponent(id)}/initiative/policy`,
-    ),
-  setUnitInitiativePolicy: (id: string, policy: InitiativePolicy) =>
-    putJSON(
-      `/api/v1/units/${encodeURIComponent(id)}/initiative/policy`,
-      policy,
+  getUnitCost: async (id: string) =>
+    unwrap(
+      await fetchClient.GET("/api/v1/costs/units/{id}", {
+        params: { path: { id } },
+      }),
     ),
 
+  // Clones
+  getClones: async (agentId: string) =>
+    unwrap(
+      await fetchClient.GET("/api/v1/agents/{agentId}/clones", {
+        params: { path: { agentId } },
+      }),
+    ),
+  createClone: async (agentId: string, body: CreateCloneRequest) =>
+    unwrap(
+      await fetchClient.POST("/api/v1/agents/{agentId}/clones", {
+        params: { path: { agentId } },
+        body,
+      }),
+    ),
+  deleteClone: async (agentId: string, cloneId: string): Promise<void> => {
+    assertOk(
+      await fetchClient.DELETE("/api/v1/agents/{agentId}/clones/{cloneId}", {
+        params: { path: { agentId, cloneId } },
+      }),
+    );
+  },
+
+  // Budgets
+  getAgentBudget: async (agentId: string) =>
+    unwrap(
+      await fetchClient.GET("/api/v1/agents/{agentId}/budget", {
+        params: { path: { agentId } },
+      }),
+    ),
+  setAgentBudget: async (agentId: string, body: SetBudgetRequest) =>
+    unwrap(
+      await fetchClient.PUT("/api/v1/agents/{agentId}/budget", {
+        params: { path: { agentId } },
+        body,
+      }),
+    ),
+  getTenantBudget: async () =>
+    unwrap(await fetchClient.GET("/api/v1/tenant/budget")),
+  setTenantBudget: async (body: SetBudgetRequest) =>
+    unwrap(await fetchClient.PUT("/api/v1/tenant/budget", { body })),
+
+  // Activity
+  //
+  // The query endpoint accepts a set of filter/pagination parameters.
+  // Callers pass them as a flat `Record<string, string>`; openapi-fetch
+  // expects a structured `params.query`. Pass-through is fine here
+  // because the current server binds query strings loosely via
+  // `[AsParameters]`.
+  queryActivity: async (params?: Record<string, string>) =>
+    unwrap(
+      await fetchClient.GET("/api/v1/activity", {
+        params: { query: params as never },
+      }),
+    ),
+
+  // Initiative
+  getAgentInitiativePolicy: async (id: string) =>
+    unwrap(
+      await fetchClient.GET("/api/v1/agents/{id}/initiative/policy", {
+        params: { path: { id } },
+      }),
+    ),
+  setAgentInitiativePolicy: async (
+    id: string,
+    policy: InitiativePolicy,
+  ): Promise<void> => {
+    assertOk(
+      await fetchClient.PUT("/api/v1/agents/{id}/initiative/policy", {
+        params: { path: { id } },
+        body: policy,
+      }),
+    );
+  },
+  getAgentInitiativeLevel: async (id: string) =>
+    unwrap(
+      await fetchClient.GET("/api/v1/agents/{id}/initiative/level", {
+        params: { path: { id } },
+      }),
+    ),
+  getUnitInitiativePolicy: async (id: string) =>
+    unwrap(
+      await fetchClient.GET("/api/v1/units/{id}/initiative/policy", {
+        params: { path: { id } },
+      }),
+    ),
+  setUnitInitiativePolicy: async (
+    id: string,
+    policy: InitiativePolicy,
+  ): Promise<void> => {
+    assertOk(
+      await fetchClient.PUT("/api/v1/units/{id}/initiative/policy", {
+        params: { path: { id } },
+        body: policy,
+      }),
+    );
+  },
+
   // Skills catalog
-  listSkills: () => fetchJSON<SkillCatalogEntry[]>("/api/v1/skills"),
+  listSkills: async () => unwrap(await fetchClient.GET("/api/v1/skills")),
 };
