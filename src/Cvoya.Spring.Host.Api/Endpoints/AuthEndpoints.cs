@@ -31,22 +31,29 @@ public static class AuthEndpoints
         group.MapPost("/tokens", CreateTokenAsync)
             .WithName("CreateToken")
             .WithSummary("Create a new API token")
-            .RequireAuthorization();
+            .RequireAuthorization()
+            .Produces<CreateTokenResponse>(StatusCodes.Status201Created)
+            .ProducesProblem(StatusCodes.Status409Conflict);
 
         group.MapGet("/tokens", ListTokensAsync)
             .WithName("ListTokens")
             .WithSummary("List all API tokens for the current user")
-            .RequireAuthorization();
+            .RequireAuthorization()
+            .Produces<TokenResponse[]>(StatusCodes.Status200OK);
 
         group.MapDelete("/tokens/{name}", RevokeTokenAsync)
             .WithName("RevokeToken")
             .WithSummary("Revoke an API token by name")
-            .RequireAuthorization();
+            .RequireAuthorization()
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapGet("/me", GetCurrentUserAsync)
             .WithName("GetCurrentUser")
             .WithSummary("Get the current authenticated user's profile")
-            .RequireAuthorization();
+            .RequireAuthorization()
+            .Produces<UserProfileResponse>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status401Unauthorized);
 
         return group;
     }

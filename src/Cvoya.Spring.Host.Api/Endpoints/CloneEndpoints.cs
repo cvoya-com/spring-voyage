@@ -30,19 +30,27 @@ public static class CloneEndpoints
 
         group.MapPost("/", CreateCloneAsync)
             .WithName("CreateClone")
-            .WithSummary("Create a clone of an agent");
+            .WithSummary("Create a clone of an agent")
+            .Produces<CloneResponse>(StatusCodes.Status202Accepted)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapGet("/", ListClonesAsync)
             .WithName("ListClones")
-            .WithSummary("List clones of an agent");
+            .WithSummary("List clones of an agent")
+            .Produces<CloneResponse[]>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapGet("/{cloneId}", GetCloneAsync)
             .WithName("GetClone")
-            .WithSummary("Get clone status");
+            .WithSummary("Get clone status")
+            .Produces<CloneResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapDelete("/{cloneId}", DeleteCloneAsync)
             .WithName("DeleteClone")
-            .WithSummary("Delete a clone");
+            .WithSummary("Delete a clone")
+            .Produces(StatusCodes.Status202Accepted)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         return group;
     }

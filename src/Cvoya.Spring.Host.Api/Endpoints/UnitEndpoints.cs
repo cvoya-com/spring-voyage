@@ -53,57 +53,93 @@ public static class UnitEndpoints
 
         group.MapPost("/", CreateUnitAsync)
             .WithName("CreateUnit")
-            .WithSummary("Create a new unit");
+            .WithSummary("Create a new unit")
+            .Produces<UnitResponse>(StatusCodes.Status201Created)
+            .ProducesProblem(StatusCodes.Status400BadRequest);
 
         group.MapPost("/from-yaml", CreateUnitFromYamlAsync)
             .WithName("CreateUnitFromYaml")
-            .WithSummary("Create a unit by applying a raw unit manifest YAML document");
+            .WithSummary("Create a unit by applying a raw unit manifest YAML document")
+            .Produces<UnitCreationResponse>(StatusCodes.Status201Created)
+            .ProducesProblem(StatusCodes.Status400BadRequest);
 
         group.MapPost("/from-template", CreateUnitFromTemplateAsync)
             .WithName("CreateUnitFromTemplate")
-            .WithSummary("Create a unit from one of the templates listed by /api/v1/packages/templates");
+            .WithSummary("Create a unit from one of the templates listed by /api/v1/packages/templates")
+            .Produces<UnitCreationResponse>(StatusCodes.Status201Created)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapPatch("/{id}", UpdateUnitAsync)
             .WithName("UpdateUnit")
-            .WithSummary("Update mutable unit metadata (displayName, description, model, color)");
+            .WithSummary("Update mutable unit metadata (displayName, description, model, color)")
+            .Produces<UnitResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapDelete("/{id}", DeleteUnitAsync)
             .WithName("DeleteUnit")
-            .WithSummary("Delete a unit");
+            .WithSummary("Delete a unit")
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
 
+        // Start / Stop return `{ UnitId, Status }` today — the anonymous
+        // shape is promoted to `UnitLifecycleResponse` under #172.
         group.MapPost("/{id}/start", StartUnitAsync)
             .WithName("StartUnit")
-            .WithSummary("Start the runtime container for a unit");
+            .WithSummary("Start the runtime container for a unit")
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
 
         group.MapPost("/{id}/stop", StopUnitAsync)
             .WithName("StopUnit")
-            .WithSummary("Stop the runtime container for a unit");
+            .WithSummary("Stop the runtime container for a unit")
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
 
+        // AddMember today returns `{ Status = "Member added" }`; #172 will
+        // collapse this to 204 NoContent since the status string carries
+        // no new information.
         group.MapPost("/{id}/members", AddMemberAsync)
             .WithName("AddMember")
-            .WithSummary("Add a member to a unit");
+            .WithSummary("Add a member to a unit")
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapDelete("/{id}/members/{memberId}", RemoveMemberAsync)
             .WithName("RemoveMember")
-            .WithSummary("Remove a member from a unit");
+            .WithSummary("Remove a member from a unit")
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
+        // SetGitHubConfig returns `{ UnitId, GitHub }` anonymous; #172
+        // will promote it to `SetUnitGitHubConfigResponse`.
         group.MapPut("/{id}/github", SetGitHubConfigAsync)
             .WithName("SetUnitGitHubConfig")
-            .WithSummary("Configure the GitHub repository a unit is bound to");
+            .WithSummary("Configure the GitHub repository a unit is bound to")
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapDelete("/{id}/github", ClearGitHubConfigAsync)
             .WithName("ClearUnitGitHubConfig")
-            .WithSummary("Clear the unit's GitHub repository binding");
+            .WithSummary("Clear the unit's GitHub repository binding")
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
+        // SetHumanPermission returns `{ HumanId, Permission }` anonymous;
+        // #172 will promote it to `SetHumanPermissionResponse`.
         group.MapPatch("/{id}/humans/{humanId}/permissions", SetHumanPermissionAsync)
             .WithName("SetHumanPermission")
             .WithSummary("Set permission level for a human within a unit")
-            .RequireAuthorization(PermissionPolicies.UnitOwner);
+            .RequireAuthorization(PermissionPolicies.UnitOwner)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapGet("/{id}/humans", GetHumanPermissionsAsync)
             .WithName("GetHumanPermissions")
             .WithSummary("Get all human permissions for a unit")
-            .RequireAuthorization(PermissionPolicies.UnitViewer);
+            .RequireAuthorization(PermissionPolicies.UnitViewer)
+            .Produces<IReadOnlyList<UnitPermissionEntry>>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapGet("/{id}/agents", ListUnitAgentsAsync)
             .WithName("ListUnitAgents")

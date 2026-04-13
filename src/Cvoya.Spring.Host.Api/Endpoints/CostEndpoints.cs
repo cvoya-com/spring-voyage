@@ -23,15 +23,18 @@ public static class CostEndpoints
 
         group.MapGet("/agents/{id}", GetAgentCostAsync)
             .WithName("GetAgentCost")
-            .WithSummary("Get cost summary for an agent");
+            .WithSummary("Get cost summary for an agent")
+            .Produces<CostSummaryResponse>(StatusCodes.Status200OK);
 
         group.MapGet("/units/{id}", GetUnitCostAsync)
             .WithName("GetUnitCost")
-            .WithSummary("Get cost summary for a unit");
+            .WithSummary("Get cost summary for a unit")
+            .Produces<CostSummaryResponse>(StatusCodes.Status200OK);
 
         group.MapGet("/tenant", GetTenantCostAsync)
             .WithName("GetTenantCost")
-            .WithSummary("Get cost summary for the tenant");
+            .WithSummary("Get cost summary for the tenant")
+            .Produces<CostSummaryResponse>(StatusCodes.Status200OK);
 
         return group;
     }

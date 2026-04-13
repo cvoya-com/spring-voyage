@@ -23,7 +23,10 @@ public static class MessageEndpoints
 
         group.MapPost("/", SendMessageAsync)
             .WithName("SendMessage")
-            .WithSummary("Send a message routed via the message router");
+            .WithSummary("Send a message routed via the message router")
+            .Produces<MessageResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status502BadGateway);
 
         return group;
     }

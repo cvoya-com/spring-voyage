@@ -34,7 +34,10 @@ public static class WebhookEndpoints
 
         group.MapPost("/github", HandleGitHubWebhookAsync)
             .WithName("HandleGitHubWebhook")
-            .WithSummary("Receive a GitHub webhook event");
+            .WithSummary("Receive a GitHub webhook event")
+            .Produces(StatusCodes.Status202Accepted)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized);
 
         return group;
     }

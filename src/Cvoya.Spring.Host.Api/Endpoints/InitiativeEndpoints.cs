@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Host.Api.Endpoints;
 
 using Cvoya.Spring.Core.Initiative;
+using Cvoya.Spring.Host.Api.Models;
 
 using Microsoft.AspNetCore.Mvc;
 
@@ -26,23 +27,28 @@ public static class InitiativeEndpoints
 
         group.MapGet("/agents/{id}/initiative/policy", GetAgentInitiativePolicyAsync)
             .WithName("GetAgentInitiativePolicy")
-            .WithSummary("Get the initiative policy for an agent");
+            .WithSummary("Get the initiative policy for an agent")
+            .Produces<InitiativePolicy>(StatusCodes.Status200OK);
 
         group.MapPut("/agents/{id}/initiative/policy", SetAgentInitiativePolicyAsync)
             .WithName("SetAgentInitiativePolicy")
-            .WithSummary("Set the initiative policy for an agent");
+            .WithSummary("Set the initiative policy for an agent")
+            .Produces(StatusCodes.Status204NoContent);
 
         group.MapGet("/units/{id}/initiative/policy", GetUnitInitiativePolicyAsync)
             .WithName("GetUnitInitiativePolicy")
-            .WithSummary("Get the initiative policy for a unit");
+            .WithSummary("Get the initiative policy for a unit")
+            .Produces<InitiativePolicy>(StatusCodes.Status200OK);
 
         group.MapPut("/units/{id}/initiative/policy", SetUnitInitiativePolicyAsync)
             .WithName("SetUnitInitiativePolicy")
-            .WithSummary("Set the initiative policy for a unit");
+            .WithSummary("Set the initiative policy for a unit")
+            .Produces(StatusCodes.Status204NoContent);
 
         group.MapGet("/agents/{id}/initiative/level", GetAgentInitiativeLevelAsync)
             .WithName("GetAgentInitiativeLevel")
-            .WithSummary("Get the current effective initiative level for an agent");
+            .WithSummary("Get the current effective initiative level for an agent")
+            .Produces<InitiativeLevelResponse>(StatusCodes.Status200OK);
 
         return group;
     }
@@ -91,6 +97,6 @@ public static class InitiativeEndpoints
         CancellationToken cancellationToken)
     {
         var level = await initiativeEngine.GetCurrentLevelAsync(id, cancellationToken);
-        return Results.Ok(new { level });
+        return Results.Ok(new InitiativeLevelResponse(level));
     }
 }

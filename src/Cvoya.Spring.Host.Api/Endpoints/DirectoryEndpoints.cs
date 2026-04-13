@@ -23,11 +23,13 @@ public static class DirectoryEndpoints
 
         group.MapGet("/", ListEntriesAsync)
             .WithName("ListDirectoryEntries")
-            .WithSummary("List all directory entries");
+            .WithSummary("List all directory entries")
+            .Produces<DirectoryEntryResponse[]>(StatusCodes.Status200OK);
 
         group.MapGet("/role/{role}", FindByRoleAsync)
             .WithName("FindByRole")
-            .WithSummary("Find directory entries by role");
+            .WithSummary("Find directory entries by role")
+            .Produces<DirectoryEntryResponse[]>(StatusCodes.Status200OK);
 
         return group;
     }
