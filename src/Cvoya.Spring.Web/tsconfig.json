@@ -16,13 +16,16 @@
     "plugins": [{ "name": "next" }],
     "paths": {
       "@/*": ["./src/*"],
-      "@connectors/*": ["./src/connectors/*"]
+      "@connectors/*": ["./src/connectors/*"],
+      "@connector-github/*": ["../Cvoya.Spring.Connector.GitHub/web/*"]
     }
   },
   "include": [
     "next-env.d.ts",
     "**/*.ts",
     "**/*.tsx",
+    "../Cvoya.Spring.Connector.GitHub/web/**/*.ts",
+    "../Cvoya.Spring.Connector.GitHub/web/**/*.tsx",
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts"
   ],

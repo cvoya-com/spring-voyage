@@ -1,0 +1,8 @@
+{
+  "name": "@cvoya/spring-connector-github-web",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Web UI for the GitHub connector. Consumed as a workspace sibling by Cvoya.Spring.Web so the .NET connector package can own both its server-side and web surfaces. This package declares no dependencies on its own: everything (react, lucide-react, the shared @/* components) is hoisted from the host web app. See src/Cvoya.Spring.Web/next.config.ts (turbopack.root) and tsconfig.json (@connector-github path alias) for how the two halves meet.",
+  "main": "./connector-tab.tsx",
+  "types": "./connector-tab.tsx"
+}

@@ -33,6 +33,7 @@ jobs:
       dotnet: ${{ steps.filter.outputs.dotnet }}
       openapi: ${{ steps.filter.outputs.openapi }}
       agents: ${{ steps.filter.outputs.agents }}
+      connectors_web: ${{ steps.filter.outputs.connectors_web }}
       workflows: ${{ steps.filter.outputs.workflows }}
     steps:
       - uses: actions/checkout@v6
@@ -57,6 +58,12 @@ jobs:
               - '.config/dotnet-tools.json'
             agents:
               - 'packages/**/agents/**'
+            connectors_web:
+              - 'src/Cvoya.Spring.Connector.*/web/**'
+              - 'src/Cvoya.Spring.Web/src/connectors/**'
+              - 'scripts/validate-connector-web.sh'
+              - 'package.json'
+              - 'package-lock.json'
             workflows:
               - '.github/workflows/**'
 
@@ -265,6 +272,25 @@ jobs:
 
           echo "All agent definition references are valid (or no definitions found yet)."
 
+  connector-web-lint:
+    name: Lint connector web submodules
+    runs-on: ubuntu-latest
+    needs: changes
+    # Skipped in the merge queue: like agent-definitions-lint this
+    # validates static intra-repo references that don't depend on any
+    # integration with other merged PRs.
+    if: >
+      github.event_name != 'merge_group' &&
+      (needs.changes.outputs.connectors_web == 'true' || needs.changes.outputs.workflows == 'true')
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Validate connector web submodules
+        shell: bash
+        run: bash scripts/validate-connector-web.sh
+
   openapi-drift:
     name: OpenAPI contract drift
     runs-on: ubuntu-latest
@@ -335,6 +361,7 @@ jobs:
       - test
       - format
       - agent-definitions-lint
+      - connector-web-lint
       - openapi-drift
     # Always runs - branch protection depends on a single "Required checks"
     # context, so this job must report a status even when upstream jobs were
@@ -350,6 +377,7 @@ jobs:
           TEST_RESULT: ${{ needs.test.result }}
           FORMAT_RESULT: ${{ needs.format.result }}
           LINT_RESULT: ${{ needs.agent-definitions-lint.result }}
+          CONNECTOR_WEB_RESULT: ${{ needs.connector-web-lint.result }}
           OPENAPI_RESULT: ${{ needs.openapi-drift.result }}
           CHANGES_RESULT: ${{ needs.changes.result }}
         run: |
@@ -358,6 +386,7 @@ jobs:
           echo "test=$TEST_RESULT"
           echo "format=$FORMAT_RESULT"
           echo "agent-definitions-lint=$LINT_RESULT"
+          echo "connector-web-lint=$CONNECTOR_WEB_RESULT"
           echo "openapi-drift=$OPENAPI_RESULT"
 
           # The 'changes' gate itself must have run cleanly - if path detection
@@ -372,8 +401,9 @@ jobs:
           # cancellation, timeout - fails the PR.
           ok() { [[ "$1" == "success" || "$1" == "skipped" ]]; }
 
-          ok "$BUILD_RESULT"   || { echo "::error::build failed"; exit 1; }
-          ok "$TEST_RESULT"    || { echo "::error::test failed"; exit 1; }
-          ok "$FORMAT_RESULT"  || { echo "::error::format failed"; exit 1; }
-          ok "$LINT_RESULT"    || { echo "::error::agent-definitions-lint failed"; exit 1; }
-          ok "$OPENAPI_RESULT" || { echo "::error::openapi-drift failed"; exit 1; }
+          ok "$BUILD_RESULT"           || { echo "::error::build failed"; exit 1; }
+          ok "$TEST_RESULT"            || { echo "::error::test failed"; exit 1; }
+          ok "$FORMAT_RESULT"          || { echo "::error::format failed"; exit 1; }
+          ok "$LINT_RESULT"            || { echo "::error::agent-definitions-lint failed"; exit 1; }
+          ok "$CONNECTOR_WEB_RESULT"   || { echo "::error::connector-web-lint failed"; exit 1; }
+          ok "$OPENAPI_RESULT"         || { echo "::error::openapi-drift failed"; exit 1; }
