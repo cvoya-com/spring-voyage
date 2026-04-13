@@ -47,7 +47,7 @@ public static class MessageCommand
 
             Console.WriteLine(output == "json"
                 ? OutputFormatter.FormatJson(result)
-                : $"Message sent to {address}.");
+                : $"Message sent to {address}. (id: {result.MessageId?.ToString() ?? "n/a"})");
         });
 
         return command;

@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Cli.Commands;
 
 using System.CommandLine;
 
+using Cvoya.Spring.Cli.Generated.Models;
 using Cvoya.Spring.Cli.Output;
 
 /// <summary>
@@ -12,6 +13,28 @@ using Cvoya.Spring.Cli.Output;
 /// </summary>
 public static class AgentCommand
 {
+    private static readonly OutputFormatter.Column<AgentResponse>[] AgentListColumns =
+    {
+        new("id", a => a.Id),
+        new("name", a => a.Name),
+        new("role", a => a.Role),
+        new("enabled", a => a.Enabled?.ToString().ToLowerInvariant()),
+    };
+
+    private static readonly OutputFormatter.Column<AgentResponse>[] AgentCreateColumns =
+    {
+        new("id", a => a.Id),
+        new("name", a => a.Name),
+        new("role", a => a.Role),
+    };
+
+    private static readonly OutputFormatter.Column<AgentDetailResponse>[] AgentStatusColumns =
+    {
+        new("id", a => a.Agent?.Id),
+        new("name", a => a.Agent?.Name),
+        new("enabled", a => a.Agent?.Enabled?.ToString().ToLowerInvariant()),
+    };
+
     /// <summary>
     /// Creates the "agent" command with subcommands for CRUD operations.
     /// </summary>
@@ -40,7 +63,7 @@ public static class AgentCommand
 
             Console.WriteLine(output == "json"
                 ? OutputFormatter.FormatJson(result)
-                : OutputFormatter.FormatTable(result, ["id", "name", "role", "status"]));
+                : OutputFormatter.FormatTable(result, AgentListColumns));
         });
 
         return command;
@@ -48,8 +71,8 @@ public static class AgentCommand
 
     private static Command CreateCreateCommand(Option<string> outputOption)
     {
-        var idArg = new Argument<string>("id") { Description = "The agent identifier" };
-        var nameOption = new Option<string>("--name") { Description = "The agent display name", Required = true };
+        var idArg = new Argument<string>("id") { Description = "The agent identifier (sent as the server's Name field)" };
+        var nameOption = new Option<string?>("--name") { Description = "Human-readable display name (defaults to id)" };
         var roleOption = new Option<string?>("--role") { Description = "The agent role" };
         var command = new Command("create", "Create a new agent");
         command.Arguments.Add(idArg);
@@ -59,16 +82,16 @@ public static class AgentCommand
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
             var id = parseResult.GetValue(idArg)!;
-            var name = parseResult.GetValue(nameOption)!;
+            var displayName = parseResult.GetValue(nameOption);
             var role = parseResult.GetValue(roleOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
             var client = ClientFactory.Create();
 
-            var result = await client.CreateAgentAsync(id, name, role, ct);
+            var result = await client.CreateAgentAsync(id, displayName, role, ct);
 
             Console.WriteLine(output == "json"
                 ? OutputFormatter.FormatJson(result)
-                : OutputFormatter.FormatTable(result, ["id", "name", "role"]));
+                : OutputFormatter.FormatTable(result, AgentCreateColumns));
         });
 
         return command;
@@ -90,7 +113,7 @@ public static class AgentCommand
 
             Console.WriteLine(output == "json"
                 ? OutputFormatter.FormatJson(result)
-                : OutputFormatter.FormatTable(result, ["id", "name", "status"]));
+                : OutputFormatter.FormatTable(result, AgentStatusColumns));
         });
 
         return command;

@@ -221,6 +221,23 @@ jobs:
             exit 1
           fi
 
+      # #186: explicit drift check for the CLI's Kiota client. The earlier
+      # build step regenerates Generated/ on first compile (Inputs/Outputs
+      # gating); here we delete it and force a clean regeneration so a contract
+      # change that produces a tree the hand-written SpringApiClient wrapper
+      # can't compile against (Kiota tool bump, reshaped schema, renamed
+      # property the wrapper still references) fails CI here rather than at
+      # the next contributor's local build.
+      - name: Verify Kiota CLI client regenerates cleanly from openapi.json
+        shell: bash
+        run: |
+          rm -rf src/Cvoya.Spring.Cli/Generated
+          dotnet build src/Cvoya.Spring.Cli/Cvoya.Spring.Cli.csproj --no-restore --configuration Release
+          if [ ! -f src/Cvoya.Spring.Cli/Generated/kiota-lock.json ]; then
+            echo "::error::Kiota did not regenerate src/Cvoya.Spring.Cli/Generated/ — check the GenerateKiotaClient MSBuild target and the dotnet-tools manifest."
+            exit 1
+          fi
+
   required-checks:
     name: Required checks
     runs-on: ubuntu-latest

@@ -26,7 +26,7 @@
   </PropertyGroup>
 
   <Target Name="GenerateKiotaClient"
-          BeforeTargets="BeforeCompile"
+          BeforeTargets="BeforeCompile;CoreCompile"
           Inputs="$(OpenApiContract)"
           Outputs="$(KiotaLockFile)">
     <Message Importance="high" Text="Regenerating Kiota client from $(OpenApiContract)" />
@@ -34,6 +34,13 @@
           WorkingDirectory="$(MSBuildThisFileDirectory)..\..\" />
     <Exec Command="dotnet tool run kiota generate --openapi &quot;$(OpenApiContract)&quot; --language CSharp --output &quot;$(KiotaOutputDir)&quot; --class-name SpringApiKiotaClient --namespace-name Cvoya.Spring.Cli.Generated --clean-output --log-level Warning"
           WorkingDirectory="$(MSBuildThisFileDirectory)..\..\" />
+    <!-- Generated/ may not have existed at project evaluation time (it's gitignored
+         and freshly created by the Exec above), so the SDK's default '**/*.cs'
+         Compile glob found no files in it. Re-include them now so CoreCompile
+         picks them up on the very first build of a clean checkout. -->
+    <ItemGroup>
+      <Compile Include="$(KiotaOutputDir)/**/*.cs" Exclude="@(Compile)" />
+    </ItemGroup>
   </Target>
 
 </Project>

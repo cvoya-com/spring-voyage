@@ -72,10 +72,12 @@ public static class ApplyCommand
                 return 0;
             }
 
-            using var httpClient = CreateHttpClient(apiUrlOverride);
-            var client = new SpringApiClient(httpClient);
-
-            return await ApplyRunner.ApplyAsync(manifest, client, Console.Out, Console.Error, ct);
+            var (httpClient, baseUrl) = CreateHttpClient(apiUrlOverride);
+            using (httpClient)
+            {
+                var client = new SpringApiClient(httpClient, baseUrl);
+                return await ApplyRunner.ApplyAsync(manifest, client, Console.Out, Console.Error, ct);
+            }
         });
 
         return command;
@@ -86,17 +88,14 @@ public static class ApplyCommand
     /// Resolution order for the base address: explicit <c>--api-url</c>, then
     /// the <c>SPRING_API_URL</c> environment variable, then the CLI config file.
     /// </summary>
-    private static HttpClient CreateHttpClient(string? apiUrlOverride)
+    private static (HttpClient HttpClient, string BaseUrl) CreateHttpClient(string? apiUrlOverride)
     {
         var config = CliConfig.Load();
         var baseUrl = apiUrlOverride
             ?? Environment.GetEnvironmentVariable("SPRING_API_URL")
             ?? config.Endpoint;
 
-        var httpClient = new HttpClient
-        {
-            BaseAddress = new Uri(baseUrl),
-        };
+        var httpClient = new HttpClient();
 
         if (config.ApiToken is not null)
         {
@@ -104,6 +103,6 @@ public static class ApplyCommand
                 new AuthenticationHeaderValue("Bearer", config.ApiToken);
         }
 
-        return httpClient;
+        return (httpClient, baseUrl);
     }
 }

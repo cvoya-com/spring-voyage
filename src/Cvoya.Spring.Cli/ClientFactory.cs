@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Cli;
 
+using System.Net.Http;
 using System.Net.Http.Headers;
 
 /// <summary>
@@ -12,15 +13,12 @@ using System.Net.Http.Headers;
 public static class ClientFactory
 {
     /// <summary>
-    /// Creates a new <see cref="SpringApiClient"/> configured from ~/.spring/config.json.
+    /// Creates a new <see cref="SpringApiClient"/> configured from <c>~/.spring/config.json</c>.
     /// </summary>
     public static SpringApiClient Create()
     {
         var config = CliConfig.Load();
-        var httpClient = new HttpClient
-        {
-            BaseAddress = new Uri(config.Endpoint)
-        };
+        var httpClient = new HttpClient();
 
         if (config.ApiToken is not null)
         {
@@ -28,6 +26,6 @@ public static class ClientFactory
                 new AuthenticationHeaderValue("Bearer", config.ApiToken);
         }
 
-        return new SpringApiClient(httpClient);
+        return new SpringApiClient(httpClient, config.Endpoint);
     }
 }

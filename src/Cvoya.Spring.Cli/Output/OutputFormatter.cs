@@ -3,49 +3,50 @@
 
 namespace Cvoya.Spring.Cli.Output;
 
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Text;
-using System.Text.Json;
+using System.Threading.Tasks;
+
+using Microsoft.Kiota.Abstractions.Serialization;
+using Microsoft.Kiota.Serialization.Json;
 
 /// <summary>
-/// Formats JSON data as aligned tables or raw JSON for CLI output.
+/// Renders typed results from the Kiota client as aligned tables or wire-format JSON.
 /// </summary>
 public static class OutputFormatter
 {
     /// <summary>
-    /// Formats a JSON array as an aligned table with the specified columns.
-    /// If the data is a single object, it is treated as a one-row table.
+    /// A column descriptor for <see cref="FormatTable{T}"/>: a header label and an
+    /// accessor that returns the cell value for a given row (null/empty becomes blank).
     /// </summary>
-    public static string FormatTable(JsonElement data, string[] columns)
+    public readonly record struct Column<T>(string Header, Func<T, string?> Get);
+
+    /// <summary>
+    /// Renders <paramref name="rows"/> as an aligned ASCII table with the given columns.
+    /// Returns "No results found." when the sequence is empty.
+    /// </summary>
+    public static string FormatTable<T>(IEnumerable<T> rows, IReadOnlyList<Column<T>> columns)
     {
-        var rows = new List<string[]>();
+        var values = rows
+            .Select(row => columns.Select(c => c.Get(row) ?? string.Empty).ToArray())
+            .ToList();
 
-        if (data.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var item in data.EnumerateArray())
-            {
-                rows.Add(ExtractRow(item, columns));
-            }
-        }
-        else if (data.ValueKind == JsonValueKind.Object)
-        {
-            rows.Add(ExtractRow(data, columns));
-        }
-
-        if (rows.Count == 0)
+        if (values.Count == 0)
         {
             return "No results found.";
         }
 
-        // Calculate column widths
-        var widths = new int[columns.Length];
-        for (var i = 0; i < columns.Length; i++)
+        var widths = new int[columns.Count];
+        for (var i = 0; i < columns.Count; i++)
         {
-            widths[i] = columns[i].Length;
+            widths[i] = columns[i].Header.Length;
         }
-
-        foreach (var row in rows)
+        foreach (var row in values)
         {
-            for (var i = 0; i < columns.Length; i++)
+            for (var i = 0; i < columns.Count; i++)
             {
                 if (row[i].Length > widths[i])
                 {
@@ -56,19 +57,17 @@ public static class OutputFormatter
 
         var sb = new StringBuilder();
 
-        // Header
-        for (var i = 0; i < columns.Length; i++)
+        for (var i = 0; i < columns.Count; i++)
         {
             if (i > 0)
             {
                 sb.Append("  ");
             }
-            sb.Append(columns[i].ToUpperInvariant().PadRight(widths[i]));
+            sb.Append(columns[i].Header.ToUpperInvariant().PadRight(widths[i]));
         }
         sb.AppendLine();
 
-        // Separator
-        for (var i = 0; i < columns.Length; i++)
+        for (var i = 0; i < columns.Count; i++)
         {
             if (i > 0)
             {
@@ -78,10 +77,9 @@ public static class OutputFormatter
         }
         sb.AppendLine();
 
-        // Rows
-        foreach (var row in rows)
+        foreach (var row in values)
         {
-            for (var i = 0; i < columns.Length; i++)
+            for (var i = 0; i < columns.Count; i++)
             {
                 if (i > 0)
                 {
@@ -95,29 +93,47 @@ public static class OutputFormatter
         return sb.ToString().TrimEnd();
     }
 
+    /// <summary>Renders a single row as a one-row table.</summary>
+    public static string FormatTable<T>(T row, IReadOnlyList<Column<T>> columns)
+        => FormatTable(new[] { row }, columns);
+
+    // One writer factory is enough — all FormatJson overloads share it. Instantiating
+    // our own factory sidesteps Kiota's global SerializationWriterFactoryRegistry,
+    // which is populated lazily by the SpringApiKiotaClient constructor and therefore
+    // leaks test-ordering dependencies (see CI run on #189 where this test ran before
+    // any client was constructed and failed with "no factory registered").
+    private static readonly JsonSerializationWriterFactory JsonWriterFactory = new();
+
     /// <summary>
-    /// Formats a JSON element as indented JSON.
+    /// Serialises a Kiota <see cref="IParsable"/> model as wire-format JSON. Uses Kiota's
+    /// own JSON writer so property names match the OpenAPI contract (camelCase) rather
+    /// than the C# PascalCase that <c>System.Text.Json</c> would emit.
     /// </summary>
-    public static string FormatJson(JsonElement data)
+    public static string FormatJson<T>(T value) where T : IParsable
     {
-        var options = new JsonSerializerOptions { WriteIndented = true };
-        return JsonSerializer.Serialize(data, options);
+        using var writer = JsonWriterFactory.GetSerializationWriter("application/json");
+        writer.WriteObjectValue(null, value);
+        using var stream = writer.GetSerializedContent();
+        return ReadIndented(stream);
     }
 
-    private static string[] ExtractRow(JsonElement item, string[] columns)
+    /// <summary>Serialises a sequence of Kiota models as a wire-format JSON array.</summary>
+    public static string FormatJson<T>(IEnumerable<T> values) where T : IParsable
     {
-        var row = new string[columns.Length];
-        for (var i = 0; i < columns.Length; i++)
-        {
-            if (item.TryGetProperty(columns[i], out var value))
-            {
-                row[i] = value.ValueKind == JsonValueKind.Null ? "" : value.ToString() ?? "";
-            }
-            else
-            {
-                row[i] = "";
-            }
-        }
-        return row;
+        using var writer = JsonWriterFactory.GetSerializationWriter("application/json");
+        writer.WriteCollectionOfObjectValues(null, values);
+        using var stream = writer.GetSerializedContent();
+        return ReadIndented(stream);
+    }
+
+    private static string ReadIndented(Stream stream)
+    {
+        using var reader = new StreamReader(stream);
+        var raw = reader.ReadToEnd();
+        // Kiota emits compact JSON; reindent for human readability.
+        using var doc = System.Text.Json.JsonDocument.Parse(raw);
+        return System.Text.Json.JsonSerializer.Serialize(
+            doc.RootElement,
+            new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
     }
 }

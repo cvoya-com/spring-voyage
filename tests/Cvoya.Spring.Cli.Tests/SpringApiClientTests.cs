@@ -12,6 +12,8 @@ using Xunit;
 
 public class SpringApiClientTests
 {
+    private const string BaseUrl = "http://localhost:5000";
+
     [Fact]
     public async Task ListAgentsAsync_CallsCorrectEndpoint()
     {
@@ -20,60 +22,64 @@ public class SpringApiClientTests
             expectedMethod: HttpMethod.Get,
             responseBody: "[]");
 
-        var httpClient = new HttpClient(handler) { BaseAddress = new Uri("http://localhost:5000") };
-        var client = new SpringApiClient(httpClient);
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
 
         var result = await client.ListAgentsAsync(TestContext.Current.CancellationToken);
 
-        result.ValueKind.ShouldBe(JsonValueKind.Array);
+        result.ShouldBeEmpty();
         handler.WasCalled.ShouldBeTrue();
     }
 
     [Fact]
-    public async Task CreateAgentAsync_SendsCorrectPayload()
+    public async Task CreateAgentAsync_SendsContractFieldsAndDeserialisesResponse()
     {
         var handler = new MockHttpMessageHandler(
             expectedPath: "/api/v1/agents",
             expectedMethod: HttpMethod.Post,
-            responseBody: """{"id":"ada","name":"Ada","role":"coder"}""",
+            responseBody: """{"id":"ada","name":"ada","displayName":"Ada","role":"coder"}""",
             validateRequestBody: body =>
             {
+                // Kiota's JSON writer mirrors the OpenAPI contract: name → CreateAgentRequest.Name
+                // (the unique identifier on the wire), displayName → CreateAgentRequest.DisplayName.
                 var json = JsonSerializer.Deserialize<JsonElement>(body);
-                json.GetProperty("id").GetString().ShouldBe("ada");
-                json.GetProperty("name").GetString().ShouldBe("Ada");
+                json.GetProperty("name").GetString().ShouldBe("ada");
+                json.GetProperty("displayName").GetString().ShouldBe("Ada");
                 json.GetProperty("role").GetString().ShouldBe("coder");
             });
 
-        var httpClient = new HttpClient(handler) { BaseAddress = new Uri("http://localhost:5000") };
-        var client = new SpringApiClient(httpClient);
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
 
         var result = await client.CreateAgentAsync("ada", "Ada", "coder", TestContext.Current.CancellationToken);
 
-        result.GetProperty("id").GetString().ShouldBe("ada");
+        result.Id.ShouldBe("ada");
+        result.DisplayName.ShouldBe("Ada");
         handler.WasCalled.ShouldBeTrue();
     }
 
     [Fact]
-    public async Task SendMessageAsync_SendsCorrectPayload()
+    public async Task SendMessageAsync_WrapsTextAsDomainPayload()
     {
         var handler = new MockHttpMessageHandler(
             expectedPath: "/api/v1/messages",
             expectedMethod: HttpMethod.Post,
-            responseBody: """{"messageId":"msg-1"}""",
+            responseBody: $$"""{"messageId":"{{Guid.NewGuid()}}"}""",
             validateRequestBody: body =>
             {
                 var json = JsonSerializer.Deserialize<JsonElement>(body);
                 json.GetProperty("to").GetProperty("scheme").GetString().ShouldBe("agent");
                 json.GetProperty("to").GetProperty("path").GetString().ShouldBe("ada");
-                json.GetProperty("text").GetString().ShouldBe("Review PR #42");
+                json.GetProperty("type").GetString().ShouldBe("Domain");
+                json.GetProperty("payload").GetString().ShouldBe("Review PR #42");
             });
 
-        var httpClient = new HttpClient(handler) { BaseAddress = new Uri("http://localhost:5000") };
-        var client = new SpringApiClient(httpClient);
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
 
         var result = await client.SendMessageAsync("agent", "ada", "Review PR #42", null, TestContext.Current.CancellationToken);
 
-        result.GetProperty("messageId").GetString().ShouldBe("msg-1");
+        result.MessageId.ShouldNotBeNull();
         handler.WasCalled.ShouldBeTrue();
     }
 
@@ -86,8 +92,8 @@ public class SpringApiClientTests
             responseBody: "",
             returnStatusCode: HttpStatusCode.NoContent);
 
-        var httpClient = new HttpClient(handler) { BaseAddress = new Uri("http://localhost:5000") };
-        var client = new SpringApiClient(httpClient);
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
 
         await client.DeleteAgentAsync("ada", TestContext.Current.CancellationToken);
 
@@ -100,14 +106,15 @@ public class SpringApiClientTests
         var handler = new MockHttpMessageHandler(
             expectedPath: "/api/v1/auth/tokens",
             expectedMethod: HttpMethod.Get,
-            responseBody: """[{"name":"dev","createdAt":"2026-01-01"}]""");
+            responseBody: """[{"name":"dev","createdAt":"2026-01-01T00:00:00Z"}]""");
 
-        var httpClient = new HttpClient(handler) { BaseAddress = new Uri("http://localhost:5000") };
-        var client = new SpringApiClient(httpClient);
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
 
         var result = await client.ListTokensAsync(TestContext.Current.CancellationToken);
 
-        result.ValueKind.ShouldBe(JsonValueKind.Array);
+        result.Count.ShouldBe(1);
+        result[0].Name.ShouldBe("dev");
         handler.WasCalled.ShouldBeTrue();
     }
 }

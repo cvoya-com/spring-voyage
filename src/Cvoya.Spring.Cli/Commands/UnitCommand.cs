@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Cli.Commands;
 
 using System.CommandLine;
 
+using Cvoya.Spring.Cli.Generated.Models;
 using Cvoya.Spring.Cli.Output;
 
 /// <summary>
@@ -12,6 +13,12 @@ using Cvoya.Spring.Cli.Output;
 /// </summary>
 public static class UnitCommand
 {
+    private static readonly OutputFormatter.Column<UnitResponse>[] UnitColumns =
+    {
+        new("id", u => u.Id),
+        new("name", u => u.Name),
+    };
+
     /// <summary>
     /// Creates the "unit" command with subcommands for CRUD and member operations.
     /// </summary>
@@ -40,7 +47,7 @@ public static class UnitCommand
 
             Console.WriteLine(output == "json"
                 ? OutputFormatter.FormatJson(result)
-                : OutputFormatter.FormatTable(result, ["id", "name"]));
+                : OutputFormatter.FormatTable(result, UnitColumns));
         });
 
         return command;
@@ -69,7 +76,7 @@ public static class UnitCommand
 
             Console.WriteLine(output == "json"
                 ? OutputFormatter.FormatJson(result)
-                : OutputFormatter.FormatTable(result, ["id", "name"]));
+                : OutputFormatter.FormatTable(result, UnitColumns));
         });
 
         return command;

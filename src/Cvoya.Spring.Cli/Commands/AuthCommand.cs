@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Cli.Commands;
 
 using System.CommandLine;
 
+using Cvoya.Spring.Cli.Generated.Models;
 using Cvoya.Spring.Cli.Output;
 
 /// <summary>
@@ -12,6 +13,18 @@ using Cvoya.Spring.Cli.Output;
 /// </summary>
 public static class AuthCommand
 {
+    private static readonly OutputFormatter.Column<CreateTokenResponse>[] CreateTokenColumns =
+    {
+        new("name", t => t.Name),
+        new("token", t => t.Token),
+    };
+
+    private static readonly OutputFormatter.Column<TokenResponse>[] ListTokenColumns =
+    {
+        new("name", t => t.Name),
+        new("createdAt", t => t.CreatedAt?.ToString("O")),
+    };
+
     /// <summary>
     /// Creates the "auth" command with subcommands for token management.
     /// </summary>
@@ -54,7 +67,7 @@ public static class AuthCommand
 
             Console.WriteLine(output == "json"
                 ? OutputFormatter.FormatJson(result)
-                : OutputFormatter.FormatTable(result, ["name", "token"]));
+                : OutputFormatter.FormatTable(result, CreateTokenColumns));
         });
 
         return command;
@@ -73,7 +86,7 @@ public static class AuthCommand
 
             Console.WriteLine(output == "json"
                 ? OutputFormatter.FormatJson(result)
-                : OutputFormatter.FormatTable(result, ["name", "createdAt"]));
+                : OutputFormatter.FormatTable(result, ListTokenColumns));
         });
 
         return command;

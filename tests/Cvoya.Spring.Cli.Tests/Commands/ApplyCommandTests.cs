@@ -150,8 +150,8 @@ public class ApplyCommandTests
             {
                 Content = new StringContent("{}", System.Text.Encoding.UTF8, "application/json"),
             });
-        var http = new HttpClient(handler) { BaseAddress = new System.Uri("http://localhost:5000") };
-        var client = new SpringApiClient(http);
+        var http = new HttpClient(handler);
+        var client = new SpringApiClient(http, "http://localhost:5000");
 
         var manifest = ApplyRunner.Parse(EngineeringTeamYaml);
         using var stdout = new StringWriter();
@@ -210,8 +210,8 @@ public class ApplyCommandTests
                 Content = new StringContent("boom", System.Text.Encoding.UTF8, "text/plain"),
             };
         });
-        var http = new HttpClient(handler) { BaseAddress = new System.Uri("http://localhost:5000") };
-        var client = new SpringApiClient(http);
+        var http = new HttpClient(handler);
+        var client = new SpringApiClient(http, "http://localhost:5000");
 
         var manifest = ApplyRunner.Parse(EngineeringTeamYaml);
         using var stdout = new StringWriter();
