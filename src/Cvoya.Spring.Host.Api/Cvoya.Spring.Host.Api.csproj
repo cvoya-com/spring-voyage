@@ -2,6 +2,17 @@
 
   <PropertyGroup>
     <RootNamespace>Cvoya.Spring.Host.Api</RootNamespace>
+
+    <!--
+      Build-time OpenAPI emission. `Microsoft.Extensions.ApiDescription.Server`
+      runs after Build and writes the document to the project directory.
+      The file is committed so the web client's codegen can consume it
+      without needing a running API, and CI detects drift by checking the
+      post-build working tree is clean.
+    -->
+    <OpenApiGenerateDocuments>true</OpenApiGenerateDocuments>
+    <OpenApiDocumentsDirectory>.</OpenApiDocumentsDirectory>
+    <OpenApiGenerateDocumentsOptions>--file-name openapi --openapi-version OpenApi3_1</OpenApiGenerateDocumentsOptions>
   </PropertyGroup>
 
   <ItemGroup>
@@ -15,7 +26,11 @@
     <PackageReference Include="Dapr.AspNetCore" />
     <PackageReference Include="Dapr.Workflow" />
     <PackageReference Include="System.Reactive" />
-    <PackageReference Include="Swashbuckle.AspNetCore" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="Microsoft.Extensions.ApiDescription.Server">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
   </ItemGroup>
 
 </Project>

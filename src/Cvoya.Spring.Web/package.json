@@ -9,7 +9,7 @@
     "lint": "next lint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "generate-api": "openapi-typescript http://localhost:5000/swagger/v1/swagger.json -o src/lib/api/schema.d.ts"
+    "generate-api": "openapi-typescript ../Cvoya.Spring.Host.Api/openapi.json -o src/lib/api/schema.d.ts"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",
