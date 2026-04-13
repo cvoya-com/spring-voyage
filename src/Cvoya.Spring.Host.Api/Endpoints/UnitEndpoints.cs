@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Host.Api.Endpoints;
 using System.Text.Json;
 
 using Cvoya.Spring.Connector.GitHub.Webhooks;
+using Cvoya.Spring.Core.Agents;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
@@ -100,6 +101,18 @@ public static class UnitEndpoints
             .WithName("GetHumanPermissions")
             .WithSummary("Get all human permissions for a unit")
             .RequireAuthorization(PermissionPolicies.UnitViewer);
+
+        group.MapGet("/{id}/agents", ListUnitAgentsAsync)
+            .WithName("ListUnitAgents")
+            .WithSummary("List the agents that belong to this unit (members with scheme=agent), enriched with each agent's metadata");
+
+        group.MapPost("/{id}/agents/{agentId}", AssignUnitAgentAsync)
+            .WithName("AssignUnitAgent")
+            .WithSummary("Assign an agent to this unit. Sets the agent's parent-unit pointer and adds it to the unit's members. 409 if the agent already belongs to a different unit.");
+
+        group.MapDelete("/{id}/agents/{agentId}", UnassignUnitAgentAsync)
+            .WithName("UnassignUnitAgent")
+            .WithSummary("Unassign an agent from this unit. Clears the agent's parent-unit pointer and removes it from the unit's members.");
 
         return group;
     }
@@ -932,4 +945,166 @@ public static class UnitEndpoints
             status,
             metadata?.Model,
             metadata?.Color);
+
+    private static async Task<IResult> ListUnitAgentsAsync(
+        string id,
+        [FromServices] IDirectoryService directoryService,
+        [FromServices] IActorProxyFactory actorProxyFactory,
+        [FromServices] ILoggerFactory loggerFactory,
+        CancellationToken cancellationToken)
+    {
+        var logger = loggerFactory.CreateLogger("Cvoya.Spring.Host.Api.Endpoints.UnitEndpoints");
+        var unitAddress = new Address("unit", id);
+        var unitEntry = await directoryService.ResolveAsync(unitAddress, cancellationToken);
+
+        if (unitEntry is null)
+        {
+            return Results.NotFound(new { Error = $"Unit '{id}' not found" });
+        }
+
+        var unitProxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
+            new ActorId(unitEntry.ActorId), nameof(IUnitActor));
+        var members = await unitProxy.GetMembersAsync(cancellationToken);
+
+        // Filter to agent members; sub-unit members are out of scope here
+        // and surface through a (future) /sub-units sub-route.
+        var agentMembers = members
+            .Where(m => string.Equals(m.Scheme, "agent", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        // Resolve and enrich in parallel. N+1 is fine here — units typically
+        // hold single-digit numbers of agents, and the actor metadata read is
+        // a single state lookup.
+        var enrichmentTasks = agentMembers.Select(async member =>
+        {
+            var entry = await directoryService.ResolveAsync(member, cancellationToken);
+            if (entry is null)
+            {
+                // Member address no longer in the directory — skip rather
+                // than synthesising a half-populated response.
+                logger.LogWarning(
+                    "Unit {UnitId} lists member {Member} but the directory has no entry for it.",
+                    id, member);
+                return null;
+            }
+            var metadata = await AgentEndpoints.TryGetAgentMetadataAsync(
+                actorProxyFactory, entry.ActorId, cancellationToken, logger);
+            return AgentEndpoints.ToAgentResponse(entry, metadata);
+        });
+
+        var responses = (await Task.WhenAll(enrichmentTasks))
+            .Where(r => r is not null)
+            .Cast<AgentResponse>()
+            .ToList();
+
+        return Results.Ok(responses);
+    }
+
+    private static async Task<IResult> AssignUnitAgentAsync(
+        string id,
+        string agentId,
+        [FromServices] IDirectoryService directoryService,
+        [FromServices] IActorProxyFactory actorProxyFactory,
+        [FromServices] ILoggerFactory loggerFactory,
+        CancellationToken cancellationToken)
+    {
+        var logger = loggerFactory.CreateLogger("Cvoya.Spring.Host.Api.Endpoints.UnitEndpoints");
+
+        if (string.IsNullOrWhiteSpace(agentId))
+        {
+            return Results.BadRequest(new { Error = "agentId is required." });
+        }
+
+        var unitAddress = new Address("unit", id);
+        var unitEntry = await directoryService.ResolveAsync(unitAddress, cancellationToken);
+        if (unitEntry is null)
+        {
+            return Results.NotFound(new { Error = $"Unit '{id}' not found" });
+        }
+
+        var agentAddress = new Address("agent", agentId);
+        var agentEntry = await directoryService.ResolveAsync(agentAddress, cancellationToken);
+        if (agentEntry is null)
+        {
+            return Results.NotFound(new { Error = $"Agent '{agentId}' not found" });
+        }
+
+        var agentProxy = actorProxyFactory.CreateActorProxy<IAgentActor>(
+            new ActorId(agentEntry.ActorId), nameof(IAgentActor));
+
+        // 1:N invariant: an agent belongs to at most one unit. If the agent
+        // already has a parent pointing at a *different* unit, refuse — the
+        // operator has to unassign from the other unit first. Re-assigning
+        // to the same unit is idempotent.
+        var existing = await agentProxy.GetMetadataAsync(cancellationToken);
+        if (existing.ParentUnit is not null && existing.ParentUnit != id)
+        {
+            return Results.Conflict(new
+            {
+                Error = $"Agent '{agentId}' already belongs to unit '{existing.ParentUnit}'.",
+                CurrentParent = existing.ParentUnit,
+                Hint = $"DELETE /api/v1/units/{existing.ParentUnit}/agents/{agentId} first.",
+            });
+        }
+
+        // Set the parent pointer first. If we added to members first and the
+        // parent-pointer write failed, we'd leave a member with no parent —
+        // harder to detect than the reverse.
+        await agentProxy.SetMetadataAsync(
+            new AgentMetadata(ParentUnit: id),
+            cancellationToken);
+
+        var unitProxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
+            new ActorId(unitEntry.ActorId), nameof(IUnitActor));
+        await unitProxy.AddMemberAsync(agentAddress, cancellationToken);
+
+        logger.LogInformation(
+            "Agent {AgentId} assigned to unit {UnitId}.", agentId, id);
+
+        var refreshed = await agentProxy.GetMetadataAsync(cancellationToken);
+        return Results.Ok(AgentEndpoints.ToAgentResponse(agentEntry, refreshed));
+    }
+
+    private static async Task<IResult> UnassignUnitAgentAsync(
+        string id,
+        string agentId,
+        [FromServices] IDirectoryService directoryService,
+        [FromServices] IActorProxyFactory actorProxyFactory,
+        [FromServices] ILoggerFactory loggerFactory,
+        CancellationToken cancellationToken)
+    {
+        var logger = loggerFactory.CreateLogger("Cvoya.Spring.Host.Api.Endpoints.UnitEndpoints");
+
+        var unitAddress = new Address("unit", id);
+        var unitEntry = await directoryService.ResolveAsync(unitAddress, cancellationToken);
+        if (unitEntry is null)
+        {
+            return Results.NotFound(new { Error = $"Unit '{id}' not found" });
+        }
+
+        var agentAddress = new Address("agent", agentId);
+        var agentEntry = await directoryService.ResolveAsync(agentAddress, cancellationToken);
+        if (agentEntry is null)
+        {
+            return Results.NotFound(new { Error = $"Agent '{agentId}' not found" });
+        }
+
+        // Remove from the unit's members first. If the agent's parent-pointer
+        // clear fails, we leave a stale pointer — detectable and repairable.
+        // The opposite ordering (clear pointer then fail to remove from
+        // members) leaves an orphaned member, which the routing layer would
+        // dispatch to despite the agent "thinking" it's standalone.
+        var unitProxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
+            new ActorId(unitEntry.ActorId), nameof(IUnitActor));
+        await unitProxy.RemoveMemberAsync(agentAddress, cancellationToken);
+
+        var agentProxy = actorProxyFactory.CreateActorProxy<IAgentActor>(
+            new ActorId(agentEntry.ActorId), nameof(IAgentActor));
+        await agentProxy.ClearParentUnitAsync(cancellationToken);
+
+        logger.LogInformation(
+            "Agent {AgentId} unassigned from unit {UnitId}.", agentId, id);
+
+        return Results.NoContent();
+    }
 }

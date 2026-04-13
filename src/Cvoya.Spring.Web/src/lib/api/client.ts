@@ -1,6 +1,7 @@
 import type {
   AgentDashboardSummary,
   AgentDetailResponse,
+  AgentResponse,
   ActivityQueryResult,
   BudgetResponse,
   CloneResponse,
@@ -18,6 +19,7 @@ import type {
   UnitResponse,
   UnitStatus,
   UnitTemplateSummary,
+  UpdateAgentMetadataRequest,
 } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
@@ -110,8 +112,14 @@ export const api = {
     fetchJSON<CostDashboardSummary>("/api/v1/dashboard/costs"),
 
   // Agents
+  listAgents: () => fetchJSON<AgentResponse[]>("/api/v1/agents"),
   getAgent: (id: string) =>
     fetchJSON<AgentDetailResponse>(`/api/v1/agents/${encodeURIComponent(id)}`),
+  updateAgentMetadata: (id: string, patch: UpdateAgentMetadataRequest) =>
+    patchJSON<AgentResponse>(
+      `/api/v1/agents/${encodeURIComponent(id)}`,
+      patch,
+    ),
   deleteAgent: (id: string) =>
     deleteJSON(`/api/v1/agents/${encodeURIComponent(id)}`),
 
@@ -171,6 +179,23 @@ export const api = {
     }),
   removeMember: (unitId: string, memberId: string) =>
     deleteJSON(`/api/v1/units/${encodeURIComponent(unitId)}/members/${encodeURIComponent(memberId)}`),
+
+  // Unit-scoped agent routes — assign / unassign maintain the
+  // agent.parentUnit ↔ unit.members invariant in one place. Per-field edits
+  // go through updateAgentMetadata (agent-scoped) because the fields are
+  // owned by the agent, not by the unit.
+  listUnitAgents: (unitId: string) =>
+    fetchJSON<AgentResponse[]>(
+      `/api/v1/units/${encodeURIComponent(unitId)}/agents`,
+    ),
+  assignUnitAgent: (unitId: string, agentId: string) =>
+    postJSONNoBody<AgentResponse>(
+      `/api/v1/units/${encodeURIComponent(unitId)}/agents/${encodeURIComponent(agentId)}`,
+    ),
+  unassignUnitAgent: (unitId: string, agentId: string) =>
+    deleteJSON(
+      `/api/v1/units/${encodeURIComponent(unitId)}/agents/${encodeURIComponent(agentId)}`,
+    ),
 
   // Costs
   getAgentCost: (id: string) =>

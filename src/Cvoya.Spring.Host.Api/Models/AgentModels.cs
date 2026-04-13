@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.Host.Api.Models;
 
+using Cvoya.Spring.Core.Agents;
+
 /// <summary>
 /// Request body for creating a new agent.
 /// </summary>
@@ -17,18 +19,34 @@ public record CreateAgentRequest(
     string? Role);
 
 /// <summary>
-/// Response body representing an agent.
+/// Response body representing an agent. Fields below <c>RegisteredAt</c>
+/// come from the agent's own metadata (<see cref="AgentMetadata"/>) and
+/// may be <c>null</c> when the agent has never set them. <c>Enabled</c> is
+/// projected with a default of <c>true</c> when unset so UI callers can
+/// treat it as non-nullable.
 /// </summary>
-/// <param name="Id">The unique actor identifier.</param>
-/// <param name="Name">The agent's name (address path).</param>
-/// <param name="DisplayName">The human-readable display name.</param>
-/// <param name="Description">A description of the agent.</param>
-/// <param name="Role">The agent's role, if any.</param>
-/// <param name="RegisteredAt">The timestamp when the agent was registered.</param>
 public record AgentResponse(
     string Id,
     string Name,
     string DisplayName,
     string Description,
     string? Role,
-    DateTimeOffset RegisteredAt);
+    DateTimeOffset RegisteredAt,
+    string? Model,
+    string? Specialty,
+    bool Enabled,
+    AgentExecutionMode ExecutionMode,
+    string? ParentUnit);
+
+/// <summary>
+/// Request body for <c>PATCH /api/v1/agents/{id}</c>. All fields optional;
+/// <c>null</c> means "leave unchanged." <c>ParentUnit</c> is intentionally
+/// absent — changing containment goes through the unit's assign / unassign
+/// endpoints so the <c>agent.ParentUnit</c> ↔ <c>unit.Members</c> invariant
+/// is maintained in one place.
+/// </summary>
+public record UpdateAgentMetadataRequest(
+    string? Model = null,
+    string? Specialty = null,
+    bool? Enabled = null,
+    AgentExecutionMode? ExecutionMode = null);

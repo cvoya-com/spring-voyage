@@ -4,9 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
-  Bot,
   DollarSign,
-  ExternalLink,
   Github,
   KeyRound,
   Play,
@@ -14,6 +12,8 @@ import {
   Square,
   Wrench,
 } from "lucide-react";
+
+import { AgentsTab } from "./agents-tab";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -387,20 +387,7 @@ export default function UnitConfigClient({ id }: ClientProps) {
         </TabsContent>
 
         <TabsContent value="agents">
-          <PlaceholderCard
-            icon={<Bot className="h-5 w-5" />}
-            title="Agents"
-            body="Unit-scoped agent assignment isn't wired yet. Follow-up: #124."
-            footer={
-              <Link
-                href="/"
-                className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-              >
-                View agents dashboard
-                <ExternalLink className="h-3 w-3" />
-              </Link>
-            }
-          />
+          <AgentsTab unitId={id} />
         </TabsContent>
 
         <TabsContent value="costs">

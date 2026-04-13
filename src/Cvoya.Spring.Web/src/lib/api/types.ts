@@ -64,7 +64,10 @@ export interface CostDashboardSummary {
   periodEnd?: string;
 }
 
-/** GET /api/v1/agents/{id} response. */
+/** Matches Cvoya.Spring.Core.Agents.AgentExecutionMode enum. */
+export type AgentExecutionMode = "Auto" | "OnDemand";
+
+/** GET /api/v1/agents/{id} response. Fields below registeredAt come from the agent's own metadata. */
 export interface AgentResponse {
   id: string;
   name: string;
@@ -72,6 +75,23 @@ export interface AgentResponse {
   description: string;
   role?: string;
   registeredAt: string;
+  model?: string | null;
+  specialty?: string | null;
+  enabled: boolean;
+  executionMode: AgentExecutionMode;
+  parentUnit?: string | null;
+}
+
+/**
+ * PATCH /api/v1/agents/{id} request body. All fields optional; null means
+ * "leave unchanged." parentUnit is intentionally absent — changing
+ * containment goes through the unit's assign / unassign endpoints.
+ */
+export interface UpdateAgentMetadataRequest {
+  model?: string | null;
+  specialty?: string | null;
+  enabled?: boolean;
+  executionMode?: AgentExecutionMode;
 }
 
 /** GET /api/v1/agents/{id} full response with status. */

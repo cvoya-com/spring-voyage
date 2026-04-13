@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Dapr.Actors;
 using System.Text.Json;
 
 using Cvoya.Spring.Core;
+using Cvoya.Spring.Core.Agents;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Cloning;
 using Cvoya.Spring.Core.Execution;
@@ -558,6 +559,109 @@ public class AgentActor(
             _logger.LogWarning(ex, "Failed to emit activity event {EventType} for actor {ActorId}.",
                 eventType, Id.GetId());
         }
+    }
+
+    /// <inheritdoc />
+    public async Task<AgentMetadata> GetMetadataAsync(CancellationToken cancellationToken = default)
+    {
+        var model = await StateManager.TryGetStateAsync<string>(StateKeys.AgentModel, cancellationToken);
+        var specialty = await StateManager.TryGetStateAsync<string>(StateKeys.AgentSpecialty, cancellationToken);
+        var enabled = await StateManager.TryGetStateAsync<bool>(StateKeys.AgentEnabled, cancellationToken);
+        var executionMode = await StateManager.TryGetStateAsync<AgentExecutionMode>(StateKeys.AgentExecutionMode, cancellationToken);
+        var parentUnit = await StateManager.TryGetStateAsync<string>(StateKeys.AgentParentUnit, cancellationToken);
+
+        return new AgentMetadata(
+            Model: model.HasValue ? model.Value : null,
+            Specialty: specialty.HasValue ? specialty.Value : null,
+            Enabled: enabled.HasValue ? enabled.Value : null,
+            ExecutionMode: executionMode.HasValue ? executionMode.Value : null,
+            ParentUnit: parentUnit.HasValue ? parentUnit.Value : null);
+    }
+
+    /// <inheritdoc />
+    public async Task SetMetadataAsync(AgentMetadata metadata, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(metadata);
+
+        var writtenFields = new List<string>();
+
+        if (metadata.Model is not null)
+        {
+            await StateManager.SetStateAsync(StateKeys.AgentModel, metadata.Model, cancellationToken);
+            writtenFields.Add(nameof(metadata.Model));
+        }
+
+        if (metadata.Specialty is not null)
+        {
+            await StateManager.SetStateAsync(StateKeys.AgentSpecialty, metadata.Specialty, cancellationToken);
+            writtenFields.Add(nameof(metadata.Specialty));
+        }
+
+        if (metadata.Enabled is not null)
+        {
+            await StateManager.SetStateAsync(StateKeys.AgentEnabled, metadata.Enabled.Value, cancellationToken);
+            writtenFields.Add(nameof(metadata.Enabled));
+        }
+
+        if (metadata.ExecutionMode is not null)
+        {
+            await StateManager.SetStateAsync(StateKeys.AgentExecutionMode, metadata.ExecutionMode.Value, cancellationToken);
+            writtenFields.Add(nameof(metadata.ExecutionMode));
+        }
+
+        if (metadata.ParentUnit is not null)
+        {
+            await StateManager.SetStateAsync(StateKeys.AgentParentUnit, metadata.ParentUnit, cancellationToken);
+            writtenFields.Add(nameof(metadata.ParentUnit));
+        }
+
+        if (writtenFields.Count == 0)
+        {
+            _logger.LogDebug(
+                "Agent {ActorId} SetMetadataAsync called with no fields; nothing to emit.",
+                Id.GetId());
+            return;
+        }
+
+        _logger.LogInformation(
+            "Agent {ActorId} metadata updated: {Fields}",
+            Id.GetId(), string.Join(",", writtenFields));
+
+        await EmitActivityEventAsync(ActivityEventType.StateChanged,
+            $"Agent metadata updated: {string.Join(", ", writtenFields)}",
+            cancellationToken,
+            details: JsonSerializer.SerializeToElement(new
+            {
+                action = "AgentMetadataUpdated",
+                fields = writtenFields,
+                model = metadata.Model,
+                specialty = metadata.Specialty,
+                enabled = metadata.Enabled,
+                executionMode = metadata.ExecutionMode?.ToString(),
+                parentUnit = metadata.ParentUnit,
+            }));
+    }
+
+    /// <summary>
+    /// Clears the agent's parent-unit pointer. Used by the unit's unassign
+    /// endpoint alongside removal from the unit's <c>members</c> list, so
+    /// <see cref="AgentMetadata.ParentUnit"/> and the unit's member list stay
+    /// in sync. Separated from <see cref="SetMetadataAsync"/> because the
+    /// partial-patch semantics there treat <c>null</c> as "leave untouched."
+    /// </summary>
+    public async Task ClearParentUnitAsync(CancellationToken cancellationToken = default)
+    {
+        await StateManager.RemoveStateAsync(StateKeys.AgentParentUnit, cancellationToken);
+
+        _logger.LogInformation("Agent {ActorId} parent-unit pointer cleared.", Id.GetId());
+
+        await EmitActivityEventAsync(ActivityEventType.StateChanged,
+            "Agent parent-unit cleared",
+            cancellationToken,
+            details: JsonSerializer.SerializeToElement(new
+            {
+                action = "AgentParentUnitCleared",
+            }));
     }
 
     /// <summary>

@@ -131,6 +131,35 @@ public static class StateKeys
     public const string AgentCostTotal = "Agent:CostTotal";
 
     /// <summary>
+    /// State key for the agent's preferred LLM model identifier (<c>AgentMetadata.Model</c>).
+    /// </summary>
+    public const string AgentModel = "Agent:Model";
+
+    /// <summary>
+    /// State key for the agent's specialty label (<c>AgentMetadata.Specialty</c>).
+    /// </summary>
+    public const string AgentSpecialty = "Agent:Specialty";
+
+    /// <summary>
+    /// State key for the agent's enabled flag (<c>AgentMetadata.Enabled</c>).
+    /// Unset defaults to <c>true</c>; explicit <c>false</c> causes
+    /// orchestration strategies to skip the agent.
+    /// </summary>
+    public const string AgentEnabled = "Agent:Enabled";
+
+    /// <summary>
+    /// State key for the agent's execution mode (<c>AgentMetadata.ExecutionMode</c>).
+    /// </summary>
+    public const string AgentExecutionMode = "Agent:ExecutionMode";
+
+    /// <summary>
+    /// State key for the agent's parent-unit pointer (<c>AgentMetadata.ParentUnit</c>).
+    /// Maintained by the unit's assign / unassign endpoints alongside the
+    /// unit's <see cref="Members"/> list.
+    /// </summary>
+    public const string AgentParentUnit = "Agent:ParentUnit";
+
+    /// <summary>
     /// State key for the agent's cost budget limit.
     /// </summary>
     public const string AgentCostBudget = "Agent:CostBudget";

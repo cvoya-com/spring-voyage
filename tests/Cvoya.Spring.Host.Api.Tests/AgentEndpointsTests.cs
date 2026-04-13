@@ -5,6 +5,8 @@ namespace Cvoya.Spring.Host.Api.Tests;
 
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
@@ -18,6 +20,12 @@ using Xunit;
 
 public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
 {
+    // Server serialises enums as strings (Program.cs#134); tests must match.
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        Converters = { new JsonStringEnumConverter() },
+    };
+
     private readonly CustomWebApplicationFactory _factory;
     private readonly HttpClient _client;
 
@@ -42,7 +50,7 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        var agents = await response.Content.ReadFromJsonAsync<List<AgentResponse>>(ct);
+        var agents = await response.Content.ReadFromJsonAsync<List<AgentResponse>>(JsonOptions, ct);
         agents!.Count().ShouldBe(1);
         agents![0].Name.ShouldBe("test-agent");
         agents[0].DisplayName.ShouldBe("Test Agent");
