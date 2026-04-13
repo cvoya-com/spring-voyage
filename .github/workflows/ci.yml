@@ -165,6 +165,64 @@ jobs:
 
           echo "All agent definition references are valid (or no definitions found yet)."
 
+  openapi-drift:
+    name: OpenAPI contract drift
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+          cache: true
+          cache-dependency-path: |
+            **/*.csproj
+            Directory.Packages.props
+            global.json
+            NuGet.config
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: src/Cvoya.Spring.Web/package-lock.json
+
+      - name: Restore dependencies
+        run: dotnet restore SpringVoyage.slnx
+
+      # Microsoft.Extensions.ApiDescription.Server regenerates
+      # src/Cvoya.Spring.Host.Api/openapi.json after Build when configured
+      # on Release. If a PR touched an endpoint without committing the
+      # updated contract, the working tree is dirty after this step.
+      - name: Build (regenerates openapi.json)
+        run: dotnet build SpringVoyage.slnx --no-restore --configuration Release
+
+      - name: Verify openapi.json matches committed contract
+        shell: bash
+        run: |
+          if ! git diff --exit-code -- src/Cvoya.Spring.Host.Api/openapi.json; then
+            echo "::error file=src/Cvoya.Spring.Host.Api/openapi.json::openapi.json is out of date. Run 'dotnet build SpringVoyage.slnx --configuration Release' locally and commit the regenerated file."
+            exit 1
+          fi
+
+      - name: Install web dependencies
+        working-directory: src/Cvoya.Spring.Web
+        run: npm ci
+
+      - name: Regenerate TypeScript schema
+        working-directory: src/Cvoya.Spring.Web
+        run: npm run generate-api
+
+      - name: Verify schema.d.ts matches committed file
+        shell: bash
+        run: |
+          if ! git diff --exit-code -- src/Cvoya.Spring.Web/src/lib/api/schema.d.ts; then
+            echo "::error file=src/Cvoya.Spring.Web/src/lib/api/schema.d.ts::schema.d.ts is out of date. Run 'npm run generate-api' in src/Cvoya.Spring.Web and commit the regenerated file."
+            exit 1
+          fi
+
   required-checks:
     name: Required checks
     runs-on: ubuntu-latest
@@ -173,6 +231,7 @@ jobs:
       - test
       - format
       - agent-definitions-lint
+      - openapi-drift
     if: ${{ always() }}
     timeout-minutes: 5
 
@@ -184,13 +243,16 @@ jobs:
           TEST_RESULT: ${{ needs.test.result }}
           FORMAT_RESULT: ${{ needs.format.result }}
           LINT_RESULT: ${{ needs.agent-definitions-lint.result }}
+          OPENAPI_RESULT: ${{ needs.openapi-drift.result }}
         run: |
           echo "build=$BUILD_RESULT"
           echo "test=$TEST_RESULT"
           echo "format=$FORMAT_RESULT"
           echo "agent-definitions-lint=$LINT_RESULT"
+          echo "openapi-drift=$OPENAPI_RESULT"
 
           [[ "$BUILD_RESULT" == "success" ]] || exit 1
           [[ "$TEST_RESULT" == "success" ]] || exit 1
           [[ "$FORMAT_RESULT" == "success" ]] || exit 1
           [[ "$LINT_RESULT" == "success" ]] || exit 1
+          [[ "$OPENAPI_RESULT" == "success" ]] || exit 1
