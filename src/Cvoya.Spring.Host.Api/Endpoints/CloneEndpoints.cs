@@ -72,20 +72,9 @@ public static class CloneEndpoints
 
         var cloneId = Guid.NewGuid().ToString();
 
-        var cloningPolicy = request.CloneType switch
-        {
-            "ephemeral-with-memory" => CloningPolicy.EphemeralWithMemory,
-            "ephemeral-no-memory" => CloningPolicy.EphemeralNoMemory,
-            _ => CloningPolicy.EphemeralNoMemory
-        };
-
-        var attachmentMode = request.AttachmentMode switch
-        {
-            "attached" => AttachmentMode.Attached,
-            _ => AttachmentMode.Detached
-        };
-
-        var input = new CloningInput(agentId, cloneId, cloningPolicy, attachmentMode);
+        // Request DTO now carries the enums directly; no string → enum
+        // mapping needed. See #183.
+        var input = new CloningInput(agentId, cloneId, request.CloneType, request.AttachmentMode);
 
         await workflowClient.ScheduleNewWorkflowAsync(
             nameof(CloningLifecycleWorkflow),
@@ -133,24 +122,11 @@ public static class CloneEndpoints
             var cloneAddress = new Address("agent", cloneId);
             var cloneEntry = await directoryService.ResolveAsync(cloneAddress, cancellationToken);
 
-            var cloneType = identity?.CloningPolicy switch
-            {
-                CloningPolicy.EphemeralWithMemory => "ephemeral-with-memory",
-                CloningPolicy.EphemeralNoMemory => "ephemeral-no-memory",
-                _ => "ephemeral-no-memory"
-            };
-
-            var attachmentMode = identity?.AttachmentMode switch
-            {
-                AttachmentMode.Attached => "attached",
-                _ => "detached"
-            };
-
             clones.Add(new CloneResponse(
                 cloneId,
                 agentId,
-                cloneType,
-                attachmentMode,
+                identity?.CloningPolicy ?? CloningPolicy.EphemeralNoMemory,
+                identity?.AttachmentMode ?? AttachmentMode.Detached,
                 cloneEntry is not null ? "active" : "unknown",
                 cloneEntry?.RegisteredAt ?? DateTimeOffset.UtcNow));
         }
@@ -176,24 +152,11 @@ public static class CloneEndpoints
         var identityKey = $"{cloneId}:{StateKeys.CloneIdentity}";
         var identity = await stateStore.GetAsync<CloneIdentity>(identityKey, cancellationToken);
 
-        var cloneType = identity?.CloningPolicy switch
-        {
-            CloningPolicy.EphemeralWithMemory => "ephemeral-with-memory",
-            CloningPolicy.EphemeralNoMemory => "ephemeral-no-memory",
-            _ => "ephemeral-no-memory"
-        };
-
-        var attachmentMode = identity?.AttachmentMode switch
-        {
-            AttachmentMode.Attached => "attached",
-            _ => "detached"
-        };
-
         var response = new CloneResponse(
             cloneId,
             identity?.ParentAgentId ?? agentId,
-            cloneType,
-            attachmentMode,
+            identity?.CloningPolicy ?? CloningPolicy.EphemeralNoMemory,
+            identity?.AttachmentMode ?? AttachmentMode.Detached,
             "active",
             cloneEntry.RegisteredAt);
 

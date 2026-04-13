@@ -61,7 +61,27 @@ builder.Services.AddEndpointsApiExplorer();
 // in the csproj) so the web client's codegen reads from the committed
 // JSON file rather than needing a running server. MapOpenApi still
 // exposes /openapi/v1.json at runtime for introspection.
-builder.Services.AddOpenApi("v1");
+builder.Services.AddOpenApi("v1", options =>
+{
+    // `decimal` fields round-trip through JSON as plain numbers with our
+    // default serialization, but the generator advertises them as
+    // `["number", "string"]` to accommodate extreme-precision strings.
+    // That poisons every TypeScript consumer (widening the field to
+    // `string | number` — see #181). Tighten the contract to `number`
+    // only; any client needing the full decimal precision would have
+    // to opt in via a custom type.
+    options.AddSchemaTransformer((schema, context, _) =>
+    {
+        var t = context.JsonTypeInfo.Type;
+        if (t == typeof(decimal) || t == typeof(decimal?))
+        {
+            schema.Type = Microsoft.OpenApi.JsonSchemaType.Number;
+            schema.Format = "double";
+            schema.Pattern = null;
+        }
+        return Task.CompletedTask;
+    });
+});
 
 var app = builder.Build();
 

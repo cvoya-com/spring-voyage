@@ -255,8 +255,8 @@ export default function AgentDetailClient({ id }: ClientProps) {
   // The `classified` list above is only used to label individual rows in the
   // recent-events table; summing it here would drift from the authoritative
   // server split whenever an event arrives mid-stream but isn't yet persisted.
-  const initiativeCostTotal = Number(cost?.initiativeCost ?? 0); // decimal -> number (#181)
-  const workCostTotal = Number(cost?.workCost ?? 0);
+  const initiativeCostTotal = cost?.initiativeCost ?? 0;
+  const workCostTotal = cost?.workCost ?? 0;
 
   const now = Date.now();
   const tier2Last24h = events.filter(
@@ -272,7 +272,7 @@ export default function AgentDetailClient({ id }: ClientProps) {
   const budgetValue = Number(budgetInput);
   const budgetUtilization =
     Number.isFinite(budgetValue) && budgetValue > 0 && cost
-      ? Math.min(100, (Number(cost.totalCost) / budgetValue) * 100) // decimal -> number (#181)
+      ? Math.min(100, (cost.totalCost / budgetValue) * 100)
       : null;
 
   return (
@@ -336,7 +336,7 @@ export default function AgentDetailClient({ id }: ClientProps) {
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Total Cost</span>
                 <span className="font-medium">
-                  {formatCost(Number(cost.totalCost))}
+                  {formatCost(cost.totalCost)}
                 </span>
               </div>
               <div className="flex justify-between">
@@ -397,7 +397,7 @@ export default function AgentDetailClient({ id }: ClientProps) {
             <div className="flex items-center justify-between">
               <span className="text-xs text-muted-foreground">
                 {budget
-                  ? `Current: ${formatCost(Number(budget.dailyBudget))}/day`
+                  ? `Current: ${formatCost(budget.dailyBudget)}/day`
                   : "No budget set"}
               </span>
               <Button size="sm" onClick={handleSaveBudget} disabled={savingBudget}>

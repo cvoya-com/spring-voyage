@@ -78,7 +78,7 @@ export default function DashboardPage() {
             />
             <StatCard
               label="Total Cost"
-              value={formatCost(Number(costs?.totalCost ?? 0))} // decimal -> number (#181)
+              value={formatCost(costs?.totalCost ?? 0)}
               icon={<DollarSign className="h-5 w-5" />}
             />
           </>

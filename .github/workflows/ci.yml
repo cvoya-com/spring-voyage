@@ -41,6 +41,9 @@ jobs:
       - name: Restore dependencies
         run: dotnet restore SpringVoyage.slnx
 
+      - name: Restore dotnet tools (Kiota)
+        run: dotnet tool restore
+
       - name: Build
         run: dotnet build SpringVoyage.slnx --no-restore --configuration Release
 
@@ -75,6 +78,9 @@ jobs:
       - name: Restore dependencies
         run: dotnet restore SpringVoyage.slnx
 
+      - name: Restore dotnet tools (Kiota)
+        run: dotnet tool restore
+
       - name: Build
         run: dotnet build SpringVoyage.slnx --no-restore --configuration Release
 
@@ -101,6 +107,14 @@ jobs:
 
       - name: Restore dependencies
         run: dotnet restore SpringVoyage.slnx
+
+      - name: Restore dotnet tools (Kiota)
+        run: dotnet tool restore
+
+      # The CLI's GenerateKiotaClient target re-emits the gitignored
+      # Generated/ tree; format needs those files to exist for analysis.
+      - name: Build (regenerates Kiota client)
+        run: dotnet build SpringVoyage.slnx --no-restore --configuration Release
 
       - name: Check formatting
         run: dotnet format SpringVoyage.slnx --no-restore --verify-no-changes
@@ -183,19 +197,19 @@ jobs:
             global.json
             NuGet.config
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: src/Cvoya.Spring.Web/package-lock.json
-
       - name: Restore dependencies
         run: dotnet restore SpringVoyage.slnx
+
+      - name: Restore dotnet tools (Kiota)
+        run: dotnet tool restore
 
       # Microsoft.Extensions.ApiDescription.Server regenerates
       # src/Cvoya.Spring.Host.Api/openapi.json after Build when configured
       # on Release. If a PR touched an endpoint without committing the
       # updated contract, the working tree is dirty after this step.
+      # The CLI's GenerateKiotaClient target re-emits the gitignored
+      # Generated/ tree from this contract during build, so any contract
+      # change that breaks the typed client surfaces as a build failure.
       - name: Build (regenerates openapi.json)
         run: dotnet build SpringVoyage.slnx --no-restore --configuration Release
 
@@ -204,22 +218,6 @@ jobs:
         run: |
           if ! git diff --exit-code -- src/Cvoya.Spring.Host.Api/openapi.json; then
             echo "::error file=src/Cvoya.Spring.Host.Api/openapi.json::openapi.json is out of date. Run 'dotnet build SpringVoyage.slnx --configuration Release' locally and commit the regenerated file."
-            exit 1
-          fi
-
-      - name: Install web dependencies
-        working-directory: src/Cvoya.Spring.Web
-        run: npm ci
-
-      - name: Regenerate TypeScript schema
-        working-directory: src/Cvoya.Spring.Web
-        run: npm run generate-api
-
-      - name: Verify schema.d.ts matches committed file
-        shell: bash
-        run: |
-          if ! git diff --exit-code -- src/Cvoya.Spring.Web/src/lib/api/schema.d.ts; then
-            echo "::error file=src/Cvoya.Spring.Web/src/lib/api/schema.d.ts::schema.d.ts is out of date. Run 'npm run generate-api' in src/Cvoya.Spring.Web and commit the regenerated file."
             exit 1
           fi
 

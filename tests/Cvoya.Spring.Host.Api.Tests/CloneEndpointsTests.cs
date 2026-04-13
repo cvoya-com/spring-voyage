@@ -82,15 +82,19 @@ public class CloneEndpointsTests : IClassFixture<CustomWebApplicationFactory>
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        var clones = await response.Content.ReadFromJsonAsync<List<CloneResponse>>(ct);
+        var jsonOptions = new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)
+        {
+            Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
+        };
+        var clones = await response.Content.ReadFromJsonAsync<List<CloneResponse>>(jsonOptions, ct);
         clones!.Count().ShouldBe(2);
         clones![0].CloneId.ShouldBe("clone-a");
-        clones[0].CloneType.ShouldBe("ephemeral-no-memory");
-        clones[0].AttachmentMode.ShouldBe("detached");
+        clones[0].CloneType.ShouldBe(CloningPolicy.EphemeralNoMemory);
+        clones[0].AttachmentMode.ShouldBe(AttachmentMode.Detached);
         clones[0].Status.ShouldBe("active");
         clones[1].CloneId.ShouldBe("clone-b");
-        clones[1].CloneType.ShouldBe("ephemeral-with-memory");
-        clones[1].AttachmentMode.ShouldBe("attached");
+        clones[1].CloneType.ShouldBe(CloningPolicy.EphemeralWithMemory);
+        clones[1].AttachmentMode.ShouldBe(AttachmentMode.Attached);
     }
 
     [Fact]
@@ -112,9 +116,16 @@ public class CloneEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         var agentAddress = new Address("agent", "nonexistent-agent");
         _factory.DirectoryService.ResolveAsync(agentAddress, Arg.Any<CancellationToken>()).Returns((DirectoryEntry?)null);
 
-        var request = new CreateCloneRequest("ephemeral-no-memory", "detached");
+        var request = new CreateCloneRequest(CloningPolicy.EphemeralNoMemory, AttachmentMode.Detached);
 
-        var response = await _client.PostAsJsonAsync("/api/v1/agents/nonexistent-agent/clones", request, ct);
+        // Match the server's JsonStringEnumConverter config so the enums
+        // serialise as their kebab-case wire names rather than numeric ordinals.
+        var jsonOptions = new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)
+        {
+            Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
+        };
+        var response = await _client.PostAsJsonAsync(
+            "/api/v1/agents/nonexistent-agent/clones", request, jsonOptions, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
@@ -138,12 +149,19 @@ public class CloneEndpointsTests : IClassFixture<CustomWebApplicationFactory>
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        var clone = await response.Content.ReadFromJsonAsync<CloneResponse>(ct);
+        // Response enum fields (CloneType, AttachmentMode) arrive over the
+        // wire as their JsonStringEnumMemberName values. Deserialising
+        // requires the same converter config the server uses.
+        var jsonOptions = new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)
+        {
+            Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
+        };
+        var clone = await response.Content.ReadFromJsonAsync<CloneResponse>(jsonOptions, ct);
         clone.ShouldNotBeNull();
         clone!.CloneId.ShouldBe(cloneId);
         clone.ParentAgentId.ShouldBe(parentId);
-        clone.CloneType.ShouldBe("ephemeral-with-memory");
-        clone.AttachmentMode.ShouldBe("attached");
+        clone.CloneType.ShouldBe(CloningPolicy.EphemeralWithMemory);
+        clone.AttachmentMode.ShouldBe(AttachmentMode.Attached);
         clone.Status.ShouldBe("active");
     }
 

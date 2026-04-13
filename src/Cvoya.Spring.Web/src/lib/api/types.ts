@@ -1,20 +1,12 @@
 // This file is the authoring surface for `@/lib/api/types`. Every type
 // that appears in the OpenAPI contract (`./schema.d.ts`, generated from
 // `src/Cvoya.Spring.Host.Api/openapi.json`) is re-exported below. The
-// remaining hand-written types describe payloads that the contract does
-// not cover — notably the SSE activity stream and two string literal
-// unions the server models as plain strings.
+// remaining hand-written types describe the SSE activity stream — the
+// only payload shape OpenAPI cannot describe.
 //
 // Import sites stay stable — consumers keep `import type { X } from
 // "@/lib/api/types"`. Whether X is hand-written or a re-export is an
 // implementation detail of this module.
-//
-// One generator quirk worth knowing when consuming these types:
-// `decimal` fields on the server surface as `string | number` in the
-// generated schema (see #181). In practice the server always emits
-// numbers, so callers cast with `Number(...)` where arithmetic is
-// needed. The contract fix is tracked in #181; until then, the cast
-// sites are marked `Number(x) // decimal -> number (#181)`.
 
 import type { components } from "./schema";
 
@@ -152,11 +144,13 @@ export interface ActivityEvent {
 }
 
 /**
- * Clone lifecycle literals used in CreateCloneRequest. These are string
- * unions on the client; the server models them as plain strings on
- * CreateCloneRequest so the OpenAPI contract has no enum to re-export.
+ * Clone lifecycle type. Re-export of the server's CloningPolicy enum
+ * under the legacy name `CloneType` used throughout the web code (#183).
+ * Schema defines `"none"` too but the web UI only exposes the ephemeral
+ * variants — narrow the type here so call sites can't accidentally
+ * widen.
  */
-export type CloneType = "ephemeral-no-memory" | "ephemeral-with-memory";
+export type CloneType = Exclude<Schemas["CloningPolicy"], "none">;
 
-/** Clone attachment mode relative to its parent. See CloneType for why hand-written. */
-export type CloneAttachmentMode = "attached" | "detached";
+/** Clone attachment mode relative to its parent. */
+export type CloneAttachmentMode = Schemas["AttachmentMode"];

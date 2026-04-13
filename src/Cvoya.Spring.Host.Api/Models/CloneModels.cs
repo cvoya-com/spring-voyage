@@ -3,10 +3,12 @@
 
 namespace Cvoya.Spring.Host.Api.Models;
 
+using Cvoya.Spring.Core.Cloning;
+
 /// <summary>Request body for creating a clone.</summary>
-/// <param name="CloneType">Clone lifecycle type (ephemeral-no-memory, ephemeral-with-memory, persistent).</param>
-/// <param name="AttachmentMode">How the clone relates to the parent (attached, detached).</param>
-public record CreateCloneRequest(string CloneType, string AttachmentMode);
+/// <param name="CloneType">Clone lifecycle type.</param>
+/// <param name="AttachmentMode">How the clone relates to the parent.</param>
+public record CreateCloneRequest(CloningPolicy CloneType, AttachmentMode AttachmentMode);
 
 /// <summary>Response body representing a clone.</summary>
 /// <param name="CloneId">The unique identifier for the clone.</param>
@@ -15,4 +17,10 @@ public record CreateCloneRequest(string CloneType, string AttachmentMode);
 /// <param name="AttachmentMode">The attachment mode.</param>
 /// <param name="Status">The current clone status.</param>
 /// <param name="CreatedAt">When the clone was created.</param>
-public record CloneResponse(string CloneId, string ParentAgentId, string CloneType, string AttachmentMode, string Status, DateTimeOffset CreatedAt);
+public record CloneResponse(
+    string CloneId,
+    string ParentAgentId,
+    CloningPolicy CloneType,
+    AttachmentMode AttachmentMode,
+    string Status,
+    DateTimeOffset CreatedAt);
