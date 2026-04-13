@@ -136,3 +136,11 @@ public record UnitTemplateSummary(
     string Name,
     string? Description,
     string Path);
+
+/// <summary>
+/// Response body for <c>GET /api/v1/units/{id}</c>. Carries the unit
+/// envelope plus the opaque <c>details</c> payload returned by the
+/// unit actor's StatusQuery when that call succeeds (<c>null</c> when
+/// the actor is unreachable or returns no details).
+/// </summary>
+public record UnitDetailResponse(UnitResponse Unit, System.Text.Json.JsonElement? Details);

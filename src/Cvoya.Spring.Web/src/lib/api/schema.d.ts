@@ -93,6 +93,24 @@ export interface paths {
         patch: operations["UpdateAgentMetadata"];
         trace?: never;
     };
+    "/api/v1/agents/{id}/skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the agent's configured skill list (tool names the agent is allowed to invoke) */
+        get: operations["GetAgentSkills"];
+        /** Replace the agent's skill list in full; empty list means the agent is disabled from every tool */
+        put: operations["SetAgentSkills"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/units": {
         parameters: {
             query?: never;
@@ -648,6 +666,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List every tool exposed by every registered skill registry */
+        get: operations["ListSkills"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/webhooks/github": {
         parameters: {
             query?: never;
@@ -676,8 +711,29 @@ export interface components {
             scheme: string;
             path: string;
         };
+        AgentDetailResponse: {
+            agent: components["schemas"]["AgentResponse"];
+            status: null | components["schemas"]["JsonElement"];
+        };
         /** @enum {unknown} */
-        AgentExecutionMode: "Auto" | "OnDemand" | null;
+        AgentExecutionMode: "Auto" | "OnDemand";
+        AgentResponse: {
+            id: string;
+            name: string;
+            displayName: string;
+            description: string;
+            role: null | string;
+            /** Format: date-time */
+            registeredAt: string;
+            model: null | string;
+            specialty: null | string;
+            enabled: boolean;
+            executionMode: components["schemas"]["AgentExecutionMode"];
+            parentUnit: null | string;
+        };
+        AgentSkillsResponse: {
+            skills: string[];
+        };
         CreateAgentRequest: {
             name: string;
             displayName: string;
@@ -729,11 +785,22 @@ export interface components {
             blockedActions?: null | string[];
         };
         JsonElement: unknown;
+        ProblemDetails: {
+            type?: null | string;
+            title?: null | string;
+            /** Format: int32 */
+            status?: null | number | string;
+            detail?: null | string;
+            instance?: null | string;
+        };
         SendMessageRequest: {
             to: components["schemas"]["AddressDto"];
             type: string;
             conversationId: null | string;
             payload: components["schemas"]["JsonElement"];
+        };
+        SetAgentSkillsRequest: {
+            skills: string[];
         };
         SetBudgetRequest: {
             /** Format: double */
@@ -747,6 +814,11 @@ export interface components {
         SetUnitGitHubConfigRequest: {
             owner: string;
             repo: string;
+        };
+        SkillCatalogEntry: {
+            name: string;
+            description: string;
+            registry: string;
         };
         Tier1Config: {
             /** @default phi-3-mini */
@@ -766,6 +838,23 @@ export interface components {
              */
             maxCostPerDay: number | string;
         };
+        UnitDetailResponse: {
+            unit: components["schemas"]["UnitResponse"];
+            details: null | components["schemas"]["JsonElement"];
+        };
+        UnitResponse: {
+            id: string;
+            name: string;
+            displayName: string;
+            description: string;
+            /** Format: date-time */
+            registeredAt: string;
+            status: components["schemas"]["UnitStatus"];
+            model: null | string;
+            color: null | string;
+        };
+        /** @enum {unknown} */
+        UnitStatus: "Draft" | "Stopped" | "Starting" | "Running" | "Stopping" | "Error";
         UpdateAgentMetadataRequest: {
             model?: null | string;
             specialty?: null | string;
@@ -879,7 +968,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["AgentResponse"][];
+                };
             };
         };
     };
@@ -896,12 +987,14 @@ export interface operations {
             };
         };
         responses: {
-            /** @description OK */
-            200: {
+            /** @description Created */
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["AgentResponse"];
+                };
             };
         };
     };
@@ -921,7 +1014,18 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["AgentDetailResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
             };
         };
     };
@@ -936,12 +1040,21 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description OK */
-            200: {
+            /** @description No Content */
+            204: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
             };
         };
     };
@@ -965,7 +1078,84 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["AgentResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    GetAgentSkills: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSkillsResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    SetAgentSkills: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetAgentSkillsRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSkillsResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
             };
         };
     };
@@ -983,7 +1173,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["UnitResponse"][];
+                };
             };
         };
     };
@@ -1025,7 +1217,18 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["UnitDetailResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
             };
         };
     };
@@ -1309,7 +1512,18 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["AgentResponse"][];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
             };
         };
     };
@@ -1330,7 +1544,27 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["AgentResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
             };
         };
     };
@@ -1346,12 +1580,21 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description OK */
-            200: {
+            /** @description No Content */
+            204: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
             };
         };
     };
@@ -1884,6 +2127,26 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    ListSkills: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillCatalogEntry"][];
+                };
             };
         };
     };

@@ -35,31 +35,43 @@ public static class AgentEndpoints
 
         group.MapGet("/", ListAgentsAsync)
             .WithName("ListAgents")
-            .WithSummary("List all registered agents");
+            .WithSummary("List all registered agents")
+            .Produces<AgentResponse[]>(StatusCodes.Status200OK);
 
         group.MapGet("/{id}", GetAgentAsync)
             .WithName("GetAgent")
-            .WithSummary("Get agent status by sending a StatusQuery message");
+            .WithSummary("Get agent status by sending a StatusQuery message")
+            .Produces<AgentDetailResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapPost("/", CreateAgentAsync)
             .WithName("CreateAgent")
-            .WithSummary("Create a new agent");
+            .WithSummary("Create a new agent")
+            .Produces<AgentResponse>(StatusCodes.Status201Created);
 
         group.MapPatch("/{id}", UpdateAgentMetadataAsync)
             .WithName("UpdateAgentMetadata")
-            .WithSummary("Update the agent's metadata (model, specialty, enabled, execution mode)");
+            .WithSummary("Update the agent's metadata (model, specialty, enabled, execution mode)")
+            .Produces<AgentResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapGet("/{id}/skills", GetAgentSkillsAsync)
             .WithName("GetAgentSkills")
-            .WithSummary("Get the agent's configured skill list (tool names the agent is allowed to invoke)");
+            .WithSummary("Get the agent's configured skill list (tool names the agent is allowed to invoke)")
+            .Produces<AgentSkillsResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapPut("/{id}/skills", SetAgentSkillsAsync)
             .WithName("SetAgentSkills")
-            .WithSummary("Replace the agent's skill list in full; empty list means the agent is disabled from every tool");
+            .WithSummary("Replace the agent's skill list in full; empty list means the agent is disabled from every tool")
+            .Produces<AgentSkillsResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapDelete("/{id}", DeleteAgentAsync)
             .WithName("DeleteAgent")
-            .WithSummary("Delete an agent");
+            .WithSummary("Delete an agent")
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         return group;
     }
@@ -112,16 +124,13 @@ public static class AgentEndpoints
 
         var result = await messageRouter.RouteAsync(statusQuery, cancellationToken);
 
+        var agentResponse = ToAgentResponse(entry, metadata);
         if (!result.IsSuccess)
         {
-            return Results.Ok(ToAgentResponse(entry, metadata));
+            return Results.Ok(new AgentDetailResponse(agentResponse, null));
         }
 
-        return Results.Ok(new
-        {
-            Agent = ToAgentResponse(entry, metadata),
-            Status = result.Value?.Payload
-        });
+        return Results.Ok(new AgentDetailResponse(agentResponse, result.Value?.Payload));
     }
 
     private static async Task<IResult> UpdateAgentMetadataAsync(

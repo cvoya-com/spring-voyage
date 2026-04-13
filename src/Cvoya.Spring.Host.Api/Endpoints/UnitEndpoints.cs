@@ -42,11 +42,14 @@ public static class UnitEndpoints
 
         group.MapGet("/", ListUnitsAsync)
             .WithName("ListUnits")
-            .WithSummary("List all registered units");
+            .WithSummary("List all registered units")
+            .Produces<UnitResponse[]>(StatusCodes.Status200OK);
 
         group.MapGet("/{id}", GetUnitAsync)
             .WithName("GetUnit")
-            .WithSummary("Get unit details and members");
+            .WithSummary("Get unit details and members")
+            .Produces<UnitDetailResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapPost("/", CreateUnitAsync)
             .WithName("CreateUnit")
@@ -104,15 +107,22 @@ public static class UnitEndpoints
 
         group.MapGet("/{id}/agents", ListUnitAgentsAsync)
             .WithName("ListUnitAgents")
-            .WithSummary("List the agents that belong to this unit (members with scheme=agent), enriched with each agent's metadata");
+            .WithSummary("List the agents that belong to this unit (members with scheme=agent), enriched with each agent's metadata")
+            .Produces<AgentResponse[]>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapPost("/{id}/agents/{agentId}", AssignUnitAgentAsync)
             .WithName("AssignUnitAgent")
-            .WithSummary("Assign an agent to this unit. Sets the agent's parent-unit pointer and adds it to the unit's members. 409 if the agent already belongs to a different unit.");
+            .WithSummary("Assign an agent to this unit. Sets the agent's parent-unit pointer and adds it to the unit's members. 409 if the agent already belongs to a different unit.")
+            .Produces<AgentResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
 
         group.MapDelete("/{id}/agents/{agentId}", UnassignUnitAgentAsync)
             .WithName("UnassignUnitAgent")
-            .WithSummary("Unassign an agent from this unit. Clears the agent's parent-unit pointer and removes it from the unit's members.");
+            .WithSummary("Unassign an agent from this unit. Clears the agent's parent-unit pointer and removes it from the unit's members.")
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         return group;
     }
@@ -164,16 +174,13 @@ public static class UnitEndpoints
 
         var result = await messageRouter.RouteAsync(statusQuery, cancellationToken);
 
+        var unitResponse = ToUnitResponse(entry, status, metadata);
         if (!result.IsSuccess)
         {
-            return Results.Ok(ToUnitResponse(entry, status, metadata));
+            return Results.Ok(new UnitDetailResponse(unitResponse, null));
         }
 
-        return Results.Ok(new
-        {
-            Unit = ToUnitResponse(entry, status, metadata),
-            Details = result.Value?.Payload
-        });
+        return Results.Ok(new UnitDetailResponse(unitResponse, result.Value?.Payload));
     }
 
     private static async Task<UnitStatus> TryGetUnitStatusAsync(

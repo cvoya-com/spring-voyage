@@ -6,6 +6,8 @@ namespace Cvoya.Spring.Host.Api.Endpoints;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Host.Api.Models;
 
+using Microsoft.AspNetCore.Http;
+
 /// <summary>
 /// Maps the platform-wide skill catalog endpoint. Per-agent skill
 /// configuration (read / replace) lives on the agent's own routes
@@ -26,7 +28,8 @@ public static class SkillsEndpoints
 
         group.MapGet("/", ListSkillsAsync)
             .WithName("ListSkills")
-            .WithSummary("List every tool exposed by every registered skill registry");
+            .WithSummary("List every tool exposed by every registered skill registry")
+            .Produces<SkillCatalogEntry[]>(StatusCodes.Status200OK);
 
         return group;
     }

@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.Host.Api.Models;
 
+using System.Text.Json;
+
 using Cvoya.Spring.Core.Agents;
 
 /// <summary>
@@ -50,6 +52,15 @@ public record UpdateAgentMetadataRequest(
     string? Specialty = null,
     bool? Enabled = null,
     AgentExecutionMode? ExecutionMode = null);
+
+/// <summary>
+/// Response body for <c>GET /api/v1/agents/{id}</c> when the StatusQuery to
+/// the actor succeeds. Combines the directory-level <see cref="AgentResponse"/>
+/// with the opaque runtime status payload returned by the actor. When the
+/// StatusQuery fails, the endpoint falls back to returning the
+/// <see cref="AgentResponse"/> alone.
+/// </summary>
+public record AgentDetailResponse(AgentResponse Agent, JsonElement? Status);
 
 /// <summary>
 /// An entry in the platform-wide skill catalog returned by
