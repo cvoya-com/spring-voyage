@@ -144,3 +144,38 @@ public record UnitTemplateSummary(
 /// the actor is unreachable or returns no details).
 /// </summary>
 public record UnitDetailResponse(UnitResponse Unit, System.Text.Json.JsonElement? Details);
+
+/// <summary>
+/// Response body for <c>POST /api/v1/units/{id}/start</c> and
+/// <c>POST /api/v1/units/{id}/stop</c>. Returns the unit id and the
+/// post-transition lifecycle status.
+/// </summary>
+public record UnitLifecycleResponse(string UnitId, UnitStatus Status);
+
+/// <summary>
+/// Response body for <c>PUT /api/v1/units/{id}/github</c>. Returns the
+/// unit id and the GitHub configuration that was applied.
+/// </summary>
+public record SetUnitGitHubConfigResponse(string UnitId, UnitGitHubConfig GitHub);
+
+/// <summary>
+/// Response body for <c>PATCH /api/v1/units/{id}/humans/{humanId}/permissions</c>.
+/// Returns the human id and the permission level that was set. <c>Permission</c>
+/// is fully-qualified to avoid pulling <c>using Cvoya.Spring.Dapr.Actors</c>
+/// into the Models layer for one type.
+/// </summary>
+public record SetHumanPermissionResponse(
+    string HumanId,
+    Cvoya.Spring.Dapr.Actors.PermissionLevel Permission);
+
+/// <summary>
+/// Response body for a force-delete that left some teardown steps in a
+/// failed state. Returned with HTTP 200 (directory entry was removed) so
+/// operators can see which subsystems need manual cleanup.
+/// </summary>
+public record UnitForceDeleteResponse(
+    string UnitId,
+    bool ForceDeleted,
+    UnitStatus PreviousStatus,
+    IReadOnlyList<string> TeardownFailures,
+    string Message);

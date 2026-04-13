@@ -83,26 +83,24 @@ public static class UnitEndpoints
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict);
 
-        // Start / Stop return `{ UnitId, Status }` today — the anonymous
-        // shape is promoted to `UnitLifecycleResponse` under #172.
         group.MapPost("/{id}/start", StartUnitAsync)
             .WithName("StartUnit")
             .WithSummary("Start the runtime container for a unit")
+            .Produces<UnitLifecycleResponse>(StatusCodes.Status202Accepted)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict);
 
         group.MapPost("/{id}/stop", StopUnitAsync)
             .WithName("StopUnit")
             .WithSummary("Stop the runtime container for a unit")
+            .Produces<UnitLifecycleResponse>(StatusCodes.Status202Accepted)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict);
 
-        // AddMember today returns `{ Status = "Member added" }`; #172 will
-        // collapse this to 204 NoContent since the status string carries
-        // no new information.
         group.MapPost("/{id}/members", AddMemberAsync)
             .WithName("AddMember")
             .WithSummary("Add a member to a unit")
+            .Produces(StatusCodes.Status204NoContent)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapDelete("/{id}/members/{memberId}", RemoveMemberAsync)
@@ -111,11 +109,10 @@ public static class UnitEndpoints
             .Produces(StatusCodes.Status204NoContent)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
-        // SetGitHubConfig returns `{ UnitId, GitHub }` anonymous; #172
-        // will promote it to `SetUnitGitHubConfigResponse`.
         group.MapPut("/{id}/github", SetGitHubConfigAsync)
             .WithName("SetUnitGitHubConfig")
             .WithSummary("Configure the GitHub repository a unit is bound to")
+            .Produces<SetUnitGitHubConfigResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
@@ -125,12 +122,11 @@ public static class UnitEndpoints
             .Produces(StatusCodes.Status204NoContent)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
-        // SetHumanPermission returns `{ HumanId, Permission }` anonymous;
-        // #172 will promote it to `SetHumanPermissionResponse`.
         group.MapPatch("/{id}/humans/{humanId}/permissions", SetHumanPermissionAsync)
             .WithName("SetHumanPermission")
             .WithSummary("Set permission level for a human within a unit")
             .RequireAuthorization(PermissionPolicies.UnitOwner)
+            .Produces<SetHumanPermissionResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
@@ -522,14 +518,12 @@ public static class UnitEndpoints
 
         if (failures.Count > 0)
         {
-            return Results.Ok(new
-            {
-                UnitId = id,
-                ForceDeleted = true,
-                PreviousStatus = previousStatus,
-                TeardownFailures = failures,
-                Message = "Directory entry removed; some teardown steps failed — inspect operator logs and the activity stream.",
-            });
+            return Results.Ok(new UnitForceDeleteResponse(
+                UnitId: id,
+                ForceDeleted: true,
+                PreviousStatus: previousStatus,
+                TeardownFailures: failures,
+                Message: "Directory entry removed; some teardown steps failed — inspect operator logs and the activity stream."));
         }
 
         return Results.NoContent();
@@ -668,11 +662,9 @@ public static class UnitEndpoints
                 statusCode: StatusCodes.Status500InternalServerError);
         }
 
-        return Results.Accepted($"/api/v1/units/{id}", new
-        {
-            UnitId = id,
-            Status = runningTransition.CurrentStatus
-        });
+        return Results.Accepted(
+            $"/api/v1/units/{id}",
+            new UnitLifecycleResponse(id, runningTransition.CurrentStatus));
     }
 
     private static async Task<IResult> StopUnitAsync(
@@ -763,11 +755,9 @@ public static class UnitEndpoints
                 statusCode: StatusCodes.Status500InternalServerError);
         }
 
-        return Results.Accepted($"/api/v1/units/{id}", new
-        {
-            UnitId = id,
-            Status = stoppedTransition.CurrentStatus
-        });
+        return Results.Accepted(
+            $"/api/v1/units/{id}",
+            new UnitLifecycleResponse(id, stoppedTransition.CurrentStatus));
     }
 
     private static async Task<IResult> AddMemberAsync(
@@ -811,7 +801,11 @@ public static class UnitEndpoints
                 statusCode: StatusCodes.Status502BadGateway);
         }
 
-        return Results.Ok(new { Status = "Member added" });
+        // Previous behaviour returned `{ Status = "Member added" }`; the
+        // string carried no new information beyond the HTTP status, and the
+        // anonymous shape kept the endpoint out of the OpenAPI contract.
+        // 204 says the same thing with a standard signal (#172).
+        return Results.NoContent();
     }
 
     private static async Task<IResult> RemoveMemberAsync(
@@ -895,7 +889,7 @@ public static class UnitEndpoints
 
         await humanProxy.SetPermissionForUnitAsync(id, permissionLevel, cancellationToken);
 
-        return Results.Ok(new { HumanId = humanId, Permission = permissionLevel });
+        return Results.Ok(new SetHumanPermissionResponse(humanId, permissionLevel));
     }
 
     private static async Task<IResult> GetHumanPermissionsAsync(
@@ -946,11 +940,7 @@ public static class UnitEndpoints
         var config = new UnitGitHubConfig(request.Owner, request.Repo);
         await proxy.SetGitHubConfigAsync(config, cancellationToken);
 
-        return Results.Ok(new
-        {
-            UnitId = id,
-            GitHub = config,
-        });
+        return Results.Ok(new SetUnitGitHubConfigResponse(id, config));
     }
 
     private static async Task<IResult> ClearGitHubConfigAsync(
