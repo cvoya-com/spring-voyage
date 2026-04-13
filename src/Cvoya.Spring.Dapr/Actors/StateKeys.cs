@@ -156,4 +156,17 @@ public static class StateKeys
     /// Surfaced through <see cref="Core.Units.UnitMetadata"/>.
     /// </summary>
     public const string UnitColor = "Unit:Color";
+
+    /// <summary>
+    /// State key for the unit's GitHub connector configuration (owner + repo).
+    /// Present when the unit is wired to a GitHub repository; absent otherwise.
+    /// </summary>
+    public const string UnitGitHubConfig = "Unit:GitHubConfig";
+
+    /// <summary>
+    /// State key for the GitHub webhook hook id created for the unit at /start.
+    /// Present while the unit is Running; cleared on /stop teardown. Used so
+    /// /stop can call <c>DELETE /repos/{owner}/{repo}/hooks/{id}</c>.
+    /// </summary>
+    public const string UnitGitHubHookId = "Unit:GitHubHookId";
 }

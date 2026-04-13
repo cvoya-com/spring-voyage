@@ -40,4 +40,12 @@ public class GitHubConnectorOptions
     /// does not recognize — produced messages will not be delivered.
     /// </summary>
     public string DefaultTargetUnitPath { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the publicly reachable URL that GitHub should deliver
+    /// webhooks to (e.g. <c>https://example.com/api/v1/webhooks/github</c>).
+    /// Consumed by <see cref="Webhooks.IGitHubWebhookRegistrar"/> when a unit
+    /// starts so that freshly registered hooks point back at this platform.
+    /// </summary>
+    public string WebhookUrl { get; set; } = string.Empty;
 }

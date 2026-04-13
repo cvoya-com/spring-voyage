@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Host.Api.Endpoints;
 
 using System.Text.Json;
 
+using Cvoya.Spring.Connector.GitHub.Webhooks;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Units;
@@ -80,6 +81,14 @@ public static class UnitEndpoints
         group.MapDelete("/{id}/members/{memberId}", RemoveMemberAsync)
             .WithName("RemoveMember")
             .WithSummary("Remove a member from a unit");
+
+        group.MapPut("/{id}/github", SetGitHubConfigAsync)
+            .WithName("SetUnitGitHubConfig")
+            .WithSummary("Configure the GitHub repository a unit is bound to");
+
+        group.MapDelete("/{id}/github", ClearGitHubConfigAsync)
+            .WithName("ClearUnitGitHubConfig")
+            .WithSummary("Clear the unit's GitHub repository binding");
 
         group.MapPatch("/{id}/humans/{humanId}/permissions", SetHumanPermissionAsync)
             .WithName("SetHumanPermission")
@@ -372,6 +381,7 @@ public static class UnitEndpoints
         [FromServices] IDirectoryService directoryService,
         [FromServices] IActorProxyFactory actorProxyFactory,
         [FromServices] IUnitContainerLifecycle containerLifecycle,
+        [FromServices] IGitHubWebhookRegistrar webhookRegistrar,
         [FromServices] ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
@@ -397,7 +407,6 @@ public static class UnitEndpoints
             });
         }
 
-        // TODO(#81 follow-up): Register GitHub webhooks during unit /start.
         try
         {
             await containerLifecycle.StartUnitAsync(entry.ActorId, cancellationToken);
@@ -419,6 +428,30 @@ public static class UnitEndpoints
                     ["unitId"] = id,
                     ["currentStatus"] = errorTransition.CurrentStatus.ToString()
                 });
+        }
+
+        // Register a GitHub webhook on the configured repo, if any. Failure here is not
+        // fatal to the unit itself — the container is up and the platform will still
+        // route inbound events from any pre-existing hook — but we must surface it so
+        // an operator can act. Hook id is persisted on the unit so /stop can delete it.
+        var githubConfig = await proxy.GetGitHubConfigAsync(cancellationToken);
+        if (githubConfig is not null)
+        {
+            try
+            {
+                var hookId = await webhookRegistrar.RegisterAsync(
+                    githubConfig.Owner, githubConfig.Repo, cancellationToken);
+                await proxy.SetGitHubHookIdAsync(hookId, cancellationToken);
+                logger.LogInformation(
+                    "Registered GitHub webhook {HookId} for unit {UnitId} on {Owner}/{Repo}",
+                    hookId, id, githubConfig.Owner, githubConfig.Repo);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex,
+                    "Failed to register GitHub webhook for unit {UnitId} on {Owner}/{Repo}. Proceeding to Running; events will not flow until the hook is created manually.",
+                    id, githubConfig.Owner, githubConfig.Repo);
+            }
         }
 
         var runningTransition = await proxy.TransitionAsync(UnitStatus.Running, cancellationToken);
@@ -446,6 +479,7 @@ public static class UnitEndpoints
         [FromServices] IDirectoryService directoryService,
         [FromServices] IActorProxyFactory actorProxyFactory,
         [FromServices] IUnitContainerLifecycle containerLifecycle,
+        [FromServices] IGitHubWebhookRegistrar webhookRegistrar,
         [FromServices] ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
@@ -469,6 +503,27 @@ public static class UnitEndpoints
                 Error = stoppingTransition.RejectionReason,
                 CurrentStatus = stoppingTransition.CurrentStatus
             });
+        }
+
+        // Tear down the GitHub webhook that /start created, if any. A stale
+        // hook id (404) is logged and swallowed inside the registrar so /stop
+        // can complete even when the hook was deleted out of band.
+        var githubConfig = await proxy.GetGitHubConfigAsync(cancellationToken);
+        var hookId = await proxy.GetGitHubHookIdAsync(cancellationToken);
+        if (githubConfig is not null && hookId is not null)
+        {
+            try
+            {
+                await webhookRegistrar.UnregisterAsync(
+                    githubConfig.Owner, githubConfig.Repo, hookId.Value, cancellationToken);
+                await proxy.SetGitHubHookIdAsync(null, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex,
+                    "Failed to delete GitHub webhook {HookId} for unit {UnitId} on {Owner}/{Repo}. Continuing teardown; the hook id remains persisted so operators can retry.",
+                    hookId, id, githubConfig.Owner, githubConfig.Repo);
+            }
         }
 
         try
@@ -662,6 +717,61 @@ public static class UnitEndpoints
         var permissions = await unitProxy.GetHumanPermissionsAsync(cancellationToken);
 
         return Results.Ok(permissions);
+    }
+
+    private static async Task<IResult> SetGitHubConfigAsync(
+        string id,
+        SetUnitGitHubConfigRequest request,
+        [FromServices] IDirectoryService directoryService,
+        [FromServices] IActorProxyFactory actorProxyFactory,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.Owner) || string.IsNullOrWhiteSpace(request.Repo))
+        {
+            return Results.BadRequest(new { Error = "Both 'Owner' and 'Repo' are required." });
+        }
+
+        var address = new Address("unit", id);
+        var entry = await directoryService.ResolveAsync(address, cancellationToken);
+
+        if (entry is null)
+        {
+            return Results.NotFound(new { Error = $"Unit '{id}' not found" });
+        }
+
+        var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
+            new ActorId(entry.ActorId), nameof(IUnitActor));
+
+        var config = new UnitGitHubConfig(request.Owner, request.Repo);
+        await proxy.SetGitHubConfigAsync(config, cancellationToken);
+
+        return Results.Ok(new
+        {
+            UnitId = id,
+            GitHub = config,
+        });
+    }
+
+    private static async Task<IResult> ClearGitHubConfigAsync(
+        string id,
+        [FromServices] IDirectoryService directoryService,
+        [FromServices] IActorProxyFactory actorProxyFactory,
+        CancellationToken cancellationToken)
+    {
+        var address = new Address("unit", id);
+        var entry = await directoryService.ResolveAsync(address, cancellationToken);
+
+        if (entry is null)
+        {
+            return Results.NotFound(new { Error = $"Unit '{id}' not found" });
+        }
+
+        var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
+            new ActorId(entry.ActorId), nameof(IUnitActor));
+
+        await proxy.SetGitHubConfigAsync(null, cancellationToken);
+
+        return Results.NoContent();
     }
 
     private static UnitResponse ToUnitResponse(
