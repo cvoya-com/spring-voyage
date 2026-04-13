@@ -147,6 +147,7 @@ public static class UnitEndpoints
             .WithName("AssignUnitAgent")
             .WithSummary("Assign an agent to this unit. Sets the agent's parent-unit pointer and adds it to the unit's members. 409 if the agent already belongs to a different unit.")
             .Produces<AgentResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict);
 
@@ -188,7 +189,7 @@ public static class UnitEndpoints
 
         if (entry is null)
         {
-            return Results.NotFound(new { Error = $"Unit '{id}' not found" });
+            return Results.Problem(detail: $"Unit '{id}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
         var status = await TryGetUnitStatusAsync(actorProxyFactory, entry.ActorId, logger, id, cancellationToken);
@@ -281,7 +282,7 @@ public static class UnitEndpoints
     {
         if (string.IsNullOrWhiteSpace(request.Yaml))
         {
-            return Results.BadRequest(new { Error = "Request body must include non-empty 'yaml'." });
+            return Results.Problem(detail: "Request body must include non-empty 'yaml'.", statusCode: StatusCodes.Status400BadRequest);
         }
 
         UnitManifest manifest;
@@ -291,7 +292,7 @@ public static class UnitEndpoints
         }
         catch (ManifestParseException ex)
         {
-            return Results.BadRequest(new { Error = ex.Message });
+            return Results.Problem(detail: ex.Message, statusCode: StatusCodes.Status400BadRequest);
         }
 
         var overrides = new UnitCreationOverrides(request.DisplayName, request.Color, request.Model);
@@ -310,7 +311,7 @@ public static class UnitEndpoints
     {
         if (string.IsNullOrWhiteSpace(request.Package) || string.IsNullOrWhiteSpace(request.Name))
         {
-            return Results.BadRequest(new { Error = "Request body must include both 'package' and 'name'." });
+            return Results.Problem(detail: "Request body must include both 'package' and 'name'.", statusCode: StatusCodes.Status400BadRequest);
         }
 
         var yaml = await catalog.LoadUnitTemplateYamlAsync(request.Package, request.Name, cancellationToken);
@@ -358,7 +359,7 @@ public static class UnitEndpoints
 
         if (entry is null)
         {
-            return Results.NotFound(new { Error = $"Unit '{id}' not found" });
+            return Results.Problem(detail: $"Unit '{id}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
         // DisplayName/Description live on the directory entity — route those
@@ -408,7 +409,7 @@ public static class UnitEndpoints
 
         if (entry is null)
         {
-            return Results.NotFound(new { Error = $"Unit '{id}' not found" });
+            return Results.Problem(detail: $"Unit '{id}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
         // Gate deletion on lifecycle status (#116). Allowing DELETE while the unit is
@@ -586,7 +587,7 @@ public static class UnitEndpoints
 
         if (entry is null)
         {
-            return Results.NotFound(new { Error = $"Unit '{id}' not found" });
+            return Results.Problem(detail: $"Unit '{id}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
         var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
@@ -682,7 +683,7 @@ public static class UnitEndpoints
 
         if (entry is null)
         {
-            return Results.NotFound(new { Error = $"Unit '{id}' not found" });
+            return Results.Problem(detail: $"Unit '{id}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
         var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
@@ -772,7 +773,7 @@ public static class UnitEndpoints
 
         if (entry is null)
         {
-            return Results.NotFound(new { Error = $"Unit '{id}' not found" });
+            return Results.Problem(detail: $"Unit '{id}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
         // Send a Domain message to the unit actor to add the member.
@@ -820,7 +821,7 @@ public static class UnitEndpoints
 
         if (entry is null)
         {
-            return Results.NotFound(new { Error = $"Unit '{id}' not found" });
+            return Results.Problem(detail: $"Unit '{id}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
         // Send a Domain message to the unit actor to remove the member.
@@ -864,12 +865,12 @@ public static class UnitEndpoints
 
         if (entry is null)
         {
-            return Results.NotFound(new { Error = $"Unit '{id}' not found" });
+            return Results.Problem(detail: $"Unit '{id}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
         if (!Enum.TryParse<PermissionLevel>(request.Permission, ignoreCase: true, out var permissionLevel))
         {
-            return Results.BadRequest(new { Error = $"Invalid permission level: '{request.Permission}'" });
+            return Results.Problem(detail: $"Invalid permission level: '{request.Permission}'", statusCode: StatusCodes.Status400BadRequest);
         }
 
         var permissionEntry = new UnitPermissionEntry(
@@ -903,7 +904,7 @@ public static class UnitEndpoints
 
         if (entry is null)
         {
-            return Results.NotFound(new { Error = $"Unit '{id}' not found" });
+            return Results.Problem(detail: $"Unit '{id}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
         var unitProxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
@@ -923,7 +924,7 @@ public static class UnitEndpoints
     {
         if (string.IsNullOrWhiteSpace(request.Owner) || string.IsNullOrWhiteSpace(request.Repo))
         {
-            return Results.BadRequest(new { Error = "Both 'Owner' and 'Repo' are required." });
+            return Results.Problem(detail: "Both 'Owner' and 'Repo' are required.", statusCode: StatusCodes.Status400BadRequest);
         }
 
         var address = new Address("unit", id);
@@ -931,7 +932,7 @@ public static class UnitEndpoints
 
         if (entry is null)
         {
-            return Results.NotFound(new { Error = $"Unit '{id}' not found" });
+            return Results.Problem(detail: $"Unit '{id}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
         var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
@@ -954,7 +955,7 @@ public static class UnitEndpoints
 
         if (entry is null)
         {
-            return Results.NotFound(new { Error = $"Unit '{id}' not found" });
+            return Results.Problem(detail: $"Unit '{id}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
         var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
@@ -992,7 +993,7 @@ public static class UnitEndpoints
 
         if (unitEntry is null)
         {
-            return Results.NotFound(new { Error = $"Unit '{id}' not found" });
+            return Results.Problem(detail: $"Unit '{id}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
         var unitProxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
@@ -1045,21 +1046,21 @@ public static class UnitEndpoints
 
         if (string.IsNullOrWhiteSpace(agentId))
         {
-            return Results.BadRequest(new { Error = "agentId is required." });
+            return Results.Problem(detail: "agentId is required.", statusCode: StatusCodes.Status400BadRequest);
         }
 
         var unitAddress = new Address("unit", id);
         var unitEntry = await directoryService.ResolveAsync(unitAddress, cancellationToken);
         if (unitEntry is null)
         {
-            return Results.NotFound(new { Error = $"Unit '{id}' not found" });
+            return Results.Problem(detail: $"Unit '{id}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
         var agentAddress = new Address("agent", agentId);
         var agentEntry = await directoryService.ResolveAsync(agentAddress, cancellationToken);
         if (agentEntry is null)
         {
-            return Results.NotFound(new { Error = $"Agent '{agentId}' not found" });
+            return Results.Problem(detail: $"Agent '{agentId}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
         var agentProxy = actorProxyFactory.CreateActorProxy<IAgentActor>(
@@ -1112,14 +1113,14 @@ public static class UnitEndpoints
         var unitEntry = await directoryService.ResolveAsync(unitAddress, cancellationToken);
         if (unitEntry is null)
         {
-            return Results.NotFound(new { Error = $"Unit '{id}' not found" });
+            return Results.Problem(detail: $"Unit '{id}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
         var agentAddress = new Address("agent", agentId);
         var agentEntry = await directoryService.ResolveAsync(agentAddress, cancellationToken);
         if (agentEntry is null)
         {
-            return Results.NotFound(new { Error = $"Agent '{agentId}' not found" });
+            return Results.Problem(detail: $"Agent '{agentId}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
         // Remove from the unit's members first. If the agent's parent-pointer

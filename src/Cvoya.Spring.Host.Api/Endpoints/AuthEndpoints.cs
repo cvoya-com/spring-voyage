@@ -88,7 +88,7 @@ public static class AuthEndpoints
 
         if (existingToken is not null)
         {
-            return Results.Conflict(new { Error = $"An active token named '{request.Name}' already exists." });
+            return Results.Problem(detail: $"An active token named '{request.Name}' already exists.", statusCode: StatusCodes.Status409Conflict);
         }
 
         // Generate a cryptographically random token
@@ -156,7 +156,7 @@ public static class AuthEndpoints
 
         if (token is null)
         {
-            return Results.NotFound(new { Error = $"Token '{name}' not found." });
+            return Results.Problem(detail: $"Token '{name}' not found.", statusCode: StatusCodes.Status404NotFound);
         }
 
         token.RevokedAt = DateTimeOffset.UtcNow;

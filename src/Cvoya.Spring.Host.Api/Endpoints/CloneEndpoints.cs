@@ -67,7 +67,7 @@ public static class CloneEndpoints
 
         if (parentEntry is null)
         {
-            return Results.NotFound(new { Error = $"Agent '{agentId}' not found" });
+            return Results.Problem(detail: $"Agent '{agentId}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
         var cloneId = Guid.NewGuid().ToString();
@@ -102,7 +102,7 @@ public static class CloneEndpoints
 
         if (parentEntry is null)
         {
-            return Results.NotFound(new { Error = $"Agent '{agentId}' not found" });
+            return Results.Problem(detail: $"Agent '{agentId}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
         var childrenKey = $"{agentId}:{StateKeys.CloneChildren}";
@@ -146,7 +146,7 @@ public static class CloneEndpoints
 
         if (cloneEntry is null)
         {
-            return Results.NotFound(new { Error = $"Clone '{cloneId}' not found" });
+            return Results.Problem(detail: $"Clone '{cloneId}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
         var identityKey = $"{cloneId}:{StateKeys.CloneIdentity}";
@@ -176,7 +176,7 @@ public static class CloneEndpoints
 
         if (cloneEntry is null)
         {
-            return Results.NotFound(new { Error = $"Clone '{cloneId}' not found" });
+            return Results.Problem(detail: $"Clone '{cloneId}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
         // Look up clone identity to determine cloning policy for memory flow-back.
