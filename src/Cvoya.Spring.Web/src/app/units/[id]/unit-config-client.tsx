@@ -407,7 +407,7 @@ export default function UnitConfigClient({ id }: ClientProps) {
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Total Cost</span>
                     <span className="font-medium">
-                      {formatCost(cost.totalCost)}
+                      {formatCost(Number(cost.totalCost))}
                     </span>
                   </div>
                   <div className="flex justify-between">

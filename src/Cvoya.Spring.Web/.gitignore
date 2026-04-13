@@ -1,3 +1,4 @@
 node_modules/
 .next/
 out/
+src/Cvoya.Spring.Web/tsconfig.tsbuildinfo

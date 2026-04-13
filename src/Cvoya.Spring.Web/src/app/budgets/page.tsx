@@ -118,7 +118,7 @@ export default function BudgetsPage() {
   const tenantValue = Number(tenantInput);
   const utilization =
     Number.isFinite(tenantValue) && tenantValue > 0 && costs
-      ? Math.min(100, (costs.totalCost / tenantValue) * 100)
+      ? Math.min(100, (Number(costs.totalCost) / tenantValue) * 100) // decimal -> number (#181)
       : null;
 
   return (
@@ -181,11 +181,11 @@ export default function BudgetsPage() {
           <div className="flex justify-between text-xs text-muted-foreground">
             <span>
               {tenantBudget
-                ? `Current: ${formatCost(tenantBudget.dailyBudget)}/day`
+                ? `Current: ${formatCost(Number(tenantBudget.dailyBudget))}/day` // decimal -> number (#181)
                 : "No tenant budget set"}
             </span>
             <span>
-              {costs ? `Spend to date: ${formatCost(costs.totalCost)}` : ""}
+              {costs ? `Spend to date: ${formatCost(Number(costs.totalCost))}` : ""}
             </span>
           </div>
         </CardContent>
@@ -220,7 +220,7 @@ export default function BudgetsPage() {
                   <div className="flex items-center gap-3">
                     <span className="text-xs text-muted-foreground">
                       {budget
-                        ? `${formatCost(budget.dailyBudget)}/day`
+                        ? `${formatCost(Number(budget.dailyBudget))}/day`
                         : "Not set"}
                     </span>
                     <Link href={`/agents/${encodeURIComponent(agent.name)}`}>

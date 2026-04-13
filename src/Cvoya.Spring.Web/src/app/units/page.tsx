@@ -258,7 +258,7 @@ function UnitDetailContent() {
           <CardContent className="space-y-2 text-sm">
             <div className="flex justify-between">
               <span className="text-muted-foreground">Total Cost</span>
-              <span className="font-medium">{formatCost(cost.totalCost)}</span>
+              <span className="font-medium">{formatCost(Number(cost.totalCost))}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Input Tokens</span>

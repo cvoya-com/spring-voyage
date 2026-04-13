@@ -40,12 +40,12 @@ const INITIATIVE_LEVELS: InitiativeLevel[] = [
 ];
 
 const DEFAULT_POLICY: InitiativePolicy = {
-  MaxLevel: "Passive",
-  RequireUnitApproval: false,
-  Tier1: null,
-  Tier2: { MaxCallsPerHour: 5, MaxCostPerDay: 3.0 },
-  AllowedActions: null,
-  BlockedActions: null,
+  maxLevel: "Passive",
+  requireUnitApproval: false,
+  tier1: null,
+  tier2: { maxCallsPerHour: 5, maxCostPerDay: 3.0 },
+  allowedActions: null,
+  blockedActions: null,
 };
 
 interface AgentRow {
@@ -110,7 +110,7 @@ export default function InitiativePage() {
           levelRes.status === "fulfilled" ? levelRes.value.level : null;
         const maxLevel =
           policyRes.status === "fulfilled" && policyRes.value
-            ? policyRes.value.MaxLevel
+            ? (policyRes.value.maxLevel ?? null)
             : null;
         return { agent, level, maxLevel } satisfies AgentRow;
       }),
@@ -145,8 +145,8 @@ export default function InitiativePage() {
         const policy = await api.getAgentInitiativePolicy(agentId);
         const effective = policy ?? DEFAULT_POLICY;
         setEditorPolicy(effective);
-        setEditorAllowed(formatCsv(effective.AllowedActions));
-        setEditorBlocked(formatCsv(effective.BlockedActions));
+        setEditorAllowed(formatCsv(effective.allowedActions));
+        setEditorBlocked(formatCsv(effective.blockedActions));
       } catch (err) {
         toast({
           title: "Failed to load policy",
@@ -174,11 +174,11 @@ export default function InitiativePage() {
     if (!selectedAgentId || !editorPolicy) return;
     const payload: InitiativePolicy = {
       ...editorPolicy,
-      AllowedActions: parseCsv(editorAllowed),
-      BlockedActions: parseCsv(editorBlocked),
-      Tier2: editorPolicy.Tier2 ?? {
-        MaxCallsPerHour: 5,
-        MaxCostPerDay: 3.0,
+      allowedActions: parseCsv(editorAllowed),
+      blockedActions: parseCsv(editorBlocked),
+      tier2: editorPolicy.tier2 ?? {
+        maxCallsPerHour: 5,
+        maxCostPerDay: 3.0,
       },
     };
     setSaving(true);
@@ -338,11 +338,11 @@ export default function InitiativePage() {
                     <span className="text-muted-foreground">Max Level</span>
                     <select
                       className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                      value={editorPolicy.MaxLevel}
+                      value={editorPolicy.maxLevel}
                       onChange={(e) =>
                         setEditorPolicy({
                           ...editorPolicy,
-                          MaxLevel: e.target.value as InitiativeLevel,
+                          maxLevel: e.target.value as InitiativeLevel,
                         })
                       }
                     >
@@ -358,11 +358,11 @@ export default function InitiativePage() {
                     <input
                       type="checkbox"
                       className="h-4 w-4 rounded border-input"
-                      checked={editorPolicy.RequireUnitApproval}
+                      checked={editorPolicy.requireUnitApproval}
                       onChange={(e) =>
                         setEditorPolicy({
                           ...editorPolicy,
-                          RequireUnitApproval: e.target.checked,
+                          requireUnitApproval: e.target.checked,
                         })
                       }
                     />
@@ -376,15 +376,15 @@ export default function InitiativePage() {
                     <Input
                       type="number"
                       min={0}
-                      value={editorPolicy.Tier2?.MaxCallsPerHour ?? 5}
+                      value={editorPolicy.tier2?.maxCallsPerHour ?? 5}
                       onChange={(e) =>
                         setEditorPolicy({
                           ...editorPolicy,
-                          Tier2: {
-                            MaxCallsPerHour:
+                          tier2: {
+                            maxCallsPerHour:
                               Number.parseInt(e.target.value, 10) || 0,
-                            MaxCostPerDay:
-                              editorPolicy.Tier2?.MaxCostPerDay ?? 3.0,
+                            maxCostPerDay:
+                              editorPolicy.tier2?.maxCostPerDay ?? 3.0,
                           },
                         })
                       }
@@ -399,14 +399,14 @@ export default function InitiativePage() {
                       type="number"
                       step="0.01"
                       min={0}
-                      value={editorPolicy.Tier2?.MaxCostPerDay ?? 3.0}
+                      value={editorPolicy.tier2?.maxCostPerDay ?? 3.0}
                       onChange={(e) =>
                         setEditorPolicy({
                           ...editorPolicy,
-                          Tier2: {
-                            MaxCallsPerHour:
-                              editorPolicy.Tier2?.MaxCallsPerHour ?? 5,
-                            MaxCostPerDay:
+                          tier2: {
+                            maxCallsPerHour:
+                              editorPolicy.tier2?.maxCallsPerHour ?? 5,
+                            maxCostPerDay:
                               Number.parseFloat(e.target.value) || 0,
                           },
                         })
