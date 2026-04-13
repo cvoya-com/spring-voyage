@@ -8,6 +8,7 @@ import type {
   CreateUnitFromYamlRequest,
   InitiativePolicy,
   SetBudgetRequest,
+  UnitGitHubConfigRequest,
   UnitResponse,
   UpdateAgentMetadataRequest,
 } from "./types";
@@ -369,4 +370,67 @@ export const api = {
 
   // Skills catalog
   listSkills: async () => unwrap(await fetchClient.GET("/api/v1/skills")),
+
+  // Connectors — generic surface
+  listConnectors: async () => unwrap(await fetchClient.GET("/api/v1/connectors")),
+  getConnector: async (slugOrId: string) =>
+    unwrap(
+      await fetchClient.GET("/api/v1/connectors/{slugOrId}", {
+        params: { path: { slugOrId } },
+      }),
+    ),
+  /**
+   * Returns the unit's active connector binding pointer, or `null` when
+   * the unit isn't bound. Normalizing 404 → null here keeps call sites
+   * from needing a try/catch just to distinguish "no binding" from a real
+   * error.
+   */
+  getUnitConnector: async (unitId: string) => {
+    const result = await fetchClient.GET("/api/v1/units/{id}/connector", {
+      params: { path: { id: unitId } },
+    });
+    if (result.response.status === 404) {
+      return null;
+    }
+    return unwrap(result);
+  },
+  clearUnitConnector: async (unitId: string): Promise<void> => {
+    assertOk(
+      await fetchClient.DELETE("/api/v1/units/{id}/connector", {
+        params: { path: { id: unitId } },
+      }),
+    );
+  },
+
+  // Connectors — GitHub typed surface
+  listGitHubInstallations: async () =>
+    unwrap(
+      await fetchClient.GET(
+        "/api/v1/connectors/github/actions/list-installations",
+      ),
+    ),
+  getGitHubInstallUrl: async () =>
+    unwrap(
+      await fetchClient.GET("/api/v1/connectors/github/actions/install-url"),
+    ),
+  getUnitGitHubConfig: async (unitId: string) => {
+    const result = await fetchClient.GET(
+      "/api/v1/connectors/github/units/{unitId}/config",
+      { params: { path: { unitId } } },
+    );
+    if (result.response.status === 404) {
+      return null;
+    }
+    return unwrap(result);
+  },
+  putUnitGitHubConfig: async (
+    unitId: string,
+    body: UnitGitHubConfigRequest,
+  ) =>
+    unwrap(
+      await fetchClient.PUT(
+        "/api/v1/connectors/github/units/{unitId}/config",
+        { params: { path: { unitId } }, body },
+      ),
+    ),
 };

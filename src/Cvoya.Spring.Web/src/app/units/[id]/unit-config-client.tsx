@@ -5,7 +5,6 @@ import Link from "next/link";
 import {
   ArrowLeft,
   DollarSign,
-  Github,
   KeyRound,
   Play,
   Settings,
@@ -13,6 +12,7 @@ import {
 } from "lucide-react";
 
 import { AgentsTab } from "./agents-tab";
+import { ConnectorTab } from "./connector-tab";
 import { SkillsTab } from "./skills-tab";
 
 import { Badge } from "@/components/ui/badge";
@@ -438,11 +438,7 @@ export default function UnitConfigClient({ id }: ClientProps) {
         </TabsContent>
 
         <TabsContent value="connector">
-          <PlaceholderCard
-            icon={<Github className="h-5 w-5" />}
-            title="Connector"
-            body="GitHub connector configuration lives here. Follow-up: #125."
-          />
+          <ConnectorTab unitId={id} />
         </TabsContent>
 
         <TabsContent value="secrets">

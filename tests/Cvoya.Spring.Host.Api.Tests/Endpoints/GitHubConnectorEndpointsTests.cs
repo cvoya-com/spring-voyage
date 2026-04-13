@@ -1,0 +1,257 @@
+// Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
+// See LICENSE.md in the project root for full license terms.
+
+namespace Cvoya.Spring.Host.Api.Tests.Endpoints;
+
+using System.Net;
+using System.Net.Http.Json;
+using System.Text.Json;
+
+using Cvoya.Spring.Connector.GitHub;
+using Cvoya.Spring.Connector.GitHub.Auth;
+using Cvoya.Spring.Connector.GitHub.Webhooks;
+using Cvoya.Spring.Connectors;
+
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
+
+using NSubstitute;
+using NSubstitute.ExceptionExtensions;
+
+using Shouldly;
+
+using Xunit;
+
+/// <summary>
+/// Integration tests for the GitHub connector's typed surface under
+/// <c>/api/v1/connectors/github</c> — the typed per-unit config
+/// (GET/PUT) and the connector-scoped actions (<c>list-installations</c>,
+/// <c>install-url</c>). Uses its own factory so it can drive
+/// <see cref="GitHubConnectorOptions"/> and
+/// <see cref="IGitHubInstallationsClient"/> per test.
+/// </summary>
+public class GitHubConnectorEndpointsTests
+{
+    [Fact]
+    public async Task ListInstallations_HappyPath_ReturnsProjection()
+    {
+        var installationsClient = Substitute.For<IGitHubInstallationsClient>();
+        installationsClient.ListInstallationsAsync(Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new GitHubInstallation(1001L, "acme", "Organization", "selected"),
+                new GitHubInstallation(1002L, "alice", "User", "all"),
+            });
+
+        await using var factory = CreateFactory(installationsClient: installationsClient);
+        var client = factory.CreateClient();
+        var ct = TestContext.Current.CancellationToken;
+
+        var response = await client.GetAsync(
+            "/api/v1/connectors/github/actions/list-installations", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<GitHubInstallationResponse[]>(ct);
+        body.ShouldNotBeNull();
+        body!.Length.ShouldBe(2);
+        body[0].InstallationId.ShouldBe(1001L);
+        body[0].Account.ShouldBe("acme");
+    }
+
+    [Fact]
+    public async Task ListInstallations_Throws_Returns502()
+    {
+        var installationsClient = Substitute.For<IGitHubInstallationsClient>();
+        installationsClient.ListInstallationsAsync(Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("github 500"));
+
+        await using var factory = CreateFactory(installationsClient: installationsClient);
+        var client = factory.CreateClient();
+        var ct = TestContext.Current.CancellationToken;
+
+        var response = await client.GetAsync(
+            "/api/v1/connectors/github/actions/list-installations", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadGateway);
+    }
+
+    [Fact]
+    public async Task GetInstallUrl_AppSlugConfigured_ReturnsInstallUrl()
+    {
+        await using var factory = CreateFactory(appSlug: "spring-voyage-test");
+        var client = factory.CreateClient();
+        var ct = TestContext.Current.CancellationToken;
+
+        var response = await client.GetAsync("/api/v1/connectors/github/actions/install-url", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<GitHubInstallUrlResponse>(ct);
+        body.ShouldNotBeNull();
+        body!.Url.ShouldBe("https://github.com/apps/spring-voyage-test/installations/new");
+    }
+
+    [Fact]
+    public async Task GetInstallUrl_NoAppSlug_Returns502()
+    {
+        await using var factory = CreateFactory(appSlug: string.Empty);
+        var client = factory.CreateClient();
+        var ct = TestContext.Current.CancellationToken;
+
+        var response = await client.GetAsync("/api/v1/connectors/github/actions/install-url", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadGateway);
+    }
+
+    [Fact]
+    public async Task PutConfig_UpsertsBinding()
+    {
+        var configStore = Substitute.For<IUnitConnectorConfigStore>();
+        await using var factory = CreateFactory(configStore: configStore);
+        var client = factory.CreateClient();
+        var ct = TestContext.Current.CancellationToken;
+
+        var request = new UnitGitHubConfigRequest(
+            "acme", "platform", AppInstallationId: 1001, Events: new[] { "issues" });
+
+        var response = await client.PutAsJsonAsync(
+            "/api/v1/connectors/github/units/u1/config", request, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        await configStore.Received(1).SetAsync(
+            "u1",
+            GitHubConnectorType.GitHubTypeId,
+            Arg.Any<JsonElement>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task GetConfig_UnboundUnit_Returns404()
+    {
+        var configStore = Substitute.For<IUnitConnectorConfigStore>();
+        configStore.GetAsync("u1", Arg.Any<CancellationToken>())
+            .Returns((UnitConnectorBinding?)null);
+
+        await using var factory = CreateFactory(configStore: configStore);
+        var client = factory.CreateClient();
+        var ct = TestContext.Current.CancellationToken;
+
+        var response = await client.GetAsync("/api/v1/connectors/github/units/u1/config", ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task GetConfig_Bound_ReturnsTypedConfig()
+    {
+        var configStore = Substitute.For<IUnitConnectorConfigStore>();
+        var stored = JsonSerializer.SerializeToElement(
+            new UnitGitHubConfig("acme", "platform", 1001, new[] { "issues" }));
+        configStore.GetAsync("u1", Arg.Any<CancellationToken>())
+            .Returns(new UnitConnectorBinding(GitHubConnectorType.GitHubTypeId, stored));
+
+        await using var factory = CreateFactory(configStore: configStore);
+        var client = factory.CreateClient();
+        var ct = TestContext.Current.CancellationToken;
+
+        var response = await client.GetAsync("/api/v1/connectors/github/units/u1/config", ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<UnitGitHubConfigResponse>(ct);
+        body.ShouldNotBeNull();
+        body!.Owner.ShouldBe("acme");
+        body.Repo.ShouldBe("platform");
+        body.AppInstallationId.ShouldBe(1001);
+        body.Events.ShouldContain("issues");
+    }
+
+    [Fact]
+    public async Task GetConfigSchema_ReturnsJsonSchema()
+    {
+        await using var factory = CreateFactory();
+        var client = factory.CreateClient();
+        var ct = TestContext.Current.CancellationToken;
+
+        var response = await client.GetAsync("/api/v1/connectors/github/config-schema", ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>(ct);
+        body.TryGetProperty("type", out var type).ShouldBeTrue();
+        type.GetString().ShouldBe("object");
+        body.GetProperty("required").EnumerateArray().Select(e => e.GetString())
+            .ShouldContain("owner");
+    }
+
+    /// <summary>
+    /// Wraps <see cref="CustomWebApplicationFactory"/> with per-test
+    /// overrides of <see cref="GitHubConnectorOptions"/>,
+    /// <see cref="IGitHubInstallationsClient"/>, and the connector config
+    /// store. Re-registers the real <see cref="GitHubConnectorType"/> so the
+    /// typed surface is exercised rather than the shared factory's stub.
+    /// </summary>
+    private static WebApplicationFactory<Program> CreateFactory(
+        string? appSlug = null,
+        IGitHubInstallationsClient? installationsClient = null,
+        IUnitConnectorConfigStore? configStore = null)
+    {
+        var baseFactory = new CustomWebApplicationFactory();
+        return baseFactory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureServices(services =>
+            {
+                if (appSlug is not null)
+                {
+                    services.PostConfigure<GitHubConnectorOptions>(opts => opts.AppSlug = appSlug);
+                }
+
+                // Drop the stub IConnectorType registered by the shared factory
+                // so the real GitHubConnectorType owns the /connectors/github
+                // routes.
+                var connectorTypeDescriptors = services
+                    .Where(d => d.ServiceType == typeof(IConnectorType))
+                    .ToList();
+                foreach (var d in connectorTypeDescriptors)
+                {
+                    services.Remove(d);
+                }
+
+                // Provide a webhook registrar substitute so GitHubConnectorType
+                // construction succeeds; the tests in this class don't drive
+                // /start / /stop.
+                var regDescriptors = services
+                    .Where(d => d.ServiceType == typeof(IGitHubWebhookRegistrar))
+                    .ToList();
+                foreach (var d in regDescriptors)
+                {
+                    services.Remove(d);
+                }
+                services.AddSingleton(Substitute.For<IGitHubWebhookRegistrar>());
+
+                if (installationsClient is not null)
+                {
+                    var descriptors = services
+                        .Where(d => d.ServiceType == typeof(IGitHubInstallationsClient))
+                        .ToList();
+                    foreach (var d in descriptors)
+                    {
+                        services.Remove(d);
+                    }
+                    services.AddSingleton(installationsClient);
+                }
+
+                if (configStore is not null)
+                {
+                    var descriptors = services
+                        .Where(d => d.ServiceType == typeof(IUnitConnectorConfigStore))
+                        .ToList();
+                    foreach (var d in descriptors)
+                    {
+                        services.Remove(d);
+                    }
+                    services.AddSingleton(configStore);
+                }
+
+                services.AddSingleton<GitHubConnectorType>();
+                services.AddSingleton<IConnectorType>(
+                    sp => sp.GetRequiredService<GitHubConnectorType>());
+            });
+        });
+    }
+}

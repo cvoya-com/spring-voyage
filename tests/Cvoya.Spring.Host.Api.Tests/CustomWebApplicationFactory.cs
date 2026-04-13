@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Host.Api.Tests;
 
 using Cvoya.Spring.Connector.GitHub.Webhooks;
+using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Costs;
 using Cvoya.Spring.Core.Directory;
@@ -69,6 +70,45 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
     /// </summary>
     public IGitHubWebhookRegistrar GitHubWebhookRegistrar { get; } = Substitute.For<IGitHubWebhookRegistrar>();
 
+    /// <summary>
+    /// Gets the mock <see cref="IUnitConnectorConfigStore"/> registered in
+    /// the test DI container. Tests that exercise connector bindings arrange
+    /// responses on this mock to control what the generic
+    /// <c>/api/v1/units/{id}/connector</c> endpoints see.
+    /// </summary>
+    public IUnitConnectorConfigStore ConnectorConfigStore { get; } = Substitute.For<IUnitConnectorConfigStore>();
+
+    /// <summary>
+    /// Gets the mock <see cref="IUnitConnectorRuntimeStore"/> registered in
+    /// the test DI container.
+    /// </summary>
+    public IUnitConnectorRuntimeStore ConnectorRuntimeStore { get; } = Substitute.For<IUnitConnectorRuntimeStore>();
+
+    /// <summary>
+    /// Stub <see cref="IConnectorType"/> with a known type id used to drive
+    /// connector-dispatch tests without depending on the real GitHub
+    /// implementation. The stub is registered as the single
+    /// <see cref="IConnectorType"/> service in the test DI container.
+    /// </summary>
+    public IConnectorType StubConnectorType { get; } = CreateStubConnector();
+
+    private static IConnectorType CreateStubConnector()
+    {
+        var stub = Substitute.For<IConnectorType>();
+        stub.TypeId.Returns(new Guid("00000000-0000-0000-0000-00000000beef"));
+        stub.Slug.Returns("stub");
+        stub.DisplayName.Returns("Stub");
+        stub.Description.Returns("Test-only connector stub");
+        stub.ConfigType.Returns(typeof(object));
+        stub.GetConfigSchemaAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<System.Text.Json.JsonElement?>(null));
+        stub.OnUnitStartingAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+        stub.OnUnitStoppingAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+        return stub;
+    }
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         // Use --local mode to enable LocalDevAuthHandler (bypasses auth).
@@ -104,7 +144,10 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
                 typeof(IActivityQueryService),
                 typeof(IActivityEventBus),
                 typeof(IUnitContainerLifecycle),
-                typeof(IGitHubWebhookRegistrar)
+                typeof(IGitHubWebhookRegistrar),
+                typeof(IUnitConnectorConfigStore),
+                typeof(IUnitConnectorRuntimeStore),
+                typeof(IConnectorType),
             };
 
             var descriptors = services
@@ -125,6 +168,9 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
             services.AddSingleton(ActivityEventBus);
             services.AddSingleton(UnitContainerLifecycle);
             services.AddSingleton(GitHubWebhookRegistrar);
+            services.AddSingleton(ConnectorConfigStore);
+            services.AddSingleton(ConnectorRuntimeStore);
+            services.AddSingleton(StubConnectorType);
             services.AddSingleton(new DirectoryCache());
 
             // Remove and re-register permission service.

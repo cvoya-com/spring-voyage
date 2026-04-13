@@ -3,6 +3,7 @@
     <Project Path="src/Cvoya.Spring.A2A/Cvoya.Spring.A2A.csproj" />
     <Project Path="src/Cvoya.Spring.Cli/Cvoya.Spring.Cli.csproj" />
     <Project Path="src/Cvoya.Spring.Connector.GitHub/Cvoya.Spring.Connector.GitHub.csproj" />
+    <Project Path="src/Cvoya.Spring.Connectors.Abstractions/Cvoya.Spring.Connectors.Abstractions.csproj" />
     <Project Path="src/Cvoya.Spring.Core/Cvoya.Spring.Core.csproj" />
     <Project Path="src/Cvoya.Spring.Dapr/Cvoya.Spring.Dapr.csproj" />
     <Project Path="src/Cvoya.Spring.Host.Api/Cvoya.Spring.Host.Api.csproj" />

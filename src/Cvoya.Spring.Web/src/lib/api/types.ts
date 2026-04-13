@@ -105,6 +105,28 @@ export type InitiativePolicy = Schemas["InitiativePolicy"];
 export type InitiativeLevelResponse = Schemas["InitiativeLevelResponse"];
 
 // ---------------------------------------------------------------------------
+// Connectors (generic + GitHub)
+// ---------------------------------------------------------------------------
+
+/** GET /api/v1/connectors response item — uniform, non-polymorphic. */
+export type ConnectorTypeResponse = Schemas["ConnectorTypeResponse"];
+
+/** GET /api/v1/units/{id}/connector response — a pointer to the typed config. */
+export type UnitConnectorPointerResponse = Schemas["UnitConnectorPointerResponse"];
+
+/** PUT /api/v1/connectors/github/units/{unitId}/config request body. */
+export type UnitGitHubConfigRequest = Schemas["UnitGitHubConfigRequest"];
+
+/** GET / PUT response body for the GitHub per-unit config. */
+export type UnitGitHubConfigResponse = Schemas["UnitGitHubConfigResponse"];
+
+/** GET /api/v1/connectors/github/actions/list-installations item. */
+export type GitHubInstallationResponse = Schemas["GitHubInstallationResponse"];
+
+/** GET /api/v1/connectors/github/actions/install-url response. */
+export type GitHubInstallUrlResponse = Schemas["GitHubInstallUrlResponse"];
+
+// ---------------------------------------------------------------------------
 // Hand-written — not surfaced via the HTTP OpenAPI contract
 // ---------------------------------------------------------------------------
 

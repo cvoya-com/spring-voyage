@@ -62,15 +62,6 @@ public record UnitResponse(
 public record AddMemberRequest(AddressDto MemberAddress);
 
 /// <summary>
-/// Request body for binding a unit to a GitHub repository. The platform
-/// registers a webhook on the configured repo when the unit starts and
-/// deletes it when the unit stops.
-/// </summary>
-/// <param name="Owner">The repository owner (user or organization login).</param>
-/// <param name="Repo">The repository name.</param>
-public record SetUnitGitHubConfigRequest(string Owner, string Repo);
-
-/// <summary>
 /// Request body for setting a human's permission level within a unit.
 /// </summary>
 /// <param name="Permission">The permission level (Viewer, Operator, Owner).</param>
@@ -151,12 +142,6 @@ public record UnitDetailResponse(UnitResponse Unit, System.Text.Json.JsonElement
 /// post-transition lifecycle status.
 /// </summary>
 public record UnitLifecycleResponse(string UnitId, UnitStatus Status);
-
-/// <summary>
-/// Response body for <c>PUT /api/v1/units/{id}/github</c>. Returns the
-/// unit id and the GitHub configuration that was applied.
-/// </summary>
-public record SetUnitGitHubConfigResponse(string UnitId, UnitGitHubConfig GitHub);
 
 /// <summary>
 /// Response body for <c>PATCH /api/v1/units/{id}/humans/{humanId}/permissions</c>.

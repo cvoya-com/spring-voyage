@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Cvoya.Spring.Connectors</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Cvoya.Spring.Core\Cvoya.Spring.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      The IConnectorType.MapRoutes signature consumes IEndpointRouteBuilder,
+      so this project references the ASP.NET Core shared framework. It is
+      still purely an abstractions assembly — no runtime behavior — so
+      referencing it from Cvoya.Spring.Core consumers is safe.
+    -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+</Project>

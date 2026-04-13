@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Connector.GitHub.DependencyInjection;
 
 using Cvoya.Spring.Connector.GitHub.Auth;
 using Cvoya.Spring.Connector.GitHub.Webhooks;
+using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.Skills;
 
 using Microsoft.Extensions.Configuration;
@@ -49,10 +50,21 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IGitHubConnector>(sp => sp.GetRequiredService<GitHubConnector>());
         services.TryAddSingleton<GitHubSkillRegistry>();
         services.TryAddSingleton<IGitHubWebhookRegistrar, GitHubWebhookRegistrar>();
+        // Installation-listing is its own abstraction (IGitHubInstallationsClient)
+        // so the cloud repo can substitute a tenant-scoped implementation
+        // without pulling endpoint code.
+        services.TryAddSingleton<IGitHubInstallationsClient, GitHubInstallationsClient>();
 
         // Expose the GitHub skills through the cross-connector ISkillRegistry abstraction
         // so the MCP server (and any future planner) can discover them uniformly.
         services.AddSingleton<ISkillRegistry>(sp => sp.GetRequiredService<GitHubSkillRegistry>());
+
+        // Register the connector via the platform-generic IConnectorType
+        // abstraction. Host.Api iterates every registered IConnectorType at
+        // startup and calls its MapRoutes, so no GitHub-specific code needs
+        // to live in the API project.
+        services.AddSingleton<GitHubConnectorType>();
+        services.AddSingleton<IConnectorType>(sp => sp.GetRequiredService<GitHubConnectorType>());
 
         return services;
     }
