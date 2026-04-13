@@ -19,6 +19,8 @@ This product includes or depends on the following third-party software:
 | Npgsql / Npgsql.EntityFrameworkCore.PostgreSQL | PostgreSQL License | [npgsql/npgsql](https://github.com/npgsql/npgsql) |
 | Octokit.net | MIT License | [octokit/octokit.net](https://github.com/octokit/octokit.net) |
 | Swashbuckle.AspNetCore | MIT License | [domaindrivendev/Swashbuckle.AspNetCore](https://github.com/domaindrivendev/Swashbuckle.AspNetCore) |
+| System.Reactive | MIT License | [dotnet/reactive](https://github.com/dotnet/reactive) |
+| YamlDotNet | MIT License | [aaubry/YamlDotNet](https://github.com/aaubry/YamlDotNet) |
 | xunit.v3 | Apache License 2.0 | [xunit/xunit](https://github.com/xunit/xunit) |
 | FluentAssertions | Apache License 2.0 | [fluentassertions/fluentassertions](https://github.com/fluentassertions/fluentassertions) |
 | NSubstitute | BSD 3-Clause | [nsubstitute/NSubstitute](https://github.com/nsubstitute/NSubstitute) |
