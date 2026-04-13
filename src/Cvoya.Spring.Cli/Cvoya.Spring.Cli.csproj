@@ -14,9 +14,26 @@
     <PackageReference Include="System.CommandLine" />
     <!-- Microsoft.Kiota.Bundle is the runtime the generated client under
          Generated/ depends on. Bundle includes Abstractions, HTTP, and
-         JSON serialisation. Regenerate the tree with the Kiota CLI; see
-         scripts/regenerate-cli-client.sh. -->
+         JSON serialisation. The Generated/ tree itself is gitignored and
+         re-emitted by the GenerateKiotaClient target below on each build. -->
     <PackageReference Include="Microsoft.Kiota.Bundle" />
   </ItemGroup>
+
+  <PropertyGroup>
+    <OpenApiContract>$(MSBuildThisFileDirectory)..\Cvoya.Spring.Host.Api\openapi.json</OpenApiContract>
+    <KiotaOutputDir>$(MSBuildThisFileDirectory)Generated</KiotaOutputDir>
+    <KiotaLockFile>$(KiotaOutputDir)\kiota-lock.json</KiotaLockFile>
+  </PropertyGroup>
+
+  <Target Name="GenerateKiotaClient"
+          BeforeTargets="BeforeCompile"
+          Inputs="$(OpenApiContract)"
+          Outputs="$(KiotaLockFile)">
+    <Message Importance="high" Text="Regenerating Kiota client from $(OpenApiContract)" />
+    <Exec Command="dotnet tool restore"
+          WorkingDirectory="$(MSBuildThisFileDirectory)..\..\" />
+    <Exec Command="dotnet tool run kiota generate --openapi &quot;$(OpenApiContract)&quot; --language CSharp --output &quot;$(KiotaOutputDir)&quot; --class-name SpringApiKiotaClient --namespace-name Cvoya.Spring.Cli.Generated --clean-output --log-level Warning"
+          WorkingDirectory="$(MSBuildThisFileDirectory)..\..\" />
+  </Target>
 
 </Project>

@@ -30,3 +30,10 @@ dapr/secrets.json
 
 ## Deployment env file (not committed; keep spring.env.example only)
 deployment/spring.env
+
+## Generated client code — re-emitted from the committed OpenAPI
+## contract on every `dotnet build` (CLI Kiota tree) and every
+## `npm run generate-api` (web TypeScript schema). Source of truth is
+## `src/Cvoya.Spring.Host.Api/openapi.json`, which IS committed.
+src/Cvoya.Spring.Cli/Generated/
+src/Cvoya.Spring.Web/src/lib/api/schema.d.ts

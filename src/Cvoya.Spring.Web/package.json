@@ -9,7 +9,11 @@
     "lint": "next lint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "generate-api": "openapi-typescript ../Cvoya.Spring.Host.Api/openapi.json -o src/lib/api/schema.d.ts"
+    "generate-api": "openapi-typescript ../Cvoya.Spring.Host.Api/openapi.json -o src/lib/api/schema.d.ts",
+    "predev": "npm run generate-api",
+    "prebuild": "npm run generate-api",
+    "pretest": "npm run generate-api",
+    "prelint": "npm run generate-api"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",
