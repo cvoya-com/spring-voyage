@@ -97,6 +97,13 @@ public static class OutputFormatter
     public static string FormatTable<T>(T row, IReadOnlyList<Column<T>> columns)
         => FormatTable(new[] { row }, columns);
 
+    // One writer factory is enough — all FormatJson overloads share it. Instantiating
+    // our own factory sidesteps Kiota's global SerializationWriterFactoryRegistry,
+    // which is populated lazily by the SpringApiKiotaClient constructor and therefore
+    // leaks test-ordering dependencies (see CI run on #189 where this test ran before
+    // any client was constructed and failed with "no factory registered").
+    private static readonly JsonSerializationWriterFactory JsonWriterFactory = new();
+
     /// <summary>
     /// Serialises a Kiota <see cref="IParsable"/> model as wire-format JSON. Uses Kiota's
     /// own JSON writer so property names match the OpenAPI contract (camelCase) rather
@@ -104,14 +111,18 @@ public static class OutputFormatter
     /// </summary>
     public static string FormatJson<T>(T value) where T : IParsable
     {
-        using var stream = KiotaJsonSerializer.SerializeAsStream(value);
+        using var writer = JsonWriterFactory.GetSerializationWriter("application/json");
+        writer.WriteObjectValue(null, value);
+        using var stream = writer.GetSerializedContent();
         return ReadIndented(stream);
     }
 
     /// <summary>Serialises a sequence of Kiota models as a wire-format JSON array.</summary>
     public static string FormatJson<T>(IEnumerable<T> values) where T : IParsable
     {
-        using var stream = KiotaJsonSerializer.SerializeAsStream(values);
+        using var writer = JsonWriterFactory.GetSerializationWriter("application/json");
+        writer.WriteCollectionOfObjectValues(null, values);
+        using var stream = writer.GetSerializedContent();
         return ReadIndented(stream);
     }
 
