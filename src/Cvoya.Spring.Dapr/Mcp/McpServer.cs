@@ -324,6 +324,48 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
         {
             await WriteErrorAsync(response, request.Id, McpRpcErrorCodes.MethodNotFound, ex.Message);
         }
+        catch (ArgumentException ex)
+        {
+            // Malformed arguments are surfaced to the model as a tool error so it can
+            // self-correct, rather than as a JSON-RPC transport error. Server-side
+            // details are logged so operators can still audit rejected calls.
+            _logger.LogWarning(ex,
+                "MCP tool {Tool} rejected malformed arguments (agent={AgentId} conv={ConversationId})",
+                toolName, session.AgentId, session.ConversationId);
+            await WriteResultAsync(response, request.Id, new
+            {
+                content = new[]
+                {
+                    new
+                    {
+                        type = "text",
+                        text = $"Invalid tool arguments: {ex.Message}"
+                    }
+                },
+                isError = true
+            });
+        }
+        catch (Exception ex)
+        {
+            // Execution failures (HTTP 4xx/5xx from GitHub, timeouts, etc.) must surface to
+            // the model with isError so the loop can decide what to do. The exception is
+            // fully logged server-side per #105 — we never swallow silently.
+            _logger.LogError(ex,
+                "MCP tool {Tool} threw while executing (agent={AgentId} conv={ConversationId})",
+                toolName, session.AgentId, session.ConversationId);
+            await WriteResultAsync(response, request.Id, new
+            {
+                content = new[]
+                {
+                    new
+                    {
+                        type = "text",
+                        text = $"Tool '{toolName}' failed: {ex.Message}"
+                    }
+                },
+                isError = true
+            });
+        }
     }
 
     private object BuildInitializeResult(McpSession session)

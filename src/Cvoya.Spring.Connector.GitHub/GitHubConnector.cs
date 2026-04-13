@@ -70,7 +70,7 @@ public class GitHubConnector(
     /// </summary>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     /// <returns>An authenticated GitHub client.</returns>
-    public async Task<IGitHubClient> CreateAuthenticatedClientAsync(CancellationToken cancellationToken = default)
+    public virtual async Task<IGitHubClient> CreateAuthenticatedClientAsync(CancellationToken cancellationToken = default)
     {
         var installationId = options.InstallationId
             ?? throw new InvalidOperationException("InstallationId must be configured to create an authenticated client.");

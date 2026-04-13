@@ -85,12 +85,22 @@ public class GitHubSkillRegistry : ISkillRegistry
                     GetString(args, "base"),
                     ct),
 
-            ["github_comment"] = (client, args, ct) =>
+            ["github_comment_on_issue"] = (client, args, ct) =>
                 new CommentSkill(client, _loggerFactory).ExecuteAsync(
                     GetString(args, "owner"),
                     GetString(args, "repo"),
                     GetInt(args, "number"),
                     GetString(args, "body"),
+                    "issue",
+                    ct),
+
+            ["github_comment_on_pull_request"] = (client, args, ct) =>
+                new CommentSkill(client, _loggerFactory).ExecuteAsync(
+                    GetString(args, "owner"),
+                    GetString(args, "repo"),
+                    GetInt(args, "number"),
+                    GetString(args, "body"),
+                    "pull_request",
                     ct),
 
             ["github_read_file"] = (client, args, ct) =>
@@ -99,6 +109,25 @@ public class GitHubSkillRegistry : ISkillRegistry
                     GetString(args, "repo"),
                     GetString(args, "path"),
                     GetOptionalString(args, "ref"),
+                    ct),
+
+            ["github_write_file"] = (client, args, ct) =>
+                new WriteFileSkill(client, _loggerFactory).ExecuteAsync(
+                    GetString(args, "owner"),
+                    GetString(args, "repo"),
+                    GetString(args, "path"),
+                    GetString(args, "content"),
+                    GetString(args, "message"),
+                    GetString(args, "branch"),
+                    ct),
+
+            ["github_delete_file"] = (client, args, ct) =>
+                new DeleteFileSkill(client, _loggerFactory).ExecuteAsync(
+                    GetString(args, "owner"),
+                    GetString(args, "repo"),
+                    GetString(args, "path"),
+                    GetString(args, "message"),
+                    GetString(args, "branch"),
                     ct),
 
             ["github_list_files"] = (client, args, ct) =>
@@ -212,8 +241,8 @@ public class GitHubSkillRegistry : ISkillRegistry
                 }),
 
             CreateToolDefinition(
-                "github_comment",
-                "Creates a comment on a GitHub issue or pull request.",
+                "github_comment_on_issue",
+                "Posts a comment on a GitHub issue conversation thread.",
                 new
                 {
                     type = "object",
@@ -221,7 +250,23 @@ public class GitHubSkillRegistry : ISkillRegistry
                     {
                         owner = new { type = "string", description = "The repository owner" },
                         repo = new { type = "string", description = "The repository name" },
-                        number = new { type = "integer", description = "The issue or PR number" },
+                        number = new { type = "integer", description = "The issue number" },
+                        body = new { type = "string", description = "The comment body text" }
+                    },
+                    required = new[] { "owner", "repo", "number", "body" }
+                }),
+
+            CreateToolDefinition(
+                "github_comment_on_pull_request",
+                "Posts a comment on a GitHub pull request conversation thread. Does not place line-level review comments.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        owner = new { type = "string", description = "The repository owner" },
+                        repo = new { type = "string", description = "The repository name" },
+                        number = new { type = "integer", description = "The pull request number" },
                         body = new { type = "string", description = "The comment body text" }
                     },
                     required = new[] { "owner", "repo", "number", "body" }
@@ -241,6 +286,41 @@ public class GitHubSkillRegistry : ISkillRegistry
                         @ref = new { type = "string", description = "Optional Git reference (branch, tag, or SHA)" }
                     },
                     required = new[] { "owner", "repo", "path" }
+                }),
+
+            CreateToolDefinition(
+                "github_write_file",
+                "Creates or updates a file in a GitHub repository on the specified branch. If the file exists it is overwritten; otherwise it is created.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        owner = new { type = "string", description = "The repository owner" },
+                        repo = new { type = "string", description = "The repository name" },
+                        path = new { type = "string", description = "The file path within the repository" },
+                        content = new { type = "string", description = "The UTF-8 text contents to write" },
+                        message = new { type = "string", description = "The commit message" },
+                        branch = new { type = "string", description = "The branch to commit against" }
+                    },
+                    required = new[] { "owner", "repo", "path", "content", "message", "branch" }
+                }),
+
+            CreateToolDefinition(
+                "github_delete_file",
+                "Deletes a file from a GitHub repository on the specified branch.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        owner = new { type = "string", description = "The repository owner" },
+                        repo = new { type = "string", description = "The repository name" },
+                        path = new { type = "string", description = "The file path within the repository" },
+                        message = new { type = "string", description = "The commit message" },
+                        branch = new { type = "string", description = "The branch to commit against" }
+                    },
+                    required = new[] { "owner", "repo", "path", "message", "branch" }
                 }),
 
             CreateToolDefinition(

@@ -62,6 +62,15 @@ public record UnitResponse(
 public record AddMemberRequest(AddressDto MemberAddress);
 
 /// <summary>
+/// Request body for binding a unit to a GitHub repository. The platform
+/// registers a webhook on the configured repo when the unit starts and
+/// deletes it when the unit stops.
+/// </summary>
+/// <param name="Owner">The repository owner (user or organization login).</param>
+/// <param name="Repo">The repository name.</param>
+public record SetUnitGitHubConfigRequest(string Owner, string Repo);
+
+/// <summary>
 /// Request body for setting a human's permission level within a unit.
 /// </summary>
 /// <param name="Permission">The permission level (Viewer, Operator, Owner).</param>

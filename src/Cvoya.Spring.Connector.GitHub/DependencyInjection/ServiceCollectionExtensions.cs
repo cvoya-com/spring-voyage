@@ -48,6 +48,7 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<GitHubConnector>();
         services.TryAddSingleton<IGitHubConnector>(sp => sp.GetRequiredService<GitHubConnector>());
         services.TryAddSingleton<GitHubSkillRegistry>();
+        services.TryAddSingleton<IGitHubWebhookRegistrar, GitHubWebhookRegistrar>();
 
         // Expose the GitHub skills through the cross-connector ISkillRegistry abstraction
         // so the MCP server (and any future planner) can discover them uniformly.

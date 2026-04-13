@@ -127,6 +127,107 @@ public class UnitLifecycleEndpointTests : IClassFixture<CustomWebApplicationFact
     }
 
     [Fact]
+    public async Task StartUnit_WithGitHubConfig_RegistersWebhookAndPersistsHookId()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var proxy = ArrangeUnit(startingResult: new TransitionResult(true, UnitStatus.Starting, null),
+            finalResult: new TransitionResult(true, UnitStatus.Running, null));
+
+        proxy.GetGitHubConfigAsync(Arg.Any<CancellationToken>())
+            .Returns(new UnitGitHubConfig("acme", "platform"));
+
+        _factory.UnitContainerLifecycle.StartUnitAsync(ActorId, Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+        _factory.GitHubWebhookRegistrar.RegisterAsync("acme", "platform", Arg.Any<CancellationToken>())
+            .Returns(12345L);
+
+        var response = await _client.PostAsync($"/api/v1/units/{UnitName}/start", content: null, ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Accepted);
+
+        await _factory.GitHubWebhookRegistrar.Received(1)
+            .RegisterAsync("acme", "platform", Arg.Any<CancellationToken>());
+        await proxy.Received(1).SetGitHubHookIdAsync(12345L, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task StartUnit_WithGitHubConfig_WebhookFailure_StillTransitionsToRunning()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var proxy = ArrangeUnit(startingResult: new TransitionResult(true, UnitStatus.Starting, null),
+            finalResult: new TransitionResult(true, UnitStatus.Running, null));
+
+        proxy.GetGitHubConfigAsync(Arg.Any<CancellationToken>())
+            .Returns(new UnitGitHubConfig("acme", "platform"));
+
+        _factory.UnitContainerLifecycle.StartUnitAsync(ActorId, Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+        _factory.GitHubWebhookRegistrar.RegisterAsync("acme", "platform", Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("github 502"));
+
+        var response = await _client.PostAsync($"/api/v1/units/{UnitName}/start", content: null, ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Accepted);
+        await proxy.DidNotReceive().SetGitHubHookIdAsync(Arg.Any<long?>(), Arg.Any<CancellationToken>());
+        await proxy.Received(1).TransitionAsync(UnitStatus.Running, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task StopUnit_WithPersistedHookId_UnregistersWebhookAndClearsHookId()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        var proxy = Substitute.For<IUnitActor>();
+        proxy.TransitionAsync(UnitStatus.Stopping, Arg.Any<CancellationToken>())
+            .Returns(new TransitionResult(true, UnitStatus.Stopping, null));
+        proxy.TransitionAsync(UnitStatus.Stopped, Arg.Any<CancellationToken>())
+            .Returns(new TransitionResult(true, UnitStatus.Stopped, null));
+        proxy.GetGitHubConfigAsync(Arg.Any<CancellationToken>())
+            .Returns(new UnitGitHubConfig("acme", "platform"));
+        proxy.GetGitHubHookIdAsync(Arg.Any<CancellationToken>())
+            .Returns(12345L);
+
+        ArrangeResolved(proxy);
+
+        _factory.UnitContainerLifecycle.StopUnitAsync(ActorId, Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+
+        var response = await _client.PostAsync($"/api/v1/units/{UnitName}/stop", content: null, ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Accepted);
+        await _factory.GitHubWebhookRegistrar.Received(1)
+            .UnregisterAsync("acme", "platform", 12345L, Arg.Any<CancellationToken>());
+        await proxy.Received(1).SetGitHubHookIdAsync(null, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task StopUnit_WithoutHookId_DoesNotInvokeRegistrar()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        var proxy = Substitute.For<IUnitActor>();
+        proxy.TransitionAsync(UnitStatus.Stopping, Arg.Any<CancellationToken>())
+            .Returns(new TransitionResult(true, UnitStatus.Stopping, null));
+        proxy.TransitionAsync(UnitStatus.Stopped, Arg.Any<CancellationToken>())
+            .Returns(new TransitionResult(true, UnitStatus.Stopped, null));
+        proxy.GetGitHubConfigAsync(Arg.Any<CancellationToken>())
+            .Returns((UnitGitHubConfig?)null);
+        proxy.GetGitHubHookIdAsync(Arg.Any<CancellationToken>())
+            .Returns((long?)null);
+
+        ArrangeResolved(proxy);
+
+        _factory.UnitContainerLifecycle.StopUnitAsync(ActorId, Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+
+        var response = await _client.PostAsync($"/api/v1/units/{UnitName}/stop", content: null, ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Accepted);
+        await _factory.GitHubWebhookRegistrar.DidNotReceive()
+            .UnregisterAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<long>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task StopUnit_AlreadyStopped_Returns409()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -159,6 +260,7 @@ public class UnitLifecycleEndpointTests : IClassFixture<CustomWebApplicationFact
         _factory.DirectoryService.ClearReceivedCalls();
         _factory.UnitContainerLifecycle.ClearReceivedCalls();
         _factory.ActorProxyFactory.ClearReceivedCalls();
+        _factory.GitHubWebhookRegistrar.ClearReceivedCalls();
 
         var entry = new DirectoryEntry(
             new Address("unit", UnitName),

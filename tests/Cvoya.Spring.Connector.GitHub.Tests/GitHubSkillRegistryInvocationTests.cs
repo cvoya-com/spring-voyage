@@ -66,8 +66,11 @@ public class GitHubSkillRegistryInvocationTests
         {
             "github_create_branch",
             "github_create_pull_request",
-            "github_comment",
+            "github_comment_on_issue",
+            "github_comment_on_pull_request",
             "github_read_file",
+            "github_write_file",
+            "github_delete_file",
             "github_list_files",
             "github_get_issue_details",
             "github_get_pull_request_diff",

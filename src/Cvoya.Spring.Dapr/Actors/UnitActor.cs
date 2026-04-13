@@ -289,6 +289,50 @@ public class UnitActor : Actor, IUnitActor
             }));
     }
 
+    /// <inheritdoc />
+    public async Task<UnitGitHubConfig?> GetGitHubConfigAsync(CancellationToken ct = default)
+    {
+        var result = await StateManager.TryGetStateAsync<UnitGitHubConfig>(StateKeys.UnitGitHubConfig, ct);
+        return result.HasValue ? result.Value : null;
+    }
+
+    /// <inheritdoc />
+    public async Task SetGitHubConfigAsync(UnitGitHubConfig? config, CancellationToken ct = default)
+    {
+        if (config is null)
+        {
+            await StateManager.RemoveStateAsync(StateKeys.UnitGitHubConfig, ct);
+            _logger.LogInformation(
+                "Unit {ActorId} cleared GitHub configuration",
+                Id.GetId());
+            return;
+        }
+
+        await StateManager.SetStateAsync(StateKeys.UnitGitHubConfig, config, ct);
+        _logger.LogInformation(
+            "Unit {ActorId} set GitHub configuration to {Owner}/{Repo}",
+            Id.GetId(), config.Owner, config.Repo);
+    }
+
+    /// <inheritdoc />
+    public async Task<long?> GetGitHubHookIdAsync(CancellationToken ct = default)
+    {
+        var result = await StateManager.TryGetStateAsync<long>(StateKeys.UnitGitHubHookId, ct);
+        return result.HasValue ? result.Value : null;
+    }
+
+    /// <inheritdoc />
+    public async Task SetGitHubHookIdAsync(long? hookId, CancellationToken ct = default)
+    {
+        if (hookId is null)
+        {
+            await StateManager.RemoveStateAsync(StateKeys.UnitGitHubHookId, ct);
+            return;
+        }
+
+        await StateManager.SetStateAsync(StateKeys.UnitGitHubHookId, hookId.Value, ct);
+    }
+
     /// <summary>
     /// Reads the persisted lifecycle status, defaulting to <see cref="UnitStatus.Draft"/> when unset.
     /// </summary>

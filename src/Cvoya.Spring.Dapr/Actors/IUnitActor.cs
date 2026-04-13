@@ -113,4 +113,38 @@ public interface IUnitActor : IActor
     /// <param name="metadata">The metadata to apply.</param>
     /// <param name="ct">A token to cancel the operation.</param>
     Task SetMetadataAsync(UnitMetadata metadata, CancellationToken ct = default);
+
+    /// <summary>
+    /// Gets the unit's GitHub connector configuration, or <c>null</c> when the
+    /// unit is not wired to a GitHub repository. Used by the unit lifecycle
+    /// handler to decide whether to register a webhook on /start.
+    /// </summary>
+    /// <param name="ct">A token to cancel the operation.</param>
+    /// <returns>The persisted GitHub config, or <c>null</c> if unset.</returns>
+    Task<UnitGitHubConfig?> GetGitHubConfigAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Replaces the unit's GitHub connector configuration. Pass <c>null</c> to
+    /// clear the binding.
+    /// </summary>
+    /// <param name="config">The new configuration, or <c>null</c> to clear.</param>
+    /// <param name="ct">A token to cancel the operation.</param>
+    Task SetGitHubConfigAsync(UnitGitHubConfig? config, CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns the id of the GitHub webhook registered for this unit, or
+    /// <c>null</c> if no hook is currently tracked. Set by the /start handler
+    /// after successful registration; cleared by the /stop handler after
+    /// teardown.
+    /// </summary>
+    /// <param name="ct">A token to cancel the operation.</param>
+    Task<long?> GetGitHubHookIdAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Stores the id of the GitHub webhook registered for this unit. Pass
+    /// <c>null</c> to clear.
+    /// </summary>
+    /// <param name="hookId">The webhook id returned by GitHub, or <c>null</c> to clear.</param>
+    /// <param name="ct">A token to cancel the operation.</param>
+    Task SetGitHubHookIdAsync(long? hookId, CancellationToken ct = default);
 }
