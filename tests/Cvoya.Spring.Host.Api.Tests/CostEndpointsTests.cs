@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Host.Api.Tests;
 using System.Net;
 using System.Net.Http.Json;
 
+using Cvoya.Spring.Core.Costs;
 using Cvoya.Spring.Dapr.Costs;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Host.Api.Models;
@@ -75,6 +76,34 @@ public class CostEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
+    public async Task GetAgentCost_ReturnsWorkInitiativeSplit()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var now = DateTimeOffset.UtcNow;
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        db.CostRecords.AddRange(
+            CreateRecord("split-agent", "unit-1", "tenant-1", 0.08m, 100, 50, now, CostSource.Work),
+            CreateRecord("split-agent", "unit-1", "tenant-1", 0.04m, 100, 50, now, CostSource.Work),
+            CreateRecord("split-agent", "unit-1", "tenant-1", 0.03m, 100, 50, now, CostSource.Initiative));
+        await db.SaveChangesAsync(ct);
+
+        var from = Uri.EscapeDataString(now.AddHours(-1).ToString("O"));
+        var to = Uri.EscapeDataString(now.AddHours(1).ToString("O"));
+        var response = await _client.GetAsync(
+            $"/api/v1/costs/agents/split-agent?from={from}&to={to}", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var summary = await response.Content.ReadFromJsonAsync<CostSummaryResponse>(ct);
+        summary.ShouldNotBeNull();
+        summary!.TotalCost.ShouldBe(0.15m);
+        summary.WorkCost.ShouldBe(0.12m);
+        summary.InitiativeCost.ShouldBe(0.03m);
+    }
+
+    [Fact]
     public async Task GetUnitCost_WithRecords_ReturnsSummary()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -133,7 +162,8 @@ public class CostEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         decimal cost,
         int inputTokens,
         int outputTokens,
-        DateTimeOffset timestamp)
+        DateTimeOffset timestamp,
+        CostSource source = CostSource.Work)
     {
         return new CostRecord
         {
@@ -146,6 +176,7 @@ public class CostEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             InputTokens = inputTokens,
             OutputTokens = outputTokens,
             Timestamp = timestamp,
+            Source = source,
         };
     }
 }

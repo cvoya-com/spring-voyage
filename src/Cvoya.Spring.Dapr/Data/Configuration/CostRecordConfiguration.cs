@@ -31,6 +31,11 @@ internal class CostRecordConfiguration : IEntityTypeConfiguration<CostRecord>
         builder.Property(e => e.Duration).HasColumnName("duration");
         builder.Property(e => e.Timestamp).HasColumnName("timestamp").IsRequired();
         builder.Property(e => e.CorrelationId).HasColumnName("correlation_id").HasMaxLength(128);
+        builder.Property(e => e.Source)
+            .HasColumnName("source")
+            .HasConversion<string>()
+            .HasMaxLength(32)
+            .HasDefaultValue(Cvoya.Spring.Core.Costs.CostSource.Work);
 
         builder.HasIndex(e => e.AgentId);
         builder.HasIndex(e => e.UnitId);

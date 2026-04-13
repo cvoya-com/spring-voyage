@@ -8,6 +8,8 @@ using Cvoya.Spring.Dapr.Data;
 
 using Microsoft.EntityFrameworkCore;
 
+using static Cvoya.Spring.Core.Costs.CostSource;
+
 /// <summary>
 /// Provides aggregated cost queries by querying <see cref="CostRecord"/> entities
 /// from the database. Registered as a scoped service because it depends on <see cref="SpringDbContext"/>.
@@ -54,6 +56,8 @@ public class CostAggregation(SpringDbContext dbContext) : ICostQueryService
             TotalInputTokens: records.Sum(r => (long)r.InputTokens),
             TotalOutputTokens: records.Sum(r => (long)r.OutputTokens),
             RecordCount: records.Count,
+            WorkCost: records.Where(r => r.Source == Work).Sum(r => r.Cost),
+            InitiativeCost: records.Where(r => r.Source == Initiative).Sum(r => r.Cost),
             From: from,
             To: to);
     }

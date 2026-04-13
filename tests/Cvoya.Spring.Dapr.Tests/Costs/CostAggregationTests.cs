@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Dapr.Tests.Costs;
 
+using Cvoya.Spring.Core.Costs;
 using Cvoya.Spring.Dapr.Costs;
 using Cvoya.Spring.Dapr.Data;
 
@@ -33,7 +34,8 @@ public class CostAggregationTests : IDisposable
         decimal cost = 0.05m,
         int inputTokens = 100,
         int outputTokens = 50,
-        DateTimeOffset? timestamp = null)
+        DateTimeOffset? timestamp = null,
+        CostSource source = CostSource.Work)
     {
         return new CostRecord
         {
@@ -46,6 +48,7 @@ public class CostAggregationTests : IDisposable
             InputTokens = inputTokens,
             OutputTokens = outputTokens,
             Timestamp = timestamp ?? DateTimeOffset.UtcNow,
+            Source = source,
         };
     }
 
@@ -116,6 +119,46 @@ public class CostAggregationTests : IDisposable
 
         result.TotalCost.ShouldBe(0.80m);
         result.RecordCount.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task GetAgentCostAsync_SplitsCostBySource()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var now = DateTimeOffset.UtcNow;
+        _dbContext.CostRecords.AddRange(
+            CreateRecord(agentId: "agent-a", cost: 0.10m, timestamp: now, source: CostSource.Work),
+            CreateRecord(agentId: "agent-a", cost: 0.07m, timestamp: now, source: CostSource.Work),
+            CreateRecord(agentId: "agent-a", cost: 0.03m, timestamp: now, source: CostSource.Initiative));
+        await _dbContext.SaveChangesAsync(ct);
+
+        var service = CreateService();
+        var result = await service.GetAgentCostAsync("agent-a", now.AddHours(-1), now.AddHours(1), ct);
+
+        result.TotalCost.ShouldBe(0.20m);
+        result.WorkCost.ShouldBe(0.17m);
+        result.InitiativeCost.ShouldBe(0.03m);
+        // The two sub-totals must add up to the total — keep the invariant explicit
+        // so a future schema change (adding a third source) can't silently drop
+        // cost from the reported split.
+        (result.WorkCost + result.InitiativeCost).ShouldBe(result.TotalCost);
+    }
+
+    [Fact]
+    public async Task GetAgentCostAsync_NoInitiativeRecords_InitiativeCostIsZero()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var now = DateTimeOffset.UtcNow;
+        _dbContext.CostRecords.Add(
+            CreateRecord(agentId: "agent-a", cost: 0.05m, timestamp: now, source: CostSource.Work));
+        await _dbContext.SaveChangesAsync(ct);
+
+        var service = CreateService();
+        var result = await service.GetAgentCostAsync("agent-a", now.AddHours(-1), now.AddHours(1), ct);
+
+        result.TotalCost.ShouldBe(0.05m);
+        result.WorkCost.ShouldBe(0.05m);
+        result.InitiativeCost.ShouldBe(0m);
     }
 
     [Fact]

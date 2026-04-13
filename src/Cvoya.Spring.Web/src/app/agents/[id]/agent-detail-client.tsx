@@ -52,55 +52,30 @@ interface ClassifiedCost {
   classification: CostClass;
 }
 
-// Client-side split of CostIncurred events into initiative vs. work
-// buckets. Server-side split is a follow-up; see #75.
+// Classify CostIncurred events by reading the `costSource` tag written at
+// emission time by AgentActor (see #101). Falls back to "work_cost" for
+// legacy events that pre-date the tag so the table stays readable during
+// rollout.
 function classifyCostEvents(
   events: ActivityEvent[],
   agentId: string,
 ): ClassifiedCost[] {
-  // Events arrive newest-first from the stream; walk oldest-first so the
-  // "initiative mode" flag flips in chronological order.
-  const scoped = events
-    .filter((e) => e.source.scheme === "agent" && e.source.path === agentId)
-    .slice()
-    .reverse();
+  const result: ClassifiedCost[] = [];
 
-  const QUIET_MS = 30 * 60 * 1000;
-  let initiativeMode = false;
-  let lastInitiativeTs = 0;
-  const classified: ClassifiedCost[] = [];
+  for (const e of events) {
+    if (e.eventType !== "CostIncurred") continue;
+    if (e.source.scheme !== "agent" || e.source.path !== agentId) continue;
 
-  for (const e of scoped) {
-    const ts = new Date(e.timestamp).getTime();
-    if (
-      e.eventType === "InitiativeTriggered" ||
-      e.eventType === "ReflectionCompleted"
-    ) {
-      initiativeMode = true;
-      lastInitiativeTs = ts;
-      continue;
-    }
+    const raw = (e.details as { costSource?: unknown } | undefined)?.costSource;
+    const classification: CostClass =
+      typeof raw === "string" && raw.toLowerCase() === "initiative"
+        ? "initiative_cost"
+        : "work_cost";
 
-    if (initiativeMode && ts - lastInitiativeTs > QUIET_MS) {
-      initiativeMode = false;
-    }
-
-    if (
-      initiativeMode &&
-      (e.eventType === "MessageReceived" || e.eventType === "MessageSent")
-    ) {
-      initiativeMode = false;
-    }
-
-    if (e.eventType === "CostIncurred") {
-      classified.push({
-        event: e,
-        classification: initiativeMode ? "initiative_cost" : "work_cost",
-      });
-    }
+    result.push({ event: e, classification });
   }
 
-  return classified.reverse();
+  return result;
 }
 
 interface ClientProps {
@@ -276,12 +251,12 @@ export default function AgentDetailClient({ id }: ClientProps) {
 
   const { agent } = data;
   const classified = classifyCostEvents(events, agent.name);
-  const initiativeCostTotal = classified
-    .filter((c) => c.classification === "initiative_cost")
-    .reduce((sum, c) => sum + (c.event.cost ?? 0), 0);
-  const workCostTotal = classified
-    .filter((c) => c.classification === "work_cost")
-    .reduce((sum, c) => sum + (c.event.cost ?? 0), 0);
+  // Totals come from the cost API (#101 moved classification server-side).
+  // The `classified` list above is only used to label individual rows in the
+  // recent-events table; summing it here would drift from the authoritative
+  // server split whenever an event arrives mid-stream but isn't yet persisted.
+  const initiativeCostTotal = cost?.initiativeCost ?? 0;
+  const workCostTotal = cost?.workCost ?? 0;
 
   const now = Date.now();
   const tier2Last24h = events.filter(
