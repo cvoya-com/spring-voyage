@@ -34,6 +34,7 @@ jobs:
       openapi: ${{ steps.filter.outputs.openapi }}
       agents: ${{ steps.filter.outputs.agents }}
       connectors_web: ${{ steps.filter.outputs.connectors_web }}
+      web: ${{ steps.filter.outputs.web }}
       workflows: ${{ steps.filter.outputs.workflows }}
     steps:
       - uses: actions/checkout@v6
@@ -291,6 +292,32 @@ jobs:
         shell: bash
         run: bash scripts/validate-connector-web.sh
 
+  web-lint:
+    name: Lint web (ESLint)
+    runs-on: ubuntu-latest
+    needs: changes
+    # Skipped in the merge queue: ESLint is a static-input check of the
+    # PR's own code. A pass on the pull_request run stays valid through
+    # the queue.
+    if: >
+      github.event_name != 'merge_group' &&
+      (needs.changes.outputs.web == 'true' || needs.changes.outputs.workflows == 'true')
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install workspace dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
   openapi-drift:
     name: OpenAPI contract drift
     runs-on: ubuntu-latest
@@ -362,6 +389,7 @@ jobs:
       - format
       - agent-definitions-lint
       - connector-web-lint
+      - web-lint
       - openapi-drift
     # Always runs - branch protection depends on a single "Required checks"
     # context, so this job must report a status even when upstream jobs were
@@ -378,6 +406,7 @@ jobs:
           FORMAT_RESULT: ${{ needs.format.result }}
           LINT_RESULT: ${{ needs.agent-definitions-lint.result }}
           CONNECTOR_WEB_RESULT: ${{ needs.connector-web-lint.result }}
+          WEB_LINT_RESULT: ${{ needs.web-lint.result }}
           OPENAPI_RESULT: ${{ needs.openapi-drift.result }}
           CHANGES_RESULT: ${{ needs.changes.result }}
         run: |
@@ -387,6 +416,7 @@ jobs:
           echo "format=$FORMAT_RESULT"
           echo "agent-definitions-lint=$LINT_RESULT"
           echo "connector-web-lint=$CONNECTOR_WEB_RESULT"
+          echo "web-lint=$WEB_LINT_RESULT"
           echo "openapi-drift=$OPENAPI_RESULT"
 
           # The 'changes' gate itself must have run cleanly - if path detection
@@ -406,4 +436,5 @@ jobs:
           ok "$FORMAT_RESULT"          || { echo "::error::format failed"; exit 1; }
           ok "$LINT_RESULT"            || { echo "::error::agent-definitions-lint failed"; exit 1; }
           ok "$CONNECTOR_WEB_RESULT"   || { echo "::error::connector-web-lint failed"; exit 1; }
+          ok "$WEB_LINT_RESULT"        || { echo "::error::web-lint failed"; exit 1; }
           ok "$OPENAPI_RESULT"         || { echo "::error::openapi-drift failed"; exit 1; }

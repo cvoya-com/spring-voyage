@@ -575,7 +575,7 @@ export default function CreateUnitPage() {
           </CardHeader>
           <CardContent className="space-y-3 text-sm text-muted-foreground">
             <p>
-              Connector binding happens on the unit's{" "}
+              Connector binding happens on the unit&apos;s{" "}
               <strong>Connector</strong> tab after creation — the unit actor
               has to exist before its per-unit config can be persisted. Skip
               for now and wire up GitHub (or any registered connector) from

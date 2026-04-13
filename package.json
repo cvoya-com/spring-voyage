@@ -5,5 +5,9 @@
   "workspaces": [
     "src/Cvoya.Spring.Web",
     "src/Cvoya.Spring.Connector.*/web"
-  ]
+  ],
+  "scripts": {
+    "lint": "npm run --workspace=spring-voyage-dashboard generate-api && eslint src/Cvoya.Spring.Web src/Cvoya.Spring.Connector.*/web --max-warnings 0 --report-unused-disable-directives --cache --cache-location .eslintcache",
+    "lint:fix": "npm run --workspace=spring-voyage-dashboard generate-api && eslint src/Cvoya.Spring.Web src/Cvoya.Spring.Connector.*/web --max-warnings 0 --report-unused-disable-directives --cache --cache-location .eslintcache --fix"
+  }
 }
