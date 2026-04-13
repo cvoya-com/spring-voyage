@@ -55,14 +55,19 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 
 builder.Services.AddProblemDetails();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+
+// .NET 10's native OpenAPI. The document is emitted as a build artefact
+// via the Microsoft.Extensions.ApiDescription.Server package (configured
+// in the csproj) so the web client's codegen reads from the committed
+// JSON file rather than needing a running server. MapOpenApi still
+// exposes /openapi/v1.json at runtime for introspection.
+builder.Services.AddOpenApi("v1");
 
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment() || isLocalDev)
 {
-    app.UseSwagger();
-    app.UseSwaggerUI();
+    app.MapOpenApi();
 }
 
 app.UseExceptionHandler();

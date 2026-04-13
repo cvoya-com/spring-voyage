@@ -121,7 +121,7 @@ and disambiguates by URL path:
 | --------------------- | ------------------ |
 | `/api/v1/webhooks/*`  | `spring-api:8080`  |
 | `/api/*`              | `spring-api:8080`  |
-| `/swagger/*`, `/health` | `spring-api:8080`|
+| `/openapi/*`, `/health` | `spring-api:8080`|
 | everything else       | `spring-web:3000`  |
 
 Set `DEPLOY_HOSTNAME` in `spring.env` to your FQDN and run `./deploy.sh up`.

@@ -47,7 +47,7 @@
         reverse_proxy spring-api:8080
     }
 
-    handle /swagger/* {
+    handle /openapi/* {
         reverse_proxy spring-api:8080
     }
 
