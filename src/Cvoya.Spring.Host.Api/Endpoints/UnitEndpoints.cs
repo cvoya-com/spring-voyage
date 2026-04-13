@@ -122,6 +122,19 @@ public static class UnitEndpoints
             .Produces(StatusCodes.Status204NoContent)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
+        group.MapGet("/{id}/connector", GetConnectorConfigAsync)
+            .WithName("GetUnitConnectorConfig")
+            .WithSummary("Get the unit's connector configuration (currently GitHub-only)")
+            .Produces<UnitConnectorResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        group.MapPut("/{id}/connector", SetConnectorConfigAsync)
+            .WithName("SetUnitConnectorConfig")
+            .WithSummary("Upsert the unit's connector configuration (currently GitHub-only)")
+            .Produces<UnitConnectorResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
         group.MapPatch("/{id}/humans/{humanId}/permissions", SetHumanPermissionAsync)
             .WithName("SetHumanPermission")
             .WithSummary("Set permission level for a human within a unit")
@@ -964,6 +977,113 @@ public static class UnitEndpoints
         await proxy.SetGitHubConfigAsync(null, cancellationToken);
 
         return Results.NoContent();
+    }
+
+    // Default GitHub webhook event set — kept in sync with
+    // GitHubWebhookRegistrar.SubscribedEvents, surfaced here so the
+    // connector-config response shows what a unit with no explicit Events
+    // list will subscribe to.
+    private static readonly IReadOnlyList<string> DefaultGitHubEvents = new[]
+    {
+        "issues",
+        "pull_request",
+        "issue_comment",
+    };
+
+    private static async Task<IResult> GetConnectorConfigAsync(
+        string id,
+        [FromServices] IDirectoryService directoryService,
+        [FromServices] IActorProxyFactory actorProxyFactory,
+        CancellationToken cancellationToken)
+    {
+        var address = new Address("unit", id);
+        var entry = await directoryService.ResolveAsync(address, cancellationToken);
+
+        if (entry is null)
+        {
+            return Results.Problem(detail: $"Unit '{id}' not found", statusCode: StatusCodes.Status404NotFound);
+        }
+
+        var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
+            new ActorId(entry.ActorId), nameof(IUnitActor));
+
+        var config = await proxy.GetGitHubConfigAsync(cancellationToken);
+        var hookId = await proxy.GetGitHubHookIdAsync(cancellationToken);
+
+        return Results.Ok(ToConnectorResponse(config, hookId));
+    }
+
+    private static async Task<IResult> SetConnectorConfigAsync(
+        string id,
+        SetUnitConnectorRequest request,
+        [FromServices] IDirectoryService directoryService,
+        [FromServices] IActorProxyFactory actorProxyFactory,
+        CancellationToken cancellationToken)
+    {
+        if (!string.Equals(request.Type, "github", StringComparison.OrdinalIgnoreCase))
+        {
+            return Results.Problem(
+                detail: $"Connector type '{request.Type}' is not supported. Only 'github' is supported today.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        if (request.Repo is null ||
+            string.IsNullOrWhiteSpace(request.Repo.Owner) ||
+            string.IsNullOrWhiteSpace(request.Repo.Name))
+        {
+            return Results.Problem(
+                detail: "A GitHub connector config must include 'repo.owner' and 'repo.name'.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        var address = new Address("unit", id);
+        var entry = await directoryService.ResolveAsync(address, cancellationToken);
+
+        if (entry is null)
+        {
+            return Results.Problem(detail: $"Unit '{id}' not found", statusCode: StatusCodes.Status404NotFound);
+        }
+
+        var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
+            new ActorId(entry.ActorId), nameof(IUnitActor));
+
+        var events = request.Events is { Count: > 0 } ? request.Events : null;
+        var newConfig = new UnitGitHubConfig(
+            request.Repo.Owner,
+            request.Repo.Name,
+            request.AppInstallationId,
+            events);
+
+        await proxy.SetGitHubConfigAsync(newConfig, cancellationToken);
+
+        var hookId = await proxy.GetGitHubHookIdAsync(cancellationToken);
+
+        return Results.Ok(ToConnectorResponse(newConfig, hookId));
+    }
+
+    private static UnitConnectorResponse ToConnectorResponse(
+        UnitGitHubConfig? config,
+        long? hookId)
+    {
+        if (config is null)
+        {
+            // Return a shell "github" config with empty fields rather than 404
+            // so the UI can render an empty form without a separate "is-configured"
+            // probe. WebhookId stays null because there's no registered hook.
+            return new UnitConnectorResponse(
+                Type: "github",
+                Repo: null,
+                Events: DefaultGitHubEvents,
+                AppInstallationId: null,
+                WebhookId: null);
+        }
+
+        return new UnitConnectorResponse(
+            Type: "github",
+            Repo: new UnitConnectorRepo(config.Owner, config.Repo),
+            Events: config.Events is { Count: > 0 } ? config.Events : DefaultGitHubEvents,
+            AppInstallationId: config.AppInstallationId,
+            WebhookId: hookId);
     }
 
     private static UnitResponse ToUnitResponse(

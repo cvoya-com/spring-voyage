@@ -104,6 +104,18 @@ export type InitiativePolicy = Schemas["InitiativePolicy"];
 /** GET /api/v1/agents/{id}/initiative/level response. */
 export type InitiativeLevelResponse = Schemas["InitiativeLevelResponse"];
 
+/** GET/PUT /api/v1/units/{id}/connector response body. */
+export type UnitConnectorResponse = Schemas["UnitConnectorResponse"];
+
+/** PUT /api/v1/units/{id}/connector request body. */
+export type SetUnitConnectorRequest = Schemas["SetUnitConnectorRequest"];
+
+/** GET /api/v1/integrations/github/installations response item. */
+export type GitHubInstallationResponse = Schemas["GitHubInstallationResponse"];
+
+/** GET /api/v1/integrations/github/install-url response body. */
+export type GitHubInstallUrlResponse = Schemas["GitHubInstallUrlResponse"];
+
 // ---------------------------------------------------------------------------
 // Hand-written — not surfaced via the HTTP OpenAPI contract
 // ---------------------------------------------------------------------------

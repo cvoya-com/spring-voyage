@@ -48,4 +48,14 @@ public class GitHubConnectorOptions
     /// starts so that freshly registered hooks point back at this platform.
     /// </summary>
     public string WebhookUrl { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the GitHub App slug used when constructing the install URL
+    /// (e.g. <c>https://github.com/apps/{AppSlug}/installations/new</c>). This
+    /// is the App's public slug as shown in its GitHub settings page, not the
+    /// numeric <see cref="AppId"/>. When unset, the
+    /// <c>integrations/github/install-url</c> endpoint returns 502 because the
+    /// install URL cannot be constructed.
+    /// </summary>
+    public string AppSlug { get; set; } = string.Empty;
 }

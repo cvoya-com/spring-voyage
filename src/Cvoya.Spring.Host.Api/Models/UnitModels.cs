@@ -159,6 +159,49 @@ public record UnitLifecycleResponse(string UnitId, UnitStatus Status);
 public record SetUnitGitHubConfigResponse(string UnitId, UnitGitHubConfig GitHub);
 
 /// <summary>
+/// Unit connector configuration surfaced by <c>GET</c>/<c>PUT
+/// /api/v1/units/{id}/connector</c>. Shaped as a discriminated envelope so
+/// new connector types (Slack, Linear, ...) can be added without breaking the
+/// route contract. Only the fields relevant to <see cref="Type"/> will be
+/// populated — e.g. <see cref="Repo"/> / <see cref="AppInstallationId"/> /
+/// <see cref="WebhookId"/> are GitHub-specific.
+/// </summary>
+/// <param name="Type">The connector type discriminator (e.g. <c>github</c>).</param>
+/// <param name="Repo">The GitHub repository the unit is bound to (when <see cref="Type"/> is <c>github</c>).</param>
+/// <param name="Events">Webhook events the unit subscribes to.</param>
+/// <param name="AppInstallationId">The GitHub App installation id powering the binding.</param>
+/// <param name="WebhookId">The id of the repository webhook registered on /start, when known.</param>
+public record UnitConnectorResponse(
+    string Type,
+    UnitConnectorRepo? Repo,
+    IReadOnlyList<string> Events,
+    long? AppInstallationId,
+    long? WebhookId);
+
+/// <summary>
+/// Repository descriptor embedded in <see cref="UnitConnectorResponse"/>.
+/// Kept as a named type rather than an anonymous tuple so it can round-trip
+/// cleanly through OpenAPI and the generated TypeScript client.
+/// </summary>
+public record UnitConnectorRepo(string Owner, string Name);
+
+/// <summary>
+/// Request body for <c>PUT /api/v1/units/{id}/connector</c>. Mirrors
+/// <see cref="UnitConnectorResponse"/> minus read-only fields (<c>WebhookId</c>
+/// is managed by the /start and /stop handlers). A <c>null</c>
+/// <see cref="Events"/> falls back to the connector's default event set.
+/// </summary>
+/// <param name="Type">The connector type discriminator; only <c>github</c> is supported today.</param>
+/// <param name="Repo">The GitHub repository to bind the unit to.</param>
+/// <param name="Events">Webhook event names to subscribe to.</param>
+/// <param name="AppInstallationId">The chosen GitHub App installation id.</param>
+public record SetUnitConnectorRequest(
+    string Type,
+    UnitConnectorRepo? Repo,
+    IReadOnlyList<string>? Events = null,
+    long? AppInstallationId = null);
+
+/// <summary>
 /// Response body for <c>PATCH /api/v1/units/{id}/humans/{humanId}/permissions</c>.
 /// Returns the human id and the permission level that was set. <c>Permission</c>
 /// is fully-qualified to avoid pulling <c>using Cvoya.Spring.Dapr.Actors</c>

@@ -24,7 +24,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/api/client";
-import type { UnitTemplateSummary } from "@/lib/api/types";
+import type {
+  GitHubInstallationResponse,
+  UnitTemplateSummary,
+} from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
 // Default matches the platform-wide default model hint. Keep in sync with
@@ -34,8 +37,10 @@ const DEFAULT_COLOR = "#6366f1";
 
 const NAME_PATTERN = /^[a-z0-9-]+$/;
 
-// Follow-up issues for the placeholder steps in this wizard:
-//   #121 GitHub App, #122 unit secrets.
+// Follow-up issues for the placeholder steps in this wizard: #122 unit
+// secrets. Step 3 (GitHub) is wired — it lets the user install the App when
+// no installations exist, then pick one and (optionally) bind a repository
+// that the unit will register a webhook on when started.
 
 type Step = 1 | 2 | 3 | 4 | 5;
 type Mode = "template" | "scratch" | "yaml";
@@ -60,6 +65,10 @@ interface FormState {
   // YAML mode
   yamlText: string;
   yamlFileName: string | null;
+  // Step 3 — GitHub connector
+  githubInstallationId: number | null;
+  githubRepoOwner: string;
+  githubRepoName: string;
 }
 
 const INITIAL_FORM: FormState = {
@@ -72,6 +81,9 @@ const INITIAL_FORM: FormState = {
   templateId: null,
   yamlText: "",
   yamlFileName: null,
+  githubInstallationId: null,
+  githubRepoOwner: "",
+  githubRepoName: "",
 };
 
 function StepIndicator({ current }: { current: Step }) {
@@ -128,6 +140,54 @@ export default function CreateUnitPage() {
   const [templates, setTemplates] = useState<UnitTemplateSummary[] | null>(null);
   const [templatesError, setTemplatesError] = useState<string | null>(null);
   const [templatesLoading, setTemplatesLoading] = useState(false);
+
+  // GitHub App installations (#121) — lazily fetched on first Step 3 view.
+  // Lazy so users who skip the step never pay the round trip.
+  const [installations, setInstallations] = useState<
+    GitHubInstallationResponse[] | null
+  >(null);
+  const [installationsLoading, setInstallationsLoading] = useState(false);
+  const [installationsError, setInstallationsError] = useState<string | null>(
+    null,
+  );
+  const [installUrl, setInstallUrl] = useState<string | null>(null);
+
+  // Fetch installations when the user arrives at Step 3 for the first time.
+  useEffect(() => {
+    if (step !== 3) return;
+    if (installations !== null || installationsLoading) return;
+    let cancelled = false;
+    setInstallationsLoading(true);
+    api
+      .listGitHubInstallations()
+      .then((list) => {
+        if (cancelled) return;
+        setInstallations(list);
+        setInstallationsError(null);
+      })
+      .catch(async (err) => {
+        if (cancelled) return;
+        const message = err instanceof Error ? err.message : String(err);
+        setInstallationsError(message);
+        setInstallations([]);
+        try {
+          const { url } = await api.getGitHubInstallUrl();
+          if (!cancelled) setInstallUrl(url);
+        } catch {
+          // Platform isn't configured for GitHub Apps — show the banner
+          // without a CTA so the user can still move on.
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setInstallationsLoading(false);
+      });
+    // When the list is empty, also fetch the install URL up-front so the CTA
+    // renders without a second click. The `installations` guard above means
+    // this branch still only runs once.
+    return () => {
+      cancelled = true;
+    };
+  }, [step, installations, installationsLoading]);
 
   useEffect(() => {
     let cancelled = false;
@@ -206,6 +266,39 @@ export default function CreateUnitPage() {
     setForm((prev) => ({ ...prev, yamlText: text, yamlFileName: file.name }));
   };
 
+  // Wraps a freshly-created unit with the optional Step-3 GitHub connector
+  // binding. A PUT failure is non-fatal: the unit exists, we just warn the
+  // user and let them fix the binding on the Connector tab. Kept inline in
+  // the wizard file since no other call site needs it.
+  const bindConnectorIfRequested = async (unitName: string) => {
+    const hasRepo =
+      form.githubRepoOwner.trim() !== "" && form.githubRepoName.trim() !== "";
+    if (!hasRepo && form.githubInstallationId === null) {
+      return;
+    }
+    if (!hasRepo) {
+      // The server requires repo on PUT; installation-only with no repo
+      // doesn't have a meaningful binding yet. The user can pick one later.
+      return;
+    }
+    try {
+      await api.setUnitConnector(unitName, {
+        type: "github",
+        repo: {
+          owner: form.githubRepoOwner.trim(),
+          name: form.githubRepoName.trim(),
+        },
+        appInstallationId: form.githubInstallationId ?? undefined,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setSubmitWarnings((prev) => [
+        ...prev,
+        `Unit created, but the GitHub connector binding failed: ${message}`,
+      ]);
+    }
+  };
+
   const handleCreate = async () => {
     setSubmitError(null);
     setSubmitWarnings([]);
@@ -222,6 +315,7 @@ export default function CreateUnitPage() {
           model: form.model.trim() || undefined,
         });
         setSubmitWarnings(resp.warnings ?? []);
+        await bindConnectorIfRequested(resp.unit.name);
         toast({ title: "Unit created", description: resp.unit.name });
         router.push(`/units/${encodeURIComponent(resp.unit.name)}`);
         return;
@@ -243,6 +337,7 @@ export default function CreateUnitPage() {
           model: form.model.trim() || undefined,
         });
         setSubmitWarnings(resp.warnings ?? []);
+        await bindConnectorIfRequested(resp.unit.name);
         toast({ title: "Unit created", description: resp.unit.name });
         router.push(`/units/${encodeURIComponent(resp.unit.name)}`);
         return;
@@ -256,6 +351,7 @@ export default function CreateUnitPage() {
         model: form.model.trim() || undefined,
         color: form.color.trim() || undefined,
       });
+      await bindConnectorIfRequested(created.name);
       toast({ title: "Unit created", description: created.name });
       router.push(`/units/${encodeURIComponent(created.name)}`);
     } catch (err) {
@@ -523,19 +619,109 @@ export default function CreateUnitPage() {
       )}
 
       {step === 3 && (
-        <Card className="bg-muted/40">
+        <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Github className="h-5 w-5" /> GitHub setup
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3 text-sm text-muted-foreground">
-            <p>
-              GitHub App installation flow is tracked in follow-up{" "}
-              <span className="font-mono text-foreground">#121</span>. Skip for
-              now — you can finish creating the unit without it.
+          <CardContent className="space-y-4 text-sm">
+            <p className="text-muted-foreground">
+              Pick the GitHub App installation the unit should use, and
+              (optionally) the repository the unit will register a webhook
+              against when it starts. You can skip and configure this later
+              from the unit&apos;s Connector tab.
             </p>
-            <Button onClick={handleNext}>Skip for now</Button>
+
+            {installationsLoading && (
+              <p className="text-xs text-muted-foreground">
+                Looking up GitHub App installations…
+              </p>
+            )}
+
+            {installations && installations.length === 0 && (
+              <div className="rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-amber-900 dark:text-amber-200">
+                <p className="font-medium">
+                  No GitHub App installations found.
+                </p>
+                <p className="mt-1 text-xs">
+                  Install the app on your account or organisation, then come
+                  back to this step.
+                </p>
+                {installUrl ? (
+                  <a
+                    href={installUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-2 inline-block font-medium underline"
+                  >
+                    Install App
+                  </a>
+                ) : installationsError ? (
+                  <p className="mt-1 text-xs opacity-80">
+                    ({installationsError})
+                  </p>
+                ) : null}
+              </div>
+            )}
+
+            {installations && installations.length > 0 && (
+              <>
+                <label className="block space-y-1">
+                  <span className="text-sm text-muted-foreground">
+                    App installation
+                  </span>
+                  <select
+                    className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    value={form.githubInstallationId ?? ""}
+                    onChange={(e) =>
+                      update(
+                        "githubInstallationId",
+                        e.target.value === "" ? null : Number(e.target.value),
+                      )
+                    }
+                  >
+                    <option value="">(skip for now)</option>
+                    {installations.map((i) => (
+                      <option key={i.installationId} value={i.installationId}>
+                        {i.account} ({i.accountType}, {i.repoSelection})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <label className="block space-y-1">
+                    <span className="text-sm text-muted-foreground">
+                      Repo owner
+                    </span>
+                    <Input
+                      value={form.githubRepoOwner}
+                      onChange={(e) =>
+                        update("githubRepoOwner", e.target.value)
+                      }
+                      placeholder="acme"
+                    />
+                  </label>
+                  <label className="block space-y-1">
+                    <span className="text-sm text-muted-foreground">
+                      Repo name
+                    </span>
+                    <Input
+                      value={form.githubRepoName}
+                      onChange={(e) =>
+                        update("githubRepoName", e.target.value)
+                      }
+                      placeholder="platform"
+                    />
+                  </label>
+                </div>
+              </>
+            )}
+
+            <div className="flex gap-2">
+              <Button onClick={handleNext}>Continue</Button>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -634,8 +820,9 @@ export default function CreateUnitPage() {
         >
           Back
         </Button>
-        {/* Steps 3 and 4 are placeholders with an embedded "Skip for now"
-            primary action — don't show a second Next button there. */}
+        {/* Step 4 is still a placeholder with an embedded "Skip for now"
+            primary action. Step 3 has its own Continue button inside the
+            card to pair with the "Install App" CTA. */}
         {step !== 3 && step !== 4 && step < 5 && (
           <Button onClick={handleNext} disabled={!canGoNext}>
             Next

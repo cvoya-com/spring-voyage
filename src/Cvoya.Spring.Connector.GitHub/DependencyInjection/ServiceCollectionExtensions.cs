@@ -49,6 +49,10 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IGitHubConnector>(sp => sp.GetRequiredService<GitHubConnector>());
         services.TryAddSingleton<GitHubSkillRegistry>();
         services.TryAddSingleton<IGitHubWebhookRegistrar, GitHubWebhookRegistrar>();
+        // Installation-listing is its own abstraction (IGitHubInstallationsClient)
+        // so the cloud repo can substitute a tenant-scoped implementation
+        // without pulling endpoint code.
+        services.TryAddSingleton<IGitHubInstallationsClient, GitHubInstallationsClient>();
 
         // Expose the GitHub skills through the cross-connector ISkillRegistry abstraction
         // so the MCP server (and any future planner) can discover them uniformly.

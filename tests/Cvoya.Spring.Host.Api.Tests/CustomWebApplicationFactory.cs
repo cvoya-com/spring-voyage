@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Host.Api.Tests;
 
+using Cvoya.Spring.Connector.GitHub.Auth;
 using Cvoya.Spring.Connector.GitHub.Webhooks;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Costs;
@@ -69,6 +70,11 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
     /// </summary>
     public IGitHubWebhookRegistrar GitHubWebhookRegistrar { get; } = Substitute.For<IGitHubWebhookRegistrar>();
 
+    /// <summary>
+    /// Gets the mock <see cref="IGitHubInstallationsClient"/> registered in the test DI container.
+    /// </summary>
+    public IGitHubInstallationsClient GitHubInstallationsClient { get; } = Substitute.For<IGitHubInstallationsClient>();
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         // Use --local mode to enable LocalDevAuthHandler (bypasses auth).
@@ -104,7 +110,8 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
                 typeof(IActivityQueryService),
                 typeof(IActivityEventBus),
                 typeof(IUnitContainerLifecycle),
-                typeof(IGitHubWebhookRegistrar)
+                typeof(IGitHubWebhookRegistrar),
+                typeof(IGitHubInstallationsClient)
             };
 
             var descriptors = services
@@ -125,6 +132,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
             services.AddSingleton(ActivityEventBus);
             services.AddSingleton(UnitContainerLifecycle);
             services.AddSingleton(GitHubWebhookRegistrar);
+            services.AddSingleton(GitHubInstallationsClient);
             services.AddSingleton(new DirectoryCache());
 
             // Remove and re-register permission service.

@@ -8,6 +8,7 @@ import type {
   CreateUnitFromYamlRequest,
   InitiativePolicy,
   SetBudgetRequest,
+  SetUnitConnectorRequest,
   UnitResponse,
   UpdateAgentMetadataRequest,
 } from "./types";
@@ -369,4 +370,30 @@ export const api = {
 
   // Skills catalog
   listSkills: async () => unwrap(await fetchClient.GET("/api/v1/skills")),
+
+  // GitHub integration — wizard Step 3 + Connector tab. Listing installations
+  // requires App-level auth, so the server encapsulates that. The install URL
+  // is separate so the Connector tab can deep-link a user through the App
+  // install flow when zero installations exist.
+  listGitHubInstallations: async () =>
+    unwrap(
+      await fetchClient.GET("/api/v1/integrations/github/installations"),
+    ),
+  getGitHubInstallUrl: async () =>
+    unwrap(await fetchClient.GET("/api/v1/integrations/github/install-url")),
+
+  // Per-unit connector config — typed envelope (currently only GitHub).
+  getUnitConnector: async (id: string) =>
+    unwrap(
+      await fetchClient.GET("/api/v1/units/{id}/connector", {
+        params: { path: { id } },
+      }),
+    ),
+  setUnitConnector: async (id: string, body: SetUnitConnectorRequest) =>
+    unwrap(
+      await fetchClient.PUT("/api/v1/units/{id}/connector", {
+        params: { path: { id } },
+        body,
+      }),
+    ),
 };
