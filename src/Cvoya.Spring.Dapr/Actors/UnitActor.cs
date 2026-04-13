@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Dapr.Actors;
 
 using System.Text.Json;
 
+using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Messaging;
@@ -290,47 +291,54 @@ public class UnitActor : Actor, IUnitActor
     }
 
     /// <inheritdoc />
-    public async Task<UnitGitHubConfig?> GetGitHubConfigAsync(CancellationToken ct = default)
+    public async Task<UnitConnectorBinding?> GetConnectorBindingAsync(CancellationToken ct = default)
     {
-        var result = await StateManager.TryGetStateAsync<UnitGitHubConfig>(StateKeys.UnitGitHubConfig, ct);
+        var result = await StateManager.TryGetStateAsync<UnitConnectorBinding>(
+            StateKeys.UnitConnectorBinding, ct);
         return result.HasValue ? result.Value : null;
     }
 
     /// <inheritdoc />
-    public async Task SetGitHubConfigAsync(UnitGitHubConfig? config, CancellationToken ct = default)
+    public async Task SetConnectorBindingAsync(UnitConnectorBinding? binding, CancellationToken ct = default)
     {
-        if (config is null)
+        if (binding is null)
         {
-            await StateManager.RemoveStateAsync(StateKeys.UnitGitHubConfig, ct);
+            await StateManager.RemoveStateAsync(StateKeys.UnitConnectorBinding, ct);
+            // Clearing the binding also drops any connector-owned runtime
+            // metadata — it would otherwise leak across a rebind to a
+            // different connector type.
+            await StateManager.RemoveStateAsync(StateKeys.UnitConnectorMetadata, ct);
             _logger.LogInformation(
-                "Unit {ActorId} cleared GitHub configuration",
+                "Unit {ActorId} cleared connector binding",
                 Id.GetId());
             return;
         }
 
-        await StateManager.SetStateAsync(StateKeys.UnitGitHubConfig, config, ct);
+        await StateManager.SetStateAsync(StateKeys.UnitConnectorBinding, binding, ct);
         _logger.LogInformation(
-            "Unit {ActorId} set GitHub configuration to {Owner}/{Repo}",
-            Id.GetId(), config.Owner, config.Repo);
+            "Unit {ActorId} bound to connector type {TypeId}",
+            Id.GetId(), binding.TypeId);
     }
 
     /// <inheritdoc />
-    public async Task<long?> GetGitHubHookIdAsync(CancellationToken ct = default)
+    public async Task<JsonElement?> GetConnectorMetadataAsync(CancellationToken ct = default)
     {
-        var result = await StateManager.TryGetStateAsync<long>(StateKeys.UnitGitHubHookId, ct);
+        var result = await StateManager.TryGetStateAsync<JsonElement>(
+            StateKeys.UnitConnectorMetadata, ct);
         return result.HasValue ? result.Value : null;
     }
 
     /// <inheritdoc />
-    public async Task SetGitHubHookIdAsync(long? hookId, CancellationToken ct = default)
+    public async Task SetConnectorMetadataAsync(JsonElement? metadata, CancellationToken ct = default)
     {
-        if (hookId is null)
+        if (metadata is null || metadata.Value.ValueKind == JsonValueKind.Null ||
+            metadata.Value.ValueKind == JsonValueKind.Undefined)
         {
-            await StateManager.RemoveStateAsync(StateKeys.UnitGitHubHookId, ct);
+            await StateManager.RemoveStateAsync(StateKeys.UnitConnectorMetadata, ct);
             return;
         }
 
-        await StateManager.SetStateAsync(StateKeys.UnitGitHubHookId, hookId.Value, ct);
+        await StateManager.SetStateAsync(StateKeys.UnitConnectorMetadata, metadata.Value, ct);
     }
 
     /// <summary>

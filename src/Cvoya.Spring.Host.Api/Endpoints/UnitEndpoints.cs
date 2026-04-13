@@ -5,7 +5,7 @@ namespace Cvoya.Spring.Host.Api.Endpoints;
 
 using System.Text.Json;
 
-using Cvoya.Spring.Connector.GitHub.Webhooks;
+using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.Agents;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Directory;
@@ -109,18 +109,10 @@ public static class UnitEndpoints
             .Produces(StatusCodes.Status204NoContent)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
-        group.MapPut("/{id}/github", SetGitHubConfigAsync)
-            .WithName("SetUnitGitHubConfig")
-            .WithSummary("Configure the GitHub repository a unit is bound to")
-            .Produces<SetUnitGitHubConfigResponse>(StatusCodes.Status200OK)
-            .ProducesProblem(StatusCodes.Status400BadRequest)
-            .ProducesProblem(StatusCodes.Status404NotFound);
-
-        group.MapDelete("/{id}/github", ClearGitHubConfigAsync)
-            .WithName("ClearUnitGitHubConfig")
-            .WithSummary("Clear the unit's GitHub repository binding")
-            .Produces(StatusCodes.Status204NoContent)
-            .ProducesProblem(StatusCodes.Status404NotFound);
+        // Generic (non-polymorphic) pointer endpoints — the typed per-unit
+        // config lives on the connector package's own surface under
+        // /api/v1/connectors/{slug}/units/{unitId}/config.
+        group.MapUnitConnectorPointerEndpoints();
 
         group.MapPatch("/{id}/humans/{humanId}/permissions", SetHumanPermissionAsync)
             .WithName("SetHumanPermission")
@@ -398,7 +390,7 @@ public static class UnitEndpoints
         [FromServices] IDirectoryService directoryService,
         [FromServices] IActorProxyFactory actorProxyFactory,
         [FromServices] IUnitContainerLifecycle containerLifecycle,
-        [FromServices] IGitHubWebhookRegistrar webhookRegistrar,
+        [FromServices] IEnumerable<IConnectorType> connectorTypes,
         [FromServices] IActivityEventBus activityEventBus,
         [FromServices] ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
@@ -443,7 +435,7 @@ public static class UnitEndpoints
         return await ForceDeleteUnitAsync(
             id, address, entry.ActorId, status,
             directoryService, actorProxyFactory,
-            containerLifecycle, webhookRegistrar, activityEventBus,
+            containerLifecycle, connectorTypes, activityEventBus,
             logger, cancellationToken);
     }
 
@@ -463,7 +455,7 @@ public static class UnitEndpoints
         IDirectoryService directoryService,
         IActorProxyFactory actorProxyFactory,
         IUnitContainerLifecycle containerLifecycle,
-        IGitHubWebhookRegistrar webhookRegistrar,
+        IEnumerable<IConnectorType> connectorTypes,
         IActivityEventBus activityEventBus,
         ILogger logger,
         CancellationToken cancellationToken)
@@ -478,19 +470,17 @@ public static class UnitEndpoints
 
         try
         {
-            var githubConfig = await proxy.GetGitHubConfigAsync(cancellationToken);
-            var hookId = await proxy.GetGitHubHookIdAsync(cancellationToken);
-            if (githubConfig is not null && hookId is not null)
-            {
-                await webhookRegistrar.UnregisterAsync(
-                    githubConfig.Owner, githubConfig.Repo, hookId.Value, cancellationToken);
-            }
+            // Delegate to the connector type owning this unit so it can
+            // tear down its external resources. Each connector's stop hook
+            // is responsible for catching its own errors; the try/catch
+            // here is a second safety net.
+            await DispatchConnectorStopAsync(id, proxy, connectorTypes, logger, cancellationToken);
         }
         catch (Exception ex)
         {
             logger.LogError(ex,
-                "Force-delete: GitHub webhook teardown failed for unit {UnitId}.", id);
-            failures.Add("github-webhook");
+                "Force-delete: connector teardown failed for unit {UnitId}.", id);
+            failures.Add("connector");
         }
 
         try
@@ -577,7 +567,7 @@ public static class UnitEndpoints
         [FromServices] IDirectoryService directoryService,
         [FromServices] IActorProxyFactory actorProxyFactory,
         [FromServices] IUnitContainerLifecycle containerLifecycle,
-        [FromServices] IGitHubWebhookRegistrar webhookRegistrar,
+        [FromServices] IEnumerable<IConnectorType> connectorTypes,
         [FromServices] ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
@@ -626,29 +616,12 @@ public static class UnitEndpoints
                 });
         }
 
-        // Register a GitHub webhook on the configured repo, if any. Failure here is not
-        // fatal to the unit itself — the container is up and the platform will still
-        // route inbound events from any pre-existing hook — but we must surface it so
-        // an operator can act. Hook id is persisted on the unit so /stop can delete it.
-        var githubConfig = await proxy.GetGitHubConfigAsync(cancellationToken);
-        if (githubConfig is not null)
-        {
-            try
-            {
-                var hookId = await webhookRegistrar.RegisterAsync(
-                    githubConfig.Owner, githubConfig.Repo, cancellationToken);
-                await proxy.SetGitHubHookIdAsync(hookId, cancellationToken);
-                logger.LogInformation(
-                    "Registered GitHub webhook {HookId} for unit {UnitId} on {Owner}/{Repo}",
-                    hookId, id, githubConfig.Owner, githubConfig.Repo);
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex,
-                    "Failed to register GitHub webhook for unit {UnitId} on {Owner}/{Repo}. Proceeding to Running; events will not flow until the hook is created manually.",
-                    id, githubConfig.Owner, githubConfig.Repo);
-            }
-        }
+        // Dispatch connector start-hooks so each connector can provision
+        // any external-system resources its binding needs (e.g. GitHub
+        // webhooks). Each connector is responsible for catching its own
+        // failures — we never let a misbehaving connector fail a unit start.
+        await DispatchConnectorStartAsync(
+            id, proxy, connectorTypes, logger, cancellationToken);
 
         var runningTransition = await proxy.TransitionAsync(UnitStatus.Running, cancellationToken);
         if (!runningTransition.Success)
@@ -673,7 +646,7 @@ public static class UnitEndpoints
         [FromServices] IDirectoryService directoryService,
         [FromServices] IActorProxyFactory actorProxyFactory,
         [FromServices] IUnitContainerLifecycle containerLifecycle,
-        [FromServices] IGitHubWebhookRegistrar webhookRegistrar,
+        [FromServices] IEnumerable<IConnectorType> connectorTypes,
         [FromServices] ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
@@ -699,26 +672,12 @@ public static class UnitEndpoints
             });
         }
 
-        // Tear down the GitHub webhook that /start created, if any. A stale
-        // hook id (404) is logged and swallowed inside the registrar so /stop
-        // can complete even when the hook was deleted out of band.
-        var githubConfig = await proxy.GetGitHubConfigAsync(cancellationToken);
-        var hookId = await proxy.GetGitHubHookIdAsync(cancellationToken);
-        if (githubConfig is not null && hookId is not null)
-        {
-            try
-            {
-                await webhookRegistrar.UnregisterAsync(
-                    githubConfig.Owner, githubConfig.Repo, hookId.Value, cancellationToken);
-                await proxy.SetGitHubHookIdAsync(null, cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex,
-                    "Failed to delete GitHub webhook {HookId} for unit {UnitId} on {Owner}/{Repo}. Continuing teardown; the hook id remains persisted so operators can retry.",
-                    hookId, id, githubConfig.Owner, githubConfig.Repo);
-            }
-        }
+        // Dispatch connector stop-hooks so each connector can tear down any
+        // external-system resources it provisioned on /start. Individual
+        // connector failures are logged inside the connector and must not
+        // block the /stop flow.
+        await DispatchConnectorStopAsync(
+            id, proxy, connectorTypes, logger, cancellationToken);
 
         try
         {
@@ -915,55 +874,81 @@ public static class UnitEndpoints
         return Results.Ok(permissions);
     }
 
-    private static async Task<IResult> SetGitHubConfigAsync(
-        string id,
-        SetUnitGitHubConfigRequest request,
-        [FromServices] IDirectoryService directoryService,
-        [FromServices] IActorProxyFactory actorProxyFactory,
-        CancellationToken cancellationToken)
+    /// <summary>
+    /// Invokes <see cref="IConnectorType.OnUnitStartingAsync"/> on the
+    /// connector type the unit is currently bound to, if any. The unit is
+    /// "bound" when its <see cref="IUnitActor.GetConnectorBindingAsync"/>
+    /// returns a <see cref="UnitConnectorBinding"/> whose type id matches a
+    /// registered <see cref="IConnectorType"/>.
+    /// </summary>
+    private static async Task DispatchConnectorStartAsync(
+        string unitId,
+        IUnitActor proxy,
+        IEnumerable<IConnectorType> connectorTypes,
+        ILogger logger,
+        CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(request.Owner) || string.IsNullOrWhiteSpace(request.Repo))
+        var binding = await proxy.GetConnectorBindingAsync(ct);
+        if (binding is null)
         {
-            return Results.Problem(detail: "Both 'Owner' and 'Repo' are required.", statusCode: StatusCodes.Status400BadRequest);
+            return;
         }
 
-        var address = new Address("unit", id);
-        var entry = await directoryService.ResolveAsync(address, cancellationToken);
-
-        if (entry is null)
+        var connector = connectorTypes.FirstOrDefault(c => c.TypeId == binding.TypeId);
+        if (connector is null)
         {
-            return Results.Problem(detail: $"Unit '{id}' not found", statusCode: StatusCodes.Status404NotFound);
+            logger.LogWarning(
+                "Unit {UnitId} is bound to connector type {TypeId} which is not registered; skipping start hook.",
+                unitId, binding.TypeId);
+            return;
         }
 
-        var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
-            new ActorId(entry.ActorId), nameof(IUnitActor));
-
-        var config = new UnitGitHubConfig(request.Owner, request.Repo);
-        await proxy.SetGitHubConfigAsync(config, cancellationToken);
-
-        return Results.Ok(new SetUnitGitHubConfigResponse(id, config));
+        try
+        {
+            await connector.OnUnitStartingAsync(unitId, ct);
+        }
+        catch (Exception ex)
+        {
+            // Any connector start failure is non-fatal — the unit
+            // transitions to Running regardless so the container stays up.
+            logger.LogError(ex,
+                "Connector {Slug} start hook threw for unit {UnitId}; continuing unit start.",
+                connector.Slug, unitId);
+        }
     }
 
-    private static async Task<IResult> ClearGitHubConfigAsync(
-        string id,
-        [FromServices] IDirectoryService directoryService,
-        [FromServices] IActorProxyFactory actorProxyFactory,
-        CancellationToken cancellationToken)
+    /// <summary>
+    /// Mirrors <see cref="DispatchConnectorStartAsync"/> for the stop path.
+    /// </summary>
+    private static async Task DispatchConnectorStopAsync(
+        string unitId,
+        IUnitActor proxy,
+        IEnumerable<IConnectorType> connectorTypes,
+        ILogger logger,
+        CancellationToken ct)
     {
-        var address = new Address("unit", id);
-        var entry = await directoryService.ResolveAsync(address, cancellationToken);
-
-        if (entry is null)
+        var binding = await proxy.GetConnectorBindingAsync(ct);
+        if (binding is null)
         {
-            return Results.Problem(detail: $"Unit '{id}' not found", statusCode: StatusCodes.Status404NotFound);
+            return;
         }
 
-        var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
-            new ActorId(entry.ActorId), nameof(IUnitActor));
+        var connector = connectorTypes.FirstOrDefault(c => c.TypeId == binding.TypeId);
+        if (connector is null)
+        {
+            return;
+        }
 
-        await proxy.SetGitHubConfigAsync(null, cancellationToken);
-
-        return Results.NoContent();
+        try
+        {
+            await connector.OnUnitStoppingAsync(unitId, ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex,
+                "Connector {Slug} stop hook threw for unit {UnitId}; continuing unit stop.",
+                connector.Slug, unitId);
+        }
     }
 
     private static UnitResponse ToUnitResponse(

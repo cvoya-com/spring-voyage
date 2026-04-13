@@ -196,15 +196,20 @@ public static class StateKeys
     public const string UnitColor = "Unit:Color";
 
     /// <summary>
-    /// State key for the unit's GitHub connector configuration (owner + repo).
-    /// Present when the unit is wired to a GitHub repository; absent otherwise.
+    /// State key for the unit's generic connector binding
+    /// (<see cref="Connectors.UnitConnectorBinding"/>): a
+    /// <c>(TypeId, JsonElement)</c> pair that identifies which connector
+    /// owns the unit and carries the connector-specific typed config.
+    /// Present while the unit is bound; absent otherwise.
     /// </summary>
-    public const string UnitGitHubConfig = "Unit:GitHubConfig";
+    public const string UnitConnectorBinding = "Unit:ConnectorBinding";
 
     /// <summary>
-    /// State key for the GitHub webhook hook id created for the unit at /start.
-    /// Present while the unit is Running; cleared on /stop teardown. Used so
-    /// /stop can call <c>DELETE /repos/{owner}/{repo}/hooks/{id}</c>.
+    /// State key for connector-owned runtime metadata persisted on a unit —
+    /// e.g. the GitHub webhook id created at /start and needed by /stop so
+    /// it can call <c>DELETE /repos/{owner}/{repo}/hooks/{id}</c>. Stored as
+    /// an opaque <see cref="System.Text.Json.JsonElement"/> because the
+    /// actor has no knowledge of any individual connector's shape.
     /// </summary>
-    public const string UnitGitHubHookId = "Unit:GitHubHookId";
+    public const string UnitConnectorMetadata = "Unit:ConnectorMetadata";
 }

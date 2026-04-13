@@ -883,13 +883,13 @@
         }
       }
     },
-    "/api/v1/units/{id}/github": {
-      "put": {
+    "/api/v1/units/{id}/connector": {
+      "get": {
         "tags": [
           "Units"
         ],
-        "summary": "Configure the GitHub repository a unit is bound to",
-        "operationId": "SetUnitGitHubConfig",
+        "summary": "Get a pointer to the unit's active connector binding, or 404 if unbound",
+        "operationId": "GetUnitConnector",
         "parameters": [
           {
             "name": "id",
@@ -900,33 +900,13 @@
             }
           }
         ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SetUnitGitHubConfigRequest"
-              }
-            }
-          },
-          "required": true
-        },
         "responses": {
           "200": {
             "description": "OK",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SetUnitGitHubConfigResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "$ref": "#/components/schemas/UnitConnectorPointerResponse"
                 }
               }
             }
@@ -947,8 +927,8 @@
         "tags": [
           "Units"
         ],
-        "summary": "Clear the unit's GitHub repository binding",
-        "operationId": "ClearUnitGitHubConfig",
+        "summary": "Unbind the unit from whatever connector it was wired to",
+        "operationId": "DeleteUnitConnector",
         "parameters": [
           {
             "name": "id",
@@ -962,16 +942,6 @@
         "responses": {
           "204": {
             "description": "No Content"
-          },
-          "404": {
-            "description": "Not Found",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
           }
         }
       }
@@ -2257,6 +2227,247 @@
         }
       }
     },
+    "/api/v1/connectors": {
+      "get": {
+        "tags": [
+          "Connectors"
+        ],
+        "summary": "List every connector type the server knows about",
+        "operationId": "ListConnectors",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ConnectorTypeResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/connectors/{slugOrId}": {
+      "get": {
+        "tags": [
+          "Connectors"
+        ],
+        "summary": "Get a single connector type by slug or id",
+        "operationId": "GetConnector",
+        "parameters": [
+          {
+            "name": "slugOrId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorTypeResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/connectors/github/units/{unitId}/config": {
+      "get": {
+        "tags": [
+          "Connectors.GitHub"
+        ],
+        "summary": "Get the GitHub connector config bound to a unit",
+        "operationId": "GetUnitGitHubConnectorConfig",
+        "parameters": [
+          {
+            "name": "unitId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnitGitHubConfigResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Connectors.GitHub"
+        ],
+        "summary": "Bind a unit to GitHub and upsert its per-unit config",
+        "operationId": "PutUnitGitHubConnectorConfig",
+        "parameters": [
+          {
+            "name": "unitId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnitGitHubConfigRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnitGitHubConfigResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/connectors/github/actions/list-installations": {
+      "get": {
+        "tags": [
+          "Connectors.GitHub"
+        ],
+        "summary": "List GitHub App installations visible to the configured App",
+        "operationId": "ListGitHubInstallations",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/GitHubInstallationResponse"
+                  }
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Bad Gateway",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/connectors/github/actions/install-url": {
+      "get": {
+        "tags": [
+          "Connectors.GitHub"
+        ],
+        "summary": "Get the GitHub App install URL the wizard should redirect the user through",
+        "operationId": "GetGitHubInstallUrl",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubInstallUrlResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Bad Gateway",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/connectors/github/config-schema": {
+      "get": {
+        "tags": [
+          "Connectors.GitHub"
+        ],
+        "summary": "Get the JSON Schema describing the GitHub connector config body",
+        "operationId": "GetGitHubConnectorConfigSchema",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonElement"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/webhooks/github": {
       "post": {
         "tags": [
@@ -2550,6 +2761,42 @@
           "ephemeral-no-memory",
           "ephemeral-with-memory"
         ]
+      },
+      "ConnectorTypeResponse": {
+        "required": [
+          "typeId",
+          "typeSlug",
+          "displayName",
+          "description",
+          "configUrl",
+          "actionsBaseUrl",
+          "configSchemaUrl"
+        ],
+        "type": "object",
+        "properties": {
+          "typeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "typeSlug": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "configUrl": {
+            "type": "string"
+          },
+          "actionsBaseUrl": {
+            "type": "string"
+          },
+          "configSchemaUrl": {
+            "type": "string"
+          }
+        }
       },
       "CostBySource": {
         "required": [
@@ -2872,6 +3119,45 @@
           }
         }
       },
+      "GitHubInstallationResponse": {
+        "required": [
+          "installationId",
+          "account",
+          "accountType",
+          "repoSelection"
+        ],
+        "type": "object",
+        "properties": {
+          "installationId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "account": {
+            "type": "string"
+          },
+          "accountType": {
+            "type": "string"
+          },
+          "repoSelection": {
+            "type": "string"
+          }
+        }
+      },
+      "GitHubInstallUrlResponse": {
+        "required": [
+          "url"
+        ],
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          }
+        }
+      },
       "InitiativeLevel": {
         "enum": [
           "Passive",
@@ -3146,36 +3432,6 @@
           }
         }
       },
-      "SetUnitGitHubConfigRequest": {
-        "required": [
-          "owner",
-          "repo"
-        ],
-        "type": "object",
-        "properties": {
-          "owner": {
-            "type": "string"
-          },
-          "repo": {
-            "type": "string"
-          }
-        }
-      },
-      "SetUnitGitHubConfigResponse": {
-        "required": [
-          "unitId",
-          "gitHub"
-        ],
-        "type": "object",
-        "properties": {
-          "unitId": {
-            "type": "string"
-          },
-          "gitHub": {
-            "$ref": "#/components/schemas/UnitGitHubConfig"
-          }
-        }
-      },
       "SkillCatalogEntry": {
         "required": [
           "name",
@@ -3261,6 +3517,30 @@
           }
         }
       },
+      "UnitConnectorPointerResponse": {
+        "required": [
+          "typeId",
+          "typeSlug",
+          "configUrl",
+          "actionsBaseUrl"
+        ],
+        "type": "object",
+        "properties": {
+          "typeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "typeSlug": {
+            "type": "string"
+          },
+          "configUrl": {
+            "type": "string"
+          },
+          "actionsBaseUrl": {
+            "type": "string"
+          }
+        }
+      },
       "UnitCreationResponse": {
         "required": [
           "unit",
@@ -3330,7 +3610,7 @@
           }
         }
       },
-      "UnitGitHubConfig": {
+      "UnitGitHubConfigRequest": {
         "required": [
           "owner",
           "repo"
@@ -3342,6 +3622,60 @@
           },
           "repo": {
             "type": "string"
+          },
+          "appInstallationId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "events": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "UnitGitHubConfigResponse": {
+        "required": [
+          "unitId",
+          "owner",
+          "repo",
+          "appInstallationId",
+          "events"
+        ],
+        "type": "object",
+        "properties": {
+          "unitId": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "repo": {
+            "type": "string"
+          },
+          "appInstallationId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -3585,6 +3919,12 @@
     },
     {
       "name": "Skills"
+    },
+    {
+      "name": "Connectors"
+    },
+    {
+      "name": "Connectors.GitHub"
     },
     {
       "name": "Webhooks"

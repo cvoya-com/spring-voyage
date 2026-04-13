@@ -43,7 +43,7 @@ type Mode = "template" | "scratch" | "yaml";
 const STEP_LABELS: Record<Step, string> = {
   1: "Details",
   2: "Mode",
-  3: "GitHub",
+  3: "Connector",
   4: "Secrets",
   5: "Finalize",
 };
@@ -526,14 +526,16 @@ export default function CreateUnitPage() {
         <Card className="bg-muted/40">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Github className="h-5 w-5" /> GitHub setup
+              <Github className="h-5 w-5" /> Connector
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm text-muted-foreground">
             <p>
-              GitHub App installation flow is tracked in follow-up{" "}
-              <span className="font-mono text-foreground">#121</span>. Skip for
-              now — you can finish creating the unit without it.
+              Connector binding happens on the unit's{" "}
+              <strong>Connector</strong> tab after creation — the unit actor
+              has to exist before its per-unit config can be persisted. Skip
+              for now and wire up GitHub (or any registered connector) from
+              the unit config page.
             </p>
             <Button onClick={handleNext}>Skip for now</Button>
           </CardContent>

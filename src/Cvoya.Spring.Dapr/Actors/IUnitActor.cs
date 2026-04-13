@@ -3,6 +3,9 @@
 
 namespace Cvoya.Spring.Dapr.Actors;
 
+using System.Text.Json;
+
+using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Auth;
@@ -115,36 +118,39 @@ public interface IUnitActor : IActor
     Task SetMetadataAsync(UnitMetadata metadata, CancellationToken ct = default);
 
     /// <summary>
-    /// Gets the unit's GitHub connector configuration, or <c>null</c> when the
-    /// unit is not wired to a GitHub repository. Used by the unit lifecycle
-    /// handler to decide whether to register a webhook on /start.
+    /// Gets the unit's active connector binding, or <c>null</c> when the
+    /// unit is not wired to any connector. The binding identifies the
+    /// connector type and carries the connector-specific typed config as an
+    /// opaque <see cref="JsonElement"/> — connector-specific shape is
+    /// deserialized by the owning connector package.
     /// </summary>
     /// <param name="ct">A token to cancel the operation.</param>
-    /// <returns>The persisted GitHub config, or <c>null</c> if unset.</returns>
-    Task<UnitGitHubConfig?> GetGitHubConfigAsync(CancellationToken ct = default);
+    /// <returns>The persisted binding, or <c>null</c> if unset.</returns>
+    Task<UnitConnectorBinding?> GetConnectorBindingAsync(CancellationToken ct = default);
 
     /// <summary>
-    /// Replaces the unit's GitHub connector configuration. Pass <c>null</c> to
-    /// clear the binding.
+    /// Upserts the unit's connector binding atomically. Replaces any prior
+    /// binding regardless of connector type. Pass <c>null</c> to clear the
+    /// binding.
     /// </summary>
-    /// <param name="config">The new configuration, or <c>null</c> to clear.</param>
+    /// <param name="binding">The new binding, or <c>null</c> to clear.</param>
     /// <param name="ct">A token to cancel the operation.</param>
-    Task SetGitHubConfigAsync(UnitGitHubConfig? config, CancellationToken ct = default);
+    Task SetConnectorBindingAsync(UnitConnectorBinding? binding, CancellationToken ct = default);
 
     /// <summary>
-    /// Returns the id of the GitHub webhook registered for this unit, or
-    /// <c>null</c> if no hook is currently tracked. Set by the /start handler
-    /// after successful registration; cleared by the /stop handler after
-    /// teardown.
+    /// Returns the opaque connector-owned runtime metadata stored on the
+    /// unit (e.g. a webhook id that a connector registered on /start and
+    /// will need on /stop), or <c>null</c> when no metadata is stored.
     /// </summary>
     /// <param name="ct">A token to cancel the operation.</param>
-    Task<long?> GetGitHubHookIdAsync(CancellationToken ct = default);
+    Task<JsonElement?> GetConnectorMetadataAsync(CancellationToken ct = default);
 
     /// <summary>
-    /// Stores the id of the GitHub webhook registered for this unit. Pass
-    /// <c>null</c> to clear.
+    /// Stores connector-owned runtime metadata on the unit. Pass
+    /// <c>default(JsonElement)</c> or an explicit null-valued element to
+    /// clear.
     /// </summary>
-    /// <param name="hookId">The webhook id returned by GitHub, or <c>null</c> to clear.</param>
+    /// <param name="metadata">The metadata to persist, or <c>null</c> to clear.</param>
     /// <param name="ct">A token to cancel the operation.</param>
-    Task SetGitHubHookIdAsync(long? hookId, CancellationToken ct = default);
+    Task SetConnectorMetadataAsync(JsonElement? metadata, CancellationToken ct = default);
 }
