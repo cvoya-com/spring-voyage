@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Host.Api.Endpoints;
 
+using Cvoya.Spring.Host.Api.Models;
 using Cvoya.Spring.Host.Api.Services;
 
 using Microsoft.AspNetCore.Mvc;
@@ -23,7 +24,8 @@ public static class PackageEndpoints
 
         group.MapGet("/templates", ListUnitTemplatesAsync)
             .WithName("ListUnitTemplates")
-            .WithSummary("List unit templates discovered in the packages tree");
+            .WithSummary("List unit templates discovered in the packages tree")
+            .Produces<UnitTemplateSummary[]>(StatusCodes.Status200OK);
 
         return group;
     }

@@ -24,22 +24,30 @@ public static class BudgetEndpoints
 
         agentGroup.MapGet("/", GetAgentBudgetAsync)
             .WithName("GetAgentBudget")
-            .WithSummary("Get the cost budget for an agent");
+            .WithSummary("Get the cost budget for an agent")
+            .Produces<BudgetResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         agentGroup.MapPut("/", SetAgentBudgetAsync)
             .WithName("SetAgentBudget")
-            .WithSummary("Set the cost budget for an agent");
+            .WithSummary("Set the cost budget for an agent")
+            .Produces<BudgetResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest);
 
         var tenantGroup = app.MapGroup("/api/v1/tenant/budget")
             .WithTags("Budgets");
 
         tenantGroup.MapGet("/", GetTenantBudgetAsync)
             .WithName("GetTenantBudget")
-            .WithSummary("Get the cost budget for the tenant");
+            .WithSummary("Get the cost budget for the tenant")
+            .Produces<BudgetResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         tenantGroup.MapPut("/", SetTenantBudgetAsync)
             .WithName("SetTenantBudget")
-            .WithSummary("Set the cost budget for the tenant");
+            .WithSummary("Set the cost budget for the tenant")
+            .Produces<BudgetResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest);
 
         return agentGroup;
     }

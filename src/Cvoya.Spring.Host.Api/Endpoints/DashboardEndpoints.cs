@@ -24,15 +24,18 @@ public static class DashboardEndpoints
 
         group.MapGet("/agents", GetAgentsSummaryAsync)
             .WithName("GetAgentsSummary")
-            .WithSummary("Get a summary of all registered agents");
+            .WithSummary("Get a summary of all registered agents")
+            .Produces<AgentDashboardSummary[]>(StatusCodes.Status200OK);
 
         group.MapGet("/units", GetUnitsSummaryAsync)
             .WithName("GetUnitsSummary")
-            .WithSummary("Get a summary of all registered units");
+            .WithSummary("Get a summary of all registered units")
+            .Produces<UnitDashboardSummary[]>(StatusCodes.Status200OK);
 
         group.MapGet("/costs", GetCostsSummaryAsync)
             .WithName("GetCostsSummary")
-            .WithSummary("Get aggregated cost data");
+            .WithSummary("Get aggregated cost data")
+            .Produces<CostDashboardSummary>(StatusCodes.Status200OK);
 
         return group;
     }

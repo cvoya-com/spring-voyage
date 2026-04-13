@@ -33,8 +33,10 @@ public static class ActivityEndpoints
 
         group.MapGet("/", QueryActivityAsync)
             .WithName("QueryActivity")
-            .WithSummary("Query activity events with filters and pagination");
+            .WithSummary("Query activity events with filters and pagination")
+            .Produces<ActivityQueryResult>(StatusCodes.Status200OK);
 
+        // SSE stream — no body schema; the wire format is event-stream.
         group.MapGet("/stream", StreamActivityAsync)
             .WithName("StreamActivity")
             .WithSummary("Stream activity events via SSE");
