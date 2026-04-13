@@ -75,6 +75,11 @@ public class GitHubSkillRegistryInvocationTests
             "github_get_issue_details",
             "github_get_pull_request_diff",
             "github_manage_labels",
+            "github_create_issue",
+            "github_close_issue",
+            "github_list_issues",
+            "github_assign_issue",
+            "github_get_issue_author",
         }, ignoreOrder: true);
     }
 }

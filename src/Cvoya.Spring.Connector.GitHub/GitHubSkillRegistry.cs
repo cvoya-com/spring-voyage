@@ -160,6 +160,50 @@ public class GitHubSkillRegistry : ISkillRegistry
                     GetStringArray(args, "labelsToAdd"),
                     GetStringArray(args, "labelsToRemove"),
                     ct),
+
+            ["github_create_issue"] = (client, args, ct) =>
+                new CreateIssueSkill(client, _loggerFactory).ExecuteAsync(
+                    GetString(args, "owner"),
+                    GetString(args, "repo"),
+                    GetString(args, "title"),
+                    GetOptionalString(args, "body"),
+                    GetStringArray(args, "labels"),
+                    GetStringArray(args, "assignees"),
+                    ct),
+
+            ["github_close_issue"] = (client, args, ct) =>
+                new CloseIssueSkill(client, _loggerFactory).ExecuteAsync(
+                    GetString(args, "owner"),
+                    GetString(args, "repo"),
+                    GetInt(args, "number"),
+                    GetOptionalString(args, "reason"),
+                    ct),
+
+            ["github_list_issues"] = (client, args, ct) =>
+                new ListIssuesSkill(client, _loggerFactory).ExecuteAsync(
+                    GetString(args, "owner"),
+                    GetString(args, "repo"),
+                    GetOptionalString(args, "state"),
+                    GetStringArray(args, "labels"),
+                    GetOptionalString(args, "assignee"),
+                    GetOptionalInt(args, "maxResults") ?? 30,
+                    ct),
+
+            ["github_assign_issue"] = (client, args, ct) =>
+                new AssignIssueSkill(client, _loggerFactory).ExecuteAsync(
+                    GetString(args, "owner"),
+                    GetString(args, "repo"),
+                    GetInt(args, "number"),
+                    GetStringArray(args, "assigneesToAdd"),
+                    GetStringArray(args, "assigneesToRemove"),
+                    ct),
+
+            ["github_get_issue_author"] = (client, args, ct) =>
+                new GetIssueAuthorSkill(client, _loggerFactory).ExecuteAsync(
+                    GetString(args, "owner"),
+                    GetString(args, "repo"),
+                    GetInt(args, "number"),
+                    ct),
         };
     }
 
@@ -186,6 +230,15 @@ public class GitHubSkillRegistry : ISkillRegistry
         if (!args.TryGetProperty(name, out var prop) || prop.ValueKind != JsonValueKind.Number)
         {
             throw new ArgumentException($"Missing or non-integer argument '{name}'.");
+        }
+        return prop.GetInt32();
+    }
+
+    private static int? GetOptionalInt(JsonElement args, string name)
+    {
+        if (!args.TryGetProperty(name, out var prop) || prop.ValueKind != JsonValueKind.Number)
+        {
+            return null;
         }
         return prop.GetInt32();
     }
@@ -382,6 +435,90 @@ public class GitHubSkillRegistry : ISkillRegistry
                         number = new { type = "integer", description = "The issue or PR number" },
                         labelsToAdd = new { type = "array", items = new { type = "string" }, description = "Labels to add" },
                         labelsToRemove = new { type = "array", items = new { type = "string" }, description = "Labels to remove" }
+                    },
+                    required = new[] { "owner", "repo", "number" }
+                }),
+
+            CreateToolDefinition(
+                "github_create_issue",
+                "Creates a new issue in a GitHub repository.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        owner = new { type = "string", description = "The repository owner" },
+                        repo = new { type = "string", description = "The repository name" },
+                        title = new { type = "string", description = "The issue title" },
+                        body = new { type = "string", description = "The issue body / description" },
+                        labels = new { type = "array", items = new { type = "string" }, description = "Labels to apply on creation" },
+                        assignees = new { type = "array", items = new { type = "string" }, description = "GitHub logins to assign on creation" }
+                    },
+                    required = new[] { "owner", "repo", "title" }
+                }),
+
+            CreateToolDefinition(
+                "github_close_issue",
+                "Closes an existing GitHub issue.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        owner = new { type = "string", description = "The repository owner" },
+                        repo = new { type = "string", description = "The repository name" },
+                        number = new { type = "integer", description = "The issue number" },
+                        reason = new { type = "string", description = "Optional close reason: completed, not_planned, or reopened" }
+                    },
+                    required = new[] { "owner", "repo", "number" }
+                }),
+
+            CreateToolDefinition(
+                "github_list_issues",
+                "Lists issues in a GitHub repository filtered by state, labels, or assignee. Pull requests are excluded.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        owner = new { type = "string", description = "The repository owner" },
+                        repo = new { type = "string", description = "The repository name" },
+                        state = new { type = "string", description = "State filter: open (default), closed, or all" },
+                        labels = new { type = "array", items = new { type = "string" }, description = "Labels to filter by (logical AND)" },
+                        assignee = new { type = "string", description = "Assignee login filter (* for any, none for unassigned)" },
+                        maxResults = new { type = "integer", description = "Maximum issues to return (capped at 100)" }
+                    },
+                    required = new[] { "owner", "repo" }
+                }),
+
+            CreateToolDefinition(
+                "github_assign_issue",
+                "Adds and/or removes assignees on a GitHub issue or pull request.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        owner = new { type = "string", description = "The repository owner" },
+                        repo = new { type = "string", description = "The repository name" },
+                        number = new { type = "integer", description = "The issue or PR number" },
+                        assigneesToAdd = new { type = "array", items = new { type = "string" }, description = "GitHub logins to add as assignees" },
+                        assigneesToRemove = new { type = "array", items = new { type = "string" }, description = "GitHub logins to remove as assignees" }
+                    },
+                    required = new[] { "owner", "repo", "number" }
+                }),
+
+            CreateToolDefinition(
+                "github_get_issue_author",
+                "Gets the login of the user who opened a GitHub issue.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        owner = new { type = "string", description = "The repository owner" },
+                        repo = new { type = "string", description = "The repository name" },
+                        number = new { type = "integer", description = "The issue number" }
                     },
                     required = new[] { "owner", "repo", "number" }
                 })

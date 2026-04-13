@@ -38,7 +38,7 @@ public class GitHubSkillRegistryTests
     {
         var tools = _registry.GetToolDefinitions();
 
-        tools.Count().ShouldBe(11);
+        tools.Count().ShouldBe(16);
         tools.Select(t => t.Name).ShouldBe(new[]
         {
             "github_create_branch",
@@ -52,6 +52,11 @@ public class GitHubSkillRegistryTests
             "github_get_issue_details",
             "github_get_pull_request_diff",
             "github_manage_labels",
+            "github_create_issue",
+            "github_close_issue",
+            "github_list_issues",
+            "github_assign_issue",
+            "github_get_issue_author",
         }, ignoreOrder: true);
     }
 
