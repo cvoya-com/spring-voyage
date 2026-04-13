@@ -159,6 +159,64 @@ public class AgentMetadataTests
             Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task GetSkillsAsync_NothingPersisted_ReturnsEmpty()
+    {
+        _stateManager.TryGetStateAsync<List<string>>(StateKeys.AgentSkills, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<List<string>>(false, default!));
+
+        var skills = await _actor.GetSkillsAsync(TestContext.Current.CancellationToken);
+
+        skills.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task SetSkillsAsync_WritesNormalisedListAndEmitsEvent()
+    {
+        // Input has duplicates, whitespace, and unstable order — the
+        // persisted list must be deduped, trimmed, and ordinal-sorted.
+        var input = new[] { " github_write_file ", "github_read_file", "github_write_file", "" };
+
+        await _actor.SetSkillsAsync(input, TestContext.Current.CancellationToken);
+
+        await _stateManager.Received(1).SetStateAsync(
+            StateKeys.AgentSkills,
+            Arg.Is<List<string>>(l =>
+                l.Count == 2 &&
+                l[0] == "github_read_file" &&
+                l[1] == "github_write_file"),
+            Arg.Any<CancellationToken>());
+
+        await _activityEventBus.Received().PublishAsync(
+            Arg.Is<ActivityEvent>(e =>
+                e.EventType == ActivityEventType.StateChanged &&
+                e.Summary.Contains("skills replaced")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SetSkillsAsync_EmptyList_PersistsExplicitClear()
+    {
+        // Empty list is not "leave alone" — it's a meaningful configured
+        // state (agent has no skills enabled). Must persist and emit.
+        await _actor.SetSkillsAsync(Array.Empty<string>(), TestContext.Current.CancellationToken);
+
+        await _stateManager.Received(1).SetStateAsync(
+            StateKeys.AgentSkills,
+            Arg.Is<List<string>>(l => l.Count == 0),
+            Arg.Any<CancellationToken>());
+
+        await _activityEventBus.Received().PublishAsync(
+            Arg.Any<ActivityEvent>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SetSkillsAsync_Null_Throws()
+    {
+        await Should.ThrowAsync<ArgumentNullException>(
+            () => _actor.SetSkillsAsync(null!, TestContext.Current.CancellationToken));
+    }
+
     private static void SetStateManager(Actor actor, IActorStateManager stateManager)
     {
         // Mirrors the helper in UnitActorTests: Actor.StateManager is a

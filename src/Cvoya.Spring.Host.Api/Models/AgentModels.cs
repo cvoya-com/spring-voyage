@@ -50,3 +50,28 @@ public record UpdateAgentMetadataRequest(
     string? Specialty = null,
     bool? Enabled = null,
     AgentExecutionMode? ExecutionMode = null);
+
+/// <summary>
+/// An entry in the platform-wide skill catalog returned by
+/// <c>GET /api/v1/skills</c>. Each entry corresponds to one tool exposed
+/// by some registered <c>ISkillRegistry</c>.
+/// </summary>
+/// <param name="Name">The tool name (e.g., <c>github_create_pull_request</c>). Unique across registries.</param>
+/// <param name="Description">Human-readable description shown in the UI.</param>
+/// <param name="Registry">Short identifier of the registry that owns the tool (e.g., <c>github</c>). Used for grouping in the UI.</param>
+public record SkillCatalogEntry(string Name, string Description, string Registry);
+
+/// <summary>
+/// Response body for <c>GET /api/v1/agents/{id}/skills</c>. Returns the
+/// agent's configured skill list verbatim; an empty list is meaningful
+/// (agent is explicitly disabled from every tool) and distinct from a
+/// 404 (agent does not exist).
+/// </summary>
+public record AgentSkillsResponse(IReadOnlyList<string> Skills);
+
+/// <summary>
+/// Request body for <c>PUT /api/v1/agents/{id}/skills</c>. Full replacement
+/// of the agent's skill list — pass the new complete list. An empty list
+/// clears the configuration; it is not treated as "leave alone."
+/// </summary>
+public record SetAgentSkillsRequest(IReadOnlyList<string> Skills);

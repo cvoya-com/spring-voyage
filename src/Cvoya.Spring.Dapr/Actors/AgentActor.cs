@@ -664,6 +664,45 @@ public class AgentActor(
             }));
     }
 
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<string>> GetSkillsAsync(CancellationToken cancellationToken = default)
+    {
+        var result = await StateManager.TryGetStateAsync<List<string>>(StateKeys.AgentSkills, cancellationToken);
+        return result.HasValue ? result.Value.AsReadOnly() : [];
+    }
+
+    /// <inheritdoc />
+    public async Task SetSkillsAsync(IReadOnlyList<string> skills, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(skills);
+
+        // Canonicalise: drop null / whitespace entries, collapse duplicates,
+        // sort. Ordering is semantically meaningless — the list is a set —
+        // but a stable order makes diffs in logs and activity events
+        // predictable.
+        var normalised = skills
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Select(s => s.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(s => s, StringComparer.Ordinal)
+            .ToList();
+
+        await StateManager.SetStateAsync(StateKeys.AgentSkills, normalised, cancellationToken);
+
+        _logger.LogInformation(
+            "Agent {ActorId} skills replaced. Count: {Count}", Id.GetId(), normalised.Count);
+
+        await EmitActivityEventAsync(ActivityEventType.StateChanged,
+            $"Agent skills replaced: {normalised.Count} skill(s).",
+            cancellationToken,
+            details: JsonSerializer.SerializeToElement(new
+            {
+                action = "AgentSkillsReplaced",
+                count = normalised.Count,
+                skills = normalised,
+            }));
+    }
+
     /// <summary>
     /// Emits a <see cref="ActivityEventType.CostIncurred"/> event for this agent's execution costs.
     /// </summary>

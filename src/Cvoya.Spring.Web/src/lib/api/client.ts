@@ -2,6 +2,7 @@ import type {
   AgentDashboardSummary,
   AgentDetailResponse,
   AgentResponse,
+  AgentSkillsResponse,
   ActivityQueryResult,
   BudgetResponse,
   CloneResponse,
@@ -13,6 +14,7 @@ import type {
   InitiativeLevelResponse,
   InitiativePolicy,
   SetBudgetRequest,
+  SkillCatalogEntry,
   UnitCreationResponse,
   UnitDashboardSummary,
   UnitDetailResponse,
@@ -119,6 +121,15 @@ export const api = {
     patchJSON<AgentResponse>(
       `/api/v1/agents/${encodeURIComponent(id)}`,
       patch,
+    ),
+  getAgentSkills: (id: string) =>
+    fetchJSON<AgentSkillsResponse>(
+      `/api/v1/agents/${encodeURIComponent(id)}/skills`,
+    ),
+  setAgentSkills: (id: string, skills: string[]) =>
+    putJSONReturn<AgentSkillsResponse>(
+      `/api/v1/agents/${encodeURIComponent(id)}/skills`,
+      { skills },
     ),
   deleteAgent: (id: string) =>
     deleteJSON(`/api/v1/agents/${encodeURIComponent(id)}`),
@@ -259,4 +270,7 @@ export const api = {
       `/api/v1/units/${encodeURIComponent(id)}/initiative/policy`,
       policy,
     ),
+
+  // Skills catalog
+  listSkills: () => fetchJSON<SkillCatalogEntry[]>("/api/v1/skills"),
 };
