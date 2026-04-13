@@ -179,13 +179,18 @@ jobs:
     steps:
       - name: Verify all required jobs passed
         shell: bash
+        env:
+          BUILD_RESULT: ${{ needs.build.result }}
+          TEST_RESULT: ${{ needs.test.result }}
+          FORMAT_RESULT: ${{ needs.format.result }}
+          LINT_RESULT: ${{ needs.agent-definitions-lint.result }}
         run: |
-          echo "build=${{ needs.build.result }}"
-          echo "test=${{ needs.test.result }}"
-          echo "format=${{ needs.format.result }}"
-          echo "agent-definitions-lint=${{ needs.agent-definitions-lint.result }}"
+          echo "build=$BUILD_RESULT"
+          echo "test=$TEST_RESULT"
+          echo "format=$FORMAT_RESULT"
+          echo "agent-definitions-lint=$LINT_RESULT"
 
-          [[ "${{ needs.build.result }}" == "success" ]] || exit 1
-          [[ "${{ needs.test.result }}" == "success" ]] || exit 1
-          [[ "${{ needs.format.result }}" == "success" ]] || exit 1
-          [[ "${{ needs.agent-definitions-lint.result }}" == "success" ]] || exit 1
+          [[ "$BUILD_RESULT" == "success" ]] || exit 1
+          [[ "$TEST_RESULT" == "success" ]] || exit 1
+          [[ "$FORMAT_RESULT" == "success" ]] || exit 1
+          [[ "$LINT_RESULT" == "success" ]] || exit 1
