@@ -1,13 +1,14 @@
 "use client";
 
-// GitHub connector UI. The design intent is that this file lives under
-// `src/Cvoya.Spring.Connector.GitHub/web/` (mirroring the server-side
-// layout where a connector owns both its .NET AND its web surface), but
-// Next.js + Turbopack currently refuses to resolve `node_modules` for
-// files imported from outside the web project root. As a temporary
-// accommodation the component is hosted here and the connector package's
-// `web/` directory just carries a PLACEHOLDER.md pointing back. Moving
-// the file to its permanent home is tracked by #196.
+// GitHub connector UI. This file lives inside the connector package
+// (`src/Cvoya.Spring.Connector.GitHub/web/`), mirroring the server-side
+// layout where a connector owns both its .NET code AND its web surface.
+//
+// Turbopack resolves `node_modules` from this out-of-tree location because
+// `src/Cvoya.Spring.Web/next.config.ts` sets `turbopack.root` to the
+// repository root — see that file for the rationale. The web project
+// imports this component through the `@connector-github/*` path alias
+// declared in `src/Cvoya.Spring.Web/tsconfig.json`.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Github, Loader2, RefreshCw } from "lucide-react";

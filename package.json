@@ -1,0 +1,9 @@
+{
+  "name": "spring-voyage-workspace",
+  "private": true,
+  "description": "npm workspace root. Exists ONLY to hoist node_modules so connector packages can ship their own web UI (src/Cvoya.Spring.Connector.*/web/) and still resolve shared dependencies (react, lucide-react, @/* from the web project). See src/Cvoya.Spring.Web/next.config.ts and the Web project's tsconfig paths for the full picture. #198.",
+  "workspaces": [
+    "src/Cvoya.Spring.Web",
+    "src/Cvoya.Spring.Connector.*/web"
+  ]
+}

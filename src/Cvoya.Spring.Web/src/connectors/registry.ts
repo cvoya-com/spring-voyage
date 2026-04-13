@@ -3,18 +3,23 @@
 // that connector package's `web/` subdirectory (see
 // `src/Cvoya.Spring.Connector.GitHub/web/` for the canonical shape).
 //
+// Each connector package owns its own web directory; the web project
+// references it through a `@connector-<slug>/*` tsconfig path alias
+// (see `tsconfig.json`) and Turbopack resolves cross-directory
+// `node_modules` imports via `turbopack.root` in `next.config.ts`.
+//
 // Today's implementation is statically-imported: the registry knows each
 // component at build time. Hot-loading / dynamic imports are deliberately
 // out of scope until a second connector lands (see #195 for the runtime
 // discovery follow-up).
 //
-// Validation of the web submodule wiring (consistency between the .NET
-// connector type and the web component for the same slug, integrity of
-// the tsconfig path alias, etc.) is tracked as #196.
+// Consistency between the .NET connector slug, the registry entry, and
+// the web submodule on disk is enforced in CI by
+// `scripts/validate-connector-web.sh`.
 
 import type { ComponentType } from "react";
 
-import { GitHubConnectorTab } from "./github/connector-tab";
+import { GitHubConnectorTab } from "@connector-github/connector-tab";
 
 export interface ConnectorTabProps {
   unitId: string;

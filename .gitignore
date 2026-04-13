@@ -37,3 +37,9 @@ deployment/spring.env
 ## `src/Cvoya.Spring.Host.Api/openapi.json`, which IS committed.
 src/Cvoya.Spring.Cli/Generated/
 src/Cvoya.Spring.Web/src/lib/api/schema.d.ts
+
+## npm workspace hoisted dependencies — the root package.json is a
+## workspaces-only manifest (see #198) and `npm install` at the repo
+## root materialises node_modules (and .next/.turbo caches) here.
+node_modules/
+.next/
