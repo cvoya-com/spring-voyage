@@ -59,4 +59,14 @@ public enum SecretAccessAction
 
     /// <summary>Delete a secret in (scope, owner).</summary>
     Delete = 2,
+
+    /// <summary>
+    /// Resolve a plaintext value for a secret in (scope, owner). Checked
+    /// by <see cref="ISecretResolver"/> at resolve time. Critically, when
+    /// a resolve traverses the Unit → Tenant inheritance fall-through the
+    /// policy MUST be consulted at BOTH levels, so a caller with a unit
+    /// read grant cannot obtain a tenant-scoped plaintext without a
+    /// separate tenant-level grant.
+    /// </summary>
+    Read = 3,
 }

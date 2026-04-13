@@ -56,4 +56,24 @@ public class SecretsOptions
     /// is rejected with 429. Set to 0 to disable the limit.
     /// </summary>
     public int MaxSecretsPerOwner { get; set; } = 100;
+
+    /// <summary>
+    /// Whether <see cref="Cvoya.Spring.Core.Secrets.ISecretResolver"/>
+    /// falls through from <see cref="Cvoya.Spring.Core.Secrets.SecretScope.Unit"/>
+    /// to <see cref="Cvoya.Spring.Core.Secrets.SecretScope.Tenant"/>
+    /// when the unit-scoped entry is missing. Defaults to <c>true</c>:
+    /// tenant-wide secrets (e.g. a shared CI token) are visible from
+    /// unit context without per-unit duplication. Set to <c>false</c>
+    /// to require strict scope isolation — unit resolves that miss will
+    /// return <c>null</c> even when a same-name tenant entry exists.
+    ///
+    /// <para>
+    /// The fall-through path still consults
+    /// <see cref="Cvoya.Spring.Core.Secrets.ISecretAccessPolicy"/> at
+    /// BOTH scopes with the <see cref="Cvoya.Spring.Core.Secrets.SecretAccessAction.Read"/>
+    /// action; a caller with only a unit read grant cannot obtain a
+    /// tenant-scoped value without a separate tenant grant.
+    /// </para>
+    /// </summary>
+    public bool InheritTenantFromUnit { get; set; } = true;
 }

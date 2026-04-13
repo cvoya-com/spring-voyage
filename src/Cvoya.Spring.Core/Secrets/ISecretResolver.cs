@@ -20,11 +20,39 @@ public interface ISecretResolver
     /// Resolves the plaintext value for the given structural reference
     /// in the current tenant, or <c>null</c> if no such reference exists
     /// (or the value is missing from the underlying store).
+    ///
+    /// <para>
+    /// For <see cref="SecretScope.Unit"/> requests this method applies
+    /// the Unit → Tenant inheritance fall-through: if the unit entry is
+    /// absent, the resolver transparently falls back to the same-name
+    /// tenant entry, subject to the access-policy check at BOTH levels.
+    /// The fall-through can be disabled via configuration — see
+    /// <c>Secrets:InheritTenantFromUnit</c>.
+    /// </para>
     /// </summary>
     /// <param name="ref">The structural reference.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>The plaintext value, or <c>null</c>.</returns>
     Task<string?> ResolveAsync(SecretRef @ref, CancellationToken ct);
+
+    /// <summary>
+    /// Resolves the plaintext value for the given structural reference
+    /// and returns the <see cref="SecretResolution"/> describing the
+    /// resolve path — direct hit, inherited from tenant, or not found.
+    /// This overload is what audit-log / metrics decorators consume so
+    /// they can record the path taken without observing the resolver's
+    /// internals. <see cref="ResolveAsync"/> is a thin convenience over
+    /// this method that discards the path information.
+    /// </summary>
+    /// <param name="ref">The structural reference.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>
+    /// A <see cref="SecretResolution"/> whose <c>Path</c> is
+    /// <see cref="SecretResolvePath.Direct"/>,
+    /// <see cref="SecretResolvePath.InheritedFromTenant"/>, or
+    /// <see cref="SecretResolvePath.NotFound"/>.
+    /// </returns>
+    Task<SecretResolution> ResolveWithPathAsync(SecretRef @ref, CancellationToken ct);
 
     /// <summary>
     /// Lists the structural references visible to the current tenant for

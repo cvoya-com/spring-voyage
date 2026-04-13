@@ -16,6 +16,8 @@ For the high-level architectural "why" behind the platform as a whole, see [`../
 |---|-------|--------|
 | [0001](0001-web-portal-rendering-strategy.md) | Web portal rendering strategy (static export vs SSR) | Accepted — keep static export |
 | [0002](0002-openapi-links-keyword.md) | OpenAPI `links` keyword vs plain URL fields | Deferred — revisit criteria recorded |
+| [0003](0003-secret-inheritance-unit-to-tenant.md) | Secret inheritance semantics (Unit → Tenant) | Accepted — automatic fall-through with opt-out |
+| [0004](0004-per-agent-secrets.md) | Per-agent secrets: storage scope vs ACL vs status quo | Deferred — unit remains the trust boundary |
 
 ## Format
 
