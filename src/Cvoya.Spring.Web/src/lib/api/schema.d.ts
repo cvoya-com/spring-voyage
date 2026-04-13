@@ -908,9 +908,17 @@ export interface components {
             identity?: null | string;
             notifications?: null | boolean;
         };
+        SetHumanPermissionResponse: {
+            humanId: string;
+            permission: components["schemas"]["PermissionLevel"];
+        };
         SetUnitGitHubConfigRequest: {
             owner: string;
             repo: string;
+        };
+        SetUnitGitHubConfigResponse: {
+            unitId: string;
+            gitHub: components["schemas"]["UnitGitHubConfig"];
         };
         SkillCatalogEntry: {
             name: string;
@@ -958,6 +966,14 @@ export interface components {
         UnitDetailResponse: {
             unit: components["schemas"]["UnitResponse"];
             details: null | components["schemas"]["JsonElement"];
+        };
+        UnitGitHubConfig: {
+            owner: string;
+            repo: string;
+        };
+        UnitLifecycleResponse: {
+            unitId: string;
+            status: components["schemas"]["UnitStatus"];
         };
         UnitPermissionEntry: {
             humanId: string;
@@ -1569,6 +1585,15 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnitLifecycleResponse"];
+                };
+            };
             /** @description Not Found */
             404: {
                 headers: {
@@ -1600,6 +1625,15 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnitLifecycleResponse"];
+                };
+            };
             /** @description Not Found */
             404: {
                 headers: {
@@ -1635,6 +1669,13 @@ export interface operations {
             };
         };
         responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             /** @description Not Found */
             404: {
                 headers: {
@@ -1691,6 +1732,15 @@ export interface operations {
             };
         };
         responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetUnitGitHubConfigResponse"];
+                };
+            };
             /** @description Bad Request */
             400: {
                 headers: {
@@ -1756,6 +1806,15 @@ export interface operations {
             };
         };
         responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetHumanPermissionResponse"];
+                };
+            };
             /** @description Bad Request */
             400: {
                 headers: {

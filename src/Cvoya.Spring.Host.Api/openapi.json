@@ -703,6 +703,16 @@
           }
         ],
         "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnitLifecycleResponse"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Not Found",
             "content": {
@@ -744,6 +754,16 @@
           }
         ],
         "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnitLifecycleResponse"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Not Found",
             "content": {
@@ -795,6 +815,9 @@
           "required": true
         },
         "responses": {
+          "204": {
+            "description": "No Content"
+          },
           "404": {
             "description": "Not Found",
             "content": {
@@ -878,6 +901,16 @@
           "required": true
         },
         "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetUnitGitHubConfigResponse"
+                }
+              }
+            }
+          },
           "400": {
             "description": "Bad Request",
             "content": {
@@ -969,6 +1002,16 @@
           "required": true
         },
         "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetHumanPermissionResponse"
+                }
+              }
+            }
+          },
           "400": {
             "description": "Bad Request",
             "content": {
@@ -3088,6 +3131,21 @@
           }
         }
       },
+      "SetHumanPermissionResponse": {
+        "required": [
+          "humanId",
+          "permission"
+        ],
+        "type": "object",
+        "properties": {
+          "humanId": {
+            "type": "string"
+          },
+          "permission": {
+            "$ref": "#/components/schemas/PermissionLevel"
+          }
+        }
+      },
       "SetUnitGitHubConfigRequest": {
         "required": [
           "owner",
@@ -3100,6 +3158,21 @@
           },
           "repo": {
             "type": "string"
+          }
+        }
+      },
+      "SetUnitGitHubConfigResponse": {
+        "required": [
+          "unitId",
+          "gitHub"
+        ],
+        "type": "object",
+        "properties": {
+          "unitId": {
+            "type": "string"
+          },
+          "gitHub": {
+            "$ref": "#/components/schemas/UnitGitHubConfig"
           }
         }
       },
@@ -3258,6 +3331,36 @@
                 "$ref": "#/components/schemas/JsonElement"
               }
             ]
+          }
+        }
+      },
+      "UnitGitHubConfig": {
+        "required": [
+          "owner",
+          "repo"
+        ],
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string"
+          },
+          "repo": {
+            "type": "string"
+          }
+        }
+      },
+      "UnitLifecycleResponse": {
+        "required": [
+          "unitId",
+          "status"
+        ],
+        "type": "object",
+        "properties": {
+          "unitId": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/UnitStatus"
           }
         }
       },
