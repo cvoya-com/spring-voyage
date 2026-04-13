@@ -47,6 +47,11 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
     public IActorProxyFactory ActorProxyFactory { get; } = Substitute.For<IActorProxyFactory>();
 
     /// <summary>
+    /// Gets the mock <see cref="IAgentProxyResolver"/> registered in the test DI container.
+    /// </summary>
+    public IAgentProxyResolver AgentProxyResolver { get; } = Substitute.For<IAgentProxyResolver>();
+
+    /// <summary>
     /// Gets the mock <see cref="IActivityQueryService"/> registered in the test DI container.
     /// </summary>
     public IActivityQueryService ActivityQueryService { get; } = Substitute.For<IActivityQueryService>();
@@ -184,6 +189,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
                 typeof(MessageRouter),
                 typeof(DirectoryCache),
                 typeof(IActorProxyFactory),
+                typeof(IAgentProxyResolver),
                 typeof(IStateStore),
                 typeof(ICostTracker),
                 typeof(IActivityQueryService),
@@ -209,6 +215,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
             // Re-register with test doubles.
             services.AddSingleton(DirectoryService);
             services.AddSingleton(ActorProxyFactory);
+            services.AddSingleton(AgentProxyResolver);
             services.AddSingleton(StateStore);
             services.AddSingleton(Substitute.For<ICostTracker>());
             services.AddSingleton(ActivityQueryService);
@@ -242,7 +249,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
             {
                 var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
                 var permSvc = sp.GetRequiredService<IPermissionService>();
-                return new MessageRouter(DirectoryService, ActorProxyFactory, permSvc, loggerFactory);
+                return new MessageRouter(DirectoryService, AgentProxyResolver, permSvc, loggerFactory);
             });
         });
     }

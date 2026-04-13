@@ -49,7 +49,7 @@ public class AgentActorTests
         _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
         _router = Substitute.For<MessageRouter>(
             Substitute.For<IDirectoryService>(),
-            Substitute.For<IActorProxyFactory>(),
+            Substitute.For<IAgentProxyResolver>(),
             Substitute.For<IPermissionService>(),
             _loggerFactory);
         _dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())

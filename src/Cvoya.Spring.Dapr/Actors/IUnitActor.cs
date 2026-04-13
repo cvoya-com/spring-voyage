@@ -10,25 +10,18 @@ using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Auth;
 
-using global::Dapr.Actors;
-
 /// <summary>
-/// Dapr actor interface for unit actors.
-/// A unit groups agents and sub-units, dispatching domain messages
-/// through a configurable <see cref="Core.Orchestration.IOrchestrationStrategy"/>.
+/// Dapr actor interface for unit actors. A unit is an agent — it shares the
+/// mailbox / message-dispatch contract defined by <see cref="IAgent"/> —
+/// with additional structure: members, human permissions, lifecycle status,
+/// and a connector binding. Domain messages are delegated to the unit's
+/// configured <see cref="Core.Orchestration.IOrchestrationStrategy"/>, which
+/// the platform treats as one flavour of agent cognition; control messages
+/// (cancel, status, health, policy) are handled directly and follow the same
+/// shape as on <see cref="IAgentActor"/>.
 /// </summary>
-public interface IUnitActor : IActor
+public interface IUnitActor : IAgent
 {
-    /// <summary>
-    /// Receives and processes a message, optionally returning a response.
-    /// Control messages are handled directly; domain messages are delegated
-    /// to the configured orchestration strategy.
-    /// </summary>
-    /// <param name="message">The message to process.</param>
-    /// <param name="ct">A token to cancel the operation.</param>
-    /// <returns>An optional response message, or <c>null</c> if no response is needed.</returns>
-    Task<Message?> ReceiveAsync(Message message, CancellationToken ct = default);
-
     /// <summary>
     /// Adds a member (agent or sub-unit) to this unit.
     /// </summary>

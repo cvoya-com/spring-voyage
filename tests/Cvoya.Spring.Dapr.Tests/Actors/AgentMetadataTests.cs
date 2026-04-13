@@ -61,7 +61,7 @@ public class AgentMetadataTests
             Substitute.For<IExecutionDispatcher>(),
             Substitute.For<MessageRouter>(
                 Substitute.For<Cvoya.Spring.Core.Directory.IDirectoryService>(),
-                Substitute.For<global::Dapr.Actors.Client.IActorProxyFactory>(),
+                Substitute.For<Cvoya.Spring.Dapr.Routing.IAgentProxyResolver>(),
                 Substitute.For<Cvoya.Spring.Dapr.Auth.IPermissionService>(),
                 loggerFactory),
             Substitute.For<IAgentDefinitionProvider>(),

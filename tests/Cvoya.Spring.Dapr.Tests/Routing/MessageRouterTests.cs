@@ -11,9 +11,6 @@ using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Routing;
 
-using global::Dapr.Actors;
-using global::Dapr.Actors.Client;
-
 using Microsoft.Extensions.Logging;
 
 using NSubstitute;
@@ -29,7 +26,7 @@ using Xunit;
 public class MessageRouterTests
 {
     private readonly IDirectoryService _directoryService = Substitute.For<IDirectoryService>();
-    private readonly IActorProxyFactory _actorProxyFactory = Substitute.For<IActorProxyFactory>();
+    private readonly IAgentProxyResolver _agentProxyResolver = Substitute.For<IAgentProxyResolver>();
     private readonly IPermissionService _permissionService = Substitute.For<IPermissionService>();
     private readonly ILoggerFactory _loggerFactory;
     private readonly MessageRouter _router;
@@ -38,7 +35,7 @@ public class MessageRouterTests
     {
         _loggerFactory = Substitute.For<ILoggerFactory>();
         _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
-        _router = new MessageRouter(_directoryService, _actorProxyFactory, _permissionService, _loggerFactory);
+        _router = new MessageRouter(_directoryService, _agentProxyResolver, _permissionService, _loggerFactory);
     }
 
     [Fact]
@@ -53,14 +50,11 @@ public class MessageRouterTests
         _directoryService.ResolveAsync(destination, Arg.Any<CancellationToken>())
             .Returns(entry);
 
-        var actorProxy = Substitute.For<IAgentActor>();
+        var actorProxy = Substitute.For<IAgent>();
         actorProxy.ReceiveAsync(message, Arg.Any<CancellationToken>())
             .Returns(expectedResponse);
 
-        _actorProxyFactory.CreateActorProxy<IAgentActor>(
-            Arg.Is<ActorId>(id => id.GetId() == "actor-ada"),
-            Arg.Any<string>())
-            .Returns(actorProxy);
+        _agentProxyResolver.Resolve("agent", "actor-ada").Returns(actorProxy);
 
         var result = await _router.RouteAsync(message, ct);
 
@@ -77,14 +71,11 @@ public class MessageRouterTests
         var message = CreateMessage(destination);
         var expectedResponse = CreateResponse(message);
 
-        var actorProxy = Substitute.For<IAgentActor>();
+        var actorProxy = Substitute.For<IAgent>();
         actorProxy.ReceiveAsync(message, Arg.Any<CancellationToken>())
             .Returns(expectedResponse);
 
-        _actorProxyFactory.CreateActorProxy<IAgentActor>(
-            Arg.Is<ActorId>(id => id.GetId() == uuid),
-            Arg.Any<string>())
-            .Returns(actorProxy);
+        _agentProxyResolver.Resolve("agent", uuid).Returns(actorProxy);
 
         var result = await _router.RouteAsync(message, ct);
 
@@ -126,23 +117,16 @@ public class MessageRouterTests
         _directoryService.ResolveByRoleAsync("backend-engineer", Arg.Any<CancellationToken>())
             .Returns([entry1, entry2]);
 
-        var proxy1 = Substitute.For<IAgentActor>();
+        var proxy1 = Substitute.For<IAgent>();
         proxy1.ReceiveAsync(message, Arg.Any<CancellationToken>())
             .Returns(CreateResponse(message, "response-1"));
 
-        var proxy2 = Substitute.For<IAgentActor>();
+        var proxy2 = Substitute.For<IAgent>();
         proxy2.ReceiveAsync(message, Arg.Any<CancellationToken>())
             .Returns(CreateResponse(message, "response-2"));
 
-        _actorProxyFactory.CreateActorProxy<IAgentActor>(
-            Arg.Is<ActorId>(id => id.GetId() == "actor-1"),
-            Arg.Any<string>())
-            .Returns(proxy1);
-
-        _actorProxyFactory.CreateActorProxy<IAgentActor>(
-            Arg.Is<ActorId>(id => id.GetId() == "actor-2"),
-            Arg.Any<string>())
-            .Returns(proxy2);
+        _agentProxyResolver.Resolve("agent", "actor-1").Returns(proxy1);
+        _agentProxyResolver.Resolve("agent", "actor-2").Returns(proxy2);
 
         var result = await _router.RouteAsync(message, ct);
 
@@ -161,10 +145,11 @@ public class MessageRouterTests
         _directoryService.ResolveAsync(destination, Arg.Any<CancellationToken>())
             .Returns(entry);
 
-        _actorProxyFactory.CreateActorProxy<IAgentActor>(
-            Arg.Any<ActorId>(),
-            Arg.Any<string>())
+        var actorProxy = Substitute.For<IAgent>();
+        actorProxy.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
             .Throws(new InvalidOperationException("Actor unavailable"));
+
+        _agentProxyResolver.Resolve("agent", "actor-ada").Returns(actorProxy);
 
         var result = await _router.RouteAsync(message, ct);
 
@@ -187,13 +172,10 @@ public class MessageRouterTests
         _permissionService.ResolvePermissionAsync("human-1", "unit-1", Arg.Any<CancellationToken>())
             .Returns(PermissionLevel.Operator);
 
-        var unitProxy = Substitute.For<IUnitActor>();
+        var unitProxy = Substitute.For<IAgent>();
         unitProxy.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>()).Returns(expectedResponse);
 
-        _actorProxyFactory.CreateActorProxy<IUnitActor>(
-            Arg.Any<ActorId>(),
-            Arg.Any<string>())
-            .Returns(unitProxy);
+        _agentProxyResolver.Resolve("unit", "unit-1").Returns(unitProxy);
 
         var result = await _router.RouteAsync(message, ct);
 
@@ -229,13 +211,10 @@ public class MessageRouterTests
 
         _directoryService.ResolveAsync(destination, Arg.Any<CancellationToken>()).Returns(entry);
 
-        var unitProxy = Substitute.For<IUnitActor>();
+        var unitProxy = Substitute.For<IAgent>();
         unitProxy.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>()).Returns(expectedResponse);
 
-        _actorProxyFactory.CreateActorProxy<IUnitActor>(
-            Arg.Any<ActorId>(),
-            Arg.Any<string>())
-            .Returns(unitProxy);
+        _agentProxyResolver.Resolve("unit", "unit-1").Returns(unitProxy);
 
         var result = await _router.RouteAsync(message, ct);
 

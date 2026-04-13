@@ -135,6 +135,11 @@ public class WebhookEndpointsTests : IClassFixture<WebhookEndpointsTests.Factory
             .CreateActorProxy<IUnitActor>(Arg.Any<ActorId>(), Arg.Any<string>())
             .Returns(unitProxy);
 
+        // The MessageRouter routes through IAgentProxyResolver for mailbox dispatch.
+        _factory.AgentProxyResolver
+            .Resolve("unit", Arg.Any<string>())
+            .Returns(unitProxy);
+
         const string payload = """
         {
             "action": "opened",

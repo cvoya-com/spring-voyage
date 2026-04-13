@@ -43,6 +43,7 @@ public class ApiTokenAuthHandlerTests : IDisposable
     {
         var directoryService = Substitute.For<IDirectoryService>();
         var actorProxyFactory = Substitute.For<IActorProxyFactory>();
+        var agentProxyResolver = Substitute.For<IAgentProxyResolver>();
 
         _factory = new WebApplicationFactory<Program>()
             .WithWebHostBuilder(builder =>
@@ -107,7 +108,7 @@ public class ApiTokenAuthHandlerTests : IDisposable
                     {
                         var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
                         var permSvc = Substitute.For<IPermissionService>();
-                        return new MessageRouter(directoryService, actorProxyFactory, permSvc, loggerFactory);
+                        return new MessageRouter(directoryService, agentProxyResolver, permSvc, loggerFactory);
                     });
                 });
             });

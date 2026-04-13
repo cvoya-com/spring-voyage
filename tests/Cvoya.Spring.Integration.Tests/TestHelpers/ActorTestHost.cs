@@ -53,7 +53,7 @@ public static class ActorTestHost
         var dispatcher = Substitute.For<IExecutionDispatcher>();
         var router = Substitute.For<MessageRouter>(
             Substitute.For<IDirectoryService>(),
-            Substitute.For<IActorProxyFactory>(),
+            Substitute.For<IAgentProxyResolver>(),
             Substitute.For<IPermissionService>(),
             loggerFactory);
         var definitionProvider = Substitute.For<IAgentDefinitionProvider>();

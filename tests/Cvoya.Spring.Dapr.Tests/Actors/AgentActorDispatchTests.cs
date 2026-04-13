@@ -50,7 +50,7 @@ public class AgentActorDispatchTests
 
         _router = Substitute.For<MessageRouter>(
             Substitute.For<IDirectoryService>(),
-            Substitute.For<IActorProxyFactory>(),
+            Substitute.For<IAgentProxyResolver>(),
             Substitute.For<IPermissionService>(),
             loggerFactory);
 

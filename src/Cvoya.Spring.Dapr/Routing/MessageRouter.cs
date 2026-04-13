@@ -11,34 +11,27 @@ using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
 
-using global::Dapr.Actors;
-using global::Dapr.Actors.Client;
-
 using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// Resolves <see cref="Address"/> instances to Dapr actor proxies and delivers messages.
 /// Supports path-based resolution via <see cref="IDirectoryService"/>, direct UUID addresses,
 /// and multicast delivery for role-based addresses.
+/// <para>
+/// Delivery goes through the shared <see cref="IAgentProxyResolver"/>
+/// abstraction: every actor-shaped scheme resolves to the same
+/// <see cref="Actors.IAgent"/> contract, so the router does not need to
+/// switch on <c>agent://</c> vs <c>unit://</c> vs <c>human://</c> vs
+/// <c>connector://</c> to dispatch <c>ReceiveAsync</c>.
+/// </para>
 /// </summary>
 public class MessageRouter(
     IDirectoryService directoryService,
-    IActorProxyFactory actorProxyFactory,
+    IAgentProxyResolver agentProxyResolver,
     IPermissionService permissionService,
     ILoggerFactory loggerFactory) : IMessageRouter
 {
     private readonly ILogger _logger = loggerFactory.CreateLogger<MessageRouter>();
-
-    /// <summary>
-    /// Maps address schemes to the corresponding Dapr actor interface type.
-    /// </summary>
-    private static readonly Dictionary<string, Type> SchemeToActorType = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ["agent"] = typeof(IAgentActor),
-        ["unit"] = typeof(IUnitActor),
-        ["connector"] = typeof(IConnectorActor),
-        ["human"] = typeof(IHumanActor),
-    };
 
     /// <summary>
     /// Routes a message to its destination actor and returns the response.
@@ -112,11 +105,15 @@ public class MessageRouter(
 
     /// <summary>
     /// Delivers a message to a single actor identified by its actor ID and scheme.
+    /// The actor is obtained as an <see cref="Actors.IAgent"/> proxy via
+    /// <see cref="IAgentProxyResolver"/>, so this method does not branch on
+    /// scheme to dispatch <c>ReceiveAsync</c>.
     /// </summary>
     private async Task<Result<Message?, RoutingError>> DeliverAsync(
         Message message, string actorId, string scheme, CancellationToken cancellationToken)
     {
-        if (!SchemeToActorType.TryGetValue(scheme, out var actorType))
+        var proxy = agentProxyResolver.Resolve(scheme, actorId);
+        if (proxy is null)
         {
             return Result<Message?, RoutingError>.Failure(
                 RoutingError.AddressNotFound(message.To));
@@ -124,27 +121,7 @@ public class MessageRouter(
 
         try
         {
-            var proxy = actorProxyFactory.CreateActorProxy<IAgentActor>(new ActorId(actorId), actorType.Name);
-
-            // All actor interfaces expose ReceiveAsync with the same signature.
-            // We use dynamic dispatch to call ReceiveAsync on any actor type.
-            var response = actorType.Name switch
-            {
-                nameof(IAgentActor) => await actorProxyFactory
-                    .CreateActorProxy<IAgentActor>(new ActorId(actorId), actorType.Name)
-                    .ReceiveAsync(message, cancellationToken),
-                nameof(IUnitActor) => await actorProxyFactory
-                    .CreateActorProxy<IUnitActor>(new ActorId(actorId), actorType.Name)
-                    .ReceiveAsync(message, cancellationToken),
-                nameof(IConnectorActor) => await actorProxyFactory
-                    .CreateActorProxy<IConnectorActor>(new ActorId(actorId), actorType.Name)
-                    .ReceiveAsync(message, cancellationToken),
-                nameof(IHumanActor) => await actorProxyFactory
-                    .CreateActorProxy<IHumanActor>(new ActorId(actorId), actorType.Name)
-                    .ReceiveAsync(message, cancellationToken),
-                _ => throw new InvalidOperationException($"Unknown actor type: {actorType.Name}")
-            };
-
+            var response = await proxy.ReceiveAsync(message, cancellationToken);
             return Result<Message?, RoutingError>.Success(response);
         }
         catch (Exception ex)

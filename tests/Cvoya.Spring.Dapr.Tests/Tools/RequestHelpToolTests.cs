@@ -5,7 +5,6 @@ namespace Cvoya.Spring.Dapr.Tests.Tools;
 
 using System.Text.Json;
 
-using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Dapr.Actors;
@@ -13,7 +12,6 @@ using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Routing;
 using Cvoya.Spring.Dapr.Tools;
 
-using global::Dapr.Actors.Client;
 using global::Dapr.Actors.Runtime;
 
 using Microsoft.Extensions.Logging;
@@ -30,7 +28,7 @@ using Xunit;
 public class RequestHelpToolTests
 {
     private readonly IDirectoryService _directoryService = Substitute.For<IDirectoryService>();
-    private readonly IActorProxyFactory _actorProxyFactory = Substitute.For<IActorProxyFactory>();
+    private readonly IAgentProxyResolver _agentProxyResolver = Substitute.For<IAgentProxyResolver>();
     private readonly IActorStateManager _stateManager = Substitute.For<IActorStateManager>();
     private readonly ToolExecutionContextAccessor _contextAccessor = new();
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
@@ -40,7 +38,7 @@ public class RequestHelpToolTests
     {
         _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
         var permissionService = Substitute.For<IPermissionService>();
-        var messageRouter = new MessageRouter(_directoryService, _actorProxyFactory, permissionService, _loggerFactory);
+        var messageRouter = new MessageRouter(_directoryService, _agentProxyResolver, permissionService, _loggerFactory);
         _tool = new RequestHelpTool(messageRouter, _contextAccessor, _loggerFactory);
         _contextAccessor.Current = new ToolExecutionContext(
             new Address("agent", "test-agent"),
@@ -74,11 +72,10 @@ public class RequestHelpToolTests
                 DateTimeOffset.UtcNow));
 
         // Set up actor proxy to return response.
-        var agentProxy = Substitute.For<IAgentActor>();
+        var agentProxy = Substitute.For<IAgent>();
         agentProxy.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
             .Returns(responseMessage);
-        _actorProxyFactory.CreateActorProxy<IAgentActor>(Arg.Any<global::Dapr.Actors.ActorId>(), Arg.Any<string>())
-            .Returns(agentProxy);
+        _agentProxyResolver.Resolve("agent", "target-actor-id").Returns(agentProxy);
 
         var parameters = JsonSerializer.SerializeToElement(new
         {

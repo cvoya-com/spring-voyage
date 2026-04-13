@@ -4,25 +4,17 @@
 namespace Cvoya.Spring.Dapr.Actors;
 
 using Cvoya.Spring.Core.Agents;
-using Cvoya.Spring.Core.Messaging;
-
-using global::Dapr.Actors;
 
 /// <summary>
-/// Dapr actor interface for agent actors.
-/// Extends <see cref="IActor"/> and mirrors the <see cref="IMessageReceiver"/> contract
-/// for use within the Dapr actor runtime.
+/// Dapr actor interface for agent actors. Extends the shared
+/// <see cref="IAgent"/> contract (mailbox / message dispatch) with the
+/// agent-only surface: metadata, parent-unit pointer, and configured skill
+/// list. A unit is also an <see cref="IAgent"/> via <see cref="IUnitActor"/>
+/// — use <see cref="IAgent"/> where only the mailbox is needed, and this
+/// interface only where the agent-only methods are required.
 /// </summary>
-public interface IAgentActor : IActor
+public interface IAgentActor : IAgent
 {
-    /// <summary>
-    /// Receives and processes a message, optionally returning a response.
-    /// </summary>
-    /// <param name="message">The message to process.</param>
-    /// <param name="cancellationToken">A token to cancel the operation.</param>
-    /// <returns>An optional response message, or <c>null</c> if no response is needed.</returns>
-    Task<Message?> ReceiveAsync(Message message, CancellationToken cancellationToken = default);
-
     /// <summary>
     /// Returns the agent's currently persisted metadata. Unset fields are
     /// returned as <c>null</c>; callers that need defaults (e.g., <c>Enabled</c>

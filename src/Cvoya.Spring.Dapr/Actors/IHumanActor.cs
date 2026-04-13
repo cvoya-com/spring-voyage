@@ -3,24 +3,15 @@
 
 namespace Cvoya.Spring.Dapr.Actors;
 
-using Cvoya.Spring.Core.Messaging;
-
-using global::Dapr.Actors;
-
 /// <summary>
-/// Dapr actor interface for human actors.
-/// Humans represent platform users with identity, permissions, and notification preferences.
+/// Dapr actor interface for human actors. Humans share the
+/// <see cref="IAgent"/> mailbox / message-dispatch contract so the router
+/// can deliver messages to humans the same way it delivers to agents and
+/// units. In addition, humans carry identity, permissions, and
+/// notification preferences.
 /// </summary>
-public interface IHumanActor : IActor
+public interface IHumanActor : IAgent
 {
-    /// <summary>
-    /// Receives and processes a message, optionally returning a response.
-    /// </summary>
-    /// <param name="message">The message to process.</param>
-    /// <param name="cancellationToken">A token to cancel the operation.</param>
-    /// <returns>An optional response message, or <c>null</c> if no response is needed.</returns>
-    Task<Message?> ReceiveAsync(Message message, CancellationToken cancellationToken = default);
-
     /// <summary>
     /// Gets the current global permission level of the human actor.
     /// </summary>
