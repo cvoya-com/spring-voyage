@@ -17,6 +17,7 @@
     <!-- CLI -->
     <PackageVersion Include="System.CommandLine" Version="2.0.5" />
     <PackageVersion Include="YamlDotNet" Version="17.0.1" />
+    <PackageVersion Include="Microsoft.Kiota.Bundle" Version="1.21.2" />
 
     <!-- ASP.NET Core / Hosting -->
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.5" />

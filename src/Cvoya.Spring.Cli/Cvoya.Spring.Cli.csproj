@@ -12,6 +12,11 @@
 
   <ItemGroup>
     <PackageReference Include="System.CommandLine" />
+    <!-- Microsoft.Kiota.Bundle is the runtime the generated client under
+         Generated/ depends on. Bundle includes Abstractions, HTTP, and
+         JSON serialisation. Regenerate the tree with the Kiota CLI; see
+         scripts/regenerate-cli-client.sh. -->
+    <PackageReference Include="Microsoft.Kiota.Bundle" />
   </ItemGroup>
 
 </Project>
