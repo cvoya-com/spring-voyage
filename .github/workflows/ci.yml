@@ -115,8 +115,23 @@ jobs:
           wget -q https://raw.githubusercontent.com/dapr/cli/master/install/install.sh -O - | /bin/bash -s 1.14.1
           dapr --version
 
+      # Retry dapr init: the install pulls the Dapr dashboard binary from a
+      # GitHub release asset CDN that occasionally returns 504. A single 504
+      # shouldn't fail the whole PR / merge-queue run.
       - name: Initialize Dapr
-        run: dapr init --slim
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            if dapr init --slim; then
+              echo "dapr init succeeded on attempt $attempt"
+              exit 0
+            fi
+            echo "dapr init attempt $attempt failed; sleeping before retry"
+            sleep $((attempt * 10))
+            dapr uninstall --all || true
+          done
+          echo "::error::dapr init failed after 3 attempts"
+          exit 1
 
       - name: Restore dependencies
         run: dotnet restore SpringVoyage.slnx
