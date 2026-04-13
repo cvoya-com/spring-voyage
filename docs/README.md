@@ -56,5 +56,6 @@ For contributors to the Spring Voyage V2 platform.
 
 - [Glossary](glossary.md) -- definitions of all key terms
 - [Design Decisions](design-decisions.md) -- the "why" behind major architectural choices
+- [Decision Records](decisions/README.md) -- narrow, dated records for trade-offs that lock in a specific approach
 - [Roadmap](roadmap/README.md) -- phased implementation plan
 - [Architecture Plan](SpringVoyage-v2-plan.md) -- original monolithic specification (deprecated, see `architecture/`)
