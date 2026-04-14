@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Connector.GitHub.Tests;
 
 using Cvoya.Spring.Connector.GitHub.Auth;
 using Cvoya.Spring.Connector.GitHub.DependencyInjection;
+using Cvoya.Spring.Connector.GitHub.RateLimit;
 using Cvoya.Spring.Connector.GitHub.Webhooks;
 
 using Microsoft.Extensions.Configuration;
@@ -89,6 +90,32 @@ public class ServiceCollectionExtensionsTests
         var connector = provider.GetRequiredService<GitHubConnector>();
 
         connector.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void AddCvoyaSpringConnectorGitHub_RegistersRateLimitTracker()
+    {
+        using var provider = BuildProvider();
+
+        provider.GetRequiredService<IGitHubRateLimitTracker>().ShouldNotBeNull();
+        provider.GetRequiredService<GitHubRetryOptions>().ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void AddCvoyaSpringConnectorGitHub_BindsRetryOptions_FromConfiguration()
+    {
+        using var provider = BuildProvider(new Dictionary<string, string?>
+        {
+            ["GitHub:AppId"] = "12345",
+            ["GitHub:PrivateKeyPem"] = "test-key",
+            ["GitHub:WebhookSecret"] = "test-secret",
+            ["GitHub:Retry:MaxRetries"] = "7",
+            ["GitHub:Retry:PreflightSafetyThreshold"] = "42"
+        });
+
+        var options = provider.GetRequiredService<GitHubRetryOptions>();
+        options.MaxRetries.ShouldBe(7);
+        options.PreflightSafetyThreshold.ShouldBe(42);
     }
 
     [Fact]
