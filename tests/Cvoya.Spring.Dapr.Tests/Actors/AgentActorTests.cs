@@ -11,6 +11,7 @@ using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Initiative;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Policies;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
@@ -44,6 +45,8 @@ public class AgentActorTests
     private readonly MessageRouter _router;
     private readonly IAgentDefinitionProvider _definitionProvider = Substitute.For<IAgentDefinitionProvider>();
     private readonly IUnitMembershipRepository _membershipRepository = Substitute.For<IUnitMembershipRepository>();
+    private readonly IReflectionActionHandlerRegistry _reflectionRegistry = Substitute.For<IReflectionActionHandlerRegistry>();
+    private readonly IUnitPolicyEnforcer _unitPolicyEnforcer = Substitute.For<IUnitPolicyEnforcer>();
     private readonly AgentActor _actor;
 
     public AgentActorTests()
@@ -64,6 +67,10 @@ public class AgentActorTests
         _membershipRepository
             .GetAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns((UnitMembership?)null);
+        _reflectionRegistry.Find(Arg.Any<string?>()).Returns((IReflectionActionHandler?)null);
+        _unitPolicyEnforcer
+            .EvaluateSkillInvocationAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(PolicyDecision.Allowed);
 
         _actor = new AgentActor(
             host,
@@ -75,6 +82,8 @@ public class AgentActorTests
             _definitionProvider,
             Array.Empty<ISkillRegistry>(),
             _membershipRepository,
+            _reflectionRegistry,
+            _unitPolicyEnforcer,
             _loggerFactory);
         SetStateManager(_actor, _stateManager);
 

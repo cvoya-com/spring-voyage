@@ -31,5 +31,15 @@ public enum MessageType
     /// <summary>
     /// A policy update notification.
     /// </summary>
-    PolicyUpdate
+    PolicyUpdate,
+
+    /// <summary>
+    /// A mid-flight amendment from a supervisor (parent unit or the agent
+    /// itself) pushing an instruction into a live agent turn without
+    /// resetting its context. See #142. The payload is an
+    /// <see cref="AmendmentPayload"/>; the recipient queues low-priority
+    /// amendments to be picked up between tool calls and breaks out of the
+    /// current turn for <c>StopAndWait</c> priority.
+    /// </summary>
+    Amendment,
 }
