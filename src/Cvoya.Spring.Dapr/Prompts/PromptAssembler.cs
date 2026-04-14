@@ -47,7 +47,8 @@ public class PromptAssembler(
             var unitContext = unitContextBuilder.Build(
                 context.Members,
                 context.Policies,
-                context.Skills);
+                context.Skills,
+                context.SkillBundles);
 
             if (!string.IsNullOrWhiteSpace(unitContext))
             {

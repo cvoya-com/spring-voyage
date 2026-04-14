@@ -4,10 +4,12 @@
 namespace Cvoya.Spring.Host.Api.Services;
 
 using Cvoya.Spring.Connectors;
+using Cvoya.Spring.Dapr.Skills;
 
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 
 /// <summary>
 /// DI registration helpers for the API host's own services (unit creation
@@ -44,7 +46,35 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton(options);
         services.TryAddSingleton<IPackageCatalogService, FileSystemPackageCatalogService>();
 
+        // Share the same packages root with the skill-bundle resolver when
+        // the operator has not set 'Skills:PackagesRoot' explicitly. Lets a
+        // single `Packages:Root` (or the auto-discovered sibling) serve both
+        // the unit-template catalog and the skill-bundle resolver. The
+        // PostConfigure resolves PackageCatalogOptions from the container at
+        // bind time so tests that swap the options instance (see
+        // UnitCreationEndpointTests) are honoured.
+        services.AddSingleton<IPostConfigureOptions<SkillBundleOptions>>(sp =>
+            new SkillBundlePackagesRootPostConfigure(
+                sp.GetRequiredService<PackageCatalogOptions>()));
+
         return services;
+    }
+
+    /// <summary>
+    /// Fills in <see cref="SkillBundleOptions.PackagesRoot"/> from the shared
+    /// <see cref="PackageCatalogOptions.Root"/> when the operator has not set
+    /// it explicitly via configuration.
+    /// </summary>
+    private sealed class SkillBundlePackagesRootPostConfigure(PackageCatalogOptions shared)
+        : IPostConfigureOptions<SkillBundleOptions>
+    {
+        public void PostConfigure(string? name, SkillBundleOptions options)
+        {
+            if (string.IsNullOrWhiteSpace(options.PackagesRoot))
+            {
+                options.PackagesRoot = shared.Root;
+            }
+        }
     }
 
     /// <summary>

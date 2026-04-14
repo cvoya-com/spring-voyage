@@ -21,8 +21,19 @@ public class UnitContextBuilder
     /// <param name="members">The addresses of peer agents in the unit.</param>
     /// <param name="policies">Optional unit policies as a JSON element.</param>
     /// <param name="skills">Optional skills available to the agent.</param>
+    /// <param name="skillBundles">
+    /// Optional package-level skill bundles resolved from the unit manifest
+    /// (see #167). Rendered after the connector-skills section so the final
+    /// layer-2 ordering is peer directory → policies → available skills →
+    /// skill bundles. Concatenation order within the section follows the
+    /// declaration order in the manifest.
+    /// </param>
     /// <returns>The formatted unit context string, or an empty string if all inputs are empty.</returns>
-    public string Build(IReadOnlyList<Address> members, JsonElement? policies, IReadOnlyList<Skill>? skills)
+    public string Build(
+        IReadOnlyList<Address> members,
+        JsonElement? policies,
+        IReadOnlyList<Skill>? skills,
+        IReadOnlyList<SkillBundle>? skillBundles = null)
     {
         var builder = new StringBuilder();
 
@@ -58,6 +69,30 @@ public class UnitContextBuilder
             }
 
             builder.AppendLine();
+        }
+
+        // Package-level skill bundles. Declaration order is preserved so the
+        // operator's manifest layout determines prompt-fragment ordering. A
+        // prompt-only bundle (no tools) still contributes its prompt.
+        if (skillBundles is { Count: > 0 })
+        {
+            builder.AppendLine("### Skill Bundles");
+            foreach (var bundle in skillBundles)
+            {
+                builder.AppendLine($"#### {bundle.PackageName}/{bundle.SkillName}");
+                builder.AppendLine(bundle.Prompt.TrimEnd());
+                if (bundle.RequiredTools.Count > 0)
+                {
+                    builder.AppendLine();
+                    builder.AppendLine("Required tools:");
+                    foreach (var tool in bundle.RequiredTools)
+                    {
+                        var optionalTag = tool.Optional ? " (optional)" : string.Empty;
+                        builder.AppendLine($"- {tool.Name}{optionalTag}: {tool.Description}");
+                    }
+                }
+                builder.AppendLine();
+            }
         }
 
         return builder.ToString().TrimEnd();

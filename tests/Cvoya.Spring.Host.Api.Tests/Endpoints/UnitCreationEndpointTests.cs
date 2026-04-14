@@ -352,6 +352,113 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
     }
 
     [Fact]
+    public async Task FromYaml_WithResolvableSkillBundle_CreatesUnitAndPersistsBundle()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        ResetMocks();
+        var proxy = Substitute.For<IUnitActor>();
+        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(UnitStatus.Draft);
+        _factory.ActorProxyFactory
+            .CreateActorProxy<IUnitActor>(Arg.Any<ActorId>(), Arg.Any<string>())
+            .Returns(proxy);
+        _factory.DirectoryService
+            .RegisterAsync(Arg.Any<DirectoryEntry>(), Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+
+        const string Yaml = """
+            unit:
+              name: bundle-unit
+              ai:
+                skills:
+                  - package: spring-voyage/sample-pkg
+                    skill: demo
+            """;
+
+        var response = await _client.PostAsJsonAsync(
+            "/api/v1/units/from-yaml",
+            new CreateUnitFromYamlRequest(Yaml),
+            ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Created);
+
+        // The bundle store was called with the resolved bundle. Captured via
+        // the IStateStore mock that StateStoreBackedUnitSkillBundleStore
+        // writes to. Matching is key-only; NSubstitute's generic-method
+        // matcher on SetAsync<T>(...) requires the concrete TValue type, so
+        // we query the received calls list directly.
+        var setCalls = _factory.StateStore.ReceivedCalls()
+            .Where(c => c.GetMethodInfo().Name == "SetAsync")
+            .Select(c => c.GetArguments())
+            .Where(args => args.Length >= 1 && (args[0] as string) == "Unit:SkillBundles:bundle-unit")
+            .ToList();
+        setCalls.ShouldNotBeEmpty();
+    }
+
+    [Fact]
+    public async Task FromYaml_WithUnresolvableSkillBundle_ReturnsBadRequest()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        ResetMocks();
+        _factory.DirectoryService
+            .RegisterAsync(Arg.Any<DirectoryEntry>(), Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+
+        const string Yaml = """
+            unit:
+              name: missing-bundle
+              ai:
+                skills:
+                  - package: spring-voyage/does-not-exist
+                    skill: ghost
+            """;
+
+        var response = await _client.PostAsJsonAsync(
+            "/api/v1/units/from-yaml",
+            new CreateUnitFromYamlRequest(Yaml),
+            ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+
+        // Validation fails up-front; nothing should have been written.
+        await _factory.DirectoryService.DidNotReceive().RegisterAsync(
+            Arg.Any<DirectoryEntry>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task FromYaml_WithBundleRequiringUnavailableTool_ReturnsBadRequest()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        ResetMocks();
+        _factory.DirectoryService
+            .RegisterAsync(Arg.Any<DirectoryEntry>(), Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+
+        const string Yaml = """
+            unit:
+              name: bundle-needs-tool
+              ai:
+                skills:
+                  - package: spring-voyage/sample-pkg
+                    skill: demo-with-tool
+            """;
+
+        var response = await _client.PostAsJsonAsync(
+            "/api/v1/units/from-yaml",
+            new CreateUnitFromYamlRequest(Yaml),
+            ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+
+        // The resolver read the bundle, the validator rejected it. No unit
+        // row was written.
+        await _factory.DirectoryService.DidNotReceive().RegisterAsync(
+            Arg.Any<DirectoryEntry>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task FromTemplate_PathTraversalRejected()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -400,6 +507,30 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
                   description: Sample template used by integration tests.
                   members:
                     - agent: sample-agent
+                """);
+
+            // Skill bundles for the #167 / C4 integration tests. The resolver
+            // strips the 'spring-voyage/' namespace prefix so the on-disk
+            // directory is just 'sample-pkg/skills'.
+            var skillsDir = Path.Combine(PackagesRoot, "sample-pkg", "skills");
+            Directory.CreateDirectory(skillsDir);
+
+            // Prompt-only bundle — happy-path, no tool requirements.
+            File.WriteAllText(
+                Path.Combine(skillsDir, "demo.md"),
+                "## Demo\nA minimal skill bundle for integration tests.");
+
+            // Bundle with a tool requirement that no registered registry
+            // surfaces — used to exercise the manifest-validation error path.
+            File.WriteAllText(
+                Path.Combine(skillsDir, "demo-with-tool.md"),
+                "## Demo with tool\nRequires a tool that is not surfaced.");
+            File.WriteAllText(
+                Path.Combine(skillsDir, "demo-with-tool.tools.json"),
+                """
+                [
+                  { "name": "not_a_real_tool", "description": "d", "parameters": {} }
+                ]
                 """);
         }
 

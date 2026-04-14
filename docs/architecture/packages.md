@@ -92,6 +92,23 @@ When you receive a new work item:
 ]
 ```
 
+## Authoring a Skill Bundle
+
+Each bundle lives in `packages/{package}/skills/` as a pair of sibling files:
+
+1. `{skill-name}.md` — markdown prompt fragment. Required. Keep the guidance focused; the bundle will be concatenated into the unit's Layer 2 context in declaration order.
+2. `{skill-name}.tools.json` — optional JSON array of tool requirements. Each entry must have `name` and `description` and should include a JSON-schema `parameters` object. Add `"optional": true` for tools that may be absent without failing validation.
+
+At unit creation (`/api/v1/units/from-yaml` or `/api/v1/units/from-template`), the platform:
+
+1. Resolves each `{package, skill}` pair via `ISkillBundleResolver`. Missing packages or missing `.md` files produce a `400 Bad Request` with a diagnostic search path.
+2. Validates that every required (non-optional) tool in the bundle is surfaced by a registered `ISkillRegistry` (e.g., the GitHub connector). Tools registered but blocked by the unit's `SkillPolicy` are also rejected.
+3. Persists resolved bundles via `IUnitSkillBundleStore` so prompt assembly can rehydrate them on every message turn without reparsing the manifest.
+
+At prompt-assembly time, bundle prompts render as a sub-section of Layer 2 (unit context), after the connector-skills listing and before Layer 3 (conversation context). Declaration order in the manifest determines the bundle order in the prompt.
+
+A bundle's tools still pass through the unit `SkillPolicy` enforcement at invocation time — the validation step only protects against misconfiguration at create-time. Blocking a tool on an existing unit will not retroactively delete its bundle; it will only refuse the tool at invocation.
+
 ## Package System (Phase 6)
 
 The formal package system adds distribution and lifecycle management on top of domain packages:

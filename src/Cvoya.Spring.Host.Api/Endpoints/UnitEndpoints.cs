@@ -10,6 +10,7 @@ using Cvoya.Spring.Core.Agents;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
@@ -308,6 +309,18 @@ public static class UnitEndpoints
         {
             return ProblemFromBindingFailure(ex);
         }
+        catch (SkillBundlePackageNotFoundException ex)
+        {
+            return Results.Problem(title: "Unknown skill package", detail: ex.Message, statusCode: StatusCodes.Status400BadRequest);
+        }
+        catch (SkillBundleNotFoundException ex)
+        {
+            return Results.Problem(title: "Unknown skill", detail: ex.Message, statusCode: StatusCodes.Status400BadRequest);
+        }
+        catch (SkillBundleValidationException ex)
+        {
+            return Results.Problem(title: "Skill bundle validation failed", detail: ex.Message, statusCode: StatusCodes.Status400BadRequest);
+        }
     }
 
     private static async Task<IResult> CreateUnitFromTemplateAsync(
@@ -356,6 +369,18 @@ public static class UnitEndpoints
         catch (UnitCreationBindingException ex)
         {
             return ProblemFromBindingFailure(ex);
+        }
+        catch (SkillBundlePackageNotFoundException ex)
+        {
+            return Results.Problem(title: "Unknown skill package", detail: ex.Message, statusCode: StatusCodes.Status400BadRequest);
+        }
+        catch (SkillBundleNotFoundException ex)
+        {
+            return Results.Problem(title: "Unknown skill", detail: ex.Message, statusCode: StatusCodes.Status400BadRequest);
+        }
+        catch (SkillBundleValidationException ex)
+        {
+            return Results.Problem(title: "Skill bundle validation failed", detail: ex.Message, statusCode: StatusCodes.Status400BadRequest);
         }
     }
 

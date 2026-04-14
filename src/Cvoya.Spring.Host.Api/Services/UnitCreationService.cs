@@ -13,6 +13,7 @@ using System.Threading.Tasks;
 using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Routing;
@@ -39,6 +40,9 @@ public class UnitCreationService : IUnitCreationService
     private readonly MessageRouter _messageRouter;
     private readonly IUnitConnectorConfigStore _connectorConfigStore;
     private readonly IReadOnlyList<IConnectorType> _connectorTypes;
+    private readonly ISkillBundleResolver _bundleResolver;
+    private readonly ISkillBundleValidator _bundleValidator;
+    private readonly IUnitSkillBundleStore _bundleStore;
     private readonly ILogger<UnitCreationService> _logger;
 
     /// <summary>
@@ -50,6 +54,9 @@ public class UnitCreationService : IUnitCreationService
         MessageRouter messageRouter,
         IUnitConnectorConfigStore connectorConfigStore,
         IEnumerable<IConnectorType> connectorTypes,
+        ISkillBundleResolver bundleResolver,
+        ISkillBundleValidator bundleValidator,
+        IUnitSkillBundleStore bundleStore,
         ILoggerFactory loggerFactory)
     {
         _directoryService = directoryService;
@@ -57,6 +64,9 @@ public class UnitCreationService : IUnitCreationService
         _messageRouter = messageRouter;
         _connectorConfigStore = connectorConfigStore;
         _connectorTypes = connectorTypes.ToList();
+        _bundleResolver = bundleResolver;
+        _bundleValidator = bundleValidator;
+        _bundleStore = bundleStore;
         _logger = loggerFactory.CreateLogger<UnitCreationService>();
     }
 
@@ -73,6 +83,7 @@ public class UnitCreationService : IUnitCreationService
             members: Array.Empty<MemberManifest>(),
             warnings: new List<string>(),
             connector: request.Connector,
+            skillReferences: Array.Empty<SkillBundleReference>(),
             cancellationToken);
 
     /// <inheritdoc />
@@ -107,7 +118,28 @@ public class UnitCreationService : IUnitCreationService
             manifest.Members ?? new List<MemberManifest>(),
             warnings,
             connector,
+            ExtractSkillReferences(manifest),
             cancellationToken);
+    }
+
+    private static IReadOnlyList<SkillBundleReference> ExtractSkillReferences(UnitManifest manifest)
+    {
+        var references = manifest.Ai?.Skills;
+        if (references is null || references.Count == 0)
+        {
+            return Array.Empty<SkillBundleReference>();
+        }
+
+        var list = new List<SkillBundleReference>(references.Count);
+        foreach (var r in references)
+        {
+            if (string.IsNullOrWhiteSpace(r.Package) || string.IsNullOrWhiteSpace(r.Skill))
+            {
+                continue;
+            }
+            list.Add(new SkillBundleReference(r.Package!, r.Skill!));
+        }
+        return list;
     }
 
     private async Task<UnitCreationResult> CreateCoreAsync(
@@ -119,6 +151,7 @@ public class UnitCreationService : IUnitCreationService
         IReadOnlyList<MemberManifest> members,
         List<string> warnings,
         UnitConnectorBindingRequest? connector,
+        IReadOnlyList<SkillBundleReference> skillReferences,
         CancellationToken cancellationToken)
     {
         // Validate the connector binding request up-front — before we touch
@@ -128,6 +161,18 @@ public class UnitCreationService : IUnitCreationService
         if (connector is not null)
         {
             targetConnector = ResolveConnectorType(connector);
+        }
+
+        // Resolve skill bundles and validate their tool requirements up-front
+        // as well. Any failure here surfaces to the caller as a typed
+        // exception that the endpoint layer maps to a ProblemDetails 4xx so
+        // the manifest author sees the exact bundle / tool that rejected
+        // creation before we write any state.
+        IReadOnlyList<SkillBundle> resolvedBundles = Array.Empty<SkillBundle>();
+        if (skillReferences.Count > 0)
+        {
+            resolvedBundles = await ResolveSkillBundlesAsync(skillReferences, cancellationToken);
+            await _bundleValidator.ValidateAsync(name, resolvedBundles, cancellationToken);
         }
 
         var actorId = Guid.NewGuid().ToString();
@@ -196,6 +241,15 @@ public class UnitCreationService : IUnitCreationService
                 membersAdded++;
             }
 
+            // Persist the resolved skill bundles so prompt assembly can
+            // rehydrate them on every message turn without reparsing the
+            // manifest. Writes happen after the directory register so we
+            // never leave bundle rows behind an un-discoverable unit.
+            if (resolvedBundles.Count > 0)
+            {
+                await _bundleStore.SetAsync(name, resolvedBundles, cancellationToken);
+            }
+
             // Bind the connector *after* the actor is reachable — the store
             // talks to the unit actor, which needs the directory entry in
             // place. A failure here rolls the whole creation back (below)
@@ -261,6 +315,38 @@ public class UnitCreationService : IUnitCreationService
                 "Rollback failed: could not unregister directory entry for unit '{UnitName}' after connector-binding failure. Manual cleanup may be required.",
                 name);
         }
+
+        // Best-effort bundle cleanup too — we may have persisted bundle rows
+        // before the binding failure. A missing row is a no-op in the store.
+        try
+        {
+            await _bundleStore.DeleteAsync(name, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Rollback failed: could not delete skill-bundle rows for unit '{UnitName}' after connector-binding failure.",
+                name);
+        }
+    }
+
+    /// <summary>
+    /// Resolves every <see cref="SkillBundleReference"/> in declaration order,
+    /// wrapping resolver exceptions in <see cref="SkillBundleValidationException"/>
+    /// so the endpoint layer surfaces them through a single ProblemDetails
+    /// mapping. The bundle order is preserved — the prompt layer concatenates
+    /// prompts in declaration order per <c>docs/architecture/packages.md</c>.
+    /// </summary>
+    private async Task<IReadOnlyList<SkillBundle>> ResolveSkillBundlesAsync(
+        IReadOnlyList<SkillBundleReference> references,
+        CancellationToken ct)
+    {
+        var resolved = new List<SkillBundle>(references.Count);
+        foreach (var reference in references)
+        {
+            resolved.Add(await _bundleResolver.ResolveAsync(reference, ct));
+        }
+        return resolved;
     }
 
     /// <summary>

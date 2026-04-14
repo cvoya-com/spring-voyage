@@ -84,4 +84,80 @@ public class UnitContextBuilderTests
 
         result.ShouldBeEmpty();
     }
+
+    /// <summary>
+    /// Package-level skill bundles (#167) render after the connector-skills
+    /// section so the layer-2 ordering stays peer directory → policies →
+    /// available skills → skill bundles. Declaration order is preserved.
+    /// </summary>
+    [Fact]
+    public void Build_IncludesSkillBundlesAfterSkills_InDeclarationOrder()
+    {
+        var emptySchema = JsonSerializer.SerializeToElement(new { });
+        var bundles = new List<SkillBundle>
+        {
+            new("spring-voyage/software-engineering", "triage-and-assign",
+                "## Triage & Assignment\nClassify incoming work.",
+                new[] { new SkillToolRequirement("assignToAgent", "assign work", emptySchema, false) }),
+            new("spring-voyage/software-engineering", "pr-review-cycle",
+                "## PR Review Cycle\nRoute PR reviews.",
+                Array.Empty<SkillToolRequirement>()),
+        };
+
+        var result = _builder.Build([], null, null, bundles);
+
+        result.ShouldContain("### Skill Bundles");
+        result.ShouldContain("spring-voyage/software-engineering/triage-and-assign");
+        result.ShouldContain("assignToAgent");
+        result.ShouldContain("spring-voyage/software-engineering/pr-review-cycle");
+
+        var triageIdx = result.IndexOf("triage-and-assign", StringComparison.Ordinal);
+        var reviewIdx = result.IndexOf("pr-review-cycle", StringComparison.Ordinal);
+        triageIdx.ShouldBeLessThan(reviewIdx);
+    }
+
+    /// <summary>
+    /// A bundle with no required tools is prompt-only — it still renders its
+    /// prompt fragment but omits the "Required tools" sub-section.
+    /// </summary>
+    [Fact]
+    public void Build_PromptOnlyBundle_OmitsRequiredToolsSubsection()
+    {
+        var bundles = new List<SkillBundle>
+        {
+            new("acme/prompt-only", "intro", "## Intro prompt", Array.Empty<SkillToolRequirement>()),
+        };
+
+        var result = _builder.Build([], null, null, bundles);
+
+        result.ShouldContain("## Intro prompt");
+        result.ShouldNotContain("Required tools:");
+    }
+
+    /// <summary>
+    /// When both connector-level skills and bundle prompts are present the
+    /// connector skills appear first, matching Layer 2 composition.
+    /// </summary>
+    [Fact]
+    public void Build_SkillsAndBundles_SkillsRenderFirst()
+    {
+        var emptySchema = JsonSerializer.SerializeToElement(new { });
+        var skills = new List<Skill>
+        {
+            new("github", "Tools from GitHub",
+                new[] { new ToolDefinition("github_list_issues", "list issues", emptySchema) }),
+        };
+        var bundles = new List<SkillBundle>
+        {
+            new("spring-voyage/software-engineering", "triage-and-assign",
+                "## Triage prompt", Array.Empty<SkillToolRequirement>()),
+        };
+
+        var result = _builder.Build([], null, skills, bundles);
+
+        var skillsIdx = result.IndexOf("Available Skills", StringComparison.Ordinal);
+        var bundlesIdx = result.IndexOf("Skill Bundles", StringComparison.Ordinal);
+        skillsIdx.ShouldBeGreaterThan(-1);
+        bundlesIdx.ShouldBeGreaterThan(skillsIdx);
+    }
 }

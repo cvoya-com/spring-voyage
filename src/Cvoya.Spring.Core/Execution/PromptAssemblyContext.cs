@@ -27,6 +27,16 @@ using Cvoya.Spring.Core.Skills;
 /// a specialty, or an execution mode for the turn should read from here
 /// rather than re-reading the agent's global state.
 /// </param>
+/// <param name="SkillBundles">
+/// Optional ordered list of package-level skill bundles resolved from the
+/// unit manifest (see #167). Each bundle contributes a prompt fragment and a
+/// list of required tools. Prompts are concatenated in declaration order and
+/// rendered as a sub-section of Layer 2 (unit context) so the ordering is:
+/// platform → unit context (including bundle prompts) → conversation →
+/// agent instructions. The surrounding layer order matches the existing
+/// four-layer assembly; bundle prompts are additive and never interleave
+/// with agent-specific instructions.
+/// </param>
 public record PromptAssemblyContext(
     IReadOnlyList<Address> Members,
     JsonElement? Policies,
@@ -34,4 +44,5 @@ public record PromptAssemblyContext(
     IReadOnlyList<Message> PriorMessages,
     string? LastCheckpoint,
     string? AgentInstructions,
-    AgentMetadata? EffectiveMetadata = null);
+    AgentMetadata? EffectiveMetadata = null,
+    IReadOnlyList<SkillBundle>? SkillBundles = null);

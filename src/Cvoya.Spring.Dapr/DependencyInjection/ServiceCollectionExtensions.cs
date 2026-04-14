@@ -13,6 +13,7 @@ using Cvoya.Spring.Core.Observability;
 using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Policies;
 using Cvoya.Spring.Core.Secrets;
+using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.State;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Core.Units;
@@ -28,6 +29,7 @@ using Cvoya.Spring.Dapr.Orchestration;
 using Cvoya.Spring.Dapr.Prompts;
 using Cvoya.Spring.Dapr.Routing;
 using Cvoya.Spring.Dapr.Secrets;
+using Cvoya.Spring.Dapr.Skills;
 using Cvoya.Spring.Dapr.State;
 using Cvoya.Spring.Dapr.Tenancy;
 
@@ -94,6 +96,16 @@ public static class ServiceCollectionExtensions
         // wraps the OSS default. Scoped because the underlying repositories
         // use SpringDbContext which is scoped per request.
         services.TryAddScoped<IUnitPolicyEnforcer, DefaultUnitPolicyEnforcer>();
+
+        // Skill bundles (#167 / C4). The resolver is a singleton — it reads
+        // from disk and caches per-host. The validator is scoped because it
+        // depends on IUnitPolicyRepository (which is scoped). TryAdd so the
+        // cloud host can register a tenant-scoped bundle store or validator
+        // without touching the API layer.
+        services.AddOptions<SkillBundleOptions>().BindConfiguration(SkillBundleOptions.SectionName);
+        services.TryAddSingleton<ISkillBundleResolver, FileSystemSkillBundleResolver>();
+        services.TryAddScoped<ISkillBundleValidator, DefaultSkillBundleValidator>();
+        services.TryAddSingleton<IUnitSkillBundleStore, StateStoreBackedUnitSkillBundleStore>();
 
         // Unit-membership backfill hosted service (#160 / C2b-1).
         // Gated by Database:BackfillMemberships; idempotent; short-lived.
