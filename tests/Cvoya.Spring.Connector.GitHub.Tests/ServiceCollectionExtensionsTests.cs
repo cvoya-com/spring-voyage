@@ -135,7 +135,9 @@ public class ServiceCollectionExtensionsTests
         services.AddCvoyaSpringConnectorGitHub(configuration);
 
         var connector = services.BuildServiceProvider().GetRequiredService<GitHubConnector>();
-        var customRegistry = new GitHubSkillRegistry(connector, Substitute.For<ILoggerFactory>());
+        var labelStateMachine = new Cvoya.Spring.Connector.GitHub.Labels.LabelStateMachine(
+            Cvoya.Spring.Connector.GitHub.Labels.LabelStateMachineOptions.Default());
+        var customRegistry = new GitHubSkillRegistry(connector, labelStateMachine, Substitute.For<ILoggerFactory>());
 
         var servicesWithOverride = new ServiceCollection();
         servicesWithOverride.AddLogging();

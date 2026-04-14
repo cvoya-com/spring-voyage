@@ -33,7 +33,9 @@ public class GitHubSkillRegistryTests
         var retryOptions = new GitHubRetryOptions();
         var tracker = new GitHubRateLimitTracker(retryOptions, loggerFactory);
         var connector = new GitHubConnector(auth, webhookHandler, signatureValidator, options, tracker, retryOptions, loggerFactory);
-        _registry = new GitHubSkillRegistry(connector, loggerFactory);
+        var labelStateMachine = new Cvoya.Spring.Connector.GitHub.Labels.LabelStateMachine(
+            Cvoya.Spring.Connector.GitHub.Labels.LabelStateMachineOptions.Default());
+        _registry = new GitHubSkillRegistry(connector, labelStateMachine, loggerFactory);
     }
 
     [Fact]
@@ -41,7 +43,7 @@ public class GitHubSkillRegistryTests
     {
         var tools = _registry.GetToolDefinitions();
 
-        tools.Count().ShouldBe(31);
+        tools.Count().ShouldBe(34);
         tools.Select(t => t.Name).ShouldBe(new[]
         {
             "github_create_branch",
@@ -75,6 +77,9 @@ public class GitHubSkillRegistryTests
             "github_update_branch",
             "github_request_pull_request_review",
             "github_ensure_issue_linked_to_pull_request",
+            "github_search_mentions",
+            "github_get_prior_work_context",
+            "github_label_transition",
         }, ignoreOrder: true);
     }
 

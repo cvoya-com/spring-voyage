@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Connector.GitHub;
 
 using System.Text.Json;
 
+using Cvoya.Spring.Connector.GitHub.Labels;
 using Cvoya.Spring.Connector.GitHub.Skills;
 using Cvoya.Spring.Core.Skills;
 
@@ -22,6 +23,7 @@ using Octokit;
 public class GitHubSkillRegistry : ISkillRegistry
 {
     private readonly GitHubConnector _connector;
+    private readonly LabelStateMachine _labelStateMachine;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
     private readonly IReadOnlyList<ToolDefinition> _tools;
@@ -29,11 +31,17 @@ public class GitHubSkillRegistry : ISkillRegistry
 
     /// <summary>
     /// Initializes the registry with the GitHub connector used to authenticate
-    /// outbound Octokit calls and a logger factory for per-skill loggers.
+    /// outbound Octokit calls, the configured <see cref="LabelStateMachine"/>
+    /// (used by the label-transition skill), and a logger factory for per-skill
+    /// loggers.
     /// </summary>
-    public GitHubSkillRegistry(GitHubConnector connector, ILoggerFactory loggerFactory)
+    public GitHubSkillRegistry(
+        GitHubConnector connector,
+        LabelStateMachine labelStateMachine,
+        ILoggerFactory loggerFactory)
     {
         _connector = connector;
+        _labelStateMachine = labelStateMachine;
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<GitHubSkillRegistry>();
 
@@ -337,6 +345,32 @@ public class GitHubSkillRegistry : ISkillRegistry
                     GetInt(args, "number"),
                     GetIntArray(args, "issueNumbers"),
                     ct),
+
+            ["github_search_mentions"] = (client, args, ct) =>
+                new SearchMentionsSkill(client, _loggerFactory).ExecuteAsync(
+                    GetString(args, "owner"),
+                    GetString(args, "repo"),
+                    GetString(args, "user"),
+                    GetOptionalDateTimeOffset(args, "since"),
+                    GetOptionalInt(args, "limit") ?? 30,
+                    ct),
+
+            ["github_get_prior_work_context"] = (client, args, ct) =>
+                new GetPriorWorkContextSkill(client, _loggerFactory).ExecuteAsync(
+                    GetString(args, "owner"),
+                    GetString(args, "repo"),
+                    GetString(args, "user"),
+                    GetOptionalDateTimeOffset(args, "since"),
+                    GetOptionalInt(args, "maxPerBucket") ?? 20,
+                    ct),
+
+            ["github_label_transition"] = (client, args, ct) =>
+                new LabelTransitionSkill(client, _labelStateMachine, _loggerFactory).ExecuteAsync(
+                    GetString(args, "owner"),
+                    GetString(args, "repo"),
+                    GetInt(args, "number"),
+                    GetString(args, "toState"),
+                    ct),
         };
     }
 
@@ -409,6 +443,20 @@ public class GitHubSkillRegistry : ISkillRegistry
             JsonValueKind.False => false,
             _ => null,
         };
+    }
+
+    private static DateTimeOffset? GetOptionalDateTimeOffset(JsonElement args, string name)
+    {
+        if (!args.TryGetProperty(name, out var prop) || prop.ValueKind != JsonValueKind.String)
+        {
+            return null;
+        }
+        var raw = prop.GetString();
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return null;
+        }
+        return DateTimeOffset.TryParse(raw, out var parsed) ? parsed : null;
     }
 
     private static int[] GetIntArray(JsonElement args, string name)
@@ -940,6 +988,56 @@ public class GitHubSkillRegistry : ISkillRegistry
                         issueNumbers = new { type = "array", items = new { type = "integer" }, description = "Issue numbers that should be auto-closed by this PR" }
                     },
                     required = new[] { "owner", "repo", "number", "issueNumbers" }
+                }),
+
+            CreateToolDefinition(
+                "github_search_mentions",
+                "Searches a repository for @-mentions of the given GitHub login in issues, pull requests, and their comments.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        owner = new { type = "string", description = "The repository owner" },
+                        repo = new { type = "string", description = "The repository name" },
+                        user = new { type = "string", description = "The GitHub login to search mentions for (with or without leading @)" },
+                        since = new { type = "string", description = "Optional ISO-8601 lower bound; only include items updated after this timestamp" },
+                        limit = new { type = "integer", description = "Maximum number of mentions to return (capped at 100)" }
+                    },
+                    required = new[] { "owner", "repo", "user" }
+                }),
+
+            CreateToolDefinition(
+                "github_get_prior_work_context",
+                "Summarizes recent agent activity for a GitHub login in a repository: mentions, authored PRs, commented issues, and assigned issues.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        owner = new { type = "string", description = "The repository owner" },
+                        repo = new { type = "string", description = "The repository name" },
+                        user = new { type = "string", description = "The GitHub login whose prior work should be summarized" },
+                        since = new { type = "string", description = "Optional ISO-8601 lower bound; only include items updated after this timestamp" },
+                        maxPerBucket = new { type = "integer", description = "Maximum items per bucket (mentions / authored / commented / assigned); capped at 100" }
+                    },
+                    required = new[] { "owner", "repo", "user" }
+                }),
+
+            CreateToolDefinition(
+                "github_label_transition",
+                "Transitions an issue or pull request to the given state label, validated against the configured label state machine. Rejects illegal transitions.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        owner = new { type = "string", description = "The repository owner" },
+                        repo = new { type = "string", description = "The repository name" },
+                        number = new { type = "integer", description = "The issue or pull request number" },
+                        toState = new { type = "string", description = "The destination state label; must be in the configured state set" }
+                    },
+                    required = new[] { "owner", "repo", "number", "toState" }
                 })
         ];
     }

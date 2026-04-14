@@ -26,6 +26,9 @@ public class GitHubWebhookRegistrar(
         "issues",
         "pull_request",
         "issue_comment",
+        "pull_request_review",
+        "pull_request_review_comment",
+        "pull_request_review_thread",
     };
 
     private readonly ILogger _logger = loggerFactory.CreateLogger<GitHubWebhookRegistrar>();

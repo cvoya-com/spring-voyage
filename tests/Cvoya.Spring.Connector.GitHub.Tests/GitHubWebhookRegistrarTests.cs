@@ -82,6 +82,9 @@ public class GitHubWebhookRegistrarTests
                 h.Events.Contains("issues") &&
                 h.Events.Contains("pull_request") &&
                 h.Events.Contains("issue_comment") &&
+                h.Events.Contains("pull_request_review") &&
+                h.Events.Contains("pull_request_review_comment") &&
+                h.Events.Contains("pull_request_review_thread") &&
                 h.Config["url"] == "https://example.com/api/v1/webhooks/github" &&
                 h.Config["secret"] == "s3cret" &&
                 h.Config["content_type"] == "json"));

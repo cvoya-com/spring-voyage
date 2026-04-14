@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Connector.GitHub.Webhooks;
 using System.Text.Json;
 
 using Cvoya.Spring.Connector.GitHub.Auth;
+using Cvoya.Spring.Connector.GitHub.Labels;
 using Cvoya.Spring.Core.Messaging;
 
 using Microsoft.Extensions.Logging;
@@ -14,10 +15,27 @@ using Microsoft.Extensions.Logging;
 /// Processes incoming GitHub webhook payloads and translates them into
 /// domain <see cref="Message"/> objects for the Spring Voyage platform.
 /// </summary>
-public class GitHubWebhookHandler(
-    GitHubConnectorOptions options,
-    ILoggerFactory loggerFactory) : IGitHubWebhookHandler
+public class GitHubWebhookHandler : IGitHubWebhookHandler
 {
+    private readonly GitHubConnectorOptions _options;
+    private readonly LabelStateMachine _labelStateMachine;
+
+    /// <summary>
+    /// Initializes the handler. The <paramref name="labelStateMachine"/> is
+    /// optional — when omitted (e.g. in legacy test setups) label-change events
+    /// are still translated but carry no derived <c>state_transition</c>.
+    /// </summary>
+    public GitHubWebhookHandler(
+        GitHubConnectorOptions options,
+        ILoggerFactory loggerFactory,
+        LabelStateMachine? labelStateMachine = null)
+    {
+        _options = options;
+        _logger = loggerFactory.CreateLogger<GitHubWebhookHandler>();
+        _labelStateMachine = labelStateMachine ?? new LabelStateMachine(LabelStateMachineOptions.Default());
+    }
+
+
     /// <summary>
     /// Fallback destination used when no target unit is configured. <see cref="IMessageRouter"/>
     /// does not recognize this scheme, so routing will fail with <c>ADDRESS_NOT_FOUND</c>
@@ -28,7 +46,7 @@ public class GitHubWebhookHandler(
 
     private static readonly Address ConnectorAddress = new("connector", "github");
 
-    private readonly ILogger _logger = loggerFactory.CreateLogger<GitHubWebhookHandler>();
+    private readonly ILogger _logger;
 
     /// <summary>
     /// Translates a GitHub webhook event into a domain message.
@@ -43,6 +61,11 @@ public class GitHubWebhookHandler(
             "issues" => TranslateIssueEvent(payload),
             "pull_request" => TranslatePullRequestEvent(payload),
             "issue_comment" => TranslateIssueCommentEvent(payload),
+            "pull_request_review" => TranslatePullRequestReviewEvent(payload),
+            "pull_request_review_comment" => TranslatePullRequestReviewCommentEvent(payload),
+            "pull_request_review_thread" => TranslatePullRequestReviewThreadEvent(payload),
+            "installation" => TranslateInstallationEvent(payload),
+            "installation_repositories" => TranslateInstallationRepositoriesEvent(payload),
             _ => null
         };
     }
@@ -99,8 +122,16 @@ public class GitHubWebhookHandler(
 
     private Message CreateMessage(JsonElement webhookPayload, string eventName, JsonElement domainPayload)
     {
-        var repo = webhookPayload.GetProperty("repository");
-        var repoFullName = repo.GetProperty("full_name").GetString() ?? "unknown";
+        // Some events (installation, installation_repositories) do not carry a repository field.
+        // Fall back to the first added/impacted repository full name, or "unknown" when unavailable.
+        string repoFullName = "unknown";
+        if (webhookPayload.TryGetProperty("repository", out var repo)
+            && repo.ValueKind == JsonValueKind.Object
+            && repo.TryGetProperty("full_name", out var fn)
+            && fn.ValueKind == JsonValueKind.String)
+        {
+            repoFullName = fn.GetString() ?? "unknown";
+        }
 
         var destination = ResolveDestination(repoFullName);
 
@@ -131,7 +162,7 @@ public class GitHubWebhookHandler(
     /// </summary>
     private Address ResolveDestination(string repoFullName)
     {
-        var unitPath = options.DefaultTargetUnitPath;
+        var unitPath = _options.DefaultTargetUnitPath;
         if (!string.IsNullOrWhiteSpace(unitPath))
         {
             return new Address("unit", unitPath);
@@ -144,7 +175,7 @@ public class GitHubWebhookHandler(
         return FallbackRouterAddress;
     }
 
-    private static JsonElement BuildIssuePayload(JsonElement payload, string intent, string? action)
+    private JsonElement BuildIssuePayload(JsonElement payload, string intent, string? action)
     {
         var issue = payload.GetProperty("issue");
         var repo = payload.GetProperty("repository");
@@ -164,6 +195,16 @@ public class GitHubWebhookHandler(
             changedAssignee = actionAssignee.GetProperty("login").GetString();
         }
 
+        var labels = ExtractLabels(issue);
+
+        // Derive a state_transition for labeled / unlabeled actions so downstream
+        // agents can react without re-implementing the label state machine.
+        LabelStateTransition? stateTransition = null;
+        if (action is "labeled" or "unlabeled")
+        {
+            stateTransition = _labelStateMachine.Derive(labels, changedLabel, action);
+        }
+
         var data = new
         {
             source = "github",
@@ -181,7 +222,7 @@ public class GitHubWebhookHandler(
                 title = issue.GetProperty("title").GetString(),
                 body = issue.TryGetProperty("body", out var body) ? body.GetString() : null,
                 state = issue.TryGetProperty("state", out var state) ? state.GetString() : null,
-                labels = ExtractLabels(issue),
+                labels,
                 assignee = issue.TryGetProperty("assignee", out var assignee) && assignee.ValueKind != JsonValueKind.Null
                     ? assignee.GetProperty("login").GetString()
                     : null,
@@ -192,6 +233,7 @@ public class GitHubWebhookHandler(
             },
             changed_label = changedLabel,
             changed_assignee = changedAssignee,
+            state_transition = stateTransition,
         };
 
         return JsonSerializer.SerializeToElement(data);
@@ -266,6 +308,285 @@ public class GitHubWebhookHandler(
         };
 
         return JsonSerializer.SerializeToElement(data);
+    }
+
+    private Message? TranslatePullRequestReviewEvent(JsonElement payload)
+    {
+        var action = payload.GetProperty("action").GetString();
+        return action switch
+        {
+            "submitted" => CreateMessage(payload, "pull_request_review.submitted", BuildPullRequestReviewPayload(payload, "review_result", action)),
+            "edited" => CreateMessage(payload, "pull_request_review.edited", BuildPullRequestReviewPayload(payload, "review_result", action)),
+            "dismissed" => CreateMessage(payload, "pull_request_review.dismissed", BuildPullRequestReviewPayload(payload, "review_result", action)),
+            _ => null,
+        };
+    }
+
+    private Message? TranslatePullRequestReviewCommentEvent(JsonElement payload)
+    {
+        var action = payload.GetProperty("action").GetString();
+        return action switch
+        {
+            "created" => CreateMessage(payload, "pull_request_review_comment.created", BuildPullRequestReviewCommentPayload(payload, "feedback", action)),
+            "edited" => CreateMessage(payload, "pull_request_review_comment.edited", BuildPullRequestReviewCommentPayload(payload, "feedback", action)),
+            "deleted" => CreateMessage(payload, "pull_request_review_comment.deleted", BuildPullRequestReviewCommentPayload(payload, "feedback", action)),
+            _ => null,
+        };
+    }
+
+    private Message? TranslatePullRequestReviewThreadEvent(JsonElement payload)
+    {
+        var action = payload.GetProperty("action").GetString();
+        return action switch
+        {
+            "resolved" => CreateMessage(payload, "pull_request_review_thread.resolved", BuildPullRequestReviewThreadPayload(payload, "review_thread", action)),
+            "unresolved" => CreateMessage(payload, "pull_request_review_thread.unresolved", BuildPullRequestReviewThreadPayload(payload, "review_thread", action)),
+            _ => null,
+        };
+    }
+
+    private Message? TranslateInstallationEvent(JsonElement payload)
+    {
+        var action = payload.GetProperty("action").GetString();
+        return action switch
+        {
+            "created" => CreateMessage(payload, "installation.created", BuildInstallationPayload(payload, "installation_lifecycle", action)),
+            "deleted" => CreateMessage(payload, "installation.deleted", BuildInstallationPayload(payload, "installation_lifecycle", action)),
+            "suspend" => CreateMessage(payload, "installation.suspend", BuildInstallationPayload(payload, "installation_lifecycle", action)),
+            "unsuspend" => CreateMessage(payload, "installation.unsuspend", BuildInstallationPayload(payload, "installation_lifecycle", action)),
+            _ => null,
+        };
+    }
+
+    private Message? TranslateInstallationRepositoriesEvent(JsonElement payload)
+    {
+        var action = payload.GetProperty("action").GetString();
+        return action switch
+        {
+            "added" => CreateMessage(payload, "installation_repositories.added", BuildInstallationRepositoriesPayload(payload, "installation_repositories", action)),
+            "removed" => CreateMessage(payload, "installation_repositories.removed", BuildInstallationRepositoriesPayload(payload, "installation_repositories", action)),
+            _ => null,
+        };
+    }
+
+    private static JsonElement BuildPullRequestReviewPayload(JsonElement payload, string intent, string? action)
+    {
+        var review = payload.GetProperty("review");
+        var pr = payload.GetProperty("pull_request");
+        var repo = payload.GetProperty("repository");
+
+        var data = new
+        {
+            source = "github",
+            intent,
+            action,
+            repository = new
+            {
+                owner = repo.GetProperty("owner").GetProperty("login").GetString(),
+                name = repo.GetProperty("name").GetString(),
+                full_name = repo.GetProperty("full_name").GetString(),
+            },
+            pull_request = new
+            {
+                number = pr.GetProperty("number").GetInt32(),
+                title = pr.TryGetProperty("title", out var t) ? t.GetString() : null,
+                author = pr.TryGetProperty("user", out var u) && u.ValueKind == JsonValueKind.Object
+                    ? u.GetProperty("login").GetString()
+                    : null,
+            },
+            review = new
+            {
+                id = review.TryGetProperty("id", out var rid) ? rid.GetInt64() : 0L,
+                state = review.TryGetProperty("state", out var rs) ? rs.GetString() : null,
+                body = review.TryGetProperty("body", out var rb) ? rb.GetString() : null,
+                reviewer = review.TryGetProperty("user", out var ru) && ru.ValueKind == JsonValueKind.Object
+                    ? ru.GetProperty("login").GetString()
+                    : null,
+                submitted_at = review.TryGetProperty("submitted_at", out var sa) && sa.ValueKind == JsonValueKind.String
+                    ? sa.GetString()
+                    : null,
+            },
+        };
+
+        return JsonSerializer.SerializeToElement(data);
+    }
+
+    private static JsonElement BuildPullRequestReviewCommentPayload(JsonElement payload, string intent, string? action)
+    {
+        var comment = payload.GetProperty("comment");
+        var pr = payload.GetProperty("pull_request");
+        var repo = payload.GetProperty("repository");
+
+        var data = new
+        {
+            source = "github",
+            intent,
+            action,
+            repository = new
+            {
+                owner = repo.GetProperty("owner").GetProperty("login").GetString(),
+                name = repo.GetProperty("name").GetString(),
+                full_name = repo.GetProperty("full_name").GetString(),
+            },
+            pull_request = new
+            {
+                number = pr.GetProperty("number").GetInt32(),
+                title = pr.TryGetProperty("title", out var t) ? t.GetString() : null,
+            },
+            comment = new
+            {
+                id = comment.GetProperty("id").GetInt64(),
+                body = comment.TryGetProperty("body", out var cb) ? cb.GetString() : null,
+                path = comment.TryGetProperty("path", out var cp) ? cp.GetString() : null,
+                position = comment.TryGetProperty("position", out var pos) && pos.ValueKind == JsonValueKind.Number
+                    ? pos.GetInt32()
+                    : (int?)null,
+                diff_hunk = comment.TryGetProperty("diff_hunk", out var dh) ? dh.GetString() : null,
+                commit_id = comment.TryGetProperty("commit_id", out var ci) ? ci.GetString() : null,
+                in_reply_to_id = comment.TryGetProperty("in_reply_to_id", out var rt) && rt.ValueKind == JsonValueKind.Number
+                    ? rt.GetInt64()
+                    : (long?)null,
+                author = comment.TryGetProperty("user", out var cu) && cu.ValueKind == JsonValueKind.Object
+                    ? cu.GetProperty("login").GetString()
+                    : null,
+            },
+        };
+
+        return JsonSerializer.SerializeToElement(data);
+    }
+
+    private static JsonElement BuildPullRequestReviewThreadPayload(JsonElement payload, string intent, string? action)
+    {
+        var thread = payload.GetProperty("thread");
+        var pr = payload.GetProperty("pull_request");
+        var repo = payload.GetProperty("repository");
+
+        long? threadId = null;
+        if (thread.TryGetProperty("node_id", out _) && thread.TryGetProperty("id", out var tid) && tid.ValueKind == JsonValueKind.Number)
+        {
+            threadId = tid.GetInt64();
+        }
+
+        string? nodeId = thread.TryGetProperty("node_id", out var nid) ? nid.GetString() : null;
+
+        var data = new
+        {
+            source = "github",
+            intent,
+            action,
+            repository = new
+            {
+                owner = repo.GetProperty("owner").GetProperty("login").GetString(),
+                name = repo.GetProperty("name").GetString(),
+                full_name = repo.GetProperty("full_name").GetString(),
+            },
+            pull_request = new
+            {
+                number = pr.GetProperty("number").GetInt32(),
+                title = pr.TryGetProperty("title", out var t) ? t.GetString() : null,
+            },
+            thread = new
+            {
+                id = threadId,
+                node_id = nodeId,
+                resolved = string.Equals(action, "resolved", StringComparison.Ordinal),
+            },
+        };
+
+        return JsonSerializer.SerializeToElement(data);
+    }
+
+    private static JsonElement BuildInstallationPayload(JsonElement payload, string intent, string? action)
+    {
+        var installation = payload.GetProperty("installation");
+
+        string? reason = null;
+        if (payload.TryGetProperty("sender", out var sender)
+            && sender.ValueKind == JsonValueKind.Object
+            && payload.TryGetProperty("suspended_by", out var sb)
+            && sb.ValueKind == JsonValueKind.Object)
+        {
+            reason = "suspended_by_" + sb.GetProperty("login").GetString();
+        }
+        // GitHub includes "suspended_at" / "suspended_by" on installation payloads
+        // when the installation is suspended; surface both verbatim for consumers
+        // who need to persist the reason.
+        string? suspendedAt = installation.TryGetProperty("suspended_at", out var sa) && sa.ValueKind == JsonValueKind.String
+            ? sa.GetString()
+            : null;
+        string? suspendedBy = installation.TryGetProperty("suspended_by", out var ssb) && ssb.ValueKind == JsonValueKind.Object
+            ? ssb.GetProperty("login").GetString()
+            : null;
+
+        var data = new
+        {
+            source = "github",
+            intent,
+            action,
+            installation = new
+            {
+                id = installation.GetProperty("id").GetInt64(),
+                account = installation.TryGetProperty("account", out var acct) && acct.ValueKind == JsonValueKind.Object
+                    ? acct.GetProperty("login").GetString()
+                    : null,
+                account_type = installation.TryGetProperty("account", out var acct2) && acct2.ValueKind == JsonValueKind.Object
+                    && acct2.TryGetProperty("type", out var at) ? at.GetString() : null,
+                repository_selection = installation.TryGetProperty("repository_selection", out var rsel)
+                    ? rsel.GetString()
+                    : null,
+                suspended_at = suspendedAt,
+                suspended_by = suspendedBy,
+            },
+            repositories = ExtractInstallationRepositories(payload, "repositories"),
+            suspension_reason = reason,
+        };
+
+        return JsonSerializer.SerializeToElement(data);
+    }
+
+    private static JsonElement BuildInstallationRepositoriesPayload(JsonElement payload, string intent, string? action)
+    {
+        var installation = payload.GetProperty("installation");
+
+        var data = new
+        {
+            source = "github",
+            intent,
+            action,
+            installation = new
+            {
+                id = installation.GetProperty("id").GetInt64(),
+                account = installation.TryGetProperty("account", out var acct) && acct.ValueKind == JsonValueKind.Object
+                    ? acct.GetProperty("login").GetString()
+                    : null,
+                repository_selection = installation.TryGetProperty("repository_selection", out var rsel)
+                    ? rsel.GetString()
+                    : null,
+            },
+            added_repositories = ExtractInstallationRepositories(payload, "repositories_added"),
+            removed_repositories = ExtractInstallationRepositories(payload, "repositories_removed"),
+        };
+
+        return JsonSerializer.SerializeToElement(data);
+    }
+
+    private static object[] ExtractInstallationRepositories(JsonElement payload, string property)
+    {
+        if (!payload.TryGetProperty(property, out var arr) || arr.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        return arr.EnumerateArray()
+            .Where(r => r.ValueKind == JsonValueKind.Object)
+            .Select(r => (object)new
+            {
+                id = r.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.Number ? id.GetInt64() : 0L,
+                name = r.TryGetProperty("name", out var n) ? n.GetString() : null,
+                full_name = r.TryGetProperty("full_name", out var fn) ? fn.GetString() : null,
+                @private = r.TryGetProperty("private", out var p) && p.ValueKind == JsonValueKind.True,
+            })
+            .ToArray();
     }
 
     private static string[] ExtractLabels(JsonElement issue)
