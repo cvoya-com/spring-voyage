@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Connector.GitHub.DependencyInjection;
 
 using Cvoya.Spring.Connector.GitHub.Auth;
+using Cvoya.Spring.Connector.GitHub.Labels;
 using Cvoya.Spring.Connector.GitHub.RateLimit;
 using Cvoya.Spring.Connector.GitHub.Webhooks;
 using Cvoya.Spring.Connectors;
@@ -51,6 +52,26 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton(sp =>
             sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<GitHubRetryOptions>>().Value);
         services.TryAddSingleton<IGitHubRateLimitTracker, GitHubRateLimitTracker>();
+
+        // Label state machine — default config matches the minimal v1 coordinator
+        // protocol. Customers override via the GitHub:Labels configuration section
+        // to ship their own label vocabulary.
+        services.AddOptions<LabelStateMachineOptions>()
+            .Bind(section.GetSection("Labels"))
+            .PostConfigure(opts =>
+            {
+                // If the configuration section is missing or empty, fall back to
+                // the OSS default. Presence is indicated by a non-empty States list.
+                if (opts.States.Count == 0 && opts.Transitions.Count == 0 && string.IsNullOrWhiteSpace(opts.InitialState))
+                {
+                    var defaults = LabelStateMachineOptions.Default();
+                    opts.States = defaults.States;
+                    opts.Transitions = defaults.Transitions;
+                    opts.InitialState = defaults.InitialState;
+                }
+            });
+        services.TryAddSingleton<LabelStateMachine>(sp =>
+            new LabelStateMachine(sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<LabelStateMachineOptions>>().Value));
 
         services.TryAddSingleton<GitHubAppAuth>();
         services.TryAddSingleton<IWebhookSignatureValidator, WebhookSignatureValidator>();
