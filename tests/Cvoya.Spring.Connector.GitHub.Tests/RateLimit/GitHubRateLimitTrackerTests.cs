@@ -171,4 +171,28 @@ public class GitHubRateLimitTrackerTests
         tracker.GetQuota("search")!.Limit.ShouldBe(30);
         tracker.GetQuota("graphql").ShouldBeNull();
     }
+
+    [Fact]
+    public void UpdateFromHeaders_GraphQLResource_TracksGraphQLBucketSeparately()
+    {
+        // GraphQL responses carry the same x-ratelimit-* headers as REST but
+        // with x-ratelimit-resource: graphql. The tracker must observe these
+        // through the same pipeline as REST calls — this test locks in the
+        // invariant so regressions show up loudly when refactoring the
+        // GraphQL path.
+        var tracker = CreateTracker();
+        var reset = DateTimeOffset.UtcNow.AddMinutes(60);
+
+        using var response = ResponseWithQuota("graphql", limit: 5000, remaining: 4987, reset);
+        tracker.UpdateFromHeaders(response.Headers);
+
+        var quota = tracker.GetQuota("graphql");
+        quota.ShouldNotBeNull();
+        quota!.Resource.ShouldBe("graphql");
+        quota.Limit.ShouldBe(5000);
+        quota.Remaining.ShouldBe(4987);
+
+        // REST bucket must be untouched.
+        tracker.GetQuota("core").ShouldBeNull();
+    }
 }

@@ -5,6 +5,8 @@ namespace Cvoya.Spring.Connector.GitHub.Skills;
 
 using System.Text.Json;
 
+using Cvoya.Spring.Connector.GitHub.GraphQL;
+
 using Microsoft.Extensions.Logging;
 
 using Octokit;
@@ -12,15 +14,28 @@ using Octokit;
 /// <summary>
 /// Enables auto-merge on a pull request so it will be merged automatically once
 /// branch-protection checks pass. GitHub exposes this capability only through
-/// GraphQL's <c>enablePullRequestAutoMerge</c> mutation, so this skill resolves
-/// the PR's node id via REST and then posts the mutation directly through
-/// <see cref="IConnection"/>. Introducing the full <c>Octokit.GraphQL</c> client
-/// would be overkill for a single mutation — a raw GraphQL request keeps the
-/// dependency surface minimal.
+/// GraphQL's <c>enablePullRequestAutoMerge</c> mutation. REST is still used to
+/// resolve the PR's node id. The GraphQL call goes through
+/// <see cref="IGitHubGraphQLClient"/> — the reusable wrapper introduced with
+/// the review-thread skills — so callers no longer see raw
+/// <see cref="IConnection"/> wiring here.
 /// </summary>
-public class EnableAutoMergeSkill(IGitHubClient gitHubClient, ILoggerFactory loggerFactory)
+public class EnableAutoMergeSkill(IGitHubClient gitHubClient, IGitHubGraphQLClient graphQLClient, ILoggerFactory loggerFactory)
 {
     private readonly ILogger _logger = loggerFactory.CreateLogger<EnableAutoMergeSkill>();
+
+    private const string Mutation = """
+        mutation EnableAutoMerge($prId: ID!, $mergeMethod: PullRequestMergeMethod!, $headline: String, $body: String) {
+          enablePullRequestAutoMerge(input: {
+            pullRequestId: $prId,
+            mergeMethod: $mergeMethod,
+            commitHeadline: $headline,
+            commitBody: $body
+          }) {
+            pullRequest { number autoMergeRequest { enabledAt mergeMethod } }
+          }
+        }
+        """;
 
     /// <summary>
     /// Enables auto-merge on the specified pull request.
@@ -55,19 +70,6 @@ public class EnableAutoMergeSkill(IGitHubClient gitHubClient, ILoggerFactory log
                 $"PR {owner}/{repo}#{number} has no node id; cannot enable auto-merge.");
         }
 
-        const string mutation = """
-            mutation EnableAutoMerge($prId: ID!, $mergeMethod: PullRequestMergeMethod!, $headline: String, $body: String) {
-              enablePullRequestAutoMerge(input: {
-                pullRequestId: $prId,
-                mergeMethod: $mergeMethod,
-                commitHeadline: $headline,
-                commitBody: $body
-              }) {
-                pullRequest { number autoMergeRequest { enabledAt mergeMethod } }
-              }
-            }
-            """;
-
         var variables = new Dictionary<string, object?>
         {
             ["prId"] = pr.NodeId,
@@ -76,35 +78,13 @@ public class EnableAutoMergeSkill(IGitHubClient gitHubClient, ILoggerFactory log
             ["body"] = commitBody,
         };
 
-        var payload = new Dictionary<string, object?>
-        {
-            ["query"] = mutation,
-            ["variables"] = variables,
-        };
-
-        var response = await gitHubClient.Connection.Post<JsonElement>(
-            uri: new Uri("graphql", UriKind.Relative),
-            body: payload,
-            accepts: "application/json",
-            contentType: "application/json",
-            parameters: (IDictionary<string, string>?)null,
-            cancellationToken: cancellationToken);
-
-        var body = response.Body;
-
-        // GraphQL errors come back in the `errors` array; surface them cleanly.
-        if (body.ValueKind == JsonValueKind.Object
-            && body.TryGetProperty("errors", out var errors)
-            && errors.ValueKind == JsonValueKind.Array
-            && errors.GetArrayLength() > 0)
-        {
-            var messages = errors.EnumerateArray()
-                .Select(e => e.TryGetProperty("message", out var m) ? m.GetString() ?? "" : "")
-                .Where(m => !string.IsNullOrEmpty(m))
-                .ToArray();
-            throw new InvalidOperationException(
-                "Failed to enable auto-merge: " + string.Join("; ", messages));
-        }
+        // We don't need the mutation response body (the call either succeeds
+        // or throws GitHubGraphQLException); ask for JsonElement so we don't
+        // need a dedicated DTO just to satisfy the type parameter.
+        _ = await graphQLClient.MutateAsync<JsonElement>(
+            Mutation,
+            variables,
+            cancellationToken);
 
         return JsonSerializer.SerializeToElement(new
         {

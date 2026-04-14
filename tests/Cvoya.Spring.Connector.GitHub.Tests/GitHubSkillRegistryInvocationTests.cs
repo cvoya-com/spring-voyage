@@ -103,6 +103,9 @@ public class GitHubSkillRegistryInvocationTests
             "github_search_mentions",
             "github_get_prior_work_context",
             "github_label_transition",
+            "github_list_review_threads",
+            "github_resolve_review_thread",
+            "github_unresolve_review_thread",
         }, ignoreOrder: true);
     }
 }

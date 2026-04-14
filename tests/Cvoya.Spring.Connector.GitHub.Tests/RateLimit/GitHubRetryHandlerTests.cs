@@ -217,6 +217,44 @@ public class GitHubRetryHandlerTests
     }
 
     [Fact]
+    public async Task SendAsync_GraphQLResponseHeaders_UpdatesGraphQLBucket()
+    {
+        // GitHub's GraphQL endpoint returns x-ratelimit-resource: graphql.
+        // The retry handler sits inside Octokit's HTTP pipeline and must
+        // forward those headers to the tracker just like it does for REST.
+        var options = new GitHubRetryOptions { BaseBackoff = TimeSpan.FromMilliseconds(1), MaxBackoff = TimeSpan.FromSeconds(1) };
+        var time = new FakeTimeProvider(DateTimeOffset.Parse("2025-01-01T00:00:00Z"));
+        var tracker = new GitHubRateLimitTracker(options, NullLoggerFactory.Instance, time);
+        var reset = time.GetUtcNow().AddMinutes(60);
+
+        var inner = new ScriptedHandler(new Func<HttpResponseMessage>[]
+        {
+            () =>
+            {
+                var r = new HttpResponseMessage(HttpStatusCode.OK);
+                r.Headers.Add("x-ratelimit-limit", "5000");
+                r.Headers.Add("x-ratelimit-remaining", "4321");
+                r.Headers.Add("x-ratelimit-reset", reset.ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture));
+                r.Headers.Add("x-ratelimit-resource", "graphql");
+                return r;
+            },
+        });
+
+        var handler = new GitHubRetryHandler(tracker, options, NullLoggerFactory.Instance, time)
+        {
+            InnerHandler = inner,
+        };
+
+        using var response = await InvokeAsync(handler, time);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var quota = tracker.GetQuota("graphql");
+        quota.ShouldNotBeNull();
+        quota!.Remaining.ShouldBe(4321);
+        tracker.GetQuota("core").ShouldBeNull();
+    }
+
+    [Fact]
     public async Task SendAsync_ConcurrentCallers_TrackerConverges()
     {
         var options = new GitHubRetryOptions { BaseBackoff = TimeSpan.FromMilliseconds(1) };

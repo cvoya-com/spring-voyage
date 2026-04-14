@@ -3,9 +3,9 @@
 
 namespace Cvoya.Spring.Connector.GitHub.Tests;
 
-using System.Net;
 using System.Text.Json;
 
+using Cvoya.Spring.Connector.GitHub.GraphQL;
 using Cvoya.Spring.Connector.GitHub.Skills;
 
 using Microsoft.Extensions.Logging;
@@ -13,7 +13,6 @@ using Microsoft.Extensions.Logging;
 using NSubstitute;
 
 using Octokit;
-using Octokit.Internal;
 
 using Shouldly;
 
@@ -22,17 +21,16 @@ using Xunit;
 public class EnableAutoMergeSkillTests
 {
     private readonly IGitHubClient _gitHubClient;
-    private readonly IConnection _connection;
+    private readonly IGitHubGraphQLClient _graphQLClient;
     private readonly EnableAutoMergeSkill _skill;
 
     public EnableAutoMergeSkillTests()
     {
         _gitHubClient = Substitute.For<IGitHubClient>();
-        _connection = Substitute.For<IConnection>();
-        _gitHubClient.Connection.Returns(_connection);
+        _graphQLClient = Substitute.For<IGitHubGraphQLClient>();
         var loggerFactory = Substitute.For<ILoggerFactory>();
         loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
-        _skill = new EnableAutoMergeSkill(_gitHubClient, loggerFactory);
+        _skill = new EnableAutoMergeSkill(_gitHubClient, _graphQLClient, loggerFactory);
     }
 
     [Fact]
@@ -41,44 +39,31 @@ public class EnableAutoMergeSkillTests
         _gitHubClient.PullRequest.Get("owner", "repo", 42)
             .Returns(PrTestHelpers.CreatePullRequest(42, nodeId: "PR_node123"));
 
-        Uri? capturedUri = null;
-        object? capturedBody = null;
-        var successBody = JsonSerializer.SerializeToElement(new
-        {
-            data = new
-            {
-                enablePullRequestAutoMerge = new { pullRequest = new { number = 42 } },
-            },
-        });
-        var response = Substitute.For<IResponse>();
-        response.StatusCode.Returns(HttpStatusCode.OK);
-        var apiResp = new ApiResponse<JsonElement>(response, successBody);
+        string? capturedMutation = null;
+        object? capturedVariables = null;
 
-        _connection
-            .Post<JsonElement>(
-                Arg.Do<Uri>(u => capturedUri = u),
-                Arg.Do<object>(b => capturedBody = b),
-                Arg.Any<string>(),
-                Arg.Any<string>(),
-                Arg.Any<IDictionary<string, string>?>(),
-                Arg.Any<CancellationToken>())
-            .Returns(apiResp);
+        _graphQLClient
+            .MutateAsync<JsonElement>(Arg.Any<string>(), Arg.Any<object?>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                capturedMutation = call.ArgAt<string>(0);
+                capturedVariables = call.ArgAt<object?>(1);
+                return Task.FromResult(JsonSerializer.Deserialize<JsonElement>("""{"ok":true}"""));
+            });
 
         var result = await _skill.ExecuteAsync(
             "owner", "repo", 42, mergeMethod: "squash",
             commitHeadline: "Headline", commitBody: "Body",
             TestContext.Current.CancellationToken);
 
-        capturedUri.ShouldNotBeNull();
-        capturedUri!.ToString().ShouldBe("graphql");
+        capturedMutation.ShouldNotBeNull();
+        capturedMutation!.ShouldContain("enablePullRequestAutoMerge");
 
-        var body = capturedBody as Dictionary<string, object?>;
-        body.ShouldNotBeNull();
-        body!.ShouldContainKey("query");
-        body.ShouldContainKey("variables");
-        var vars = (Dictionary<string, object?>)body["variables"]!;
+        var vars = (Dictionary<string, object?>)capturedVariables!;
         vars["prId"].ShouldBe("PR_node123");
         vars["mergeMethod"].ShouldBe("SQUASH");
+        vars["headline"].ShouldBe("Headline");
+        vars["body"].ShouldBe("Body");
 
         result.GetProperty("enabled").GetBoolean().ShouldBeTrue();
         result.GetProperty("node_id").GetString().ShouldBe("PR_node123");
@@ -86,26 +71,17 @@ public class EnableAutoMergeSkillTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_GraphQlErrors_ThrowsInvalidOperationException()
+    public async Task ExecuteAsync_GraphQlErrors_PropagatesException()
     {
         _gitHubClient.PullRequest.Get("owner", "repo", 42)
             .Returns(PrTestHelpers.CreatePullRequest(42, nodeId: "PR_node123"));
 
-        var errorBody = JsonSerializer.SerializeToElement(new
-        {
-            errors = new[] { new { message = "auto merge not enabled for this repo" } },
-        });
-        var response = Substitute.For<IResponse>();
-        response.StatusCode.Returns(HttpStatusCode.OK);
-        var apiResp = new ApiResponse<JsonElement>(response, errorBody);
+        _graphQLClient
+            .MutateAsync<JsonElement>(Arg.Any<string>(), Arg.Any<object?>(), Arg.Any<CancellationToken>())
+            .Returns<Task<JsonElement>>(_ =>
+                throw new GitHubGraphQLException(["auto merge not enabled for this repo"]));
 
-        _connection
-            .Post<JsonElement>(
-                Arg.Any<Uri>(), Arg.Any<object>(), Arg.Any<string>(), Arg.Any<string>(),
-                Arg.Any<IDictionary<string, string>?>(), Arg.Any<CancellationToken>())
-            .Returns(apiResp);
-
-        var ex = await Should.ThrowAsync<InvalidOperationException>(() =>
+        var ex = await Should.ThrowAsync<GitHubGraphQLException>(() =>
             _skill.ExecuteAsync(
                 "owner", "repo", 42, mergeMethod: null, commitHeadline: null, commitBody: null,
                 TestContext.Current.CancellationToken));

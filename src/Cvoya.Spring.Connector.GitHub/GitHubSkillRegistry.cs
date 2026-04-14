@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Connector.GitHub;
 
 using System.Text.Json;
 
+using Cvoya.Spring.Connector.GitHub.GraphQL;
 using Cvoya.Spring.Connector.GitHub.Labels;
 using Cvoya.Spring.Connector.GitHub.Skills;
 using Cvoya.Spring.Core.Skills;
@@ -312,13 +313,30 @@ public class GitHubSkillRegistry : ISkillRegistry
                     ct),
 
             ["github_enable_auto_merge"] = (client, args, ct) =>
-                new EnableAutoMergeSkill(client, _loggerFactory).ExecuteAsync(
+                new EnableAutoMergeSkill(client, CreateGraphQLClient(client), _loggerFactory).ExecuteAsync(
                     GetString(args, "owner"),
                     GetString(args, "repo"),
                     GetInt(args, "number"),
                     GetOptionalString(args, "mergeMethod"),
                     GetOptionalString(args, "commitHeadline"),
                     GetOptionalString(args, "commitBody"),
+                    ct),
+
+            ["github_list_review_threads"] = (client, args, ct) =>
+                new ListReviewThreadsSkill(CreateGraphQLClient(client), _loggerFactory).ExecuteAsync(
+                    GetString(args, "owner"),
+                    GetString(args, "repo"),
+                    GetInt(args, "number"),
+                    ct),
+
+            ["github_resolve_review_thread"] = (client, args, ct) =>
+                new ResolveReviewThreadSkill(CreateGraphQLClient(client), _loggerFactory).ExecuteAsync(
+                    GetString(args, "threadId"),
+                    ct),
+
+            ["github_unresolve_review_thread"] = (client, args, ct) =>
+                new UnresolveReviewThreadSkill(CreateGraphQLClient(client), _loggerFactory).ExecuteAsync(
+                    GetString(args, "threadId"),
                     ct),
 
             ["github_update_branch"] = (client, args, ct) =>
@@ -373,6 +391,16 @@ public class GitHubSkillRegistry : ISkillRegistry
                     ct),
         };
     }
+
+    /// <summary>
+    /// Creates a GraphQL client that shares the authenticated connection
+    /// of the per-call Octokit client. Kept internal to the registry so
+    /// each skill dispatcher reuses the same factory — tests can construct
+    /// <see cref="OctokitGraphQLClient"/> directly against a mocked
+    /// <see cref="IConnection"/>.
+    /// </summary>
+    private IGitHubGraphQLClient CreateGraphQLClient(IGitHubClient client)
+        => new OctokitGraphQLClient(client.Connection, _loggerFactory);
 
     private static string GetString(JsonElement args, string name)
     {
@@ -1038,6 +1066,47 @@ public class GitHubSkillRegistry : ISkillRegistry
                         toState = new { type = "string", description = "The destination state label; must be in the configured state set" }
                     },
                     required = new[] { "owner", "repo", "number", "toState" }
+                }),
+
+            CreateToolDefinition(
+                "github_list_review_threads",
+                "Lists review threads on a pull request via GraphQL, including per-thread resolution state (which the REST API does not expose). Returns an is_resolved flag per thread and a summary unresolved_count.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        owner = new { type = "string", description = "The repository owner" },
+                        repo = new { type = "string", description = "The repository name" },
+                        number = new { type = "integer", description = "The pull request number" }
+                    },
+                    required = new[] { "owner", "repo", "number" }
+                }),
+
+            CreateToolDefinition(
+                "github_resolve_review_thread",
+                "Marks a pull request review thread as resolved via the GraphQL resolveReviewThread mutation. Idempotent on an already-resolved thread.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        threadId = new { type = "string", description = "The GraphQL node id of the review thread (returned by github_list_review_threads)" }
+                    },
+                    required = new[] { "threadId" }
+                }),
+
+            CreateToolDefinition(
+                "github_unresolve_review_thread",
+                "Reopens a previously resolved pull request review thread via the GraphQL unresolveReviewThread mutation. Idempotent on an already-unresolved thread.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        threadId = new { type = "string", description = "The GraphQL node id of the review thread" }
+                    },
+                    required = new[] { "threadId" }
                 })
         ];
     }
