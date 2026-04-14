@@ -13,6 +13,7 @@ using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Initiative;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Skills;
+using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Routing;
 
 using global::Dapr.Actors;
@@ -35,6 +36,7 @@ public class AgentActor(
     MessageRouter messageRouter,
     IAgentDefinitionProvider agentDefinitionProvider,
     IEnumerable<ISkillRegistry> skillRegistries,
+    IUnitMembershipRepository membershipRepository,
     ILoggerFactory loggerFactory) : Actor(host), IAgentActor, IRemindable
 {
     /// <summary>
@@ -215,6 +217,32 @@ public class AgentActor(
         var conversationId = message.ConversationId
             ?? throw new SpringException("Domain messages must have a ConversationId");
 
+        // Resolve the per-turn effective metadata up front: the merge of the
+        // agent's own global config with any per-membership override recorded
+        // on the (sender-unit, agent) edge. If the membership is disabled, the
+        // agent short-circuits before doing any dispatch work.
+        var effective = await ResolveEffectiveMetadataAsync(message, cancellationToken);
+
+        if (effective.Enabled == false)
+        {
+            _logger.LogInformation(
+                "Actor {ActorId} skipping message {MessageId} from {Sender}: membership Enabled=false.",
+                Id.GetId(), message.Id, message.From);
+
+            await EmitActivityEventAsync(ActivityEventType.DecisionMade,
+                $"Skipped message {message.Id} from {message.From}: membership disabled.",
+                cancellationToken,
+                details: JsonSerializer.SerializeToElement(new
+                {
+                    decision = "MembershipDisabled",
+                    sender = new { scheme = message.From.Scheme, path = message.From.Path },
+                    messageId = message.Id,
+                }),
+                correlationId: conversationId);
+
+            return CreateAckResponse(message);
+        }
+
         var activeConversation = await StateManager
             .TryGetStateAsync<ConversationChannel>(StateKeys.ActiveConversation, cancellationToken)
             ;
@@ -245,7 +273,7 @@ public class AgentActor(
                 cancellationToken,
                 details: JsonSerializer.SerializeToElement(new { from = "Idle", to = "Active" }));
 
-            var context = await BuildPromptAssemblyContextAsync(channel, cancellationToken);
+            var context = await BuildPromptAssemblyContextAsync(channel, effective, cancellationToken);
             PendingDispatchTask = RunDispatchAsync(message, context, _activeWorkCancellation.Token);
 
             return CreateAckResponse(message);
@@ -290,10 +318,15 @@ public class AgentActor(
     /// not know its enclosing unit, so unit context must be supplied by a
     /// UnitActor-side caller in future work. Skills come from registered
     /// <see cref="ISkillRegistry"/> instances; agent instructions come from
-    /// <see cref="IAgentDefinitionProvider"/>.
+    /// <see cref="IAgentDefinitionProvider"/>. The <paramref name="effective"/>
+    /// metadata is propagated so downstream consumers (model selection,
+    /// execution-mode-aware dispatchers, specialty-aware orchestration) use
+    /// the per-turn merged config rather than re-reading global state.
     /// </summary>
     private async Task<PromptAssemblyContext> BuildPromptAssemblyContextAsync(
-        ConversationChannel channel, CancellationToken cancellationToken)
+        ConversationChannel channel,
+        AgentMetadata effective,
+        CancellationToken cancellationToken)
     {
         var definition = await agentDefinitionProvider.GetByIdAsync(Id.GetId(), cancellationToken);
 
@@ -310,7 +343,78 @@ public class AgentActor(
             Skills: skills,
             PriorMessages: channel.Messages.ToList(),
             LastCheckpoint: null,
-            AgentInstructions: definition?.Instructions);
+            AgentInstructions: definition?.Instructions,
+            EffectiveMetadata: effective);
+    }
+
+    /// <summary>
+    /// Resolves the effective per-turn metadata for <paramref name="message"/>.
+    /// Starts from the agent's global <see cref="AgentMetadata"/> (as stored
+    /// on the actor) and, when the sender is a unit, overlays any
+    /// per-membership override recorded on the
+    /// <c>(message.From.Path, this-agent)</c> edge.
+    /// <para>
+    /// Merge rule (see #243): a non-<c>null</c> / non-default per-membership
+    /// value wins over the agent-global value for the same field. When no
+    /// membership row exists, or when the sender is not a unit (e.g., a
+    /// webhook-originated message or a peer agent), the agent-global
+    /// metadata is returned unchanged.
+    /// </para>
+    /// <para>
+    /// This is a receive-path helper: non-message-turn surfaces such as
+    /// <c>GET /agents/{id}</c> must continue to use <see cref="GetMetadataAsync"/>
+    /// directly so callers observe global config, not the result of a merge
+    /// against some arbitrary unit.
+    /// </para>
+    /// </summary>
+    internal async Task<AgentMetadata> ResolveEffectiveMetadataAsync(
+        Message message, CancellationToken cancellationToken)
+    {
+        var global = await GetMetadataAsync(cancellationToken);
+
+        if (!string.Equals(message.From.Scheme, "unit", StringComparison.Ordinal))
+        {
+            return global;
+        }
+
+        UnitMembership? membership;
+        try
+        {
+            membership = await membershipRepository.GetAsync(
+                unitId: message.From.Path,
+                agentAddress: Id.GetId(),
+                cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // Membership lookup is advisory — a failure here must not block
+            // message handling. Fall back to the agent's global config and
+            // log so operators can spot persistent failures.
+            _logger.LogWarning(ex,
+                "Membership lookup failed for agent {ActorId} and unit {UnitId}; using agent-global metadata.",
+                Id.GetId(), message.From.Path);
+            return global;
+        }
+
+        if (membership is null)
+        {
+            return global;
+        }
+
+        // Per-membership fields win where they are set. Enabled is a
+        // non-nullable bool on the membership row (defaults to true on
+        // insert), so a false value here always takes effect — even if the
+        // agent itself has Enabled=true or unset.
+        return new AgentMetadata(
+            Model: membership.Model ?? global.Model,
+            Specialty: membership.Specialty ?? global.Specialty,
+            Enabled: membership.Enabled,
+            ExecutionMode: membership.ExecutionMode ?? global.ExecutionMode,
+            ParentUnit: global.ParentUnit);
     }
 
     /// <summary>

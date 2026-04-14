@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Core.Execution;
 
 using System.Text.Json;
 
+using Cvoya.Spring.Core.Agents;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Skills;
 
@@ -17,10 +18,20 @@ using Cvoya.Spring.Core.Skills;
 /// <param name="PriorMessages">Prior messages in the conversation.</param>
 /// <param name="LastCheckpoint">Optional last checkpoint state.</param>
 /// <param name="AgentInstructions">Optional agent-specific instructions (Layer 4).</param>
+/// <param name="EffectiveMetadata">
+/// The agent's effective configuration for this particular message turn,
+/// i.e. the merge of the agent's global <see cref="AgentMetadata"/> with any
+/// per-membership override recorded on the <c>(sender-unit, agent)</c> edge
+/// (see #160 / #243). When the sender is not a unit, this falls back to the
+/// agent's global metadata. Downstream consumers that need to pick a model,
+/// a specialty, or an execution mode for the turn should read from here
+/// rather than re-reading the agent's global state.
+/// </param>
 public record PromptAssemblyContext(
     IReadOnlyList<Address> Members,
     JsonElement? Policies,
     IReadOnlyList<Skill>? Skills,
     IReadOnlyList<Message> PriorMessages,
     string? LastCheckpoint,
-    string? AgentInstructions);
+    string? AgentInstructions,
+    AgentMetadata? EffectiveMetadata = null);

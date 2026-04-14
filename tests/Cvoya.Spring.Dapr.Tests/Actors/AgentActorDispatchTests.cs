@@ -13,6 +13,7 @@ using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Initiative;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Skills;
+using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Routing;
@@ -41,6 +42,7 @@ public class AgentActorDispatchTests
     private readonly MessageRouter _router;
     private readonly IAgentDefinitionProvider _definitionProvider = Substitute.For<IAgentDefinitionProvider>();
     private readonly ISkillRegistry _skillRegistry = Substitute.For<ISkillRegistry>();
+    private readonly IUnitMembershipRepository _membershipRepository = Substitute.For<IUnitMembershipRepository>();
     private readonly AgentActor _actor;
 
     public AgentActorDispatchTests()
@@ -67,6 +69,10 @@ public class AgentActorDispatchTests
             ActorId = new ActorId("test-agent")
         });
 
+        _membershipRepository
+            .GetAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns((UnitMembership?)null);
+
         _actor = new AgentActor(
             host,
             Substitute.For<IActivityEventBus>(),
@@ -76,6 +82,7 @@ public class AgentActorDispatchTests
             _router,
             _definitionProvider,
             [_skillRegistry],
+            _membershipRepository,
             loggerFactory);
         SetStateManager(_actor, _stateManager);
 

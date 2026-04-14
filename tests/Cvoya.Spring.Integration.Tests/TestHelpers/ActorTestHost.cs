@@ -11,6 +11,7 @@ using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Initiative;
 using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Skills;
+using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Routing;
@@ -59,6 +60,10 @@ public static class ActorTestHost
             Substitute.For<IPermissionService>(),
             loggerFactory);
         var definitionProvider = Substitute.For<IAgentDefinitionProvider>();
+        var membershipRepository = Substitute.For<IUnitMembershipRepository>();
+        membershipRepository
+            .GetAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns((UnitMembership?)null);
         var actor = new AgentActor(
             host,
             activityEventBus,
@@ -68,6 +73,7 @@ public static class ActorTestHost
             router,
             definitionProvider,
             Array.Empty<ISkillRegistry>(),
+            membershipRepository,
             loggerFactory);
         SetStateManager(actor, stateManager);
 

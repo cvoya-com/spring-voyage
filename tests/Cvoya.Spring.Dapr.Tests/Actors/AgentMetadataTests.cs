@@ -9,6 +9,7 @@ using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Initiative;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Skills;
+using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Routing;
 
@@ -53,6 +54,11 @@ public class AgentMetadataTests
         _stateManager.TryGetStateAsync<AgentExecutionMode>(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<AgentExecutionMode>(false, default));
 
+        var membershipRepository = Substitute.For<IUnitMembershipRepository>();
+        membershipRepository
+            .GetAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns((UnitMembership?)null);
+
         _actor = new AgentActor(
             host,
             _activityEventBus,
@@ -66,6 +72,7 @@ public class AgentMetadataTests
                 loggerFactory),
             Substitute.For<IAgentDefinitionProvider>(),
             new List<ISkillRegistry>(),
+            membershipRepository,
             loggerFactory);
         SetStateManager(_actor, _stateManager);
     }
