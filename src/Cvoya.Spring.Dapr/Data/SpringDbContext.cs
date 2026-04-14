@@ -39,6 +39,9 @@ public class SpringDbContext(DbContextOptions<SpringDbContext> options) : DbCont
     /// <summary>Gets the set of unit-membership rows.</summary>
     public DbSet<UnitMembershipEntity> UnitMemberships => Set<UnitMembershipEntity>();
 
+    /// <summary>Gets the set of unit-policy rows.</summary>
+    public DbSet<UnitPolicyEntity> UnitPolicies => Set<UnitPolicyEntity>();
+
     /// <inheritdoc />
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

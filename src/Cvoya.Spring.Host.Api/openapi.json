@@ -1212,6 +1212,112 @@
         }
       }
     },
+    "/api/v1/units/{id}/policy": {
+      "get": {
+        "tags": [
+          "UnitPolicy"
+        ],
+        "summary": "Get the unit's governance policy",
+        "operationId": "GetUnitPolicy",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnitPolicyResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "UnitPolicy"
+        ],
+        "summary": "Upsert the unit's governance policy",
+        "operationId": "SetUnitPolicy",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/UnitPolicyResponse"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnitPolicyResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/agents/{id}/memberships": {
       "get": {
         "tags": [
@@ -4242,6 +4348,29 @@
           }
         }
       },
+      "SkillPolicy": {
+        "type": "object",
+        "properties": {
+          "allowed": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "blocked": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "Tier1Config": {
         "type": "object",
         "properties": {
@@ -4587,6 +4716,24 @@
           }
         }
       },
+      "UnitPolicyResponse": {
+        "required": [
+          "skill"
+        ],
+        "type": "object",
+        "properties": {
+          "skill": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SkillPolicy"
+              }
+            ]
+          }
+        }
+      },
       "UnitResponse": {
         "required": [
           "id",
@@ -4804,6 +4951,9 @@
     },
     {
       "name": "Units"
+    },
+    {
+      "name": "UnitPolicy"
     },
     {
       "name": "Packages"

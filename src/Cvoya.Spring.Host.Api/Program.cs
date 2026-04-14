@@ -102,6 +102,7 @@ app.MapGet("/health", () => Results.Ok(new { Status = "Healthy" }))
 app.MapAuthEndpoints();
 app.MapAgentEndpoints().RequireAuthorization();
 app.MapUnitEndpoints().RequireAuthorization();
+app.MapUnitPolicyEndpoints().RequireAuthorization();
 app.MapMembershipEndpoints().RequireAuthorization();
 app.MapPackageEndpoints().RequireAuthorization();
 app.MapMessageEndpoints().RequireAuthorization();

@@ -11,6 +11,7 @@ using Cvoya.Spring.Core.Initiative;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Observability;
 using Cvoya.Spring.Core.Orchestration;
+using Cvoya.Spring.Core.Policies;
 using Cvoya.Spring.Core.Secrets;
 using Cvoya.Spring.Core.State;
 using Cvoya.Spring.Core.Tenancy;
@@ -86,6 +87,13 @@ public static class ServiceCollectionExtensions
         // Repositories
         services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
         services.TryAddScoped<IUnitMembershipRepository, UnitMembershipRepository>();
+        services.TryAddScoped<IUnitPolicyRepository, UnitPolicyRepository>();
+
+        // Unit-policy enforcement (#162 / #163). TryAdd so the private cloud
+        // repo can pre-register a tenant-scoped / audit-logging wrapper that
+        // wraps the OSS default. Scoped because the underlying repositories
+        // use SpringDbContext which is scoped per request.
+        services.TryAddScoped<IUnitPolicyEnforcer, DefaultUnitPolicyEnforcer>();
 
         // Unit-membership backfill hosted service (#160 / C2b-1).
         // Gated by Database:BackfillMemberships; idempotent; short-lived.

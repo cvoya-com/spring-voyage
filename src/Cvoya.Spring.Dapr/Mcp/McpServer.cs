@@ -11,8 +11,10 @@ using System.Text.Json;
 
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Policies;
 using Cvoya.Spring.Core.Skills;
 
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -38,6 +40,7 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
     private readonly Dictionary<string, ISkillRegistry> _toolToRegistry;
     private readonly McpServerOptions _options;
     private readonly ILogger _logger;
+    private readonly IServiceScopeFactory? _scopeFactory;
     private readonly ConcurrentDictionary<string, McpSession> _sessions = new(StringComparer.Ordinal);
 
     private HttpListener? _listener;
@@ -49,14 +52,26 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
     /// Initializes the server with the set of registries to expose. The server
     /// does not start until <see cref="StartAsync"/> is invoked by the host.
     /// </summary>
+    /// <remarks>
+    /// <paramref name="scopeFactory"/> is optional so standalone / test
+    /// constructions can continue to instantiate the server directly. When
+    /// it is supplied, every <c>tools/call</c> resolves an
+    /// <see cref="IUnitPolicyEnforcer"/> from a fresh scope and consults the
+    /// unit-policy framework (#162) before dispatching to the underlying
+    /// <see cref="ISkillRegistry"/>. Denials are surfaced to the model as a
+    /// tool error (isError=true) so the agent's conversation can see the
+    /// block and adapt.
+    /// </remarks>
     public McpServer(
         IEnumerable<ISkillRegistry> registries,
         IOptions<McpServerOptions> options,
-        ILoggerFactory loggerFactory)
+        ILoggerFactory loggerFactory,
+        IServiceScopeFactory? scopeFactory = null)
     {
         _registries = registries.ToList();
         _options = options.Value;
         _logger = loggerFactory.CreateLogger<McpServer>();
+        _scopeFactory = scopeFactory;
 
         _toolToRegistry = new Dictionary<string, ISkillRegistry>(StringComparer.Ordinal);
         foreach (var registry in _registries)
@@ -304,6 +319,35 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
             "MCP tools/call: {Tool} (agent={AgentId} conv={ConversationId})",
             toolName, session.AgentId, session.ConversationId);
 
+        // Unit-policy enforcement (#162 / #163). Every skill invocation
+        // routes through IUnitPolicyEnforcer — if any unit the agent belongs
+        // to blocks this tool, the call never reaches the registry and the
+        // model sees a tool error so it can self-correct. The enforcer is
+        // resolved from a fresh scope because the default implementation
+        // depends on scoped repositories; when no scope factory is wired
+        // (unit tests that build the server standalone), enforcement is
+        // skipped — production hosts always supply one via DI.
+        var denial = await TryEvaluateSkillPolicyAsync(session, toolName, ct);
+        if (denial is not null)
+        {
+            _logger.LogWarning(
+                "MCP tools/call denied by unit policy: {Tool} (agent={AgentId} unit={UnitId}) — {Reason}",
+                toolName, session.AgentId, denial.Value.DenyingUnitId, denial.Value.Reason);
+            await WriteResultAsync(response, request.Id, new
+            {
+                content = new[]
+                {
+                    new
+                    {
+                        type = "text",
+                        text = denial.Value.Reason ?? "Skill denied by unit policy.",
+                    },
+                },
+                isError = true,
+            });
+            return;
+        }
+
         try
         {
             var result = await registry.InvokeAsync(toolName, arguments, ct);
@@ -365,6 +409,47 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
                 },
                 isError = true
             });
+        }
+    }
+
+    /// <summary>
+    /// Consults <see cref="IUnitPolicyEnforcer"/> for a skill invocation and
+    /// returns a <see cref="PolicyDecision"/> when the call must be denied,
+    /// or <c>null</c> when the call is allowed. A missing scope factory or
+    /// a missing enforcer registration (test harnesses) is treated as
+    /// "no policy applies" so existing skill-invocation tests keep passing.
+    /// Enforcer failures are logged and treated the same way — policy
+    /// infrastructure must never convert a routine tool call into a hard
+    /// error for the model.
+    /// </summary>
+    private async Task<PolicyDecision?> TryEvaluateSkillPolicyAsync(
+        McpSession session, string toolName, CancellationToken ct)
+    {
+        if (_scopeFactory is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            var enforcer = scope.ServiceProvider.GetService<IUnitPolicyEnforcer>();
+            if (enforcer is null)
+            {
+                return null;
+            }
+
+            var decision = await enforcer.EvaluateSkillInvocationAsync(
+                session.AgentId, toolName, ct);
+
+            return decision.IsAllowed ? null : decision;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex,
+                "Policy enforcer threw while evaluating {Tool} for agent {AgentId}; allowing the call.",
+                toolName, session.AgentId);
+            return null;
         }
     }
 
