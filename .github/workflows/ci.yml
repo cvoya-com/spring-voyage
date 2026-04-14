@@ -65,6 +65,12 @@ jobs:
               - 'scripts/validate-connector-web.sh'
               - 'package.json'
               - 'package-lock.json'
+            web:
+              - 'src/Cvoya.Spring.Web/**'
+              - 'src/Cvoya.Spring.Connector.*/web/**'
+              - 'eslint.config.mjs'
+              - 'package.json'
+              - 'package-lock.json'
             workflows:
               - '.github/workflows/**'
 
