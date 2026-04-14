@@ -79,6 +79,131 @@ public class GitHubWebhookHandlerTests
         message.ShouldBeNull();
     }
 
+    [Theory]
+    [InlineData("unlabeled", "label_change")]
+    [InlineData("unassigned", "assignment")]
+    [InlineData("edited", "edit")]
+    [InlineData("closed", "lifecycle")]
+    [InlineData("reopened", "lifecycle")]
+    public void TranslateEvent_IssuesExpandedActions_ReturnsDomainMessage(string action, string expectedIntent)
+    {
+        var payload = CreateIssuePayload(action);
+
+        var message = _handler.TranslateEvent("issues", payload);
+
+        message.ShouldNotBeNull();
+        message!.Type.ShouldBe(MessageType.Domain);
+        message.Payload.GetProperty("intent").GetString().ShouldBe(expectedIntent);
+        message.Payload.GetProperty("action").GetString().ShouldBe(action);
+    }
+
+    [Fact]
+    public void TranslateEvent_IssuesUnknownAction_ReturnsNull()
+    {
+        var payload = CreateIssuePayload("milestoned");
+
+        var message = _handler.TranslateEvent("issues", payload);
+
+        message.ShouldBeNull();
+    }
+
+    [Fact]
+    public void TranslateEvent_IssuesUnlabeled_IncludesChangedLabelName()
+    {
+        var data = new
+        {
+            action = "unlabeled",
+            label = new { name = "in-progress:author" },
+            issue = new
+            {
+                number = 42,
+                title = "Test issue",
+                body = "Issue body",
+                labels = Array.Empty<object>(),
+                assignee = (object?)null,
+                user = new { login = "opener" },
+            },
+            repository = new
+            {
+                name = "test-repo",
+                full_name = "owner/test-repo",
+                owner = new { login = "owner" }
+            }
+        };
+        var payload = JsonSerializer.SerializeToElement(data);
+
+        var message = _handler.TranslateEvent("issues", payload);
+
+        message.ShouldNotBeNull();
+        message!.Payload.GetProperty("changed_label").GetString().ShouldBe("in-progress:author");
+    }
+
+    [Theory]
+    [InlineData("synchronize", "code_change")]
+    [InlineData("ready_for_review", "review_request")]
+    [InlineData("converted_to_draft", "lifecycle")]
+    [InlineData("closed", "lifecycle")]
+    [InlineData("edited", "edit")]
+    public void TranslateEvent_PullRequestExpandedActions_ReturnsDomainMessage(string action, string expectedIntent)
+    {
+        var payload = CreatePullRequestPayload(action);
+
+        var message = _handler.TranslateEvent("pull_request", payload);
+
+        message.ShouldNotBeNull();
+        message!.Type.ShouldBe(MessageType.Domain);
+        message.Payload.GetProperty("intent").GetString().ShouldBe(expectedIntent);
+        message.Payload.GetProperty("action").GetString().ShouldBe(action);
+    }
+
+    [Fact]
+    public void TranslateEvent_PullRequestClosedMerged_ExposesMergedFlag()
+    {
+        var data = new
+        {
+            action = "closed",
+            pull_request = new
+            {
+                number = 10,
+                title = "Test PR",
+                body = "PR body",
+                state = "closed",
+                merged = true,
+                draft = false,
+                head = new { @ref = "feature-branch" },
+                @base = new { @ref = "main" },
+                user = new { login = "author" },
+            },
+            repository = new
+            {
+                name = "test-repo",
+                full_name = "owner/test-repo",
+                owner = new { login = "owner" }
+            }
+        };
+        var payload = JsonSerializer.SerializeToElement(data);
+
+        var message = _handler.TranslateEvent("pull_request", payload);
+
+        message.ShouldNotBeNull();
+        message!.Payload.GetProperty("pull_request").GetProperty("merged").GetBoolean().ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData("edited")]
+    [InlineData("deleted")]
+    public void TranslateEvent_IssueCommentExpandedActions_ReturnsDomainMessage(string action)
+    {
+        var payload = CreateCommentPayloadWithAction(action);
+
+        var message = _handler.TranslateEvent("issue_comment", payload);
+
+        message.ShouldNotBeNull();
+        message!.Type.ShouldBe(MessageType.Domain);
+        message.Payload.GetProperty("action").GetString().ShouldBe(action);
+        message.Payload.GetProperty("intent").GetString().ShouldBe("feedback");
+    }
+
     [Fact]
     public void TranslateEvent_Message_HasCorrectFromAddress()
     {
@@ -168,11 +293,13 @@ public class GitHubWebhookHandlerTests
         return JsonSerializer.SerializeToElement(data);
     }
 
-    private static JsonElement CreateCommentPayload()
+    private static JsonElement CreateCommentPayload() => CreateCommentPayloadWithAction("created");
+
+    private static JsonElement CreateCommentPayloadWithAction(string action)
     {
         var data = new
         {
-            action = "created",
+            action,
             comment = new
             {
                 id = 123L,

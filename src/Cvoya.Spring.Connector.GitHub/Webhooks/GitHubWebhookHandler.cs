@@ -51,11 +51,18 @@ public class GitHubWebhookHandler(
     {
         var action = payload.GetProperty("action").GetString();
 
+        // Intent vocabulary aligns with v1's coordinator dispatch so downstream
+        // units can switch on a single string rather than (event, action) pairs.
         return action switch
         {
-            "opened" => CreateMessage(payload, "issue.opened", BuildIssuePayload(payload, "work_assignment")),
-            "labeled" => CreateMessage(payload, "issue.labeled", BuildIssuePayload(payload, "label_change")),
-            "assigned" => CreateMessage(payload, "issue.assigned", BuildIssuePayload(payload, "assignment")),
+            "opened" => CreateMessage(payload, "issue.opened", BuildIssuePayload(payload, "work_assignment", action)),
+            "labeled" => CreateMessage(payload, "issue.labeled", BuildIssuePayload(payload, "label_change", action)),
+            "unlabeled" => CreateMessage(payload, "issue.unlabeled", BuildIssuePayload(payload, "label_change", action)),
+            "assigned" => CreateMessage(payload, "issue.assigned", BuildIssuePayload(payload, "assignment", action)),
+            "unassigned" => CreateMessage(payload, "issue.unassigned", BuildIssuePayload(payload, "assignment", action)),
+            "edited" => CreateMessage(payload, "issue.edited", BuildIssuePayload(payload, "edit", action)),
+            "closed" => CreateMessage(payload, "issue.closed", BuildIssuePayload(payload, "lifecycle", action)),
+            "reopened" => CreateMessage(payload, "issue.reopened", BuildIssuePayload(payload, "lifecycle", action)),
             _ => null
         };
     }
@@ -66,8 +73,13 @@ public class GitHubWebhookHandler(
 
         return action switch
         {
-            "opened" => CreateMessage(payload, "pull_request.opened", BuildPullRequestPayload(payload, "review_request")),
-            "review_submitted" => CreateMessage(payload, "pull_request.review_submitted", BuildPullRequestPayload(payload, "review_result")),
+            "opened" => CreateMessage(payload, "pull_request.opened", BuildPullRequestPayload(payload, "review_request", action)),
+            "review_submitted" => CreateMessage(payload, "pull_request.review_submitted", BuildPullRequestPayload(payload, "review_result", action)),
+            "synchronize" => CreateMessage(payload, "pull_request.synchronize", BuildPullRequestPayload(payload, "code_change", action)),
+            "ready_for_review" => CreateMessage(payload, "pull_request.ready_for_review", BuildPullRequestPayload(payload, "review_request", action)),
+            "converted_to_draft" => CreateMessage(payload, "pull_request.converted_to_draft", BuildPullRequestPayload(payload, "lifecycle", action)),
+            "closed" => CreateMessage(payload, "pull_request.closed", BuildPullRequestPayload(payload, "lifecycle", action)),
+            "edited" => CreateMessage(payload, "pull_request.edited", BuildPullRequestPayload(payload, "edit", action)),
             _ => null
         };
     }
@@ -78,7 +90,9 @@ public class GitHubWebhookHandler(
 
         return action switch
         {
-            "created" => CreateMessage(payload, "issue_comment.created", BuildCommentPayload(payload)),
+            "created" => CreateMessage(payload, "issue_comment.created", BuildCommentPayload(payload, "feedback", action)),
+            "edited" => CreateMessage(payload, "issue_comment.edited", BuildCommentPayload(payload, "feedback", action)),
+            "deleted" => CreateMessage(payload, "issue_comment.deleted", BuildCommentPayload(payload, "feedback", action)),
             _ => null
         };
     }
@@ -130,15 +144,31 @@ public class GitHubWebhookHandler(
         return FallbackRouterAddress;
     }
 
-    private static JsonElement BuildIssuePayload(JsonElement payload, string intent)
+    private static JsonElement BuildIssuePayload(JsonElement payload, string intent, string? action)
     {
         var issue = payload.GetProperty("issue");
         var repo = payload.GetProperty("repository");
+
+        // Action-specific delta fields — populated only when the webhook carries them,
+        // mirroring v1's coordinator payload shape so downstream consumers can read
+        // a consistent structure regardless of which action fired.
+        string? changedLabel = null;
+        if (payload.TryGetProperty("label", out var label) && label.ValueKind == JsonValueKind.Object)
+        {
+            changedLabel = label.GetProperty("name").GetString();
+        }
+
+        string? changedAssignee = null;
+        if (payload.TryGetProperty("assignee", out var actionAssignee) && actionAssignee.ValueKind == JsonValueKind.Object)
+        {
+            changedAssignee = actionAssignee.GetProperty("login").GetString();
+        }
 
         var data = new
         {
             source = "github",
             intent,
+            action,
             repository = new
             {
                 owner = repo.GetProperty("owner").GetProperty("login").GetString(),
@@ -150,25 +180,36 @@ public class GitHubWebhookHandler(
                 number = issue.GetProperty("number").GetInt32(),
                 title = issue.GetProperty("title").GetString(),
                 body = issue.TryGetProperty("body", out var body) ? body.GetString() : null,
+                state = issue.TryGetProperty("state", out var state) ? state.GetString() : null,
                 labels = ExtractLabels(issue),
                 assignee = issue.TryGetProperty("assignee", out var assignee) && assignee.ValueKind != JsonValueKind.Null
                     ? assignee.GetProperty("login").GetString()
-                    : null
-            }
+                    : null,
+                assignees = ExtractAssignees(issue),
+                author = issue.TryGetProperty("user", out var user) && user.ValueKind == JsonValueKind.Object
+                    ? user.GetProperty("login").GetString()
+                    : null,
+            },
+            changed_label = changedLabel,
+            changed_assignee = changedAssignee,
         };
 
         return JsonSerializer.SerializeToElement(data);
     }
 
-    private static JsonElement BuildPullRequestPayload(JsonElement payload, string intent)
+    private static JsonElement BuildPullRequestPayload(JsonElement payload, string intent, string? action)
     {
         var pr = payload.GetProperty("pull_request");
         var repo = payload.GetProperty("repository");
+
+        var merged = pr.TryGetProperty("merged", out var m) && m.ValueKind == JsonValueKind.True;
+        var draft = pr.TryGetProperty("draft", out var d) && d.ValueKind == JsonValueKind.True;
 
         var data = new
         {
             source = "github",
             intent,
+            action,
             repository = new
             {
                 owner = repo.GetProperty("owner").GetProperty("login").GetString(),
@@ -180,15 +221,21 @@ public class GitHubWebhookHandler(
                 number = pr.GetProperty("number").GetInt32(),
                 title = pr.GetProperty("title").GetString(),
                 body = pr.TryGetProperty("body", out var body) ? body.GetString() : null,
+                state = pr.TryGetProperty("state", out var state) ? state.GetString() : null,
                 head = pr.GetProperty("head").GetProperty("ref").GetString(),
-                @base = pr.GetProperty("base").GetProperty("ref").GetString()
+                @base = pr.GetProperty("base").GetProperty("ref").GetString(),
+                draft,
+                merged,
+                author = pr.TryGetProperty("user", out var user) && user.ValueKind == JsonValueKind.Object
+                    ? user.GetProperty("login").GetString()
+                    : null,
             }
         };
 
         return JsonSerializer.SerializeToElement(data);
     }
 
-    private static JsonElement BuildCommentPayload(JsonElement payload)
+    private static JsonElement BuildCommentPayload(JsonElement payload, string intent, string? action)
     {
         var comment = payload.GetProperty("comment");
         var issue = payload.GetProperty("issue");
@@ -197,7 +244,8 @@ public class GitHubWebhookHandler(
         var data = new
         {
             source = "github",
-            intent = "feedback",
+            intent,
+            action,
             repository = new
             {
                 owner = repo.GetProperty("owner").GetProperty("login").GetString(),
@@ -229,6 +277,20 @@ public class GitHubWebhookHandler(
 
         return labels.EnumerateArray()
             .Select(l => l.GetProperty("name").GetString() ?? string.Empty)
+            .Where(name => !string.IsNullOrEmpty(name))
+            .ToArray();
+    }
+
+    private static string[] ExtractAssignees(JsonElement issue)
+    {
+        if (!issue.TryGetProperty("assignees", out var assignees) || assignees.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        return assignees.EnumerateArray()
+            .Where(a => a.ValueKind == JsonValueKind.Object)
+            .Select(a => a.GetProperty("login").GetString() ?? string.Empty)
             .Where(name => !string.IsNullOrEmpty(name))
             .ToArray();
     }
