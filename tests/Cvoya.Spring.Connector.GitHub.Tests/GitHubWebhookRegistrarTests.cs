@@ -7,6 +7,7 @@ using System.Net;
 using System.Reflection;
 
 using Cvoya.Spring.Connector.GitHub.Auth;
+using Cvoya.Spring.Connector.GitHub.RateLimit;
 using Cvoya.Spring.Connector.GitHub.Webhooks;
 
 using Microsoft.Extensions.Logging;
@@ -47,7 +48,17 @@ public class GitHubWebhookRegistrarTests
         var auth = new GitHubAppAuth(_options, loggerFactory);
         var handler = new GitHubWebhookHandler(_options, loggerFactory);
         var signatureValidator = new WebhookSignatureValidator();
-        var connector = new FakeGitHubConnector(_gitHubClient, auth, handler, signatureValidator, _options, loggerFactory);
+        var retryOptions = new GitHubRetryOptions();
+        var tracker = new GitHubRateLimitTracker(retryOptions, loggerFactory);
+        var connector = new FakeGitHubConnector(
+            _gitHubClient,
+            auth,
+            handler,
+            signatureValidator,
+            _options,
+            tracker,
+            retryOptions,
+            loggerFactory);
 
         _registrar = new GitHubWebhookRegistrar(connector, _options, loggerFactory);
     }
@@ -146,7 +157,10 @@ public class GitHubWebhookRegistrarTests
             GitHubWebhookHandler handler,
             IWebhookSignatureValidator signatureValidator,
             GitHubConnectorOptions options,
-            ILoggerFactory loggerFactory) : base(auth, handler, signatureValidator, options, loggerFactory)
+            IGitHubRateLimitTracker rateLimitTracker,
+            GitHubRetryOptions retryOptions,
+            ILoggerFactory loggerFactory)
+            : base(auth, handler, signatureValidator, options, rateLimitTracker, retryOptions, loggerFactory)
         {
             _client = client;
         }

@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Connector.GitHub.Tests;
 using System.Text.Json;
 
 using Cvoya.Spring.Connector.GitHub.Auth;
+using Cvoya.Spring.Connector.GitHub.RateLimit;
 using Cvoya.Spring.Connector.GitHub.Webhooks;
 
 using Microsoft.Extensions.Logging;
@@ -29,7 +30,9 @@ public class GitHubSkillRegistryTests
         var auth = new GitHubAppAuth(options, loggerFactory);
         var webhookHandler = new GitHubWebhookHandler(options, loggerFactory);
         var signatureValidator = new WebhookSignatureValidator();
-        var connector = new GitHubConnector(auth, webhookHandler, signatureValidator, options, loggerFactory);
+        var retryOptions = new GitHubRetryOptions();
+        var tracker = new GitHubRateLimitTracker(retryOptions, loggerFactory);
+        var connector = new GitHubConnector(auth, webhookHandler, signatureValidator, options, tracker, retryOptions, loggerFactory);
         _registry = new GitHubSkillRegistry(connector, loggerFactory);
     }
 

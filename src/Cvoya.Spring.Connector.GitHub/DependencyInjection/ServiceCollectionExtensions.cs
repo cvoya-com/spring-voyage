@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Connector.GitHub.DependencyInjection;
 
 using Cvoya.Spring.Connector.GitHub.Auth;
+using Cvoya.Spring.Connector.GitHub.RateLimit;
 using Cvoya.Spring.Connector.GitHub.Webhooks;
 using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.Skills;
@@ -41,6 +42,15 @@ public static class ServiceCollectionExtensions
             var options = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<GitHubConnectorOptions>>();
             return options.Value;
         });
+
+        // Retry / rate-limit machinery. Registered ahead of the connector
+        // so GitHubConnector can depend on the tracker + options without
+        // needing every host to wire them up manually. TryAdd lets consumers
+        // (e.g. tests, the cloud repo) pre-register alternatives.
+        services.AddOptions<GitHubRetryOptions>().Bind(section.GetSection("Retry"));
+        services.TryAddSingleton(sp =>
+            sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<GitHubRetryOptions>>().Value);
+        services.TryAddSingleton<IGitHubRateLimitTracker, GitHubRateLimitTracker>();
 
         services.TryAddSingleton<GitHubAppAuth>();
         services.TryAddSingleton<IWebhookSignatureValidator, WebhookSignatureValidator>();

@@ -3,14 +3,17 @@
 
 namespace Cvoya.Spring.Connector.GitHub;
 
+using System.Net.Http;
 using System.Text.Json;
 
 using Cvoya.Spring.Connector.GitHub.Auth;
+using Cvoya.Spring.Connector.GitHub.RateLimit;
 using Cvoya.Spring.Connector.GitHub.Webhooks;
 
 using Microsoft.Extensions.Logging;
 
 using Octokit;
+using Octokit.Internal;
 
 /// <summary>
 /// The GitHub connector translates inbound webhook events into domain messages
@@ -23,9 +26,12 @@ public class GitHubConnector(
     GitHubWebhookHandler webhookHandler,
     IWebhookSignatureValidator signatureValidator,
     GitHubConnectorOptions options,
+    IGitHubRateLimitTracker rateLimitTracker,
+    GitHubRetryOptions retryOptions,
     ILoggerFactory loggerFactory) : IGitHubConnector
 {
     private readonly ILogger _logger = loggerFactory.CreateLogger<GitHubConnector>();
+    private readonly ILoggerFactory _loggerFactory = loggerFactory;
 
     /// <summary>
     /// Gets the webhook handler for processing inbound GitHub events.
@@ -77,13 +83,45 @@ public class GitHubConnector(
 
         var token = await auth.GetInstallationTokenAsync(installationId, cancellationToken);
 
-        var client = new GitHubClient(new ProductHeaderValue("SpringVoyage"))
-        {
-            Credentials = new Credentials(token)
-        };
+        var client = new GitHubClient(BuildConnection(token));
 
         _logger.LogDebug("Created authenticated GitHub client for installation {InstallationId}", installationId);
 
         return client;
+    }
+
+    /// <summary>
+    /// Builds the Octokit <see cref="Connection"/> with the rate-limit /
+    /// retry <see cref="DelegatingHandler"/> plugged into the underlying
+    /// HTTP pipeline. Marked <c>virtual</c> so downstream consumers (e.g. the
+    /// cloud repo) can substitute their own pipeline without re-implementing
+    /// the whole <see cref="CreateAuthenticatedClientAsync"/> method.
+    /// </summary>
+    protected virtual IConnection BuildConnection(string token)
+    {
+        var httpClient = new HttpClientAdapter(CreateHandler);
+
+        return new Connection(
+            new ProductHeaderValue("SpringVoyage"),
+            GitHubClient.GitHubApiUrl,
+            new InMemoryCredentialStore(new Credentials(token)),
+            httpClient,
+            new SimpleJsonSerializer());
+    }
+
+    private HttpMessageHandler CreateHandler()
+    {
+        // Octokit defaults to HttpClientHandler when its caller provides no
+        // inner handler; replicate that and wrap it in the retry handler so
+        // every outbound request goes through the rate-limit tracker.
+        var retryHandler = new GitHubRetryHandler(
+            rateLimitTracker,
+            retryOptions,
+            _loggerFactory)
+        {
+            InnerHandler = new HttpClientHandler(),
+        };
+
+        return retryHandler;
     }
 }
