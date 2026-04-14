@@ -24,11 +24,18 @@ using Xunit;
 /// empty-policy return for units that never set a policy, and 404 for
 /// unknown unit ids.
 /// </summary>
+/// <remarks>
+/// <para>
+/// Each test uses a unique unit id (suffixed with a fresh GUID) to keep
+/// state isolated. The class fixture shares a single
+/// <see cref="CustomWebApplicationFactory"/> — and therefore a single
+/// in-memory <c>SpringDbContext</c> — across all tests, so a shared
+/// literal unit name would let a row written by one test leak into the
+/// "no policy persisted" test and fail it non-deterministically. See #256.
+/// </para>
+/// </remarks>
 public class UnitPolicyEndpointsTests : IClassFixture<CustomWebApplicationFactory>
 {
-    private const string UnitName = "engineering";
-    private const string ActorId = "actor-engineering";
-
     private readonly CustomWebApplicationFactory _factory;
     private readonly HttpClient _client;
 
@@ -55,9 +62,10 @@ public class UnitPolicyEndpointsTests : IClassFixture<CustomWebApplicationFactor
     public async Task GetPolicy_NoPolicyPersisted_ReturnsEmpty()
     {
         var ct = TestContext.Current.CancellationToken;
-        ArrangeResolved();
+        var unitName = NewUnitName();
+        ArrangeResolved(unitName);
 
-        var response = await _client.GetAsync($"/api/v1/units/{UnitName}/policy", ct);
+        var response = await _client.GetAsync($"/api/v1/units/{unitName}/policy", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<UnitPolicyResponse>(
@@ -70,7 +78,8 @@ public class UnitPolicyEndpointsTests : IClassFixture<CustomWebApplicationFactor
     public async Task PutPolicy_PersistsAndGetReturnsIt()
     {
         var ct = TestContext.Current.CancellationToken;
-        ArrangeResolved();
+        var unitName = NewUnitName();
+        ArrangeResolved(unitName);
 
         var putBody = new UnitPolicyResponse(
             new SkillPolicy(
@@ -78,11 +87,11 @@ public class UnitPolicyEndpointsTests : IClassFixture<CustomWebApplicationFactor
                 Blocked: new[] { "delete_repo" }));
 
         var putResponse = await _client.PutAsJsonAsync(
-            $"/api/v1/units/{UnitName}/policy", putBody, ct);
+            $"/api/v1/units/{unitName}/policy", putBody, ct);
         putResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var getResponse = await _client.GetAsync(
-            $"/api/v1/units/{UnitName}/policy", ct);
+            $"/api/v1/units/{unitName}/policy", ct);
         getResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var stored = await getResponse.Content.ReadFromJsonAsync<UnitPolicyResponse>(
@@ -97,20 +106,21 @@ public class UnitPolicyEndpointsTests : IClassFixture<CustomWebApplicationFactor
     public async Task PutPolicy_Overwrite_ReplacesExisting()
     {
         var ct = TestContext.Current.CancellationToken;
-        ArrangeResolved();
+        var unitName = NewUnitName();
+        ArrangeResolved(unitName);
 
         await _client.PutAsJsonAsync(
-            $"/api/v1/units/{UnitName}/policy",
+            $"/api/v1/units/{unitName}/policy",
             new UnitPolicyResponse(new SkillPolicy(Blocked: new[] { "old" })),
             ct);
 
         await _client.PutAsJsonAsync(
-            $"/api/v1/units/{UnitName}/policy",
+            $"/api/v1/units/{unitName}/policy",
             new UnitPolicyResponse(new SkillPolicy(Blocked: new[] { "new" })),
             ct);
 
         var stored = await _client
-            .GetFromJsonAsync<UnitPolicyResponse>($"/api/v1/units/{UnitName}/policy", ct);
+            .GetFromJsonAsync<UnitPolicyResponse>($"/api/v1/units/{unitName}/policy", ct);
         stored!.Skill!.Blocked.ShouldBe(new[] { "new" });
     }
 
@@ -118,21 +128,22 @@ public class UnitPolicyEndpointsTests : IClassFixture<CustomWebApplicationFactor
     public async Task PutPolicy_EmptyPolicy_ClearsRow()
     {
         var ct = TestContext.Current.CancellationToken;
-        ArrangeResolved();
+        var unitName = NewUnitName();
+        ArrangeResolved(unitName);
 
         await _client.PutAsJsonAsync(
-            $"/api/v1/units/{UnitName}/policy",
+            $"/api/v1/units/{unitName}/policy",
             new UnitPolicyResponse(new SkillPolicy(Blocked: new[] { "x" })),
             ct);
 
         var clearResponse = await _client.PutAsJsonAsync(
-            $"/api/v1/units/{UnitName}/policy",
+            $"/api/v1/units/{unitName}/policy",
             new UnitPolicyResponse(null),
             ct);
         clearResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var stored = await _client
-            .GetFromJsonAsync<UnitPolicyResponse>($"/api/v1/units/{UnitName}/policy", ct);
+            .GetFromJsonAsync<UnitPolicyResponse>($"/api/v1/units/{unitName}/policy", ct);
         stored!.Skill.ShouldBeNull();
     }
 
@@ -152,15 +163,17 @@ public class UnitPolicyEndpointsTests : IClassFixture<CustomWebApplicationFactor
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
-    private void ArrangeResolved()
+    private static string NewUnitName() => $"engineering-{Guid.NewGuid():N}";
+
+    private void ArrangeResolved(string unitName)
     {
         _factory.DirectoryService
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "unit" && a.Path == UnitName),
+                Arg.Is<Address>(a => a.Scheme == "unit" && a.Path == unitName),
                 Arg.Any<CancellationToken>())
             .Returns(_ => new DirectoryEntry(
-                new Address("unit", UnitName),
-                ActorId,
+                new Address("unit", unitName),
+                $"actor-{unitName}",
                 "Engineering",
                 "Engineering unit",
                 null,
