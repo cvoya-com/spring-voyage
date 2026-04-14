@@ -45,4 +45,5 @@ public record PromptAssemblyContext(
     string? LastCheckpoint,
     string? AgentInstructions,
     AgentMetadata? EffectiveMetadata = null,
-    IReadOnlyList<SkillBundle>? SkillBundles = null);
+    IReadOnlyList<SkillBundle>? SkillBundles = null,
+    IReadOnlyList<PendingAmendment>? PendingAmendments = null);

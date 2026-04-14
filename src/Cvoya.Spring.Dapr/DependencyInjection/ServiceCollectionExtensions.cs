@@ -157,6 +157,18 @@ public static class ServiceCollectionExtensions
         services.TryAddKeyedSingleton<ICognitionProvider, Tier1CognitionProvider>("tier1");
         services.TryAddKeyedSingleton<ICognitionProvider, Tier2CognitionProvider>("tier2");
 
+        // Reflection-action handlers (#100). Registered via AddSingleton (not
+        // TryAdd) because they are part of an enumerable registration —
+        // TryAdd on IEnumerable would silently drop duplicates and the
+        // registry relies on ordered iteration. The private cloud repo
+        // contributes handlers through plain AddSingleton too; the
+        // registry resolves duplicates "first wins" so an earlier-registered
+        // cloud handler for, say, "send-message" overrides the OSS default.
+        services.AddSingleton<IReflectionActionHandler, SendMessageReflectionActionHandler>();
+        services.AddSingleton<IReflectionActionHandler, StartConversationReflectionActionHandler>();
+        services.AddSingleton<IReflectionActionHandler, RequestHelpReflectionActionHandler>();
+        services.TryAddSingleton<IReflectionActionHandlerRegistry, ReflectionActionHandlerRegistry>();
+
         services.AddOptions<Tier1Options>().BindConfiguration("Initiative:Tier1");
         services.AddHttpClient<Tier1CognitionProvider>();
 

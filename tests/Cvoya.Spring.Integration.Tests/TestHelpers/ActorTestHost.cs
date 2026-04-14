@@ -10,6 +10,7 @@ using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Initiative;
 using Cvoya.Spring.Core.Orchestration;
+using Cvoya.Spring.Core.Policies;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
@@ -41,6 +42,18 @@ public static class ActorTestHost
     /// <returns>A tuple of the actor instance and its mocked state manager.</returns>
     public static (AgentActor Actor, IActorStateManager StateManager) CreateAgentActor(string? actorId = null)
     {
+        var harness = CreateAgentActorWithHarness(actorId);
+        return (harness.Actor, harness.StateManager);
+    }
+
+    /// <summary>
+    /// Creates an <see cref="AgentActor"/> together with its mocked
+    /// collaborators so integration tests can arrange behaviour on the
+    /// membership repository, unit-policy enforcer, reflection-action
+    /// registry, or activity bus without reaching into private fields.
+    /// </summary>
+    public static AgentActorTestHarness CreateAgentActorWithHarness(string? actorId = null)
+    {
         var stateManager = Substitute.For<IActorStateManager>();
         var loggerFactory = Substitute.For<ILoggerFactory>();
         loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
@@ -64,6 +77,12 @@ public static class ActorTestHost
         membershipRepository
             .GetAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns((UnitMembership?)null);
+        var reflectionRegistry = Substitute.For<IReflectionActionHandlerRegistry>();
+        reflectionRegistry.Find(Arg.Any<string?>()).Returns((IReflectionActionHandler?)null);
+        var unitPolicyEnforcer = Substitute.For<IUnitPolicyEnforcer>();
+        unitPolicyEnforcer
+            .EvaluateSkillInvocationAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(PolicyDecision.Allowed);
         var actor = new AgentActor(
             host,
             activityEventBus,
@@ -74,6 +93,8 @@ public static class ActorTestHost
             definitionProvider,
             Array.Empty<ISkillRegistry>(),
             membershipRepository,
+            reflectionRegistry,
+            unitPolicyEnforcer,
             loggerFactory);
         SetStateManager(actor, stateManager);
 
@@ -83,8 +104,23 @@ public static class ActorTestHost
         stateManager.TryGetStateAsync<List<ConversationChannel>>(StateKeys.PendingConversations, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<List<ConversationChannel>>(false, default!));
 
-        return (actor, stateManager);
+        return new AgentActorTestHarness(
+            actor, stateManager, activityEventBus, membershipRepository,
+            reflectionRegistry, unitPolicyEnforcer);
     }
+
+    /// <summary>
+    /// Bundles an <see cref="AgentActor"/> instance with the mocks integration
+    /// tests typically need to arrange. Keeps tests free of reflection into
+    /// private fields.
+    /// </summary>
+    public sealed record AgentActorTestHarness(
+        AgentActor Actor,
+        IActorStateManager StateManager,
+        IActivityEventBus ActivityEventBus,
+        IUnitMembershipRepository MembershipRepository,
+        IReflectionActionHandlerRegistry ReflectionRegistry,
+        IUnitPolicyEnforcer UnitPolicyEnforcer);
 
     /// <summary>
     /// Creates a <see cref="UnitActor"/> with a mocked state manager and orchestration strategy.

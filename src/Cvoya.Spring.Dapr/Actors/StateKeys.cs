@@ -212,4 +212,19 @@ public static class StateKeys
     /// actor has no knowledge of any individual connector's shape.
     /// </summary>
     public const string UnitConnectorMetadata = "Unit:ConnectorMetadata";
+
+    /// <summary>
+    /// State key for the agent's pending mid-flight amendments queue
+    /// (<see cref="Core.Messaging.PendingAmendment"/>). The dispatcher drains
+    /// the list between tool calls and at model-call boundaries; entries
+    /// live here until consumed. See #142.
+    /// </summary>
+    public const string AgentPendingAmendments = "Agent:PendingAmendments";
+
+    /// <summary>
+    /// State key for the agent's "paused awaiting clarification" flag — set
+    /// when a <c>StopAndWait</c>-priority amendment is accepted and cleared
+    /// when the agent is explicitly resumed. See #142.
+    /// </summary>
+    public const string AgentPaused = "Agent:Paused";
 }

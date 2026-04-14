@@ -8,6 +8,7 @@ using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Initiative;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Policies;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
@@ -59,6 +60,13 @@ public class AgentMetadataTests
             .GetAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns((UnitMembership?)null);
 
+        var reflectionRegistry = Substitute.For<IReflectionActionHandlerRegistry>();
+        reflectionRegistry.Find(Arg.Any<string?>()).Returns((IReflectionActionHandler?)null);
+        var unitPolicyEnforcer = Substitute.For<IUnitPolicyEnforcer>();
+        unitPolicyEnforcer
+            .EvaluateSkillInvocationAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(PolicyDecision.Allowed);
+
         _actor = new AgentActor(
             host,
             _activityEventBus,
@@ -73,6 +81,8 @@ public class AgentMetadataTests
             Substitute.For<IAgentDefinitionProvider>(),
             new List<ISkillRegistry>(),
             membershipRepository,
+            reflectionRegistry,
+            unitPolicyEnforcer,
             loggerFactory);
         SetStateManager(_actor, _stateManager);
     }
