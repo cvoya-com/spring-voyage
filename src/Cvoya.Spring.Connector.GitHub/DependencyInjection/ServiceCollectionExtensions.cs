@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Connector.GitHub.DependencyInjection;
 
 using Cvoya.Spring.Connector.GitHub.Auth;
+using Cvoya.Spring.Connector.GitHub.Caching;
 using Cvoya.Spring.Connector.GitHub.Labels;
 using Cvoya.Spring.Connector.GitHub.RateLimit;
 using Cvoya.Spring.Connector.GitHub.Webhooks;
@@ -85,6 +86,28 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IInstallationTokenCache>(sp => new InstallationTokenCache(
             sp.GetRequiredService<InstallationTokenCacheOptions>(),
             sp.GetRequiredService<ILoggerFactory>()));
+
+        // Response cache. Options are bound from GitHub:ResponseCache
+        // (Enabled, DefaultTtl, Ttls, CleanupInterval). The OSS default
+        // implementation is in-memory and per-host — multi-host coordination
+        // (e.g. Redis-backed shared cache + invalidation bus) is tracked as
+        // a follow-up. When Enabled=false the implementation resolves to
+        // a pass-through so skill dispatchers call the cache unconditionally
+        // without branching on configuration at every site.
+        services.AddOptions<GitHubResponseCacheOptions>()
+            .Bind(section.GetSection("ResponseCache"));
+        services.TryAddSingleton(sp =>
+            sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<GitHubResponseCacheOptions>>().Value);
+        services.TryAddSingleton<IGitHubResponseCache>(sp =>
+        {
+            var opts = sp.GetRequiredService<GitHubResponseCacheOptions>();
+            if (!opts.Enabled)
+            {
+                return NoOpGitHubResponseCache.Instance;
+            }
+            return new InMemoryGitHubResponseCache(opts, sp.GetRequiredService<ILoggerFactory>());
+        });
+        services.TryAddSingleton<CachedSkillInvoker>();
 
         services.TryAddSingleton<GitHubAppAuth>();
         services.TryAddSingleton<IWebhookSignatureValidator, WebhookSignatureValidator>();
