@@ -324,6 +324,38 @@ jobs:
       - name: Lint
         run: npm run lint
 
+  web-build:
+    name: Build web (Next.js)
+    runs-on: ubuntu-latest
+    needs: changes
+    # Skipped in the merge queue: a successful production build of the
+    # Next.js app is a static-input check of the PR's own sources - it
+    # doesn't depend on the state of other merged PRs. Catches regressions
+    # like Turbopack workspace-root config drift (#297) that ESLint won't
+    # see.
+    if: >
+      github.event_name != 'merge_group' &&
+      (needs.changes.outputs.web == 'true' || needs.changes.outputs.workflows == 'true')
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install workspace dependencies
+        run: npm ci
+
+      # prebuild runs openapi-typescript against the committed
+      # src/Cvoya.Spring.Host.Api/openapi.json - no dotnet build needed
+      # here; openapi-drift covers contract freshness separately.
+      - name: Build Next.js app
+        working-directory: src/Cvoya.Spring.Web
+        run: npm run build
+
   openapi-drift:
     name: OpenAPI contract drift
     runs-on: ubuntu-latest
@@ -396,6 +428,7 @@ jobs:
       - agent-definitions-lint
       - connector-web-lint
       - web-lint
+      - web-build
       - openapi-drift
     # Always runs - branch protection depends on a single "Required checks"
     # context, so this job must report a status even when upstream jobs were
@@ -413,6 +446,7 @@ jobs:
           LINT_RESULT: ${{ needs.agent-definitions-lint.result }}
           CONNECTOR_WEB_RESULT: ${{ needs.connector-web-lint.result }}
           WEB_LINT_RESULT: ${{ needs.web-lint.result }}
+          WEB_BUILD_RESULT: ${{ needs.web-build.result }}
           OPENAPI_RESULT: ${{ needs.openapi-drift.result }}
           CHANGES_RESULT: ${{ needs.changes.result }}
         run: |
@@ -423,6 +457,7 @@ jobs:
           echo "agent-definitions-lint=$LINT_RESULT"
           echo "connector-web-lint=$CONNECTOR_WEB_RESULT"
           echo "web-lint=$WEB_LINT_RESULT"
+          echo "web-build=$WEB_BUILD_RESULT"
           echo "openapi-drift=$OPENAPI_RESULT"
 
           # The 'changes' gate itself must have run cleanly - if path detection
@@ -443,4 +478,5 @@ jobs:
           ok "$LINT_RESULT"            || { echo "::error::agent-definitions-lint failed"; exit 1; }
           ok "$CONNECTOR_WEB_RESULT"   || { echo "::error::connector-web-lint failed"; exit 1; }
           ok "$WEB_LINT_RESULT"        || { echo "::error::web-lint failed"; exit 1; }
+          ok "$WEB_BUILD_RESULT"       || { echo "::error::web-build failed"; exit 1; }
           ok "$OPENAPI_RESULT"         || { echo "::error::openapi-drift failed"; exit 1; }
