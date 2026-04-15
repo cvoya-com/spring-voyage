@@ -102,7 +102,9 @@ Each bundle lives in `packages/{package}/skills/` as a pair of sibling files:
 At unit creation (`/api/v1/units/from-yaml` or `/api/v1/units/from-template`), the platform:
 
 1. Resolves each `{package, skill}` pair via `ISkillBundleResolver`. Missing packages or missing `.md` files produce a `400 Bad Request` with a diagnostic search path.
-2. Validates that every required (non-optional) tool in the bundle is surfaced by a registered `ISkillRegistry` (e.g., the GitHub connector). Tools registered but blocked by the unit's `SkillPolicy` are also rejected.
+2. Validates the bundle's declared tools against two checks:
+   - **Tool availability** (advisory): if a required (non-optional) tool is not surfaced by any registered `ISkillRegistry`, the platform returns the unit creation result with an advisory warning in `UnitCreationResponse.warnings` rather than failing the call. Shipped bundles often reference aspirational unit-orchestration primitives (`assignToAgent`, `requestReview`, `submitReview`, `setPriority`, ...) that no connector provides yet; blocking creation would make those templates unusable. The agent will receive a runtime "tool not found" error from the LLM tooling layer if it actually attempts to invoke a missing tool. Tracked for a platform-level resolution in [#306](https://github.com/cvoya-com/spring-voyage/issues/306).
+   - **Unit policy** (blocking): tools registered but blocked by the unit's `SkillPolicy` are rejected with a `400 Bad Request`. This is the C3 security invariant and is never softened to a warning.
 3. Persists resolved bundles via `IUnitSkillBundleStore` so prompt assembly can rehydrate them on every message turn without reparsing the manifest.
 
 At prompt-assembly time, bundle prompts render as a sub-section of Layer 2 (unit context), after the connector-skills listing and before Layer 3 (conversation context). Declaration order in the manifest determines the bundle order in the prompt.

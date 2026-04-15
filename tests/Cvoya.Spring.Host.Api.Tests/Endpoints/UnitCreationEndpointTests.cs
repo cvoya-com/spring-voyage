@@ -474,11 +474,21 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
     }
 
     [Fact]
-    public async Task FromYaml_WithBundleRequiringUnavailableTool_ReturnsBadRequest()
+    public async Task FromYaml_WithBundleRequiringUnavailableTool_CreatesUnit_WithWarning()
     {
+        // Per #261: bundles often declare aspirational unit-orchestration
+        // tools (e.g. `assignToAgent`) that no connector surfaces. The
+        // validator now returns these as advisory warnings and creation
+        // proceeds — the agent will get a runtime "tool not found" if it
+        // actually invokes the missing tool. See #306 for the follow-up.
         var ct = TestContext.Current.CancellationToken;
 
         ResetMocks();
+        var proxy = Substitute.For<IUnitActor>();
+        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(UnitStatus.Draft);
+        _factory.ActorProxyFactory
+            .CreateActorProxy<IUnitActor>(Arg.Any<ActorId>(), Arg.Any<string>())
+            .Returns(proxy);
         _factory.DirectoryService
             .RegisterAsync(Arg.Any<DirectoryEntry>(), Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
@@ -497,12 +507,21 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
             new CreateUnitFromYamlRequest(Yaml),
             ct);
 
-        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        response.StatusCode.ShouldBe(HttpStatusCode.Created);
 
-        // The resolver read the bundle, the validator rejected it. No unit
-        // row was written.
-        await _factory.DirectoryService.DidNotReceive().RegisterAsync(
-            Arg.Any<DirectoryEntry>(), Arg.Any<CancellationToken>());
+        var body = await response.Content.ReadAsStringAsync(ct);
+        using var doc = JsonDocument.Parse(body);
+        var warnings = doc.RootElement.GetProperty("warnings")
+            .EnumerateArray()
+            .Select(w => w.GetString())
+            .ToList();
+        warnings.ShouldContain(w => w!.Contains("not_a_real_tool"));
+        warnings.ShouldContain(w => w!.Contains("not surfaced by any registered connector"));
+
+        // The unit was registered despite the missing-tool warning.
+        await _factory.DirectoryService.Received(1).RegisterAsync(
+            Arg.Is<DirectoryEntry>(e => e.Address.Path == "bundle-needs-tool"),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]

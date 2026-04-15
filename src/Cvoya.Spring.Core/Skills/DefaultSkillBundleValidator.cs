@@ -11,10 +11,24 @@ using Cvoya.Spring.Core.Policies;
 /// <summary>
 /// Default OSS <see cref="ISkillBundleValidator"/>. Collects all tool names
 /// surfaced by the registered <see cref="ISkillRegistry"/> instances (case-
-/// insensitive) and fails any bundle that declares a required tool outside
-/// that set. Also consults <see cref="IUnitPolicyRepository"/> to reject tools
-/// explicitly blocked by the unit's <see cref="SkillPolicy"/> — the enforcement
-/// path of #163 happens at unit-creation time as well as at call time.
+/// insensitive) and classifies problems by severity:
+///
+/// * <see cref="SkillBundleValidationProblemReason.ToolNotAvailable"/> →
+///   non-blocking warning returned in <see cref="SkillBundleValidationReport.Warnings"/>.
+///   Skill bundles often declare aspirational unit-orchestration tools that no
+///   connector surfaces yet (e.g. the `assignToAgent` / `requestReview`
+///   primitives in the shipped `packages/software-engineering/` bundles);
+///   rejecting those would block users from creating units from the shipped
+///   templates. The agent will get a runtime "tool not found" error from the
+///   LLM tooling layer if it actually tries to invoke the missing tool — see
+///   #306 for the platform-level follow-up.
+/// * <see cref="SkillBundleValidationProblemReason.BlockedByUnitPolicy"/> →
+///   blocking, throws <see cref="SkillBundleValidationException"/>. This is
+///   the C3 security invariant: a unit's <see cref="SkillPolicy"/> must be
+///   honoured at create time just as it is at call time.
+///
+/// Future problem kinds default to throwing unless they are explicitly
+/// categorised as advisory in <see cref="IsWarning"/>.
 /// </summary>
 public class DefaultSkillBundleValidator : ISkillBundleValidator
 {
@@ -33,14 +47,14 @@ public class DefaultSkillBundleValidator : ISkillBundleValidator
     }
 
     /// <inheritdoc />
-    public async Task ValidateAsync(
+    public async Task<SkillBundleValidationReport> ValidateAsync(
         string unitId,
         IReadOnlyList<SkillBundle> bundles,
         CancellationToken cancellationToken = default)
     {
         if (bundles.Count == 0)
         {
-            return;
+            return SkillBundleValidationReport.Empty;
         }
 
         var available = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -55,7 +69,8 @@ public class DefaultSkillBundleValidator : ISkillBundleValidator
         var policy = await _policyRepository.GetAsync(unitId, cancellationToken);
         var skillPolicy = policy.Skill;
 
-        var problems = new List<SkillBundleValidationProblem>();
+        var blocking = new List<SkillBundleValidationProblem>();
+        var warnings = new List<string>();
 
         foreach (var bundle in bundles)
         {
@@ -72,31 +87,82 @@ public class DefaultSkillBundleValidator : ISkillBundleValidator
 
                 if (!available.Contains(requirement.Name))
                 {
-                    problems.Add(new SkillBundleValidationProblem(
+                    var problem = new SkillBundleValidationProblem(
                         bundle.PackageName,
                         bundle.SkillName,
                         requirement.Name,
-                        SkillBundleValidationProblemReason.ToolNotAvailable));
+                        SkillBundleValidationProblemReason.ToolNotAvailable);
+                    Classify(problem, blocking, warnings);
                     continue;
                 }
 
                 if (skillPolicy is not null && IsBlocked(skillPolicy, requirement.Name))
                 {
-                    problems.Add(new SkillBundleValidationProblem(
+                    var problem = new SkillBundleValidationProblem(
                         bundle.PackageName,
                         bundle.SkillName,
                         requirement.Name,
                         SkillBundleValidationProblemReason.BlockedByUnitPolicy,
-                        DenyingUnitId: unitId));
+                        DenyingUnitId: unitId);
+                    Classify(problem, blocking, warnings);
                 }
             }
         }
 
-        if (problems.Count > 0)
+        if (blocking.Count > 0)
         {
-            throw new SkillBundleValidationException(problems);
+            throw new SkillBundleValidationException(blocking);
+        }
+
+        return warnings.Count == 0
+            ? SkillBundleValidationReport.Empty
+            : new SkillBundleValidationReport(warnings);
+    }
+
+    /// <summary>
+    /// Routes a problem to the warnings list (advisory, non-blocking) or the
+    /// blocking list (will throw). Keeps the per-reason categorisation in a
+    /// single place so future problem kinds land in the blocking bucket by
+    /// default — a reviewer deciding to demote a reason to a warning has to
+    /// touch this method.
+    /// </summary>
+    private static void Classify(
+        SkillBundleValidationProblem problem,
+        List<SkillBundleValidationProblem> blocking,
+        List<string> warnings)
+    {
+        if (IsWarning(problem.Reason))
+        {
+            warnings.Add(FormatWarning(problem));
+        }
+        else
+        {
+            blocking.Add(problem);
         }
     }
+
+    /// <summary>
+    /// True for reasons that surface as <see cref="SkillBundleValidationReport.Warnings"/>
+    /// rather than blocking the creation call. Keep this intentionally
+    /// allow-listed — new reasons default to blocking.
+    /// </summary>
+    private static bool IsWarning(SkillBundleValidationProblemReason reason) =>
+        reason == SkillBundleValidationProblemReason.ToolNotAvailable;
+
+    /// <summary>
+    /// Human-readable rendering of a warning, a little more actionable than
+    /// the exception-side formatting: explicitly tells the operator what
+    /// happens at runtime if the agent tries to call the missing tool.
+    /// </summary>
+    private static string FormatWarning(SkillBundleValidationProblem problem) =>
+        problem.Reason switch
+        {
+            SkillBundleValidationProblemReason.ToolNotAvailable =>
+                $"bundle '{problem.PackageName}/{problem.SkillName}' requires tool '{problem.ToolName}', "
+                + "which is not surfaced by any registered connector; "
+                + "the agent may get a 'tool not found' error if it tries to call it.",
+            _ => problem.ToString(),
+        };
 
     /// <summary>
     /// Mirrors the evaluation logic in <see cref="DefaultUnitPolicyEnforcer"/>:

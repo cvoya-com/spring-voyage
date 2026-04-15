@@ -172,7 +172,15 @@ public class UnitCreationService : IUnitCreationService
         if (skillReferences.Count > 0)
         {
             resolvedBundles = await ResolveSkillBundlesAsync(skillReferences, cancellationToken);
-            await _bundleValidator.ValidateAsync(name, resolvedBundles, cancellationToken);
+            var report = await _bundleValidator.ValidateAsync(name, resolvedBundles, cancellationToken);
+            // Non-blocking warnings (e.g. bundles declaring tools no connector
+            // surfaces) ride through the creation response's existing warnings
+            // list so the wizard / CLI can surface them alongside manifest-
+            // section warnings. Blocking problems throw from ValidateAsync.
+            if (report.Warnings.Count > 0)
+            {
+                warnings.AddRange(report.Warnings);
+            }
         }
 
         var actorId = Guid.NewGuid().ToString();
