@@ -59,32 +59,6 @@ const config = [
         "src/Cvoya.Spring.Web",
       ],
 
-      // The rules below are disabled to keep the Next 16 → direct-ESLint
-      // migration (#215) tooling-only. Each one flags code that would
-      // require a runtime refactor to fix, which is explicitly out of
-      // scope for the F1 PR. See follow-up issue #216 for the re-enable
-      // plan and the specific files that still fail.
-
-      // eslint-plugin-react-hooks v7 (shipped with eslint-config-next@16)
-      // added two new rules that trip on existing React 19 code here:
-      //   - `set-state-in-effect`: hits the theme loader, the sidebar
-      //     route-change collapse, and the connector-tab redirect effect.
-      //   - `static-components`: hits the connector registry lookup
-      //     that returns a dynamic component reference per render.
-      // Both are legitimate but require real refactors; tracked in #216.
-      "react-hooks/set-state-in-effect": "off",
-      "react-hooks/static-components": "off",
-
-      // `react-hooks/exhaustive-deps` fires twice (units list page, toast
-      // provider). Naively adding the flagged identifiers to the deps
-      // array risks infinite re-render loops — the fix needs
-      // `useCallback` / `useRef` wrappers. Tracked in #216.
-      "react-hooks/exhaustive-deps": "off",
-
-      // `import/no-anonymous-default-export` fires on the Next/PostCSS
-      // config files (postcss.config.mjs exports an anonymous object).
-      // Stylistic; tracked in #216.
-      "import/no-anonymous-default-export": "off",
     },
   },
 ];

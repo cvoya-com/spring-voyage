@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -119,7 +119,7 @@ function UnitDetailContent() {
   const [memberScheme, setMemberScheme] = useState("agent");
   const [memberPath, setMemberPath] = useState("");
 
-  const load = async () => {
+  const load = useCallback(async () => {
     if (!id) return;
     try {
       const [unitData, costData] = await Promise.allSettled([
@@ -133,11 +133,11 @@ function UnitDetailContent() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [id]);
 
   useEffect(() => {
     load();
-  }, [id]);
+  }, [load]);
 
   const handleDelete = async () => {
     try {

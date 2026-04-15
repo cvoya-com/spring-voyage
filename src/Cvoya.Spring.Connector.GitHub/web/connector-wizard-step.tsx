@@ -18,7 +18,7 @@
 // alongside `connector-tab.tsx` in `src/Cvoya.Spring.Web/src/connectors/
 // registry.ts` so both entry points are statically known at build time.
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Github, RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -83,28 +83,39 @@ export function GitHubConnectorWizardStep({
     null,
   );
   const [installUrl, setInstallUrl] = useState<string | null>(null);
-
-  const loadInstallations = useCallback(async () => {
-    try {
-      const list = await api.listGitHubInstallations();
-      setInstallations(list);
-      setInstallationsError(null);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setInstallationsError(message);
-      setInstallations([]);
-      try {
-        const { url } = await api.getGitHubInstallUrl();
-        setInstallUrl(url);
-      } catch {
-        // Swallow — the banner already tells the user what's wrong.
-      }
-    }
-  }, []);
+  // Incremented by the Refresh button to re-run the installations fetch
+  // effect. Using a monotonically-increasing token keeps the fetch logic
+  // inside the effect (so `setState` after the `await` resolves — which
+  // doesn't count as "synchronous setState inside an effect") while still
+  // supporting imperative refresh from the UI.
+  const [refreshToken, setRefreshToken] = useState(0);
 
   useEffect(() => {
-    void loadInstallations();
-  }, [loadInstallations]);
+    let cancelled = false;
+    (async () => {
+      try {
+        const list = await api.listGitHubInstallations();
+        if (cancelled) return;
+        setInstallations(list);
+        setInstallationsError(null);
+      } catch (err) {
+        if (cancelled) return;
+        const message = err instanceof Error ? err.message : String(err);
+        setInstallationsError(message);
+        setInstallations([]);
+        try {
+          const { url } = await api.getGitHubInstallUrl();
+          if (cancelled) return;
+          setInstallUrl(url);
+        } catch {
+          // Swallow — the banner already tells the user what's wrong.
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshToken]);
 
   // Push validated state up to the wizard on every change. Null when the
   // minimum required fields are missing so the wizard knows not to bundle
@@ -210,7 +221,7 @@ export function GitHubConnectorWizardStep({
             <Button
               size="sm"
               variant="outline"
-              onClick={loadInstallations}
+              onClick={() => setRefreshToken((n) => n + 1)}
               aria-label="Refresh installations"
             >
               <RefreshCw className="h-4 w-4" />

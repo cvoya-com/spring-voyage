@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 interface NavItem {
   href: string;
@@ -35,10 +35,16 @@ export function Sidebar() {
   const pathname = usePathname();
   const { theme, toggleTheme } = useTheme();
   const [mobileOpen, setMobileOpen] = useState(false);
-
-  useEffect(() => {
+  // Auto-close the mobile drawer when the route changes. Using the
+  // "adjusting state while rendering" pattern (React docs:
+  // https://react.dev/reference/react/useState#storing-information-from-previous-renders)
+  // avoids the `react-hooks/set-state-in-effect` cascading-render warning
+  // that a `useEffect` resetting this same state would produce.
+  const [lastPathname, setLastPathname] = useState(pathname);
+  if (pathname !== lastPathname) {
+    setLastPathname(pathname);
     setMobileOpen(false);
-  }, [pathname]);
+  }
 
   const sidebarContent = (
     <>

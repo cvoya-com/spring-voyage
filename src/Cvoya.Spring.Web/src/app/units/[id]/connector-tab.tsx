@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { createElement, useEffect, useState } from "react";
 import { Github, Link2, Settings } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -42,31 +42,41 @@ export function ConnectorTab({ unitId }: ConnectorTabProps) {
     useState<UnitConnectorPointerResponse | null>(null);
   const [connectors, setConnectors] = useState<ConnectorTypeResponse[]>([]);
   const [pendingSlug, setPendingSlug] = useState<string | null>(null);
-
-  const refresh = useCallback(async () => {
-    try {
-      const [ptr, list] = await Promise.all([
-        api.getUnitConnector(unitId),
-        api.listConnectors(),
-      ]);
-      setPointer(ptr ?? null);
-      setConnectors(list);
-      setLoadError(null);
-    } catch (err) {
-      setLoadError(err instanceof Error ? err.message : String(err));
-    }
-  }, [unitId]);
+  // Reset `loading` to true whenever the unitId prop changes, using the
+  // "adjusting state while rendering" pattern (React docs:
+  // https://react.dev/reference/react/useState#storing-information-from-previous-renders).
+  // Keeping the reset inside render (guarded by a previous-value comparison)
+  // avoids the `react-hooks/set-state-in-effect` warning that a
+  // `setLoading(true)` inside the fetch effect below would produce.
+  const [lastUnitId, setLastUnitId] = useState(unitId);
+  if (unitId !== lastUnitId) {
+    setLastUnitId(unitId);
+    setLoading(true);
+  }
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    refresh().finally(() => {
-      if (!cancelled) setLoading(false);
-    });
+    (async () => {
+      try {
+        const [ptr, list] = await Promise.all([
+          api.getUnitConnector(unitId),
+          api.listConnectors(),
+        ]);
+        if (cancelled) return;
+        setPointer(ptr ?? null);
+        setConnectors(list);
+        setLoadError(null);
+      } catch (err) {
+        if (cancelled) return;
+        setLoadError(err instanceof Error ? err.message : String(err));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
     return () => {
       cancelled = true;
     };
-  }, [refresh]);
+  }, [unitId]);
 
   const handleUnbind = async () => {
     try {
@@ -105,9 +115,19 @@ export function ConnectorTab({ unitId }: ConnectorTabProps) {
   }
 
   const activeSlug = pendingSlug ?? pointer?.typeSlug ?? null;
-  const Component = activeSlug ? getConnectorComponent(activeSlug) : undefined;
+  // Look up the connector component from the module-scoped registry. The
+  // returned reference is stable across renders for a given slug (the
+  // registry is a module-level array), so `createElement` below mounts a
+  // single component instance that survives re-renders with the same
+  // slug. We render via `createElement` rather than assigning to a
+  // PascalCase local (`const Component = ...; <Component />`) so that
+  // `react-hooks/static-components` doesn't misread the registry lookup
+  // as a new-component-per-render definition.
+  const connectorComponent = activeSlug
+    ? getConnectorComponent(activeSlug)
+    : undefined;
 
-  if (activeSlug && Component) {
+  if (activeSlug && connectorComponent) {
     const connectorMeta = connectors.find((c) => c.typeSlug === activeSlug);
     return (
       <div className="space-y-3">
@@ -134,12 +154,12 @@ export function ConnectorTab({ unitId }: ConnectorTabProps) {
             </Button>
           )}
         </div>
-        <Component unitId={unitId} />
+        {createElement(connectorComponent, { unitId })}
       </div>
     );
   }
 
-  if (activeSlug && !Component) {
+  if (activeSlug && !connectorComponent) {
     return (
       <Card>
         <CardHeader>

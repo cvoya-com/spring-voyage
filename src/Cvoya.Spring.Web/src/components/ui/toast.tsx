@@ -1,7 +1,14 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { createContext, useCallback, useContext, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 interface Toast {
   id: number;
@@ -22,10 +29,16 @@ export function useToast() {
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
-  let nextId = 0;
+  // A ref — not a plain `let` — so the id counter survives across renders.
+  // Previously this was `let nextId = 0`, which reset on every render and
+  // meant two quickly-scheduled toasts could share an id. The `useCallback`
+  // identity is kept stable by not listing the ref in deps (refs are
+  // stable by construction), which also satisfies
+  // `react-hooks/exhaustive-deps`.
+  const nextIdRef = useRef(0);
 
   const toast = useCallback((t: Omit<Toast, "id">) => {
-    const id = ++nextId;
+    const id = ++nextIdRef.current;
     setToasts((prev) => [...prev, { ...t, id }]);
     setTimeout(() => setToasts((prev) => prev.filter((x) => x.id !== id)), 4000);
   }, []);
