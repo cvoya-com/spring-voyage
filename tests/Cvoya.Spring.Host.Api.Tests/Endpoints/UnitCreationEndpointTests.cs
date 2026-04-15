@@ -201,6 +201,53 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
     }
 
     [Fact]
+    public async Task CreateUnit_ScratchNoConnector_NoSecrets_Succeeds()
+    {
+        // Bug #261 reproduction at the API layer: the wizard's "scratch +
+        // skip connector" path posts to /api/v1/units with no `connector`
+        // field at all. The endpoint must succeed without invoking the
+        // connector store, the bundle store, or any rollback.
+        var ct = TestContext.Current.CancellationToken;
+
+        ResetMocks();
+        var proxy = Substitute.For<IUnitActor>();
+        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(UnitStatus.Draft);
+        _factory.ActorProxyFactory
+            .CreateActorProxy<IUnitActor>(Arg.Any<ActorId>(), Arg.Any<string>())
+            .Returns(proxy);
+        _factory.DirectoryService
+            .RegisterAsync(Arg.Any<DirectoryEntry>(), Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+
+        var request = new
+        {
+            name = "scratch-skip-unit",
+            displayName = "Scratch Skip Unit",
+            description = "made via wizard scratch + skip",
+            model = "claude-sonnet-4-20250514",
+            color = "#6366f1",
+            // No 'connector' field — the wizard omits it for the skip case.
+        };
+
+        var response = await _client.PostAsJsonAsync("/api/v1/units", request, ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.Created);
+
+        await _factory.DirectoryService.Received(1).RegisterAsync(
+            Arg.Is<DirectoryEntry>(e => e.Address.Path == "scratch-skip-unit"),
+            Arg.Any<CancellationToken>());
+        // The connector store must NOT have been touched.
+        await _factory.ConnectorConfigStore.DidNotReceive().SetAsync(
+            Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<JsonElement>(), Arg.Any<CancellationToken>());
+        // No rollback occurred.
+        await _factory.DirectoryService.DidNotReceive().UnregisterAsync(
+            Arg.Any<Address>(), Arg.Any<CancellationToken>());
+        // The model hint reached the actor metadata write.
+        await proxy.Received(1).SetMetadataAsync(
+            Arg.Is<UnitMetadata>(m => m.Model == "claude-sonnet-4-20250514"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task CreateUnit_WithConnectorBinding_HappyPath_BindsAfterCreate()
     {
         var ct = TestContext.Current.CancellationToken;

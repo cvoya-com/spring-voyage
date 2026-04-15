@@ -30,11 +30,14 @@ import type {
   UnitConnectorBindingRequest,
   UnitTemplateSummary,
 } from "@/lib/api/types";
+import {
+  AI_PROVIDERS,
+  DEFAULT_MODEL,
+  DEFAULT_PROVIDER_ID,
+  getProvider,
+} from "@/lib/ai-models";
 import { cn } from "@/lib/utils";
 
-// Default matches the platform-wide default model hint. Keep in sync with
-// Cvoya.Spring.Dapr/Execution/AiProviderOptions.cs.
-const DEFAULT_MODEL = "claude-sonnet-4-20250514";
 const DEFAULT_COLOR = "#6366f1";
 
 const NAME_PATTERN = /^[a-z0-9-]+$/;
@@ -68,6 +71,10 @@ interface FormState {
   name: string;
   displayName: string;
   description: string;
+  // Bug #258: provider is a UI hint only — the server contract carries just
+  // `model`. We keep the provider around so the model dropdown can filter,
+  // and to make a future typed DTO extension painless.
+  provider: string;
   model: string;
   color: string;
   mode: Mode | null;
@@ -92,6 +99,7 @@ const INITIAL_FORM: FormState = {
   name: "",
   displayName: "",
   description: "",
+  provider: DEFAULT_PROVIDER_ID,
   model: DEFAULT_MODEL,
   color: DEFAULT_COLOR,
   mode: null,
@@ -503,14 +511,49 @@ export default function CreateUnitPage() {
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <label className="block space-y-1">
-                <span className="text-sm text-muted-foreground">Model</span>
-                <Input
-                  value={form.model}
-                  onChange={(e) => update("model", e.target.value)}
-                  placeholder={DEFAULT_MODEL}
-                />
+                <span className="text-sm text-muted-foreground">Provider</span>
+                <select
+                  value={form.provider}
+                  onChange={(e) => {
+                    // Bug #258: when the provider changes, snap the model to
+                    // that provider's default so we never submit a model that
+                    // the selected provider doesn't support.
+                    const nextProvider = getProvider(e.target.value);
+                    setForm((prev) => ({
+                      ...prev,
+                      provider: nextProvider.id,
+                      model: nextProvider.models[0],
+                    }));
+                  }}
+                  aria-label="AI provider"
+                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {AI_PROVIDERS.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.displayName}
+                    </option>
+                  ))}
+                </select>
               </label>
 
+              <label className="block space-y-1">
+                <span className="text-sm text-muted-foreground">Model</span>
+                <select
+                  value={form.model}
+                  onChange={(e) => update("model", e.target.value)}
+                  aria-label="Model"
+                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {getProvider(form.provider).models.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <label className="block space-y-1">
                 <span className="text-sm text-muted-foreground">Color</span>
                 <div className="flex items-center gap-2">

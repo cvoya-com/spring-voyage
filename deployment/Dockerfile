@@ -96,6 +96,12 @@ COPY --from=web-build /build/src/Cvoya.Spring.Web/.next/static     /app/web/src/
 # by mounting another directory at /dapr.
 COPY dapr /dapr
 
+# Ship the unit-template + skill-bundle catalog so the wizard's Template
+# step (#260) and skill-bundle resolution (#167) work out of the box.
+# FileSystemPackageCatalogService and FileSystemSkillBundleResolver both
+# read from this tree; SPRING_PACKAGES_ROOT in spring.env must match.
+COPY packages /packages
+
 EXPOSE 8080
 ENV ASPNETCORE_URLS=http://0.0.0.0:8080
 ENV DOTNET_RUNNING_IN_CONTAINER=true
