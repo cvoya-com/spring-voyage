@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Connector.GitHub;
 
 using System.Net.Http;
+using System.Text;
 using System.Text.Json;
 
 using Cvoya.Spring.Connector.GitHub.Auth;
@@ -130,6 +131,12 @@ public class GitHubConnector : IGitHubConnector
         // the connector, but decoupling the captured state is cheap.
         var cache = _responseCache;
         var logger = _logger;
+        // `eventType` flows in from the X-GitHub-Event header and `tag`
+        // values are derived from the webhook payload — both attacker-
+        // controlled. Pre-sanitize before letting them reach the log stream
+        // so a crafted value cannot forge fake log entries via CR/LF or
+        // flood logs with oversized strings.
+        var safeEventType = SanitizeForLog(eventType);
         _ = Task.Run(async () =>
         {
             foreach (var tag in tags)
@@ -143,10 +150,35 @@ public class GitHubConnector : IGitHubConnector
                     logger.LogWarning(
                         ex,
                         "Failed to invalidate cache tag {Tag} for event {EventType}; continuing",
-                        tag, eventType);
+                        SanitizeForLog(tag), safeEventType);
                 }
             }
         });
+    }
+
+    /// <summary>
+    /// Strips CR/LF and other control characters from attacker-controlled
+    /// values before they reach the log stream, and caps length so a crafted
+    /// header or payload field cannot forge fake log entries or flood logs.
+    /// Returns "unknown" for null/empty input so log messages remain readable.
+    /// </summary>
+    private static string SanitizeForLog(string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return "unknown";
+        }
+
+        const int MaxLogValueLength = 128;
+        var length = Math.Min(value.Length, MaxLogValueLength);
+        var builder = new StringBuilder(length);
+        for (var i = 0; i < length; i++)
+        {
+            var c = value[i];
+            builder.Append(char.IsControl(c) ? '_' : c);
+        }
+
+        return builder.ToString();
     }
 
     /// <summary>
