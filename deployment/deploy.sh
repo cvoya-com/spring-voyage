@@ -2,7 +2,10 @@
 # Spring Voyage — local Podman deployment.
 #
 # Brings up the full container stack on a shared Podman network (spring-net):
-#   spring-postgres, spring-redis, spring-worker, spring-api, spring-web, spring-caddy
+#   spring-postgres, spring-redis,
+#   spring-placement, spring-scheduler,            (Dapr control plane)
+#   spring-api-dapr, spring-worker-dapr,           (per-app Dapr sidecars)
+#   spring-worker, spring-api, spring-web, spring-caddy
 #
 # Usage:
 #   ./deploy.sh up              # create network, pull/build, start stack
@@ -30,7 +33,18 @@ RESOLVED_ENV_FILE=""
 NETWORK_NAME="spring-net"
 USER_NETWORK_PREFIX="spring-user-"
 
-SERVICES=(spring-postgres spring-redis spring-worker spring-api spring-web spring-caddy)
+SERVICES=(
+    spring-postgres
+    spring-redis
+    spring-placement
+    spring-scheduler
+    spring-worker-dapr
+    spring-api-dapr
+    spring-worker
+    spring-api
+    spring-web
+    spring-caddy
+)
 
 log()  { printf '[deploy] %s\n' "$*" >&2; }
 die()  { printf '[deploy][error] %s\n' "$*" >&2; exit 1; }
@@ -131,10 +145,98 @@ start_redis() {
         "${cmd[@]}"
 }
 
+# ---- Dapr control plane (placement + scheduler) --------------------------
+#
+# We run our own placement and scheduler on spring-net instead of relying on
+# the `dapr init` leftovers (dapr_placement / dapr_scheduler) which live on
+# Podman's default network and are invisible to spring-net. This keeps the
+# deployment self-contained — `./deploy.sh up` from a fresh host works
+# without `dapr init` ever having been run.
+#
+# Image: the same daprio/dapr release used for the per-app sidecars, so the
+# placement/scheduler wire format always matches the sidecar's expectations.
+
+start_placement() {
+    run_container spring-placement \
+        -v spring-placement-data:/var/run/dapr/raft \
+        "${DAPR_IMAGE:-docker.io/daprio/dapr:1.17.4}" \
+        ./placement \
+            --id spring-placement \
+            --port 50005 \
+            --log-level info \
+            --raft-data-dir /var/run/dapr/raft
+}
+
+start_scheduler() {
+    run_container spring-scheduler \
+        -v spring-scheduler-data:/data \
+        "${DAPR_IMAGE:-docker.io/daprio/dapr:1.17.4}" \
+        ./scheduler \
+            --id spring-scheduler \
+            --port 50006 \
+            --log-level info \
+            --etcd-data-dir /data
+}
+
+# ---- Per-app Dapr sidecars -----------------------------------------------
+#
+# Each app container (spring-api, spring-worker) is paired with a daprd
+# sidecar container on spring-net. The app points at the sidecar via
+# DAPR_HTTP_ENDPOINT / DAPR_GRPC_ENDPOINT (honored by the Dapr .NET SDK) so
+# the app does not need to share localhost with daprd (issue #308).
+#
+# Components and config are bind-mounted from the repo so operators can
+# tweak them without rebuilding images. Mount as :ro so the sidecar cannot
+# accidentally mutate them.
+
+start_api_sidecar() {
+    run_container spring-api-dapr \
+        --env-file "${RESOLVED_ENV_FILE}" \
+        -v "${REPO_ROOT}/dapr/components/production:/components:ro,Z" \
+        -v "${REPO_ROOT}/dapr/config/production.yaml:/config/config.yaml:ro,Z" \
+        "${DAPR_IMAGE:-docker.io/daprio/dapr:1.17.4}" \
+        ./daprd \
+            --app-id spring-api \
+            --app-port 8080 \
+            --app-channel-address spring-api \
+            --dapr-http-port 3500 \
+            --dapr-grpc-port 50001 \
+            --dapr-listen-addresses 0.0.0.0 \
+            --resources-path /components \
+            --config /config/config.yaml \
+            --placement-host-address spring-placement:50005 \
+            --scheduler-host-address spring-scheduler:50006 \
+            --log-level info \
+            --enable-metrics=false
+}
+
+start_worker_sidecar() {
+    run_container spring-worker-dapr \
+        --env-file "${RESOLVED_ENV_FILE}" \
+        -v "${REPO_ROOT}/dapr/components/production:/components:ro,Z" \
+        -v "${REPO_ROOT}/dapr/config/production.yaml:/config/config.yaml:ro,Z" \
+        "${DAPR_IMAGE:-docker.io/daprio/dapr:1.17.4}" \
+        ./daprd \
+            --app-id spring-worker \
+            --app-port 8080 \
+            --app-channel-address spring-worker \
+            --dapr-http-port 3500 \
+            --dapr-grpc-port 50001 \
+            --dapr-listen-addresses 0.0.0.0 \
+            --resources-path /components \
+            --config /config/config.yaml \
+            --placement-host-address spring-placement:50005 \
+            --scheduler-host-address spring-scheduler:50006 \
+            --log-level info \
+            --enable-metrics=false
+}
+
 start_worker() {
     run_container spring-worker \
         --env-file "${RESOLVED_ENV_FILE}" \
         -e "DAPR_APP_ID=spring-worker" \
+        -e "DAPR_HTTP_ENDPOINT=http://spring-worker-dapr:3500" \
+        -e "DAPR_GRPC_ENDPOINT=http://spring-worker-dapr:50001" \
         "${SPRING_PLATFORM_IMAGE:-localhost/spring-voyage:latest}" \
         dotnet /app/Cvoya.Spring.Host.Worker.dll
 }
@@ -143,6 +245,8 @@ start_api() {
     run_container spring-api \
         --env-file "${RESOLVED_ENV_FILE}" \
         -e "DAPR_APP_ID=spring-api" \
+        -e "DAPR_HTTP_ENDPOINT=http://spring-api-dapr:3500" \
+        -e "DAPR_GRPC_ENDPOINT=http://spring-api-dapr:50001" \
         "${SPRING_PLATFORM_IMAGE:-localhost/spring-voyage:latest}" \
         dotnet /app/Cvoya.Spring.Host.Api.dll
 }
@@ -197,6 +301,28 @@ wait_healthy() {
     die "${name} did not become healthy within ${timeout}s"
 }
 
+wait_sidecar_ready() {
+    # Polls the daprd HTTP healthz endpoint from inside the sidecar container.
+    # The daprio/dapr image ships with wget, so no extra tooling is required.
+    local name="$1" timeout="${2:-30}"
+    local waited=0
+    log "waiting for Dapr sidecar '${name}' to become ready"
+    while (( waited < timeout )); do
+        # /v1.0/healthz/outbound reports sidecar-only readiness (components
+        # loaded, control-plane reachable). It does NOT require the paired
+        # app to be up — which is what we want here, since the apps are
+        # started immediately after.
+        if podman exec "${name}" wget -q --spider http://127.0.0.1:3500/v1.0/healthz/outbound >/dev/null 2>&1; then
+            log "sidecar '${name}' is ready"
+            return 0
+        fi
+        sleep 1
+        waited=$(( waited + 1 ))
+    done
+    log "WARNING: sidecar '${name}' did not report ready within ${timeout}s; continuing anyway"
+    return 0
+}
+
 # ---------- commands ----------
 
 cmd_up() {
@@ -208,6 +334,18 @@ cmd_up() {
     wait_healthy spring-postgres 60
     start_redis
     wait_healthy spring-redis 30
+
+    # Dapr control plane on spring-net. These must be up before any per-app
+    # sidecar tries to register with placement / schedule actor reminders.
+    start_placement
+    start_scheduler
+
+    # Per-app Dapr sidecars. Start both before the apps so DAPR_HTTP_ENDPOINT
+    # / DAPR_GRPC_ENDPOINT resolves the moment the apps come up (#308).
+    start_worker_sidecar
+    start_api_sidecar
+    wait_sidecar_ready spring-worker-dapr 30
+    wait_sidecar_ready spring-api-dapr 30
 
     start_worker
     start_api
