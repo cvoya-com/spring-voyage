@@ -159,3 +159,54 @@ public sealed record ProjectV2FieldValueConnection(
 /// <summary>Envelope for <c>{ node(id) }</c> resolving to a ProjectV2Item.</summary>
 public sealed record GetProjectV2ItemResponse(
     [property: JsonPropertyName("node")] ProjectV2Item? Node);
+
+// --- mutations ---
+
+/// <summary>
+/// Envelope for the <c>addProjectV2ItemById</c> mutation. GraphQL returns
+/// <c>{ addProjectV2ItemById: { item: ProjectV2Item } }</c>; we flatten
+/// the inner <c>item</c> onto the response record for ergonomic access.
+/// </summary>
+public sealed record AddProjectV2ItemResponse(
+    [property: JsonPropertyName("addProjectV2ItemById")] AddProjectV2ItemPayload? AddProjectV2ItemById);
+
+/// <summary>Payload carried by <c>addProjectV2ItemById</c>.</summary>
+public sealed record AddProjectV2ItemPayload(
+    [property: JsonPropertyName("item")] ProjectV2Item? Item);
+
+/// <summary>
+/// Envelope for the <c>updateProjectV2ItemFieldValue</c> mutation.
+/// GraphQL returns <c>{ updateProjectV2ItemFieldValue: { projectV2Item } }</c>.
+/// </summary>
+public sealed record UpdateProjectV2ItemFieldValueResponse(
+    [property: JsonPropertyName("updateProjectV2ItemFieldValue")] UpdateProjectV2ItemFieldValuePayload? UpdateProjectV2ItemFieldValue);
+
+/// <summary>Payload carried by <c>updateProjectV2ItemFieldValue</c>.</summary>
+public sealed record UpdateProjectV2ItemFieldValuePayload(
+    [property: JsonPropertyName("projectV2Item")] ProjectV2Item? ProjectV2Item);
+
+/// <summary>
+/// Envelope for the <c>archiveProjectV2Item</c> mutation. GraphQL returns
+/// <c>{ archiveProjectV2Item: { item: ProjectV2Item } }</c> — note that the
+/// archived item remains queryable (soft-archive), just with
+/// <c>isArchived = true</c>.
+/// </summary>
+public sealed record ArchiveProjectV2ItemResponse(
+    [property: JsonPropertyName("archiveProjectV2Item")] ArchiveProjectV2ItemPayload? ArchiveProjectV2Item);
+
+/// <summary>Payload carried by <c>archiveProjectV2Item</c>.</summary>
+public sealed record ArchiveProjectV2ItemPayload(
+    [property: JsonPropertyName("item")] ProjectV2Item? Item);
+
+/// <summary>
+/// Envelope for the <c>deleteProjectV2Item</c> mutation. Unlike the archive
+/// variant, this mutation hard-deletes the item; GraphQL therefore returns
+/// only the <c>deletedItemId</c> rather than a full <c>ProjectV2Item</c>
+/// node (the record no longer exists to serialize).
+/// </summary>
+public sealed record DeleteProjectV2ItemResponse(
+    [property: JsonPropertyName("deleteProjectV2Item")] DeleteProjectV2ItemPayload? DeleteProjectV2Item);
+
+/// <summary>Payload carried by <c>deleteProjectV2Item</c>.</summary>
+public sealed record DeleteProjectV2ItemPayload(
+    [property: JsonPropertyName("deletedItemId")] string? DeletedItemId);

@@ -44,7 +44,7 @@ public class GitHubSkillRegistryTests
     {
         var tools = _registry.GetToolDefinitions();
 
-        tools.Count().ShouldBe(50);
+        tools.Count().ShouldBe(54);
         tools.Select(t => t.Name).ShouldBe(new[]
         {
             "github_create_branch",
@@ -96,6 +96,10 @@ public class GitHubSkillRegistryTests
             "github_get_project_v2",
             "github_list_project_v2_items",
             "github_get_project_v2_item",
+            "github_add_project_v2_item",
+            "github_update_project_v2_item_field_value",
+            "github_archive_project_v2_item",
+            "github_delete_project_v2_item",
             "github_get_authenticated_user",
         }, ignoreOrder: true);
     }

@@ -31,6 +31,7 @@ public class GitHubSkillRegistry : ISkillRegistry
     private readonly IGitHubInstallationsClient _installations;
     private readonly IGitHubOAuthClientFactory? _oauthClientFactory;
     private readonly CachedSkillInvoker _cachedInvoker;
+    private readonly IGitHubResponseCache _responseCache;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
     private readonly IReadOnlyList<ToolDefinition> _tools;
@@ -55,7 +56,8 @@ public class GitHubSkillRegistry : ISkillRegistry
         IGitHubInstallationsClient installations,
         ILoggerFactory loggerFactory,
         CachedSkillInvoker? cachedInvoker = null,
-        IGitHubOAuthClientFactory? oauthClientFactory = null)
+        IGitHubOAuthClientFactory? oauthClientFactory = null,
+        IGitHubResponseCache? responseCache = null)
     {
         _connector = connector;
         _labelStateMachine = labelStateMachine;
@@ -65,6 +67,10 @@ public class GitHubSkillRegistry : ISkillRegistry
             NoOpGitHubResponseCache.Instance,
             new GitHubResponseCacheOptions { Enabled = false },
             loggerFactory);
+        // Mutation skills reach for the cache directly to invalidate tags on
+        // success. A missing cache is modelled as the no-op instance so the
+        // mutation dispatchers don't need null checks.
+        _responseCache = responseCache ?? NoOpGitHubResponseCache.Instance;
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<GitHubSkillRegistry>();
 
@@ -599,6 +605,45 @@ public class GitHubSkillRegistry : ISkillRegistry
                 new GetProjectV2ItemSkill(CreateGraphQLClient(client), _loggerFactory).ExecuteAsync(
                     GetString(args, "itemId"),
                     ct),
+
+            ["github_add_project_v2_item"] = (client, args, ct) =>
+                new AddProjectV2ItemSkill(CreateGraphQLClient(client), _responseCache, _loggerFactory).ExecuteAsync(
+                    GetString(args, "projectId"),
+                    GetString(args, "contentId"),
+                    GetOptionalString(args, "owner"),
+                    GetOptionalInt(args, "number"),
+                    ct),
+
+            ["github_update_project_v2_item_field_value"] = (client, args, ct) =>
+                new UpdateProjectV2ItemFieldValueSkill(CreateGraphQLClient(client), _responseCache, _loggerFactory).ExecuteAsync(
+                    GetString(args, "projectId"),
+                    GetString(args, "itemId"),
+                    GetString(args, "fieldId"),
+                    GetString(args, "valueType"),
+                    GetOptionalString(args, "textValue"),
+                    GetOptionalDouble(args, "numberValue"),
+                    GetOptionalString(args, "dateValue"),
+                    GetOptionalString(args, "singleSelectOptionId"),
+                    GetOptionalString(args, "iterationId"),
+                    GetOptionalString(args, "owner"),
+                    GetOptionalInt(args, "number"),
+                    ct),
+
+            ["github_archive_project_v2_item"] = (client, args, ct) =>
+                new ArchiveProjectV2ItemSkill(CreateGraphQLClient(client), _responseCache, _loggerFactory).ExecuteAsync(
+                    GetString(args, "projectId"),
+                    GetString(args, "itemId"),
+                    GetOptionalString(args, "owner"),
+                    GetOptionalInt(args, "number"),
+                    ct),
+
+            ["github_delete_project_v2_item"] = (client, args, ct) =>
+                new DeleteProjectV2ItemSkill(CreateGraphQLClient(client), _responseCache, _loggerFactory).ExecuteAsync(
+                    GetString(args, "projectId"),
+                    GetString(args, "itemId"),
+                    GetOptionalString(args, "owner"),
+                    GetOptionalInt(args, "number"),
+                    ct),
         };
     }
 
@@ -646,6 +691,15 @@ public class GitHubSkillRegistry : ISkillRegistry
             return null;
         }
         return prop.GetInt32();
+    }
+
+    private static double? GetOptionalDouble(JsonElement args, string name)
+    {
+        if (!args.TryGetProperty(name, out var prop) || prop.ValueKind != JsonValueKind.Number)
+        {
+            return null;
+        }
+        return prop.GetDouble();
     }
 
     private static string[] GetStringArray(JsonElement args, string name)
@@ -1504,6 +1558,82 @@ public class GitHubSkillRegistry : ISkillRegistry
                         itemId = new { type = "string", description = "The GraphQL node id of the project item (returned by github_list_project_v2_items)" }
                     },
                     required = new[] { "itemId" }
+                }),
+
+            CreateToolDefinition(
+                "github_add_project_v2_item",
+                "Attaches an existing Issue or PullRequest (by GraphQL node id) to a Projects v2 board via the addProjectV2ItemById mutation. Returns the newly created project item's id plus metadata. Draft issues are out of scope (see separate mutation).",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        projectId = new { type = "string", description = "The GraphQL node id of the Projects v2 board" },
+                        contentId = new { type = "string", description = "The GraphQL node id of the Issue or PullRequest to attach" },
+                        owner = new { type = "string", description = "Optional owner login — when supplied along with number, the board-level cache is invalidated precisely after the mutation" },
+                        number = new { type = "integer", description = "Optional project number — paired with owner for cache invalidation" }
+                    },
+                    required = new[] { "projectId", "contentId" }
+                }),
+
+            CreateToolDefinition(
+                "github_update_project_v2_item_field_value",
+                "Sets a single field value on a Projects v2 item via the updateProjectV2ItemFieldValue mutation. The value is a tagged union: choose valueType from {text, number, date, single_select, iteration} and pass the matching value argument.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        projectId = new { type = "string", description = "The GraphQL node id of the Projects v2 board" },
+                        itemId = new { type = "string", description = "The GraphQL node id of the item whose field is being updated" },
+                        fieldId = new { type = "string", description = "The GraphQL node id of the field to set" },
+                        valueType = new
+                        {
+                            type = "string",
+                            description = "Discriminator for the value variant",
+                            @enum = new[] { "text", "number", "date", "single_select", "iteration" }
+                        },
+                        textValue = new { type = "string", description = "Required when valueType is 'text'" },
+                        numberValue = new { type = "number", description = "Required when valueType is 'number'" },
+                        dateValue = new { type = "string", description = "ISO-8601 date (e.g. 2026-04-13) when valueType is 'date'" },
+                        singleSelectOptionId = new { type = "string", description = "Option id when valueType is 'single_select'" },
+                        iterationId = new { type = "string", description = "Iteration id when valueType is 'iteration'" },
+                        owner = new { type = "string", description = "Optional owner login for board-level cache invalidation" },
+                        number = new { type = "integer", description = "Optional project number for board-level cache invalidation" }
+                    },
+                    required = new[] { "projectId", "itemId", "fieldId", "valueType" }
+                }),
+
+            CreateToolDefinition(
+                "github_archive_project_v2_item",
+                "Soft-archives a Projects v2 item via the archiveProjectV2Item mutation. The item remains queryable with is_archived=true; use github_delete_project_v2_item for a hard delete.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        projectId = new { type = "string", description = "The GraphQL node id of the Projects v2 board" },
+                        itemId = new { type = "string", description = "The GraphQL node id of the item to archive" },
+                        owner = new { type = "string", description = "Optional owner login for board-level cache invalidation" },
+                        number = new { type = "integer", description = "Optional project number for board-level cache invalidation" }
+                    },
+                    required = new[] { "projectId", "itemId" }
+                }),
+
+            CreateToolDefinition(
+                "github_delete_project_v2_item",
+                "Hard-deletes a Projects v2 item via the deleteProjectV2Item mutation. This is not recoverable — prefer github_archive_project_v2_item when you want a reversible soft-delete.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        projectId = new { type = "string", description = "The GraphQL node id of the Projects v2 board" },
+                        itemId = new { type = "string", description = "The GraphQL node id of the item to delete" },
+                        owner = new { type = "string", description = "Optional owner login for board-level cache invalidation" },
+                        number = new { type = "integer", description = "Optional project number for board-level cache invalidation" }
+                    },
+                    required = new[] { "projectId", "itemId" }
                 }),
 
             CreateToolDefinition(

@@ -42,4 +42,24 @@ public class CacheTagsTests
         // event doesn't flush cached issue reads (and vice versa).
         CacheTags.Issue("o", "r", 1).ShouldNotBe(CacheTags.PullRequest("o", "r", 1));
     }
+
+    [Fact]
+    public void ProjectV2_LowercasesOwnerAndIncludesNumber()
+    {
+        CacheTags.ProjectV2("Cvoya", 7).ShouldBe("project-v2:cvoya/7");
+    }
+
+    [Fact]
+    public void ProjectV2Item_UsesRawNodeId()
+    {
+        // Node ids are already globally unique; no normalization applies.
+        CacheTags.ProjectV2Item("PVTI_AbC").ShouldBe("project-v2-item:PVTI_AbC");
+    }
+
+    [Fact]
+    public void ProjectV2_AndItemTags_HaveDistinctPrefixes()
+    {
+        CacheTags.ProjectV2("o", 1).ShouldNotStartWith("project-v2-item:");
+        CacheTags.ProjectV2Item("PVTI_1").ShouldNotStartWith("project-v2:");
+    }
 }

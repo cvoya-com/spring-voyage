@@ -190,7 +190,8 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<IGitHubInstallationsClient>(),
                 sp.GetRequiredService<ILoggerFactory>(),
                 sp.GetRequiredService<CachedSkillInvoker>(),
-                oauthFactory);
+                oauthFactory,
+                sp.GetRequiredService<IGitHubResponseCache>());
         });
         services.TryAddSingleton<IGitHubWebhookRegistrar, GitHubWebhookRegistrar>();
         // Installation-listing is its own abstraction (IGitHubInstallationsClient)
