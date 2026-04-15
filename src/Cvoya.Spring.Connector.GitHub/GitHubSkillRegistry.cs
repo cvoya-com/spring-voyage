@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Connector.GitHub;
 using System.Text.Json;
 
 using Cvoya.Spring.Connector.GitHub.Auth;
+using Cvoya.Spring.Connector.GitHub.Caching;
 using Cvoya.Spring.Connector.GitHub.GraphQL;
 using Cvoya.Spring.Connector.GitHub.Labels;
 using Cvoya.Spring.Connector.GitHub.Skills;
@@ -27,6 +28,7 @@ public class GitHubSkillRegistry : ISkillRegistry
     private readonly GitHubConnector _connector;
     private readonly LabelStateMachine _labelStateMachine;
     private readonly IGitHubInstallationsClient _installations;
+    private readonly CachedSkillInvoker _cachedInvoker;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
     private readonly IReadOnlyList<ToolDefinition> _tools;
@@ -38,17 +40,26 @@ public class GitHubSkillRegistry : ISkillRegistry
     /// outbound Octokit calls, the configured <see cref="LabelStateMachine"/>
     /// (used by the label-transition skill), the installations client (used by
     /// topology skills that need App-JWT auth rather than installation auth),
-    /// and a logger factory for per-skill loggers.
+    /// and a logger factory for per-skill loggers. The optional
+    /// <paramref name="cachedInvoker"/> adds read-through caching to a subset
+    /// of high-frequency read skills; when omitted (e.g. from legacy test
+    /// setups) a best-effort no-op invoker is constructed so every read path
+    /// still flows through the same code path.
     /// </summary>
     public GitHubSkillRegistry(
         GitHubConnector connector,
         LabelStateMachine labelStateMachine,
         IGitHubInstallationsClient installations,
-        ILoggerFactory loggerFactory)
+        ILoggerFactory loggerFactory,
+        CachedSkillInvoker? cachedInvoker = null)
     {
         _connector = connector;
         _labelStateMachine = labelStateMachine;
         _installations = installations;
+        _cachedInvoker = cachedInvoker ?? new CachedSkillInvoker(
+            NoOpGitHubResponseCache.Instance,
+            new GitHubResponseCacheOptions { Enabled = false },
+            loggerFactory);
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<GitHubSkillRegistry>();
 
@@ -260,31 +271,71 @@ public class GitHubSkillRegistry : ISkillRegistry
                     ct),
 
             ["github_list_comments"] = (client, args, ct) =>
-                new ListCommentsSkill(client, _loggerFactory).ExecuteAsync(
-                    GetString(args, "owner"),
-                    GetString(args, "repo"),
-                    GetInt(args, "number"),
-                    GetOptionalInt(args, "maxResults") ?? 30,
-                    ct),
+            {
+                var owner = GetString(args, "owner");
+                var repo = GetString(args, "repo");
+                var number = GetInt(args, "number");
+                var maxResults = GetOptionalInt(args, "maxResults") ?? 30;
+                return _cachedInvoker.InvokeAsync(
+                    GitHubResponseCacheOptions.Resources.Comments,
+                    $"{owner}/{repo}#{number}?max={maxResults}",
+                    [
+                        CacheTags.Repository(owner, repo),
+                        // Issue tag covers both issue and PR comments, matching
+                        // how GitHub itself routes them via the issue_comment webhook.
+                        CacheTags.Issue(owner, repo, number),
+                        CacheTags.PullRequest(owner, repo, number),
+                    ],
+                    innerCt => new ListCommentsSkill(client, _loggerFactory).ExecuteAsync(
+                        owner, repo, number, maxResults, innerCt),
+                    ct);
+            },
 
             ["github_get_pull_request"] = (client, args, ct) =>
-                new GetPullRequestSkill(client, _loggerFactory).ExecuteAsync(
-                    GetString(args, "owner"),
-                    GetString(args, "repo"),
-                    GetInt(args, "number"),
-                    ct),
+            {
+                var owner = GetString(args, "owner");
+                var repo = GetString(args, "repo");
+                var number = GetInt(args, "number");
+                return _cachedInvoker.InvokeAsync(
+                    GitHubResponseCacheOptions.Resources.PullRequest,
+                    $"{owner}/{repo}#{number}",
+                    [
+                        CacheTags.Repository(owner, repo),
+                        CacheTags.PullRequest(owner, repo, number),
+                    ],
+                    innerCt => new GetPullRequestSkill(client, _loggerFactory).ExecuteAsync(
+                        owner, repo, number, innerCt),
+                    ct);
+            },
 
             ["github_list_pull_requests"] = (client, args, ct) =>
-                new ListPullRequestsSkill(client, _loggerFactory).ExecuteAsync(
-                    GetString(args, "owner"),
-                    GetString(args, "repo"),
-                    GetOptionalString(args, "state"),
-                    GetOptionalString(args, "head"),
-                    GetOptionalString(args, "base"),
-                    GetOptionalString(args, "sort"),
-                    GetOptionalString(args, "direction"),
-                    GetOptionalInt(args, "maxResults") ?? 30,
-                    ct),
+            {
+                var owner = GetString(args, "owner");
+                var repo = GetString(args, "repo");
+                var state = GetOptionalString(args, "state");
+                var head = GetOptionalString(args, "head");
+                var @base = GetOptionalString(args, "base");
+                var sort = GetOptionalString(args, "sort");
+                var direction = GetOptionalString(args, "direction");
+                var maxResults = GetOptionalInt(args, "maxResults") ?? 30;
+                // Query params are part of the discriminator so only exact
+                // parameter matches share a cached entry — a filter change
+                // always re-queries GitHub.
+                var discriminator = string.Create(
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    $"{owner}/{repo}?state={state}&head={head}&base={@base}&sort={sort}&direction={direction}&max={maxResults}");
+                return _cachedInvoker.InvokeAsync(
+                    GitHubResponseCacheOptions.Resources.PullRequestList,
+                    discriminator,
+                    // List results are repo-scoped — individual PR invalidation
+                    // cannot safely flush a list because the list might contain
+                    // PRs that did not change. Rely on the repo-wide tag for
+                    // coarser invalidation when needed.
+                    [CacheTags.Repository(owner, repo)],
+                    innerCt => new ListPullRequestsSkill(client, _loggerFactory).ExecuteAsync(
+                        owner, repo, state, head, @base, sort, direction, maxResults, innerCt),
+                    ct);
+            },
 
             ["github_find_pull_request_for_branch"] = (client, args, ct) =>
                 new FindPullRequestForBranchSkill(client, _loggerFactory).ExecuteAsync(
@@ -316,11 +367,21 @@ public class GitHubSkillRegistry : ISkillRegistry
                     ct),
 
             ["github_list_pull_request_reviews"] = (client, args, ct) =>
-                new ListPullRequestReviewsSkill(client, _loggerFactory).ExecuteAsync(
-                    GetString(args, "owner"),
-                    GetString(args, "repo"),
-                    GetInt(args, "number"),
-                    ct),
+            {
+                var owner = GetString(args, "owner");
+                var repo = GetString(args, "repo");
+                var number = GetInt(args, "number");
+                return _cachedInvoker.InvokeAsync(
+                    GitHubResponseCacheOptions.Resources.PullRequestReviews,
+                    $"{owner}/{repo}#{number}",
+                    [
+                        CacheTags.Repository(owner, repo),
+                        CacheTags.PullRequest(owner, repo, number),
+                    ],
+                    innerCt => new ListPullRequestReviewsSkill(client, _loggerFactory).ExecuteAsync(
+                        owner, repo, number, innerCt),
+                    ct);
+            },
 
             ["github_list_pull_request_review_comments"] = (client, args, ct) =>
                 new ListPullRequestReviewCommentsSkill(client, _loggerFactory).ExecuteAsync(
@@ -360,11 +421,22 @@ public class GitHubSkillRegistry : ISkillRegistry
                     ct),
 
             ["github_list_review_threads"] = (client, args, ct) =>
-                new ListReviewThreadsSkill(CreateGraphQLClient(client), _loggerFactory).ExecuteAsync(
-                    GetString(args, "owner"),
-                    GetString(args, "repo"),
-                    GetInt(args, "number"),
-                    ct),
+            {
+                var owner = GetString(args, "owner");
+                var repo = GetString(args, "repo");
+                var number = GetInt(args, "number");
+                return _cachedInvoker.InvokeAsync(
+                    GitHubResponseCacheOptions.Resources.ReviewThreads,
+                    $"{owner}/{repo}#{number}",
+                    [
+                        CacheTags.Repository(owner, repo),
+                        CacheTags.PullRequest(owner, repo, number),
+                    ],
+                    innerCt => new ListReviewThreadsSkill(
+                        CreateGraphQLClient(client), _loggerFactory).ExecuteAsync(
+                        owner, repo, number, innerCt),
+                    ct);
+            },
 
             ["github_get_pr_review_bundle"] = (client, args, ct) =>
                 new GetPrReviewBundleSkill(CreateGraphQLClient(client), _loggerFactory).ExecuteAsync(
@@ -466,6 +538,31 @@ public class GitHubSkillRegistry : ISkillRegistry
                     GetString(args, "owner"),
                     GetString(args, "repo"),
                     GetLong(args, "hookId"),
+                    ct),
+
+            ["github_list_projects_v2"] = (client, args, ct) =>
+                new ListProjectsV2Skill(CreateGraphQLClient(client), _loggerFactory).ExecuteAsync(
+                    GetString(args, "owner"),
+                    GetOptionalInt(args, "first") ?? 30,
+                    ct),
+
+            ["github_get_project_v2"] = (client, args, ct) =>
+                new GetProjectV2Skill(CreateGraphQLClient(client), _loggerFactory).ExecuteAsync(
+                    GetString(args, "owner"),
+                    GetInt(args, "number"),
+                    ct),
+
+            ["github_list_project_v2_items"] = (client, args, ct) =>
+                new ListProjectV2ItemsSkill(CreateGraphQLClient(client), _loggerFactory).ExecuteAsync(
+                    GetString(args, "owner"),
+                    GetInt(args, "number"),
+                    GetOptionalString(args, "cursor"),
+                    GetOptionalInt(args, "limit") ?? 50,
+                    ct),
+
+            ["github_get_project_v2_item"] = (client, args, ct) =>
+                new GetProjectV2ItemSkill(CreateGraphQLClient(client), _loggerFactory).ExecuteAsync(
+                    GetString(args, "itemId"),
                     ct),
         };
     }
@@ -1315,6 +1412,63 @@ public class GitHubSkillRegistry : ISkillRegistry
                         repo = new { type = "string", description = "The repository name" }
                     },
                     required = new[] { "owner", "repo" }
+                }),
+
+            CreateToolDefinition(
+                "github_list_projects_v2",
+                "Lists Projects v2 boards owned by a user or organization via GraphQL. Projects v2 has no REST surface — this is the canonical read entry point.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        owner = new { type = "string", description = "The user or organization login" },
+                        first = new { type = "integer", description = "Maximum projects to return (1..100, default 30)" }
+                    },
+                    required = new[] { "owner" }
+                }),
+
+            CreateToolDefinition(
+                "github_get_project_v2",
+                "Fetches a single Projects v2 board by owner + number, including its field definitions (id, name, dataType, options / iteration configuration).",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        owner = new { type = "string", description = "The user or organization login" },
+                        number = new { type = "integer", description = "The project number (the human-visible board id)" }
+                    },
+                    required = new[] { "owner", "number" }
+                }),
+
+            CreateToolDefinition(
+                "github_list_project_v2_items",
+                "Lists items on a Projects v2 board with their content (Issue / PullRequest / DraftIssue) and field values. Paginated — pass the previous response's end_cursor as cursor to advance.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        owner = new { type = "string", description = "The user or organization login" },
+                        number = new { type = "integer", description = "The project number" },
+                        cursor = new { type = "string", description = "Opaque cursor from a previous response's end_cursor" },
+                        limit = new { type = "integer", description = "Page size (1..100, default 50)" }
+                    },
+                    required = new[] { "owner", "number" }
+                }),
+
+            CreateToolDefinition(
+                "github_get_project_v2_item",
+                "Fetches a single Projects v2 item by GraphQL node id, returning the same content + field-values projection as the list query.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        itemId = new { type = "string", description = "The GraphQL node id of the project item (returned by github_list_project_v2_items)" }
+                    },
+                    required = new[] { "itemId" }
                 })
         ];
     }

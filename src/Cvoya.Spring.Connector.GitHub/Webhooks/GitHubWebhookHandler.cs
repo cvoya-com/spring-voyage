@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Connector.GitHub.Webhooks;
 using System.Text.Json;
 
 using Cvoya.Spring.Connector.GitHub.Auth;
+using Cvoya.Spring.Connector.GitHub.Caching;
 using Cvoya.Spring.Connector.GitHub.Labels;
 using Cvoya.Spring.Core.Messaging;
 
@@ -66,8 +67,101 @@ public class GitHubWebhookHandler : IGitHubWebhookHandler
             "pull_request_review_thread" => TranslatePullRequestReviewThreadEvent(payload),
             "installation" => TranslateInstallationEvent(payload),
             "installation_repositories" => TranslateInstallationRepositoriesEvent(payload),
+            "projects_v2" => TranslateProjectsV2Event(payload),
+            "projects_v2_item" => TranslateProjectsV2ItemEvent(payload),
             _ => null
         };
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyList<string> DeriveInvalidationTags(string eventType, JsonElement payload)
+    {
+        // Every event that carries a repository + (issue | pull_request)
+        // yields at least the per-resource tag; events on PRs also feed the
+        // PR tag. The repo-wide tag is left out here because PR-specific
+        // events rarely invalidate the entire repo list — callers that need
+        // that behaviour can flush the repo tag manually.
+        if (!payload.TryGetProperty("repository", out var repo) || repo.ValueKind != JsonValueKind.Object)
+        {
+            return [];
+        }
+
+        string? ownerLogin = null;
+        if (repo.TryGetProperty("owner", out var owner) && owner.ValueKind == JsonValueKind.Object
+            && owner.TryGetProperty("login", out var ownerLoginEl) && ownerLoginEl.ValueKind == JsonValueKind.String)
+        {
+            ownerLogin = ownerLoginEl.GetString();
+        }
+        string? repoName = null;
+        if (repo.TryGetProperty("name", out var repoNameEl) && repoNameEl.ValueKind == JsonValueKind.String)
+        {
+            repoName = repoNameEl.GetString();
+        }
+
+        if (string.IsNullOrEmpty(ownerLogin) || string.IsNullOrEmpty(repoName))
+        {
+            return [];
+        }
+
+        return eventType switch
+        {
+            "issues" => TagsForIssue(ownerLogin, repoName, payload),
+            // issue_comment covers PR comments too (GitHub dispatches both
+            // issue and PR conversation comments through this event), so we
+            // emit both Issue and PR tags so cached reads of either shape
+            // are flushed in one pass.
+            "issue_comment" => TagsForIssueComment(ownerLogin, repoName, payload),
+            "pull_request" => TagsForPullRequest(ownerLogin, repoName, payload),
+            "pull_request_review" => TagsForPullRequest(ownerLogin, repoName, payload),
+            "pull_request_review_comment" => TagsForPullRequest(ownerLogin, repoName, payload),
+            "pull_request_review_thread" => TagsForPullRequest(ownerLogin, repoName, payload),
+            _ => [],
+        };
+    }
+
+    private static IReadOnlyList<string> TagsForIssue(string owner, string repo, JsonElement payload)
+    {
+        if (!payload.TryGetProperty("issue", out var issue) || issue.ValueKind != JsonValueKind.Object
+            || !issue.TryGetProperty("number", out var numberEl) || numberEl.ValueKind != JsonValueKind.Number)
+        {
+            return [];
+        }
+        return [CacheTags.Issue(owner, repo, numberEl.GetInt32())];
+    }
+
+    private static IReadOnlyList<string> TagsForIssueComment(string owner, string repo, JsonElement payload)
+    {
+        if (!payload.TryGetProperty("issue", out var issue) || issue.ValueKind != JsonValueKind.Object
+            || !issue.TryGetProperty("number", out var numberEl) || numberEl.ValueKind != JsonValueKind.Number)
+        {
+            return [];
+        }
+        var number = numberEl.GetInt32();
+        // Emit BOTH Issue and PR tags — this event is ambiguous between the
+        // two and we'd rather over-invalidate than serve stale comments.
+        return
+        [
+            CacheTags.Issue(owner, repo, number),
+            CacheTags.PullRequest(owner, repo, number),
+        ];
+    }
+
+    private static IReadOnlyList<string> TagsForPullRequest(string owner, string repo, JsonElement payload)
+    {
+        if (!payload.TryGetProperty("pull_request", out var pr) || pr.ValueKind != JsonValueKind.Object
+            || !pr.TryGetProperty("number", out var numberEl) || numberEl.ValueKind != JsonValueKind.Number)
+        {
+            return [];
+        }
+        var number = numberEl.GetInt32();
+        return
+        [
+            CacheTags.PullRequest(owner, repo, number),
+            // Cross-cut: PR cache reads keyed under the issue tag (e.g.
+            // comments on a PR) must also be flushed when the PR itself
+            // changes, so emit Issue(number) here too.
+            CacheTags.Issue(owner, repo, number),
+        ];
     }
 
     private Message? TranslateIssueEvent(JsonElement payload)
@@ -565,6 +659,112 @@ public class GitHubWebhookHandler : IGitHubWebhookHandler
             },
             added_repositories = ExtractInstallationRepositories(payload, "repositories_added"),
             removed_repositories = ExtractInstallationRepositories(payload, "repositories_removed"),
+        };
+
+        return JsonSerializer.SerializeToElement(data);
+    }
+
+    private Message? TranslateProjectsV2Event(JsonElement payload)
+    {
+        var action = payload.GetProperty("action").GetString();
+        // Projects v2 events fire at the org level (organization:<login> hook scope).
+        // We translate the common lifecycle actions; unknown actions fall through to
+        // null so the endpoint still acks without manufacturing a synthetic message.
+        return action switch
+        {
+            "created" => CreateMessage(payload, "projects_v2.created", BuildProjectsV2Payload(payload, "project_lifecycle", action)),
+            "edited" => CreateMessage(payload, "projects_v2.edited", BuildProjectsV2Payload(payload, "project_lifecycle", action)),
+            "closed" => CreateMessage(payload, "projects_v2.closed", BuildProjectsV2Payload(payload, "project_lifecycle", action)),
+            "reopened" => CreateMessage(payload, "projects_v2.reopened", BuildProjectsV2Payload(payload, "project_lifecycle", action)),
+            "deleted" => CreateMessage(payload, "projects_v2.deleted", BuildProjectsV2Payload(payload, "project_lifecycle", action)),
+            _ => null,
+        };
+    }
+
+    private Message? TranslateProjectsV2ItemEvent(JsonElement payload)
+    {
+        var action = payload.GetProperty("action").GetString();
+        return action switch
+        {
+            "created" => CreateMessage(payload, "projects_v2_item.created", BuildProjectsV2ItemPayload(payload, "project_item_lifecycle", action)),
+            "edited" => CreateMessage(payload, "projects_v2_item.edited", BuildProjectsV2ItemPayload(payload, "project_item_change", action)),
+            "archived" => CreateMessage(payload, "projects_v2_item.archived", BuildProjectsV2ItemPayload(payload, "project_item_lifecycle", action)),
+            "restored" => CreateMessage(payload, "projects_v2_item.restored", BuildProjectsV2ItemPayload(payload, "project_item_lifecycle", action)),
+            "deleted" => CreateMessage(payload, "projects_v2_item.deleted", BuildProjectsV2ItemPayload(payload, "project_item_lifecycle", action)),
+            "converted" => CreateMessage(payload, "projects_v2_item.converted", BuildProjectsV2ItemPayload(payload, "project_item_lifecycle", action)),
+            "reordered" => CreateMessage(payload, "projects_v2_item.reordered", BuildProjectsV2ItemPayload(payload, "project_item_change", action)),
+            _ => null,
+        };
+    }
+
+    private static JsonElement BuildProjectsV2Payload(JsonElement payload, string intent, string? action)
+    {
+        // projects_v2 webhook shape: top-level "projects_v2" plus "organization" (and
+        // "installation" when org-installed). There is no "repository" field.
+        var project = payload.TryGetProperty("projects_v2", out var p) && p.ValueKind == JsonValueKind.Object
+            ? p
+            : (JsonElement?)null;
+        var orgLogin = payload.TryGetProperty("organization", out var org) && org.ValueKind == JsonValueKind.Object
+            && org.TryGetProperty("login", out var ol) && ol.ValueKind == JsonValueKind.String
+            ? ol.GetString()
+            : null;
+
+        var data = new
+        {
+            source = "github",
+            intent,
+            action,
+            owner = orgLogin,
+            project = project is { } pe ? new
+            {
+                id = pe.TryGetProperty("node_id", out var pid) && pid.ValueKind == JsonValueKind.String ? pid.GetString() : null,
+                database_id = pe.TryGetProperty("id", out var did) && did.ValueKind == JsonValueKind.Number ? did.GetInt64() : 0L,
+                number = pe.TryGetProperty("number", out var pn) && pn.ValueKind == JsonValueKind.Number ? pn.GetInt32() : 0,
+                title = pe.TryGetProperty("title", out var pt) && pt.ValueKind == JsonValueKind.String ? pt.GetString() : null,
+                closed = pe.TryGetProperty("closed", out var pc) && pc.ValueKind == JsonValueKind.True,
+            } : null,
+        };
+
+        return JsonSerializer.SerializeToElement(data);
+    }
+
+    private static JsonElement BuildProjectsV2ItemPayload(JsonElement payload, string intent, string? action)
+    {
+        var item = payload.TryGetProperty("projects_v2_item", out var it) && it.ValueKind == JsonValueKind.Object
+            ? it
+            : (JsonElement?)null;
+        var orgLogin = payload.TryGetProperty("organization", out var org) && org.ValueKind == JsonValueKind.Object
+            && org.TryGetProperty("login", out var ol) && ol.ValueKind == JsonValueKind.String
+            ? ol.GetString()
+            : null;
+
+        // field_value_changes fires only on "edited"; surface verbatim as JsonElement
+        // so downstream consumers can inspect from/to without us re-encoding every shape.
+        JsonElement? fieldChanges = null;
+        if (payload.TryGetProperty("changes", out var changes) && changes.ValueKind == JsonValueKind.Object
+            && changes.TryGetProperty("field_value", out var fv) && fv.ValueKind == JsonValueKind.Object)
+        {
+            fieldChanges = fv;
+        }
+
+        var data = new
+        {
+            source = "github",
+            intent,
+            action,
+            owner = orgLogin,
+            project_id = item is { } ie && ie.TryGetProperty("project_node_id", out var pid) && pid.ValueKind == JsonValueKind.String
+                ? pid.GetString()
+                : null,
+            item = item is { } ie2 ? new
+            {
+                id = ie2.TryGetProperty("node_id", out var nid) && nid.ValueKind == JsonValueKind.String ? nid.GetString() : null,
+                database_id = ie2.TryGetProperty("id", out var did) && did.ValueKind == JsonValueKind.Number ? did.GetInt64() : 0L,
+                content_type = ie2.TryGetProperty("content_type", out var ct) && ct.ValueKind == JsonValueKind.String ? ct.GetString() : null,
+                content_node_id = ie2.TryGetProperty("content_node_id", out var cnid) && cnid.ValueKind == JsonValueKind.String ? cnid.GetString() : null,
+                archived = ie2.TryGetProperty("archived_at", out var ar) && ar.ValueKind == JsonValueKind.String,
+            } : null,
+            field_value_changes = fieldChanges,
         };
 
         return JsonSerializer.SerializeToElement(data);

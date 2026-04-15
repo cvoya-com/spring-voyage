@@ -115,6 +115,10 @@ public class GitHubSkillRegistryInvocationTests
             "github_list_installations",
             "github_list_installation_repositories",
             "github_find_installation_for_repo",
+            "github_list_projects_v2",
+            "github_get_project_v2",
+            "github_list_project_v2_items",
+            "github_get_project_v2_item",
         }, ignoreOrder: true);
     }
 }
