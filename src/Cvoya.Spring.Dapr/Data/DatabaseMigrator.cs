@@ -17,10 +17,32 @@ using Microsoft.Extensions.Options;
 /// migrations out-of-band (CI/CD, scripted SQL dumps) can disable it.
 /// </summary>
 /// <remarks>
+/// <para>
+/// <strong>Single-owner invariant.</strong> This service must be
+/// registered as a hosted service in <strong>exactly one</strong> host
+/// of a given deployment. In the OSS topology that host is the Worker
+/// (<c>Cvoya.Spring.Host.Worker</c>); the API host
+/// (<c>Cvoya.Spring.Host.Api</c>) intentionally does not register it.
+/// Registering it in two hosts that start concurrently against the same
+/// PostgreSQL instance races on DDL and the loser crashes with
+/// <c>42P07: relation "..." already exists</c> (issue #305). Use
+/// <see cref="DependencyInjection.ServiceCollectionExtensions.AddCvoyaSpringDatabaseMigrator"/>
+/// from the chosen host; do not call <c>AddHostedService&lt;DatabaseMigrator&gt;</c>
+/// directly.
+/// </para>
+/// <para>
+/// Multi-replica deployments (more than one Worker container running
+/// simultaneously) need an external coordination primitive — for
+/// example a Postgres advisory lock or a Kubernetes leader election —
+/// before this service is safe. Single-replica Worker deployments are
+/// safe by construction.
+/// </para>
+/// <para>
 /// Only runs when the configured provider is relational. Non-relational
 /// providers (for example <c>UseInMemoryDatabase</c> in tests) do not
 /// support migrations; for those the schema is managed by the test
 /// harness itself via <see cref="DatabaseFacade.EnsureCreatedAsync(System.Threading.CancellationToken)"/>.
+/// </para>
 /// </remarks>
 public class DatabaseMigrator(
     IServiceProvider services,

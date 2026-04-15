@@ -35,16 +35,24 @@ Schema changes use EF Core migrations. `SpringDbContext` lives in the
 
 ### Auto-migrate on startup (default)
 
-The API and Worker hosts run a hosted service
+The Worker host runs a hosted service
 (`Cvoya.Spring.Dapr.Data.DatabaseMigrator`) on startup that applies any
 pending EF Core migrations. This is on by default so fresh
 deployments and local dev databases come up with an up-to-date schema
 without operator intervention.
 
+**Only the Worker host runs migrations.** The API host calls
+`AddCvoyaSpringDapr` (which binds `DatabaseOptions`) but does not
+register `DatabaseMigrator`. Earlier versions registered the migrator
+in both hosts, and on a fresh database they raced on DDL and one host
+crashed with `42P07: relation "..." already exists` (issue #305). The
+Worker now owns migrations; the API trusts that the schema is in
+place.
+
 You can disable it if you run migrations out-of-band (CI/CD pipeline,
 scripted SQL deployment, or manual `dotnet ef database update`) by
-setting the following in `appsettings.json` or an equivalent
-environment variable:
+setting the following on the Worker host (in `appsettings.json` or an
+equivalent environment variable, e.g. `Database__AutoMigrate=false`):
 
 ```json
 {
@@ -54,8 +62,31 @@ environment variable:
 }
 ```
 
-With the flag disabled, the host will log that it is skipping
-migrations and assume the schema is already up to date.
+With the flag disabled, the Worker logs that it is skipping migrations
+and assumes the schema is already up to date.
+
+#### Multi-replica deployments
+
+The single-owner pattern above is safe for single-replica Worker
+deployments (the OSS Podman / `deploy.sh` topology). If you scale the
+Worker beyond one replica, two replicas can still race on `MigrateAsync`
+in the same way. Coordinate externally — for example with a Postgres
+advisory lock taken before `MigrateAsync`, a Kubernetes init-container
+that runs `dotnet ef database update` once before the Worker pods
+start, or a leader-election primitive — and leave `AutoMigrate=false`
+on the non-leader replicas. A built-in advisory-lock implementation is
+deferred until that topology is supported in the OSS deployment
+recipes.
+
+#### Hosting a custom migration owner
+
+If you do not deploy the OSS Worker (for example a private cloud host
+that bundles API and migrations into one process), call
+`builder.Services.AddCvoyaSpringDatabaseMigrator()` exactly once on the
+host that should own migrations. Do not call it from more than one
+host that targets the same database, and do not call
+`AddHostedService<DatabaseMigrator>()` directly — the extension method
+is the single registration entry point.
 
 ### Adding a new migration
 

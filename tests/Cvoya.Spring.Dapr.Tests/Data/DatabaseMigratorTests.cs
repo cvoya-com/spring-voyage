@@ -4,12 +4,18 @@
 namespace Cvoya.Spring.Dapr.Tests.Data;
 
 using Cvoya.Spring.Dapr.Data;
+using Cvoya.Spring.Dapr.DependencyInjection;
+
+using global::Dapr.Actors.Client;
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+
+using NSubstitute;
 
 using Shouldly;
 
@@ -72,6 +78,53 @@ public class DatabaseMigratorTests
             connectionString: null);
 
         await migrator.StopAsync(TestContext.Current.CancellationToken);
+    }
+
+    /// <summary>
+    /// Regression test for #305. <c>AddCvoyaSpringDapr</c> on its own MUST
+    /// NOT register <see cref="DatabaseMigrator"/> as a hosted service —
+    /// otherwise both the API and Worker hosts (which both call
+    /// <c>AddCvoyaSpringDapr</c>) would race on <c>MigrateAsync</c> against
+    /// the same database. The migrator is opt-in via
+    /// <see cref="ServiceCollectionExtensions.AddCvoyaSpringDatabaseMigrator"/>
+    /// from the single host that owns migrations (the Worker in the OSS
+    /// deployment).
+    /// </summary>
+    [Fact]
+    public void AddCvoyaSpringDapr_DoesNotRegisterDatabaseMigrator()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton(Substitute.For<IActorProxyFactory>());
+        // Pre-register an in-memory SpringDbContext so AddCvoyaSpringDapr
+        // skips its mandatory connection-string check.
+        services.AddDbContext<SpringDbContext>(options =>
+            options.UseInMemoryDatabase($"DiTest_{Guid.NewGuid():N}"));
+
+        services.AddCvoyaSpringDapr(new ConfigurationBuilder().Build());
+
+        services.ShouldNotContain(d =>
+            d.ServiceType == typeof(IHostedService)
+            && d.ImplementationType == typeof(DatabaseMigrator));
+    }
+
+    /// <summary>
+    /// The opt-in extension introduced for #305:
+    /// <see cref="ServiceCollectionExtensions.AddCvoyaSpringDatabaseMigrator"/>
+    /// MUST register <see cref="DatabaseMigrator"/> as a hosted service so
+    /// the host that calls it (the Worker in the OSS deployment) actually
+    /// applies pending migrations on startup.
+    /// </summary>
+    [Fact]
+    public void AddCvoyaSpringDatabaseMigrator_RegistersDatabaseMigratorHostedService()
+    {
+        var services = new ServiceCollection();
+
+        services.AddCvoyaSpringDatabaseMigrator();
+
+        services.ShouldContain(d =>
+            d.ServiceType == typeof(IHostedService)
+            && d.ImplementationType == typeof(DatabaseMigrator));
     }
 
     private static ServiceProvider BuildProvider()

@@ -50,6 +50,13 @@ builder.Services
     .AddCvoyaSpringDapr(builder.Configuration)
     .AddCvoyaSpringConnectorGitHub(builder.Configuration);
 
+// Worker owns EF Core migrations. The API host intentionally does NOT
+// register DatabaseMigrator: when both hosts ran it concurrently they
+// raced on DDL and one crashed with `42P07: relation already exists`
+// (issue #305). Registering here keeps automatic schema upgrades on
+// fresh deployments while making the Worker the single owner.
+builder.Services.AddCvoyaSpringDatabaseMigrator();
+
 // Register Dapr workflows
 builder.Services.AddDaprWorkflow(options =>
 {

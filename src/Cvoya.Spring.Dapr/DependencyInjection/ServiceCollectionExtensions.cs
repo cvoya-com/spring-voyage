@@ -119,11 +119,14 @@ public static class ServiceCollectionExtensions
             }
         }
 
-        // Database startup: apply pending migrations on host start by
-        // default. Operators running migrations out-of-band can set
-        // Database:AutoMigrate=false.
+        // Database options. Always bound — both API and Worker hosts (and
+        // any private-cloud host that calls AddCvoyaSpringDapr) need to
+        // read DatabaseOptions even though, by default, only the Worker
+        // actually applies migrations. Migration registration itself is
+        // intentionally NOT performed here: see AddCvoyaSpringDatabaseMigrator
+        // and the remarks on DatabaseMigrator for why exactly one host in a
+        // deployment owns migrations (issue #305).
         services.AddOptions<DatabaseOptions>().BindConfiguration(DatabaseOptions.SectionName);
-        services.AddHostedService<DatabaseMigrator>();
 
         // Repositories
         services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
@@ -273,6 +276,40 @@ public static class ServiceCollectionExtensions
         // Observability — query service
         services.AddScoped<IActivityQueryService, ActivityQueryService>();
 
+        return services;
+    }
+
+    /// <summary>
+    /// Registers <see cref="DatabaseMigrator"/> as a hosted service so the
+    /// containing host applies pending EF Core migrations to
+    /// <see cref="SpringDbContext"/> on startup.
+    /// </summary>
+    /// <remarks>
+    /// Call this from <strong>exactly one</strong> host in a deployment.
+    /// In the OSS deployment that host is the Worker
+    /// (<c>Cvoya.Spring.Host.Worker</c>); the API host
+    /// (<c>Cvoya.Spring.Host.Api</c>) intentionally does not register the
+    /// migrator. Registering it in multiple hosts that start
+    /// concurrently against the same database races on DDL and one host
+    /// will crash with <c>42P07: relation "..." already exists</c> (see
+    /// issue #305).
+    /// <para>
+    /// The actual run is still gated by
+    /// <see cref="DatabaseOptions.AutoMigrate"/>; operators that prefer
+    /// to apply migrations out-of-band (CI/CD, scripted SQL) can leave
+    /// the migrator registered and disable it via configuration.
+    /// </para>
+    /// <para>
+    /// <see cref="DatabaseOptions"/> binding lives in
+    /// <see cref="AddCvoyaSpringDapr"/> so non-migrating hosts still
+    /// observe the configured value.
+    /// </para>
+    /// </remarks>
+    /// <param name="services">The service collection to configure.</param>
+    /// <returns>The same service collection for chaining.</returns>
+    public static IServiceCollection AddCvoyaSpringDatabaseMigrator(this IServiceCollection services)
+    {
+        services.AddHostedService<DatabaseMigrator>();
         return services;
     }
 
