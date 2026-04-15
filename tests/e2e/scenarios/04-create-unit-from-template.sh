@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 # Create a unit from the engineering-team template — exercises skill-bundle
 # resolver + validator + connector binding preview.
+#
+# TODO(#316): Port to `spring unit create --from-template ...` once that
+# subcommand exists. `spring apply -f packages/.../engineering-team.yaml`
+# parses the manifest client-side and POSTs CreateUnit + AddMember calls
+# directly — it does NOT invoke /api/v1/units/from-template, so it would
+# skip the resolver/validator/binding-preview path that this scenario is
+# specifically meant to cover. Stay on raw curl until the CLI grows a
+# dedicated from-template subcommand.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
