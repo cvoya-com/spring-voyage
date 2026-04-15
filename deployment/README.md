@@ -33,14 +33,51 @@ so behavior is deterministic across Podman versions.
 
 All platform containers attach to a shared Podman network called `spring-net`:
 
-| Container         | Image                     | Role                                     |
-| ----------------- | ------------------------- | ---------------------------------------- |
-| `spring-postgres` | `postgres:17`             | Primary data store.                      |
-| `spring-redis`    | `redis:7`                 | Dapr state store + pub/sub backend.      |
-| `spring-worker`   | `spring-voyage:<tag>`     | Dapr actor runtime (agents, units).      |
-| `spring-api`      | `spring-voyage:<tag>`     | ASP.NET Core REST API.                   |
-| `spring-web`      | `spring-voyage:<tag>`     | Next.js dashboard.                       |
-| `spring-caddy`    | `caddy:2`                 | Reverse proxy + automatic TLS.           |
+| Container            | Image                     | Role                                       |
+| -------------------- | ------------------------- | ------------------------------------------ |
+| `spring-postgres`    | `postgres:17`             | Primary data store.                        |
+| `spring-redis`       | `redis:7`                 | Dapr state store + pub/sub backend.        |
+| `spring-placement`   | `daprio/dapr:<tag>`       | Dapr actor placement service.              |
+| `spring-scheduler`   | `daprio/dapr:<tag>`       | Dapr actor reminder/scheduler service.     |
+| `spring-api-dapr`    | `daprio/dapr:<tag>`       | daprd sidecar paired with `spring-api`.    |
+| `spring-worker-dapr` | `daprio/dapr:<tag>`       | daprd sidecar paired with `spring-worker`. |
+| `spring-worker`      | `spring-voyage:<tag>`     | Dapr actor runtime (agents, units).        |
+| `spring-api`         | `spring-voyage:<tag>`     | ASP.NET Core REST API.                     |
+| `spring-web`         | `spring-voyage:<tag>`     | Next.js dashboard.                         |
+| `spring-caddy`       | `caddy:2`                 | Reverse proxy + automatic TLS.             |
+
+### Dapr sidecar topology
+
+Each .NET host runs in its own container and talks to a dedicated `daprd`
+sidecar container over the `spring-net` bridge — the app and the sidecar do
+**not** share localhost. This is the container-sidecar form of the Dapr
+pattern (as opposed to a shared Pod / process). The Dapr .NET SDK honors
+`DAPR_HTTP_ENDPOINT` / `DAPR_GRPC_ENDPOINT`, which `deploy.sh` sets per app:
+
+```
+spring-api ─ DAPR_HTTP_ENDPOINT=http://spring-api-dapr:3500 ─▶ spring-api-dapr
+                                                                   │
+                                                                   ▼
+           ┌──────────────── spring-placement:50005 ────────────────┐
+           │                                                        │
+           ▼                                                        ▼
+ spring-worker-dapr ◀─ DAPR_HTTP_ENDPOINT=http://spring-worker-dapr:3500 ─ spring-worker
+```
+
+`spring-placement` and `spring-scheduler` are the Dapr control plane for
+this stack. The deploy script starts its own copies on `spring-net` instead
+of relying on `dapr init` leftovers (which live on Podman's default network
+and are invisible from `spring-net`). Both control-plane containers use the
+same `DAPR_IMAGE` as the per-app sidecars so the wire format is guaranteed
+to match.
+
+Dapr components (`dapr/components/production/*.yaml`) and the Dapr
+Configuration (`dapr/config/production.yaml`) are bind-mounted read-only
+into both sidecars at `/components` and `/config/config.yaml`, so operators
+can tune tracing, resiliency, or swap the secret store without rebuilding
+images. The image version is controlled by `DAPR_IMAGE` in `spring.env`
+and MUST match the Dapr .NET SDK major.minor pinned in
+`Directory.Packages.props` (currently `1.17.x`).
 
 Delegated agent execution containers (launched by `ContainerLifecycleManager`
 at runtime) do **not** join `spring-net`. They join a per-user bridge network

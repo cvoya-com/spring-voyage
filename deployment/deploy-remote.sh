@@ -64,7 +64,7 @@ rsync_to() {
 }
 
 remote_mkdir() {
-    ssh_exec "mkdir -p '${REMOTE_DIR}' '${REMOTE_DIR}/deployment'"
+    ssh_exec "mkdir -p '${REMOTE_DIR}' '${REMOTE_DIR}/deployment' '${REMOTE_DIR}/dapr'"
 }
 
 cmd_sync() {
@@ -73,6 +73,13 @@ cmd_sync() {
 
     log "syncing deployment/ to ${REMOTE_HOST}:${REMOTE_DIR}/deployment"
     rsync_to "${SCRIPT_DIR}/" "${REMOTE_DIR}/deployment/"
+
+    # Dapr components + config are bind-mounted into the per-app sidecars by
+    # deploy.sh (spring-api-dapr / spring-worker-dapr). Ship them even in the
+    # registry-only flow (SPRING_SKIP_SOURCE_SYNC=1) — daprd fails to boot
+    # without components/*.yaml and the Configuration (#308).
+    log "syncing dapr/ to ${REMOTE_HOST}:${REMOTE_DIR}/dapr"
+    rsync_to "${REPO_ROOT}/dapr/" "${REMOTE_DIR}/dapr/"
 
     log "syncing env file (${ENV_FILE}) to ${REMOTE_HOST}:${REMOTE_DIR}/deployment/spring.env"
     rsync_to "${ENV_FILE}" "${REMOTE_DIR}/deployment/spring.env"
