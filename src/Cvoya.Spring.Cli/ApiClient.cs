@@ -139,6 +139,69 @@ public class SpringApiClient
     public Task RemoveMemberAsync(string unitId, string memberId, CancellationToken ct = default)
         => _client.Api.V1.Units[unitId].Members[memberId].DeleteAsync(cancellationToken: ct);
 
+    // Unit memberships (per-membership config overrides — #245 / C2b-1).
+    //
+    // These are distinct from the actor-level "members" endpoint above: the
+    // /memberships/* surface persists per-membership overrides (model,
+    // specialty, enabled, executionMode) in the repository, while /members/*
+    // adds/removes the agent from the unit actor's in-memory member list.
+    // The two are complementary — the CLI's "unit members *" commands drive
+    // the memberships endpoint because that is where config overrides live.
+
+    /// <summary>Lists per-membership config for every agent that belongs to this unit.</summary>
+    public async Task<IReadOnlyList<UnitMembershipResponse>> ListUnitMembershipsAsync(
+        string unitId,
+        CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Units[unitId].Memberships.GetAsync(cancellationToken: ct);
+        return result ?? new List<UnitMembershipResponse>();
+    }
+
+    /// <summary>Lists every unit this agent belongs to, with per-membership config overrides.</summary>
+    public async Task<IReadOnlyList<UnitMembershipResponse>> ListAgentMembershipsAsync(
+        string agentId,
+        CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Agents[agentId].Memberships.GetAsync(cancellationToken: ct);
+        return result ?? new List<UnitMembershipResponse>();
+    }
+
+    /// <summary>
+    /// Creates or updates the per-membership config overrides for an agent in this unit.
+    /// Only non-null overrides are sent on the wire; omitted fields leave the server's
+    /// current value (or the agent-level default) in place.
+    /// </summary>
+    public async Task<UnitMembershipResponse> UpsertMembershipAsync(
+        string unitId,
+        string agentId,
+        string? model,
+        string? specialty,
+        bool? enabled,
+        AgentExecutionMode? executionMode,
+        CancellationToken ct = default)
+    {
+        var request = new UpsertMembershipRequest
+        {
+            Model = model,
+            Specialty = specialty,
+            Enabled = enabled,
+            ExecutionMode = executionMode is null
+                ? null
+                : new UpsertMembershipRequest.UpsertMembershipRequest_executionMode
+                {
+                    AgentExecutionMode = executionMode,
+                },
+        };
+        var result = await _client.Api.V1.Units[unitId].Memberships[agentId]
+            .PutAsync(request, cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty UpsertMembership response for unit '{unitId}' / agent '{agentId}'.");
+    }
+
+    /// <summary>Removes the membership row for an agent in this unit.</summary>
+    public Task DeleteMembershipAsync(string unitId, string agentId, CancellationToken ct = default)
+        => _client.Api.V1.Units[unitId].Memberships[agentId].DeleteAsync(cancellationToken: ct);
+
     // Messages
 
     /// <summary>

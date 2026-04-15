@@ -36,7 +36,8 @@ public static class AgentCommand
     };
 
     /// <summary>
-    /// Creates the "agent" command with subcommands for CRUD operations.
+    /// Creates the "agent" command with subcommands for CRUD operations and
+    /// the cascading purge helper (#320).
     /// </summary>
     public static Command Create(Option<string> outputOption)
     {
@@ -46,6 +47,7 @@ public static class AgentCommand
         agentCommand.Subcommands.Add(CreateCreateCommand(outputOption));
         agentCommand.Subcommands.Add(CreateStatusCommand(outputOption));
         agentCommand.Subcommands.Add(CreateDeleteCommand());
+        agentCommand.Subcommands.Add(CreatePurgeCommand());
 
         return agentCommand;
     }
@@ -132,6 +134,56 @@ public static class AgentCommand
 
             await client.DeleteAgentAsync(id, ct);
             Console.WriteLine($"Agent '{id}' deleted.");
+        });
+
+        return command;
+    }
+
+    private static Command CreatePurgeCommand()
+    {
+        var idArg = new Argument<string>("id") { Description = "The agent identifier" };
+        var confirmOption = new Option<bool>("--confirm")
+        {
+            Description = "Required acknowledgement that this cascading delete is intentional",
+        };
+        var command = new Command(
+            "purge",
+            "Cascading cleanup: remove every membership this agent has, then delete the agent itself. Requires --confirm because it is destructive.");
+        command.Arguments.Add(idArg);
+        command.Options.Add(confirmOption);
+
+        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var id = parseResult.GetValue(idArg)!;
+            var confirm = parseResult.GetValue(confirmOption);
+            if (!confirm)
+            {
+                await Console.Error.WriteLineAsync(
+                    $"Refusing to purge agent '{id}' without --confirm. Re-run with --confirm to proceed.");
+                Environment.Exit(1);
+                return;
+            }
+
+            var client = ClientFactory.Create();
+
+            // Step 1: enumerate memberships so users see exactly what is cascading.
+            var memberships = await client.ListAgentMembershipsAsync(id, ct);
+            Console.WriteLine(
+                $"Purging agent '{id}': {memberships.Count} membership(s) to remove before the agent itself.");
+
+            // Step 2: remove the agent from each unit it belongs to. Fail loud on the
+            // first error so the caller can investigate before the agent is deleted.
+            foreach (var membership in memberships)
+            {
+                var unitId = membership.UnitId ?? string.Empty;
+                Console.WriteLine($"  - removing membership from unit '{unitId}'");
+                await client.DeleteMembershipAsync(unitId, id, ct);
+            }
+
+            // Step 3: delete the agent record.
+            Console.WriteLine($"  - deleting agent '{id}'");
+            await client.DeleteAgentAsync(id, ct);
+            Console.WriteLine($"Agent '{id}' purged.");
         });
 
         return command;

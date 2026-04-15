@@ -112,4 +112,150 @@ public class CommandParsingTests
         parseResult.Errors.ShouldBeEmpty();
         parseResult.GetValue(outputOption).ShouldBe("table");
     }
+
+    // --- #320: unit membership management commands ---
+
+    [Fact]
+    public void UnitMembersList_ParsesUnitArgument()
+    {
+        var outputOption = CreateOutputOption();
+        var unitCommand = UnitCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(unitCommand);
+
+        var parseResult = rootCommand.Parse("--output json unit members list eng-team");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<string>("unit").ShouldBe("eng-team");
+        parseResult.GetValue(outputOption).ShouldBe("json");
+    }
+
+    [Fact]
+    public void UnitMembersAdd_ParsesAllOverrideOptions()
+    {
+        var outputOption = CreateOutputOption();
+        var unitCommand = UnitCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(unitCommand);
+
+        var parseResult = rootCommand.Parse(
+            "unit members add eng-team --agent ada --model claude-opus-4 --specialty coding --enabled true --execution-mode OnDemand");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<string>("unit").ShouldBe("eng-team");
+        parseResult.GetValue<string>("--agent").ShouldBe("ada");
+        parseResult.GetValue<string>("--model").ShouldBe("claude-opus-4");
+        parseResult.GetValue<string>("--specialty").ShouldBe("coding");
+        parseResult.GetValue<bool?>("--enabled").ShouldBe(true);
+        parseResult.GetValue<string>("--execution-mode").ShouldBe("OnDemand");
+    }
+
+    [Fact]
+    public void UnitMembersAdd_RequiresAgentOption()
+    {
+        var outputOption = CreateOutputOption();
+        var unitCommand = UnitCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(unitCommand);
+
+        var parseResult = rootCommand.Parse("unit members add eng-team");
+
+        // System.CommandLine surfaces the missing required option as a parse error.
+        parseResult.Errors.ShouldNotBeEmpty();
+    }
+
+    [Fact]
+    public void UnitMembersAdd_RejectsInvalidExecutionMode()
+    {
+        var outputOption = CreateOutputOption();
+        var unitCommand = UnitCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(unitCommand);
+
+        var parseResult = rootCommand.Parse(
+            "unit members add eng-team --agent ada --execution-mode Invalid");
+
+        parseResult.Errors.ShouldNotBeEmpty();
+    }
+
+    [Fact]
+    public void UnitMembersConfig_ParsesLikeAdd()
+    {
+        // `config` is a semantic alias over the same PUT upsert; both share the
+        // same flag set so callers can use whichever verb reads better at the
+        // shell prompt.
+        var outputOption = CreateOutputOption();
+        var unitCommand = UnitCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(unitCommand);
+
+        var parseResult = rootCommand.Parse(
+            "unit members config eng-team --agent ada --model gpt-4o --enabled false");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<string>("unit").ShouldBe("eng-team");
+        parseResult.GetValue<string>("--agent").ShouldBe("ada");
+        parseResult.GetValue<string>("--model").ShouldBe("gpt-4o");
+        parseResult.GetValue<bool?>("--enabled").ShouldBe(false);
+    }
+
+    [Fact]
+    public void UnitMembersRemove_ParsesUnitAndAgent()
+    {
+        var outputOption = CreateOutputOption();
+        var unitCommand = UnitCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(unitCommand);
+
+        var parseResult = rootCommand.Parse("unit members remove eng-team --agent ada");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<string>("unit").ShouldBe("eng-team");
+        parseResult.GetValue<string>("--agent").ShouldBe("ada");
+    }
+
+    [Fact]
+    public void UnitPurge_ParsesIdAndConfirm()
+    {
+        var outputOption = CreateOutputOption();
+        var unitCommand = UnitCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(unitCommand);
+
+        var parseResult = rootCommand.Parse("unit purge eng-team --confirm");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<string>("id").ShouldBe("eng-team");
+        parseResult.GetValue<bool>("--confirm").ShouldBeTrue();
+    }
+
+    [Fact]
+    public void UnitPurge_ConfirmDefaultsFalse()
+    {
+        var outputOption = CreateOutputOption();
+        var unitCommand = UnitCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(unitCommand);
+
+        var parseResult = rootCommand.Parse("unit purge eng-team");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<string>("id").ShouldBe("eng-team");
+        parseResult.GetValue<bool>("--confirm").ShouldBeFalse();
+    }
+
+    [Fact]
+    public void AgentPurge_ParsesIdAndConfirm()
+    {
+        var outputOption = CreateOutputOption();
+        var agentCommand = AgentCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(agentCommand);
+
+        var parseResult = rootCommand.Parse("agent purge ada --confirm");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<string>("id").ShouldBe("ada");
+        parseResult.GetValue<bool>("--confirm").ShouldBeTrue();
+    }
 }

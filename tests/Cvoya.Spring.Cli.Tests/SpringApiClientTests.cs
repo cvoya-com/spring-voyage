@@ -117,6 +117,130 @@ public class SpringApiClientTests
         result[0].Name.ShouldBe("dev");
         handler.WasCalled.ShouldBeTrue();
     }
+
+    // --- #320: unit membership wrappers ---
+
+    [Fact]
+    public async Task ListUnitMembershipsAsync_CallsCorrectEndpoint()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/units/eng-team/memberships",
+            expectedMethod: HttpMethod.Get,
+            responseBody: """[{"unitId":"eng-team","agentAddress":"ada","model":null,"specialty":null,"enabled":true,"executionMode":null,"createdAt":"2026-04-01T00:00:00Z","updatedAt":"2026-04-01T00:00:00Z"}]""");
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var result = await client.ListUnitMembershipsAsync("eng-team", TestContext.Current.CancellationToken);
+
+        result.Count.ShouldBe(1);
+        result[0].UnitId.ShouldBe("eng-team");
+        result[0].AgentAddress.ShouldBe("ada");
+        result[0].Enabled.ShouldBe(true);
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task ListAgentMembershipsAsync_CallsCorrectEndpoint()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/agents/ada/memberships",
+            expectedMethod: HttpMethod.Get,
+            responseBody: """[{"unitId":"eng-team","agentAddress":"ada","model":null,"specialty":null,"enabled":true,"executionMode":null,"createdAt":"2026-04-01T00:00:00Z","updatedAt":"2026-04-01T00:00:00Z"}]""");
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var result = await client.ListAgentMembershipsAsync("ada", TestContext.Current.CancellationToken);
+
+        result.Count.ShouldBe(1);
+        result[0].AgentAddress.ShouldBe("ada");
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task UpsertMembershipAsync_SendsOverridesAndParsesResponse()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/units/eng-team/memberships/ada",
+            expectedMethod: HttpMethod.Put,
+            responseBody: """{"unitId":"eng-team","agentAddress":"ada","model":"claude-opus-4","specialty":"coding","enabled":true,"executionMode":"OnDemand","createdAt":"2026-04-01T00:00:00Z","updatedAt":"2026-04-01T00:00:00Z"}""",
+            validateRequestBody: body =>
+            {
+                var json = JsonSerializer.Deserialize<JsonElement>(body);
+                json.GetProperty("model").GetString().ShouldBe("claude-opus-4");
+                json.GetProperty("specialty").GetString().ShouldBe("coding");
+                json.GetProperty("enabled").GetBoolean().ShouldBeTrue();
+                json.GetProperty("executionMode").GetString().ShouldBe("OnDemand");
+            });
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var result = await client.UpsertMembershipAsync(
+            "eng-team",
+            "ada",
+            model: "claude-opus-4",
+            specialty: "coding",
+            enabled: true,
+            executionMode: Cvoya.Spring.Cli.Generated.Models.AgentExecutionMode.OnDemand,
+            TestContext.Current.CancellationToken);
+
+        result.UnitId.ShouldBe("eng-team");
+        result.AgentAddress.ShouldBe("ada");
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task UpsertMembershipAsync_OmitsExecutionModeWhenNull()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/units/eng-team/memberships/ada",
+            expectedMethod: HttpMethod.Put,
+            responseBody: """{"unitId":"eng-team","agentAddress":"ada","model":null,"specialty":null,"enabled":true,"executionMode":null,"createdAt":"2026-04-01T00:00:00Z","updatedAt":"2026-04-01T00:00:00Z"}""",
+            validateRequestBody: body =>
+            {
+                // When callers pass no --execution-mode, the request must not force a
+                // value on the server — the property either stays out of the payload
+                // or round-trips as JSON null so the server keeps the current override.
+                var json = JsonSerializer.Deserialize<JsonElement>(body);
+                if (json.TryGetProperty("executionMode", out var executionMode))
+                {
+                    executionMode.ValueKind.ShouldBe(JsonValueKind.Null);
+                }
+            });
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        await client.UpsertMembershipAsync(
+            "eng-team",
+            "ada",
+            model: null,
+            specialty: null,
+            enabled: null,
+            executionMode: null,
+            TestContext.Current.CancellationToken);
+
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task DeleteMembershipAsync_CallsCorrectEndpoint()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/units/eng-team/memberships/ada",
+            expectedMethod: HttpMethod.Delete,
+            responseBody: "",
+            returnStatusCode: HttpStatusCode.NoContent);
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        await client.DeleteMembershipAsync("eng-team", "ada", TestContext.Current.CancellationToken);
+
+        handler.WasCalled.ShouldBeTrue();
+    }
 }
 
 /// <summary>
