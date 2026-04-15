@@ -72,10 +72,10 @@ public record CreateSecretResponse(
 /// <summary>
 /// Request body for PUT <c>/api/v1/units/{id}/secrets/{name}</c>
 /// (and the tenant / platform mirrors). Carries the replacement value or
-/// external pointer; the registry bumps the version atomically. Exactly
-/// one of <paramref name="Value"/> or <paramref name="ExternalStoreKey"/>
-/// must be provided — the same discriminated shape as
-/// <see cref="CreateSecretRequest"/>.
+/// external pointer; the registry appends a new version atomically.
+/// Exactly one of <paramref name="Value"/> or
+/// <paramref name="ExternalStoreKey"/> must be provided — the same
+/// discriminated shape as <see cref="CreateSecretRequest"/>.
 ///
 /// <para>
 /// The secret <c>Name</c> is taken from the route — rotation never
@@ -88,3 +88,56 @@ public record CreateSecretResponse(
 public record RotateSecretRequest(
     string? Value = null,
     string? ExternalStoreKey = null);
+
+/// <summary>
+/// Response body returned by the rotate endpoints (wave 7 A5). Echoes
+/// the new version number assigned by the registry so callers (CI
+/// pipelines, CLIs) can pin subsequent reads to the new version.
+/// </summary>
+/// <param name="Name">The secret name.</param>
+/// <param name="Scope">The secret scope.</param>
+/// <param name="Version">The new version number assigned by rotation.</param>
+public record RotateSecretResponse(
+    string Name,
+    SecretScope Scope,
+    int Version);
+
+/// <summary>
+/// Per-version metadata entry returned by
+/// <c>GET /api/v1/.../secrets/{name}/versions</c>. Metadata-only —
+/// the opaque store key is NEVER included. Consumers sort client-side
+/// if they need a particular order.
+/// </summary>
+/// <param name="Version">The version number (monotonically increasing per name).</param>
+/// <param name="Origin">Who owns the backing store slot for this version.</param>
+/// <param name="CreatedAt">Registration timestamp for this version.</param>
+/// <param name="IsCurrent"><c>true</c> when this is the latest (most-recent) version.</param>
+public record SecretVersionEntry(
+    int Version,
+    SecretOrigin Origin,
+    DateTimeOffset CreatedAt,
+    bool IsCurrent);
+
+/// <summary>
+/// Response body for <c>GET /api/v1/.../secrets/{name}/versions</c>.
+/// </summary>
+/// <param name="Name">The secret name.</param>
+/// <param name="Scope">The secret scope.</param>
+/// <param name="Versions">The retained versions for this secret, newest first.</param>
+public record SecretVersionsListResponse(
+    string Name,
+    SecretScope Scope,
+    IReadOnlyList<SecretVersionEntry> Versions);
+
+/// <summary>
+/// Response body for <c>POST /api/v1/.../secrets/{name}/prune</c>.
+/// </summary>
+/// <param name="Name">The secret name.</param>
+/// <param name="Scope">The secret scope.</param>
+/// <param name="Keep">The number of most-recent versions retained.</param>
+/// <param name="Pruned">The number of version rows removed from the registry.</param>
+public record PruneSecretResponse(
+    string Name,
+    SecretScope Scope,
+    int Keep,
+    int Pruned);

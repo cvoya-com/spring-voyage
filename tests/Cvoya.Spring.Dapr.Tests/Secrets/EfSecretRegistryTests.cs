@@ -223,8 +223,12 @@ public class EfSecretRegistryTests : IDisposable
     }
 
     [Fact]
-    public async Task RotateAsync_PassThrough_IncrementsVersion_AndInvokesDelete()
+    public async Task RotateAsync_PassThrough_IncrementsVersion_AndRetainsPreviousSlot()
     {
+        // A5 multi-version: rotation APPENDS a new row at
+        // max(Version)+1 and the prior version is retained so pinned
+        // resolves continue to succeed. The delete delegate is
+        // signature-compat and must NOT be invoked.
         var ct = TestContext.Current.CancellationToken;
         var sut = NewRegistry("t1");
 
@@ -245,18 +249,24 @@ public class EfSecretRegistryTests : IDisposable
         rotation.PreviousPointer.Origin.ShouldBe(SecretOrigin.PlatformOwned);
         rotation.NewPointer.StoreKey.ShouldBe("sk-2");
         rotation.NewPointer.Origin.ShouldBe(SecretOrigin.PlatformOwned);
-        rotation.PreviousStoreKeyDeleted.ShouldBeTrue();
+        rotation.PreviousStoreKeyDeleted.ShouldBeFalse();
 
-        // Immediate-delete policy: the old store slot was reclaimed
-        // before the rotate returned.
-        deleteCalls.ShouldBe(new[] { "sk-1" });
+        // Delegate must NOT have been invoked under the retention policy.
+        deleteCalls.ShouldBeEmpty();
 
-        // The registry now points at the new key / bumped version.
+        // The latest lookup points at the new key / bumped version.
         var pointer = await sut.LookupWithVersionAsync(
             new SecretRef(SecretScope.Unit, "u1", "foo"), ct);
         pointer.ShouldNotBeNull();
         pointer!.Value.Pointer.StoreKey.ShouldBe("sk-2");
         pointer.Value.Version.ShouldBe(2);
+
+        // The prior version is still reachable via the version pin.
+        var pinned = await sut.LookupWithVersionAsync(
+            new SecretRef(SecretScope.Unit, "u1", "foo"), 1, ct);
+        pinned.ShouldNotBeNull();
+        pinned!.Value.Pointer.StoreKey.ShouldBe("sk-1");
+        pinned.Value.Version.ShouldBe(1);
     }
 
     [Fact]
@@ -286,11 +296,12 @@ public class EfSecretRegistryTests : IDisposable
     }
 
     [Fact]
-    public async Task RotateAsync_SwitchOrigin_PlatformToExternal_InvokesDeleteOnOldPlatformSlot()
+    public async Task RotateAsync_SwitchOrigin_PlatformToExternal_RetainsOldPlatformSlot()
     {
-        // A rotation that flips origin (platform-owned to external-
-        // reference) still reclaims the old platform-owned slot — the
-        // decision hinges on the PREVIOUS origin, not the new one.
+        // A5 multi-version: an origin flip still appends a new row;
+        // the prior platform-owned slot is retained so pinned
+        // resolves of the old version continue to work. The delete
+        // delegate must never be invoked.
         var ct = TestContext.Current.CancellationToken;
         var sut = NewRegistry("t1");
 
@@ -307,13 +318,20 @@ public class EfSecretRegistryTests : IDisposable
 
         rotation.PreviousPointer.Origin.ShouldBe(SecretOrigin.PlatformOwned);
         rotation.NewPointer.Origin.ShouldBe(SecretOrigin.ExternalReference);
-        rotation.PreviousStoreKeyDeleted.ShouldBeTrue();
-        deleteCalls.ShouldBe(new[] { "sk-old" });
+        rotation.PreviousStoreKeyDeleted.ShouldBeFalse();
+        deleteCalls.ShouldBeEmpty();
 
         var pointer = await sut.LookupAsync(
             new SecretRef(SecretScope.Unit, "u1", "foo"), ct);
         pointer!.StoreKey.ShouldBe("kv://new");
         pointer.Origin.ShouldBe(SecretOrigin.ExternalReference);
+
+        // Pinned resolve of v1 still returns the old platform-owned slot.
+        var pinned = await sut.LookupWithVersionAsync(
+            new SecretRef(SecretScope.Unit, "u1", "foo"), 1, ct);
+        pinned.ShouldNotBeNull();
+        pinned!.Value.Pointer.StoreKey.ShouldBe("sk-old");
+        pinned.Value.Pointer.Origin.ShouldBe(SecretOrigin.PlatformOwned);
     }
 
     [Fact]
@@ -379,6 +397,221 @@ public class EfSecretRegistryTests : IDisposable
                 SecretOrigin.PlatformOwned,
                 null,
                 ct));
+    }
+
+    // ----------------------------------------------------------------------
+    // Multi-version coexistence (wave 7 A5) — rotation appends, prune
+    // trims, pinned lookups work for prior versions.
+    // ----------------------------------------------------------------------
+
+    [Fact]
+    public async Task RotateAsync_CreatesSecondRow_WithoutDeletingFirst()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var sut = NewRegistry("t1");
+
+        var @ref = new SecretRef(SecretScope.Unit, "u1", "foo");
+        await sut.RegisterAsync(@ref, "sk-1", SecretOrigin.PlatformOwned, ct);
+        await sut.RotateAsync(@ref, "sk-2", SecretOrigin.PlatformOwned, null, ct);
+
+        // Both rows now coexist in the registry.
+        var versionRows = await _db.SecretRegistryEntries
+            .Where(e => e.Scope == SecretScope.Unit && e.OwnerId == "u1" && e.Name == "foo")
+            .ToListAsync(ct);
+        versionRows.Count.ShouldBe(2);
+        versionRows.Select(r => r.Version).OrderBy(v => v).ShouldBe(new int?[] { 1, 2 });
+
+        // Latest lookup resolves to v2.
+        var latest = await sut.LookupWithVersionAsync(@ref, ct);
+        latest!.Value.Pointer.StoreKey.ShouldBe("sk-2");
+        latest.Value.Version.ShouldBe(2);
+
+        // Pinned lookup of v1 returns the original pointer.
+        var pinned = await sut.LookupWithVersionAsync(@ref, 1, ct);
+        pinned!.Value.Pointer.StoreKey.ShouldBe("sk-1");
+        pinned.Value.Version.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task LookupWithVersionAsync_MissingVersion_ReturnsNull()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var sut = NewRegistry("t1");
+
+        var @ref = new SecretRef(SecretScope.Unit, "u1", "foo");
+        await sut.RegisterAsync(@ref, "sk-1", SecretOrigin.PlatformOwned, ct);
+
+        // Version 42 does not exist — pinned lookup is null (NOT a
+        // silent fallback to the latest row).
+        var pinned = await sut.LookupWithVersionAsync(@ref, 42, ct);
+        pinned.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task ListVersionsAsync_ReturnsAllVersions_NewestFirst_WithCurrentFlag()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var sut = NewRegistry("t1");
+
+        var @ref = new SecretRef(SecretScope.Unit, "u1", "foo");
+        await sut.RegisterAsync(@ref, "sk-1", SecretOrigin.PlatformOwned, ct);
+        await sut.RotateAsync(@ref, "sk-2", SecretOrigin.PlatformOwned, null, ct);
+        await sut.RotateAsync(@ref, "sk-3", SecretOrigin.ExternalReference, null, ct);
+
+        var versions = await sut.ListVersionsAsync(@ref, ct);
+
+        versions.Count.ShouldBe(3);
+        versions[0].Version.ShouldBe(3);
+        versions[0].IsCurrent.ShouldBeTrue();
+        versions[0].Origin.ShouldBe(SecretOrigin.ExternalReference);
+        versions[1].Version.ShouldBe(2);
+        versions[1].IsCurrent.ShouldBeFalse();
+        versions[2].Version.ShouldBe(1);
+        versions[2].IsCurrent.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task ListVersionsAsync_MissingRef_ReturnsEmpty()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var sut = NewRegistry("t1");
+
+        var versions = await sut.ListVersionsAsync(
+            new SecretRef(SecretScope.Unit, "u1", "none"), ct);
+
+        versions.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task PruneAsync_Keep1_RemovesAllButCurrent_AndInvokesDeleteForPlatformSlots()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var sut = NewRegistry("t1");
+
+        var @ref = new SecretRef(SecretScope.Unit, "u1", "foo");
+        await sut.RegisterAsync(@ref, "sk-1", SecretOrigin.PlatformOwned, ct);
+        await sut.RotateAsync(@ref, "sk-2", SecretOrigin.PlatformOwned, null, ct);
+        await sut.RotateAsync(@ref, "sk-3", SecretOrigin.PlatformOwned, null, ct);
+
+        var deletes = new List<string>();
+        var pruned = await sut.PruneAsync(
+            @ref,
+            keep: 1,
+            (key, _) => { deletes.Add(key); return Task.CompletedTask; },
+            ct);
+
+        pruned.ShouldBe(2);
+        deletes.OrderBy(s => s).ShouldBe(new[] { "sk-1", "sk-2" });
+
+        // v3 is the only remaining row.
+        var remaining = await sut.ListVersionsAsync(@ref, ct);
+        remaining.Count.ShouldBe(1);
+        remaining[0].Version.ShouldBe(3);
+    }
+
+    [Fact]
+    public async Task PruneAsync_KeepGteVersionCount_IsNoOp()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var sut = NewRegistry("t1");
+
+        var @ref = new SecretRef(SecretScope.Unit, "u1", "foo");
+        await sut.RegisterAsync(@ref, "sk-1", SecretOrigin.PlatformOwned, ct);
+        await sut.RotateAsync(@ref, "sk-2", SecretOrigin.PlatformOwned, null, ct);
+
+        var deletes = new List<string>();
+        var pruned = await sut.PruneAsync(@ref, keep: 5,
+            (key, _) => { deletes.Add(key); return Task.CompletedTask; }, ct);
+
+        pruned.ShouldBe(0);
+        deletes.ShouldBeEmpty();
+
+        var versions = await sut.ListVersionsAsync(@ref, ct);
+        versions.Count.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task PruneAsync_ExternalReferenceVersions_NeverDeleted()
+    {
+        // Prune of an external-reference row removes the registry row
+        // only; the delete delegate is never invoked for those slots
+        // because the customer owns them.
+        var ct = TestContext.Current.CancellationToken;
+        var sut = NewRegistry("t1");
+
+        var @ref = new SecretRef(SecretScope.Unit, "u1", "foo");
+        await sut.RegisterAsync(@ref, "kv://v1", SecretOrigin.ExternalReference, ct);
+        await sut.RotateAsync(@ref, "kv://v2", SecretOrigin.ExternalReference, null, ct);
+
+        var deletes = new List<string>();
+        var pruned = await sut.PruneAsync(
+            @ref, keep: 1,
+            (key, _) => { deletes.Add(key); return Task.CompletedTask; },
+            ct);
+
+        pruned.ShouldBe(1);
+        // External slot must never have been handed to the delegate.
+        deletes.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task PruneAsync_KeepZeroOrNegative_Throws()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var sut = NewRegistry("t1");
+
+        var @ref = new SecretRef(SecretScope.Unit, "u1", "foo");
+        await sut.RegisterAsync(@ref, "sk-1", SecretOrigin.PlatformOwned, ct);
+
+        await Should.ThrowAsync<ArgumentOutOfRangeException>(() =>
+            sut.PruneAsync(@ref, keep: 0, null, ct));
+        await Should.ThrowAsync<ArgumentOutOfRangeException>(() =>
+            sut.PruneAsync(@ref, keep: -1, null, ct));
+    }
+
+    [Fact]
+    public async Task DeleteAsync_RemovesAllVersions()
+    {
+        // Multi-version delete clears the whole chain — the endpoints
+        // handle per-version store-slot cleanup before calling
+        // DeleteAsync, so the registry focuses on row removal.
+        var ct = TestContext.Current.CancellationToken;
+        var sut = NewRegistry("t1");
+
+        var @ref = new SecretRef(SecretScope.Unit, "u1", "foo");
+        await sut.RegisterAsync(@ref, "sk-1", SecretOrigin.PlatformOwned, ct);
+        await sut.RotateAsync(@ref, "sk-2", SecretOrigin.PlatformOwned, null, ct);
+        await sut.RotateAsync(@ref, "sk-3", SecretOrigin.PlatformOwned, null, ct);
+
+        await sut.DeleteAsync(@ref, ct);
+
+        (await _db.SecretRegistryEntries
+            .Where(e => e.Scope == SecretScope.Unit && e.OwnerId == "u1" && e.Name == "foo")
+            .CountAsync(ct)).ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task RegisterAsync_ExistingChain_WipesPriorVersions_AndResetsToVersionOne()
+    {
+        // RegisterAsync is a wipe-and-replace primitive — re-registering
+        // a name that already has a multi-version chain blows away the
+        // chain and starts fresh at version 1. POST semantics from the
+        // endpoint layer, preserved here.
+        var ct = TestContext.Current.CancellationToken;
+        var sut = NewRegistry("t1");
+
+        var @ref = new SecretRef(SecretScope.Unit, "u1", "foo");
+        await sut.RegisterAsync(@ref, "sk-1", SecretOrigin.PlatformOwned, ct);
+        await sut.RotateAsync(@ref, "sk-2", SecretOrigin.PlatformOwned, null, ct);
+
+        await sut.RegisterAsync(@ref, "sk-new", SecretOrigin.PlatformOwned, ct);
+
+        var versions = await sut.ListVersionsAsync(@ref, ct);
+        versions.Count.ShouldBe(1);
+        versions[0].Version.ShouldBe(1);
+
+        var latest = await sut.LookupAsync(@ref, ct);
+        latest!.StoreKey.ShouldBe("sk-new");
     }
 
     private EfSecretRegistry NewRegistry(string tenantId)

@@ -207,8 +207,58 @@ public class SecretResolverDecorationTests
         rot.ToVersion.ShouldBe(2);
         rot.PreviousPointer.StoreKey.ShouldBe("sk-1");
         rot.NewPointer.StoreKey.ShouldBe("sk-2");
-        rot.PreviousStoreKeyDeleted.ShouldBeTrue();
-        deleted.ShouldBe(new[] { "sk-1" });
+        // A5 multi-version: rotate APPENDS and retains the prior slot.
+        // The delegate is signature-compat but never invoked; the flag
+        // is always false under the multi-version policy.
+        rot.PreviousStoreKeyDeleted.ShouldBeFalse();
+        deleted.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task RegistryDecoration_ObservesRegisterAndPruneOperations()
+    {
+        // A5: the audit-decorator contract extends to Register and
+        // Prune. An audit wrapper must see every version-lifecycle op
+        // through the same single interface — otherwise rotations that
+        // are actually "POST-then-prune" would slip past the audit log.
+        var services = BuildMinimalSecretsServices();
+        services.TryAddScoped<ISecretRegistry, EfSecretRegistry>();
+
+        var rotations = new List<SecretRotation>();
+        var prunes = new List<PruneObservation>();
+        var registers = new List<RegisterObservation>();
+        services.AddScoped<EfSecretRegistry>();
+        services.Replace(ServiceDescriptor.Scoped<ISecretRegistry>(
+            sp => new RecordingRegistryDecorator(
+                inner: sp.GetRequiredService<EfSecretRegistry>(),
+                rotations: rotations,
+                prunes: prunes,
+                registers: registers)));
+
+        using var provider = services.BuildServiceProvider();
+        using var scope = provider.CreateScope();
+        var ct = TestContext.Current.CancellationToken;
+
+        var registry = scope.ServiceProvider.GetRequiredService<ISecretRegistry>();
+        var @ref = new SecretRef(SecretScope.Unit, "u1", "token");
+
+        await registry.RegisterAsync(@ref, "sk-1", SecretOrigin.PlatformOwned, ct);
+        await registry.RotateAsync(@ref, "sk-2", SecretOrigin.PlatformOwned, null, ct);
+        await registry.RotateAsync(@ref, "sk-3", SecretOrigin.PlatformOwned, null, ct);
+        var pruned = await registry.PruneAsync(@ref, keep: 1, null, ct);
+
+        registers.Count.ShouldBe(1);
+        registers[0].Ref.ShouldBe(@ref);
+        registers[0].Origin.ShouldBe(SecretOrigin.PlatformOwned);
+
+        rotations.Count.ShouldBe(2);
+        rotations[0].ToVersion.ShouldBe(2);
+        rotations[1].ToVersion.ShouldBe(3);
+
+        prunes.Count.ShouldBe(1);
+        prunes[0].Keep.ShouldBe(1);
+        prunes[0].Pruned.ShouldBe(2);
+        pruned.ShouldBe(2);
     }
 
     // ------------------------------------------------------------------
@@ -277,6 +327,17 @@ public class SecretResolverDecorationTests
             return resolution;
         }
 
+        public async Task<SecretResolution> ResolveWithPathAsync(SecretRef @ref, int? version, CancellationToken ct)
+        {
+            // Version-aware decorator surface: the audit layer sees the
+            // version pin in addition to the ref, so it can record
+            // "caller asked for v2 specifically" events separately from
+            // latest-only reads.
+            var resolution = await _inner.ResolveWithPathAsync(@ref, version, ct);
+            _recordings.Add(new ResolverCall(@ref, _tenantContext.CurrentTenantId, resolution));
+            return resolution;
+        }
+
         public Task<IReadOnlyList<SecretRef>> ListAsync(SecretScope scope, string ownerId, CancellationToken ct)
             => _inner.ListAsync(scope, ownerId, ct);
     }
@@ -290,15 +351,26 @@ public class SecretResolverDecorationTests
     {
         private readonly ISecretRegistry _inner;
         private readonly List<SecretRotation> _rotations;
+        private readonly List<PruneObservation>? _prunes;
+        private readonly List<RegisterObservation>? _registers;
 
-        public RecordingRegistryDecorator(ISecretRegistry inner, List<SecretRotation> rotations)
+        public RecordingRegistryDecorator(
+            ISecretRegistry inner,
+            List<SecretRotation> rotations,
+            List<PruneObservation>? prunes = null,
+            List<RegisterObservation>? registers = null)
         {
             _inner = inner;
             _rotations = rotations;
+            _prunes = prunes;
+            _registers = registers;
         }
 
-        public Task RegisterAsync(SecretRef @ref, string storeKey, SecretOrigin origin, CancellationToken ct)
-            => _inner.RegisterAsync(@ref, storeKey, origin, ct);
+        public async Task RegisterAsync(SecretRef @ref, string storeKey, SecretOrigin origin, CancellationToken ct)
+        {
+            await _inner.RegisterAsync(@ref, storeKey, origin, ct);
+            _registers?.Add(new RegisterObservation(@ref, origin));
+        }
 
         public Task<SecretPointer?> LookupAsync(SecretRef @ref, CancellationToken ct)
             => _inner.LookupAsync(@ref, ct);
@@ -309,8 +381,14 @@ public class SecretResolverDecorationTests
         public Task<(SecretPointer Pointer, int? Version)?> LookupWithVersionAsync(SecretRef @ref, CancellationToken ct)
             => _inner.LookupWithVersionAsync(@ref, ct);
 
+        public Task<(SecretPointer Pointer, int? Version)?> LookupWithVersionAsync(SecretRef @ref, int? version, CancellationToken ct)
+            => _inner.LookupWithVersionAsync(@ref, version, ct);
+
         public Task<IReadOnlyList<SecretRef>> ListAsync(SecretScope scope, string ownerId, CancellationToken ct)
             => _inner.ListAsync(scope, ownerId, ct);
+
+        public Task<IReadOnlyList<SecretVersionInfo>> ListVersionsAsync(SecretRef @ref, CancellationToken ct)
+            => _inner.ListVersionsAsync(@ref, ct);
 
         public async Task<SecretRotation> RotateAsync(
             SecretRef @ref,
@@ -324,7 +402,22 @@ public class SecretResolverDecorationTests
             return rotation;
         }
 
+        public async Task<int> PruneAsync(
+            SecretRef @ref,
+            int keep,
+            Func<string, CancellationToken, Task>? deletePrunedStoreKeyAsync,
+            CancellationToken ct)
+        {
+            var pruned = await _inner.PruneAsync(@ref, keep, deletePrunedStoreKeyAsync, ct);
+            _prunes?.Add(new PruneObservation(@ref, keep, pruned));
+            return pruned;
+        }
+
         public Task DeleteAsync(SecretRef @ref, CancellationToken ct)
             => _inner.DeleteAsync(@ref, ct);
     }
+
+    internal record PruneObservation(SecretRef Ref, int Keep, int Pruned);
+
+    internal record RegisterObservation(SecretRef Ref, SecretOrigin Origin);
 }

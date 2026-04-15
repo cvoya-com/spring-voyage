@@ -10,8 +10,16 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 /// <summary>
 /// EF Core configuration for <see cref="SecretRegistryEntry"/>. Applies
-/// snake_case naming and a unique index on the structural triple
-/// (tenant, scope, owner, name).
+/// snake_case naming and the structural uniqueness constraint.
+///
+/// <para>
+/// <b>Wave 7 A5 schema.</b> The uniqueness constraint spans
+/// <c>(TenantId, Scope, OwnerId, Name, Version)</c> rather than the
+/// prior 4-tuple — each version of a secret is a separate row, and
+/// rotations append without replacing. Legacy rows with a null Version
+/// are tolerated by the unique index (null is not equal to null under
+/// Postgres default semantics).
+/// </para>
 /// </summary>
 internal class SecretRegistryEntryConfiguration : IEntityTypeConfiguration<SecretRegistryEntry>
 {
@@ -28,15 +36,18 @@ internal class SecretRegistryEntryConfiguration : IEntityTypeConfiguration<Secre
         builder.Property(e => e.Name).HasColumnName("name").IsRequired().HasMaxLength(256);
         builder.Property(e => e.StoreKey).HasColumnName("store_key").IsRequired().HasMaxLength(512);
         builder.Property(e => e.Origin).HasColumnName("origin").IsRequired().HasConversion<int>();
-        // Nullable: legacy rows created before the #201 migration have no
-        // version; they transition to version 1 on their first rotation.
-        // Rotations on post-migration rows increment monotonically.
         builder.Property(e => e.Version).HasColumnName("version").IsRequired(false);
         builder.Property(e => e.CreatedAt).HasColumnName("created_at").IsRequired();
         builder.Property(e => e.UpdatedAt).HasColumnName("updated_at").IsRequired();
 
-        builder.HasIndex(e => new { e.TenantId, e.Scope, e.OwnerId, e.Name })
+        // Per-version uniqueness: each (tenant, scope, owner, name,
+        // version) row is unique. Non-unique index on the 4-tuple stays
+        // in place for "fetch the chain" queries.
+        builder.HasIndex(e => new { e.TenantId, e.Scope, e.OwnerId, e.Name, e.Version })
             .IsUnique()
+            .HasDatabaseName("ix_secret_registry_tenant_scope_owner_name_version");
+
+        builder.HasIndex(e => new { e.TenantId, e.Scope, e.OwnerId, e.Name })
             .HasDatabaseName("ix_secret_registry_tenant_scope_owner_name");
     }
 }

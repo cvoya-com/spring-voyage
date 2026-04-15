@@ -80,4 +80,17 @@ public enum SecretAccessAction
     /// and deserve independent authorization.
     /// </summary>
     Rotate = 4,
+
+    /// <summary>
+    /// Prune older versions of a secret in (scope, owner) via
+    /// <see cref="ISecretRegistry.PruneAsync"/> or the
+    /// <c>POST /.../secrets/{name}/prune</c> endpoint. Distinct from
+    /// <see cref="Delete"/> because pruning retains the current version
+    /// while <see cref="Delete"/> removes every version of a secret —
+    /// a caller with a "retention-admin" role may have
+    /// <see cref="Prune"/> without <see cref="Delete"/>, or vice
+    /// versa. Appended to the enum (rather than inserted) so existing
+    /// numeric values remain stable across upgrades.
+    /// </summary>
+    Prune = 5,
 }

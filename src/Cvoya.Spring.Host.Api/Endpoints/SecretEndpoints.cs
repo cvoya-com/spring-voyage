@@ -47,6 +47,17 @@ using Microsoft.Extensions.Options;
 /// untouched — so a DELETE in the private-cloud Key Vault implementation
 /// can never destroy a customer-owned secret.
 /// </para>
+///
+/// <para>
+/// <b>Multi-version coexistence (wave 7 A5).</b> Rotation appends a
+/// new version instead of replacing. Two additional endpoints per
+/// scope expose the new shape: <c>GET /.../secrets/{name}/versions</c>
+/// lists per-version metadata; <c>POST /.../secrets/{name}/prune</c>
+/// removes older versions with a <c>keep</c> count. DELETE removes
+/// every version; the store-layer slot is reclaimed only for
+/// platform-owned versions (same safety gate as the single-version
+/// path).
+/// </para>
 /// </summary>
 public static class SecretEndpoints
 {
@@ -88,15 +99,30 @@ public static class SecretEndpoints
 
         unitGroup.MapPut("/{name}", RotateUnitSecretAsync)
             .WithName("RotateUnitSecret")
-            .WithSummary("Rotate a unit-scoped secret. Replaces the value/pointer and bumps the version atomically. Provide exactly one of 'value' or 'externalStoreKey'. The entry must already exist — use POST to create.")
-            .Produces(StatusCodes.Status204NoContent)
+            .WithSummary("Rotate a unit-scoped secret by appending a new version. Returns the new version number. Prior versions remain resolvable via the pin overload until pruned.")
+            .Produces<RotateSecretResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        unitGroup.MapGet("/{name}/versions", ListUnitSecretVersionsAsync)
+            .WithName("ListUnitSecretVersions")
+            .WithSummary("List retained versions for a unit-scoped secret. Metadata only; never returns plaintext or store keys.")
+            .Produces<SecretVersionsListResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        unitGroup.MapPost("/{name}/prune", PruneUnitSecretAsync)
+            .WithName("PruneUnitSecret")
+            .WithSummary("Prune older versions of a unit-scoped secret, retaining the N most-recent. 'keep' must be >= 1; the current version is always retained.")
+            .Produces<PruneSecretResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
         unitGroup.MapDelete("/{name}", DeleteUnitSecretAsync)
             .WithName("DeleteUnitSecret")
-            .WithSummary("Delete a unit-scoped secret. The underlying plaintext is removed only for platform-owned entries; external references leave the external store key untouched.")
+            .WithSummary("Delete a unit-scoped secret (all versions). Underlying plaintext is removed only for platform-owned versions; external references leave the external store key untouched.")
             .Produces(StatusCodes.Status204NoContent)
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound)
@@ -121,15 +147,30 @@ public static class SecretEndpoints
 
         tenantGroup.MapPut("/{name}", RotateTenantSecretAsync)
             .WithName("RotateTenantSecret")
-            .WithSummary("Rotate a tenant-scoped secret. Replaces the value/pointer and bumps the version atomically. Provide exactly one of 'value' or 'externalStoreKey'. The entry must already exist — use POST to create.")
-            .Produces(StatusCodes.Status204NoContent)
+            .WithSummary("Rotate a tenant-scoped secret by appending a new version. Returns the new version number.")
+            .Produces<RotateSecretResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        tenantGroup.MapGet("/{name}/versions", ListTenantSecretVersionsAsync)
+            .WithName("ListTenantSecretVersions")
+            .WithSummary("List retained versions for a tenant-scoped secret. Metadata only; never returns plaintext or store keys.")
+            .Produces<SecretVersionsListResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        tenantGroup.MapPost("/{name}/prune", PruneTenantSecretAsync)
+            .WithName("PruneTenantSecret")
+            .WithSummary("Prune older versions of a tenant-scoped secret, retaining the N most-recent. 'keep' must be >= 1.")
+            .Produces<PruneSecretResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
         tenantGroup.MapDelete("/{name}", DeleteTenantSecretAsync)
             .WithName("DeleteTenantSecret")
-            .WithSummary("Delete a tenant-scoped secret. The underlying plaintext is removed only for platform-owned entries; external references leave the external store key untouched.")
+            .WithSummary("Delete a tenant-scoped secret (all versions). Underlying plaintext is removed only for platform-owned versions; external references leave the external store key untouched.")
             .Produces(StatusCodes.Status204NoContent)
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound)
@@ -154,15 +195,30 @@ public static class SecretEndpoints
 
         platformGroup.MapPut("/{name}", RotatePlatformSecretAsync)
             .WithName("RotatePlatformSecret")
-            .WithSummary("Rotate a platform-scoped secret. Replaces the value/pointer and bumps the version atomically. Provide exactly one of 'value' or 'externalStoreKey'. The entry must already exist — use POST to create.")
-            .Produces(StatusCodes.Status204NoContent)
+            .WithSummary("Rotate a platform-scoped secret by appending a new version. Returns the new version number.")
+            .Produces<RotateSecretResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        platformGroup.MapGet("/{name}/versions", ListPlatformSecretVersionsAsync)
+            .WithName("ListPlatformSecretVersions")
+            .WithSummary("List retained versions for a platform-scoped secret. Metadata only; never returns plaintext or store keys.")
+            .Produces<SecretVersionsListResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        platformGroup.MapPost("/{name}/prune", PrunePlatformSecretAsync)
+            .WithName("PrunePlatformSecret")
+            .WithSummary("Prune older versions of a platform-scoped secret, retaining the N most-recent. 'keep' must be >= 1.")
+            .Produces<PruneSecretResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
         platformGroup.MapDelete("/{name}", DeletePlatformSecretAsync)
             .WithName("DeletePlatformSecret")
-            .WithSummary("Delete a platform-scoped secret. The underlying plaintext is removed only for platform-owned entries; external references leave the external store key untouched.")
+            .WithSummary("Delete a platform-scoped secret (all versions). Underlying plaintext is removed only for platform-owned versions; external references leave the external store key untouched.")
             .Produces(StatusCodes.Status204NoContent)
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound)
@@ -255,6 +311,38 @@ public static class SecretEndpoints
             SecretScope.Unit, id, name, request, store, registry, options.Value, cancellationToken);
     }
 
+    private static async Task<IResult> ListUnitSecretVersionsAsync(
+        string id,
+        string name,
+        [FromServices] ISecretRegistry registry,
+        [FromServices] ISecretAccessPolicy accessPolicy,
+        CancellationToken cancellationToken)
+    {
+        if (!await accessPolicy.IsAuthorizedAsync(SecretAccessAction.List, SecretScope.Unit, id, cancellationToken))
+        {
+            return Forbidden(SecretScope.Unit, SecretAccessAction.List);
+        }
+
+        return await ListVersionsAsync(SecretScope.Unit, id, name, registry, cancellationToken);
+    }
+
+    private static async Task<IResult> PruneUnitSecretAsync(
+        string id,
+        string name,
+        int? keep,
+        [FromServices] ISecretStore store,
+        [FromServices] ISecretRegistry registry,
+        [FromServices] ISecretAccessPolicy accessPolicy,
+        CancellationToken cancellationToken)
+    {
+        if (!await accessPolicy.IsAuthorizedAsync(SecretAccessAction.Prune, SecretScope.Unit, id, cancellationToken))
+        {
+            return Forbidden(SecretScope.Unit, SecretAccessAction.Prune);
+        }
+
+        return await PruneSecretAsync(SecretScope.Unit, id, name, keep, store, registry, cancellationToken);
+    }
+
     private static async Task<IResult> DeleteUnitSecretAsync(
         string id,
         string name,
@@ -340,6 +428,40 @@ public static class SecretEndpoints
             SecretScope.Tenant, ownerId, name, request, store, registry, options.Value, cancellationToken);
     }
 
+    private static async Task<IResult> ListTenantSecretVersionsAsync(
+        string name,
+        [FromServices] ISecretRegistry registry,
+        [FromServices] ISecretAccessPolicy accessPolicy,
+        [FromServices] ITenantContext tenantContext,
+        CancellationToken cancellationToken)
+    {
+        var ownerId = tenantContext.CurrentTenantId;
+        if (!await accessPolicy.IsAuthorizedAsync(SecretAccessAction.List, SecretScope.Tenant, ownerId, cancellationToken))
+        {
+            return Forbidden(SecretScope.Tenant, SecretAccessAction.List);
+        }
+
+        return await ListVersionsAsync(SecretScope.Tenant, ownerId, name, registry, cancellationToken);
+    }
+
+    private static async Task<IResult> PruneTenantSecretAsync(
+        string name,
+        int? keep,
+        [FromServices] ISecretStore store,
+        [FromServices] ISecretRegistry registry,
+        [FromServices] ISecretAccessPolicy accessPolicy,
+        [FromServices] ITenantContext tenantContext,
+        CancellationToken cancellationToken)
+    {
+        var ownerId = tenantContext.CurrentTenantId;
+        if (!await accessPolicy.IsAuthorizedAsync(SecretAccessAction.Prune, SecretScope.Tenant, ownerId, cancellationToken))
+        {
+            return Forbidden(SecretScope.Tenant, SecretAccessAction.Prune);
+        }
+
+        return await PruneSecretAsync(SecretScope.Tenant, ownerId, name, keep, store, registry, cancellationToken);
+    }
+
     private static async Task<IResult> DeleteTenantSecretAsync(
         string name,
         [FromServices] ISecretStore store,
@@ -420,6 +542,36 @@ public static class SecretEndpoints
             SecretScope.Platform, PlatformOwnerId, name, request, store, registry, options.Value, cancellationToken);
     }
 
+    private static async Task<IResult> ListPlatformSecretVersionsAsync(
+        string name,
+        [FromServices] ISecretRegistry registry,
+        [FromServices] ISecretAccessPolicy accessPolicy,
+        CancellationToken cancellationToken)
+    {
+        if (!await accessPolicy.IsAuthorizedAsync(SecretAccessAction.List, SecretScope.Platform, PlatformOwnerId, cancellationToken))
+        {
+            return Forbidden(SecretScope.Platform, SecretAccessAction.List);
+        }
+
+        return await ListVersionsAsync(SecretScope.Platform, PlatformOwnerId, name, registry, cancellationToken);
+    }
+
+    private static async Task<IResult> PrunePlatformSecretAsync(
+        string name,
+        int? keep,
+        [FromServices] ISecretStore store,
+        [FromServices] ISecretRegistry registry,
+        [FromServices] ISecretAccessPolicy accessPolicy,
+        CancellationToken cancellationToken)
+    {
+        if (!await accessPolicy.IsAuthorizedAsync(SecretAccessAction.Prune, SecretScope.Platform, PlatformOwnerId, cancellationToken))
+        {
+            return Forbidden(SecretScope.Platform, SecretAccessAction.Prune);
+        }
+
+        return await PruneSecretAsync(SecretScope.Platform, PlatformOwnerId, name, keep, store, registry, cancellationToken);
+    }
+
     private static async Task<IResult> DeletePlatformSecretAsync(
         string name,
         [FromServices] ISecretStore store,
@@ -479,10 +631,6 @@ public static class SecretEndpoints
 
     private static IResult? ValidateRotateRequest(RotateSecretRequest request, SecretsOptions options)
     {
-        // Mirrors ValidateCreateRequest but over the rotation shape (no
-        // 'name' field — the name is route-bound). The same two config
-        // flags gate rotation; rotating onto a disabled write mode is
-        // as much a policy violation as creating in that mode.
         var hasValue = !string.IsNullOrEmpty(request.Value);
         var hasExternal = !string.IsNullOrWhiteSpace(request.ExternalStoreKey);
 
@@ -544,10 +692,6 @@ public static class SecretEndpoints
         SecretOrigin newOrigin;
         if (hasValue)
         {
-            // Write the fresh plaintext first; the registry swap happens
-            // transactionally inside RotateAsync. If the registry call
-            // then fails, we clean up the orphaned new slot — symmetric
-            // with CreateSecretAsync.
             newStoreKey = await store.WriteAsync(request.Value!, cancellationToken);
             newOrigin = SecretOrigin.PlatformOwned;
         }
@@ -557,20 +701,18 @@ public static class SecretEndpoints
             newOrigin = SecretOrigin.ExternalReference;
         }
 
+        SecretRotation rotation;
         try
         {
-            // RotateAsync handles the origin-safe old-slot cleanup via
-            // the delegate we pass in. We give it ISecretStore.DeleteAsync
-            // only if the previous pointer was platform-owned — if the
-            // previous pointer was external we never hand the delegate
-            // a key, so the registry's internal gate doubles as our
-            // outer gate. The registry enforces "platform-owned-only
-            // invokes the delegate" regardless of what we pass.
-            await registry.RotateAsync(
+            // A5 retention: rotation appends; prior versions stay in
+            // place. The old-slot delete delegate is retained on the
+            // interface for compatibility but is never invoked by the
+            // registry — we pass null so there is no ambiguity.
+            rotation = await registry.RotateAsync(
                 secretRef,
                 newStoreKey,
                 newOrigin,
-                async (oldKey, ct) => await store.DeleteAsync(oldKey, ct),
+                deletePreviousStoreKeyAsync: null,
                 cancellationToken);
         }
         catch (InvalidOperationException)
@@ -595,8 +737,6 @@ public static class SecretEndpoints
         }
         catch
         {
-            // Registry-side failure after a successful pass-through
-            // write — orphaned slot cleanup mirrors CreateSecretAsync.
             if (newOrigin == SecretOrigin.PlatformOwned)
             {
                 try
@@ -611,7 +751,82 @@ public static class SecretEndpoints
             throw;
         }
 
-        return Results.NoContent();
+        return Results.Ok(new RotateSecretResponse(name, scope, rotation.ToVersion));
+    }
+
+    private static async Task<IResult> ListVersionsAsync(
+        SecretScope scope,
+        string ownerId,
+        string name,
+        ISecretRegistry registry,
+        CancellationToken cancellationToken)
+    {
+        var secretRef = new SecretRef(scope, ownerId, name);
+        var versions = await registry.ListVersionsAsync(secretRef, cancellationToken);
+        if (versions.Count == 0)
+        {
+            return Results.Problem(
+                detail: $"Secret '{name}' not found for {scope} '{ownerId}'.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        var entries = versions
+            .Select(v => new SecretVersionEntry(v.Version, v.Origin, v.CreatedAt, v.IsCurrent))
+            .ToList();
+
+        return Results.Ok(new SecretVersionsListResponse(name, scope, entries));
+    }
+
+    private static async Task<IResult> PruneSecretAsync(
+        SecretScope scope,
+        string ownerId,
+        string name,
+        int? keep,
+        ISecretStore store,
+        ISecretRegistry registry,
+        CancellationToken cancellationToken)
+    {
+        if (keep is null || keep.Value < 1)
+        {
+            return Results.Problem(
+                detail: "Query parameter 'keep' must be a positive integer (>= 1).",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        var secretRef = new SecretRef(scope, ownerId, name);
+        // 404 if the chain does not exist at all — prune is not a
+        // "create if missing" primitive. Listing versions is the
+        // cheapest existence check that also gives us the count.
+        var versions = await registry.ListVersionsAsync(secretRef, cancellationToken);
+        if (versions.Count == 0)
+        {
+            return Results.Problem(
+                detail: $"Secret '{name}' not found for {scope} '{ownerId}'.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        // Reclaim platform-owned store slots for pruned versions;
+        // external references are left untouched. The delegate fires
+        // per pruned platform-owned row (see EfSecretRegistry.PruneAsync).
+        var pruned = await registry.PruneAsync(
+            secretRef,
+            keep.Value,
+            async (oldKey, ct) =>
+            {
+                try
+                {
+                    await store.DeleteAsync(oldKey, ct);
+                }
+                catch
+                {
+                    // Best-effort reclaim; orphaned slots are handled by
+                    // the same reconciliation sweep that covers rotate
+                    // failures (see follow-up issue for the reconciler).
+                }
+            },
+            cancellationToken);
+
+        return Results.Ok(new PruneSecretResponse(name, scope, keep.Value, pruned));
     }
 
     private static async Task<IResult> CreateSecretAsync(
@@ -645,19 +860,11 @@ public static class SecretEndpoints
         SecretOrigin origin;
         if (hasValue)
         {
-            // Pass-through write: persist plaintext via the store, then
-            // record the structural reference. The entry's origin marks
-            // the platform as the owner of the resulting slot, enabling
-            // store-layer delete/rotate on later mutations.
             storeKey = await store.WriteAsync(request.Value!, cancellationToken);
             origin = SecretOrigin.PlatformOwned;
         }
         else
         {
-            // External reference: we do NOT touch the store, only the
-            // registry. The origin marks the slot as caller-owned so the
-            // store-delete path skips it, preventing data loss on keys
-            // the platform never wrote.
             storeKey = request.ExternalStoreKey!;
             origin = SecretOrigin.ExternalReference;
         }
@@ -668,11 +875,6 @@ public static class SecretEndpoints
         }
         catch
         {
-            // Registry write failed after a successful pass-through store
-            // write — clean up the orphaned store value before re-throwing
-            // so the POST either fully succeeds or leaves no residue. We
-            // only clean up values WE just wrote; external references are
-            // managed by the caller and must never be touched.
             if (origin == SecretOrigin.PlatformOwned)
             {
                 try
@@ -682,8 +884,8 @@ public static class SecretEndpoints
                 catch
                 {
                     // Swallow cleanup failure — the registry exception is
-                    // the primary error; a reconciliation sweep (see the
-                    // rotation/versioning follow-up issue) handles orphans.
+                    // the primary error; a reconciliation sweep handles
+                    // orphans.
                 }
             }
             throw;
@@ -692,6 +894,7 @@ public static class SecretEndpoints
         var row = await db.SecretRegistryEntries
             .AsNoTracking()
             .Where(e => e.Scope == scope && e.OwnerId == ownerId && e.Name == request.Name)
+            .OrderByDescending(e => e.Version)
             .Select(e => new { e.CreatedAt })
             .FirstOrDefaultAsync(cancellationToken);
 
@@ -713,38 +916,43 @@ public static class SecretEndpoints
     {
         var secretRef = new SecretRef(scope, ownerId, name);
 
-        var pointer = await registry.LookupAsync(secretRef, cancellationToken);
-        if (pointer is null)
+        // Enumerate every version so we can reclaim each platform-owned
+        // store slot before removing the chain from the registry. A
+        // missing chain is 404 — prior semantics.
+        var versions = await registry.ListVersionsAsync(secretRef, cancellationToken);
+        if (versions.Count == 0)
         {
             return Results.Problem(
                 detail: $"Secret '{name}' not found for {scope} '{ownerId}'",
                 statusCode: StatusCodes.Status404NotFound);
         }
 
-        // ORIGIN GATE: only touch the store when the platform owns the
-        // underlying slot. For ExternalReference entries we remove the
-        // registry row and leave the external store key untouched — that
-        // is the whole reason the origin field exists. In OSS / Dapr the
-        // distinction is cosmetic; in the private-cloud Key Vault impl it
-        // is the guardrail that prevents DELETE from destroying
-        // customer-owned secrets.
-        if (pointer.Origin == SecretOrigin.PlatformOwned)
+        // Fetch every row's pointer so we can delete each platform-
+        // owned slot before touching the registry chain. We resolve
+        // per-version pointers via LookupWithVersionAsync to keep the
+        // scan tenant-filtered and bounded to the chain we already
+        // saw in ListVersionsAsync.
+        var platformSlots = new List<string>();
+        foreach (var version in versions)
         {
-            // Ordering: delete the store value FIRST, then the registry row.
-            // If the store delete fails we keep the registry row so the
-            // operator can retry — the secret stays fully resolvable in
-            // the meantime, which is the safe state. Dapr state-store
-            // deletes are idempotent against missing keys, so a retry
-            // after partial progress is always safe.
+            var pointer = await registry.LookupWithVersionAsync(secretRef, version.Version, cancellationToken);
+            if (pointer is not null && pointer.Value.Pointer.Origin == SecretOrigin.PlatformOwned)
+            {
+                platformSlots.Add(pointer.Value.Pointer.StoreKey);
+            }
+        }
+
+        foreach (var storeKey in platformSlots)
+        {
             try
             {
-                await store.DeleteAsync(pointer.StoreKey, cancellationToken);
+                await store.DeleteAsync(storeKey, cancellationToken);
             }
             catch (Exception ex)
             {
                 var logger = loggerFactory.CreateLogger("Cvoya.Spring.Host.Api.Endpoints.SecretEndpoints");
                 logger.LogError(ex,
-                    "Store-delete failed for {Scope} secret '{Owner}/{Name}'; registry row retained so operator can retry.",
+                    "Store-delete failed for {Scope} secret '{Owner}/{Name}' version slot; registry row retained so operator can retry.",
                     scope, ownerId, name);
                 return Results.Problem(
                     title: "Secret store delete failed",
@@ -761,7 +969,7 @@ public static class SecretEndpoints
         {
             var logger = loggerFactory.CreateLogger("Cvoya.Spring.Host.Api.Endpoints.SecretEndpoints");
             logger.LogError(ex,
-                "Registry-delete failed for {Scope} secret '{Owner}/{Name}' after successful store delete; retry will complete.",
+                "Registry-delete failed for {Scope} secret '{Owner}/{Name}' after successful store deletes; retry will complete.",
                 scope, ownerId, name);
             return Results.Problem(
                 title: "Secret registry delete failed",
@@ -779,11 +987,11 @@ public static class SecretEndpoints
         string ownerId,
         CancellationToken cancellationToken)
     {
-        // The ISecretRegistry.ListAsync surface returns SecretRefs only.
-        // The UI wants the createdAt timestamp too, so project directly
-        // off the tracked entity. ITenantContext is applied inside the
-        // registry, and we re-filter by name after the DbContext query
-        // to keep the code path symmetric with tenant-filtered lookups.
+        // The registry ListAsync returns one SecretRef per named secret
+        // (collapsing the per-version rows). We join against the raw
+        // table to surface the earliest (initial) CreatedAt for each
+        // name — rotating a secret should not change the original
+        // creation timestamp surfaced in the list view.
         var refs = await registry.ListAsync(scope, ownerId, cancellationToken);
 
         var refNames = refs.Select(r => r.Name).ToHashSet(StringComparer.Ordinal);
@@ -796,7 +1004,7 @@ public static class SecretEndpoints
         var timestampsByName = timestamps
             .Where(t => refNames.Contains(t.Name))
             .GroupBy(t => t.Name)
-            .ToDictionary(g => g.Key, g => g.First().CreatedAt, StringComparer.Ordinal);
+            .ToDictionary(g => g.Key, g => g.Min(t => t.CreatedAt), StringComparer.Ordinal);
 
         return refs
             .Select(r => new SecretMetadata(

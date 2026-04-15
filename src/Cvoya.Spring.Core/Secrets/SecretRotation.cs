@@ -38,10 +38,19 @@ namespace Cvoya.Spring.Core.Secrets;
 /// </param>
 /// <param name="PreviousStoreKeyDeleted">
 /// <c>true</c> when the rotation reclaimed the old backing store slot
-/// (platform-owned → any origin); <c>false</c> when the old slot was
-/// skipped because it was externally managed. Always <c>false</c> when
-/// <see cref="PreviousPointer"/>'s origin is
-/// <see cref="SecretOrigin.ExternalReference"/>.
+/// (platform-owned → any origin); <c>false</c> otherwise.
+///
+/// <para>
+/// <b>Wave 7 A5 note.</b> Under the multi-version-coexistence policy
+/// this flag is always <c>false</c>: rotation APPENDS a new version
+/// and leaves prior versions (and their store-layer slots) intact so
+/// pinned resolves continue to work. Store-layer reclaim now happens
+/// only via <see cref="ISecretRegistry.PruneAsync"/> or
+/// <see cref="ISecretRegistry.DeleteAsync"/>. The field is retained on
+/// this record for signature compatibility; audit decorators should
+/// treat <c>false</c> as "slot retained under multi-version policy"
+/// rather than "cleanup skipped due to external origin".
+/// </para>
 /// </param>
 public record SecretRotation(
     SecretRef Ref,

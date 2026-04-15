@@ -6,10 +6,19 @@ namespace Cvoya.Spring.Dapr.Data.Entities;
 using Cvoya.Spring.Core.Secrets;
 
 /// <summary>
-/// Persists the structural metadata for a secret (scope + owner + name)
-/// and a pointer (<see cref="StoreKey"/>) to the backing store entry that
-/// holds the plaintext value. The plaintext itself is never stored on
-/// this entity.
+/// Persists the structural metadata for a secret version (scope + owner +
+/// name + <see cref="Version"/>) and a pointer (<see cref="StoreKey"/>)
+/// to the backing store entry that holds the plaintext. The plaintext
+/// itself is never stored on this entity.
+///
+/// <para>
+/// <b>Multi-version coexistence (wave 7 A5).</b> A single secret named
+/// <c>(scope, owner, name)</c> is persisted as N rows — one per
+/// retained version. Each rotation inserts a new row at
+/// <c>max(Version)+1</c>; the prior rows stay until pruned. The
+/// resolver selects the MAX(Version) row by default, or a pinned
+/// version when the caller supplies one.
+/// </para>
 /// </summary>
 public class SecretRegistryEntry
 {

@@ -15,6 +15,20 @@ namespace Cvoya.Spring.Core.Secrets;
 /// is scoped to the current tenant.
 ///
 /// <para>
+/// <b>Multi-version coexistence (wave 7 A5).</b> Each registry entry is
+/// row-per-version: the unique identifier is
+/// <c>(TenantId, Scope, OwnerId, Name, Version)</c>. A
+/// <see cref="RegisterAsync"/> call produces a brand-new entry at
+/// version 1 (replacing any existing chain). A
+/// <see cref="RotateAsync"/> call inserts a NEW row at
+/// <c>max(Version)+1</c> without deleting earlier versions — callers
+/// can still resolve previous versions by pinning
+/// <see cref="SecretRef.Version"/> (null means latest). Old versions
+/// accumulate until an operator explicitly calls
+/// <see cref="PruneAsync"/>.
+/// </para>
+///
+/// <para>
 /// <b>DI decoration.</b> The interface is designed for the same
 /// decorate-via-DI pattern used by <see cref="ISecretResolver"/>:
 /// downstream consumers (most importantly the private cloud audit-log
@@ -24,16 +38,31 @@ namespace Cvoya.Spring.Core.Secrets;
 /// scoped instance for the real work. <see cref="RotateAsync"/>'s
 /// <see cref="SecretRotation"/> return shape is deliberately rich so
 /// the decorator can emit a complete audit event from the result alone
-/// — no state on the registry, no side-channel required. See
+/// — no state on the registry, no side-channel required. The new
+/// <see cref="PruneAsync"/> method follows the same discipline: the
+/// decorator sees every version-lifecycle operation (Register, Rotate,
+/// Prune) on this single interface. See
 /// <c>docs/developer/secret-audit.md</c> for a worked example.
 /// </para>
 /// </summary>
 public interface ISecretRegistry
 {
     /// <summary>
-    /// Registers a structural reference pointing at an existing store key.
-    /// If a registration for (tenant, scope, owner, name) already exists,
-    /// it is replaced.
+    /// Registers a fresh structural reference pointing at a store key.
+    /// If a registration chain for (tenant, scope, owner, name) already
+    /// exists (any versions, current or historical), every row in the
+    /// chain is removed and replaced by a single new row at version
+    /// <c>1</c>. Use <see cref="RotateAsync"/> to add a new version
+    /// while preserving prior versions.
+    ///
+    /// <para>
+    /// The wipe-and-replace semantics match the pre-multi-version
+    /// <c>RegisterAsync</c> contract: <c>POST /secrets</c> creates a
+    /// fresh chain, <c>PUT /secrets/{name}</c> rotates the chain. An
+    /// audit decorator that cares about discarded prior versions can
+    /// observe them via <see cref="ListVersionsAsync"/> called inside
+    /// its wrapper, BEFORE forwarding to the inner registry.
+    /// </para>
     /// </summary>
     /// <param name="ref">The structural reference.</param>
     /// <param name="storeKey">The opaque store key returned by <see cref="ISecretStore"/>.</param>
@@ -50,32 +79,54 @@ public interface ISecretRegistry
     Task RegisterAsync(SecretRef @ref, string storeKey, SecretOrigin origin, CancellationToken ct);
 
     /// <summary>
-    /// Returns the <see cref="SecretPointer"/> (store key + origin)
-    /// recorded for the given structural reference, or <c>null</c> if no
-    /// such reference exists in the current tenant.
+    /// Returns the <see cref="SecretPointer"/> for the latest version of
+    /// the given structural reference, or <c>null</c> if no such
+    /// reference exists in the current tenant.
     /// </summary>
     /// <param name="ref">The structural reference.</param>
     /// <param name="ct">Cancellation token.</param>
     Task<SecretPointer?> LookupAsync(SecretRef @ref, CancellationToken ct);
 
     /// <summary>
-    /// Returns the store key recorded for the given structural reference,
-    /// or <c>null</c> if no such reference exists in the current tenant.
-    /// Prefer <see cref="LookupAsync"/> — this overload is kept for
-    /// resolver paths that only need the opaque pointer and never touch
-    /// the store-delete path.
+    /// Returns the store key for the latest version of the given
+    /// structural reference, or <c>null</c> if no such reference exists
+    /// in the current tenant. Prefer <see cref="LookupAsync"/> — this
+    /// overload is kept for resolver paths that only need the opaque
+    /// pointer and never touch the store-delete path.
     /// </summary>
     /// <param name="ref">The structural reference.</param>
     /// <param name="ct">Cancellation token.</param>
     Task<string?> LookupStoreKeyAsync(SecretRef @ref, CancellationToken ct);
 
     /// <summary>
-    /// Returns the <see cref="SecretPointer"/> plus the entry's current
-    /// <c>Version</c> (or <c>null</c> for legacy rows that predate the
-    /// version column). Resolver paths that need to surface
-    /// <see cref="SecretResolution.Version"/> call this variant; the
-    /// rotation / delete paths do not need it and should keep using
-    /// <see cref="LookupAsync"/>.
+    /// Returns the <see cref="SecretPointer"/> plus the effective
+    /// <c>Version</c> for either the latest version of the reference
+    /// (<paramref name="version"/> = <c>null</c>) or a specific pinned
+    /// version (<paramref name="version"/> = an integer).
+    ///
+    /// <para>
+    /// Pinned reads return <c>null</c> when the requested version does
+    /// not exist — they NEVER silently return a different version.
+    /// Inheritance fall-through for pinned versions is applied by
+    /// <see cref="ISecretResolver"/>, which calls this method twice
+    /// (unit, then tenant) with the same <paramref name="version"/>
+    /// argument: if the unit has no such version and the tenant does,
+    /// the caller sees the tenant's version; if neither does, the
+    /// caller sees <see cref="SecretResolvePath.NotFound"/>.
+    /// </para>
+    /// </summary>
+    /// <param name="ref">The structural reference.</param>
+    /// <param name="version">
+    /// The version to pin to, or <c>null</c> for the latest version.
+    /// </param>
+    /// <param name="ct">Cancellation token.</param>
+    Task<(SecretPointer Pointer, int? Version)?> LookupWithVersionAsync(SecretRef @ref, int? version, CancellationToken ct);
+
+    /// <summary>
+    /// Latest-version convenience overload for resolver paths that never
+    /// pin. Equivalent to
+    /// <see cref="LookupWithVersionAsync(SecretRef, int?, CancellationToken)"/>
+    /// with <paramref name="version"/> = <c>null</c>.
     /// </summary>
     /// <param name="ref">The structural reference.</param>
     /// <param name="ct">Cancellation token.</param>
@@ -83,8 +134,12 @@ public interface ISecretRegistry
 
     /// <summary>
     /// Lists the structural references registered in the current tenant
-    /// for the given scope and owner. Order is unspecified; callers that
-    /// render lists should sort client-side.
+    /// for the given scope and owner. Each unique
+    /// <c>(scope, owner, name)</c> triple is returned exactly once
+    /// regardless of how many versions are retained; callers that need
+    /// per-version metadata use <see cref="ListVersionsAsync"/>. Order
+    /// is unspecified; callers that render lists should sort
+    /// client-side.
     /// </summary>
     /// <param name="scope">The scope to list.</param>
     /// <param name="ownerId">The scope-specific owner id.</param>
@@ -92,31 +147,36 @@ public interface ISecretRegistry
     Task<IReadOnlyList<SecretRef>> ListAsync(SecretScope scope, string ownerId, CancellationToken ct);
 
     /// <summary>
-    /// Rotates an existing registry entry to a new store key / origin.
+    /// Lists the versions retained for the given structural reference,
+    /// newest first. Returns an empty list when no versions exist (the
+    /// triple has never been registered, or was deleted). Each entry
+    /// carries the version number, origin, creation timestamp, and a
+    /// flag marking the current (latest) version.
+    /// </summary>
+    /// <param name="ref">The structural reference.</param>
+    /// <param name="ct">Cancellation token.</param>
+    Task<IReadOnlyList<SecretVersionInfo>> ListVersionsAsync(SecretRef @ref, CancellationToken ct);
+
+    /// <summary>
+    /// Rotates an existing registry entry by APPENDING a new version.
     /// Atomically (within the registry's unit of work):
     /// <list type="bullet">
-    ///   <item><description>Replaces the entry's <c>StoreKey</c> with <paramref name="newStoreKey"/>.</description></item>
-    ///   <item><description>Replaces the entry's <c>Origin</c> with <paramref name="newOrigin"/>.</description></item>
-    ///   <item><description>Increments the entry's <c>Version</c>. Legacy rows (null version) become version <c>1</c>.</description></item>
-    ///   <item><description>Updates the <c>UpdatedAt</c> timestamp.</description></item>
+    ///   <item><description>Inserts a new row for the triple at version <c>max(Version)+1</c>.</description></item>
+    ///   <item><description>Records <paramref name="newStoreKey"/> and <paramref name="newOrigin"/> on the new row.</description></item>
+    ///   <item><description>Stamps <c>CreatedAt</c> / <c>UpdatedAt</c> on the new row.</description></item>
+    ///   <item><description>LEAVES the previous version(s) intact. Pinned resolves of earlier versions continue to succeed.</description></item>
     /// </list>
-    /// If the previous pointer was <see cref="SecretOrigin.PlatformOwned"/>
-    /// the old backing store slot is scheduled for deletion via
-    /// <paramref name="deletePreviousStoreKeyAsync"/>. The delete policy is
-    /// <b>immediate</b>: once the registry row points at
-    /// <paramref name="newStoreKey"/>, no in-flight reader can reach the
-    /// old slot, so retaining it would only leak plaintext. Callers
-    /// already holding the old plaintext in memory are unaffected.
-    /// External-reference pointers are never touched — the old external
-    /// key is left where it lives and the implementation must not call
-    /// <paramref name="deletePreviousStoreKeyAsync"/>.
     ///
     /// <para>
-    /// The <paramref name="deletePreviousStoreKeyAsync"/> delegate is
-    /// injected by the caller (typically the endpoint handler, which
-    /// already has an <see cref="ISecretStore"/> reference) so that the
-    /// <c>Cvoya.Spring.Core</c> abstraction stays dependency-free. The
-    /// registry invokes it only after its own write has committed.
+    /// <b>Old-slot retention flip (wave 7 A5).</b> The pre-A5 policy
+    /// immediately deleted the previous platform-owned store-layer slot
+    /// on rotate. With multi-version coexistence that policy inverts:
+    /// the previous slot is retained so pinned resolves still work.
+    /// <paramref name="deletePreviousStoreKeyAsync"/> is therefore
+    /// accepted for signature compatibility but NEVER invoked by the
+    /// rotate path. Store-layer slots are reclaimed only when their
+    /// version row is pruned via <see cref="PruneAsync"/> or the whole
+    /// chain is deleted via <see cref="DeleteAsync"/>.
     /// </para>
     ///
     /// <para>
@@ -124,17 +184,17 @@ public interface ISecretRegistry
     /// The result is the sole input an audit-log decorator wrapping
     /// <see cref="ISecretRegistry"/> needs to emit a complete rotation
     /// event (ref, from/to versions, pointer transition, whether the
-    /// old slot was reclaimed).
+    /// old slot was reclaimed — always <c>false</c> under the multi-
+    /// version policy).
     /// </para>
     /// </summary>
     /// <param name="ref">The structural reference to rotate. Must already exist in the current tenant.</param>
     /// <param name="newStoreKey">The replacement store key (platform-written key for pass-through; external pointer for external-reference).</param>
     /// <param name="newOrigin">The origin of the replacement pointer. May differ from the previous origin (e.g. rotating a platform-owned entry onto an external reference, or vice versa).</param>
     /// <param name="deletePreviousStoreKeyAsync">
-    /// Async delegate invoked with the old store key if and only if the
-    /// previous origin was <see cref="SecretOrigin.PlatformOwned"/>. A
-    /// <c>null</c> delegate disables cleanup — useful for tests that want
-    /// to assert pointer transitions without a real <see cref="ISecretStore"/>.
+    /// Retained for signature compatibility with the pre-A5 contract;
+    /// never invoked under the multi-version policy. Callers may pass
+    /// <c>null</c>.
     /// </param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>A <see cref="SecretRotation"/> describing the transition.</returns>
@@ -151,13 +211,58 @@ public interface ISecretRegistry
         CancellationToken ct);
 
     /// <summary>
-    /// Removes the structural reference for the given triple from the
+    /// Prunes historical versions of the given structural reference so
+    /// that at most <paramref name="keep"/> most-recent versions remain.
+    /// The current (latest) version is ALWAYS retained — callers who
+    /// want to drop it entirely go through <see cref="DeleteAsync"/>.
+    ///
+    /// <para>
+    /// When <paramref name="keep"/> is greater than or equal to the
+    /// current version count the call is a no-op and returns
+    /// <c>0</c>. When a version being pruned was platform-owned and
+    /// <paramref name="deletePrunedStoreKeyAsync"/> is non-null, that
+    /// delegate is invoked for each reclaimed store key — symmetric
+    /// with <see cref="DeleteAsync"/>. External-reference versions are
+    /// never touched.
+    /// </para>
+    ///
+    /// <para>
+    /// Returns the number of version rows pruned. An audit-log
+    /// decorator wrapping the registry records this count plus the
+    /// list of version numbers it saw via
+    /// <see cref="ListVersionsAsync"/> pre-call.
+    /// </para>
+    /// </summary>
+    /// <param name="ref">The structural reference to prune.</param>
+    /// <param name="keep">
+    /// The maximum number of most-recent versions to retain. Must be
+    /// at least <c>1</c>.
+    /// </param>
+    /// <param name="deletePrunedStoreKeyAsync">
+    /// Optional delegate invoked for each PlatformOwned store key that
+    /// was pruned. <c>null</c> disables cleanup — useful for tests that
+    /// assert row-removal without a real <see cref="ISecretStore"/>.
+    /// </param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>The number of version rows removed.</returns>
+    /// <exception cref="System.ArgumentOutOfRangeException">
+    /// Thrown when <paramref name="keep"/> is less than <c>1</c>.
+    /// </exception>
+    Task<int> PruneAsync(
+        SecretRef @ref,
+        int keep,
+        Func<string, CancellationToken, Task>? deletePrunedStoreKeyAsync,
+        CancellationToken ct);
+
+    /// <summary>
+    /// Removes every version of the given structural reference from the
     /// current tenant. A missing reference is not an error. The caller
-    /// is responsible for separately deleting the underlying value from
-    /// <see cref="ISecretStore"/> — and must first check the
-    /// <see cref="SecretPointer.Origin"/> returned by
-    /// <see cref="LookupAsync"/>: only <see cref="SecretOrigin.PlatformOwned"/>
-    /// pointers may be deleted through <see cref="ISecretStore.DeleteAsync"/>.
+    /// is responsible for separately deleting the underlying values
+    /// from <see cref="ISecretStore"/> — and must first inspect the
+    /// per-version origins via <see cref="ListVersionsAsync"/> or the
+    /// <paramref name="onDeleted"/> callback: only
+    /// <see cref="SecretOrigin.PlatformOwned"/> pointers may be deleted
+    /// through <see cref="ISecretStore.DeleteAsync"/>.
     /// </summary>
     /// <param name="ref">The structural reference.</param>
     /// <param name="ct">Cancellation token.</param>

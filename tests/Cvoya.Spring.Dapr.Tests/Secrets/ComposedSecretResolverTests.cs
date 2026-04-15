@@ -317,6 +317,175 @@ public class ComposedSecretResolverTests
         results.ShouldAllBe(v => v == "unit-value");
     }
 
+    // ----------------------------------------------------------------------
+    // Version pinning (wave 7 A5)
+    // ----------------------------------------------------------------------
+
+    [Fact]
+    public async Task ResolveWithPathAsync_VersionPinned_UnitHasThatVersion_ReturnsIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var registry = Substitute.For<ISecretRegistry>();
+        var store = Substitute.For<ISecretStore>();
+
+        var unitRef = new SecretRef(SecretScope.Unit, "u1", "foo");
+        registry.LookupWithVersionAsync(unitRef, 2, ct)
+            .Returns((new SecretPointer("sk-unit-v2", SecretOrigin.PlatformOwned), (int?)2));
+        store.ReadAsync("sk-unit-v2", ct).Returns("value-v2");
+
+        var sut = CreateSut(registry, store);
+
+        var resolution = await sut.ResolveWithPathAsync(unitRef, 2, ct);
+
+        resolution.Value.ShouldBe("value-v2");
+        resolution.Path.ShouldBe(SecretResolvePath.Direct);
+        resolution.Version.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task ResolveWithPathAsync_VersionPinned_NoMatchAtUnit_FallsThroughToSameVersionAtTenant()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var registry = Substitute.For<ISecretRegistry>();
+        var store = Substitute.For<ISecretStore>();
+        var policy = Substitute.For<ISecretAccessPolicy>();
+        policy.IsAuthorizedAsync(Arg.Any<SecretAccessAction>(), Arg.Any<SecretScope>(), Arg.Any<string>(), ct)
+            .Returns(true);
+
+        var unitRef = new SecretRef(SecretScope.Unit, "u1", "shared");
+        var tenantRef = new SecretRef(SecretScope.Tenant, TenantId, "shared");
+        registry.LookupWithVersionAsync(unitRef, 2, ct)
+            .Returns(((SecretPointer Pointer, int? Version)?)null);
+        registry.LookupWithVersionAsync(tenantRef, 2, ct)
+            .Returns((new SecretPointer("sk-tenant-v2", SecretOrigin.PlatformOwned), (int?)2));
+        store.ReadAsync("sk-tenant-v2", ct).Returns("tenant-value-v2");
+
+        var sut = CreateSut(registry, store, policy);
+
+        var resolution = await sut.ResolveWithPathAsync(unitRef, 2, ct);
+
+        resolution.Value.ShouldBe("tenant-value-v2");
+        resolution.Path.ShouldBe(SecretResolvePath.InheritedFromTenant);
+        resolution.EffectiveRef.ShouldBe(tenantRef);
+        resolution.Version.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task ResolveWithPathAsync_VersionPinned_NoMatchAnywhere_ReturnsNotFound_NotSilentFallback()
+    {
+        // Critical invariant: a pinned read NEVER silently returns a
+        // different version. Unit lacks v3, tenant has only v2 (not v3)
+        // — the resolver must return NotFound, not the tenant's v2.
+        var ct = TestContext.Current.CancellationToken;
+        var registry = Substitute.For<ISecretRegistry>();
+        var store = Substitute.For<ISecretStore>();
+        var policy = Substitute.For<ISecretAccessPolicy>();
+        policy.IsAuthorizedAsync(Arg.Any<SecretAccessAction>(), Arg.Any<SecretScope>(), Arg.Any<string>(), ct)
+            .Returns(true);
+
+        var unitRef = new SecretRef(SecretScope.Unit, "u1", "shared");
+        var tenantRef = new SecretRef(SecretScope.Tenant, TenantId, "shared");
+        registry.LookupWithVersionAsync(unitRef, 3, ct)
+            .Returns(((SecretPointer Pointer, int? Version)?)null);
+        registry.LookupWithVersionAsync(tenantRef, 3, ct)
+            .Returns(((SecretPointer Pointer, int? Version)?)null);
+
+        var sut = CreateSut(registry, store, policy);
+
+        var resolution = await sut.ResolveWithPathAsync(unitRef, 3, ct);
+
+        resolution.Value.ShouldBeNull();
+        resolution.Path.ShouldBe(SecretResolvePath.NotFound);
+
+        // The store must not have been consulted for the tenant v2 pointer.
+        await store.DidNotReceive().ReadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ResolveWithPathAsync_NullVersion_UsesLatestOverload_AndStubsSeeLegacyCallShape()
+    {
+        // Verifies the back-compat path: ResolveWithPathAsync(ref, ct)
+        // and ResolveWithPathAsync(ref, null, ct) both end up calling
+        // the single-argument LookupWithVersionAsync, so audit
+        // decorators and test stubs written against the A4-era signature
+        // keep working.
+        var ct = TestContext.Current.CancellationToken;
+        var registry = Substitute.For<ISecretRegistry>();
+        var store = Substitute.For<ISecretStore>();
+
+        var unitRef = new SecretRef(SecretScope.Unit, "u1", "foo");
+        registry.LookupWithVersionAsync(unitRef, ct)
+            .Returns((new SecretPointer("sk-latest", SecretOrigin.PlatformOwned), (int?)4));
+        store.ReadAsync("sk-latest", ct).Returns("latest-value");
+
+        var sut = CreateSut(registry, store);
+
+        var resolution = await sut.ResolveWithPathAsync(unitRef, null, ct);
+
+        resolution.Value.ShouldBe("latest-value");
+        resolution.Version.ShouldBe(4);
+
+        // Only the single-arg overload was called.
+        await registry.Received(1).LookupWithVersionAsync(unitRef, ct);
+        await registry.DidNotReceive()
+            .LookupWithVersionAsync(Arg.Any<SecretRef>(), Arg.Any<int?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ResolveWithPathAsync_LatestNullVersion_UnitEmpty_TenantMulti_InheritsTenantLatest()
+    {
+        // Scenario from the A5 spec: unit has no versions, tenant has
+        // v1 and v2. A latest-resolve at unit scope falls back to
+        // tenant and returns tenant's v2 (latest).
+        var ct = TestContext.Current.CancellationToken;
+        var registry = Substitute.For<ISecretRegistry>();
+        var store = Substitute.For<ISecretStore>();
+        var policy = Substitute.For<ISecretAccessPolicy>();
+        policy.IsAuthorizedAsync(Arg.Any<SecretAccessAction>(), Arg.Any<SecretScope>(), Arg.Any<string>(), ct)
+            .Returns(true);
+
+        var unitRef = new SecretRef(SecretScope.Unit, "u1", "shared");
+        var tenantRef = new SecretRef(SecretScope.Tenant, TenantId, "shared");
+
+        // Latest (null) lookup — the composed resolver uses the legacy
+        // overload for null-version lookups.
+        registry.LookupWithVersionAsync(unitRef, ct)
+            .Returns(((SecretPointer Pointer, int? Version)?)null);
+        registry.LookupWithVersionAsync(tenantRef, ct)
+            .Returns((new SecretPointer("sk-tenant-v2", SecretOrigin.PlatformOwned), (int?)2));
+        store.ReadAsync("sk-tenant-v2", ct).Returns("tenant-v2-value");
+
+        var sut = CreateSut(registry, store, policy);
+
+        var resolution = await sut.ResolveWithPathAsync(unitRef, ct);
+
+        resolution.Value.ShouldBe("tenant-v2-value");
+        resolution.Path.ShouldBe(SecretResolvePath.InheritedFromTenant);
+        resolution.Version.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task ResolveWithPathAsync_VersionPinned_ReadDenied_FailsClosed()
+    {
+        // Access policy denial stops the resolve before the registry is
+        // hit, even for pinned reads. The decorator path still sees the
+        // attempt.
+        var ct = TestContext.Current.CancellationToken;
+        var registry = Substitute.For<ISecretRegistry>();
+        var store = Substitute.For<ISecretStore>();
+        var policy = Substitute.For<ISecretAccessPolicy>();
+        policy.IsAuthorizedAsync(SecretAccessAction.Read, SecretScope.Unit, "u1", ct).Returns(false);
+
+        var unitRef = new SecretRef(SecretScope.Unit, "u1", "foo");
+        var sut = CreateSut(registry, store, policy);
+
+        var resolution = await sut.ResolveWithPathAsync(unitRef, 2, ct);
+
+        resolution.Path.ShouldBe(SecretResolvePath.NotFound);
+        await registry.DidNotReceive()
+            .LookupWithVersionAsync(Arg.Any<SecretRef>(), Arg.Any<int?>(), Arg.Any<CancellationToken>());
+    }
+
     [Fact]
     public async Task ListAsync_DelegatesToRegistry()
     {

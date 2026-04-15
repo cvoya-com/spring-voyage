@@ -12,11 +12,21 @@ using Microsoft.EntityFrameworkCore;
 
 /// <summary>
 /// EF Core-backed <see cref="ISecretRegistry"/> that stores the
-/// (tenant, scope, owner, name) → storeKey mapping in the
+/// (tenant, scope, owner, name, version) → storeKey mapping in the
 /// <c>secret_registry_entries</c> table. Every query is filtered by the
 /// current tenant resolved from <see cref="ITenantContext"/> so a
 /// caller in tenant A can never observe or modify entries owned by
 /// tenant B.
+///
+/// <para>
+/// <b>Multi-version coexistence (wave 7 A5).</b> Each version is a
+/// separate row — the primary-key-ish structural identifier is
+/// <c>(TenantId, Scope, OwnerId, Name, Version)</c>, enforced by a
+/// unique index. Lookups default to the MAX(Version) row; pinned
+/// lookups select a specific version. Rotation inserts a new row at
+/// <c>max(Version)+1</c>. Prune removes older rows while retaining the
+/// current one.
+/// </para>
 /// </summary>
 public class EfSecretRegistry : ISecretRegistry
 {
@@ -40,41 +50,36 @@ public class EfSecretRegistry : ISecretRegistry
 
         var tenant = _tenantContext.CurrentTenantId;
 
-        var existing = await _db.SecretRegistryEntries
-            .FirstOrDefaultAsync(
-                e => e.TenantId == tenant
-                  && e.Scope == @ref.Scope
-                  && e.OwnerId == @ref.OwnerId
-                  && e.Name == @ref.Name,
-                ct);
+        // Register is a wipe-and-replace primitive: any existing chain
+        // (all versions) is removed and replaced by a single fresh row
+        // at version 1. This preserves the pre-A5 POST semantics —
+        // POST creates a brand-new chain, PUT (rotate) appends. The
+        // rationale is documented in ISecretRegistry.RegisterAsync XML.
+        var chain = await _db.SecretRegistryEntries
+            .Where(e => e.TenantId == tenant
+                     && e.Scope == @ref.Scope
+                     && e.OwnerId == @ref.OwnerId
+                     && e.Name == @ref.Name)
+            .ToListAsync(ct);
 
-        if (existing is null)
+        if (chain.Count > 0)
         {
-            _db.SecretRegistryEntries.Add(new SecretRegistryEntry
-            {
-                Id = Guid.NewGuid(),
-                TenantId = tenant,
-                Scope = @ref.Scope,
-                OwnerId = @ref.OwnerId,
-                Name = @ref.Name,
-                StoreKey = storeKey,
-                Origin = origin,
-                // New rows start at version 1 so the audit path has a
-                // stable "initial version" signal. Legacy rows left at
-                // null remain null until a rotate transitions them.
-                Version = 1,
-                CreatedAt = DateTimeOffset.UtcNow,
-                UpdatedAt = DateTimeOffset.UtcNow,
-            });
+            _db.SecretRegistryEntries.RemoveRange(chain);
         }
-        else
+
+        _db.SecretRegistryEntries.Add(new SecretRegistryEntry
         {
-            existing.StoreKey = storeKey;
-            existing.Origin = origin;
-            // Register is explicitly a replacement primitive, not a
-            // rotation. Callers that want to track version transitions
-            // must go through RotateAsync, which bumps the version.
-        }
+            Id = Guid.NewGuid(),
+            TenantId = tenant,
+            Scope = @ref.Scope,
+            OwnerId = @ref.OwnerId,
+            Name = @ref.Name,
+            StoreKey = storeKey,
+            Origin = origin,
+            Version = 1,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
+        });
 
         await _db.SaveChangesAsync(ct);
     }
@@ -84,17 +89,7 @@ public class EfSecretRegistry : ISecretRegistry
     {
         ArgumentNullException.ThrowIfNull(@ref);
 
-        var tenant = _tenantContext.CurrentTenantId;
-
-        var entry = await _db.SecretRegistryEntries
-            .AsNoTracking()
-            .FirstOrDefaultAsync(
-                e => e.TenantId == tenant
-                  && e.Scope == @ref.Scope
-                  && e.OwnerId == @ref.OwnerId
-                  && e.Name == @ref.Name,
-                ct);
-
+        var entry = await LoadLatestAsync(@ref, ct);
         return entry is null ? null : new SecretPointer(entry.StoreKey, entry.Origin);
     }
 
@@ -106,20 +101,18 @@ public class EfSecretRegistry : ISecretRegistry
     }
 
     /// <inheritdoc />
-    public async Task<(SecretPointer Pointer, int? Version)?> LookupWithVersionAsync(SecretRef @ref, CancellationToken ct)
+    public Task<(SecretPointer Pointer, int? Version)?> LookupWithVersionAsync(SecretRef @ref, CancellationToken ct)
+        => LookupWithVersionAsync(@ref, version: null, ct);
+
+    /// <inheritdoc />
+    public async Task<(SecretPointer Pointer, int? Version)?> LookupWithVersionAsync(
+        SecretRef @ref, int? version, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(@ref);
 
-        var tenant = _tenantContext.CurrentTenantId;
-
-        var entry = await _db.SecretRegistryEntries
-            .AsNoTracking()
-            .FirstOrDefaultAsync(
-                e => e.TenantId == tenant
-                  && e.Scope == @ref.Scope
-                  && e.OwnerId == @ref.OwnerId
-                  && e.Name == @ref.Name,
-                ct);
+        var entry = version is null
+            ? await LoadLatestAsync(@ref, ct)
+            : await LoadSpecificVersionAsync(@ref, version.Value, ct);
 
         if (entry is null)
         {
@@ -136,13 +129,69 @@ public class EfSecretRegistry : ISecretRegistry
 
         var tenant = _tenantContext.CurrentTenantId;
 
-        var entries = await _db.SecretRegistryEntries
+        // Collapse per-version rows to one entry per (scope, owner,
+        // name) triple. EF Core cannot GroupBy-then-project cleanly
+        // against the in-memory provider used in tests, so pull the
+        // distinct names and rehydrate refs client-side.
+        var names = await _db.SecretRegistryEntries
             .AsNoTracking()
             .Where(e => e.TenantId == tenant && e.Scope == scope && e.OwnerId == ownerId)
+            .Select(e => e.Name)
+            .Distinct()
             .ToListAsync(ct);
 
-        return entries
-            .Select(e => new SecretRef(e.Scope, e.OwnerId, e.Name))
+        return names
+            .Select(n => new SecretRef(scope, ownerId, n))
+            .ToList();
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<SecretVersionInfo>> ListVersionsAsync(SecretRef @ref, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(@ref);
+
+        var tenant = _tenantContext.CurrentTenantId;
+
+        var versions = await _db.SecretRegistryEntries
+            .AsNoTracking()
+            .Where(e => e.TenantId == tenant
+                     && e.Scope == @ref.Scope
+                     && e.OwnerId == @ref.OwnerId
+                     && e.Name == @ref.Name)
+            .OrderByDescending(e => e.Version)
+            .Select(e => new { e.Version, e.Origin, e.CreatedAt })
+            .ToListAsync(ct);
+
+        if (versions.Count == 0)
+        {
+            return Array.Empty<SecretVersionInfo>();
+        }
+
+        // The row with the highest Version is the current one. Legacy
+        // rows with a null Version never reached multi-version land;
+        // they're treated as version 0 for ordering so a subsequent
+        // rotate produces version 1. We do not surface null-version
+        // rows in the per-version listing — callers that want them
+        // should inspect the raw table, and the migration should have
+        // made them moot.
+        var materialized = versions
+            .Where(v => v.Version.HasValue)
+            .Select(v => new { Version = v.Version!.Value, v.Origin, v.CreatedAt })
+            .ToList();
+
+        if (materialized.Count == 0)
+        {
+            return Array.Empty<SecretVersionInfo>();
+        }
+
+        var currentVersion = materialized.Max(v => v.Version);
+
+        return materialized
+            .Select(v => new SecretVersionInfo(
+                v.Version,
+                v.Origin,
+                v.CreatedAt,
+                v.Version == currentVersion))
             .ToList();
     }
 
@@ -156,20 +205,14 @@ public class EfSecretRegistry : ISecretRegistry
     {
         ArgumentNullException.ThrowIfNull(@ref);
         ArgumentException.ThrowIfNullOrWhiteSpace(newStoreKey);
+        _ = deletePreviousStoreKeyAsync; // retained for signature compat; never invoked under multi-version.
 
         var tenant = _tenantContext.CurrentTenantId;
 
-        var existing = await _db.SecretRegistryEntries
-            .FirstOrDefaultAsync(
-                e => e.TenantId == tenant
-                  && e.Scope == @ref.Scope
-                  && e.OwnerId == @ref.OwnerId
-                  && e.Name == @ref.Name,
-                ct);
-
-        if (existing is null)
+        var latest = await LoadLatestAsync(@ref, ct);
+        if (latest is null)
         {
-            // Rotation requires an existing entry; callers that intend
+            // Rotation requires an existing chain; callers that intend
             // to create go through RegisterAsync / POST. Surfacing this
             // as InvalidOperationException lets the endpoint layer map
             // it to 404 without parsing error strings.
@@ -177,38 +220,28 @@ public class EfSecretRegistry : ISecretRegistry
                 $"Cannot rotate secret '{@ref.Name}' for {@ref.Scope} '{@ref.OwnerId}': no registry entry exists in tenant '{tenant}'.");
         }
 
-        var previousPointer = new SecretPointer(existing.StoreKey, existing.Origin);
-        var fromVersion = existing.Version;
-        // Legacy rows (null version) transition to version 1 on their
-        // first rotation. Post-migration rows increment from their
-        // current value. Audit decorators see both transitions via
-        // SecretRotation.FromVersion / ToVersion.
+        var previousPointer = new SecretPointer(latest.StoreKey, latest.Origin);
+        var fromVersion = latest.Version;
         var toVersion = (fromVersion ?? 0) + 1;
 
-        existing.StoreKey = newStoreKey;
-        existing.Origin = newOrigin;
-        existing.Version = toVersion;
-        existing.UpdatedAt = DateTimeOffset.UtcNow;
+        // APPEND a new version. The old row stays in place so pinned
+        // resolves (by SecretRef, version = fromVersion) continue to
+        // work. Store-layer slots are reclaimed only by prune/delete.
+        _db.SecretRegistryEntries.Add(new SecretRegistryEntry
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tenant,
+            Scope = @ref.Scope,
+            OwnerId = @ref.OwnerId,
+            Name = @ref.Name,
+            StoreKey = newStoreKey,
+            Origin = newOrigin,
+            Version = toVersion,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
+        });
 
         await _db.SaveChangesAsync(ct);
-
-        // Immediate-delete policy for the old platform-owned slot. The
-        // rotation-specific decision documented in
-        // docs/developer/secret-store.md: once the registry points at
-        // the new key, no in-flight reader can reach the old slot, so
-        // any retention would only leak plaintext. External references
-        // are never touched — the customer owns that slot.
-        var deleted = false;
-        if (previousPointer.Origin == SecretOrigin.PlatformOwned && deletePreviousStoreKeyAsync is not null)
-        {
-            // Best-effort: if the store-delete fails we still return a
-            // successful rotation (the registry is the source of
-            // truth). Callers with stricter guarantees can wrap this
-            // with retry / compensating logic — see the follow-up
-            // issue for orphan reconciliation.
-            await deletePreviousStoreKeyAsync(previousPointer.StoreKey, ct);
-            deleted = true;
-        }
 
         return new SecretRotation(
             @ref,
@@ -216,7 +249,62 @@ public class EfSecretRegistry : ISecretRegistry
             toVersion,
             previousPointer,
             new SecretPointer(newStoreKey, newOrigin),
-            deleted);
+            PreviousStoreKeyDeleted: false);
+    }
+
+    /// <inheritdoc />
+    public async Task<int> PruneAsync(
+        SecretRef @ref,
+        int keep,
+        Func<string, CancellationToken, Task>? deletePrunedStoreKeyAsync,
+        CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(@ref);
+        if (keep < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(keep), keep,
+                "keep must be at least 1; prune never removes the current version.");
+        }
+
+        var tenant = _tenantContext.CurrentTenantId;
+
+        var chain = await _db.SecretRegistryEntries
+            .Where(e => e.TenantId == tenant
+                     && e.Scope == @ref.Scope
+                     && e.OwnerId == @ref.OwnerId
+                     && e.Name == @ref.Name
+                     && e.Version != null)
+            .OrderByDescending(e => e.Version)
+            .ToListAsync(ct);
+
+        if (chain.Count <= keep)
+        {
+            return 0;
+        }
+
+        // Keep the top-N most recent (by version). Everything beyond
+        // the first `keep` rows is pruned.
+        var toRemove = chain.Skip(keep).ToList();
+        _db.SecretRegistryEntries.RemoveRange(toRemove);
+        await _db.SaveChangesAsync(ct);
+
+        // Reclaim the store-layer slots for platform-owned pruned
+        // versions. External-reference slots are never touched — the
+        // customer owns them. Delete failures are swallowed in the
+        // outer caller's fashion; we surface them here so callers can
+        // decide.
+        if (deletePrunedStoreKeyAsync is not null)
+        {
+            foreach (var row in toRemove)
+            {
+                if (row.Origin == SecretOrigin.PlatformOwned)
+                {
+                    await deletePrunedStoreKeyAsync(row.StoreKey, ct);
+                }
+            }
+        }
+
+        return toRemove.Count;
     }
 
     /// <inheritdoc />
@@ -226,20 +314,56 @@ public class EfSecretRegistry : ISecretRegistry
 
         var tenant = _tenantContext.CurrentTenantId;
 
-        var existing = await _db.SecretRegistryEntries
-            .FirstOrDefaultAsync(
-                e => e.TenantId == tenant
-                  && e.Scope == @ref.Scope
-                  && e.OwnerId == @ref.OwnerId
-                  && e.Name == @ref.Name,
-                ct);
+        var chain = await _db.SecretRegistryEntries
+            .Where(e => e.TenantId == tenant
+                     && e.Scope == @ref.Scope
+                     && e.OwnerId == @ref.OwnerId
+                     && e.Name == @ref.Name)
+            .ToListAsync(ct);
 
-        if (existing is null)
+        if (chain.Count == 0)
         {
             return;
         }
 
-        _db.SecretRegistryEntries.Remove(existing);
+        _db.SecretRegistryEntries.RemoveRange(chain);
         await _db.SaveChangesAsync(ct);
+    }
+
+    private async Task<SecretRegistryEntry?> LoadLatestAsync(SecretRef @ref, CancellationToken ct)
+    {
+        var tenant = _tenantContext.CurrentTenantId;
+
+        // The EF Core in-memory provider (used by the test suite) does
+        // not support sub-query projections like
+        // `.Where(... Version == MAX(Version))` reliably; pulling the
+        // small chain and picking the max client-side is both simpler
+        // and provider-agnostic. Production chains are short (single
+        // digits before prune in any realistic use case), so the
+        // round-trip cost is negligible.
+        return await _db.SecretRegistryEntries
+            .AsNoTracking()
+            .Where(e => e.TenantId == tenant
+                     && e.Scope == @ref.Scope
+                     && e.OwnerId == @ref.OwnerId
+                     && e.Name == @ref.Name)
+            .OrderByDescending(e => e.Version)
+            .FirstOrDefaultAsync(ct);
+    }
+
+    private async Task<SecretRegistryEntry?> LoadSpecificVersionAsync(
+        SecretRef @ref, int version, CancellationToken ct)
+    {
+        var tenant = _tenantContext.CurrentTenantId;
+
+        return await _db.SecretRegistryEntries
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                e => e.TenantId == tenant
+                  && e.Scope == @ref.Scope
+                  && e.OwnerId == @ref.OwnerId
+                  && e.Name == @ref.Name
+                  && e.Version == version,
+                ct);
     }
 }

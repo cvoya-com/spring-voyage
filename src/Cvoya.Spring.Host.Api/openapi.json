@@ -2906,7 +2906,7 @@
         "tags": [
           "Secrets"
         ],
-        "summary": "Rotate a unit-scoped secret. Replaces the value/pointer and bumps the version atomically. Provide exactly one of 'value' or 'externalStoreKey'. The entry must already exist — use POST to create.",
+        "summary": "Rotate a unit-scoped secret by appending a new version. Returns the new version number. Prior versions remain resolvable via the pin overload until pruned.",
         "operationId": "RotateUnitSecret",
         "parameters": [
           {
@@ -2937,8 +2937,15 @@
           "required": true
         },
         "responses": {
-          "204": {
-            "description": "No Content"
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RotateSecretResponse"
+                }
+              }
+            }
           },
           "400": {
             "description": "Bad Request",
@@ -2976,7 +2983,7 @@
         "tags": [
           "Secrets"
         ],
-        "summary": "Delete a unit-scoped secret. The underlying plaintext is removed only for platform-owned entries; external references leave the external store key untouched.",
+        "summary": "Delete a unit-scoped secret (all versions). Underlying plaintext is removed only for platform-owned versions; external references leave the external store key untouched.",
         "operationId": "DeleteUnitSecret",
         "parameters": [
           {
@@ -3022,6 +3029,146 @@
           },
           "500": {
             "description": "Internal Server Error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/units/{id}/secrets/{name}/versions": {
+      "get": {
+        "tags": [
+          "Secrets"
+        ],
+        "summary": "List retained versions for a unit-scoped secret. Metadata only; never returns plaintext or store keys.",
+        "operationId": "ListUnitSecretVersions",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecretVersionsListResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/units/{id}/secrets/{name}/prune": {
+      "post": {
+        "tags": [
+          "Secrets"
+        ],
+        "summary": "Prune older versions of a unit-scoped secret, retaining the N most-recent. 'keep' must be >= 1; the current version is always retained.",
+        "operationId": "PruneUnitSecret",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "keep",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PruneSecretResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -3128,7 +3275,7 @@
         "tags": [
           "Secrets"
         ],
-        "summary": "Rotate a tenant-scoped secret. Replaces the value/pointer and bumps the version atomically. Provide exactly one of 'value' or 'externalStoreKey'. The entry must already exist — use POST to create.",
+        "summary": "Rotate a tenant-scoped secret by appending a new version. Returns the new version number.",
         "operationId": "RotateTenantSecret",
         "parameters": [
           {
@@ -3151,8 +3298,15 @@
           "required": true
         },
         "responses": {
-          "204": {
-            "description": "No Content"
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RotateSecretResponse"
+                }
+              }
+            }
           },
           "400": {
             "description": "Bad Request",
@@ -3190,7 +3344,7 @@
         "tags": [
           "Secrets"
         ],
-        "summary": "Delete a tenant-scoped secret. The underlying plaintext is removed only for platform-owned entries; external references leave the external store key untouched.",
+        "summary": "Delete a tenant-scoped secret (all versions). Underlying plaintext is removed only for platform-owned versions; external references leave the external store key untouched.",
         "operationId": "DeleteTenantSecret",
         "parameters": [
           {
@@ -3228,6 +3382,130 @@
           },
           "500": {
             "description": "Internal Server Error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tenant/secrets/{name}/versions": {
+      "get": {
+        "tags": [
+          "Secrets"
+        ],
+        "summary": "List retained versions for a tenant-scoped secret. Metadata only; never returns plaintext or store keys.",
+        "operationId": "ListTenantSecretVersions",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecretVersionsListResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tenant/secrets/{name}/prune": {
+      "post": {
+        "tags": [
+          "Secrets"
+        ],
+        "summary": "Prune older versions of a tenant-scoped secret, retaining the N most-recent. 'keep' must be >= 1.",
+        "operationId": "PruneTenantSecret",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "keep",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PruneSecretResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -3334,7 +3612,7 @@
         "tags": [
           "Secrets"
         ],
-        "summary": "Rotate a platform-scoped secret. Replaces the value/pointer and bumps the version atomically. Provide exactly one of 'value' or 'externalStoreKey'. The entry must already exist — use POST to create.",
+        "summary": "Rotate a platform-scoped secret by appending a new version. Returns the new version number.",
         "operationId": "RotatePlatformSecret",
         "parameters": [
           {
@@ -3357,8 +3635,15 @@
           "required": true
         },
         "responses": {
-          "204": {
-            "description": "No Content"
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RotateSecretResponse"
+                }
+              }
+            }
           },
           "400": {
             "description": "Bad Request",
@@ -3396,7 +3681,7 @@
         "tags": [
           "Secrets"
         ],
-        "summary": "Delete a platform-scoped secret. The underlying plaintext is removed only for platform-owned entries; external references leave the external store key untouched.",
+        "summary": "Delete a platform-scoped secret (all versions). Underlying plaintext is removed only for platform-owned versions; external references leave the external store key untouched.",
         "operationId": "DeletePlatformSecret",
         "parameters": [
           {
@@ -3434,6 +3719,130 @@
           },
           "500": {
             "description": "Internal Server Error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/platform/secrets/{name}/versions": {
+      "get": {
+        "tags": [
+          "Secrets"
+        ],
+        "summary": "List retained versions for a platform-scoped secret. Metadata only; never returns plaintext or store keys.",
+        "operationId": "ListPlatformSecretVersions",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecretVersionsListResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/platform/secrets/{name}/prune": {
+      "post": {
+        "tags": [
+          "Secrets"
+        ],
+        "summary": "Prune older versions of a platform-scoped secret, retaining the N most-recent. 'keep' must be >= 1.",
+        "operationId": "PrunePlatformSecret",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "keep",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PruneSecretResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -4392,6 +4801,39 @@
           }
         }
       },
+      "PruneSecretResponse": {
+        "required": [
+          "name",
+          "scope",
+          "keep",
+          "pruned"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/SecretScope"
+          },
+          "keep": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "pruned": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
       "RotateSecretRequest": {
         "type": "object",
         "properties": {
@@ -4406,6 +4848,30 @@
               "null",
               "string"
             ]
+          }
+        }
+      },
+      "RotateSecretResponse": {
+        "required": [
+          "name",
+          "scope",
+          "version"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/SecretScope"
+          },
+          "version": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           }
         }
       },
@@ -4429,6 +4895,12 @@
           }
         }
       },
+      "SecretOrigin": {
+        "enum": [
+          "PlatformOwned",
+          "ExternalReference"
+        ]
+      },
       "SecretScope": {
         "enum": [
           "Unit",
@@ -4446,6 +4918,57 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/SecretMetadata"
+            }
+          }
+        }
+      },
+      "SecretVersionEntry": {
+        "required": [
+          "version",
+          "origin",
+          "createdAt",
+          "isCurrent"
+        ],
+        "type": "object",
+        "properties": {
+          "version": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/SecretOrigin"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "isCurrent": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SecretVersionsListResponse": {
+        "required": [
+          "name",
+          "scope",
+          "versions"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/SecretScope"
+          },
+          "versions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SecretVersionEntry"
             }
           }
         }

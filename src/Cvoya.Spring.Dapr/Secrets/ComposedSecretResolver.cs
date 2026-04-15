@@ -24,6 +24,16 @@ using Microsoft.Extensions.Options;
 /// </para>
 ///
 /// <para>
+/// <b>Version pinning (wave 7 A5).</b> When a caller passes a specific
+/// version to the pinning overload, both the direct and inherited
+/// lookups use that version. A pinned read never silently returns a
+/// different version — if neither the unit nor the tenant scope has
+/// the requested version, the resolver returns
+/// <see cref="SecretResolvePath.NotFound"/>. This preserves the
+/// caller's intent: "show me v2" means v2 or nothing.
+/// </para>
+///
+/// <para>
 /// <b>RBAC contract for the fall-through path.</b>
 /// <see cref="ISecretAccessPolicy"/> is consulted with
 /// <see cref="SecretAccessAction.Read"/> at EVERY scope the resolver
@@ -62,12 +72,16 @@ public class ComposedSecretResolver : ISecretResolver
     /// <inheritdoc />
     public async Task<string?> ResolveAsync(SecretRef @ref, CancellationToken ct)
     {
-        var resolution = await ResolveWithPathAsync(@ref, ct);
+        var resolution = await ResolveWithPathAsync(@ref, version: null, ct);
         return resolution.Value;
     }
 
     /// <inheritdoc />
-    public async Task<SecretResolution> ResolveWithPathAsync(SecretRef @ref, CancellationToken ct)
+    public Task<SecretResolution> ResolveWithPathAsync(SecretRef @ref, CancellationToken ct)
+        => ResolveWithPathAsync(@ref, version: null, ct);
+
+    /// <inheritdoc />
+    public async Task<SecretResolution> ResolveWithPathAsync(SecretRef @ref, int? version, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(@ref);
 
@@ -80,8 +94,9 @@ public class ComposedSecretResolver : ISecretResolver
             return new SecretResolution(null, SecretResolvePath.NotFound, null, null);
         }
 
-        // Direct lookup at the requested scope.
-        var (direct, directVersion) = await TryReadWithVersionAsync(@ref, ct);
+        // Direct lookup at the requested scope, at the requested version
+        // (or latest when version is null).
+        var (direct, directVersion) = await TryReadAtVersionAsync(@ref, version, ct);
         if (direct is not null)
         {
             return new SecretResolution(direct, SecretResolvePath.Direct, @ref, directVersion);
@@ -111,7 +126,11 @@ public class ComposedSecretResolver : ISecretResolver
             return new SecretResolution(null, SecretResolvePath.NotFound, null, null);
         }
 
-        var (inherited, inheritedVersion) = await TryReadWithVersionAsync(tenantRef, ct);
+        // Fall-through uses the SAME version pin. A caller asking for
+        // (Unit, u, name, v=3) that misses at the unit scope ONLY finds
+        // the tenant row if the tenant also has version 3 — never a
+        // silently-different version.
+        var (inherited, inheritedVersion) = await TryReadAtVersionAsync(tenantRef, version, ct);
         if (inherited is not null)
         {
             return new SecretResolution(inherited, SecretResolvePath.InheritedFromTenant, tenantRef, inheritedVersion);
@@ -124,9 +143,17 @@ public class ComposedSecretResolver : ISecretResolver
     public Task<IReadOnlyList<SecretRef>> ListAsync(SecretScope scope, string ownerId, CancellationToken ct)
         => _registry.ListAsync(scope, ownerId, ct);
 
-    private async Task<(string? Value, int? Version)> TryReadWithVersionAsync(SecretRef @ref, CancellationToken ct)
+    private async Task<(string? Value, int? Version)> TryReadAtVersionAsync(
+        SecretRef @ref, int? version, CancellationToken ct)
     {
-        var lookup = await _registry.LookupWithVersionAsync(@ref, ct);
+        // When no version pin is supplied we intentionally call the
+        // legacy single-argument overload so audit decorators and test
+        // stubs written against the A4-era signature keep seeing the
+        // same call shape. Only version-pinned resolves route to the
+        // two-argument overload.
+        var lookup = version is null
+            ? await _registry.LookupWithVersionAsync(@ref, ct)
+            : await _registry.LookupWithVersionAsync(@ref, version, ct);
         if (lookup is null)
         {
             return (null, null);

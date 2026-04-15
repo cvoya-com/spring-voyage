@@ -110,4 +110,26 @@ public class SecretsOptions
     /// </para>
     /// </summary>
     public bool InheritTenantFromUnit { get; set; } = true;
+
+    /// <summary>
+    /// Count-based retention for secret versions under the wave 7 A5
+    /// multi-version-coexistence scheme. <c>0</c> (the default) means
+    /// UNBOUNDED retention: every rotation appends a new version and
+    /// nothing is pruned automatically. A positive value represents the
+    /// maximum number of versions to retain per
+    /// <see cref="Cvoya.Spring.Core.Secrets.SecretRef"/>; operators may
+    /// consult this value when invoking <c>POST /.../secrets/{name}/prune</c>
+    /// or when building their own retention-enforcement scheduler (see
+    /// follow-up issue for the built-in scheduler).
+    ///
+    /// <para>
+    /// The OSS registry never applies this value automatically — it is
+    /// a configuration signal, not an enforcement hook. A future wave
+    /// will add a background service that polls this setting and
+    /// invokes <c>PruneAsync</c> per chain; until then the value is
+    /// documentary and operators must call prune themselves or wire
+    /// their own scheduler.
+    /// </para>
+    /// </summary>
+    public int VersionRetention { get; set; }
 }
