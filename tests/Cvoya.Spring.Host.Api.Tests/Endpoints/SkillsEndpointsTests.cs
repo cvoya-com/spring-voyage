@@ -113,8 +113,8 @@ public class SkillsEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         await proxy.Received(1).SetSkillsAsync(
-            Arg.Is<IReadOnlyList<string>>(l =>
-                l.Count == 2 &&
+            Arg.Is<string[]>(l =>
+                l.Length == 2 &&
                 l.Contains("github_list_files") &&
                 l.Contains("github_create_branch")),
             Arg.Any<CancellationToken>());
@@ -135,7 +135,7 @@ public class SkillsEndpointsTests : IClassFixture<CustomWebApplicationFactory>
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         await proxy.Received(1).SetSkillsAsync(
-            Arg.Is<IReadOnlyList<string>>(l => l.Count == 0),
+            Arg.Is<string[]>(l => l.Length == 0),
             Arg.Any<CancellationToken>());
     }
 
@@ -157,7 +157,7 @@ public class SkillsEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
-    private IAgentActor ArrangeAgent(string agentId, string actorId, IReadOnlyList<string> skills)
+    private IAgentActor ArrangeAgent(string agentId, string actorId, string[] skills)
     {
         _factory.DirectoryService.ClearReceivedCalls();
         _factory.ActorProxyFactory.ClearReceivedCalls();

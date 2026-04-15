@@ -1173,14 +1173,14 @@ public class AgentActor(
     }
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<string>> GetSkillsAsync(CancellationToken cancellationToken = default)
+    public async Task<string[]> GetSkillsAsync(CancellationToken cancellationToken = default)
     {
         var result = await StateManager.TryGetStateAsync<List<string>>(StateKeys.AgentSkills, cancellationToken);
-        return result.HasValue ? result.Value.AsReadOnly() : [];
+        return result.HasValue ? result.Value.ToArray() : [];
     }
 
     /// <inheritdoc />
-    public async Task SetSkillsAsync(IReadOnlyList<string> skills, CancellationToken cancellationToken = default)
+    public async Task SetSkillsAsync(string[] skills, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(skills);
 

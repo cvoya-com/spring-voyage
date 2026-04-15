@@ -1025,7 +1025,7 @@ public class UnitActorTests
 
         var flakyProxy = Substitute.For<IUnitActor>();
         flakyProxy.GetMembersAsync(Arg.Any<CancellationToken>())
-            .Returns<IReadOnlyList<Address>>(_ => throw new InvalidOperationException("actor unavailable"));
+            .Returns<Address[]>(_ => throw new InvalidOperationException("actor unavailable"));
         _actorProxyFactory.CreateActorProxy<IUnitActor>(
                 Arg.Is<ActorId>(a => a.GetId() == "flaky-actor"),
                 nameof(UnitActor))

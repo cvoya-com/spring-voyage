@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Connectors;
 
+using System.Runtime.Serialization;
 using System.Text.Json;
 
 /// <summary>
@@ -48,9 +49,22 @@ public interface IUnitConnectorConfigStore
 /// which connector owns this unit plus the serialized config payload whose
 /// shape is defined by that connector's <see cref="IConnectorType.ConfigType"/>.
 /// </summary>
+/// <remarks>
+/// Bug #319: this type travels across the Dapr Actor remoting boundary as the
+/// return value of <c>IUnitActor.GetConnectorBindingAsync</c> and the argument
+/// to <c>IUnitActor.SetConnectorBindingAsync</c>. Dapr remoting uses
+/// <c>DataContractSerializer</c>, which cannot serialize a positional record
+/// without a parameterless constructor unless it is explicitly opted in with
+/// <c>[DataContract]</c> + <c>[DataMember]</c>. Without these, the connector
+/// config store calls failed at the actor boundary with
+/// <c>InvalidDataContractException</c>.
+/// </remarks>
 /// <param name="TypeId">The connector type id.</param>
 /// <param name="Config">The serialized typed config; opaque to the store.</param>
-public record UnitConnectorBinding(Guid TypeId, JsonElement Config);
+[DataContract]
+public record UnitConnectorBinding(
+    [property: DataMember(Order = 0)] Guid TypeId,
+    [property: DataMember(Order = 1)] JsonElement Config);
 
 /// <summary>
 /// Connector-owned, per-unit runtime metadata storage. Lets a connector

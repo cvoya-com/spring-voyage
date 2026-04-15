@@ -171,10 +171,10 @@ public class UnitActor : Actor, IUnitActor
     }
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<Address>> GetMembersAsync(CancellationToken ct = default)
+    public async Task<Address[]> GetMembersAsync(CancellationToken ct = default)
     {
         var members = await GetMembersListAsync(ct);
-        return members.AsReadOnly();
+        return members.ToArray();
     }
 
     /// <inheritdoc />
@@ -197,10 +197,10 @@ public class UnitActor : Actor, IUnitActor
     }
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<UnitPermissionEntry>> GetHumanPermissionsAsync(CancellationToken ct = default)
+    public async Task<UnitPermissionEntry[]> GetHumanPermissionsAsync(CancellationToken ct = default)
     {
         var permissions = await GetHumanPermissionsMapAsync(ct);
-        return permissions.Values.ToList().AsReadOnly();
+        return permissions.Values.ToArray();
     }
 
     /// <inheritdoc />
@@ -605,7 +605,7 @@ public class UnitActor : Actor, IUnitActor
                 continue;
             }
 
-            IReadOnlyList<Address> subMembers;
+            Address[] subMembers;
             try
             {
                 var proxy = _actorProxyFactory.CreateActorProxy<IUnitActor>(

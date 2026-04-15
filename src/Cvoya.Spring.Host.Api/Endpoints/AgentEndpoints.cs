@@ -250,7 +250,7 @@ public static class AgentEndpoints
         var proxy = actorProxyFactory.CreateActorProxy<IAgentActor>(
             new ActorId(entry.ActorId), nameof(AgentActor));
 
-        await proxy.SetSkillsAsync(request.Skills, cancellationToken);
+        await proxy.SetSkillsAsync(request.Skills.ToArray(), cancellationToken);
 
         var updated = await proxy.GetSkillsAsync(cancellationToken);
         return Results.Ok(new AgentSkillsResponse(updated));

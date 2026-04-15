@@ -75,7 +75,7 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
 
         var unitProxy = ArrangeUnit();
         unitProxy.GetMembersAsync(Arg.Any<CancellationToken>())
-            .Returns(new List<Address>
+            .Returns(new Address[]
             {
                 new("agent", "ada"),
                 new("unit", "marketing"), // sub-unit member — must be filtered out

@@ -37,11 +37,18 @@ public interface IUnitActor : IAgent
     Task RemoveMemberAsync(Address member, CancellationToken ct = default);
 
     /// <summary>
-    /// Returns the current list of member addresses in this unit.
+    /// Returns the current array of member addresses in this unit.
     /// </summary>
+    /// <remarks>
+    /// Bug #319: returning a concrete array avoids <c>DataContractSerializer</c>
+    /// "type not expected" failures at the Dapr remoting boundary. Runtime
+    /// collection types such as <see cref="System.Collections.ObjectModel.ReadOnlyCollection{T}"/>
+    /// are not data-contract known types by default, so the public contract
+    /// must be a type that serializes natively.
+    /// </remarks>
     /// <param name="ct">A token to cancel the operation.</param>
-    /// <returns>A read-only list of member addresses.</returns>
-    Task<IReadOnlyList<Address>> GetMembersAsync(CancellationToken ct = default);
+    /// <returns>An array of member addresses.</returns>
+    Task<Address[]> GetMembersAsync(CancellationToken ct = default);
 
     /// <summary>
     /// Sets the permission level for a human within this unit.
@@ -62,9 +69,13 @@ public interface IUnitActor : IAgent
     /// <summary>
     /// Gets all human permission entries for this unit.
     /// </summary>
+    /// <remarks>
+    /// Bug #319: returns a concrete array so <c>DataContractSerializer</c> can
+    /// marshal it without a <see cref="KnownTypeAttribute"/> declaration.
+    /// </remarks>
     /// <param name="ct">A token to cancel the operation.</param>
-    /// <returns>A read-only list of all human permission entries.</returns>
-    Task<IReadOnlyList<UnitPermissionEntry>> GetHumanPermissionsAsync(CancellationToken ct = default);
+    /// <returns>An array of all human permission entries.</returns>
+    Task<UnitPermissionEntry[]> GetHumanPermissionsAsync(CancellationToken ct = default);
 
     /// <summary>
     /// Gets the persisted lifecycle status of this unit. A unit that has never transitioned reports <see cref="UnitStatus.Draft"/>.

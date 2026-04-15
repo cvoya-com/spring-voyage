@@ -41,13 +41,18 @@ public interface IAgentActor : IAgent
 
     /// <summary>
     /// Returns the agent's configured skill list (tool names the agent is
-    /// allowed to invoke). An empty list is a legitimate configured state
+    /// allowed to invoke). An empty array is a legitimate configured state
     /// — the agent is explicitly disabled from every tool. A never-set
-    /// agent also returns an empty list; callers that need to distinguish
+    /// agent also returns an empty array; callers that need to distinguish
     /// "never configured" from "configured to nothing" must track it
     /// elsewhere.
     /// </summary>
-    Task<IReadOnlyList<string>> GetSkillsAsync(CancellationToken cancellationToken = default);
+    /// <remarks>
+    /// Bug #319: returns a concrete array so the value crosses the Dapr
+    /// actor remoting boundary without a <c>DataContractSerializer</c>
+    /// "type not expected" failure on runtime wrapper collections.
+    /// </remarks>
+    Task<string[]> GetSkillsAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Replaces the agent's skill list in full. Callers pass the new
@@ -55,5 +60,9 @@ public interface IAgentActor : IAgent
     /// collapsed; ordering is not preserved. Emits a <c>StateChanged</c>
     /// activity event describing the change.
     /// </summary>
-    Task SetSkillsAsync(IReadOnlyList<string> skills, CancellationToken cancellationToken = default);
+    /// <remarks>
+    /// Bug #319: takes a concrete array to keep the full actor surface on
+    /// data-contract-safe types (arrays serialize natively).
+    /// </remarks>
+    Task SetSkillsAsync(string[] skills, CancellationToken cancellationToken = default);
 }
