@@ -89,7 +89,7 @@ public class UnitMembershipBackfillService(
             try
             {
                 var proxy = actorProxyFactory.CreateActorProxy<IAgentActor>(
-                    new ActorId(entry.ActorId), nameof(IAgentActor));
+                    new ActorId(entry.ActorId), nameof(AgentActor));
                 var metadata = await proxy.GetMetadataAsync(cancellationToken);
                 if (string.IsNullOrWhiteSpace(metadata.ParentUnit))
                 {

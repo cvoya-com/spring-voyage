@@ -42,7 +42,7 @@ public class PermissionServiceTests
 
         _actorProxyFactory.CreateActorProxy<IUnitActor>(
             Arg.Is<ActorId>(id => id.GetId() == "unit-1"),
-            nameof(IUnitActor)).Returns(unitProxy);
+            nameof(UnitActor)).Returns(unitProxy);
 
         var result = await _service.ResolvePermissionAsync("human-1", "unit-1", ct);
 
@@ -58,7 +58,7 @@ public class PermissionServiceTests
 
         _actorProxyFactory.CreateActorProxy<IUnitActor>(
             Arg.Is<ActorId>(id => id.GetId() == "unit-1"),
-            nameof(IUnitActor)).Returns(unitProxy);
+            nameof(UnitActor)).Returns(unitProxy);
 
         var result = await _service.ResolvePermissionAsync("human-1", "unit-1", ct);
 
@@ -75,7 +75,7 @@ public class PermissionServiceTests
 
         _actorProxyFactory.CreateActorProxy<IUnitActor>(
             Arg.Is<ActorId>(id => id.GetId() == "unit-1"),
-            nameof(IUnitActor)).Returns(unitProxy);
+            nameof(UnitActor)).Returns(unitProxy);
 
         var result = await _service.ResolvePermissionAsync("human-1", "unit-1", ct);
 

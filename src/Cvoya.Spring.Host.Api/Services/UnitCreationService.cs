@@ -209,7 +209,7 @@ public class UnitCreationService : IUnitCreationService
             if (metadata.Model is not null || metadata.Color is not null)
             {
                 var proxy = _actorProxyFactory.CreateActorProxy<IUnitActor>(
-                    new ActorId(actorId), nameof(IUnitActor));
+                    new ActorId(actorId), nameof(UnitActor));
                 await proxy.SetMetadataAsync(metadata, cancellationToken);
             }
 

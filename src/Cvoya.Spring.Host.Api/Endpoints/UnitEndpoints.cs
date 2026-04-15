@@ -219,7 +219,7 @@ public static class UnitEndpoints
         try
         {
             var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
-                new ActorId(actorId), nameof(IUnitActor));
+                new ActorId(actorId), nameof(UnitActor));
             return await proxy.GetStatusAsync(cancellationToken);
         }
         catch (Exception ex)
@@ -244,7 +244,7 @@ public static class UnitEndpoints
         try
         {
             var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
-                new ActorId(actorId), nameof(IUnitActor));
+                new ActorId(actorId), nameof(UnitActor));
             return await proxy.GetMetadataAsync(cancellationToken);
         }
         catch (Exception ex)
@@ -441,7 +441,7 @@ public static class UnitEndpoints
         }
 
         var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
-            new ActorId(entry.ActorId), nameof(IUnitActor));
+            new ActorId(entry.ActorId), nameof(UnitActor));
 
         var metadata = new UnitMetadata(
             DisplayName: request.DisplayName,
@@ -539,7 +539,7 @@ public static class UnitEndpoints
 
         var failures = new List<string>();
         var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
-            new ActorId(actorId), nameof(IUnitActor));
+            new ActorId(actorId), nameof(UnitActor));
 
         try
         {
@@ -654,7 +654,7 @@ public static class UnitEndpoints
         }
 
         var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
-            new ActorId(entry.ActorId), nameof(IUnitActor));
+            new ActorId(entry.ActorId), nameof(UnitActor));
 
         var startingTransition = await proxy.TransitionAsync(UnitStatus.Starting, cancellationToken);
         if (!startingTransition.Success)
@@ -733,7 +733,7 @@ public static class UnitEndpoints
         }
 
         var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
-            new ActorId(entry.ActorId), nameof(IUnitActor));
+            new ActorId(entry.ActorId), nameof(UnitActor));
 
         var stoppingTransition = await proxy.TransitionAsync(UnitStatus.Stopping, cancellationToken);
         if (!stoppingTransition.Success)
@@ -811,7 +811,7 @@ public static class UnitEndpoints
         var memberAddress = new Address(request.MemberAddress.Scheme, request.MemberAddress.Path);
 
         var unitProxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
-            new ActorId(entry.ActorId), nameof(IUnitActor));
+            new ActorId(entry.ActorId), nameof(UnitActor));
 
         try
         {
@@ -866,7 +866,7 @@ public static class UnitEndpoints
         // continue to work regardless of member scheme. Remove is idempotent
         // — no cycle check is required.
         var unitProxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
-            new ActorId(entry.ActorId), nameof(IUnitActor));
+            new ActorId(entry.ActorId), nameof(UnitActor));
 
         await unitProxy.RemoveMemberAsync(new Address("agent", memberId), cancellationToken);
         await unitProxy.RemoveMemberAsync(new Address("unit", memberId), cancellationToken);
@@ -902,13 +902,13 @@ public static class UnitEndpoints
             request.Notifications ?? true);
 
         var unitProxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
-            new ActorId(entry.ActorId), nameof(IUnitActor));
+            new ActorId(entry.ActorId), nameof(UnitActor));
 
         await unitProxy.SetHumanPermissionAsync(humanId, permissionEntry, cancellationToken);
 
         // Also update the human actor's unit-scoped permission map.
         var humanProxy = actorProxyFactory.CreateActorProxy<IHumanActor>(
-            new ActorId(humanId), nameof(IHumanActor));
+            new ActorId(humanId), nameof(HumanActor));
 
         await humanProxy.SetPermissionForUnitAsync(id, permissionLevel, cancellationToken);
 
@@ -930,7 +930,7 @@ public static class UnitEndpoints
         }
 
         var unitProxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
-            new ActorId(entry.ActorId), nameof(IUnitActor));
+            new ActorId(entry.ActorId), nameof(UnitActor));
 
         var permissions = await unitProxy.GetHumanPermissionsAsync(cancellationToken);
 
@@ -1046,7 +1046,7 @@ public static class UnitEndpoints
         }
 
         var unitProxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
-            new ActorId(unitEntry.ActorId), nameof(IUnitActor));
+            new ActorId(unitEntry.ActorId), nameof(UnitActor));
         var members = await unitProxy.GetMembersAsync(cancellationToken);
 
         // Filter to agent members; sub-unit members are out of scope here
@@ -1072,7 +1072,7 @@ public static class UnitEndpoints
                 return null;
             }
             var proxy = actorProxyFactory.CreateActorProxy<IAgentActor>(
-                new ActorId(entry.ActorId), nameof(IAgentActor));
+                new ActorId(entry.ActorId), nameof(AgentActor));
             var metadata = await AgentEndpoints.GetDerivedAgentMetadataAsync(
                 proxy, membershipRepository, member.Path, cancellationToken);
             return AgentEndpoints.ToAgentResponse(entry, metadata);
@@ -1128,14 +1128,14 @@ public static class UnitEndpoints
         await membershipRepository.UpsertAsync(membership, cancellationToken);
 
         var unitProxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
-            new ActorId(unitEntry.ActorId), nameof(IUnitActor));
+            new ActorId(unitEntry.ActorId), nameof(UnitActor));
         await unitProxy.AddMemberAsync(agentAddress, cancellationToken);
 
         // Also sync the legacy cached pointer on the agent actor so any
         // reader still relying on it sees a consistent value. The
         // authoritative source is the membership table.
         var agentProxy = actorProxyFactory.CreateActorProxy<IAgentActor>(
-            new ActorId(agentEntry.ActorId), nameof(IAgentActor));
+            new ActorId(agentEntry.ActorId), nameof(AgentActor));
         await agentProxy.SetMetadataAsync(
             new AgentMetadata(ParentUnit: id),
             cancellationToken);
@@ -1178,7 +1178,7 @@ public static class UnitEndpoints
         await membershipRepository.DeleteAsync(id, agentId, cancellationToken);
 
         var unitProxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
-            new ActorId(unitEntry.ActorId), nameof(IUnitActor));
+            new ActorId(unitEntry.ActorId), nameof(UnitActor));
         await unitProxy.RemoveMemberAsync(agentAddress, cancellationToken);
 
         // Refresh the cached pointer on the agent actor. If any memberships
@@ -1186,7 +1186,7 @@ public static class UnitEndpoints
         // "primary" unit; if this was the last membership, clear the pointer.
         var remaining = await membershipRepository.ListByAgentAsync(agentId, cancellationToken);
         var agentProxy = actorProxyFactory.CreateActorProxy<IAgentActor>(
-            new ActorId(agentEntry.ActorId), nameof(IAgentActor));
+            new ActorId(agentEntry.ActorId), nameof(AgentActor));
         if (remaining.Count == 0)
         {
             await agentProxy.ClearParentUnitAsync(cancellationToken);

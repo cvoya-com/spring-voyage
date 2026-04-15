@@ -198,7 +198,7 @@ public class UnitOrchestrationTests
             .Returns(System.Array.Empty<Address>());
         factory.CreateActorProxy<IUnitActor>(
                 Arg.Is<ActorId>(a => a.GetId() == "sub-actor"),
-                nameof(IUnitActor))
+                nameof(UnitActor))
             .Returns(subProxy);
 
         var (parent, parentState, _) = ActorTestHost.CreateUnitActor(
@@ -237,7 +237,7 @@ public class UnitOrchestrationTests
             .Returns(new[] { new Address("unit", "parent-team") });
         factory.CreateActorProxy<IUnitActor>(
                 Arg.Is<ActorId>(a => a.GetId() == "sub-actor"),
-                nameof(IUnitActor))
+                nameof(UnitActor))
             .Returns(subProxy);
 
         // "parent-team" resolves back to the "parent-unit" actor.

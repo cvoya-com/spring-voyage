@@ -843,7 +843,7 @@ public class UnitActorTests
             .Returns(Array.Empty<Address>());
         _actorProxyFactory.CreateActorProxy<IUnitActor>(
                 Arg.Is<ActorId>(a => a.GetId() == "team-b-actor"),
-                nameof(IUnitActor))
+                nameof(UnitActor))
             .Returns(subProxy);
 
         await _actor.AddMemberAsync(subAddress, TestContext.Current.CancellationToken);
@@ -887,7 +887,7 @@ public class UnitActorTests
             .Returns(Array.Empty<Address>());
         _actorProxyFactory.CreateActorProxy<IUnitActor>(
                 Arg.Any<ActorId>(),
-                nameof(IUnitActor))
+                nameof(UnitActor))
             .Returns(selfProxy);
 
         await Should.ThrowAsync<CyclicMembershipException>(() =>
@@ -914,7 +914,7 @@ public class UnitActorTests
             .Returns(new[] { new Address("unit", "team-a") });
         _actorProxyFactory.CreateActorProxy<IUnitActor>(
                 Arg.Is<ActorId>(a => a.GetId() == "b-actor"),
-                nameof(IUnitActor))
+                nameof(UnitActor))
             .Returns(bProxy);
 
         // "team-a" resolves back to this actor ("test-unit").
@@ -949,7 +949,7 @@ public class UnitActorTests
             .Returns(new[] { new Address("unit", "team-b") });
         _actorProxyFactory.CreateActorProxy<IUnitActor>(
                 Arg.Is<ActorId>(a => a.GetId() == "c-actor"),
-                nameof(IUnitActor))
+                nameof(UnitActor))
             .Returns(cProxy);
 
         var bAddress = new Address("unit", "team-b");
@@ -961,7 +961,7 @@ public class UnitActorTests
             .Returns(new[] { new Address("unit", "team-a") });
         _actorProxyFactory.CreateActorProxy<IUnitActor>(
                 Arg.Is<ActorId>(a => a.GetId() == "b-actor"),
-                nameof(IUnitActor))
+                nameof(UnitActor))
             .Returns(bProxy);
 
         // "team-a" resolves back to "test-unit" (this actor).
@@ -1028,7 +1028,7 @@ public class UnitActorTests
             .Returns<IReadOnlyList<Address>>(_ => throw new InvalidOperationException("actor unavailable"));
         _actorProxyFactory.CreateActorProxy<IUnitActor>(
                 Arg.Is<ActorId>(a => a.GetId() == "flaky-actor"),
-                nameof(IUnitActor))
+                nameof(UnitActor))
             .Returns(flakyProxy);
 
         await _actor.AddMemberAsync(subAddress, TestContext.Current.CancellationToken);
@@ -1055,7 +1055,7 @@ public class UnitActorTests
             .Returns(new[] { new Address("unit", "team-y") });
         _actorProxyFactory.CreateActorProxy<IUnitActor>(
                 Arg.Is<ActorId>(a => a.GetId() == "x-actor"),
-                nameof(IUnitActor))
+                nameof(UnitActor))
             .Returns(xProxy);
 
         // team-y -> team-x (benign 2-cycle in the subgraph, not involving "test-unit").
@@ -1068,7 +1068,7 @@ public class UnitActorTests
             .Returns(new[] { new Address("unit", "team-x") });
         _actorProxyFactory.CreateActorProxy<IUnitActor>(
                 Arg.Is<ActorId>(a => a.GetId() == "y-actor"),
-                nameof(IUnitActor))
+                nameof(UnitActor))
             .Returns(yProxy);
 
         await _actor.AddMemberAsync(subAddress, TestContext.Current.CancellationToken);

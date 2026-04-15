@@ -157,25 +157,26 @@ start_redis() {
 # placement/scheduler wire format always matches the sidecar's expectations.
 
 start_placement() {
+    # Run with default flags — matches dapr init's dapr_placement.
+    # Overriding --id without matching cluster config crashes the binary.
     run_container spring-placement \
         -v spring-placement-data:/var/run/dapr/raft \
         "${DAPR_IMAGE:-docker.io/daprio/dapr:1.17.4}" \
-        ./placement \
-            --id spring-placement \
-            --port 50005 \
-            --log-level info \
-            --raft-data-dir /var/run/dapr/raft
+        ./placement
 }
 
 start_scheduler() {
+    # Mount to /var/lock (writable for the image's non-root user) and
+    # override the broadcast host so spring-net peers can reach the
+    # scheduler by DNS name. Default id (dapr-scheduler-server-0) keeps
+    # the embedded etcd single-node bootstrap happy.
     run_container spring-scheduler \
-        -v spring-scheduler-data:/data \
+        -v spring-scheduler-data:/var/lock \
         "${DAPR_IMAGE:-docker.io/daprio/dapr:1.17.4}" \
         ./scheduler \
-            --id spring-scheduler \
-            --port 50006 \
-            --log-level info \
-            --etcd-data-dir /data
+            --etcd-data-dir=/var/lock/dapr/scheduler \
+            --etcd-client-listen-address=0.0.0.0 \
+            --override-broadcast-host-port=spring-scheduler:50006
 }
 
 # ---- Per-app Dapr sidecars -----------------------------------------------

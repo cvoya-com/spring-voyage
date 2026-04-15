@@ -21,18 +21,19 @@ using global::Dapr.Actors.Client;
 public class AgentProxyResolver(IActorProxyFactory actorProxyFactory) : IAgentProxyResolver
 {
     /// <summary>
-    /// Maps address schemes to the corresponding Dapr actor interface type.
-    /// The proxy is always created over the concrete derived interface so
-    /// Dapr invokes the right actor registration; <see cref="IAgent"/>
-    /// provides the shared mailbox contract the caller needs.
+    /// Maps address schemes to the Dapr actor type name as registered with
+    /// placement. The name MUST match the concrete actor class name (e.g.
+    /// <c>UnitActor</c>) used by <c>options.Actors.RegisterActor&lt;T&gt;()</c>
+    /// in the worker host — placement resolves by registered class name, not
+    /// by interface name.
     /// </summary>
-    private static readonly IReadOnlyDictionary<string, Type> SchemeToActorType =
-        new Dictionary<string, Type>(StringComparer.OrdinalIgnoreCase)
+    private static readonly IReadOnlyDictionary<string, string> SchemeToActorTypeName =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
-            ["agent"] = typeof(IAgentActor),
-            ["unit"] = typeof(IUnitActor),
-            ["connector"] = typeof(IConnectorActor),
-            ["human"] = typeof(IHumanActor),
+            ["agent"] = nameof(AgentActor),
+            ["unit"] = nameof(UnitActor),
+            ["connector"] = nameof(ConnectorActor),
+            ["human"] = nameof(HumanActor),
         };
 
     /// <inheritdoc />
@@ -41,7 +42,7 @@ public class AgentProxyResolver(IActorProxyFactory actorProxyFactory) : IAgentPr
         ArgumentNullException.ThrowIfNull(scheme);
         ArgumentNullException.ThrowIfNull(actorId);
 
-        if (!SchemeToActorType.TryGetValue(scheme, out var actorType))
+        if (!SchemeToActorTypeName.TryGetValue(scheme, out var actorTypeName))
         {
             return null;
         }
@@ -51,10 +52,10 @@ public class AgentProxyResolver(IActorProxyFactory actorProxyFactory) : IAgentPr
         // it as IAgent is wire-equivalent to the pre-IAgent code path.
         return scheme.ToLowerInvariant() switch
         {
-            "agent" => actorProxyFactory.CreateActorProxy<IAgentActor>(new ActorId(actorId), actorType.Name),
-            "unit" => actorProxyFactory.CreateActorProxy<IUnitActor>(new ActorId(actorId), actorType.Name),
-            "connector" => actorProxyFactory.CreateActorProxy<IConnectorActor>(new ActorId(actorId), actorType.Name),
-            "human" => actorProxyFactory.CreateActorProxy<IHumanActor>(new ActorId(actorId), actorType.Name),
+            "agent" => actorProxyFactory.CreateActorProxy<IAgentActor>(new ActorId(actorId), actorTypeName),
+            "unit" => actorProxyFactory.CreateActorProxy<IUnitActor>(new ActorId(actorId), actorTypeName),
+            "connector" => actorProxyFactory.CreateActorProxy<IConnectorActor>(new ActorId(actorId), actorTypeName),
+            "human" => actorProxyFactory.CreateActorProxy<IHumanActor>(new ActorId(actorId), actorTypeName),
             _ => null,
         };
     }

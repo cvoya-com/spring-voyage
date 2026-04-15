@@ -29,7 +29,7 @@ public class PermissionService(
         try
         {
             var unitProxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
-                new ActorId(unitId), nameof(IUnitActor));
+                new ActorId(unitId), nameof(UnitActor));
 
             return await unitProxy.GetHumanPermissionAsync(humanId, cancellationToken);
         }

@@ -59,7 +59,7 @@ public class UnitActorConnectorConfigStore(
             return null;
         }
         return actorProxyFactory.CreateActorProxy<IUnitActor>(
-            new ActorId(entry.ActorId), nameof(IUnitActor));
+            new ActorId(entry.ActorId), nameof(UnitActor));
     }
 }
 
@@ -106,6 +106,6 @@ public class UnitActorConnectorRuntimeStore(
             return null;
         }
         return actorProxyFactory.CreateActorProxy<IUnitActor>(
-            new ActorId(entry.ActorId), nameof(IUnitActor));
+            new ActorId(entry.ActorId), nameof(UnitActor));
     }
 }

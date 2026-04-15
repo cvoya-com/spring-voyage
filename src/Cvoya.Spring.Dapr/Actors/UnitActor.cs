@@ -609,7 +609,7 @@ public class UnitActor : Actor, IUnitActor
             try
             {
                 var proxy = _actorProxyFactory.CreateActorProxy<IUnitActor>(
-                    new ActorId(entry.ActorId), nameof(IUnitActor));
+                    new ActorId(entry.ActorId), nameof(UnitActor));
                 subMembers = await proxy.GetMembersAsync(ct);
             }
             catch (Exception ex) when (ex is not SpringException)

@@ -114,7 +114,7 @@ public static class AgentEndpoints
         }
 
         var proxy = actorProxyFactory.CreateActorProxy<IAgentActor>(
-            new ActorId(entry.ActorId), nameof(IAgentActor));
+            new ActorId(entry.ActorId), nameof(AgentActor));
         var metadata = await GetDerivedAgentMetadataAsync(proxy, membershipRepository, id, cancellationToken);
 
         // Send a StatusQuery message to the agent.
@@ -157,7 +157,7 @@ public static class AgentEndpoints
         // must go through the unit's assign / unassign endpoints so the
         // agent.ParentUnit ↔ unit.Members invariant stays consistent.
         var proxy = actorProxyFactory.CreateActorProxy<IAgentActor>(
-            new ActorId(entry.ActorId), nameof(IAgentActor));
+            new ActorId(entry.ActorId), nameof(AgentActor));
 
         await proxy.SetMetadataAsync(
             new AgentMetadata(
@@ -223,7 +223,7 @@ public static class AgentEndpoints
         }
 
         var proxy = actorProxyFactory.CreateActorProxy<IAgentActor>(
-            new ActorId(entry.ActorId), nameof(IAgentActor));
+            new ActorId(entry.ActorId), nameof(AgentActor));
 
         var skills = await proxy.GetSkillsAsync(cancellationToken);
         return Results.Ok(new AgentSkillsResponse(skills));
@@ -248,7 +248,7 @@ public static class AgentEndpoints
         }
 
         var proxy = actorProxyFactory.CreateActorProxy<IAgentActor>(
-            new ActorId(entry.ActorId), nameof(IAgentActor));
+            new ActorId(entry.ActorId), nameof(AgentActor));
 
         await proxy.SetSkillsAsync(request.Skills, cancellationToken);
 
@@ -294,7 +294,7 @@ public static class AgentEndpoints
         try
         {
             var proxy = actorProxyFactory.CreateActorProxy<IAgentActor>(
-                new ActorId(actorId), nameof(IAgentActor));
+                new ActorId(actorId), nameof(AgentActor));
             return await proxy.GetMetadataAsync(cancellationToken);
         }
         catch (Exception ex)
