@@ -2,6 +2,12 @@
 # Create a unit with model + color — exercises UnitActor.SetMetadataAsync via
 # Dapr actor proxy. This is the flow that surfaces actor-wiring bugs (type-name
 # mismatch, missing sidecar, data-contract serialization, placement routing).
+#
+# TODO(#315): Port to `spring unit create --model ... --color ...` once those
+# flags exist on the CLI. The HTTP API already accepts both fields; the CLI
+# command in src/Cvoya.Spring.Cli/Commands/UnitCommand.cs only forwards
+# --display-name and --description today. Until #315 lands, this scenario
+# stays on raw curl so the actor-proxy path keeps coverage.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
