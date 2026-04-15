@@ -5,18 +5,27 @@ namespace Cvoya.Spring.Connector.GitHub.Skills;
 
 using System.Text.Json;
 
-using Microsoft.Extensions.Logging;
+using Cvoya.Spring.Connector.GitHub.GraphQL;
 
-using Octokit;
+using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// Produces a structured "prior work" summary for an agent login in a given
 /// repository — mentions directed at the agent, PRs it has authored, and
-/// issues it has commented on / is assigned to. Composed on top of
-/// <see cref="SearchMentionsSkill"/> plus a handful of targeted searches so
-/// the planner can build long-running context without enumerating the repo.
+/// issues it has commented on / is assigned to.
 /// </summary>
-public class GetPriorWorkContextSkill(IGitHubClient gitHubClient, ILoggerFactory loggerFactory)
+/// <remarks>
+/// Previously fanned out to four <c>Search.SearchIssues</c> REST calls per
+/// invocation; as of wave 8 D12 (#262) this is a single batched GraphQL
+/// query with four aliased <c>search(type: ISSUE)</c> sub-queries
+/// (<see cref="PriorWorkContextBatch"/>). The public tool surface —
+/// arguments and response shape — is preserved; callers observe only the
+/// latency drop and the single <c>graphql</c> quota decrement (four
+/// <c>search</c> decrements before, one <c>graphql</c> decrement after).
+/// </remarks>
+public class GetPriorWorkContextSkill(
+    IGitHubGraphQLClient graphQLClient,
+    ILoggerFactory loggerFactory)
 {
     private readonly ILogger _logger = loggerFactory.CreateLogger<GetPriorWorkContextSkill>();
 
@@ -44,76 +53,43 @@ public class GetPriorWorkContextSkill(IGitHubClient gitHubClient, ILoggerFactory
         var limit = Math.Clamp(maxPerBucket, 1, 100);
 
         _logger.LogInformation(
-            "Gathering prior-work context for @{User} in {Owner}/{Repo} (limit {Limit} per bucket)",
+            "Gathering prior-work context for @{User} in {Owner}/{Repo} (limit {Limit} per bucket) via GraphQL batch",
             bareLogin, owner, repo, limit);
 
-        var mentions = await QueryAsync($"mentions:{bareLogin}", owner, repo, since, limit);
-        var authoredPulls = await QueryAsync($"author:{bareLogin} is:pr", owner, repo, since, limit);
-        var commented = await QueryAsync($"commenter:{bareLogin} is:issue", owner, repo, since, limit);
-        var assigned = await QueryAsync($"assignee:{bareLogin} is:issue", owner, repo, since, limit);
+        var batch = await PriorWorkContextBatch
+            .ExecuteAsync(graphQLClient, owner, repo, bareLogin, since, limit, cancellationToken)
+            .ConfigureAwait(false);
 
         var summary = new
         {
             user = bareLogin,
             repository = new { owner, repo, full_name = $"{owner}/{repo}" },
             since,
-            mentions = new
-            {
-                count = mentions.Length,
-                items = mentions,
-            },
-            authored_pull_requests = new
-            {
-                count = authoredPulls.Length,
-                items = authoredPulls,
-            },
-            commented_issues = new
-            {
-                count = commented.Length,
-                items = commented,
-            },
-            assigned_issues = new
-            {
-                count = assigned.Length,
-                items = assigned,
-            },
+            mentions = Project(batch.Mentions),
+            authored_pull_requests = Project(batch.Authored),
+            commented_issues = Project(batch.Commented),
+            assigned_issues = Project(batch.Assigned),
         };
 
         return JsonSerializer.SerializeToElement(summary);
     }
 
-    private async Task<object[]> QueryAsync(
-        string qualifier,
-        string owner,
-        string repo,
-        DateTimeOffset? since,
-        int perBucket)
+    private static object Project(PriorWorkContextBatch.PriorWorkBucket bucket) => new
     {
-        var request = new SearchIssuesRequest(qualifier)
-        {
-            Repos = new RepositoryCollection { { owner, repo } },
-            PerPage = perBucket,
-            Page = 1,
-        };
-
-        if (since is { } sinceValue)
-        {
-            request.Updated = new DateRange(sinceValue, SearchQualifierOperator.GreaterThan);
-        }
-
-        var results = await gitHubClient.Search.SearchIssues(request);
-        return results.Items
-            .Select(i => (object)new
+        count = bucket.Items.Count,
+        items = bucket.Items
+            .Select(i => new
             {
-                url = i.HtmlUrl,
-                type = i.PullRequest != null ? "pull_request" : "issue",
+                url = i.Url,
+                type = i.Type,
                 number = i.Number,
                 title = i.Title,
-                state = i.State.StringValue,
-                author = i.User?.Login,
+                state = i.State,
+                author = i.Author,
                 created_at = i.CreatedAt,
                 updated_at = i.UpdatedAt,
             })
-            .ToArray();
-    }
+            .ToArray(),
+        error = bucket.Error,
+    };
 }

@@ -107,6 +107,7 @@ public class GitHubSkillRegistryInvocationTests
             "github_list_review_threads",
             "github_resolve_review_thread",
             "github_unresolve_review_thread",
+            "github_get_pr_review_bundle",
             "github_list_webhooks",
             "github_update_webhook",
             "github_delete_webhook",

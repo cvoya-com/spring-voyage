@@ -366,6 +366,14 @@ public class GitHubSkillRegistry : ISkillRegistry
                     GetInt(args, "number"),
                     ct),
 
+            ["github_get_pr_review_bundle"] = (client, args, ct) =>
+                new GetPrReviewBundleSkill(CreateGraphQLClient(client), _loggerFactory).ExecuteAsync(
+                    GetString(args, "owner"),
+                    GetString(args, "repo"),
+                    GetInt(args, "number"),
+                    GetOptionalInt(args, "maxPerSection") ?? 100,
+                    ct),
+
             ["github_resolve_review_thread"] = (client, args, ct) =>
                 new ResolveReviewThreadSkill(CreateGraphQLClient(client), _loggerFactory).ExecuteAsync(
                     GetString(args, "threadId"),
@@ -411,7 +419,7 @@ public class GitHubSkillRegistry : ISkillRegistry
                     ct),
 
             ["github_get_prior_work_context"] = (client, args, ct) =>
-                new GetPriorWorkContextSkill(client, _loggerFactory).ExecuteAsync(
+                new GetPriorWorkContextSkill(CreateGraphQLClient(client), _loggerFactory).ExecuteAsync(
                     GetString(args, "owner"),
                     GetString(args, "repo"),
                     GetString(args, "user"),
@@ -1189,6 +1197,22 @@ public class GitHubSkillRegistry : ISkillRegistry
                         threadId = new { type = "string", description = "The GraphQL node id of the review thread" }
                     },
                     required = new[] { "threadId" }
+                }),
+
+            CreateToolDefinition(
+                "github_get_pr_review_bundle",
+                "Returns reviews, line-level review comments, and review threads for a pull request in one batched GraphQL call. Prefer this over issuing github_list_pull_request_reviews, github_list_pull_request_review_comments, and github_list_review_threads separately when a caller needs all three — single round-trip, single graphql quota decrement.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        owner = new { type = "string", description = "The repository owner" },
+                        repo = new { type = "string", description = "The repository name" },
+                        number = new { type = "integer", description = "The pull request number" },
+                        maxPerSection = new { type = "integer", description = "Maximum items per section (reviews / review_comments / review_threads); capped at 100. Defaults to 100." }
+                    },
+                    required = new[] { "owner", "repo", "number" }
                 }),
 
             CreateToolDefinition(

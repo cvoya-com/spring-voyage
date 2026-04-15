@@ -52,7 +52,38 @@ public static class ServiceCollectionExtensions
         services.AddOptions<GitHubRetryOptions>().Bind(section.GetSection("Retry"));
         services.TryAddSingleton(sp =>
             sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<GitHubRetryOptions>>().Value);
-        services.TryAddSingleton<IGitHubRateLimitTracker, GitHubRateLimitTracker>();
+
+        // Rate-limit state persistence. The default is the OSS in-memory
+        // store (single-host deployments); hosts that need multi-replica
+        // convergence flip GitHub:RateLimit:StateStore:Backend to "dapr"
+        // to ride on the platform's existing Dapr state store, or
+        // pre-register their own IRateLimitStateStore implementation
+        // (e.g. Redis) before calling AddCvoyaSpringConnectorGitHub.
+        services.AddOptions<RateLimitStateStoreOptions>()
+            .Bind(section.GetSection("RateLimit:StateStore"));
+        services.TryAddSingleton<IRateLimitStateStore>(sp =>
+        {
+            var opts = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<RateLimitStateStoreOptions>>();
+            var backend = opts.Value.Backend;
+            if (string.Equals(backend, "dapr", StringComparison.OrdinalIgnoreCase))
+            {
+                var daprClient = sp.GetService<global::Dapr.Client.DaprClient>()
+                    ?? throw new InvalidOperationException(
+                        "GitHub:RateLimit:StateStore:Backend is 'dapr' but no DaprClient is registered. Add Dapr (services.AddDaprClient()) or switch to Backend='memory'.");
+                return new DaprStateBackedRateLimitStateStore(
+                    daprClient,
+                    opts,
+                    sp.GetRequiredService<ILoggerFactory>().CreateLogger<DaprStateBackedRateLimitStateStore>());
+            }
+
+            return new InMemoryRateLimitStateStore();
+        });
+
+        services.TryAddSingleton<IGitHubRateLimitTracker>(sp => new GitHubRateLimitTracker(
+            sp.GetRequiredService<GitHubRetryOptions>(),
+            sp.GetRequiredService<IRateLimitStateStore>(),
+            sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<RateLimitStateStoreOptions>>(),
+            sp.GetRequiredService<ILoggerFactory>()));
 
         // Label state machine — default config matches the minimal v1 coordinator
         // protocol. Customers override via the GitHub:Labels configuration section

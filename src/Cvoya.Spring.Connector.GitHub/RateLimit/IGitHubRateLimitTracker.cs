@@ -11,9 +11,12 @@ using System.Net.Http.Headers;
 /// </summary>
 /// <remarks>
 /// Implementations must be thread-safe: the tracker is a singleton and is
-/// called concurrently from every in-flight HTTP request. Implementations
-/// for this first installment hold state in process memory only — persistence
-/// across restart / replicas is tracked as a separate follow-up.
+/// called concurrently from every in-flight HTTP request. Persistence
+/// across restart / replicas is delegated to
+/// <see cref="IRateLimitStateStore"/>; the tracker always maintains its
+/// own in-memory cache for the hot path and uses the store to durably
+/// echo state so it survives restarts and (optionally) converges across
+/// replicas.
 /// </remarks>
 public interface IGitHubRateLimitTracker
 {
@@ -40,4 +43,16 @@ public interface IGitHubRateLimitTracker
     /// <c>graphql</c>).</param>
     /// <param name="cancellationToken">Token to cancel the wait.</param>
     Task WaitIfNeededAsync(string resource, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Seeds the tracker's in-memory view from
+    /// <see cref="IRateLimitStateStore.ReadAllAsync(string, CancellationToken)"/>.
+    /// Called once on startup so the first caller after a restart has a
+    /// preflight signal rather than waiting for the next real response
+    /// to observe a quota. Safe to call multiple times; the tracker
+    /// treats locally-observed snapshots as newer when their
+    /// <c>ObservedAt</c> is beyond the persisted <c>UpdatedAt</c>.
+    /// </summary>
+    /// <param name="cancellationToken">Token to cancel the bulk read.</param>
+    Task SeedFromStateStoreAsync(CancellationToken cancellationToken = default);
 }

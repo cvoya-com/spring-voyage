@@ -44,7 +44,7 @@ public class GitHubSkillRegistryTests
     {
         var tools = _registry.GetToolDefinitions();
 
-        tools.Count().ShouldBe(44);
+        tools.Count().ShouldBe(45);
         tools.Select(t => t.Name).ShouldBe(new[]
         {
             "github_create_branch",
@@ -84,6 +84,7 @@ public class GitHubSkillRegistryTests
             "github_list_review_threads",
             "github_resolve_review_thread",
             "github_unresolve_review_thread",
+            "github_get_pr_review_bundle",
             "github_list_webhooks",
             "github_update_webhook",
             "github_delete_webhook",
