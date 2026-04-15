@@ -13,6 +13,8 @@ using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
+using Cvoya.Spring.Dapr.Auth;
+using Cvoya.Spring.Host.Api.Auth;
 using Cvoya.Spring.Host.Api.Models;
 using Cvoya.Spring.Host.Api.Services;
 
@@ -95,11 +97,11 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
         doc.RootElement.GetProperty("unit").GetProperty("name").GetString().ShouldBe("from-yaml-unit");
         doc.RootElement.GetProperty("unit").GetProperty("displayName").GetString().ShouldBe("From YAML");
         doc.RootElement.GetProperty("unit").GetProperty("model").GetString().ShouldBe("claude-sonnet-4-20250514");
-        // Members are routed through MessageRouter, whose success in tests depends on
-        // whether the agent-address resolution surfaces an actor proxy for the mock.
-        // The key invariant is that manifest members are iterated (via warnings +
-        // the property being present), not the exact delivery count.
-        doc.RootElement.TryGetProperty("membersAdded", out _).ShouldBeTrue();
+        // #324: the manifest declared two members; the service now calls the
+        // unit actor directly (bypassing MessageRouter's permission gate) so
+        // both adds should succeed and be reflected in membersAdded. Each
+        // AddMemberAsync call on the proxy also gets tallied below.
+        doc.RootElement.GetProperty("membersAdded").GetInt32().ShouldBe(2);
 
         var warnings = doc.RootElement.GetProperty("warnings")
             .EnumerateArray()
@@ -113,6 +115,12 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
             Arg.Any<CancellationToken>());
         await proxy.Received(1).SetMetadataAsync(
             Arg.Is<UnitMetadata>(m => m.Model == "claude-sonnet-4-20250514"),
+            Arg.Any<CancellationToken>());
+        await proxy.Received(1).AddMemberAsync(
+            Arg.Is<Address>(a => a.Scheme == "agent" && a.Path == "tech-lead"),
+            Arg.Any<CancellationToken>());
+        await proxy.Received(1).AddMemberAsync(
+            Arg.Is<Address>(a => a.Scheme == "agent" && a.Path == "backend-engineer"),
             Arg.Any<CancellationToken>());
     }
 
@@ -197,7 +205,133 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
         var body = await response.Content.ReadAsStringAsync(ct);
         using var doc = JsonDocument.Parse(body);
         doc.RootElement.GetProperty("unit").GetProperty("name").GetString().ShouldBe("sample-unit");
-        doc.RootElement.TryGetProperty("membersAdded", out _).ShouldBeTrue();
+        // #324: sample-unit.yaml declares one member (sample-agent). Direct-
+        // proxy adds mean the count now reflects the manifest verbatim.
+        doc.RootElement.GetProperty("membersAdded").GetInt32().ShouldBe(1);
+
+        await proxy.Received(1).AddMemberAsync(
+            Arg.Is<Address>(a => a.Scheme == "agent" && a.Path == "sample-agent"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task FromTemplate_GrantsCreatorOwnerOnNewUnit()
+    {
+        // #324 Fix A: the creator of a unit must be granted Owner on the
+        // fresh unit before any member-add runs. The LocalDev auth handler
+        // planted on the test host surfaces AuthConstants.DefaultLocalUserId
+        // as the NameIdentifier claim, so that id is what should land on
+        // the unit actor's human-permission map.
+        var ct = TestContext.Current.CancellationToken;
+
+        ResetMocks();
+        var proxy = Substitute.For<IUnitActor>();
+        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(UnitStatus.Draft);
+        _factory.ActorProxyFactory
+            .CreateActorProxy<IUnitActor>(Arg.Any<ActorId>(), Arg.Any<string>())
+            .Returns(proxy);
+        _factory.DirectoryService
+            .RegisterAsync(Arg.Any<DirectoryEntry>(), Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+
+        var response = await _client.PostAsJsonAsync(
+            "/api/v1/units/from-template",
+            new CreateUnitFromTemplateRequest("sample-pkg", "sample-unit"),
+            ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Created);
+
+        // The Owner grant lands on the authenticated subject from the
+        // LocalDev handler — NOT on the synthetic "api" fallback.
+        await proxy.Received(1).SetHumanPermissionAsync(
+            AuthConstants.DefaultLocalUserId,
+            Arg.Is<UnitPermissionEntry>(e =>
+                e.HumanId == AuthConstants.DefaultLocalUserId
+                && e.Permission == PermissionLevel.Owner),
+            Arg.Any<CancellationToken>());
+        await proxy.DidNotReceive().SetHumanPermissionAsync(
+            "api",
+            Arg.Any<UnitPermissionEntry>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CreateUnit_FromScratch_NoMembers_GrantsCreatorOwner()
+    {
+        // #324 Fix A, coverage for the from-scratch path: even with zero
+        // members declared, the creator still becomes Owner so subsequent
+        // HTTP calls through MessageRouter pass the permission gate.
+        var ct = TestContext.Current.CancellationToken;
+
+        ResetMocks();
+        var proxy = Substitute.For<IUnitActor>();
+        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(UnitStatus.Draft);
+        _factory.ActorProxyFactory
+            .CreateActorProxy<IUnitActor>(Arg.Any<ActorId>(), Arg.Any<string>())
+            .Returns(proxy);
+        _factory.DirectoryService
+            .RegisterAsync(Arg.Any<DirectoryEntry>(), Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+
+        var request = new
+        {
+            name = "scratch-owner-unit",
+            displayName = "Scratch Owner Unit",
+            description = "",
+        };
+
+        var response = await _client.PostAsJsonAsync("/api/v1/units", request, ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.Created);
+
+        var body = await response.Content.ReadAsStringAsync(ct);
+        using var doc = JsonDocument.Parse(body);
+        // CreateAsync returns a bare UnitResponse (no wrapper) for #192
+        // compatibility — no membersAdded here, but AddMemberAsync must not
+        // have been invoked because the scratch request carries no members.
+        doc.RootElement.TryGetProperty("membersAdded", out _).ShouldBeFalse();
+
+        await proxy.DidNotReceive().AddMemberAsync(
+            Arg.Any<Address>(), Arg.Any<CancellationToken>());
+        await proxy.Received(1).SetHumanPermissionAsync(
+            AuthConstants.DefaultLocalUserId,
+            Arg.Is<UnitPermissionEntry>(e => e.Permission == PermissionLevel.Owner),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task FromTemplate_AddsMembersViaDirectProxy_NotMessageRouter()
+    {
+        // #324 Fix B: the service used to dispatch each AddMember as a
+        // domain message through MessageRouter, where a freshly created
+        // unit's empty permission map denied the call. The fix is to call
+        // the unit actor directly. This test asserts the behaviour change:
+        // proxy.AddMemberAsync is invoked exactly once per manifest member.
+        var ct = TestContext.Current.CancellationToken;
+
+        ResetMocks();
+        var proxy = Substitute.For<IUnitActor>();
+        proxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(UnitStatus.Draft);
+        _factory.ActorProxyFactory
+            .CreateActorProxy<IUnitActor>(Arg.Any<ActorId>(), Arg.Any<string>())
+            .Returns(proxy);
+        _factory.DirectoryService
+            .RegisterAsync(Arg.Any<DirectoryEntry>(), Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+
+        var response = await _client.PostAsJsonAsync(
+            "/api/v1/units/from-template",
+            new CreateUnitFromTemplateRequest("sample-pkg", "sample-unit"),
+            ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Created);
+
+        var body = await response.Content.ReadAsStringAsync(ct);
+        using var doc = JsonDocument.Parse(body);
+        doc.RootElement.GetProperty("membersAdded").GetInt32().ShouldBe(1);
+
+        await proxy.Received(1).AddMemberAsync(
+            Arg.Is<Address>(a => a.Scheme == "agent" && a.Path == "sample-agent"),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]

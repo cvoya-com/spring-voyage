@@ -6,7 +6,7 @@ namespace Cvoya.Spring.Host.Api.Services;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text.Json;
+using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -16,13 +16,14 @@ using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
-using Cvoya.Spring.Dapr.Routing;
+using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Host.Api.Models;
 using Cvoya.Spring.Manifest;
 
 using global::Dapr.Actors;
 using global::Dapr.Actors.Client;
 
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
@@ -35,9 +36,18 @@ using Microsoft.Extensions.Logging;
 /// </summary>
 public class UnitCreationService : IUnitCreationService
 {
+    /// <summary>
+    /// Fallback creator identifier used when no authenticated principal is
+    /// present on the ambient <see cref="HttpContext"/> — e.g. unit-testing
+    /// contexts that spin the service up outside a request pipeline. Mirrors
+    /// the synthetic <c>human://api</c> identity used elsewhere for
+    /// platform-originated calls.
+    /// </summary>
+    public const string FallbackCreatorId = "api";
+
     private readonly IDirectoryService _directoryService;
     private readonly IActorProxyFactory _actorProxyFactory;
-    private readonly MessageRouter _messageRouter;
+    private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly IUnitConnectorConfigStore _connectorConfigStore;
     private readonly IReadOnlyList<IConnectorType> _connectorTypes;
     private readonly ISkillBundleResolver _bundleResolver;
@@ -51,7 +61,7 @@ public class UnitCreationService : IUnitCreationService
     public UnitCreationService(
         IDirectoryService directoryService,
         IActorProxyFactory actorProxyFactory,
-        MessageRouter messageRouter,
+        IHttpContextAccessor httpContextAccessor,
         IUnitConnectorConfigStore connectorConfigStore,
         IEnumerable<IConnectorType> connectorTypes,
         ISkillBundleResolver bundleResolver,
@@ -61,7 +71,7 @@ public class UnitCreationService : IUnitCreationService
     {
         _directoryService = directoryService;
         _actorProxyFactory = actorProxyFactory;
-        _messageRouter = messageRouter;
+        _httpContextAccessor = httpContextAccessor;
         _connectorConfigStore = connectorConfigStore;
         _connectorTypes = connectorTypes.ToList();
         _bundleResolver = bundleResolver;
@@ -206,11 +216,44 @@ public class UnitCreationService : IUnitCreationService
                 Model: model,
                 Color: color);
 
+            var proxy = _actorProxyFactory.CreateActorProxy<IUnitActor>(
+                new ActorId(actorId), nameof(UnitActor));
+
             if (metadata.Model is not null || metadata.Color is not null)
             {
-                var proxy = _actorProxyFactory.CreateActorProxy<IUnitActor>(
-                    new ActorId(actorId), nameof(UnitActor));
                 await proxy.SetMetadataAsync(metadata, cancellationToken);
+            }
+
+            // Fix #324: grant the creator Owner on the brand-new unit BEFORE
+            // any member-add runs. Without this grant, the unit has no
+            // permission rows and any later router-dispatched call from the
+            // same caller is denied at MessageRouter's `Viewer` gate. The
+            // member adds below bypass the router (they are platform-internal
+            // service-to-actor calls) so they don't need this grant, but the
+            // creator will need it for every subsequent HTTP call they make
+            // to this unit.
+            var creatorId = ResolveCreatorId();
+            var creatorEntry = new UnitPermissionEntry(creatorId, PermissionLevel.Owner);
+            await proxy.SetHumanPermissionAsync(creatorId, creatorEntry, cancellationToken);
+
+            // Mirror the grant onto the human actor's unit-scoped permission
+            // map so both sides stay consistent — matches what
+            // UnitEndpoints.SetHumanPermissionAsync does on direct PATCH.
+            try
+            {
+                var humanProxy = _actorProxyFactory.CreateActorProxy<IHumanActor>(
+                    new ActorId(creatorId), nameof(HumanActor));
+                await humanProxy.SetPermissionForUnitAsync(name, PermissionLevel.Owner, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                // Non-fatal: the unit-side grant above is what the router's
+                // permission check consults; the human-side mirror is purely
+                // for symmetry with the PATCH endpoint. Log and move on so a
+                // transient human-actor hiccup does not block creation.
+                _logger.LogWarning(ex,
+                    "Failed to mirror Owner grant onto human actor {HumanId} for unit '{UnitName}'; unit-side grant is authoritative.",
+                    creatorId, name);
             }
 
             var membersAdded = 0;
@@ -223,30 +266,25 @@ public class UnitCreationService : IUnitCreationService
                     continue;
                 }
 
-                var payload = JsonSerializer.SerializeToElement(new
+                // Fix #324: call the actor directly instead of round-tripping
+                // through MessageRouter. The router's permission gate is for
+                // external callers; a platform-internal service-to-actor call
+                // does not belong behind it. The actor's own validation
+                // (cycle detection etc.) still runs, and AddMemberAsync on
+                // the actor emits the same StateChanged activity event the
+                // router-dispatched domain message used to trigger.
+                try
                 {
-                    Action = "AddMember",
-                    MemberScheme = resolved.Value.Scheme,
-                    MemberPath = resolved.Value.Path,
-                });
-
-                var message = new Message(
-                    Guid.NewGuid(),
-                    new Address("human", "api"),
-                    address,
-                    MessageType.Domain,
-                    null,
-                    payload,
-                    DateTimeOffset.UtcNow);
-
-                var result = await _messageRouter.RouteAsync(message, cancellationToken);
-                if (!result.IsSuccess)
+                    await proxy.AddMemberAsync(
+                        new Address(resolved.Value.Scheme, resolved.Value.Path),
+                        cancellationToken);
+                    membersAdded++;
+                }
+                catch (Exception ex)
                 {
                     warnings.Add(
-                        $"failed to add member {resolved.Value.Scheme}:{resolved.Value.Path}: {result.Error!.Message}");
-                    continue;
+                        $"failed to add member {resolved.Value.Scheme}:{resolved.Value.Path}: {ex.Message}");
                 }
-                membersAdded++;
             }
 
             // Persist the resolved skill bundles so prompt assembly can
@@ -396,6 +434,31 @@ public class UnitCreationService : IUnitCreationService
         throw new UnitCreationBindingException(
             UnitCreationBindingFailureReason.UnknownConnectorType,
             $"Connector '{identifier}' is not registered on this server.");
+    }
+
+    /// <summary>
+    /// Resolves the identifier used to grant Owner on a freshly created unit.
+    /// Prefers the authenticated user's <c>NameIdentifier</c> claim (which is
+    /// what <c>Cvoya.Spring.Dapr.Auth.PermissionHandler</c> consults when
+    /// checking permissions on subsequent requests) and falls back to
+    /// <see cref="FallbackCreatorId"/> only when no authenticated principal
+    /// is available — e.g. out-of-request contexts. In local-dev mode the
+    /// LocalDev auth handler surfaces <c>local-dev-user</c>, so the grant
+    /// lands on the right identity without needing the fallback.
+    /// </summary>
+    private string ResolveCreatorId()
+    {
+        var user = _httpContextAccessor.HttpContext?.User;
+        if (user?.Identity?.IsAuthenticated == true)
+        {
+            var claim = user.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (!string.IsNullOrWhiteSpace(claim))
+            {
+                return claim;
+            }
+        }
+
+        return FallbackCreatorId;
     }
 
     private static (string Scheme, string Path)? ResolveMemberAddress(MemberManifest member)
