@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Connector.GitHub;
 using System.Text.Json;
 
 using Cvoya.Spring.Connector.GitHub.Auth;
+using Cvoya.Spring.Connector.GitHub.Auth.OAuth;
 using Cvoya.Spring.Connector.GitHub.Webhooks;
 using Cvoya.Spring.Connectors;
 
@@ -128,6 +129,11 @@ public class GitHubConnectorType : IConnectorType
             .WithSummary("Get the JSON Schema describing the GitHub connector config body")
             .WithTags("Connectors.GitHub")
             .Produces<JsonElement>(StatusCodes.Status200OK);
+
+        // OAuth flow endpoints — authorize / callback / revoke / session.
+        // Owned by GitHubOAuthEndpoints so this class stays focused on the
+        // App-installation surface.
+        group.MapOAuthEndpoints();
     }
 
     /// <inheritdoc />

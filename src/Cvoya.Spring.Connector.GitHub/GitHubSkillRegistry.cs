@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Connector.GitHub;
 using System.Text.Json;
 
 using Cvoya.Spring.Connector.GitHub.Auth;
+using Cvoya.Spring.Connector.GitHub.Auth.OAuth;
 using Cvoya.Spring.Connector.GitHub.GraphQL;
 using Cvoya.Spring.Connector.GitHub.Labels;
 using Cvoya.Spring.Connector.GitHub.Skills;
@@ -27,11 +28,13 @@ public class GitHubSkillRegistry : ISkillRegistry
     private readonly GitHubConnector _connector;
     private readonly LabelStateMachine _labelStateMachine;
     private readonly IGitHubInstallationsClient _installations;
+    private readonly IGitHubOAuthClientFactory? _oauthClientFactory;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
     private readonly IReadOnlyList<ToolDefinition> _tools;
     private readonly Dictionary<string, Func<IGitHubClient, JsonElement, CancellationToken, Task<JsonElement>>> _dispatchers;
     private readonly Dictionary<string, Func<JsonElement, CancellationToken, Task<JsonElement>>> _installationDispatchers;
+    private readonly Dictionary<string, Func<JsonElement, CancellationToken, Task<JsonElement>>> _oauthDispatchers;
 
     /// <summary>
     /// Initializes the registry with the GitHub connector used to authenticate
@@ -44,17 +47,20 @@ public class GitHubSkillRegistry : ISkillRegistry
         GitHubConnector connector,
         LabelStateMachine labelStateMachine,
         IGitHubInstallationsClient installations,
-        ILoggerFactory loggerFactory)
+        ILoggerFactory loggerFactory,
+        IGitHubOAuthClientFactory? oauthClientFactory = null)
     {
         _connector = connector;
         _labelStateMachine = labelStateMachine;
         _installations = installations;
+        _oauthClientFactory = oauthClientFactory;
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<GitHubSkillRegistry>();
 
         _tools = BuildToolDefinitions();
         _dispatchers = BuildDispatchers();
         _installationDispatchers = BuildInstallationDispatchers();
+        _oauthDispatchers = BuildOAuthDispatchers();
     }
 
     /// <inheritdoc />
@@ -80,6 +86,15 @@ public class GitHubSkillRegistry : ISkillRegistry
             return await installDispatch(arguments, cancellationToken);
         }
 
+        // OAuth-authed skills resolve their IGitHubClient through the OAuth
+        // factory, keyed on a session id argument rather than the global
+        // installation. Dispatched before the App path so nothing routes a
+        // user-auth skill through App credentials.
+        if (_oauthDispatchers.TryGetValue(toolName, out var oauthDispatch))
+        {
+            return await oauthDispatch(arguments, cancellationToken);
+        }
+
         if (!_dispatchers.TryGetValue(toolName, out var dispatch))
         {
             throw new SkillNotFoundException(toolName);
@@ -87,6 +102,26 @@ public class GitHubSkillRegistry : ISkillRegistry
 
         var client = await _connector.CreateAuthenticatedClientAsync(cancellationToken);
         return await dispatch(client, arguments, cancellationToken);
+    }
+
+    private Dictionary<string, Func<JsonElement, CancellationToken, Task<JsonElement>>> BuildOAuthDispatchers()
+    {
+        // When the OAuth surface is not wired (e.g. tests that only exercise
+        // App-auth flows), every OAuth tool is absent from the dispatch map
+        // so InvokeAsync falls through to the App path and emits a
+        // SkillNotFoundException — matching the pre-OAuth contract.
+        if (_oauthClientFactory is null)
+        {
+            return new Dictionary<string, Func<JsonElement, CancellationToken, Task<JsonElement>>>(StringComparer.Ordinal);
+        }
+
+        var factory = _oauthClientFactory;
+        return new Dictionary<string, Func<JsonElement, CancellationToken, Task<JsonElement>>>(StringComparer.Ordinal)
+        {
+            ["github_get_authenticated_user"] = (args, ct) =>
+                new Cvoya.Spring.Connector.GitHub.Skills.GetAuthenticatedUserSkill(factory, _loggerFactory)
+                    .ExecuteAsync(GetString(args, "sessionId"), ct),
+        };
     }
 
     private Dictionary<string, Func<JsonElement, CancellationToken, Task<JsonElement>>> BuildInstallationDispatchers()
@@ -1291,6 +1326,19 @@ public class GitHubSkillRegistry : ISkillRegistry
                         repo = new { type = "string", description = "The repository name" }
                     },
                     required = new[] { "owner", "repo" }
+                }),
+
+            CreateToolDefinition(
+                "github_get_authenticated_user",
+                "Returns the authenticated GitHub user's profile (login, id, name, email) for the given OAuth session. Uses the OAuth user-to-server token — not the App installation — so the response reflects the human who authorized the OAuth App.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        sessionId = new { type = "string", description = "The OAuth session id returned by the callback endpoint." }
+                    },
+                    required = new[] { "sessionId" }
                 })
         ];
     }

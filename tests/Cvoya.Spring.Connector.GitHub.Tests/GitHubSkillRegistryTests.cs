@@ -44,7 +44,7 @@ public class GitHubSkillRegistryTests
     {
         var tools = _registry.GetToolDefinitions();
 
-        tools.Count().ShouldBe(44);
+        tools.Count().ShouldBe(45);
         tools.Select(t => t.Name).ShouldBe(new[]
         {
             "github_create_branch",
@@ -91,6 +91,7 @@ public class GitHubSkillRegistryTests
             "github_list_installations",
             "github_list_installation_repositories",
             "github_find_installation_for_repo",
+            "github_get_authenticated_user",
         }, ignoreOrder: true);
     }
 
