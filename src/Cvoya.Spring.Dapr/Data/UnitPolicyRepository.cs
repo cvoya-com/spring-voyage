@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Dapr.Data;
 
 using System.Text.Json;
 
+using Cvoya.Spring.Core.Initiative;
 using Cvoya.Spring.Core.Policies;
 using Cvoya.Spring.Dapr.Data.Entities;
 
@@ -12,9 +13,9 @@ using Microsoft.EntityFrameworkCore;
 
 /// <summary>
 /// EF Core-backed implementation of <see cref="IUnitPolicyRepository"/>.
-/// Persists rows in <c>unit_policies</c>; one row per unit. Empty policies
-/// (no dimensions set) are represented as row deletions to keep the table
-/// "units that actually have a policy" rather than "every unit".
+/// Persists rows in <c>unit_policies</c>; one row per unit. An all-null
+/// policy (<see cref="UnitPolicy.IsEmpty"/>) is represented as a row deletion
+/// so the table stays "units that actually have a policy".
 /// </summary>
 public class UnitPolicyRepository(SpringDbContext context) : IUnitPolicyRepository
 {
@@ -32,7 +33,12 @@ public class UnitPolicyRepository(SpringDbContext context) : IUnitPolicyReposito
             return UnitPolicy.Empty;
         }
 
-        return new UnitPolicy(Skill: DeserializeSkill(entity.Skill));
+        return new UnitPolicy(
+            Skill: Deserialize<SkillPolicy>(entity.Skill),
+            Model: Deserialize<ModelPolicy>(entity.Model),
+            Cost: Deserialize<CostPolicy>(entity.Cost),
+            ExecutionMode: Deserialize<ExecutionModePolicy>(entity.ExecutionMode),
+            Initiative: Deserialize<InitiativePolicy>(entity.Initiative));
     }
 
     /// <inheritdoc />
@@ -43,7 +49,7 @@ public class UnitPolicyRepository(SpringDbContext context) : IUnitPolicyReposito
 
         // An all-null policy carries no constraint — delete the row rather
         // than keep an inert marker around.
-        if (policy.Skill is null)
+        if (policy.IsEmpty)
         {
             await DeleteAsync(unitId, cancellationToken);
             return;
@@ -52,19 +58,31 @@ public class UnitPolicyRepository(SpringDbContext context) : IUnitPolicyReposito
         var existing = await context.UnitPolicies
             .FirstOrDefaultAsync(p => p.UnitId == unitId, cancellationToken);
 
-        var skillJson = SerializeSkill(policy.Skill);
+        var skill = Serialize(policy.Skill);
+        var model = Serialize(policy.Model);
+        var cost = Serialize(policy.Cost);
+        var execMode = Serialize(policy.ExecutionMode);
+        var initiative = Serialize(policy.Initiative);
 
         if (existing is null)
         {
             context.UnitPolicies.Add(new UnitPolicyEntity
             {
                 UnitId = unitId,
-                Skill = skillJson,
+                Skill = skill,
+                Model = model,
+                Cost = cost,
+                ExecutionMode = execMode,
+                Initiative = initiative,
             });
         }
         else
         {
-            existing.Skill = skillJson;
+            existing.Skill = skill;
+            existing.Model = model;
+            existing.Cost = cost;
+            existing.ExecutionMode = execMode;
+            existing.Initiative = initiative;
         }
 
         await context.SaveChangesAsync(cancellationToken);
@@ -87,23 +105,23 @@ public class UnitPolicyRepository(SpringDbContext context) : IUnitPolicyReposito
         await context.SaveChangesAsync(cancellationToken);
     }
 
-    private static JsonElement? SerializeSkill(SkillPolicy? skill)
+    private static JsonElement? Serialize<T>(T? value) where T : class
     {
-        if (skill is null)
+        if (value is null)
         {
             return null;
         }
 
-        return JsonSerializer.SerializeToElement(skill);
+        return JsonSerializer.SerializeToElement(value);
     }
 
-    private static SkillPolicy? DeserializeSkill(JsonElement? skill)
+    private static T? Deserialize<T>(JsonElement? element) where T : class
     {
-        if (skill is null || skill.Value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+        if (element is null || element.Value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
         {
             return null;
         }
 
-        return JsonSerializer.Deserialize<SkillPolicy>(skill.Value.GetRawText());
+        return JsonSerializer.Deserialize<T>(element.Value.GetRawText());
     }
 }

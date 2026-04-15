@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Host.Api.Models;
 
+using Cvoya.Spring.Core.Initiative;
 using Cvoya.Spring.Core.Policies;
 
 /// <summary>
@@ -13,11 +14,24 @@ using Cvoya.Spring.Core.Policies;
 /// core policy shape.
 /// </summary>
 /// <param name="Skill">Optional skill policy; <c>null</c> means no skill constraint.</param>
-public record UnitPolicyResponse(SkillPolicy? Skill)
+/// <param name="Model">Optional model policy (#247); <c>null</c> means no model constraint.</param>
+/// <param name="Cost">Optional cost policy (#248); <c>null</c> means no cost cap.</param>
+/// <param name="ExecutionMode">Optional execution-mode policy (#249); <c>null</c> means no mode constraint.</param>
+/// <param name="Initiative">
+/// Optional unit-level initiative policy (#250); <c>null</c> means the unit
+/// does not overlay the agent-level initiative policy with a deny filter.
+/// </param>
+public record UnitPolicyResponse(
+    SkillPolicy? Skill = null,
+    ModelPolicy? Model = null,
+    CostPolicy? Cost = null,
+    ExecutionModePolicy? ExecutionMode = null,
+    InitiativePolicy? Initiative = null)
 {
     /// <summary>Lifts a core <see cref="UnitPolicy"/> into the response shape.</summary>
-    public static UnitPolicyResponse From(UnitPolicy policy) => new(policy.Skill);
+    public static UnitPolicyResponse From(UnitPolicy policy) =>
+        new(policy.Skill, policy.Model, policy.Cost, policy.ExecutionMode, policy.Initiative);
 
     /// <summary>Projects this response back into the core record.</summary>
-    public UnitPolicy ToCore() => new(Skill);
+    public UnitPolicy ToCore() => new(Skill, Model, Cost, ExecutionMode, Initiative);
 }

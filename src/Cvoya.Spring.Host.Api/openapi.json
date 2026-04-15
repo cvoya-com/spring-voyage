@@ -4235,6 +4235,23 @@
           }
         }
       },
+      "CostPolicy": {
+        "type": "object",
+        "properties": {
+          "maxCostPerInvocation": {
+            "type": "number",
+            "format": "double"
+          },
+          "maxCostPerHour": {
+            "type": "number",
+            "format": "double"
+          },
+          "maxCostPerDay": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
       "CostSummaryResponse": {
         "required": [
           "totalCost",
@@ -4578,6 +4595,30 @@
           }
         }
       },
+      "ExecutionModePolicy": {
+        "type": "object",
+        "properties": {
+          "forced": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentExecutionMode"
+              }
+            ]
+          },
+          "allowed": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/AgentExecutionMode"
+            }
+          }
+        }
+      },
       "GitHubInstallationResponse": {
         "required": [
           "installationId",
@@ -4753,6 +4794,29 @@
                 "$ref": "#/components/schemas/JsonElement"
               }
             ]
+          }
+        }
+      },
+      "ModelPolicy": {
+        "type": "object",
+        "properties": {
+          "allowed": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "blocked": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -5451,9 +5515,6 @@
         }
       },
       "UnitPolicyResponse": {
-        "required": [
-          "skill"
-        ],
         "type": "object",
         "properties": {
           "skill": {
@@ -5463,6 +5524,46 @@
               },
               {
                 "$ref": "#/components/schemas/SkillPolicy"
+              }
+            ]
+          },
+          "model": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ModelPolicy"
+              }
+            ]
+          },
+          "cost": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CostPolicy"
+              }
+            ]
+          },
+          "executionMode": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ExecutionModePolicy"
+              }
+            ]
+          },
+          "initiative": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/InitiativePolicy"
               }
             ]
           }

@@ -478,6 +478,33 @@ public class AgentActor(
             return CreateAckResponse(message);
         }
 
+        // Unit-policy enforcement on the dispatch path (#247 / #248 / #249).
+        // Model and cost caps refuse the turn when the unit would not permit
+        // it; execution-mode is coerced (forced mode) or denied (outside the
+        // allow-list). Silently swapping a model would break user expectations,
+        // so deny outcomes become a DecisionMade "BlockedByUnitPolicy" event
+        // and the message is acked without dispatch. Policy misconfiguration
+        // must never swallow an exception — a denying decision is surfaced to
+        // the agent as an activity event so operators can trace it.
+        (effective, var policyVerdict) = await ApplyUnitPoliciesAsync(effective, cancellationToken);
+        if (policyVerdict is not null)
+        {
+            await EmitActivityEventAsync(ActivityEventType.DecisionMade,
+                $"Skipped message {message.Id} from {message.From}: {policyVerdict.Summary}.",
+                cancellationToken,
+                details: JsonSerializer.SerializeToElement(new
+                {
+                    decision = policyVerdict.DecisionTag,
+                    dimension = policyVerdict.Dimension,
+                    reason = policyVerdict.Decision.Reason,
+                    denyingUnitId = policyVerdict.Decision.DenyingUnitId,
+                    messageId = message.Id,
+                }),
+                correlationId: conversationId);
+
+            return CreateAckResponse(message);
+        }
+
         var activeConversation = await StateManager
             .TryGetStateAsync<ConversationChannel>(StateKeys.ActiveConversation, cancellationToken)
             ;
@@ -664,6 +691,134 @@ public class AgentActor(
             Enabled: membership.Enabled,
             ExecutionMode: membership.ExecutionMode ?? global.ExecutionMode,
             ParentUnit: global.ParentUnit);
+    }
+
+    /// <summary>
+    /// Carries a unit-policy denial across the agent-dispatch plumbing.
+    /// Composed by <see cref="ApplyUnitPoliciesAsync"/> and consumed by
+    /// <see cref="HandleDomainMessageAsync"/> to emit a structured
+    /// <c>DecisionMade</c> activity event without threading raw
+    /// <see cref="PolicyDecision"/> values into every caller.
+    /// </summary>
+    internal sealed record PolicyVerdict(
+        string Dimension,
+        string DecisionTag,
+        string Summary,
+        PolicyDecision Decision);
+
+    /// <summary>
+    /// Applies unit-level policy dimensions (#247 model, #248 cost, #249
+    /// execution mode) to the per-turn effective metadata. Returns the
+    /// (possibly coerced) metadata plus a non-<c>null</c>
+    /// <see cref="PolicyVerdict"/> when the dispatch must be refused.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Model and cost deny outcomes refuse the turn — silently swapping a
+    /// model mid-turn would break user expectations, and continuing past a
+    /// cost cap defeats the cap's purpose. Execution-mode coercion by a
+    /// forcing unit is treated as an allow (the call proceeds under the
+    /// forced mode); an allow-list miss refuses the turn.
+    /// </para>
+    /// <para>
+    /// Cost evaluation uses a projected cost of <c>0</c>: this seam does not
+    /// know the prompt size yet. It is still meaningful because
+    /// <see cref="DefaultUnitPolicyEnforcer.EvaluateCostAsync"/> sums the
+    /// agent's existing window spend — a unit that already exceeded its hour
+    /// / day cap will deny the turn before it runs.
+    /// </para>
+    /// </remarks>
+    internal virtual async Task<(AgentMetadata Effective, PolicyVerdict? Verdict)> ApplyUnitPoliciesAsync(
+        AgentMetadata effective, CancellationToken cancellationToken)
+    {
+        var agentId = Id.GetId();
+
+        // Model caps (#247): deny on block-list hit / whitelist miss. Null
+        // model means the downstream dispatcher picks a default — no cap
+        // applies at this seam.
+        if (!string.IsNullOrWhiteSpace(effective.Model))
+        {
+            PolicyDecision modelDecision;
+            try
+            {
+                modelDecision = await unitPolicyEnforcer.EvaluateModelAsync(
+                    agentId, effective.Model, cancellationToken);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning(ex,
+                    "Unit policy enforcer threw evaluating model '{Model}' for agent {AgentId}; allowing to avoid losing the turn.",
+                    effective.Model, agentId);
+                modelDecision = PolicyDecision.Allowed;
+            }
+
+            if (!modelDecision.IsAllowed)
+            {
+                return (effective, new PolicyVerdict(
+                    Dimension: "model",
+                    DecisionTag: "BlockedByUnitModelPolicy",
+                    Summary: modelDecision.Reason ?? $"model '{effective.Model}' denied",
+                    Decision: modelDecision));
+            }
+        }
+
+        // Cost caps (#248): zero projected cost — the enforcer still checks
+        // whether the current rolling-window sum has already exceeded the cap.
+        PolicyDecision costDecision;
+        try
+        {
+            costDecision = await unitPolicyEnforcer.EvaluateCostAsync(
+                agentId, 0m, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex,
+                "Unit policy enforcer threw evaluating cost for agent {AgentId}; allowing to avoid losing the turn.",
+                agentId);
+            costDecision = PolicyDecision.Allowed;
+        }
+
+        if (!costDecision.IsAllowed)
+        {
+            return (effective, new PolicyVerdict(
+                Dimension: "cost",
+                DecisionTag: "BlockedByUnitCostPolicy",
+                Summary: costDecision.Reason ?? "cost cap exceeded",
+                Decision: costDecision));
+        }
+
+        // Execution mode (#249): resolve — coercion by a forcing unit wins,
+        // otherwise a non-matching allow-list denies.
+        var requestedMode = effective.ExecutionMode ?? AgentExecutionMode.Auto;
+        ExecutionModeResolution resolution;
+        try
+        {
+            resolution = await unitPolicyEnforcer.ResolveExecutionModeAsync(
+                agentId, requestedMode, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex,
+                "Unit policy enforcer threw evaluating execution mode for agent {AgentId}; allowing to avoid losing the turn.",
+                agentId);
+            resolution = ExecutionModeResolution.AllowAsIs(requestedMode);
+        }
+
+        if (!resolution.Decision.IsAllowed)
+        {
+            return (effective, new PolicyVerdict(
+                Dimension: "executionMode",
+                DecisionTag: "BlockedByUnitExecutionModePolicy",
+                Summary: resolution.Decision.Reason ?? $"execution mode '{requestedMode}' denied",
+                Decision: resolution.Decision));
+        }
+
+        if (resolution.Mode != requestedMode)
+        {
+            effective = effective with { ExecutionMode = resolution.Mode };
+        }
+
+        return (effective, null);
     }
 
     /// <summary>
@@ -1324,6 +1479,36 @@ public class AgentActor(
                 detail: unitDecision.Reason ?? $"Action '{actionType}' blocked by unit policy.",
                 ct,
                 unitId: unitDecision.DenyingUnitId);
+            return;
+        }
+
+        // Unit initiative policy (#250) — DENY overlay on the agent-level
+        // allow/block list. Unit block wins over agent allow; unit whitelist
+        // further narrows the agent's allowed set. The agent's own policy
+        // has already been checked above, so reaching here means the agent
+        // permits the action and the unit gets the final word.
+        PolicyDecision initiativeDecision;
+        try
+        {
+            initiativeDecision = await unitPolicyEnforcer
+                .EvaluateInitiativeActionAsync(agentId, actionType, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Unit policy enforcer threw evaluating initiative action {ActionType} for agent {AgentId}; allowing to avoid losing the action.",
+                actionType, agentId);
+            initiativeDecision = PolicyDecision.Allowed;
+        }
+
+        if (!initiativeDecision.IsAllowed)
+        {
+            await EmitReflectionSkippedAsync(
+                outcome,
+                reason: "BlockedByUnitInitiativePolicy",
+                detail: initiativeDecision.Reason ?? $"Action '{actionType}' blocked by unit initiative policy.",
+                ct,
+                unitId: initiativeDecision.DenyingUnitId);
             return;
         }
 

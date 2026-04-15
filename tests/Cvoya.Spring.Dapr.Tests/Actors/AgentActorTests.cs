@@ -17,6 +17,7 @@ using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Routing;
+using Cvoya.Spring.Dapr.Tests.TestHelpers;
 
 using global::Dapr.Actors;
 using global::Dapr.Actors.Client;
@@ -68,9 +69,7 @@ public class AgentActorTests
             .GetAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns((UnitMembership?)null);
         _reflectionRegistry.Find(Arg.Any<string?>()).Returns((IReflectionActionHandler?)null);
-        _unitPolicyEnforcer
-            .EvaluateSkillInvocationAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(PolicyDecision.Allowed);
+        _unitPolicyEnforcer.WithAllowByDefault();
 
         _actor = new AgentActor(
             host,

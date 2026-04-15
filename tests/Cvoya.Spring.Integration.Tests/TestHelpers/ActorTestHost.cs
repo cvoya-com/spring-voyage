@@ -83,6 +83,21 @@ public static class ActorTestHost
         unitPolicyEnforcer
             .EvaluateSkillInvocationAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(PolicyDecision.Allowed);
+        unitPolicyEnforcer
+            .EvaluateModelAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(PolicyDecision.Allowed);
+        unitPolicyEnforcer
+            .EvaluateCostAsync(Arg.Any<string>(), Arg.Any<decimal>(), Arg.Any<CancellationToken>())
+            .Returns(PolicyDecision.Allowed);
+        unitPolicyEnforcer
+            .EvaluateExecutionModeAsync(Arg.Any<string>(), Arg.Any<Cvoya.Spring.Core.Agents.AgentExecutionMode>(), Arg.Any<CancellationToken>())
+            .Returns(PolicyDecision.Allowed);
+        unitPolicyEnforcer
+            .ResolveExecutionModeAsync(Arg.Any<string>(), Arg.Any<Cvoya.Spring.Core.Agents.AgentExecutionMode>(), Arg.Any<CancellationToken>())
+            .Returns(ci => ExecutionModeResolution.AllowAsIs(ci.ArgAt<Cvoya.Spring.Core.Agents.AgentExecutionMode>(1)));
+        unitPolicyEnforcer
+            .EvaluateInitiativeActionAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(PolicyDecision.Allowed);
         var actor = new AgentActor(
             host,
             activityEventBus,

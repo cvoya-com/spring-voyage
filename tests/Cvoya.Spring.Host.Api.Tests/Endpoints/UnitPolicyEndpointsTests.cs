@@ -5,8 +5,12 @@ namespace Cvoya.Spring.Host.Api.Tests.Endpoints;
 
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
+using Cvoya.Spring.Core.Agents;
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Initiative;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Policies;
 using Cvoya.Spring.Host.Api.Models;
@@ -148,6 +152,84 @@ public class UnitPolicyEndpointsTests : IClassFixture<CustomWebApplicationFactor
     }
 
     [Fact]
+    public async Task PutPolicy_AllDimensions_RoundTrips()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var unitName = NewUnitName();
+        ArrangeResolved(unitName);
+
+        var putBody = new UnitPolicyResponse(
+            Skill: new SkillPolicy(Allowed: new[] { "search" }),
+            Model: new ModelPolicy(Blocked: new[] { "gpt-4" }),
+            Cost: new CostPolicy(MaxCostPerInvocation: 0.25m, MaxCostPerHour: 5m, MaxCostPerDay: 50m),
+            ExecutionMode: new ExecutionModePolicy(Forced: AgentExecutionMode.OnDemand),
+            Initiative: new InitiativePolicy(BlockedActions: new[] { "delete-repo" }));
+
+        var putResponse = await _client.PutAsJsonAsync(
+            $"/api/v1/units/{unitName}/policy", putBody, WireJson, ct);
+        putResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var stored = await _client
+            .GetFromJsonAsync<UnitPolicyResponse>($"/api/v1/units/{unitName}/policy", WireJson, ct);
+        stored.ShouldNotBeNull();
+        stored!.Skill!.Allowed.ShouldBe(new[] { "search" });
+        stored.Model!.Blocked.ShouldBe(new[] { "gpt-4" });
+        stored.Cost!.MaxCostPerInvocation.ShouldBe(0.25m);
+        stored.Cost.MaxCostPerHour.ShouldBe(5m);
+        stored.Cost.MaxCostPerDay.ShouldBe(50m);
+        stored.ExecutionMode!.Forced.ShouldBe(AgentExecutionMode.OnDemand);
+        stored.Initiative!.BlockedActions.ShouldBe(new[] { "delete-repo" });
+    }
+
+    [Fact]
+    public async Task PutPolicy_ModelOnly_SkillRemainsNull()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var unitName = NewUnitName();
+        ArrangeResolved(unitName);
+
+        var putBody = new UnitPolicyResponse(
+            Model: new ModelPolicy(Blocked: new[] { "gpt-4" }));
+
+        await _client.PutAsJsonAsync($"/api/v1/units/{unitName}/policy", putBody, ct);
+
+        var stored = await _client
+            .GetFromJsonAsync<UnitPolicyResponse>($"/api/v1/units/{unitName}/policy", ct);
+        stored!.Skill.ShouldBeNull();
+        stored.Model!.Blocked.ShouldBe(new[] { "gpt-4" });
+        stored.Cost.ShouldBeNull();
+        stored.ExecutionMode.ShouldBeNull();
+        stored.Initiative.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task PutPolicy_ClearOneDimension_OthersPersist()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var unitName = NewUnitName();
+        ArrangeResolved(unitName);
+
+        await _client.PutAsJsonAsync(
+            $"/api/v1/units/{unitName}/policy",
+            new UnitPolicyResponse(
+                Skill: new SkillPolicy(Blocked: new[] { "dangerous" }),
+                Model: new ModelPolicy(Blocked: new[] { "gpt-4" })),
+            ct);
+
+        // Clear model but keep skill.
+        await _client.PutAsJsonAsync(
+            $"/api/v1/units/{unitName}/policy",
+            new UnitPolicyResponse(
+                Skill: new SkillPolicy(Blocked: new[] { "dangerous" })),
+            ct);
+
+        var stored = await _client
+            .GetFromJsonAsync<UnitPolicyResponse>($"/api/v1/units/{unitName}/policy", ct);
+        stored!.Skill!.Blocked.ShouldBe(new[] { "dangerous" });
+        stored.Model.ShouldBeNull();
+    }
+
+    [Fact]
     public async Task PutPolicy_UnknownUnit_Returns404()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -164,6 +246,18 @@ public class UnitPolicyEndpointsTests : IClassFixture<CustomWebApplicationFactor
     }
 
     private static string NewUnitName() => $"engineering-{Guid.NewGuid():N}";
+
+    /// <summary>
+    /// JSON options matching the host's wire format: enums serialize as their
+    /// string names. The default <see cref="HttpClientJsonExtensions"/>
+    /// options serialize enums as integers, which the host rejects under
+    /// <c>JsonStringEnumConverter(allowIntegerValues: false)</c>.
+    /// </summary>
+    private static readonly JsonSerializerOptions WireJson = new()
+    {
+        Converters = { new JsonStringEnumConverter(allowIntegerValues: false) },
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+    };
 
     private void ArrangeResolved(string unitName)
     {

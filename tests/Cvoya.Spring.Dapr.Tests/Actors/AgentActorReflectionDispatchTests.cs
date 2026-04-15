@@ -18,6 +18,7 @@ using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Routing;
+using Cvoya.Spring.Dapr.Tests.TestHelpers;
 
 using global::Dapr.Actors;
 using global::Dapr.Actors.Runtime;
@@ -77,9 +78,7 @@ public class AgentActorReflectionDispatchTests
             .GetAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns((UnitMembership?)null);
 
-        _unitPolicyEnforcer
-            .EvaluateSkillInvocationAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(PolicyDecision.Allowed);
+        _unitPolicyEnforcer.WithAllowByDefault();
 
         _policyStore.GetPolicyAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new InitiativePolicy(MaxLevel: InitiativeLevel.Autonomous));
@@ -225,6 +224,58 @@ public class AgentActorReflectionDispatchTests
         await _activityEventBus.Received().PublishAsync(
             Arg.Is<ActivityEvent>(e => e.EventType == ActivityEventType.ReflectionActionSkipped),
             Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Reflection_ActionBlockedByUnitInitiativePolicy_EmitsSkipped()
+    {
+        // #250 — even when the agent's own InitiativePolicy permits the action
+        // (default Allowed=Autonomous, no BlockedActions) and the unit's
+        // skill-policy is silent, the unit's initiative-policy DENY overlay
+        // wins. The dispatch is suppressed and a ReflectionActionSkipped
+        // event surfaces the denying unit so operators can audit.
+        _unitPolicyEnforcer
+            .EvaluateInitiativeActionAsync(Arg.Any<string>(), "send-message", Arg.Any<CancellationToken>())
+            .Returns(PolicyDecision.Deny("send-message blocked by unit initiative policy", "engineering"));
+
+        var outcome = new ReflectionOutcome(true, "send-message", "because",
+            JsonSerializer.SerializeToElement(new { }));
+        ArrangeOutcome(outcome);
+        ArrangeHandler("send-message", TranslatedMessage());
+
+        await _actor.ReceiveReminderAsync(AgentActor.InitiativeReminderName, Array.Empty<byte>(), TimeSpan.Zero, TimeSpan.FromHours(1));
+
+        await _router.DidNotReceive().RouteAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>());
+        await _activityEventBus.Received().PublishAsync(
+            Arg.Is<ActivityEvent>(e =>
+                e.EventType == ActivityEventType.ReflectionActionSkipped &&
+                e.Summary.Contains("BlockedByUnitInitiativePolicy")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Reflection_AgentInitiativeAllows_UnitInitiativeBlocks_DenyWins()
+    {
+        // Agent-level policy explicitly allows "send-message". Unit-level
+        // policy blocks it. The DENY-overlay rule (#250) means the action
+        // must NOT dispatch.
+        _policyStore.GetPolicyAsync($"agent:{AgentId}", Arg.Any<CancellationToken>())
+            .Returns(new InitiativePolicy(
+                MaxLevel: InitiativeLevel.Autonomous,
+                AllowedActions: new[] { "send-message" }));
+
+        _unitPolicyEnforcer
+            .EvaluateInitiativeActionAsync(AgentId, "send-message", Arg.Any<CancellationToken>())
+            .Returns(PolicyDecision.Deny("blocked by unit", "engineering"));
+
+        var outcome = new ReflectionOutcome(true, "send-message", "because",
+            JsonSerializer.SerializeToElement(new { }));
+        ArrangeOutcome(outcome);
+        ArrangeHandler("send-message", TranslatedMessage());
+
+        await _actor.ReceiveReminderAsync(AgentActor.InitiativeReminderName, Array.Empty<byte>(), TimeSpan.Zero, TimeSpan.FromHours(1));
+
+        await _router.DidNotReceive().RouteAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

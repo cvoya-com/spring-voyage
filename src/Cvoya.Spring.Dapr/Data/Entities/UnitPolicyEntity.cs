@@ -10,8 +10,8 @@ using System.Text.Json;
 /// unit that has at least one non-empty policy dimension. The sibling-entity
 /// shape (rather than a column on <see cref="UnitDefinitionEntity"/>) keeps
 /// policy writes independent of unit-definition writes and lets the policy
-/// record grow over time (model caps, cost caps, execution-mode, initiative)
-/// without churning the <c>unit_definitions</c> schema.
+/// record grow over time. Each dimension is a nullable <c>jsonb</c> column so
+/// adding a new dimension is a purely additive schema change.
 /// </summary>
 public class UnitPolicyEntity
 {
@@ -27,6 +27,30 @@ public class UnitPolicyEntity
     /// PostgreSQL so future dimensions do not require DDL changes.
     /// </summary>
     public JsonElement? Skill { get; set; }
+
+    /// <summary>
+    /// Persisted model policy encoded as JSON, or <c>null</c> when the unit
+    /// does not constrain which LLM models its members may use. See #247.
+    /// </summary>
+    public JsonElement? Model { get; set; }
+
+    /// <summary>
+    /// Persisted cost policy encoded as JSON, or <c>null</c> when the unit
+    /// does not impose per-agent cost caps. See #248.
+    /// </summary>
+    public JsonElement? Cost { get; set; }
+
+    /// <summary>
+    /// Persisted execution-mode policy encoded as JSON, or <c>null</c> when
+    /// the unit does not pin or restrict member execution modes. See #249.
+    /// </summary>
+    public JsonElement? ExecutionMode { get; set; }
+
+    /// <summary>
+    /// Persisted unit-level initiative policy encoded as JSON, or <c>null</c>
+    /// when no unit-level initiative overlay is configured. See #250.
+    /// </summary>
+    public JsonElement? Initiative { get; set; }
 
     /// <summary>
     /// Timestamp when the row was first inserted.

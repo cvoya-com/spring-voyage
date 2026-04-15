@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.Dapr.Tests.Data;
 
+using Cvoya.Spring.Core.Agents;
+using Cvoya.Spring.Core.Initiative;
 using Cvoya.Spring.Core.Policies;
 using Cvoya.Spring.Dapr.Data;
 
@@ -109,6 +111,51 @@ public class UnitPolicyRepositoryTests : IDisposable
 
         var stored = await _repository.GetAsync("engineering", ct);
         stored.ShouldBe(UnitPolicy.Empty);
+    }
+
+    [Fact]
+    public async Task SetAsync_AllDimensions_RoundTrip()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var policy = new UnitPolicy(
+            Skill: new SkillPolicy(Allowed: new[] { "search" }),
+            Model: new ModelPolicy(Blocked: new[] { "gpt-4" }),
+            Cost: new CostPolicy(MaxCostPerInvocation: 0.1m, MaxCostPerDay: 5m),
+            ExecutionMode: new ExecutionModePolicy(Forced: AgentExecutionMode.OnDemand),
+            Initiative: new InitiativePolicy(BlockedActions: new[] { "delete-repo" }));
+
+        await _repository.SetAsync("engineering", policy, ct);
+        var stored = await _repository.GetAsync("engineering", ct);
+
+        stored.Skill!.Allowed.ShouldBe(new[] { "search" });
+        stored.Model!.Blocked.ShouldBe(new[] { "gpt-4" });
+        stored.Cost!.MaxCostPerInvocation.ShouldBe(0.1m);
+        stored.Cost.MaxCostPerDay.ShouldBe(5m);
+        stored.ExecutionMode!.Forced.ShouldBe(AgentExecutionMode.OnDemand);
+        stored.Initiative!.BlockedActions.ShouldBe(new[] { "delete-repo" });
+    }
+
+    [Fact]
+    public async Task SetAsync_ClearsDimensionOnOverwrite()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        await _repository.SetAsync(
+            "engineering",
+            new UnitPolicy(
+                Skill: new SkillPolicy(Blocked: new[] { "x" }),
+                Model: new ModelPolicy(Blocked: new[] { "gpt-4" })),
+            ct);
+
+        // Overwrite with only skill — the model column should be cleared.
+        await _repository.SetAsync(
+            "engineering",
+            new UnitPolicy(Skill: new SkillPolicy(Blocked: new[] { "x" })),
+            ct);
+
+        var stored = await _repository.GetAsync("engineering", ct);
+        stored.Skill.ShouldNotBeNull();
+        stored.Model.ShouldBeNull();
     }
 
     [Fact]

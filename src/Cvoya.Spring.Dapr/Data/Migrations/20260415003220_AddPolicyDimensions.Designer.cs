@@ -4,6 +4,7 @@ using System.Text.Json;
 using Cvoya.Spring.Dapr.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -12,9 +13,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Cvoya.Spring.Dapr.Data.Migrations
 {
     [DbContext(typeof(SpringDbContext))]
-    partial class SpringDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260415003220_AddPolicyDimensions")]
+    partial class AddPolicyDimensions
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -360,11 +363,8 @@ namespace Cvoya.Spring.Dapr.Data.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("TenantId", "Scope", "OwnerId", "Name")
-                        .HasDatabaseName("ix_secret_registry_tenant_scope_owner_name");
-
-                    b.HasIndex("TenantId", "Scope", "OwnerId", "Name", "Version")
                         .IsUnique()
-                        .HasDatabaseName("ix_secret_registry_tenant_scope_owner_name_version");
+                        .HasDatabaseName("ix_secret_registry_tenant_scope_owner_name");
 
                     b.ToTable("secret_registry_entries", "spring");
                 });

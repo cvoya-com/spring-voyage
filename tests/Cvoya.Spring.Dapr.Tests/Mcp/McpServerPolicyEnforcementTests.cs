@@ -138,6 +138,26 @@ public class McpServerPolicyEnforcementTests : IAsyncLifetime
             LastToolName = toolName;
             return Task.FromResult(NextDecision);
         }
+
+        public Task<PolicyDecision> EvaluateModelAsync(
+            string agentId, string modelId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(PolicyDecision.Allowed);
+
+        public Task<PolicyDecision> EvaluateCostAsync(
+            string agentId, decimal projectedCost, CancellationToken cancellationToken = default) =>
+            Task.FromResult(PolicyDecision.Allowed);
+
+        public Task<PolicyDecision> EvaluateExecutionModeAsync(
+            string agentId, Cvoya.Spring.Core.Agents.AgentExecutionMode mode, CancellationToken cancellationToken = default) =>
+            Task.FromResult(PolicyDecision.Allowed);
+
+        public Task<ExecutionModeResolution> ResolveExecutionModeAsync(
+            string agentId, Cvoya.Spring.Core.Agents.AgentExecutionMode mode, CancellationToken cancellationToken = default) =>
+            Task.FromResult(ExecutionModeResolution.AllowAsIs(mode));
+
+        public Task<PolicyDecision> EvaluateInitiativeActionAsync(
+            string agentId, string actionType, CancellationToken cancellationToken = default) =>
+            Task.FromResult(PolicyDecision.Allowed);
     }
 
     private sealed class FakeRegistry : ISkillRegistry

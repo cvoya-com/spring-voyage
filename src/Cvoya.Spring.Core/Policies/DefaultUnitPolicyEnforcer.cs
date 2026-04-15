@@ -3,6 +3,9 @@
 
 namespace Cvoya.Spring.Core.Policies;
 
+using Cvoya.Spring.Core.Agents;
+using Cvoya.Spring.Core.Costs;
+using Cvoya.Spring.Core.Initiative;
 using Cvoya.Spring.Core.Units;
 
 /// <summary>
@@ -21,18 +24,57 @@ using Cvoya.Spring.Core.Units;
 /// implementation and then either short-circuiting or tightening the decision.
 /// </para>
 /// <para>
-/// Skill-policy evaluation rules (#163): a tool name in a unit's
-/// <see cref="SkillPolicy.Blocked"/> list is always denied. When a unit's
-/// <see cref="SkillPolicy.Allowed"/> list is non-<c>null</c>, only members of
-/// the list are permitted. Matching is case-insensitive. Per-membership
-/// overrides never loosen the unit policy — if the unit blocks a skill, no
-/// agent in that unit can use it regardless of their own declaration.
+/// Evaluation rules per dimension:
+/// </para>
+/// <list type="bullet">
+///   <item>
+///     <description>
+///     <b>Skill</b> (#163): a tool in <see cref="SkillPolicy.Blocked"/> is
+///     always denied; when <see cref="SkillPolicy.Allowed"/> is non-<c>null</c>,
+///     only members of the list are permitted.
+///     </description>
+///   </item>
+///   <item>
+///     <description>
+///     <b>Model</b> (#247): mirrors skill — block-list wins, then whitelist.
+///     </description>
+///   </item>
+///   <item>
+///     <description>
+///     <b>Cost</b> (#248): each cap is checked against the current window sum
+///     obtained from <see cref="ICostQueryService"/> plus <c>projectedCost</c>.
+///     The tightest breached cap wins.
+///     </description>
+///   </item>
+///   <item>
+///     <description>
+///     <b>ExecutionMode</b> (#249): a forcing unit coerces the mode;
+///     otherwise a non-<c>null</c> allow-list denies modes outside it.
+///     </description>
+///   </item>
+///   <item>
+///     <description>
+///     <b>Initiative</b> (#250): unit-level
+///     <see cref="InitiativePolicy.BlockedActions"/> / <see cref="InitiativePolicy.AllowedActions"/>
+///     layer as a DENY overlay over the agent-level policy. Callers that want
+///     the agent-level gate to also apply must evaluate it themselves — the
+///     enforcer only speaks for the unit.
+///     </description>
+///   </item>
+/// </list>
+/// <para>
+/// Matching of string identifiers (tool names, model ids, action types) is
+/// case-insensitive throughout for parity with <see cref="SkillPolicy"/>.
 /// </para>
 /// </remarks>
 public class DefaultUnitPolicyEnforcer(
     IUnitMembershipRepository memberships,
-    IUnitPolicyRepository policies) : IUnitPolicyEnforcer
+    IUnitPolicyRepository policies,
+    ICostQueryService? costQueries = null,
+    TimeProvider? timeProvider = null) : IUnitPolicyEnforcer
 {
+    private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
+
     /// <inheritdoc />
     public virtual async Task<PolicyDecision> EvaluateSkillInvocationAsync(
         string agentId,
@@ -47,32 +89,208 @@ public class DefaultUnitPolicyEnforcer(
             return PolicyDecision.Allowed;
         }
 
-        var agentMemberships = await memberships
-            .ListByAgentAsync(agentId, cancellationToken);
-
-        if (agentMemberships.Count == 0)
+        return await EvaluateAcrossUnitsAsync(agentId, (policy, unitId) =>
         {
-            // Agent is not a member of any unit — no unit policy applies.
-            // Back-compat with the pre-#162 world where nothing restricted skills.
+            if (policy.Skill is null)
+            {
+                return PolicyDecision.Allowed;
+            }
+
+            return EvaluateSkillPolicy(policy.Skill, toolName, unitId);
+        }, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public virtual async Task<PolicyDecision> EvaluateModelAsync(
+        string agentId,
+        string modelId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(agentId) || string.IsNullOrWhiteSpace(modelId))
+        {
             return PolicyDecision.Allowed;
         }
+
+        return await EvaluateAcrossUnitsAsync(agentId, (policy, unitId) =>
+        {
+            if (policy.Model is null)
+            {
+                return PolicyDecision.Allowed;
+            }
+
+            return EvaluateModelPolicy(policy.Model, modelId, unitId);
+        }, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public virtual async Task<PolicyDecision> EvaluateCostAsync(
+        string agentId,
+        decimal projectedCost,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(agentId))
+        {
+            return PolicyDecision.Allowed;
+        }
+
+        var agentMemberships = await memberships.ListByAgentAsync(agentId, cancellationToken);
+        if (agentMemberships.Count == 0)
+        {
+            return PolicyDecision.Allowed;
+        }
+
+        // Pre-check the per-invocation cap first — it does not depend on
+        // window sums, so we can short-circuit without a database call.
+        foreach (var membership in agentMemberships)
+        {
+            var policy = await policies.GetAsync(membership.UnitId, cancellationToken);
+            if (policy.Cost?.MaxCostPerInvocation is { } perCall &&
+                projectedCost > perCall)
+            {
+                return PolicyDecision.Deny(
+                    $"Projected cost {projectedCost:C} exceeds per-invocation cap " +
+                    $"{perCall:C} for unit '{membership.UnitId}'.",
+                    membership.UnitId);
+            }
+        }
+
+        // Window-based caps require a cost-query service. Missing service =
+        // the host does not persist CostRecord entries; fall through to allow
+        // so a test harness does not turn every dispatch into a denial.
+        if (costQueries is null)
+        {
+            return PolicyDecision.Allowed;
+        }
+
+        var now = _timeProvider.GetUtcNow();
+        decimal? hourlySum = null;
+        decimal? dailySum = null;
 
         foreach (var membership in agentMemberships)
         {
             var policy = await policies.GetAsync(membership.UnitId, cancellationToken);
-            if (policy.Skill is null)
+            if (policy.Cost is null)
             {
                 continue;
             }
 
-            var decision = EvaluateSkillPolicy(policy.Skill, toolName, membership.UnitId);
-            if (!decision.IsAllowed)
+            if (policy.Cost.MaxCostPerHour is { } perHour)
             {
-                return decision;
+                hourlySum ??= (await costQueries.GetAgentCostAsync(
+                    agentId, now.AddHours(-1), now, cancellationToken)).TotalCost;
+
+                if (hourlySum.Value + projectedCost > perHour)
+                {
+                    return PolicyDecision.Deny(
+                        $"Hourly spend {hourlySum.Value:C} + projected {projectedCost:C} " +
+                        $"exceeds per-hour cap {perHour:C} for unit '{membership.UnitId}'.",
+                        membership.UnitId);
+                }
+            }
+
+            if (policy.Cost.MaxCostPerDay is { } perDay)
+            {
+                dailySum ??= (await costQueries.GetAgentCostAsync(
+                    agentId, now.AddDays(-1), now, cancellationToken)).TotalCost;
+
+                if (dailySum.Value + projectedCost > perDay)
+                {
+                    return PolicyDecision.Deny(
+                        $"Daily spend {dailySum.Value:C} + projected {projectedCost:C} " +
+                        $"exceeds per-day cap {perDay:C} for unit '{membership.UnitId}'.",
+                        membership.UnitId);
+                }
             }
         }
 
         return PolicyDecision.Allowed;
+    }
+
+    /// <inheritdoc />
+    public virtual async Task<PolicyDecision> EvaluateExecutionModeAsync(
+        string agentId,
+        AgentExecutionMode mode,
+        CancellationToken cancellationToken = default)
+    {
+        var resolution = await ResolveExecutionModeAsync(agentId, mode, cancellationToken);
+        if (!resolution.Decision.IsAllowed)
+        {
+            return resolution.Decision;
+        }
+
+        return resolution.Mode == mode
+            ? PolicyDecision.Allowed
+            : PolicyDecision.Deny(
+                $"Execution mode '{mode}' is coerced to '{resolution.Mode}' by unit policy.",
+                resolution.Decision.DenyingUnitId);
+    }
+
+    /// <inheritdoc />
+    public virtual async Task<ExecutionModeResolution> ResolveExecutionModeAsync(
+        string agentId,
+        AgentExecutionMode mode,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(agentId))
+        {
+            return ExecutionModeResolution.AllowAsIs(mode);
+        }
+
+        var agentMemberships = await memberships.ListByAgentAsync(agentId, cancellationToken);
+        if (agentMemberships.Count == 0)
+        {
+            return ExecutionModeResolution.AllowAsIs(mode);
+        }
+
+        // First pass: any unit that forces a mode wins — coercion is strongest.
+        foreach (var membership in agentMemberships)
+        {
+            var policy = await policies.GetAsync(membership.UnitId, cancellationToken);
+            if (policy.ExecutionMode?.Forced is { } forced)
+            {
+                return new ExecutionModeResolution(PolicyDecision.Allowed, forced);
+            }
+        }
+
+        // Second pass: whitelist-only. A mode outside every non-null
+        // allow-list is denied.
+        foreach (var membership in agentMemberships)
+        {
+            var policy = await policies.GetAsync(membership.UnitId, cancellationToken);
+            if (policy.ExecutionMode?.Allowed is { Count: > 0 } allowed &&
+                !allowed.Contains(mode))
+            {
+                return new ExecutionModeResolution(
+                    PolicyDecision.Deny(
+                        $"Execution mode '{mode}' is not permitted by unit '{membership.UnitId}'.",
+                        membership.UnitId),
+                    mode);
+            }
+        }
+
+        return ExecutionModeResolution.AllowAsIs(mode);
+    }
+
+    /// <inheritdoc />
+    public virtual async Task<PolicyDecision> EvaluateInitiativeActionAsync(
+        string agentId,
+        string actionType,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(agentId) || string.IsNullOrWhiteSpace(actionType))
+        {
+            return PolicyDecision.Allowed;
+        }
+
+        return await EvaluateAcrossUnitsAsync(agentId, (policy, unitId) =>
+        {
+            if (policy.Initiative is null)
+            {
+                return PolicyDecision.Allowed;
+            }
+
+            return EvaluateInitiativePolicy(policy.Initiative, actionType, unitId);
+        }, cancellationToken);
     }
 
     /// <summary>
@@ -106,6 +324,111 @@ public class DefaultUnitPolicyEnforcer(
             return PolicyDecision.Deny(
                 $"Tool '{toolName}' is not in unit '{unitId}' allowed-skills list.",
                 unitId);
+        }
+
+        return PolicyDecision.Allowed;
+    }
+
+    /// <summary>
+    /// Pure evaluation of a single <see cref="ModelPolicy"/> against a model
+    /// identifier. Mirrors <see cref="EvaluateSkillPolicy"/> — block-list wins
+    /// over allow-list; matching is case-insensitive.
+    /// </summary>
+    /// <param name="policy">The model policy to evaluate.</param>
+    /// <param name="modelId">The model identifier being selected.</param>
+    /// <param name="unitId">The unit id to record on deny decisions.</param>
+    protected static PolicyDecision EvaluateModelPolicy(
+        ModelPolicy policy,
+        string modelId,
+        string unitId)
+    {
+        ArgumentNullException.ThrowIfNull(policy);
+        ArgumentException.ThrowIfNullOrWhiteSpace(modelId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(unitId);
+
+        if (policy.Blocked is { Count: > 0 } blocked &&
+            blocked.Any(b => string.Equals(b, modelId, StringComparison.OrdinalIgnoreCase)))
+        {
+            return PolicyDecision.Deny(
+                $"Model '{modelId}' is blocked by unit '{unitId}' model policy.",
+                unitId);
+        }
+
+        if (policy.Allowed is { } allowed &&
+            !allowed.Any(a => string.Equals(a, modelId, StringComparison.OrdinalIgnoreCase)))
+        {
+            return PolicyDecision.Deny(
+                $"Model '{modelId}' is not in unit '{unitId}' allowed-models list.",
+                unitId);
+        }
+
+        return PolicyDecision.Allowed;
+    }
+
+    /// <summary>
+    /// Pure evaluation of a unit-scoped <see cref="InitiativePolicy"/> against
+    /// a reflection-action type. Only <see cref="InitiativePolicy.BlockedActions"/>
+    /// and <see cref="InitiativePolicy.AllowedActions"/> are consulted — the
+    /// other fields (tier configs, max level) are reserved for the agent-level
+    /// policy and are not re-enforced here.
+    /// </summary>
+    /// <param name="policy">The initiative policy to evaluate.</param>
+    /// <param name="actionType">The action-type string being attempted.</param>
+    /// <param name="unitId">The unit id to record on deny decisions.</param>
+    protected static PolicyDecision EvaluateInitiativePolicy(
+        InitiativePolicy policy,
+        string actionType,
+        string unitId)
+    {
+        ArgumentNullException.ThrowIfNull(policy);
+        ArgumentException.ThrowIfNullOrWhiteSpace(actionType);
+        ArgumentException.ThrowIfNullOrWhiteSpace(unitId);
+
+        if (policy.BlockedActions is { Count: > 0 } blocked &&
+            blocked.Any(b => string.Equals(b, actionType, StringComparison.OrdinalIgnoreCase)))
+        {
+            return PolicyDecision.Deny(
+                $"Action '{actionType}' is blocked by unit '{unitId}' initiative policy.",
+                unitId);
+        }
+
+        if (policy.AllowedActions is { Count: > 0 } allowed &&
+            !allowed.Any(a => string.Equals(a, actionType, StringComparison.OrdinalIgnoreCase)))
+        {
+            return PolicyDecision.Deny(
+                $"Action '{actionType}' is not in unit '{unitId}' allowed-actions list.",
+                unitId);
+        }
+
+        return PolicyDecision.Allowed;
+    }
+
+    /// <summary>
+    /// Iterates over every unit the agent belongs to, loading the unit's
+    /// policy and applying the supplied per-dimension evaluator. The first
+    /// deny short-circuits. Shared by every dimension whose evaluation rule
+    /// is "first denying unit wins" (skill, model, initiative).
+    /// </summary>
+    private async Task<PolicyDecision> EvaluateAcrossUnitsAsync(
+        string agentId,
+        Func<UnitPolicy, string, PolicyDecision> evaluator,
+        CancellationToken cancellationToken)
+    {
+        var agentMemberships = await memberships.ListByAgentAsync(agentId, cancellationToken);
+
+        if (agentMemberships.Count == 0)
+        {
+            return PolicyDecision.Allowed;
+        }
+
+        foreach (var membership in agentMemberships)
+        {
+            var policy = await policies.GetAsync(membership.UnitId, cancellationToken);
+            var decision = evaluator(policy, membership.UnitId);
+            if (!decision.IsAllowed)
+            {
+                return decision;
+            }
         }
 
         return PolicyDecision.Allowed;
