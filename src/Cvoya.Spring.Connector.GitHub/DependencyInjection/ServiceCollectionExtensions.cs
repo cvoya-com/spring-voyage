@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Connector.GitHub.DependencyInjection;
 
 using Cvoya.Spring.Connector.GitHub.Auth;
+using Cvoya.Spring.Connector.GitHub.Auth.OAuth;
 using Cvoya.Spring.Connector.GitHub.Caching;
 using Cvoya.Spring.Connector.GitHub.Labels;
 using Cvoya.Spring.Connector.GitHub.RateLimit;
@@ -141,12 +142,56 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<CachedSkillInvoker>();
 
         services.TryAddSingleton<GitHubAppAuth>();
+
+        // OAuth App auth surface — issue #233. Registers options, storage,
+        // the low-level HTTP client (named HttpClient), the orchestration
+        // service, and the OAuth-authenticated client factory. All TryAdd*
+        // so the cloud repo can pre-register tenant-scoped implementations
+        // before AddCvoyaSpringConnectorGitHub runs.
+        services.AddOptions<GitHubOAuthOptions>().Bind(section.GetSection("OAuth"));
+        services.AddHttpClient(GitHubOAuthHttpClient.HttpClientName);
+        services.TryAddSingleton<IOAuthStateStore, InMemoryOAuthStateStore>();
+        services.TryAddSingleton<IOAuthSessionStore, InMemoryOAuthSessionStore>();
+        services.TryAddSingleton<IGitHubOAuthHttpClient, GitHubOAuthHttpClient>();
+        services.TryAddSingleton<IGitHubUserFetcher, OctokitGitHubUserFetcher>();
+        services.TryAddSingleton<IGitHubOAuthService, GitHubOAuthService>();
+        services.TryAddSingleton<IGitHubOAuthClientFactory, GitHubOAuthClientFactory>();
+
         services.TryAddSingleton<IWebhookSignatureValidator, WebhookSignatureValidator>();
         services.TryAddSingleton<GitHubWebhookHandler>();
         services.TryAddSingleton<IGitHubWebhookHandler>(sp => sp.GetRequiredService<GitHubWebhookHandler>());
         services.TryAddSingleton<GitHubConnector>();
         services.TryAddSingleton<IGitHubConnector>(sp => sp.GetRequiredService<GitHubConnector>());
-        services.TryAddSingleton<GitHubSkillRegistry>();
+        // GitHubSkillRegistry takes an optional OAuth client factory. The
+        // factory resolution goes through GetService<> so a host that does
+        // not wire ISecretStore (e.g. pure App-auth unit tests) still gets
+        // a working registry — OAuth tools remain visible in the tool list
+        // but invocation falls through to the App path and emits
+        // SkillNotFoundException. Real hosts register ISecretStore via the
+        // Dapr secret store or a cloud-provided implementation, in which
+        // case the factory resolves cleanly and the OAuth dispatchers fire.
+        services.TryAddSingleton(sp =>
+        {
+            IGitHubOAuthClientFactory? oauthFactory = null;
+            try
+            {
+                oauthFactory = sp.GetService<IGitHubOAuthClientFactory>();
+            }
+            catch (InvalidOperationException)
+            {
+                // Missing transitive dep (e.g. ISecretStore) — treat as
+                // "OAuth surface unavailable in this host" so the App-auth
+                // surface still works.
+                oauthFactory = null;
+            }
+            return new GitHubSkillRegistry(
+                sp.GetRequiredService<GitHubConnector>(),
+                sp.GetRequiredService<Labels.LabelStateMachine>(),
+                sp.GetRequiredService<IGitHubInstallationsClient>(),
+                sp.GetRequiredService<ILoggerFactory>(),
+                sp.GetRequiredService<CachedSkillInvoker>(),
+                oauthFactory);
+        });
         services.TryAddSingleton<IGitHubWebhookRegistrar, GitHubWebhookRegistrar>();
         // Installation-listing is its own abstraction (IGitHubInstallationsClient)
         // so the cloud repo can substitute a tenant-scoped implementation
