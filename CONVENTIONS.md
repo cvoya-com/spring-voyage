@@ -342,3 +342,14 @@ This repo is the OSS core of a two-repo model. A private repository extends it v
 **No tenant assumptions:** Don't embed single-user or single-deployment assumptions. Use injected services for anything the private repo might scope per-tenant: repositories, configuration providers, policy evaluators.
 
 **No statics for state or services:** Everything goes through DI. No static service locators, no ambient contexts, no `static` mutable state.
+
+## 14. UI / CLI Feature Parity
+
+Every user-facing feature must ship through BOTH the web portal UI and the `spring` CLI. Neither surface is allowed to drift ahead of the other.
+
+- When planning a feature PR, enumerate the affected surfaces (API endpoints, UI screens, CLI commands). If a surface is missing, either include it in the same PR or file a sibling issue before the PR lands so the gap is tracked.
+- Treat "the UI can do X but the CLI can't" (or vice versa) as a real bug, not a speculative nice-to-have.
+- Link CLI-side and UI-side issues as siblings when a feature is split across PRs.
+- An E2E scenario under `tests/e2e/` is a good parity proxy: if the scenario has to fall back to `curl` because the CLI lacks the command, the CLI is behind.
+
+**Exceptions:** admin/ops operations that are genuinely dev-only (e.g., `dotnet ef migrations add`) don't need a UI counterpart. Internal test affordances are also out of scope.
