@@ -119,6 +119,12 @@ export type CreateSecretRequest = Schemas["CreateSecretRequest"];
 /** POST /api/v1/units/{id}/secrets response body. */
 export type CreateSecretResponse = Schemas["CreateSecretResponse"];
 
+/** Per-unit/per-agent membership record (GET/PUT /api/v1/units/{unitId}/memberships/{agentAddress}). */
+export type UnitMembershipResponse = Schemas["UnitMembershipResponse"];
+
+/** Request body for PUT /api/v1/units/{unitId}/memberships/{agentAddress}. */
+export type UpsertMembershipRequest = Schemas["UpsertMembershipRequest"];
+
 // ---------------------------------------------------------------------------
 // Connectors (generic + GitHub)
 // ---------------------------------------------------------------------------

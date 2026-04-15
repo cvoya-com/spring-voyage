@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Pencil, Plus, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,51 +11,69 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/api/client";
 import type {
-  AgentExecutionMode,
   AgentResponse,
+  UnitMembershipResponse,
 } from "@/lib/api/types";
-
-const EXECUTION_MODES: AgentExecutionMode[] = ["Auto", "OnDemand"];
+import {
+  MembershipDialog,
+  type MembershipFormValues,
+} from "./membership-dialog";
 
 interface AgentsTabProps {
   unitId: string;
 }
 
+type DialogState =
+  | { mode: "closed" }
+  | { mode: "add" }
+  | { mode: "edit"; membership: UnitMembershipResponse };
+
 /**
- * Agents tab for the unit configuration page. Lists the agents that belong
- * to this unit (members with `scheme=agent`, enriched with each agent's
- * own metadata) and lets an operator assign / unassign / edit.
+ * Agents tab for the unit configuration page. Lists the memberships that
+ * belong to this unit (one row per `UnitMembershipResponse`, enriched with
+ * each agent's display-name from `/api/v1/agents`) and offers:
  *
- * Per the v2 model, a unit *is* an agent, and an agent owns its own
- * metadata. This tab is a UI convenience — the edits fire at the
- * agent-scoped endpoint `PATCH /api/v1/agents/{id}`. Assign / unassign
- * go through the unit-scoped endpoints which maintain the
- * `agent.parentUnit ↔ unit.members` invariant in one place.
+ *  - An "Add agent" button at the top that opens a dialog with an agent
+ *    picker + per-membership config form.
+ *  - An edit icon per row that opens the same dialog pre-populated.
+ *  - A remove icon per row that confirms, then deletes the membership.
+ *
+ * All mutating calls go through the membership endpoints introduced in
+ * C2b-1 (#245):
+ *
+ *   PUT    /api/v1/units/{unitId}/memberships/{agentAddress}
+ *   DELETE /api/v1/units/{unitId}/memberships/{agentAddress}
+ *
+ * These endpoints already exist and are covered by the generated Kiota
+ * client in `lib/api/client.ts` (`upsertUnitMembership`,
+ * `deleteUnitMembership`), so this tab does not need to drop down to the
+ * raw fetch wrapper.
  */
 export function AgentsTab({ unitId }: AgentsTabProps) {
   const { toast } = useToast();
-  const [agents, setAgents] = useState<AgentResponse[]>([]);
-  const [availableAgents, setAvailableAgents] = useState<AgentResponse[]>([]);
+  const [memberships, setMemberships] = useState<UnitMembershipResponse[]>([]);
+  const [allAgents, setAllAgents] = useState<AgentResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const [addAgentId, setAddAgentId] = useState("");
-  const [adding, setAdding] = useState(false);
-  const [addError, setAddError] = useState<string | null>(null);
+  const [dialog, setDialog] = useState<DialogState>({ mode: "closed" });
+  const [confirmRemove, setConfirmRemove] =
+    useState<UnitMembershipResponse | null>(null);
+  const [removing, setRemoving] = useState(false);
 
   const load = useCallback(async () => {
     setLoadError(null);
     try {
-      const [inUnit, all] = await Promise.all([
-        api.listUnitAgents(unitId),
+      const [members, agents] = await Promise.all([
+        api.listUnitMemberships(unitId),
         api.listAgents(),
       ]);
-      setAgents(inUnit);
-      setAvailableAgents(all);
+      setMemberships(members);
+      setAllAgents(agents);
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -67,70 +85,93 @@ export function AgentsTab({ unitId }: AgentsTabProps) {
     load();
   }, [load]);
 
+  // The agent directory carries the human-facing metadata (displayName);
+  // memberships only carry the address. We index by name so each row can
+  // render "Ada" rather than the raw address.
+  const agentByName = useMemo(() => {
+    const m: Record<string, AgentResponse> = {};
+    for (const a of allAgents) m[a.name] = a;
+    return m;
+  }, [allAgents]);
+
+  const displayNameMap = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const a of allAgents) m[a.name] = a.displayName || a.name;
+    return m;
+  }, [allAgents]);
+
   // Post-C2b-1 an agent may belong to multiple units (M:N). "Assignable"
-  // is just "not already a member of THIS unit" — membership of some
-  // other unit is no longer a blocker, and the backend no longer issues
-  // a 409 for cross-unit conflict.
-  const membersInThisUnit = new Set(agents.map((a) => a.name));
-  const assignable = availableAgents.filter((a) => !membersInThisUnit.has(a.name));
+  // is just "not already a member of THIS unit" — membership of another
+  // unit does not disqualify the agent.
+  const assignableAgents = useMemo(() => {
+    const inThisUnit = new Set(memberships.map((m) => m.agentAddress));
+    return allAgents.filter((a) => !inThisUnit.has(a.name));
+  }, [memberships, allAgents]);
 
-  const handleAdd = async () => {
-    if (!addAgentId) return;
-    setAdding(true);
-    setAddError(null);
-    try {
-      const created = await api.assignUnitAgent(unitId, addAgentId);
-      setAgents((prev) => [...prev, created]);
-      setAddAgentId("");
-      toast({ title: "Agent assigned", description: addAgentId });
-    } catch (err) {
-      setAddError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setAdding(false);
-    }
-  };
-
-  const patchAgent = async (
-    agentId: string,
-    patch: Partial<AgentResponse>,
-  ) => {
-    try {
-      const updated = await api.updateAgentMetadata(agentId, {
-        model: patch.model,
-        specialty: patch.specialty,
-        enabled: patch.enabled,
-        executionMode: patch.executionMode,
-      });
-      setAgents((prev) =>
-        prev.map((a) => (a.name === agentId ? updated : a)),
+  const handleUpsert = async (values: MembershipFormValues) => {
+    const saved = await api.upsertUnitMembership(
+      unitId,
+      values.agentAddress,
+      {
+        model: values.model,
+        specialty: values.specialty,
+        enabled: values.enabled,
+        executionMode: values.executionMode,
+      },
+    );
+    setMemberships((prev) => {
+      const existing = prev.findIndex(
+        (m) => m.agentAddress === saved.agentAddress,
       );
-    } catch (err) {
-      toast({
-        title: "Update failed",
-        description: err instanceof Error ? err.message : String(err),
-        variant: "destructive",
-      });
-    }
+      if (existing >= 0) {
+        const next = [...prev];
+        next[existing] = saved;
+        return next;
+      }
+      return [...prev, saved];
+    });
+    toast({
+      title: dialog.mode === "edit" ? "Membership updated" : "Agent added",
+      description: saved.agentAddress,
+    });
+    setDialog({ mode: "closed" });
   };
 
-  const handleRemove = async (agentId: string) => {
+  const handleRemove = async () => {
+    const target = confirmRemove;
+    if (!target) return;
+    setRemoving(true);
     try {
-      await api.unassignUnitAgent(unitId, agentId);
-      setAgents((prev) => prev.filter((a) => a.name !== agentId));
-      toast({ title: "Agent unassigned", description: agentId });
+      await api.deleteUnitMembership(unitId, target.agentAddress);
+      setMemberships((prev) =>
+        prev.filter((m) => m.agentAddress !== target.agentAddress),
+      );
+      toast({ title: "Agent removed", description: target.agentAddress });
+      setConfirmRemove(null);
     } catch (err) {
       toast({
-        title: "Unassign failed",
+        title: "Remove failed",
         description: err instanceof Error ? err.message : String(err),
         variant: "destructive",
       });
+    } finally {
+      setRemoving(false);
     }
   };
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="flex flex-row items-center justify-between space-y-0">
         <CardTitle>Agents</CardTitle>
+        <Button
+          size="sm"
+          onClick={() => setDialog({ mode: "add" })}
+          disabled={loading || allAgents.length === 0}
+          aria-label="Add agent"
+        >
+          <Plus className="mr-1 h-4 w-4" />
+          Add agent
+        </Button>
       </CardHeader>
       <CardContent className="space-y-4">
         {loadError && (
@@ -141,158 +182,97 @@ export function AgentsTab({ unitId }: AgentsTabProps) {
 
         {loading ? (
           <p className="text-sm text-muted-foreground">Loading…</p>
-        ) : agents.length === 0 ? (
+        ) : memberships.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            No agents assigned to this unit yet.
+            No agents assigned to this unit yet. Click{" "}
+            <span className="font-medium">Add agent</span> to assign one.
           </p>
         ) : (
-          <ul className="space-y-2">
-            {agents.map((agent) => (
-              <li
-                key={agent.name}
-                className="rounded-md border bg-card p-3 space-y-3"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium">
-                      {agent.displayName || agent.name}
-                    </span>
-                    {!agent.enabled && (
-                      <Badge variant="outline">Disabled</Badge>
-                    )}
+          <ul className="divide-y divide-border rounded-md border border-border">
+            {memberships.map((m) => {
+              const agent = agentByName[m.agentAddress];
+              const displayName =
+                agent?.displayName || agent?.name || m.agentAddress;
+              return (
+                <li
+                  key={m.agentAddress}
+                  className="flex flex-col gap-2 px-3 py-3 sm:flex-row sm:items-center sm:gap-4"
+                >
+                  <div className="flex min-w-0 flex-1 flex-col gap-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-medium">{displayName}</span>
+                      {!m.enabled && (
+                        <Badge variant="outline">Disabled</Badge>
+                      )}
+                      {m.specialty && (
+                        <Badge variant="outline">{m.specialty}</Badge>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                      <span>
+                        <span className="text-muted-foreground/70">Model:</span>{" "}
+                        {m.model ?? "(inherit)"}
+                      </span>
+                      <span>
+                        <span className="text-muted-foreground/70">Mode:</span>{" "}
+                        {m.executionMode ?? "(inherit)"}
+                      </span>
+                      <span className="font-mono">{m.agentAddress}</span>
+                    </div>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleRemove(agent.name)}
-                    aria-label={`Unassign ${agent.name}`}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <label className="block space-y-1">
-                    <span className="text-xs text-muted-foreground">Model</span>
-                    <Input
-                      value={agent.model ?? ""}
-                      placeholder="(inherit)"
-                      onChange={(e) =>
-                        setAgents((prev) =>
-                          prev.map((a) =>
-                            a.name === agent.name
-                              ? { ...a, model: e.target.value || null }
-                              : a,
-                          ),
-                        )
-                      }
-                      onBlur={(e) =>
-                        patchAgent(agent.name, {
-                          model: e.target.value || null,
-                        })
-                      }
-                    />
-                  </label>
-
-                  <label className="block space-y-1">
-                    <span className="text-xs text-muted-foreground">
-                      Specialty
-                    </span>
-                    <Input
-                      value={agent.specialty ?? ""}
-                      placeholder="e.g. reviewer"
-                      onChange={(e) =>
-                        setAgents((prev) =>
-                          prev.map((a) =>
-                            a.name === agent.name
-                              ? { ...a, specialty: e.target.value || null }
-                              : a,
-                          ),
-                        )
-                      }
-                      onBlur={(e) =>
-                        patchAgent(agent.name, {
-                          specialty: e.target.value || null,
-                        })
-                      }
-                    />
-                  </label>
-
-                  <label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={agent.enabled}
-                      onChange={(e) =>
-                        patchAgent(agent.name, { enabled: e.target.checked })
-                      }
-                    />
-                    Enabled
-                  </label>
-
-                  <label className="block space-y-1">
-                    <span className="text-xs text-muted-foreground">
-                      Execution mode
-                    </span>
-                    <select
-                      value={agent.executionMode}
-                      onChange={(e) =>
-                        patchAgent(agent.name, {
-                          executionMode: e.target.value as AgentExecutionMode,
-                        })
-                      }
-                      className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  <div className="flex gap-1 self-end sm:self-center">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setDialog({ mode: "edit", membership: m })}
+                      aria-label={`Edit ${displayName}`}
                     >
-                      {EXECUTION_MODES.map((m) => (
-                        <option key={m} value={m}>
-                          {m}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-              </li>
-            ))}
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setConfirmRemove(m)}
+                      aria-label={`Remove ${displayName}`}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         )}
-
-        <div className="border-t pt-4 space-y-2">
-          <p className="text-sm font-medium">Assign an agent</p>
-          {assignable.length === 0 ? (
-            <p className="text-xs text-muted-foreground">
-              Every registered agent is already a member of this unit.
-            </p>
-          ) : (
-            <div className="flex items-end gap-2">
-              <label className="flex-1 space-y-1">
-                <span className="text-xs text-muted-foreground">Agent</span>
-                <select
-                  value={addAgentId}
-                  onChange={(e) => setAddAgentId(e.target.value)}
-                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                >
-                  <option value="">Pick an agent…</option>
-                  {assignable.map((a) => (
-                    <option key={a.name} value={a.name}>
-                      {a.displayName || a.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <Button
-                onClick={handleAdd}
-                disabled={!addAgentId || adding}
-                size="sm"
-              >
-                <Plus className="mr-1 h-4 w-4" />
-                {adding ? "Assigning…" : "Assign"}
-              </Button>
-            </div>
-          )}
-          {addError && (
-            <p className="text-xs text-destructive">{addError}</p>
-          )}
-        </div>
       </CardContent>
+
+      <MembershipDialog
+        open={dialog.mode !== "closed"}
+        unitLabel={unitId}
+        mode={dialog.mode === "edit" ? "edit" : "add"}
+        assignableAgents={assignableAgents}
+        initial={dialog.mode === "edit" ? dialog.membership : null}
+        agentDisplayNames={displayNameMap}
+        onCancel={() => setDialog({ mode: "closed" })}
+        onSubmit={handleUpsert}
+      />
+
+      <ConfirmDialog
+        open={confirmRemove !== null}
+        title="Remove agent from unit"
+        description={
+          confirmRemove
+            ? `This removes the membership for ${
+                displayNameMap[confirmRemove.agentAddress] ??
+                confirmRemove.agentAddress
+              }. The agent itself is not deleted.`
+            : undefined
+        }
+        confirmLabel="Remove"
+        confirmVariant="destructive"
+        pending={removing}
+        onConfirm={handleRemove}
+        onCancel={() => setConfirmRemove(null)}
+      />
     </Card>
   );
 }
