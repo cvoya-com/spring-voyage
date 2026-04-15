@@ -44,7 +44,7 @@ public class GitHubSkillRegistryTests
     {
         var tools = _registry.GetToolDefinitions();
 
-        tools.Count().ShouldBe(45);
+        tools.Count().ShouldBe(50);
         tools.Select(t => t.Name).ShouldBe(new[]
         {
             "github_create_branch",
@@ -84,6 +84,7 @@ public class GitHubSkillRegistryTests
             "github_list_review_threads",
             "github_resolve_review_thread",
             "github_unresolve_review_thread",
+            "github_get_pr_review_bundle",
             "github_list_webhooks",
             "github_update_webhook",
             "github_delete_webhook",
@@ -91,6 +92,10 @@ public class GitHubSkillRegistryTests
             "github_list_installations",
             "github_list_installation_repositories",
             "github_find_installation_for_repo",
+            "github_list_projects_v2",
+            "github_get_project_v2",
+            "github_list_project_v2_items",
+            "github_get_project_v2_item",
             "github_get_authenticated_user",
         }, ignoreOrder: true);
     }

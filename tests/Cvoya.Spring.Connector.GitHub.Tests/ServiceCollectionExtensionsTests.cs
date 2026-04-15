@@ -163,4 +163,70 @@ public class ServiceCollectionExtensionsTests
 
         result.ShouldBeSameAs(services);
     }
+
+    [Fact]
+    public void AddCvoyaSpringConnectorGitHub_DefaultsRateLimitStateStoreToInMemory()
+    {
+        using var provider = BuildProvider();
+
+        var store = provider.GetRequiredService<IRateLimitStateStore>();
+        store.ShouldBeOfType<InMemoryRateLimitStateStore>();
+    }
+
+    [Fact]
+    public void AddCvoyaSpringConnectorGitHub_DaprBackendWithoutDaprClient_ThrowsAtResolve()
+    {
+        using var provider = BuildProvider(new Dictionary<string, string?>
+        {
+            ["GitHub:AppId"] = "12345",
+            ["GitHub:PrivateKeyPem"] = "test-key",
+            ["GitHub:WebhookSecret"] = "test-secret",
+            ["GitHub:InstallationId"] = "67890",
+            ["GitHub:RateLimit:StateStore:Backend"] = "dapr",
+        });
+
+        // Dapr backend is configured but no DaprClient was registered —
+        // DI resolution must fail fast with a clear message rather than
+        // silently falling back to in-memory, so operators notice.
+        Should.Throw<InvalidOperationException>(() =>
+            provider.GetRequiredService<IRateLimitStateStore>());
+    }
+
+    [Fact]
+    public void AddCvoyaSpringConnectorGitHub_CustomStateStore_Respected()
+    {
+        var custom = Substitute.For<IRateLimitStateStore>();
+
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["GitHub:AppId"] = "12345",
+                ["GitHub:PrivateKeyPem"] = "test-key",
+                ["GitHub:WebhookSecret"] = "test-secret",
+                ["GitHub:InstallationId"] = "67890",
+                ["GitHub:RateLimit:StateStore:Backend"] = "dapr",
+            })
+            .Build();
+
+        var services = new ServiceCollection();
+        services.AddLogging();
+        // Pre-register custom store BEFORE the connector so TryAdd
+        // resolves to the caller-supplied instance rather than
+        // attempting to materialize the Dapr-backed default.
+        services.AddSingleton(custom);
+        services.AddCvoyaSpringConnectorGitHub(configuration);
+
+        using var provider = services.BuildServiceProvider();
+        var resolved = provider.GetRequiredService<IRateLimitStateStore>();
+        resolved.ShouldBeSameAs(custom);
+    }
+
+    [Fact]
+    public void AddCvoyaSpringConnectorGitHub_RateLimitTracker_UsesRegisteredStateStore()
+    {
+        using var provider = BuildProvider();
+
+        var tracker = provider.GetRequiredService<IGitHubRateLimitTracker>();
+        tracker.ShouldBeOfType<GitHubRateLimitTracker>();
+    }
 }

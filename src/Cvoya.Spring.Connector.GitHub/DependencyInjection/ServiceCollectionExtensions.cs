@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Connector.GitHub.DependencyInjection;
 
 using Cvoya.Spring.Connector.GitHub.Auth;
 using Cvoya.Spring.Connector.GitHub.Auth.OAuth;
+using Cvoya.Spring.Connector.GitHub.Caching;
 using Cvoya.Spring.Connector.GitHub.Labels;
 using Cvoya.Spring.Connector.GitHub.RateLimit;
 using Cvoya.Spring.Connector.GitHub.Webhooks;
@@ -53,7 +54,38 @@ public static class ServiceCollectionExtensions
         services.AddOptions<GitHubRetryOptions>().Bind(section.GetSection("Retry"));
         services.TryAddSingleton(sp =>
             sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<GitHubRetryOptions>>().Value);
-        services.TryAddSingleton<IGitHubRateLimitTracker, GitHubRateLimitTracker>();
+
+        // Rate-limit state persistence. The default is the OSS in-memory
+        // store (single-host deployments); hosts that need multi-replica
+        // convergence flip GitHub:RateLimit:StateStore:Backend to "dapr"
+        // to ride on the platform's existing Dapr state store, or
+        // pre-register their own IRateLimitStateStore implementation
+        // (e.g. Redis) before calling AddCvoyaSpringConnectorGitHub.
+        services.AddOptions<RateLimitStateStoreOptions>()
+            .Bind(section.GetSection("RateLimit:StateStore"));
+        services.TryAddSingleton<IRateLimitStateStore>(sp =>
+        {
+            var opts = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<RateLimitStateStoreOptions>>();
+            var backend = opts.Value.Backend;
+            if (string.Equals(backend, "dapr", StringComparison.OrdinalIgnoreCase))
+            {
+                var daprClient = sp.GetService<global::Dapr.Client.DaprClient>()
+                    ?? throw new InvalidOperationException(
+                        "GitHub:RateLimit:StateStore:Backend is 'dapr' but no DaprClient is registered. Add Dapr (services.AddDaprClient()) or switch to Backend='memory'.");
+                return new DaprStateBackedRateLimitStateStore(
+                    daprClient,
+                    opts,
+                    sp.GetRequiredService<ILoggerFactory>().CreateLogger<DaprStateBackedRateLimitStateStore>());
+            }
+
+            return new InMemoryRateLimitStateStore();
+        });
+
+        services.TryAddSingleton<IGitHubRateLimitTracker>(sp => new GitHubRateLimitTracker(
+            sp.GetRequiredService<GitHubRetryOptions>(),
+            sp.GetRequiredService<IRateLimitStateStore>(),
+            sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<RateLimitStateStoreOptions>>(),
+            sp.GetRequiredService<ILoggerFactory>()));
 
         // Label state machine — default config matches the minimal v1 coordinator
         // protocol. Customers override via the GitHub:Labels configuration section
@@ -86,6 +118,28 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IInstallationTokenCache>(sp => new InstallationTokenCache(
             sp.GetRequiredService<InstallationTokenCacheOptions>(),
             sp.GetRequiredService<ILoggerFactory>()));
+
+        // Response cache. Options are bound from GitHub:ResponseCache
+        // (Enabled, DefaultTtl, Ttls, CleanupInterval). The OSS default
+        // implementation is in-memory and per-host — multi-host coordination
+        // (e.g. Redis-backed shared cache + invalidation bus) is tracked as
+        // a follow-up. When Enabled=false the implementation resolves to
+        // a pass-through so skill dispatchers call the cache unconditionally
+        // without branching on configuration at every site.
+        services.AddOptions<GitHubResponseCacheOptions>()
+            .Bind(section.GetSection("ResponseCache"));
+        services.TryAddSingleton(sp =>
+            sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<GitHubResponseCacheOptions>>().Value);
+        services.TryAddSingleton<IGitHubResponseCache>(sp =>
+        {
+            var opts = sp.GetRequiredService<GitHubResponseCacheOptions>();
+            if (!opts.Enabled)
+            {
+                return NoOpGitHubResponseCache.Instance;
+            }
+            return new InMemoryGitHubResponseCache(opts, sp.GetRequiredService<ILoggerFactory>());
+        });
+        services.TryAddSingleton<CachedSkillInvoker>();
 
         services.TryAddSingleton<GitHubAppAuth>();
 

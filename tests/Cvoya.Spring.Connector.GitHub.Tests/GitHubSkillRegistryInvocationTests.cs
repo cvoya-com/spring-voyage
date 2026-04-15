@@ -107,6 +107,7 @@ public class GitHubSkillRegistryInvocationTests
             "github_list_review_threads",
             "github_resolve_review_thread",
             "github_unresolve_review_thread",
+            "github_get_pr_review_bundle",
             "github_list_webhooks",
             "github_update_webhook",
             "github_delete_webhook",
@@ -114,6 +115,10 @@ public class GitHubSkillRegistryInvocationTests
             "github_list_installations",
             "github_list_installation_repositories",
             "github_find_installation_for_repo",
+            "github_list_projects_v2",
+            "github_get_project_v2",
+            "github_list_project_v2_items",
+            "github_get_project_v2_item",
             // The OAuth factory is nullable, so when the registry is built
             // without one (the App-only constructor overload used here) the
             // OAuth tools still appear in GetToolDefinitions — that's the
