@@ -215,6 +215,13 @@ public static class ServiceCollectionExtensions
         services.AddKeyedSingleton<IOrchestrationStrategy, AiOrchestrationStrategy>("ai");
         services.AddKeyedSingleton<IOrchestrationStrategy, WorkflowOrchestrationStrategy>("workflow");
 
+        // Unkeyed default: UnitActor (activated by the Dapr runtime via DI) takes an
+        // unkeyed IOrchestrationStrategy — provide one so construction succeeds.
+        // "ai" is the platform default; private-cloud code can pre-register a
+        // different default via TryAdd.
+        services.TryAddSingleton<IOrchestrationStrategy>(
+            sp => sp.GetRequiredKeyedService<IOrchestrationStrategy>("ai"));
+
 
         // Prompt
         services.AddSingleton<UnitContextBuilder>();
