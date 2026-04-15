@@ -4,9 +4,11 @@
 namespace Cvoya.Spring.Connector.GitHub;
 
 using System.Net.Http;
+using System.Text;
 using System.Text.Json;
 
 using Cvoya.Spring.Connector.GitHub.Auth;
+using Cvoya.Spring.Connector.GitHub.Caching;
 using Cvoya.Spring.Connector.GitHub.RateLimit;
 using Cvoya.Spring.Connector.GitHub.Webhooks;
 
@@ -30,6 +32,7 @@ public class GitHubConnector : IGitHubConnector
     private readonly IGitHubRateLimitTracker _rateLimitTracker;
     private readonly GitHubRetryOptions _retryOptions;
     private readonly IInstallationTokenCache _tokenCache;
+    private readonly IGitHubResponseCache _responseCache;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
 
@@ -47,7 +50,8 @@ public class GitHubConnector : IGitHubConnector
         IGitHubRateLimitTracker rateLimitTracker,
         GitHubRetryOptions retryOptions,
         ILoggerFactory loggerFactory,
-        IInstallationTokenCache? tokenCache = null)
+        IInstallationTokenCache? tokenCache = null,
+        IGitHubResponseCache? responseCache = null)
     {
         _auth = auth;
         _webhookHandler = webhookHandler;
@@ -59,6 +63,9 @@ public class GitHubConnector : IGitHubConnector
         _tokenCache = tokenCache ?? new InstallationTokenCache(
             new InstallationTokenCacheOptions(),
             loggerFactory);
+        // Default to the no-op cache so legacy constructor call sites
+        // (tests) don't need to wire up the response-cache plumbing.
+        _responseCache = responseCache ?? NoOpGitHubResponseCache.Instance;
         _logger = loggerFactory.CreateLogger<GitHubConnector>();
     }
 
@@ -95,9 +102,83 @@ public class GitHubConnector : IGitHubConnector
         using var document = JsonDocument.Parse(payload);
         var message = _webhookHandler.TranslateEvent(eventType, document.RootElement);
 
+        // Compute the invalidation tag set BEFORE disposing the JsonDocument —
+        // DeriveInvalidationTags reads from the element. We then return the
+        // WebhookHandleResult; the caller records dispatch outcome before the
+        // cache is touched by the post-dispatch fire-and-forget below.
+        var invalidationTags = _webhookHandler.DeriveInvalidationTags(eventType, document.RootElement);
+        if (invalidationTags.Count > 0)
+        {
+            InvalidateTagsAfterDispatch(eventType, invalidationTags);
+        }
+
         return message is null
             ? WebhookHandleResult.Ignored
             : WebhookHandleResult.Translated(message);
+    }
+
+    /// <summary>
+    /// Fires cache invalidation calls for every tag <paramref name="tags"/>
+    /// carries. Runs on the thread pool so a slow (or failing) cache backend
+    /// never blocks the webhook acknowledgement — GitHub retries aggressively
+    /// on 5xx / timeouts, so the endpoint must remain fast even if the cache
+    /// is degraded. Failures are logged and swallowed.
+    /// </summary>
+    private void InvalidateTagsAfterDispatch(string eventType, IReadOnlyList<string> tags)
+    {
+        // Snapshot the cache reference to avoid capturing `this` in the
+        // fire-and-forget closure — the invoker isn't expected to outlive
+        // the connector, but decoupling the captured state is cheap.
+        var cache = _responseCache;
+        var logger = _logger;
+        // `eventType` flows in from the X-GitHub-Event header and `tag`
+        // values are derived from the webhook payload — both attacker-
+        // controlled. Pre-sanitize before letting them reach the log stream
+        // so a crafted value cannot forge fake log entries via CR/LF or
+        // flood logs with oversized strings.
+        var safeEventType = SanitizeForLog(eventType);
+        _ = Task.Run(async () =>
+        {
+            foreach (var tag in tags)
+            {
+                try
+                {
+                    await cache.InvalidateByTagAsync(tag).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(
+                        ex,
+                        "Failed to invalidate cache tag {Tag} for event {EventType}; continuing",
+                        SanitizeForLog(tag), safeEventType);
+                }
+            }
+        });
+    }
+
+    /// <summary>
+    /// Strips CR/LF and other control characters from attacker-controlled
+    /// values before they reach the log stream, and caps length so a crafted
+    /// header or payload field cannot forge fake log entries or flood logs.
+    /// Returns "unknown" for null/empty input so log messages remain readable.
+    /// </summary>
+    private static string SanitizeForLog(string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return "unknown";
+        }
+
+        const int MaxLogValueLength = 128;
+        var length = Math.Min(value.Length, MaxLogValueLength);
+        var builder = new StringBuilder(length);
+        for (var i = 0; i < length; i++)
+        {
+            var c = value[i];
+            builder.Append(char.IsControl(c) ? '_' : c);
+        }
+
+        return builder.ToString();
     }
 
     /// <summary>

@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Connector.GitHub.Webhooks;
 using System.Text.Json;
 
 using Cvoya.Spring.Connector.GitHub.Auth;
+using Cvoya.Spring.Connector.GitHub.Caching;
 using Cvoya.Spring.Connector.GitHub.Labels;
 using Cvoya.Spring.Core.Messaging;
 
@@ -68,6 +69,97 @@ public class GitHubWebhookHandler : IGitHubWebhookHandler
             "installation_repositories" => TranslateInstallationRepositoriesEvent(payload),
             _ => null
         };
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyList<string> DeriveInvalidationTags(string eventType, JsonElement payload)
+    {
+        // Every event that carries a repository + (issue | pull_request)
+        // yields at least the per-resource tag; events on PRs also feed the
+        // PR tag. The repo-wide tag is left out here because PR-specific
+        // events rarely invalidate the entire repo list — callers that need
+        // that behaviour can flush the repo tag manually.
+        if (!payload.TryGetProperty("repository", out var repo) || repo.ValueKind != JsonValueKind.Object)
+        {
+            return [];
+        }
+
+        string? ownerLogin = null;
+        if (repo.TryGetProperty("owner", out var owner) && owner.ValueKind == JsonValueKind.Object
+            && owner.TryGetProperty("login", out var ownerLoginEl) && ownerLoginEl.ValueKind == JsonValueKind.String)
+        {
+            ownerLogin = ownerLoginEl.GetString();
+        }
+        string? repoName = null;
+        if (repo.TryGetProperty("name", out var repoNameEl) && repoNameEl.ValueKind == JsonValueKind.String)
+        {
+            repoName = repoNameEl.GetString();
+        }
+
+        if (string.IsNullOrEmpty(ownerLogin) || string.IsNullOrEmpty(repoName))
+        {
+            return [];
+        }
+
+        return eventType switch
+        {
+            "issues" => TagsForIssue(ownerLogin, repoName, payload),
+            // issue_comment covers PR comments too (GitHub dispatches both
+            // issue and PR conversation comments through this event), so we
+            // emit both Issue and PR tags so cached reads of either shape
+            // are flushed in one pass.
+            "issue_comment" => TagsForIssueComment(ownerLogin, repoName, payload),
+            "pull_request" => TagsForPullRequest(ownerLogin, repoName, payload),
+            "pull_request_review" => TagsForPullRequest(ownerLogin, repoName, payload),
+            "pull_request_review_comment" => TagsForPullRequest(ownerLogin, repoName, payload),
+            "pull_request_review_thread" => TagsForPullRequest(ownerLogin, repoName, payload),
+            _ => [],
+        };
+    }
+
+    private static IReadOnlyList<string> TagsForIssue(string owner, string repo, JsonElement payload)
+    {
+        if (!payload.TryGetProperty("issue", out var issue) || issue.ValueKind != JsonValueKind.Object
+            || !issue.TryGetProperty("number", out var numberEl) || numberEl.ValueKind != JsonValueKind.Number)
+        {
+            return [];
+        }
+        return [CacheTags.Issue(owner, repo, numberEl.GetInt32())];
+    }
+
+    private static IReadOnlyList<string> TagsForIssueComment(string owner, string repo, JsonElement payload)
+    {
+        if (!payload.TryGetProperty("issue", out var issue) || issue.ValueKind != JsonValueKind.Object
+            || !issue.TryGetProperty("number", out var numberEl) || numberEl.ValueKind != JsonValueKind.Number)
+        {
+            return [];
+        }
+        var number = numberEl.GetInt32();
+        // Emit BOTH Issue and PR tags — this event is ambiguous between the
+        // two and we'd rather over-invalidate than serve stale comments.
+        return
+        [
+            CacheTags.Issue(owner, repo, number),
+            CacheTags.PullRequest(owner, repo, number),
+        ];
+    }
+
+    private static IReadOnlyList<string> TagsForPullRequest(string owner, string repo, JsonElement payload)
+    {
+        if (!payload.TryGetProperty("pull_request", out var pr) || pr.ValueKind != JsonValueKind.Object
+            || !pr.TryGetProperty("number", out var numberEl) || numberEl.ValueKind != JsonValueKind.Number)
+        {
+            return [];
+        }
+        var number = numberEl.GetInt32();
+        return
+        [
+            CacheTags.PullRequest(owner, repo, number),
+            // Cross-cut: PR cache reads keyed under the issue tag (e.g.
+            // comments on a PR) must also be flushed when the PR itself
+            // changes, so emit Issue(number) here too.
+            CacheTags.Issue(owner, repo, number),
+        ];
     }
 
     private Message? TranslateIssueEvent(JsonElement payload)

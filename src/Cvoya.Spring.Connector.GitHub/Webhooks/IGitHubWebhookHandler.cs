@@ -20,4 +20,14 @@ public interface IGitHubWebhookHandler
     /// <param name="payload">The parsed JSON payload.</param>
     /// <returns>A domain <see cref="Message"/>, or <c>null</c> if the event type is not handled.</returns>
     Message? TranslateEvent(string eventType, JsonElement payload);
+
+    /// <summary>
+    /// Derives the set of cache tags that the connector should invalidate in
+    /// response to <paramref name="eventType"/> + <paramref name="payload"/>.
+    /// Returns an empty sequence when the event has no cacheable surface (or
+    /// the payload is missing the required identifiers).
+    /// </summary>
+    /// <param name="eventType">The GitHub event type from the X-GitHub-Event header.</param>
+    /// <param name="payload">The parsed JSON payload.</param>
+    IReadOnlyList<string> DeriveInvalidationTags(string eventType, JsonElement payload);
 }
