@@ -9,6 +9,8 @@ using System.Text.Json;
 
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Dapr.Actors;
+using Cvoya.Spring.Host.Api.Auth;
 using Cvoya.Spring.Host.Api.Models;
 
 using NSubstitute;
@@ -64,5 +66,55 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         var response = await _client.PostAsJsonAsync("/api/v1/messages", request, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task SendMessage_UsesAuthenticatedCallerAsFromAddress()
+    {
+        // #339: the endpoint must thread the authenticated subject through
+        // as the Message.From so MessageRouter's permission gate evaluates
+        // against the real caller rather than a synthetic human://api. In
+        // LocalDev mode (used by the test factory) the LocalDevAuthHandler
+        // surfaces 'local-dev-user' as the NameIdentifier — that's what the
+        // caller accessor should pick up.
+        var ct = TestContext.Current.CancellationToken;
+
+        var entry = new DirectoryEntry(
+            new Address("agent", "test-agent"),
+            "actor-1",
+            "Test Agent",
+            "A test agent",
+            null,
+            DateTimeOffset.UtcNow);
+        _factory.DirectoryService
+            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "agent" && a.Path == "test-agent"),
+                Arg.Any<CancellationToken>())
+            .Returns(entry);
+
+        var agent = Substitute.For<IAgent>();
+        Message? observed = null;
+        agent.ReceiveAsync(Arg.Do<Message>(m => observed = m), Arg.Any<CancellationToken>())
+            .Returns((Message?)null);
+        _factory.AgentProxyResolver
+            .Resolve(Arg.Is<string>(s => string.Equals(s, "agent", StringComparison.OrdinalIgnoreCase)),
+                "actor-1")
+            .Returns(agent);
+
+        var request = new SendMessageRequest(
+            new AddressDto("agent", "test-agent"),
+            "Domain",
+            "conv-1",
+            JsonSerializer.SerializeToElement(new { Text = "hello" }));
+
+        var response = await _client.PostAsJsonAsync("/api/v1/messages", request, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        observed.ShouldNotBeNull();
+        observed!.From.Scheme.ShouldBe("human");
+        // CustomWebApplicationFactory forces LocalDev=true, so the configured
+        // NameIdentifier is 'local-dev-user'.
+        observed.From.Path.ShouldBe(Cvoya.Spring.Host.Api.Auth.AuthConstants.DefaultLocalUserId);
+        // And it must NOT be the pre-#339 synthetic 'api' identity.
+        observed.From.Path.ShouldNotBe(AuthenticatedCallerAccessor.FallbackHumanId);
     }
 }

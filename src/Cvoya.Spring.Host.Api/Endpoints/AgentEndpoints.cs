@@ -12,6 +12,7 @@ using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Routing;
+using Cvoya.Spring.Host.Api.Auth;
 using Cvoya.Spring.Host.Api.Models;
 
 using global::Dapr.Actors;
@@ -103,6 +104,7 @@ public static class AgentEndpoints
         [FromServices] IActorProxyFactory actorProxyFactory,
         [FromServices] IUnitMembershipRepository membershipRepository,
         [FromServices] MessageRouter messageRouter,
+        [FromServices] IAuthenticatedCallerAccessor callerAccessor,
         CancellationToken cancellationToken)
     {
         var address = new Address("agent", id);
@@ -117,10 +119,16 @@ public static class AgentEndpoints
             new ActorId(entry.ActorId), nameof(AgentActor));
         var metadata = await GetDerivedAgentMetadataAsync(proxy, membershipRepository, id, cancellationToken);
 
-        // Send a StatusQuery message to the agent.
+        // #339: Thread the authenticated caller's identity through as the
+        // From address rather than hardcoding `human://api`. The router's
+        // permission gate only fires for `unit://` destinations today, so
+        // `agent://` dispatch works either way — but the synthetic identity
+        // dropped observability (activity events are labelled with the
+        // sender) and masked auth bugs. Falls back to `human://api` only
+        // when no authenticated principal is present.
         var statusQuery = new Message(
             Guid.NewGuid(),
-            new Address("human", "api"),
+            callerAccessor.GetHumanAddress(),
             address,
             MessageType.StatusQuery,
             null,

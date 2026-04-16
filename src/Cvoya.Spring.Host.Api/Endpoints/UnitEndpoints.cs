@@ -14,7 +14,6 @@ using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
-using Cvoya.Spring.Dapr.Routing;
 using Cvoya.Spring.Host.Api.Auth;
 using Cvoya.Spring.Host.Api.Models;
 using Cvoya.Spring.Host.Api.Services;
@@ -170,7 +169,6 @@ public static class UnitEndpoints
     private static async Task<IResult> GetUnitAsync(
         string id,
         [FromServices] IDirectoryService directoryService,
-        [FromServices] MessageRouter messageRouter,
         [FromServices] IActorProxyFactory actorProxyFactory,
         [FromServices] ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
@@ -188,25 +186,64 @@ public static class UnitEndpoints
         var status = await TryGetUnitStatusAsync(actorProxyFactory, entry.ActorId, logger, id, cancellationToken);
         var metadata = await TryGetUnitMetadataAsync(actorProxyFactory, entry.ActorId, logger, id, cancellationToken);
 
-        // Send a StatusQuery to get unit details including members.
-        var statusQuery = new Message(
-            Guid.NewGuid(),
-            new Address("human", "api"),
-            address,
-            MessageType.StatusQuery,
-            null,
-            default,
-            DateTimeOffset.UtcNow);
-
-        var result = await messageRouter.RouteAsync(statusQuery, cancellationToken);
+        // #339: Read the unit's status-query payload (status + member count)
+        // by calling the actor proxy directly, bypassing the message router.
+        // The router's permission gate is for external human-originated
+        // dispatch — a platform-internal read path must not be refused just
+        // because the hardcoded synthetic From lacks Viewer permission on
+        // units created post-#328. The payload shape must stay byte-
+        // compatible with UnitActor.HandleStatusQueryAsync so clients that
+        // parse the Details envelope keep working.
+        var details = await TryGetUnitStatusPayloadAsync(
+            actorProxyFactory, entry.ActorId, logger, id, cancellationToken);
 
         var unitResponse = ToUnitResponse(entry, status, metadata);
-        if (!result.IsSuccess)
-        {
-            return Results.Ok(new UnitDetailResponse(unitResponse, null));
-        }
+        return Results.Ok(new UnitDetailResponse(unitResponse, details));
+    }
 
-        return Results.Ok(new UnitDetailResponse(unitResponse, result.Value?.Payload));
+    /// <summary>
+    /// Reads the unit's status-query payload (<c>{Status, MemberCount}</c>)
+    /// through the actor proxy. Returns <c>null</c> when the actor cannot be
+    /// reached — mirroring the pre-#339 behaviour that surfaced a null
+    /// <c>Details</c> field on transient failure — but no longer collapses
+    /// to null just because the router's permission gate refuses a
+    /// platform-internal dispatch.
+    /// </summary>
+    private static async Task<JsonElement?> TryGetUnitStatusPayloadAsync(
+        IActorProxyFactory actorProxyFactory,
+        string actorId,
+        ILogger logger,
+        string unitId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
+                new ActorId(actorId), nameof(UnitActor));
+
+            var status = await proxy.GetStatusAsync(cancellationToken);
+            var members = await proxy.GetMembersAsync(cancellationToken);
+
+            // #339: surface the full members list alongside the prior
+            // {Status, MemberCount} shape. The web UI and e2e/12-nested-
+            // units.sh both consult the members list to verify containment;
+            // the old HandleStatusQueryAsync payload only exposed a count,
+            // which is why the scenario aborted once the permission gate
+            // started denying the synthetic-From dispatch.
+            return JsonSerializer.SerializeToElement(new
+            {
+                Status = status.ToString(),
+                MemberCount = members.Length,
+                Members = members.Select(m => new { Scheme = m.Scheme, Path = m.Path }).ToArray(),
+            });
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex,
+                "Failed to read status-query payload for unit {UnitId}; returning null details.",
+                unitId);
+            return null;
+        }
     }
 
     private static async Task<UnitStatus> TryGetUnitStatusAsync(

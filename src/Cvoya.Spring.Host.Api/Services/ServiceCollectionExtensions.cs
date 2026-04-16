@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Host.Api.Services;
 
 using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Dapr.Skills;
+using Cvoya.Spring.Host.Api.Auth;
 
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -28,6 +29,7 @@ public static class ServiceCollectionExtensions
         IConfiguration configuration)
     {
         services.TryAddScoped<IUnitCreationService, UnitCreationService>();
+        services.TryAddScoped<IAuthenticatedCallerAccessor, AuthenticatedCallerAccessor>();
 
         // Connector persistence ports. Connector packages consume these
         // abstractions, the API project provides the concrete actor-backed

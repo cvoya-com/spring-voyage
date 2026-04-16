@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Host.Api.Endpoints;
 
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Host.Api.Auth;
 using Cvoya.Spring.Host.Api.Models;
 
 /// <summary>
@@ -34,13 +35,18 @@ public static class MessageEndpoints
     private static async Task<IResult> SendMessageAsync(
         SendMessageRequest request,
         IMessageRouter messageRouter,
-        IConfiguration configuration,
+        IAuthenticatedCallerAccessor callerAccessor,
         CancellationToken cancellationToken)
     {
-        var isLocalDev = configuration.GetValue<bool>("LocalDev");
-        var from = isLocalDev
-            ? new Address("human", "local/dev")
-            : new Address("human", "api");
+        // #339: Use the authenticated subject's identity as the From address
+        // so MessageRouter's permission gate evaluates against the real
+        // caller. Falls back to `human://api` only when no authenticated
+        // principal is present (e.g. out-of-request contexts) — which matches
+        // the pre-fix behaviour and the fallback used by UnitCreationService
+        // for its creator grant (#328). The local-dev branch is no longer
+        // needed: LocalDevAuthHandler surfaces the `local-dev-user`
+        // NameIdentifier, and the caller accessor picks it up automatically.
+        var from = callerAccessor.GetHumanAddress();
 
         if (!Enum.TryParse<MessageType>(request.Type, ignoreCase: true, out var messageType))
         {

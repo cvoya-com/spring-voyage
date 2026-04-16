@@ -425,7 +425,12 @@ public class UnitActor : Actor, IUnitActor
     }
 
     /// <summary>
-    /// Handles a status query by returning the unit status including member count.
+    /// Handles a status query by returning the unit status, member count,
+    /// and the full members list. The members array is a new field added in
+    /// #339 alongside the new router-bypass read path in
+    /// <c>UnitEndpoints.GetUnitAsync</c> so the two sources emit the same
+    /// shape — the UI and e2e/12-nested-units scenario rely on inspecting
+    /// the member list to verify containment.
     /// </summary>
     private async Task<Message?> HandleStatusQueryAsync(CancellationToken ct)
     {
@@ -435,7 +440,8 @@ public class UnitActor : Actor, IUnitActor
         var statusPayload = JsonSerializer.SerializeToElement(new
         {
             Status = status.ToString(),
-            MemberCount = members.Count
+            MemberCount = members.Count,
+            Members = members.Select(m => new { Scheme = m.Scheme, Path = m.Path }).ToArray(),
         });
 
         return new Message(
