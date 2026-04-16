@@ -183,6 +183,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IAgentToolLauncher, ClaudeCodeLauncher>();
         services.AddSingleton<IAgentToolLauncher, CodexLauncher>();
         services.AddSingleton<IAgentToolLauncher, GeminiLauncher>();
+        services.AddSingleton<IAgentToolLauncher, DaprAgentLauncher>();
         services.TryAddSingleton<PersistentAgentRegistry>();
         services.AddHostedService(sp => sp.GetRequiredService<PersistentAgentRegistry>());
 

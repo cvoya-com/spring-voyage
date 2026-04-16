@@ -38,6 +38,12 @@ deployment/spring.env
 src/Cvoya.Spring.Cli/Generated/
 src/Cvoya.Spring.Web/src/lib/api/schema.d.ts
 
+## Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
 ## npm workspace hoisted dependencies — the root package.json is a
 ## workspaces-only manifest (see #198) and `npm install` at the repo
 ## root materialises node_modules (and .next/.turbo caches) here.

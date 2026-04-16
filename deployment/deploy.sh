@@ -487,6 +487,12 @@ cmd_build() {
         -f "${SCRIPT_DIR}/Dockerfile.agent" \
         -t "${SPRING_AGENT_IMAGE:-localhost/spring-voyage-agent:latest}" \
         "${REPO_ROOT}"
+
+    log "building dapr-agent image: ${SPRING_DAPR_AGENT_IMAGE:-localhost/spring-dapr-agent:latest}"
+    podman build \
+        -f "${REPO_ROOT}/agents/dapr-agent/Dockerfile" \
+        -t "${SPRING_DAPR_AGENT_IMAGE:-localhost/spring-dapr-agent:latest}" \
+        "${REPO_ROOT}/agents/dapr-agent"
 }
 
 cmd_ensure_user_net() {

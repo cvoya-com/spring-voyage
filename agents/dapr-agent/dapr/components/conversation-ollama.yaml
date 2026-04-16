@@ -1,0 +1,14 @@
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: llm-provider
+spec:
+  type: conversation.openai
+  version: v1
+  metadata:
+  - name: key
+    value: "ollama"
+  - name: model
+    value: "${SPRING_MODEL:-llama3.2:3b}"
+  - name: endpoint
+    value: "${OLLAMA_ENDPOINT:-http://spring-ollama:11434/v1}"

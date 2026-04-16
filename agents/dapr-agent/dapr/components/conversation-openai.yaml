@@ -1,0 +1,14 @@
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: llm-provider
+spec:
+  type: conversation.openai
+  version: v1
+  metadata:
+  - name: key
+    secretKeyRef:
+      name: OPENAI_API_KEY
+      key: OPENAI_API_KEY
+  - name: model
+    value: "${SPRING_MODEL:-gpt-4o}"
