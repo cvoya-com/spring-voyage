@@ -15,6 +15,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="A2A" />
     <PackageReference Include="Dapr.Client" />
     <PackageReference Include="Dapr.AspNetCore" />
     <PackageReference Include="Dapr.Actors" />

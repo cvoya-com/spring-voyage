@@ -14,6 +14,7 @@ This product includes or depends on the following third-party software:
 
 | Dependency | License | Source |
 |------------|---------|--------|
+| A2A (.NET A2A SDK) | Apache License 2.0 | [a2aproject/a2a-dotnet](https://github.com/a2aproject/a2a-dotnet) |
 | class-variance-authority | Apache License 2.0 | [joe-bell/cva](https://github.com/joe-bell/cva) |
 | clsx | MIT License | [lukeed/clsx](https://github.com/lukeed/clsx) |
 | Dapr SDK for .NET (Dapr.Client, Dapr.AspNetCore, Dapr.Actors, Dapr.Actors.AspNetCore, Dapr.Workflow) | Apache License 2.0 | [dapr/dotnet-sdk](https://github.com/dapr/dotnet-sdk) |

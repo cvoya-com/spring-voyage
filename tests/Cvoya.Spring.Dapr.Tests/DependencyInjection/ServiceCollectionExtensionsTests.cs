@@ -114,7 +114,7 @@ public class ServiceCollectionExtensionsTests
         var dispatcher = provider.GetService<IExecutionDispatcher>();
 
         dispatcher.ShouldNotBeNull();
-        dispatcher.ShouldBeOfType<Cvoya.Spring.Dapr.Execution.DelegatedExecutionDispatcher>();
+        dispatcher.ShouldBeOfType<Cvoya.Spring.Dapr.Execution.A2AExecutionDispatcher>();
     }
 
     /// <summary>

@@ -66,17 +66,18 @@ public class DbAgentDefinitionProvider(
 
     private static AgentExecutionConfig? ExtractExecution(JsonElement definition)
     {
-        // Preferred: top-level `execution: { tool, image, runtime }`.
+        // Preferred: top-level `execution: { tool, image, runtime, hosting }`.
         if (definition.TryGetProperty("execution", out var exec) &&
             exec.ValueKind == JsonValueKind.Object)
         {
             var tool = GetStringOrNull(exec, "tool");
             var image = GetStringOrNull(exec, "image");
             var runtime = GetStringOrNull(exec, "runtime");
+            var hosting = ParseHosting(GetStringOrNull(exec, "hosting"));
 
-            if (tool is not null && image is not null)
+            if (tool is not null)
             {
-                return new AgentExecutionConfig(tool, image, runtime);
+                return new AgentExecutionConfig(tool, image, runtime, hosting);
             }
         }
 
@@ -96,6 +97,18 @@ public class DbAgentDefinitionProvider(
         }
 
         return null;
+    }
+
+    private static AgentHostingMode ParseHosting(string? value)
+    {
+        if (value is null)
+        {
+            return AgentHostingMode.Ephemeral;
+        }
+
+        return value.Equals("persistent", StringComparison.OrdinalIgnoreCase)
+            ? AgentHostingMode.Persistent
+            : AgentHostingMode.Ephemeral;
     }
 
     private static string? GetStringOrNull(JsonElement obj, string name)

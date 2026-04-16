@@ -34,15 +34,40 @@ public record AgentDefinition(
     AgentExecutionConfig? Execution);
 
 /// <summary>
+/// Determines how an agent process is hosted across dispatch invocations.
+/// </summary>
+public enum AgentHostingMode
+{
+    /// <summary>
+    /// A fresh container is started per dispatch, does its work, and is cleaned up.
+    /// This is the default and matches the existing behaviour.
+    /// </summary>
+    Ephemeral,
+
+    /// <summary>
+    /// A long-lived service receives messages over its lifetime. The platform
+    /// starts it on first dispatch and keeps it running.
+    /// </summary>
+    Persistent
+}
+
+/// <summary>
 /// Execution configuration derived from the agent YAML <c>execution:</c> block
 /// (or the legacy <c>ai.environment</c> block). The two fields a launcher
 /// fundamentally needs are the external <paramref name="Tool"/> and the
 /// container <paramref name="Image"/>.
 /// </summary>
 /// <param name="Tool">The external agent tool identifier (e.g. <c>claude-code</c>, <c>codex</c>).</param>
-/// <param name="Image">The container image to run.</param>
+/// <param name="Image">
+/// The container image to run. Nullable for A2A-native agents that do not
+/// require a container image (e.g. agents running as standalone services).
+/// </param>
 /// <param name="Runtime">Optional container runtime hint (e.g. <c>docker</c>, <c>podman</c>).</param>
+/// <param name="Hosting">
+/// The hosting mode for the agent. Defaults to <see cref="AgentHostingMode.Ephemeral"/>.
+/// </param>
 public record AgentExecutionConfig(
     string Tool,
-    string Image,
-    string? Runtime = null);
+    string? Image,
+    string? Runtime = null,
+    AgentHostingMode Hosting = AgentHostingMode.Ephemeral);

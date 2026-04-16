@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Dapr.Tests.Execution;
 
 using System.Text.Json;
 
+using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Dapr.Data.Entities;
 using Cvoya.Spring.Dapr.Execution;
 
@@ -102,5 +103,67 @@ public class DbAgentDefinitionProviderTests
         def.Name.ShouldBe("Ada");
         def.Instructions.ShouldBeNull();
         def.Execution.ShouldBeNull();
+    }
+
+    [Fact]
+    public void Project_ExtractsHostingField()
+    {
+        var entity = new AgentDefinitionEntity
+        {
+            Id = Guid.NewGuid(),
+            AgentId = "ada",
+            Name = "Ada",
+            Definition = JsonSerializer.SerializeToElement(new
+            {
+                execution = new { tool = "claude-code", image = "spring-agent:latest", hosting = "persistent" }
+            })
+        };
+
+        var def = DbAgentDefinitionProvider.Project(entity);
+
+        def.Execution.ShouldNotBeNull();
+        def.Execution!.Hosting.ShouldBe(AgentHostingMode.Persistent);
+    }
+
+    [Fact]
+    public void Project_MissingHosting_DefaultsToEphemeral()
+    {
+        var entity = new AgentDefinitionEntity
+        {
+            Id = Guid.NewGuid(),
+            AgentId = "ada",
+            Name = "Ada",
+            Definition = JsonSerializer.SerializeToElement(new
+            {
+                execution = new { tool = "claude-code", image = "spring-agent:latest" }
+            })
+        };
+
+        var def = DbAgentDefinitionProvider.Project(entity);
+
+        def.Execution.ShouldNotBeNull();
+        def.Execution!.Hosting.ShouldBe(AgentHostingMode.Ephemeral);
+    }
+
+    [Fact]
+    public void Project_NullImage_AllowedForA2ANativeAgents()
+    {
+        var entity = new AgentDefinitionEntity
+        {
+            Id = Guid.NewGuid(),
+            AgentId = "ada",
+            Name = "Ada",
+            Definition = JsonSerializer.SerializeToElement(new
+            {
+                execution = new { tool = "custom", hosting = "persistent" }
+            })
+        };
+
+        var def = DbAgentDefinitionProvider.Project(entity);
+
+        def.Execution.ShouldNotBeNull();
+        def.Execution!.Tool.ShouldBe("custom");
+        def.Execution.Image.ShouldBeNull();
+        def.Execution.Hosting.ShouldBe(AgentHostingMode.Persistent);
     }
 }

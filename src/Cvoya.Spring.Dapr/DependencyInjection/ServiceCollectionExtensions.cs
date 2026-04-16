@@ -176,11 +176,12 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IDaprSidecarManager, DaprSidecarManager>();
         services.AddSingleton<ContainerLifecycleManager>();
         services.TryAddSingleton<IUnitContainerLifecycle, UnitContainerLifecycle>();
-        services.AddSingleton<IExecutionDispatcher, DelegatedExecutionDispatcher>();
+        services.TryAddSingleton<IExecutionDispatcher, A2AExecutionDispatcher>();
 
-        // Agent definition + tool launchers used by DelegatedExecutionDispatcher.
+        // Agent definition + tool launchers used by A2AExecutionDispatcher.
         services.TryAddSingleton<IAgentDefinitionProvider, DbAgentDefinitionProvider>();
         services.AddSingleton<IAgentToolLauncher, ClaudeCodeLauncher>();
+        services.TryAddSingleton<PersistentAgentRegistry>();
 
         // In-process MCP server (hosted service — started automatically by the host).
         services.AddOptions<McpServerOptions>().BindConfiguration(McpServerOptions.SectionName);

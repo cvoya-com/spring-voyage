@@ -5,6 +5,8 @@ namespace Cvoya.Spring.Dapr.Tests.Execution;
 
 using System.Text.Json;
 
+using A2A;
+
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
@@ -19,10 +21,13 @@ using Shouldly;
 
 using Xunit;
 
+using A2AMessage = A2A.Message;
+using SvMessage = Cvoya.Spring.Core.Messaging.Message;
+
 /// <summary>
-/// Unit tests for <see cref="DelegatedExecutionDispatcher"/>.
+/// Unit tests for <see cref="A2AExecutionDispatcher"/>.
 /// </summary>
-public class DelegatedExecutionDispatcherTests
+public class A2AExecutionDispatcherTests
 {
     private readonly IContainerRuntime _containerRuntime = Substitute.For<IContainerRuntime>();
     private readonly IPromptAssembler _promptAssembler = Substitute.For<IPromptAssembler>();
@@ -30,11 +35,13 @@ public class DelegatedExecutionDispatcherTests
     private readonly IMcpServer _mcpServer = Substitute.For<IMcpServer>();
     private readonly IAgentToolLauncher _launcher = Substitute.For<IAgentToolLauncher>();
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
-    private readonly DelegatedExecutionDispatcher _dispatcher;
+    private readonly IHttpClientFactory _httpClientFactory = Substitute.For<IHttpClientFactory>();
+    private readonly PersistentAgentRegistry _persistentRegistry = new();
+    private readonly A2AExecutionDispatcher _dispatcher;
     private const string AgentId = "my-agent";
     private const string Image = "spring-agent-claude:v1";
 
-    public DelegatedExecutionDispatcherTests()
+    public A2AExecutionDispatcherTests()
     {
         _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
         _launcher.Tool.Returns("claude-code");
@@ -56,20 +63,24 @@ public class DelegatedExecutionDispatcherTests
                 Instructions: "do things",
                 Execution: new AgentExecutionConfig("claude-code", Image)));
 
-        _dispatcher = new DelegatedExecutionDispatcher(
+        _httpClientFactory.CreateClient(Arg.Any<string>()).Returns(new HttpClient());
+
+        _dispatcher = new A2AExecutionDispatcher(
             _containerRuntime,
             _promptAssembler,
             _agentProvider,
             _mcpServer,
             [_launcher],
+            _persistentRegistry,
+            _httpClientFactory,
             _loggerFactory);
     }
 
-    private static Message CreateMessage(
+    private static SvMessage CreateMessage(
         string toPath = AgentId,
         string? conversationId = null)
     {
-        return new Message(
+        return new SvMessage(
             Guid.NewGuid(),
             new Address("agent", "sender"),
             new Address("agent", toPath),
@@ -80,7 +91,7 @@ public class DelegatedExecutionDispatcherTests
     }
 
     [Fact]
-    public async Task DispatchAsync_CallsContainerRuntime()
+    public async Task DispatchAsync_EphemeralAgent_CallsContainerRuntime()
     {
         var message = CreateMessage();
         _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
@@ -96,7 +107,7 @@ public class DelegatedExecutionDispatcherTests
     }
 
     [Fact]
-    public async Task DispatchAsync_UsesImageFromAgentDefinition()
+    public async Task DispatchAsync_EphemeralAgent_UsesImageFromAgentDefinition()
     {
         var message = CreateMessage();
         _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
@@ -112,7 +123,7 @@ public class DelegatedExecutionDispatcherTests
     }
 
     [Fact]
-    public async Task DispatchAsync_IssuesMcpSessionAndPassesToLauncher()
+    public async Task DispatchAsync_EphemeralAgent_IssuesMcpSessionAndPassesToLauncher()
     {
         var message = CreateMessage();
         _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
@@ -134,7 +145,7 @@ public class DelegatedExecutionDispatcherTests
     }
 
     [Fact]
-    public async Task DispatchAsync_CleansUpAndRevokesSession_OnSuccess()
+    public async Task DispatchAsync_EphemeralAgent_CleansUpAndRevokesSession_OnSuccess()
     {
         var message = CreateMessage();
         _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
@@ -149,7 +160,7 @@ public class DelegatedExecutionDispatcherTests
     }
 
     [Fact]
-    public async Task DispatchAsync_CleansUpAndRevokesSession_OnFailure()
+    public async Task DispatchAsync_EphemeralAgent_CleansUpAndRevokesSession_OnFailure()
     {
         var message = CreateMessage();
         _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
@@ -165,7 +176,7 @@ public class DelegatedExecutionDispatcherTests
     }
 
     [Fact]
-    public async Task DispatchAsync_ContainerSucceeds_ReturnsResponseMessage()
+    public async Task DispatchAsync_EphemeralAgent_ContainerSucceeds_ReturnsResponseMessage()
     {
         var message = CreateMessage();
         _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
@@ -187,10 +198,9 @@ public class DelegatedExecutionDispatcherTests
     }
 
     [Fact]
-    public async Task DispatchAsync_ContainerFails_ReturnsErrorMessage()
+    public async Task DispatchAsync_EphemeralAgent_ContainerFails_ReturnsErrorMessage()
     {
         var message = CreateMessage();
-
         _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("prompt");
         _containerRuntime.RunAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
@@ -231,6 +241,36 @@ public class DelegatedExecutionDispatcherTests
     }
 
     [Fact]
+    public async Task DispatchAsync_PersistentAgent_NotRunning_Throws()
+    {
+        var message = CreateMessage();
+        _agentProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
+            .Returns(new AgentDefinition(
+                AgentId, "My Agent", null,
+                new AgentExecutionConfig("claude-code", Image, Hosting: AgentHostingMode.Persistent)));
+
+        var act = () => _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
+        var ex = await Should.ThrowAsync<SpringException>(act);
+        ex.Message.ShouldContain("not running");
+    }
+
+    [Fact]
+    public async Task DispatchAsync_EphemeralAgent_NullImage_Throws()
+    {
+        var message = CreateMessage();
+        _agentProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
+            .Returns(new AgentDefinition(
+                AgentId, "My Agent", null,
+                new AgentExecutionConfig("claude-code", Image: null)));
+        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns("prompt");
+
+        var act = () => _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
+        var ex = await Should.ThrowAsync<SpringException>(act);
+        ex.Message.ShouldContain("requires a container image");
+    }
+
+    [Fact]
     public async Task DispatchAsync_PassesPromptAsEnvironmentVariable()
     {
         var message = CreateMessage();
@@ -241,7 +281,6 @@ public class DelegatedExecutionDispatcherTests
         _containerRuntime.RunAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
             .Returns(new ContainerResult("spring-exec-env", 0, "output", ""));
 
-        // Have the launcher echo the prompt through as an env var so we can assert it at the container layer.
         _launcher.PrepareAsync(Arg.Any<AgentLaunchContext>(), Arg.Any<CancellationToken>())
             .Returns(ci => new AgentLaunchPrep(
                 WorkingDirectory: "/tmp/test-workdir",
@@ -259,5 +298,118 @@ public class DelegatedExecutionDispatcherTests
                 c.EnvironmentVariables.ContainsKey("SPRING_SYSTEM_PROMPT") &&
                 c.EnvironmentVariables["SPRING_SYSTEM_PROMPT"] == expectedPrompt),
             Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public void MapA2AResponseToMessage_TaskCompleted_ReturnsSuccessPayload()
+    {
+        var originalMessage = CreateMessage();
+        var response = new SendMessageResponse
+        {
+            Task = new AgentTask
+            {
+                Id = Guid.NewGuid().ToString(),
+                Status = new A2A.TaskStatus
+                {
+                    State = TaskState.Completed,
+                },
+                Artifacts = [new Artifact
+                {
+                    ArtifactId = Guid.NewGuid().ToString(),
+                    Parts = [new Part { Text = "agent output" }],
+                }],
+            },
+        };
+
+        var result = A2AExecutionDispatcher.MapA2AResponseToMessage(originalMessage, response);
+
+        result.ShouldNotBeNull();
+        var payload = result!.Payload.Deserialize<JsonElement>();
+        payload.GetProperty("Output").GetString().ShouldBe("agent output");
+        payload.GetProperty("ExitCode").GetInt32().ShouldBe(0);
+    }
+
+    [Fact]
+    public void MapA2AResponseToMessage_TaskFailed_ReturnsErrorPayload()
+    {
+        var originalMessage = CreateMessage();
+        var response = new SendMessageResponse
+        {
+            Task = new AgentTask
+            {
+                Id = Guid.NewGuid().ToString(),
+                Status = new A2A.TaskStatus
+                {
+                    State = TaskState.Failed,
+                },
+            },
+        };
+
+        var result = A2AExecutionDispatcher.MapA2AResponseToMessage(originalMessage, response);
+
+        result.ShouldNotBeNull();
+        var payload = result!.Payload.Deserialize<JsonElement>();
+        payload.GetProperty("ExitCode").GetInt32().ShouldBe(1);
+    }
+
+    [Fact]
+    public void MapA2AResponseToMessage_MessageResponse_ReturnsTextOutput()
+    {
+        var originalMessage = CreateMessage();
+        var response = new SendMessageResponse
+        {
+            Message = new A2AMessage
+            {
+                Role = Role.Agent,
+                Parts = [new Part { Text = "direct reply" }],
+            },
+        };
+
+        var result = A2AExecutionDispatcher.MapA2AResponseToMessage(originalMessage, response);
+
+        result.ShouldNotBeNull();
+        var payload = result!.Payload.Deserialize<JsonElement>();
+        payload.GetProperty("Output").GetString().ShouldBe("direct reply");
+        payload.GetProperty("ExitCode").GetInt32().ShouldBe(0);
+    }
+
+    [Fact]
+    public void MapA2AResponseToMessage_PreservesMessageRouting()
+    {
+        var originalMessage = CreateMessage();
+        var response = new SendMessageResponse
+        {
+            Message = new A2AMessage
+            {
+                Role = Role.Agent,
+                Parts = [new Part { Text = "ok" }],
+            },
+        };
+
+        var result = A2AExecutionDispatcher.MapA2AResponseToMessage(originalMessage, response);
+
+        result.ShouldNotBeNull();
+        result!.From.ShouldBe(originalMessage.To);
+        result.To.ShouldBe(originalMessage.From);
+        result.ConversationId.ShouldBe(originalMessage.ConversationId);
+        result.Type.ShouldBe(MessageType.Domain);
+    }
+
+    [Fact]
+    public async Task DispatchAsync_DefaultHostingMode_IsEphemeral()
+    {
+        // Ensure that AgentExecutionConfig with no explicit hosting defaults to Ephemeral
+        var config = new AgentExecutionConfig("claude-code", Image);
+        config.Hosting.ShouldBe(AgentHostingMode.Ephemeral);
+
+        var message = CreateMessage();
+        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns("prompt");
+        _containerRuntime.RunAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
+            .Returns(new ContainerResult("c1", 0, "ok", ""));
+
+        // Should route to ephemeral path and call container runtime
+        await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
+        await _containerRuntime.Received(1).RunAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>());
     }
 }
