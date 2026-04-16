@@ -16,9 +16,8 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 /// <summary>
-/// One-shot startup hosted service that walks every registered
-/// <c>agent://</c> entity, reads its legacy
-/// <c>StateKeys.AgentParentUnit</c> cached pointer via
+/// Background service that walks every registered <c>agent://</c> entity,
+/// reads its legacy <c>StateKeys.AgentParentUnit</c> cached pointer via
 /// <see cref="IAgentActor.GetMetadataAsync"/>, and upserts a corresponding
 /// <see cref="UnitMembership"/> row so the M:N membership table reflects
 /// the prior 1:N parent-unit world (see #160 / C2b-1). Idempotent: uses
@@ -26,25 +25,34 @@ using Microsoft.Extensions.Options;
 /// are harmless.
 /// </summary>
 /// <remarks>
+/// <para>
 /// Gated by <see cref="DatabaseOptions.BackfillMemberships"/> (default
 /// <c>true</c>). Operators who have already run this migration can
-/// disable it in configuration. Runs synchronously in
-/// <see cref="StartAsync"/> so no new messages flow before the backfill
-/// completes — trade-off: a slight startup penalty in exchange for a
-/// cleaner post-migration invariant. Given no production deployment
-/// exists yet, the cost is zero.
+/// disable it in configuration.
+/// </para>
+/// <para>
+/// Runs as a <see cref="BackgroundService"/> so that failures (e.g., the
+/// Dapr sidecar not being ready yet) never crash the host. Retries up to
+/// 3 times with a 30-second backoff between attempts and an initial
+/// 15-second delay to let the sidecar and placement service stabilize.
+/// See #385.
+/// </para>
 /// </remarks>
 public class UnitMembershipBackfillService(
     IServiceProvider services,
     IDirectoryService directoryService,
     IActorProxyFactory actorProxyFactory,
     IOptions<DatabaseOptions> options,
-    ILogger<UnitMembershipBackfillService> logger) : IHostedService
+    ILogger<UnitMembershipBackfillService> logger) : BackgroundService
 {
-    private readonly DatabaseOptions _options = options.Value;
+    internal const int MaxAttempts = 3;
+    internal static readonly TimeSpan InitialDelay = TimeSpan.FromSeconds(15);
+    internal static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(30);
+
+    internal readonly DatabaseOptions _options = options.Value;
 
     /// <inheritdoc />
-    public async Task StartAsync(CancellationToken cancellationToken)
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         if (!_options.BackfillMemberships)
         {
@@ -53,23 +61,45 @@ public class UnitMembershipBackfillService(
             return;
         }
 
+        await Task.Delay(InitialDelay, stoppingToken);
+
+        for (var attempt = 1; attempt <= MaxAttempts; attempt++)
+        {
+            try
+            {
+                await RunBackfillAsync(stoppingToken);
+                return;
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                throw; // Host is shutting down — propagate.
+            }
+            catch (Exception ex)
+            {
+                if (attempt < MaxAttempts)
+                {
+                    logger.LogWarning(ex,
+                        "Membership backfill attempt {Attempt}/{MaxAttempts} failed; retrying in {RetrySeconds}s.",
+                        attempt, MaxAttempts, (int)RetryDelay.TotalSeconds);
+                    await Task.Delay(RetryDelay, stoppingToken);
+                }
+                else
+                {
+                    logger.LogWarning(ex,
+                        "Membership backfill exhausted all {MaxAttempts} attempts. "
+                        + "Skipping — data will be backfilled on next restart.",
+                        MaxAttempts);
+                }
+            }
+        }
+    }
+
+    internal async Task RunBackfillAsync(CancellationToken cancellationToken)
+    {
         using var scope = services.CreateScope();
         var repository = scope.ServiceProvider.GetRequiredService<IUnitMembershipRepository>();
 
-        IReadOnlyList<DirectoryEntry> entries;
-        try
-        {
-            entries = await directoryService.ListAllAsync(cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            // Directory unavailable at startup — backfill is best-effort;
-            // surfaces as a warning and we continue. Operators can re-run
-            // later by restarting the host.
-            logger.LogWarning(ex,
-                "Unit-membership backfill could not list directory entries; skipping.");
-            return;
-        }
+        var entries = await directoryService.ListAllAsync(cancellationToken);
 
         var agents = entries
             .Where(e => string.Equals(e.Address.Scheme, "agent", StringComparison.OrdinalIgnoreCase))
@@ -129,7 +159,4 @@ public class UnitMembershipBackfillService(
             "Unit-membership backfill completed: {Upserted} row(s) upserted from {Scanned} agent entr{Plural}.",
             upserted, agents.Count, agents.Count == 1 ? "y" : "ies");
     }
-
-    /// <inheritdoc />
-    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }
