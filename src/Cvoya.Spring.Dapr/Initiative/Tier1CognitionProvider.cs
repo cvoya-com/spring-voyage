@@ -238,10 +238,19 @@ public class Tier1CognitionProvider : ICognitionProvider
 /// Public to satisfy C# accessibility rules because it appears as an <see cref="IOptions{T}"/>
 /// parameter on the public <see cref="Tier1CognitionProvider"/> constructor.
 /// </summary>
-/// <param name="OllamaBaseUrl">Base URL for the Ollama HTTP API.</param>
-/// <param name="Model">Model identifier to pass to Ollama's generate endpoint.</param>
-/// <param name="Enabled">When <c>false</c>, screening always routes through the fallback provider.</param>
-public record Tier1Options(
-    string OllamaBaseUrl = "http://localhost:11434",
-    string Model = "phi-3-mini",
-    bool Enabled = true);
+/// <remarks>
+/// This is intentionally a non-positional record so it has an implicit parameterless constructor.
+/// <c>OptionsFactory&lt;T&gt;</c> (used by <c>IOptions&lt;T&gt;</c> binding) calls <c>new T()</c>
+/// before populating properties from configuration; a positional record would fail activation.
+/// </remarks>
+public record Tier1Options
+{
+    /// <summary>Base URL for the Ollama HTTP API.</summary>
+    public string OllamaBaseUrl { get; init; } = "http://localhost:11434";
+
+    /// <summary>Model identifier to pass to Ollama's generate endpoint.</summary>
+    public string Model { get; init; } = "phi-3-mini";
+
+    /// <summary>When <c>false</c>, screening always routes through the fallback provider.</summary>
+    public bool Enabled { get; init; } = true;
+}
