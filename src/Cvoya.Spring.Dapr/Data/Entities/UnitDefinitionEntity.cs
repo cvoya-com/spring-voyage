@@ -17,6 +17,9 @@ public class UnitDefinitionEntity
     /// <summary>Gets or sets the user-facing identifier for the unit.</summary>
     public string UnitId { get; set; } = string.Empty;
 
+    /// <summary>Gets or sets the Dapr actor identifier used to invoke this unit.</summary>
+    public string? ActorId { get; set; }
+
     /// <summary>Gets or sets the display name of the unit.</summary>
     public string Name { get; set; } = string.Empty;
 

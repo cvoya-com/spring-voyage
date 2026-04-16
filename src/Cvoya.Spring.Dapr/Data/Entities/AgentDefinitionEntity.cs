@@ -17,8 +17,14 @@ public class AgentDefinitionEntity
     /// <summary>Gets or sets the user-facing identifier for the agent (e.g., "ada").</summary>
     public string AgentId { get; set; } = string.Empty;
 
+    /// <summary>Gets or sets the Dapr actor identifier used to invoke this agent.</summary>
+    public string? ActorId { get; set; }
+
     /// <summary>Gets or sets the display name of the agent.</summary>
     public string Name { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets an optional description of the agent.</summary>
+    public string? Description { get; set; }
 
     /// <summary>Gets or sets the role description for the agent.</summary>
     public string? Role { get; set; }

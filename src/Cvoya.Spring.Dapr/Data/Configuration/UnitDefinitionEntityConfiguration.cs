@@ -22,6 +22,7 @@ internal class UnitDefinitionEntityConfiguration : IEntityTypeConfiguration<Unit
         builder.HasKey(e => e.Id);
         builder.Property(e => e.Id).HasColumnName("id");
         builder.Property(e => e.UnitId).HasColumnName("unit_id").IsRequired().HasMaxLength(128);
+        builder.Property(e => e.ActorId).HasColumnName("actor_id").HasMaxLength(256);
         builder.Property(e => e.Name).HasColumnName("name").IsRequired().HasMaxLength(256);
         builder.Property(e => e.Description).HasColumnName("description").HasMaxLength(1024);
         builder.Property(e => e.Definition).HasColumnName("definition").HasColumnType("jsonb");

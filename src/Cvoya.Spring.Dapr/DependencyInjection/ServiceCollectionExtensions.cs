@@ -190,7 +190,7 @@ public static class ServiceCollectionExtensions
 
         // Routing
         services.AddSingleton<DirectoryCache>();
-        services.AddSingleton<IDirectoryService, DirectoryService>();
+        services.TryAddSingleton<IDirectoryService, DirectoryService>();
         services.TryAddSingleton<IAgentProxyResolver, AgentProxyResolver>();
         services.TryAddSingleton<MessageRouter>();
         services.TryAddSingleton<IMessageRouter>(sp => sp.GetRequiredService<MessageRouter>());
