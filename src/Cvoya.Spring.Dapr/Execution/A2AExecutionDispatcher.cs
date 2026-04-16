@@ -171,17 +171,112 @@ public class A2AExecutionDispatcher(
     {
         var agentId = definition.AgentId;
 
-        if (!persistentAgentRegistry.TryGet(agentId, out var entry) || entry is null)
+        // Check if the agent service is already running and healthy.
+        if (!persistentAgentRegistry.TryGetEndpoint(agentId, out var endpoint) || endpoint is null)
         {
-            // In this PR we only stub the persistent path. A full implementation
-            // would start the container and register it here.
-            throw new SpringException(
-                $"Persistent agent '{agentId}' is not running and auto-start is not yet implemented. " +
-                "Use hosting: ephemeral or start the agent service manually.");
+            // Not running — auto-start the agent container.
+            endpoint = await StartPersistentAgentAsync(definition, cancellationToken);
         }
 
         var prompt = await promptAssembler.AssembleAsync(message, context, cancellationToken);
-        return await SendA2AMessageAsync(entry.Endpoint, agentId, message, prompt, cancellationToken);
+
+        try
+        {
+            return await SendA2AMessageAsync(endpoint, agentId, message, prompt, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Container failed mid-dispatch — mark unhealthy for next dispatch.
+            _logger.LogWarning(ex,
+                "A2A call to persistent agent {AgentId} failed; marking unhealthy for restart",
+                agentId);
+            persistentAgentRegistry.MarkUnhealthy(agentId);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Starts a persistent agent container and registers it in the registry.
+    /// </summary>
+    private async Task<Uri> StartPersistentAgentAsync(
+        AgentDefinition definition,
+        CancellationToken cancellationToken)
+    {
+        var agentId = definition.AgentId;
+
+        if (definition.Execution?.Image is null)
+        {
+            throw new SpringException(
+                $"Persistent agent '{agentId}' requires a container image. " +
+                "Set execution.image in the agent YAML.");
+        }
+
+        if (!_launchersByTool.TryGetValue(definition.Execution.Tool, out var launcher))
+        {
+            throw new SpringException(
+                $"No IAgentToolLauncher registered for tool '{definition.Execution.Tool}' (agent '{agentId}').");
+        }
+
+        if (mcpServer.Endpoint is null)
+        {
+            throw new SpringException("MCP server has not been started; endpoint is unavailable.");
+        }
+
+        // Use a stable conversation ID for persistent agent MCP sessions.
+        var sessionId = $"persistent-{agentId}";
+        var prompt = definition.Instructions ?? string.Empty;
+        var session = mcpServer.IssueSession(agentId, sessionId);
+
+        var launchContext = new AgentLaunchContext(
+            AgentId: agentId,
+            ConversationId: sessionId,
+            Prompt: prompt,
+            McpEndpoint: mcpServer.Endpoint,
+            McpToken: session.Token);
+
+        var prep = await launcher.PrepareAsync(launchContext, cancellationToken);
+
+        _logger.LogInformation(
+            "Starting persistent agent {AgentId} with image {Image}",
+            agentId, definition.Execution.Image);
+
+        var config = new ContainerConfig(
+            Image: definition.Execution.Image,
+            EnvironmentVariables: prep.EnvironmentVariables,
+            VolumeMounts: prep.VolumeMounts,
+            ExtraHosts: ["host.docker.internal:host-gateway"],
+            WorkingDirectory: prep.WorkingDirectory.Contains(':')
+                ? null // Volume mount spec — don't set working dir
+                : prep.WorkingDirectory);
+
+        var containerId = await containerRuntime.StartAsync(config, cancellationToken);
+
+        // Build the A2A endpoint — persistent containers expose the A2A sidecar port.
+        // Use localhost with a mapped port since the container name may not be DNS-resolvable.
+        var endpoint = new Uri($"http://localhost:{SidecarPort}/");
+
+        // Wait for the A2A endpoint to become ready.
+        var ready = await persistentAgentRegistry.WaitForA2AReadyAsync(
+            endpoint, ReadinessTimeout, cancellationToken);
+
+        if (!ready)
+        {
+            _logger.LogError(
+                "Persistent agent {AgentId} did not become ready within {Timeout}. Stopping container.",
+                agentId, ReadinessTimeout);
+            await containerRuntime.StopAsync(containerId, CancellationToken.None);
+            throw new SpringException(
+                $"Persistent agent '{agentId}' did not become ready within {ReadinessTimeout}.");
+        }
+
+        // Register in the persistent registry.
+        persistentAgentRegistry.Register(agentId, endpoint, containerId, definition);
+
+        _logger.LogInformation(
+            "Persistent agent {AgentId} started and registered at {Endpoint} (container {ContainerId})",
+            agentId, endpoint, containerId);
+
+        return endpoint;
     }
 
     /// <summary>

@@ -36,13 +36,16 @@ public class A2AExecutionDispatcherTests
     private readonly IAgentToolLauncher _launcher = Substitute.For<IAgentToolLauncher>();
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
     private readonly IHttpClientFactory _httpClientFactory = Substitute.For<IHttpClientFactory>();
-    private readonly PersistentAgentRegistry _persistentRegistry = new();
+    private readonly IContainerRuntime _persistentContainerRuntime = Substitute.For<IContainerRuntime>();
+    private readonly PersistentAgentRegistry _persistentRegistry;
     private readonly A2AExecutionDispatcher _dispatcher;
     private const string AgentId = "my-agent";
     private const string Image = "spring-agent-claude:v1";
 
     public A2AExecutionDispatcherTests()
     {
+        _persistentRegistry = new PersistentAgentRegistry(
+            _persistentContainerRuntime, _httpClientFactory, _loggerFactory);
         _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
         _launcher.Tool.Returns("claude-code");
         _launcher.PrepareAsync(Arg.Any<AgentLaunchContext>(), Arg.Any<CancellationToken>())
@@ -241,17 +244,35 @@ public class A2AExecutionDispatcherTests
     }
 
     [Fact]
-    public async Task DispatchAsync_PersistentAgent_NotRunning_Throws()
+    public async Task DispatchAsync_PersistentAgent_NotRunning_AttemptsAutoStart()
     {
         var message = CreateMessage();
         _agentProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
             .Returns(new AgentDefinition(
-                AgentId, "My Agent", null,
+                AgentId, "My Agent", "instructions",
                 new AgentExecutionConfig("claude-code", Image, Hosting: AgentHostingMode.Persistent)));
+        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns("prompt");
 
-        var act = () => _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
-        var ex = await Should.ThrowAsync<SpringException>(act);
-        ex.Message.ShouldContain("not running");
+        // StartAsync returns a container ID, but readiness probe will fail (no real server)
+        // so we expect the dispatch to fail. Use a short cancellation timeout to avoid
+        // waiting the full 60-second readiness timeout.
+        _containerRuntime.StartAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
+            .Returns("spring-persistent-abc");
+        _httpClientFactory.CreateClient(Arg.Any<string>())
+            .Returns(_ => new HttpClient());
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(2));
+
+        // The dispatcher will attempt auto-start, the readiness probe will fail,
+        // and cancellation will cut the wait short.
+        var act = () => _dispatcher.DispatchAsync(message, context: null, cts.Token);
+        await Should.ThrowAsync<Exception>(act);
+
+        // Verify StartAsync was called on the main container runtime (auto-start attempted).
+        await _containerRuntime.Received(1).StartAsync(
+            Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

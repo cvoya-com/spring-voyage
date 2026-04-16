@@ -17,6 +17,16 @@ public interface IContainerRuntime
     Task<ContainerResult> RunAsync(ContainerConfig config, CancellationToken ct = default);
 
     /// <summary>
+    /// Launches a container in detached mode, returning immediately with the
+    /// container identifier. The container keeps running in the background
+    /// until explicitly stopped via <see cref="StopAsync"/>.
+    /// </summary>
+    /// <param name="config">The container configuration.</param>
+    /// <param name="ct">A token to cancel the operation.</param>
+    /// <returns>The identifier of the started container.</returns>
+    Task<string> StartAsync(ContainerConfig config, CancellationToken ct = default);
+
+    /// <summary>
     /// Stops a running container by its identifier.
     /// </summary>
     /// <param name="containerId">The identifier of the container to stop.</param>

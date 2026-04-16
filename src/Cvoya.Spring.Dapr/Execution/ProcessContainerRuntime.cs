@@ -73,6 +73,33 @@ public class ProcessContainerRuntime(
     }
 
     /// <summary>
+    /// Launches a container in detached mode, returning immediately with the container identifier.
+    /// </summary>
+    /// <param name="config">The container configuration.</param>
+    /// <param name="ct">A token to cancel the operation.</param>
+    /// <returns>The identifier of the started container.</returns>
+    public async Task<string> StartAsync(ContainerConfig config, CancellationToken ct = default)
+    {
+        var containerName = $"spring-persistent-{Guid.NewGuid():N}";
+        var arguments = BuildStartArguments(config, containerName);
+
+        _logger.LogInformation(
+            "Starting detached container {ContainerName} with image {Image} using {Binary}",
+            containerName, config.Image, binaryName);
+
+        var (exitCode, stdout, stderr) = await RunProcessAsync(binaryName, arguments, ct);
+
+        if (exitCode != 0)
+        {
+            throw new InvalidOperationException(
+                $"Failed to start container {containerName}. Exit code: {exitCode}. Stderr: {stderr}");
+        }
+
+        _logger.LogInformation("Detached container {ContainerName} started", containerName);
+        return containerName;
+    }
+
+    /// <summary>
     /// Stops and removes a container by its identifier.
     /// </summary>
     /// <param name="containerId">The identifier of the container to stop.</param>
@@ -110,6 +137,66 @@ public class ProcessContainerRuntime(
     {
         var args = new StringBuilder();
         args.Append($"run --rm --name {containerName}");
+
+        if (config.NetworkName is not null)
+        {
+            args.Append($" --network {config.NetworkName}");
+        }
+
+        if (config.Labels is not null)
+        {
+            foreach (var (key, value) in config.Labels)
+            {
+                args.Append($" --label {key}={value}");
+            }
+        }
+
+        if (config.EnvironmentVariables is not null)
+        {
+            foreach (var (key, value) in config.EnvironmentVariables)
+            {
+                args.Append($" -e {key}={value}");
+            }
+        }
+
+        if (config.VolumeMounts is not null)
+        {
+            foreach (var mount in config.VolumeMounts)
+            {
+                args.Append($" -v {mount}");
+            }
+        }
+
+        if (config.ExtraHosts is not null)
+        {
+            foreach (var host in config.ExtraHosts)
+            {
+                args.Append($" --add-host={host}");
+            }
+        }
+
+        if (!string.IsNullOrEmpty(config.WorkingDirectory))
+        {
+            args.Append($" -w {config.WorkingDirectory}");
+        }
+
+        args.Append($" {config.Image}");
+
+        if (config.Command is not null)
+        {
+            args.Append($" {config.Command}");
+        }
+
+        return args.ToString();
+    }
+
+    /// <summary>
+    /// Builds the argument string for a detached container start command.
+    /// </summary>
+    internal static string BuildStartArguments(ContainerConfig config, string containerName)
+    {
+        var args = new StringBuilder();
+        args.Append($"run -d --name {containerName}");
 
         if (config.NetworkName is not null)
         {
