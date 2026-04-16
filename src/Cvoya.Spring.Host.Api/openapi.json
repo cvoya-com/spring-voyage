@@ -695,6 +695,48 @@
         }
       }
     },
+    "/api/v1/units/{id}/readiness": {
+      "get": {
+        "tags": [
+          "Units"
+        ],
+        "summary": "Check whether a unit is ready to leave Draft and be started",
+        "description": "Returns readiness status and a list of missing requirements. Useful for the UI to enable/disable the Start button.",
+        "operationId": "GetUnitReadiness",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnitReadinessResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/units/{id}/start": {
       "post": {
         "tags": [
@@ -5657,7 +5699,8 @@
         "required": [
           "name",
           "displayName",
-          "registeredAt"
+          "registeredAt",
+          "status"
         ],
         "type": "object",
         "properties": {
@@ -5670,6 +5713,9 @@
           "registeredAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "status": {
+            "$ref": "#/components/schemas/UnitStatus"
           }
         }
       },
@@ -5910,6 +5956,24 @@
                 "$ref": "#/components/schemas/InitiativePolicy"
               }
             ]
+          }
+        }
+      },
+      "UnitReadinessResponse": {
+        "required": [
+          "isReady",
+          "missingRequirements"
+        ],
+        "type": "object",
+        "properties": {
+          "isReady": {
+            "type": "boolean"
+          },
+          "missingRequirements": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },

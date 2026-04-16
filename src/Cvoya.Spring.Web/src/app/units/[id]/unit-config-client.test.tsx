@@ -12,12 +12,14 @@ import type { UnitResponse } from "@/lib/api/types";
 // Mock the API module.
 const getUnit = vi.fn<(id: string) => Promise<UnitResponse>>();
 const getUnitCost = vi.fn();
+const getUnitReadiness = vi.fn();
 const deleteUnit = vi.fn<(id: string) => Promise<void>>();
 
 vi.mock("@/lib/api/client", () => ({
   api: {
     getUnit: (id: string) => getUnit(id),
     getUnitCost: (id: string) => getUnitCost(id),
+    getUnitReadiness: (id: string) => getUnitReadiness(id),
     deleteUnit: (id: string) => deleteUnit(id),
     // Stubs for other calls the component makes on mount.
     startUnit: vi.fn(),
@@ -71,11 +73,14 @@ describe("UnitConfigClient — delete unit", () => {
   beforeEach(() => {
     getUnit.mockReset();
     getUnitCost.mockReset();
+    getUnitReadiness.mockReset();
     deleteUnit.mockReset();
     toastMock.mockReset();
     pushMock.mockReset();
     // Default: cost returns nothing interesting.
     getUnitCost.mockRejectedValue(new Error("no cost data"));
+    // Default: unit is ready (model configured).
+    getUnitReadiness.mockResolvedValue({ isReady: true, missingRequirements: [] });
   });
 
   afterEach(() => {

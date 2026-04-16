@@ -1122,4 +1122,81 @@ public class UnitActorTests
         captured!.Members.ShouldContain(agent);
         captured.Members.ShouldContain(unit);
     }
+
+    // #368 — Compound Draft → Starting transition
+
+    [Fact]
+    public async Task TransitionAsync_DraftToStarting_WithModel_Succeeds()
+    {
+        _stateManager.TryGetStateAsync<string>(StateKeys.UnitModel, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<string>(true, "claude-sonnet-4-20250514"));
+
+        var result = await _actor.TransitionAsync(UnitStatus.Starting, TestContext.Current.CancellationToken);
+
+        result.Success.ShouldBeTrue();
+        result.CurrentStatus.ShouldBe(UnitStatus.Starting);
+
+        // Compound transition writes Stopped then Starting.
+        Received.InOrder(() =>
+        {
+            _stateManager.SetStateAsync(
+                StateKeys.UnitStatus, UnitStatus.Stopped, Arg.Any<CancellationToken>());
+            _stateManager.SetStateAsync(
+                StateKeys.UnitStatus, UnitStatus.Starting, Arg.Any<CancellationToken>());
+        });
+    }
+
+    [Fact]
+    public async Task TransitionAsync_DraftToStarting_WithoutModel_Fails()
+    {
+        // Default: no model set.
+        _stateManager.TryGetStateAsync<string>(StateKeys.UnitModel, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<string>(false, default!));
+
+        var result = await _actor.TransitionAsync(UnitStatus.Starting, TestContext.Current.CancellationToken);
+
+        result.Success.ShouldBeFalse();
+        result.CurrentStatus.ShouldBe(UnitStatus.Draft);
+        result.RejectionReason.ShouldNotBeNull();
+        result.RejectionReason.ShouldContain("model");
+    }
+
+    [Fact]
+    public async Task TransitionAsync_DraftToStarting_EmptyModel_Fails()
+    {
+        _stateManager.TryGetStateAsync<string>(StateKeys.UnitModel, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<string>(true, "  "));
+
+        var result = await _actor.TransitionAsync(UnitStatus.Starting, TestContext.Current.CancellationToken);
+
+        result.Success.ShouldBeFalse();
+        result.RejectionReason.ShouldNotBeNull();
+        result.RejectionReason!.ShouldContain("model");
+    }
+
+    // #368 — Readiness check
+
+    [Fact]
+    public async Task CheckReadinessAsync_WithModel_ReturnsReady()
+    {
+        _stateManager.TryGetStateAsync<string>(StateKeys.UnitModel, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<string>(true, "claude-sonnet-4-20250514"));
+
+        var result = await _actor.CheckReadinessAsync(TestContext.Current.CancellationToken);
+
+        result.IsReady.ShouldBeTrue();
+        result.MissingRequirements.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task CheckReadinessAsync_WithoutModel_ReturnsNotReady()
+    {
+        _stateManager.TryGetStateAsync<string>(StateKeys.UnitModel, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<string>(false, default!));
+
+        var result = await _actor.CheckReadinessAsync(TestContext.Current.CancellationToken);
+
+        result.IsReady.ShouldBeFalse();
+        result.MissingRequirements.ShouldContain("model");
+    }
 }

@@ -2,6 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -13,6 +14,7 @@ import type {
   CostSummaryResponse,
   UnitDashboardSummary,
   UnitDetailResponse,
+  UnitStatus,
 } from "@/lib/api/types";
 import { formatCost, timeAgo } from "@/lib/utils";
 import {
@@ -25,6 +27,25 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
+
+function statusBadgeVariant(
+  status: UnitStatus | undefined,
+): "default" | "success" | "warning" | "destructive" | "outline" {
+  switch (status) {
+    case "Running":
+      return "success";
+    case "Starting":
+    case "Stopping":
+      return "warning";
+    case "Error":
+      return "destructive";
+    case "Stopped":
+      return "outline";
+    case "Draft":
+    default:
+      return "default";
+  }
+}
 
 function UnitListContent() {
   const { toast } = useToast();
@@ -128,6 +149,9 @@ function UnitListContent() {
                     </div>
                   </Link>
                   <div className="flex items-center gap-2 shrink-0">
+                    <Badge variant={statusBadgeVariant(u.status as UnitStatus | undefined)}>
+                      {u.status ?? "Draft"}
+                    </Badge>
                     <span className="text-xs text-muted-foreground">
                       Registered {timeAgo(u.registeredAt)}
                     </span>

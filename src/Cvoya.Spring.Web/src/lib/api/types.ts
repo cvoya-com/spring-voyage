@@ -158,6 +158,9 @@ export type GitHubInstallationResponse = Schemas["GitHubInstallationResponse"];
 /** GET /api/v1/connectors/github/actions/install-url response. */
 export type GitHubInstallUrlResponse = Schemas["GitHubInstallUrlResponse"];
 
+/** GET /api/v1/units/{id}/readiness response. */
+export type UnitReadinessResponse = Schemas["UnitReadinessResponse"];
+
 // ---------------------------------------------------------------------------
 // Hand-written — not surfaced via the HTTP OpenAPI contract
 // ---------------------------------------------------------------------------

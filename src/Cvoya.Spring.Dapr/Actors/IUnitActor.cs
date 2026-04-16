@@ -157,4 +157,13 @@ public interface IUnitActor : IAgent
     /// <param name="metadata">The metadata to persist, or <c>null</c> to clear.</param>
     /// <param name="ct">A token to cancel the operation.</param>
     Task SetConnectorMetadataAsync(JsonElement? metadata, CancellationToken ct = default);
+
+    /// <summary>
+    /// Evaluates whether the unit has enough configuration to leave the
+    /// <see cref="UnitStatus.Draft"/> state. The result lists each
+    /// unsatisfied requirement so the UI can surface actionable guidance.
+    /// </summary>
+    /// <param name="ct">A token to cancel the operation.</param>
+    /// <returns>A <see cref="ReadinessResult"/> describing readiness.</returns>
+    Task<ReadinessResult> CheckReadinessAsync(CancellationToken ct = default);
 }

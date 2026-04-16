@@ -278,4 +278,42 @@ public class UnitCreationServiceTests
             w.Contains("lonely-agent", StringComparison.Ordinal)
             && w.Contains("db down", StringComparison.Ordinal));
     }
+
+    // --- #368: differentiated creation states ---
+
+    [Fact]
+    public async Task CreateAsync_WithModel_StatusIsStopped()
+    {
+        var fixture = new Fixture();
+        fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
+        fixture.Proxy.TransitionAsync(UnitStatus.Stopped, Arg.Any<CancellationToken>())
+            .Returns(new TransitionResult(true, UnitStatus.Stopped, null));
+
+        var result = await fixture.Service.CreateAsync(
+            new CreateUnitRequest(
+                Name: "model-unit",
+                DisplayName: "model-unit",
+                Description: "test",
+                Model: "claude-sonnet-4-20250514",
+                Color: null,
+                Connector: null),
+            CancellationToken.None);
+
+        result.Unit.Status.ShouldBe(UnitStatus.Stopped);
+        await fixture.Proxy.Received(1).TransitionAsync(
+            UnitStatus.Stopped, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CreateAsync_WithoutModel_StatusIsDraft()
+    {
+        var fixture = new Fixture();
+        fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
+
+        var result = await fixture.CreateAsync("no-model-unit");
+
+        result.Unit.Status.ShouldBe(UnitStatus.Draft);
+        await fixture.Proxy.DidNotReceive().TransitionAsync(
+            UnitStatus.Stopped, Arg.Any<CancellationToken>());
+    }
 }

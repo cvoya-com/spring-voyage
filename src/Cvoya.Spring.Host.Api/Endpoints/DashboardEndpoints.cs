@@ -5,7 +5,14 @@ namespace Cvoya.Spring.Host.Api.Endpoints;
 
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Observability;
+using Cvoya.Spring.Core.Units;
+using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Host.Api.Models;
+
+using global::Dapr.Actors;
+using global::Dapr.Actors.Client;
+
+using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// Maps dashboard API endpoints for agent, unit, and cost summaries.
@@ -56,14 +63,36 @@ public static class DashboardEndpoints
 
     private static async Task<IResult> GetUnitsSummaryAsync(
         IDirectoryService directoryService,
+        IActorProxyFactory actorProxyFactory,
+        ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
+        var logger = loggerFactory.CreateLogger("Cvoya.Spring.Host.Api.Endpoints.DashboardEndpoints");
         var entries = await directoryService.ListAllAsync(cancellationToken);
 
-        var units = entries
+        var unitEntries = entries
             .Where(e => string.Equals(e.Address.Scheme, "unit", StringComparison.OrdinalIgnoreCase))
-            .Select(e => new UnitDashboardSummary(e.Address.Path, e.DisplayName, e.RegisteredAt))
             .ToList();
+
+        var units = new List<UnitDashboardSummary>(unitEntries.Count);
+        foreach (var e in unitEntries)
+        {
+            var status = UnitStatus.Draft;
+            try
+            {
+                var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
+                    new ActorId(e.ActorId), nameof(UnitActor));
+                status = await proxy.GetStatusAsync(cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex,
+                    "Failed to read status for unit {UnitName}; reporting Draft in dashboard.",
+                    e.Address.Path);
+            }
+
+            units.Add(new UnitDashboardSummary(e.Address.Path, e.DisplayName, e.RegisteredAt, status));
+        }
 
         return Results.Ok(units);
     }

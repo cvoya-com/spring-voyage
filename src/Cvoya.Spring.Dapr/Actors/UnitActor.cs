@@ -212,6 +212,15 @@ public class UnitActor : Actor, IUnitActor
     {
         var current = await GetStatusInternalAsync(ct);
 
+        // Compound transition: Draft -> Starting is expressed as
+        // Draft -> Stopped -> Starting internally. Callers see a single
+        // call; the intermediate Stopped state is never exposed on the
+        // HTTP response.
+        if (current == UnitStatus.Draft && target == UnitStatus.Starting)
+        {
+            return await CompoundDraftToStartingAsync(ct);
+        }
+
         if (!IsTransitionAllowed(current, target))
         {
             var reason = $"cannot transition from {current} to {target}";
@@ -221,23 +230,14 @@ public class UnitActor : Actor, IUnitActor
             return new TransitionResult(false, current, reason);
         }
 
-        await StateManager.SetStateAsync(StateKeys.UnitStatus, target, ct);
+        return await PersistTransitionAsync(current, target, ct);
+    }
 
-        _logger.LogInformation(
-            "Unit {ActorId} transitioned from {Current} to {Target}",
-            Id.GetId(), current, target);
-
-        await EmitActivityEventAsync(ActivityEventType.StateChanged,
-            $"Unit transitioned from {current} to {target}",
-            ct,
-            details: JsonSerializer.SerializeToElement(new
-            {
-                action = "StatusTransition",
-                from = current.ToString(),
-                to = target.ToString()
-            }));
-
-        return new TransitionResult(true, target, null);
+    /// <inheritdoc />
+    public async Task<ReadinessResult> CheckReadinessAsync(CancellationToken ct = default)
+    {
+        var (isReady, missing) = await EvaluateReadinessAsync(ct);
+        return new ReadinessResult(isReady, missing);
     }
 
     /// <inheritdoc />
@@ -374,6 +374,79 @@ public class UnitActor : Actor, IUnitActor
     }
 
     /// <summary>
+    /// Persists a single status transition and emits the corresponding
+    /// activity event. Extracted from <see cref="TransitionAsync"/> so
+    /// <see cref="CompoundDraftToStartingAsync"/> can reuse it for each leg
+    /// of the compound transition.
+    /// </summary>
+    private async Task<TransitionResult> PersistTransitionAsync(
+        UnitStatus current, UnitStatus target, CancellationToken ct)
+    {
+        await StateManager.SetStateAsync(StateKeys.UnitStatus, target, ct);
+
+        _logger.LogInformation(
+            "Unit {ActorId} transitioned from {Current} to {Target}",
+            Id.GetId(), current, target);
+
+        await EmitActivityEventAsync(ActivityEventType.StateChanged,
+            $"Unit transitioned from {current} to {target}",
+            ct,
+            details: JsonSerializer.SerializeToElement(new
+            {
+                action = "StatusTransition",
+                from = current.ToString(),
+                to = target.ToString()
+            }));
+
+        return new TransitionResult(true, target, null);
+    }
+
+    /// <summary>
+    /// Compound transition: Draft -> Stopped -> Starting.
+    /// Validates readiness before attempting the transition.
+    /// </summary>
+    private async Task<TransitionResult> CompoundDraftToStartingAsync(CancellationToken ct)
+    {
+        var (isReady, missing) = await EvaluateReadinessAsync(ct);
+        if (!isReady)
+        {
+            var reason = $"Unit is not ready to start. Missing: {string.Join(", ", missing)}";
+            _logger.LogWarning(
+                "Unit {ActorId} rejected Draft->Starting: {Reason}",
+                Id.GetId(), reason);
+            return new TransitionResult(false, UnitStatus.Draft, reason);
+        }
+
+        // Leg 1: Draft -> Stopped
+        await PersistTransitionAsync(UnitStatus.Draft, UnitStatus.Stopped, ct);
+
+        // Leg 2: Stopped -> Starting
+        return await PersistTransitionAsync(UnitStatus.Stopped, UnitStatus.Starting, ct);
+    }
+
+    /// <summary>
+    /// Evaluates unit readiness. A unit must have a non-empty <c>Model</c>
+    /// to leave Draft. Future requirements (members, connector) are
+    /// documented but not yet enforced.
+    /// </summary>
+    private async Task<(bool IsReady, string[] Missing)> EvaluateReadinessAsync(CancellationToken ct)
+    {
+        var missing = new List<string>();
+
+        var modelResult = await StateManager.TryGetStateAsync<string>(StateKeys.UnitModel, ct);
+        if (!modelResult.HasValue || string.IsNullOrWhiteSpace(modelResult.Value))
+        {
+            missing.Add("model");
+        }
+
+        // Future requirements (document but don't enforce yet):
+        // - At least one member (agent or sub-unit).
+        // - Connector configured (if the template specifies one).
+
+        return (missing.Count == 0, missing.ToArray());
+    }
+
+    /// <summary>
     /// Reads the persisted lifecycle status, defaulting to <see cref="UnitStatus.Draft"/> when unset.
     /// </summary>
     private async Task<UnitStatus> GetStatusInternalAsync(CancellationToken ct)
@@ -391,6 +464,8 @@ public class UnitActor : Actor, IUnitActor
         (current, target) switch
         {
             (UnitStatus.Draft, UnitStatus.Stopped) => true,
+            // Draft -> Starting is handled as a compound transition in
+            // TransitionAsync and does not reach IsTransitionAllowed.
             (UnitStatus.Stopped, UnitStatus.Starting) => true,
             (UnitStatus.Starting, UnitStatus.Running) => true,
             (UnitStatus.Starting, UnitStatus.Error) => true,

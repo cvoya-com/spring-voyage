@@ -36,6 +36,7 @@ import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/api/client";
 import type {
   CostSummaryResponse,
+  UnitReadinessResponse,
   UnitResponse,
   UnitStatus,
 } from "@/lib/api/types";
@@ -89,6 +90,11 @@ export default function UnitConfigClient({ id }: ClientProps) {
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionPending, setActionPending] = useState(false);
 
+  // Readiness state (#368).
+  const [readiness, setReadiness] = useState<UnitReadinessResponse | null>(
+    null,
+  );
+
   // Delete dialog state.
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -123,8 +129,12 @@ export default function UnitConfigClient({ id }: ClientProps) {
 
   const refresh = useCallback(async () => {
     try {
-      const u = await api.getUnit(id);
+      const [u, r] = await Promise.all([
+        api.getUnit(id),
+        api.getUnitReadiness(id),
+      ]);
       applyUnit(u);
+      setReadiness(r);
       setLoadError(null);
       return u;
     } catch (err) {
@@ -165,13 +175,22 @@ export default function UnitConfigClient({ id }: ClientProps) {
     };
   }, [status, refresh]);
 
+  // #368: Draft units can be started only when ready (model configured).
+  const draftNotReady = status === "Draft" && readiness?.isReady !== true;
   const startDisabled =
-    actionPending || status === "Running" || status === "Starting";
+    actionPending ||
+    status === "Running" ||
+    status === "Starting" ||
+    draftNotReady;
   const stopDisabled =
     actionPending ||
     status === "Stopped" ||
     status === "Starting" ||
     status === "Draft";
+
+  const startTooltip = draftNotReady
+    ? `Complete unit configuration to start. Missing: ${(readiness?.missingRequirements ?? []).join(", ")}`
+    : undefined;
 
   const handleStart = async () => {
     setActionError(null);
@@ -318,8 +337,10 @@ export default function UnitConfigClient({ id }: ClientProps) {
             size="sm"
             onClick={handleStart}
             disabled={startDisabled}
+            title={startTooltip}
           >
-            <Play className="h-4 w-4 mr-1" /> Start
+            <Play className="h-4 w-4 mr-1" />{" "}
+            {status === "Starting" ? "Starting..." : "Start"}
           </Button>
           <Button
             size="sm"

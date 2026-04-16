@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Host.Api.Models;
 
 using Cvoya.Spring.Core.Observability;
+using Cvoya.Spring.Core.Units;
 
 /// <summary>
 /// Dashboard summary for an agent.
@@ -20,7 +21,8 @@ public record AgentDashboardSummary(string Name, string DisplayName, string? Rol
 /// <param name="Name">The unit's name (address path).</param>
 /// <param name="DisplayName">The human-readable display name.</param>
 /// <param name="RegisteredAt">When the unit was registered.</param>
-public record UnitDashboardSummary(string Name, string DisplayName, DateTimeOffset RegisteredAt);
+/// <param name="Status">The unit's current lifecycle status.</param>
+public record UnitDashboardSummary(string Name, string DisplayName, DateTimeOffset RegisteredAt, UnitStatus Status);
 
 /// <summary>
 /// Dashboard summary for cost aggregation.

@@ -212,3 +212,12 @@ public record UnitConnectorBindingRequest(
     Guid TypeId,
     string? TypeSlug,
     JsonElement Config);
+
+/// <summary>
+/// Response body for <c>GET /api/v1/units/{id}/readiness</c>. Describes
+/// whether the unit is ready to leave Draft and what requirements are
+/// missing.
+/// </summary>
+/// <param name="IsReady">True when the unit can be started.</param>
+/// <param name="MissingRequirements">Labels for unsatisfied requirements (e.g. <c>"model"</c>).</param>
+public record UnitReadinessResponse(bool IsReady, string[] MissingRequirements);

@@ -216,6 +216,12 @@ export const api = {
         params: { path: { id } },
       }),
     ),
+  getUnitReadiness: async (id: string) =>
+    unwrap(
+      await fetchClient.GET("/api/v1/units/{id}/readiness", {
+        params: { path: { id } },
+      }),
+    ),
   deleteUnit: async (id: string): Promise<void> => {
     assertOk(
       await fetchClient.DELETE("/api/v1/units/{id}", {

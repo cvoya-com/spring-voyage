@@ -150,6 +150,34 @@ public class SpringApiClient
             "Server returned an empty CreateUnitFromTemplate response.");
     }
 
+    /// <summary>Starts a unit by posting to the /start endpoint.</summary>
+    public async Task<UnitLifecycleResponse> StartUnitAsync(string id, CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Units[id].Start.PostAsync(cancellationToken: ct);
+        return result ?? throw new InvalidOperationException($"Server returned an empty start response for unit '{id}'.");
+    }
+
+    /// <summary>Stops a unit by posting to the /stop endpoint.</summary>
+    public async Task<UnitLifecycleResponse> StopUnitAsync(string id, CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Units[id].Stop.PostAsync(cancellationToken: ct);
+        return result ?? throw new InvalidOperationException($"Server returned an empty stop response for unit '{id}'.");
+    }
+
+    /// <summary>Gets the readiness status of a unit.</summary>
+    public async Task<UnitReadinessResponse> GetUnitReadinessAsync(string id, CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Units[id].Readiness.GetAsync(cancellationToken: ct);
+        return result ?? throw new InvalidOperationException($"Server returned an empty readiness response for unit '{id}'.");
+    }
+
+    /// <summary>Gets a unit's details.</summary>
+    public async Task<UnitDetailResponse> GetUnitAsync(string id, CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Units[id].GetAsync(cancellationToken: ct);
+        return result ?? throw new InvalidOperationException($"Server returned an empty response for unit '{id}'.");
+    }
+
     /// <summary>Deletes a unit.</summary>
     public Task DeleteUnitAsync(string id, CancellationToken ct = default)
         => _client.Api.V1.Units[id].DeleteAsync(cancellationToken: ct);

@@ -5,6 +5,8 @@ namespace Cvoya.Spring.Host.Api.Tests;
 
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
@@ -19,6 +21,11 @@ using Xunit;
 
 public class DashboardEndpointsTests : IClassFixture<CustomWebApplicationFactory>
 {
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        Converters = { new JsonStringEnumConverter() },
+    };
+
     private readonly CustomWebApplicationFactory _factory;
     private readonly HttpClient _client;
 
@@ -68,7 +75,7 @@ public class DashboardEndpointsTests : IClassFixture<CustomWebApplicationFactory
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        var units = await response.Content.ReadFromJsonAsync<List<UnitDashboardSummary>>(ct);
+        var units = await response.Content.ReadFromJsonAsync<List<UnitDashboardSummary>>(JsonOptions, ct);
         units!.Count().ShouldBe(2);
         units![0].Name.ShouldBe("unit-1");
         units[0].DisplayName.ShouldBe("Unit One");

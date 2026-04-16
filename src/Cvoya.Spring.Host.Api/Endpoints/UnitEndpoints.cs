@@ -83,6 +83,13 @@ public static class UnitEndpoints
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict);
 
+        group.MapGet("/{id}/readiness", GetUnitReadinessAsync)
+            .WithName("GetUnitReadiness")
+            .WithSummary("Check whether a unit is ready to leave Draft and be started")
+            .WithDescription("Returns readiness status and a list of missing requirements. Useful for the UI to enable/disable the Start button.")
+            .Produces<UnitReadinessResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
         group.MapPost("/{id}/start", StartUnitAsync)
             .WithName("StartUnit")
             .WithSummary("Start the runtime container for a unit")
@@ -696,6 +703,27 @@ public static class UnitEndpoints
                 "Failed to publish force-delete activity event for unit {Unit}.",
                 unit.Path);
         }
+    }
+
+    private static async Task<IResult> GetUnitReadinessAsync(
+        string id,
+        [FromServices] IDirectoryService directoryService,
+        [FromServices] IActorProxyFactory actorProxyFactory,
+        CancellationToken cancellationToken)
+    {
+        var address = new Address("unit", id);
+        var entry = await directoryService.ResolveAsync(address, cancellationToken);
+
+        if (entry is null)
+        {
+            return Results.Problem(detail: $"Unit '{id}' not found", statusCode: StatusCodes.Status404NotFound);
+        }
+
+        var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
+            new ActorId(entry.ActorId), nameof(UnitActor));
+
+        var readiness = await proxy.CheckReadinessAsync(cancellationToken);
+        return Results.Ok(new UnitReadinessResponse(readiness.IsReady, readiness.MissingRequirements));
     }
 
     private static async Task<IResult> StartUnitAsync(

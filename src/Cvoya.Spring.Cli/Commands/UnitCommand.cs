@@ -69,6 +69,9 @@ public static class UnitCommand
         unitCommand.Subcommands.Add(CreateCreateCommand(outputOption));
         unitCommand.Subcommands.Add(CreateDeleteCommand());
         unitCommand.Subcommands.Add(CreatePurgeCommand());
+        unitCommand.Subcommands.Add(CreateStartCommand());
+        unitCommand.Subcommands.Add(CreateStopCommand());
+        unitCommand.Subcommands.Add(CreateStatusCommand(outputOption));
         unitCommand.Subcommands.Add(CreateMembersCommand(outputOption));
 
         return unitCommand;
@@ -308,6 +311,110 @@ public static class UnitCommand
             Console.WriteLine($"  - deleting unit '{id}'");
             await client.DeleteUnitAsync(id, ct);
             Console.WriteLine($"Unit '{id}' purged.");
+        });
+
+        return command;
+    }
+
+    private static Command CreateStartCommand()
+    {
+        var nameArg = new Argument<string>("name") { Description = "The unit name" };
+        var command = new Command("start", "Start a unit (transitions Draft->Starting or Stopped->Starting)");
+        command.Arguments.Add(nameArg);
+
+        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var name = parseResult.GetValue(nameArg)!;
+            var client = ClientFactory.Create();
+
+            try
+            {
+                var result = await client.StartUnitAsync(name, ct);
+                Console.WriteLine($"Unit '{name}' is now {result.Status}.");
+            }
+            catch (Microsoft.Kiota.Abstractions.ApiException ex)
+            {
+                await Console.Error.WriteLineAsync($"Failed to start unit '{name}': {ex.Message}");
+                Environment.Exit(1);
+            }
+        });
+
+        return command;
+    }
+
+    private static Command CreateStopCommand()
+    {
+        var nameArg = new Argument<string>("name") { Description = "The unit name" };
+        var command = new Command("stop", "Stop a running unit");
+        command.Arguments.Add(nameArg);
+
+        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var name = parseResult.GetValue(nameArg)!;
+            var client = ClientFactory.Create();
+
+            try
+            {
+                var result = await client.StopUnitAsync(name, ct);
+                Console.WriteLine($"Unit '{name}' is now {result.Status}.");
+            }
+            catch (Microsoft.Kiota.Abstractions.ApiException ex)
+            {
+                await Console.Error.WriteLineAsync($"Failed to stop unit '{name}': {ex.Message}");
+                Environment.Exit(1);
+            }
+        });
+
+        return command;
+    }
+
+    private static Command CreateStatusCommand(Option<string> outputOption)
+    {
+        var nameArg = new Argument<string>("name") { Description = "The unit name" };
+        var command = new Command("status", "Show the current status and readiness of a unit");
+        command.Arguments.Add(nameArg);
+
+        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var name = parseResult.GetValue(nameArg)!;
+            var output = parseResult.GetValue(outputOption) ?? "table";
+            var client = ClientFactory.Create();
+
+            try
+            {
+                var unitTask = client.GetUnitAsync(name, ct);
+                var readinessTask = client.GetUnitReadinessAsync(name, ct);
+                await Task.WhenAll(unitTask, readinessTask);
+
+                var unit = unitTask.Result;
+                var readiness = readinessTask.Result;
+
+                if (output == "json")
+                {
+                    Console.WriteLine(OutputFormatter.FormatJsonPlain(new
+                    {
+                        name,
+                        status = unit.Unit?.Status?.ToString(),
+                        isReady = readiness.IsReady,
+                        missingRequirements = readiness.MissingRequirements,
+                    }));
+                }
+                else
+                {
+                    Console.WriteLine($"Unit:     {name}");
+                    Console.WriteLine($"Status:   {unit.Unit?.Status}");
+                    Console.WriteLine($"Ready:    {(readiness.IsReady == true ? "yes" : "no")}");
+                    if (readiness.MissingRequirements is { Count: > 0 } missing)
+                    {
+                        Console.WriteLine($"Missing:  {string.Join(", ", missing)}");
+                    }
+                }
+            }
+            catch (Microsoft.Kiota.Abstractions.ApiException ex)
+            {
+                await Console.Error.WriteLineAsync($"Failed to get status for unit '{name}': {ex.Message}");
+                Environment.Exit(1);
+            }
         });
 
         return command;

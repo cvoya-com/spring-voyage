@@ -370,6 +370,39 @@ public class UnitCreationService : IUnitCreationService
                 await _bundleStore.SetAsync(name, resolvedBundles, cancellationToken);
             }
 
+            // Fix #368: differentiated creation states. Manifest-created
+            // units (which always supply a model) start in Stopped. Bare-
+            // created units start in Draft when model is absent, Stopped
+            // when model is present. This lets the UI offer a clean
+            // "Start" button for ready units and keeps Draft for those
+            // still needing configuration.
+            var initialStatus = UnitStatus.Draft;
+            if (!string.IsNullOrWhiteSpace(model))
+            {
+                try
+                {
+                    var transitionResult = await proxy.TransitionAsync(UnitStatus.Stopped, cancellationToken);
+                    if (transitionResult is { Success: true })
+                    {
+                        initialStatus = UnitStatus.Stopped;
+                    }
+                    else
+                    {
+                        _logger.LogWarning(
+                            "Unit '{UnitName}' failed to transition to Stopped on creation: {Reason}. Staying in Draft.",
+                            name, transitionResult?.RejectionReason ?? "unknown");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // Non-fatal: the unit remains in Draft. The user can
+                    // configure it further and start it later.
+                    _logger.LogWarning(ex,
+                        "Unit '{UnitName}' transition to Stopped failed on creation. Staying in Draft.",
+                        name);
+                }
+            }
+
             // Bind the connector *after* the actor is reachable — the store
             // talks to the unit actor, which needs the directory entry in
             // place. A failure here rolls the whole creation back (below)
@@ -399,7 +432,7 @@ public class UnitCreationService : IUnitCreationService
                 entry.DisplayName,
                 entry.Description,
                 entry.RegisteredAt,
-                UnitStatus.Draft,
+                initialStatus,
                 metadata.Model,
                 metadata.Color);
 
