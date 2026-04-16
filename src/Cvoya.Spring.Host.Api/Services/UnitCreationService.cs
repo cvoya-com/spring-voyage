@@ -93,6 +93,9 @@ public class UnitCreationService : IUnitCreationService
             description: request.Description,
             model: request.Model,
             color: request.Color,
+            tool: request.Tool,
+            provider: request.Provider,
+            hosting: request.Hosting,
             members: Array.Empty<MemberManifest>(),
             warnings: new List<string>(),
             connector: request.Connector,
@@ -145,6 +148,9 @@ public class UnitCreationService : IUnitCreationService
             description,
             model,
             color,
+            overrides.Tool,
+            overrides.Provider,
+            overrides.Hosting,
             manifest.Members ?? new List<MemberManifest>(),
             warnings,
             connector,
@@ -179,6 +185,9 @@ public class UnitCreationService : IUnitCreationService
         string description,
         string? model,
         string? color,
+        string? tool,
+        string? provider,
+        string? hosting,
         IReadOnlyList<MemberManifest> members,
         List<string> warnings,
         UnitConnectorBindingRequest? connector,
@@ -252,12 +261,17 @@ public class UnitCreationService : IUnitCreationService
                 DisplayName: null,
                 Description: null,
                 Model: model,
-                Color: color);
+                Color: color,
+                Tool: tool,
+                Provider: provider,
+                Hosting: hosting);
 
             var proxy = _actorProxyFactory.CreateActorProxy<IUnitActor>(
                 new ActorId(actorId), nameof(UnitActor));
 
-            if (metadata.Model is not null || metadata.Color is not null)
+            if (metadata.Model is not null || metadata.Color is not null
+                || metadata.Tool is not null || metadata.Provider is not null
+                || metadata.Hosting is not null)
             {
                 await proxy.SetMetadataAsync(metadata, cancellationToken);
             }
@@ -401,7 +415,10 @@ public class UnitCreationService : IUnitCreationService
                 entry.RegisteredAt,
                 UnitStatus.Draft,
                 metadata.Model,
-                metadata.Color);
+                metadata.Color,
+                metadata.Tool,
+                metadata.Provider,
+                metadata.Hosting);
 
             return new UnitCreationResult(response, warnings, membersAdded);
         }

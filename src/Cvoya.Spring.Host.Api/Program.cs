@@ -118,6 +118,7 @@ app.MapDashboardEndpoints().RequireAuthorization();
 app.MapSkillsEndpoints().RequireAuthorization();
 app.MapConnectorEndpoints();
 app.MapSecretEndpoints().RequireAuthorization();
+app.MapOllamaEndpoints().RequireAuthorization();
 app.MapWebhookEndpoints();
 
 await app.RunAsync();

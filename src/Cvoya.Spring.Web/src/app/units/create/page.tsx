@@ -32,9 +32,15 @@ import type {
 } from "@/lib/api/types";
 import {
   AI_PROVIDERS,
+  DEFAULT_EXECUTION_TOOL,
+  DEFAULT_HOSTING_MODE,
   DEFAULT_MODEL,
   DEFAULT_PROVIDER_ID,
+  EXECUTION_TOOLS,
+  HOSTING_MODES,
   getProvider,
+  type ExecutionTool,
+  type HostingMode,
 } from "@/lib/ai-models";
 import { cn } from "@/lib/utils";
 
@@ -77,6 +83,9 @@ interface FormState {
   provider: string;
   model: string;
   color: string;
+  // #350: execution tool, hosting mode
+  tool: ExecutionTool;
+  hosting: HostingMode;
   mode: Mode | null;
   // Template mode
   templateId: string | null; // "{package}/{name}"
@@ -102,6 +111,8 @@ const INITIAL_FORM: FormState = {
   provider: DEFAULT_PROVIDER_ID,
   model: DEFAULT_MODEL,
   color: DEFAULT_COLOR,
+  tool: DEFAULT_EXECUTION_TOOL,
+  hosting: DEFAULT_HOSTING_MODE,
   mode: null,
   templateId: null,
   yamlText: "",
@@ -178,6 +189,10 @@ export default function CreateUnitPage() {
     null,
   );
 
+  // #350: Ollama model discovery — fetched when dapr-agent + ollama is selected.
+  const [ollamaModels, setOllamaModels] = useState<string[] | null>(null);
+  const [ollamaModelsLoading, setOllamaModelsLoading] = useState(false);
+
   useEffect(() => {
     let cancelled = false;
     setTemplatesLoading(true);
@@ -221,6 +236,33 @@ export default function CreateUnitPage() {
       cancelled = true;
     };
   }, []);
+
+  // #350: fetch Ollama models when dapr-agent + ollama is selected.
+  useEffect(() => {
+    if (form.tool !== "dapr-agent" || form.provider !== "ollama") {
+      setOllamaModels(null);
+      return;
+    }
+    let cancelled = false;
+    setOllamaModelsLoading(true);
+    api
+      .listOllamaModels()
+      .then((models) => {
+        if (cancelled) return;
+        setOllamaModels(models.map((m) => m.name));
+      })
+      .catch(() => {
+        if (cancelled) return;
+        // Fall back to static catalog on failure.
+        setOllamaModels(null);
+      })
+      .finally(() => {
+        if (!cancelled) setOllamaModelsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [form.tool, form.provider]);
 
   const update = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -349,6 +391,13 @@ export default function CreateUnitPage() {
       // the actor-create + directory-register logic is identical. When a
       // connector binding is present it goes on the same request so the
       // server can create + bind atomically (#199).
+      // #350: pass execution config if non-default.
+      const toolField =
+        form.tool !== DEFAULT_EXECUTION_TOOL ? form.tool : undefined;
+      const providerField = form.provider || undefined;
+      const hostingField =
+        form.hosting !== DEFAULT_HOSTING_MODE ? form.hosting : undefined;
+
       if (form.mode === "yaml") {
         const resp = await api.createUnitFromYaml({
           yaml: form.yamlText,
@@ -356,7 +405,10 @@ export default function CreateUnitPage() {
           color: form.color.trim() || undefined,
           model: form.model.trim() || undefined,
           connector: connector ?? undefined,
-        });
+          tool: toolField,
+          provider: providerField,
+          hosting: hostingField,
+        } as Parameters<typeof api.createUnitFromYaml>[0]);
         warnings.push(...(resp.warnings ?? []));
         createdName = resp.unit.name;
       } else if (form.mode === "template") {
@@ -381,7 +433,10 @@ export default function CreateUnitPage() {
           color: form.color.trim() || undefined,
           model: form.model.trim() || undefined,
           connector: connector ?? undefined,
-        });
+          tool: toolField,
+          provider: providerField,
+          hosting: hostingField,
+        } as Parameters<typeof api.createUnitFromTemplate>[0]);
         warnings.push(...(resp.warnings ?? []));
         createdName = resp.unit.name;
       } else {
@@ -393,6 +448,9 @@ export default function CreateUnitPage() {
           model: form.model.trim() || undefined,
           color: form.color.trim() || undefined,
           connector: connector ?? undefined,
+          tool: toolField,
+          provider: providerField,
+          hosting: hostingField,
         });
         createdName = created.name;
       }
@@ -520,7 +578,64 @@ export default function CreateUnitPage() {
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <label className="block space-y-1">
-                <span className="text-sm text-muted-foreground">Provider</span>
+                <span className="text-sm text-muted-foreground">
+                  Execution tool
+                </span>
+                <select
+                  value={form.tool}
+                  onChange={(e) => {
+                    const nextTool = e.target.value as ExecutionTool;
+                    setForm((prev) => ({
+                      ...prev,
+                      tool: nextTool,
+                      // Reset provider/model when switching away from dapr-agent
+                      ...(nextTool !== "dapr-agent"
+                        ? {
+                            provider: DEFAULT_PROVIDER_ID,
+                            model: DEFAULT_MODEL,
+                          }
+                        : {}),
+                    }));
+                  }}
+                  aria-label="Execution tool"
+                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {EXECUTION_TOOLS.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="block space-y-1">
+                <span className="text-sm text-muted-foreground">
+                  Hosting mode
+                </span>
+                <select
+                  value={form.hosting}
+                  onChange={(e) =>
+                    update("hosting", e.target.value as HostingMode)
+                  }
+                  aria-label="Hosting mode"
+                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {HOSTING_MODES.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <label className="block space-y-1">
+                <span className="text-sm text-muted-foreground">
+                  {form.tool === "dapr-agent"
+                    ? "LLM Provider"
+                    : "Provider"}
+                </span>
                 <select
                   value={form.provider}
                   onChange={(e) => {
@@ -551,14 +666,31 @@ export default function CreateUnitPage() {
                   value={form.model}
                   onChange={(e) => update("model", e.target.value)}
                   aria-label="Model"
+                  disabled={
+                    form.tool === "dapr-agent" &&
+                    form.provider === "ollama" &&
+                    ollamaModelsLoading
+                  }
                   className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {getProvider(form.provider).models.map((m) => (
+                  {(form.tool === "dapr-agent" &&
+                  form.provider === "ollama" &&
+                  ollamaModels
+                    ? ollamaModels
+                    : getProvider(form.provider).models.slice()
+                  ).map((m) => (
                     <option key={m} value={m}>
                       {m}
                     </option>
                   ))}
                 </select>
+                {form.tool === "dapr-agent" &&
+                  form.provider === "ollama" &&
+                  ollamaModelsLoading && (
+                    <span className="block text-xs text-muted-foreground">
+                      Loading models from Ollama server...
+                    </span>
+                  )}
               </label>
             </div>
 

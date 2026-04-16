@@ -21,6 +21,37 @@ export interface AiProvider {
   readonly models: readonly string[];
 }
 
+/** Execution tool identifiers — determines which agent runtime processes work. */
+export type ExecutionTool =
+  | "claude-code"
+  | "codex"
+  | "gemini"
+  | "dapr-agent"
+  | "custom";
+
+export const EXECUTION_TOOLS: readonly {
+  id: ExecutionTool;
+  label: string;
+}[] = [
+  { id: "claude-code", label: "Claude Code" },
+  { id: "codex", label: "Codex (OpenAI)" },
+  { id: "gemini", label: "Gemini (Google)" },
+  { id: "dapr-agent", label: "Dapr Agent" },
+  { id: "custom", label: "Custom" },
+];
+
+export const DEFAULT_EXECUTION_TOOL: ExecutionTool = "claude-code";
+
+/** Agent hosting mode — how long the agent process lives. */
+export type HostingMode = "ephemeral" | "persistent";
+
+export const HOSTING_MODES: readonly { id: HostingMode; label: string }[] = [
+  { id: "ephemeral", label: "Ephemeral" },
+  { id: "persistent", label: "Persistent" },
+];
+
+export const DEFAULT_HOSTING_MODE: HostingMode = "ephemeral";
+
 export const AI_PROVIDERS: readonly AiProvider[] = [
   {
     id: "claude",
@@ -33,14 +64,25 @@ export const AI_PROVIDERS: readonly AiProvider[] = [
     ],
   },
   {
-    id: "codex",
-    displayName: "OpenAI Codex",
-    models: ["gpt-5-codex", "gpt-5"],
+    id: "openai",
+    displayName: "OpenAI",
+    models: ["gpt-4o", "gpt-4o-mini", "o3-mini"],
   },
   {
-    id: "gemini",
-    displayName: "Google Gemini",
-    models: ["gemini-2.0-flash", "gemini-2.0-pro"],
+    id: "google",
+    displayName: "Google AI",
+    models: ["gemini-2.5-pro", "gemini-2.5-flash"],
+  },
+  {
+    id: "ollama",
+    displayName: "Ollama",
+    models: [
+      "qwen2.5:14b",
+      "llama3.2:3b",
+      "llama3.1:8b",
+      "mistral:7b",
+      "deepseek-coder-v2:16b",
+    ],
   },
 ];
 

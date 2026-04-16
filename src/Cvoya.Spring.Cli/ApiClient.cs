@@ -104,6 +104,9 @@ public class SpringApiClient
         string? description,
         string? model = null,
         string? color = null,
+        string? tool = null,
+        string? provider = null,
+        string? hosting = null,
         CancellationToken ct = default)
     {
         var request = new CreateUnitRequest
@@ -113,6 +116,9 @@ public class SpringApiClient
             Description = description ?? string.Empty,
             Model = string.IsNullOrWhiteSpace(model) ? null : model,
             Color = string.IsNullOrWhiteSpace(color) ? null : color,
+            Tool = string.IsNullOrWhiteSpace(tool) ? null : tool,
+            Provider = string.IsNullOrWhiteSpace(provider) ? null : provider,
+            Hosting = string.IsNullOrWhiteSpace(hosting) ? null : hosting,
         };
         var result = await _client.Api.V1.Units.PostAsync(request, cancellationToken: ct);
         return result ?? throw new InvalidOperationException("Server returned an empty CreateUnit response.");
@@ -134,6 +140,9 @@ public class SpringApiClient
         string? displayName = null,
         string? model = null,
         string? color = null,
+        string? tool = null,
+        string? provider = null,
+        string? hosting = null,
         CancellationToken ct = default)
     {
         var request = new CreateUnitFromTemplateRequest
@@ -144,6 +153,9 @@ public class SpringApiClient
             DisplayName = string.IsNullOrWhiteSpace(displayName) ? null : displayName,
             Model = string.IsNullOrWhiteSpace(model) ? null : model,
             Color = string.IsNullOrWhiteSpace(color) ? null : color,
+            Tool = string.IsNullOrWhiteSpace(tool) ? null : tool,
+            Provider = string.IsNullOrWhiteSpace(provider) ? null : provider,
+            Hosting = string.IsNullOrWhiteSpace(hosting) ? null : hosting,
         };
         var result = await _client.Api.V1.Units.FromTemplate.PostAsync(request, cancellationToken: ct);
         return result ?? throw new InvalidOperationException(

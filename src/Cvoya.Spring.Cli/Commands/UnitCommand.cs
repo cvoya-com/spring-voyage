@@ -138,6 +138,23 @@ public static class UnitCommand
         {
             Description = "Override the unit name when using --from-template. Required when no positional name is supplied.",
         };
+        // #350: execution tool, provider, and hosting mode.
+        var toolOption = new Option<string?>("--tool")
+        {
+            Description = "Execution tool (claude-code, codex, gemini, dapr-agent, custom).",
+        };
+        toolOption.AcceptOnlyFromAmong("claude-code", "codex", "gemini", "dapr-agent", "custom");
+        var providerOption = new Option<string?>("--provider")
+        {
+            Description = "LLM provider (ollama, openai, google, anthropic). Relevant when --tool is dapr-agent.",
+        };
+        providerOption.AcceptOnlyFromAmong("ollama", "openai", "google", "anthropic", "claude");
+        var hostingOption = new Option<string?>("--hosting")
+        {
+            Description = "Agent hosting mode (ephemeral, persistent).",
+        };
+        hostingOption.AcceptOnlyFromAmong("ephemeral", "persistent");
+
         var command = new Command("create", "Create a new unit");
         command.Arguments.Add(nameArg);
         command.Options.Add(displayNameOption);
@@ -146,6 +163,9 @@ public static class UnitCommand
         command.Options.Add(colorOption);
         command.Options.Add(fromTemplateOption);
         command.Options.Add(unitNameOption);
+        command.Options.Add(toolOption);
+        command.Options.Add(providerOption);
+        command.Options.Add(hostingOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
@@ -156,6 +176,9 @@ public static class UnitCommand
             var color = parseResult.GetValue(colorOption);
             var fromTemplate = parseResult.GetValue(fromTemplateOption);
             var unitNameOverride = parseResult.GetValue(unitNameOption);
+            var tool = parseResult.GetValue(toolOption);
+            var provider = parseResult.GetValue(providerOption);
+            var hosting = parseResult.GetValue(hostingOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
 
             if (!string.IsNullOrWhiteSpace(fromTemplate))
@@ -188,6 +211,9 @@ public static class UnitCommand
                     displayName: displayName,
                     model: model,
                     color: color,
+                    tool: tool,
+                    provider: provider,
+                    hosting: hosting,
                     ct: ct);
 
                 // Surface server-side warnings (unresolved bundle tools,
@@ -235,6 +261,9 @@ public static class UnitCommand
                 description,
                 model: model,
                 color: color,
+                tool: tool,
+                provider: provider,
+                hosting: hosting,
                 ct: ct);
 
             Console.WriteLine(output == "json"

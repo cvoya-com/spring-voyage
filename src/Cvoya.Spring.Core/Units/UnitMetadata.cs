@@ -30,4 +30,7 @@ public record UnitMetadata(
     [property: DataMember] string? DisplayName,
     [property: DataMember] string? Description,
     [property: DataMember] string? Model,
-    [property: DataMember] string? Color);
+    [property: DataMember] string? Color,
+    [property: DataMember] string? Tool = null,
+    [property: DataMember] string? Provider = null,
+    [property: DataMember] string? Hosting = null);

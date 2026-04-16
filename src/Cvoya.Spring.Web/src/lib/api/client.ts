@@ -168,6 +168,10 @@ export const api = {
     description: string;
     model?: string;
     color?: string;
+    // #350: execution configuration fields.
+    tool?: string;
+    provider?: string;
+    hosting?: string;
     // #199: optional connector binding bundled into the create-unit call.
     // When supplied, the server creates the unit AND binds it
     // transactionally — a binding failure rolls back the whole creation.
@@ -518,5 +522,19 @@ export const api = {
         params: { path: { id: unitId, name } },
       }),
     );
+  },
+
+  // Ollama model discovery (#350) — uses a manual fetch because the
+  // endpoint is new and may not be present in the generated schema yet.
+  listOllamaModels: async (): Promise<
+    { name: string; size: number; modifiedAt: string | null }[]
+  > => {
+    const resp = await fetch(`${BASE}/api/v1/ollama/models`);
+    if (!resp.ok) {
+      throw new ApiError(resp.status, resp.statusText, await resp.text());
+    }
+    return resp.json() as Promise<
+      { name: string; size: number; modifiedAt: string | null }[]
+    >;
   },
 };

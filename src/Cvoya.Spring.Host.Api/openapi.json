@@ -4090,6 +4090,40 @@
         }
       }
     },
+    "/api/v1/ollama/models": {
+      "get": {
+        "tags": [
+          "Ollama"
+        ],
+        "summary": "List models pulled on the configured Ollama server",
+        "operationId": "ListOllamaModels",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/OllamaModelInfo"
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/webhooks/github": {
       "post": {
         "tags": [
@@ -4719,6 +4753,24 @@
               "null",
               "string"
             ]
+          },
+          "tool": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "provider": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "hosting": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -4757,6 +4809,24 @@
               {
                 "$ref": "#/components/schemas/UnitConnectorBindingRequest"
               }
+            ]
+          },
+          "tool": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "provider": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "hosting": {
+            "type": [
+              "null",
+              "string"
             ]
           }
         }
@@ -4798,6 +4868,24 @@
               {
                 "$ref": "#/components/schemas/UnitConnectorBindingRequest"
               }
+            ]
+          },
+          "tool": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "provider": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "hosting": {
+            "type": [
+              "null",
+              "string"
             ]
           }
         }
@@ -5157,6 +5245,33 @@
             "format": "date-time"
           },
           "clientState": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "OllamaModelInfo": {
+        "required": [
+          "name",
+          "size",
+          "modifiedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "size": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "modifiedAt": {
             "type": [
               "null",
               "string"
@@ -5956,6 +6071,24 @@
               "null",
               "string"
             ]
+          },
+          "tool": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "provider": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "hosting": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -6068,6 +6201,24 @@
               "null",
               "string"
             ]
+          },
+          "tool": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "provider": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "hosting": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -6175,6 +6326,9 @@
     },
     {
       "name": "Secrets"
+    },
+    {
+      "name": "Ollama"
     },
     {
       "name": "Webhooks"

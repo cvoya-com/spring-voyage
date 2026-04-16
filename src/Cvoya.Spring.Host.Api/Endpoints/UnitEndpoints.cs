@@ -343,7 +343,8 @@ public static class UnitEndpoints
             return Results.Problem(detail: ex.Message, statusCode: StatusCodes.Status400BadRequest);
         }
 
-        var overrides = new UnitCreationOverrides(request.DisplayName, request.Color, request.Model);
+        var overrides = new UnitCreationOverrides(request.DisplayName, request.Color, request.Model,
+            Tool: request.Tool, Provider: request.Provider, Hosting: request.Hosting);
         try
         {
             var result = await creationService.CreateFromManifestAsync(
@@ -415,7 +416,10 @@ public static class UnitEndpoints
             request.DisplayName,
             request.Color,
             request.Model,
-            request.UnitName);
+            request.UnitName,
+            request.Tool,
+            request.Provider,
+            request.Hosting);
         try
         {
             var result = await creationService.CreateFromManifestAsync(
@@ -510,7 +514,10 @@ public static class UnitEndpoints
             DisplayName: request.DisplayName,
             Description: request.Description,
             Model: request.Model,
-            Color: request.Color);
+            Color: request.Color,
+            Tool: request.Tool,
+            Provider: request.Provider,
+            Hosting: request.Hosting);
 
         await proxy.SetMetadataAsync(metadata, cancellationToken);
 
@@ -1114,7 +1121,10 @@ public static class UnitEndpoints
             entry.RegisteredAt,
             status,
             metadata?.Model,
-            metadata?.Color);
+            metadata?.Color,
+            metadata?.Tool,
+            metadata?.Provider,
+            metadata?.Hosting);
 
     private static async Task<IResult> ListUnitAgentsAsync(
         string id,

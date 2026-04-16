@@ -61,7 +61,10 @@ public record UnitCreationOverrides(
     string? DisplayName = null,
     string? Color = null,
     string? Model = null,
-    string? Name = null);
+    string? Name = null,
+    string? Tool = null,
+    string? Provider = null,
+    string? Hosting = null);
 
 /// <summary>
 /// Outcome of a unit-creation call.

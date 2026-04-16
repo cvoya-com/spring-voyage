@@ -21,7 +21,10 @@ public record CreateUnitRequest(
     string Description,
     string? Model = null,
     string? Color = null,
-    UnitConnectorBindingRequest? Connector = null);
+    UnitConnectorBindingRequest? Connector = null,
+    string? Tool = null,
+    string? Provider = null,
+    string? Hosting = null);
 
 /// <summary>
 /// Request body for updating mutable unit metadata. All fields are optional;
@@ -35,7 +38,10 @@ public record UpdateUnitRequest(
     string? DisplayName = null,
     string? Description = null,
     string? Model = null,
-    string? Color = null);
+    string? Color = null,
+    string? Tool = null,
+    string? Provider = null,
+    string? Hosting = null);
 
 /// <summary>
 /// Response body representing a unit.
@@ -56,7 +62,10 @@ public record UnitResponse(
     DateTimeOffset RegisteredAt,
     UnitStatus Status,
     string? Model,
-    string? Color);
+    string? Color,
+    string? Tool = null,
+    string? Provider = null,
+    string? Hosting = null);
 
 /// <summary>
 /// Request body for adding a member to a unit.
@@ -89,7 +98,10 @@ public record CreateUnitFromYamlRequest(
     string? DisplayName = null,
     string? Color = null,
     string? Model = null,
-    UnitConnectorBindingRequest? Connector = null);
+    UnitConnectorBindingRequest? Connector = null,
+    string? Tool = null,
+    string? Provider = null,
+    string? Hosting = null);
 
 /// <summary>
 /// Request body for <c>POST /api/v1/units/from-template</c>.
@@ -116,7 +128,10 @@ public record CreateUnitFromTemplateRequest(
     string? Color = null,
     string? Model = null,
     UnitConnectorBindingRequest? Connector = null,
-    string? UnitName = null);
+    string? UnitName = null,
+    string? Tool = null,
+    string? Provider = null,
+    string? Hosting = null);
 
 /// <summary>
 /// Response body for a unit created through the manifest-backed flows
