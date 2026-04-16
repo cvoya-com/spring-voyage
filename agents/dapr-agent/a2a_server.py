@@ -18,7 +18,6 @@ from a2a.server.tasks import InMemoryTaskStore
 from a2a.types import (
     AgentCapabilities,
     AgentCard,
-    AgentInterface,
     AgentSkill,
 )
 
@@ -55,16 +54,11 @@ def build_agent_card(
             "Platform-managed agentic loop powered by Dapr Agents. "
             f"Uses {provider}/{model} for inference and MCP for tool access."
         ),
+        url=f"http://localhost:{port}",
         version="1.0.0",
         default_input_modes=["text"],
         default_output_modes=["text"],
         capabilities=AgentCapabilities(streaming=True),
-        supported_interfaces=[
-            AgentInterface(
-                protocol_binding="JSONRPC",
-                url=f"http://localhost:{port}",
-            ),
-        ],
         skills=[skill],
     )
 

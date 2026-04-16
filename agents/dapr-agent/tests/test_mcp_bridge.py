@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import json
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -41,7 +40,7 @@ class TestDiscoverTools:
             {"name": "tool-a", "description": "Tool A"},
             {"name": "tool-b", "description": "Tool B"},
         ]
-        mock_response = AsyncMock()
+        mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.raise_for_status = lambda: None
         mock_response.json.return_value = {
@@ -64,7 +63,7 @@ class TestDiscoverTools:
 
     @pytest.mark.asyncio
     async def test_discover_tools_raises_on_error(self):
-        mock_response = AsyncMock()
+        mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.raise_for_status = lambda: None
         mock_response.json.return_value = {

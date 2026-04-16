@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-import os
 from unittest.mock import MagicMock
 
-import pytest
-
-from a2a_server import DEFAULT_PORT, build_agent_card, create_a2a_app
+from a2a_server import build_agent_card, create_a2a_app
 
 
 class TestBuildAgentCard:
@@ -27,7 +24,7 @@ class TestBuildAgentCard:
 
     def test_card_uses_custom_port(self):
         card = build_agent_card(port=7777)
-        assert "7777" in card.supported_interfaces[0].url
+        assert "7777" in card.url
 
     def test_card_reads_env_vars(self, monkeypatch):
         monkeypatch.setenv("SPRING_MODEL", "phi3:mini")
@@ -37,7 +34,7 @@ class TestBuildAgentCard:
         card = build_agent_card()
         assert "phi3:mini" in card.name
         assert "local" in card.name
-        assert "5555" in card.supported_interfaces[0].url
+        assert "5555" in card.url
 
 
 class TestCreateA2aApp:

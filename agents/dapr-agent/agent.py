@@ -22,12 +22,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import sys
 
 import uvicorn
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue
-from a2a.types.a2a_pb2 import (
+from a2a.types import (
     TaskArtifactUpdateEvent,
     TaskState,
     TaskStatus,
@@ -36,8 +35,7 @@ from a2a.types.a2a_pb2 import (
 from a2a.utils.artifact import new_text_artifact
 from a2a.utils.message import new_agent_text_message
 from a2a.utils.task import new_task
-from dapr_agents import Agent
-from dapr_agents.tool import tool
+from dapr_agents import DurableAgent as Agent
 
 from a2a_server import DEFAULT_PORT, create_a2a_app
 from mcp_bridge import create_tool_proxy, discover_tools
@@ -75,8 +73,9 @@ class DaprAgentExecutor(AgentExecutor):
             TaskStatusUpdateEvent(
                 task_id=context.task_id,
                 context_id=context.context_id,
+                final=False,
                 status=TaskStatus(
-                    state=TaskState.TASK_STATE_WORKING,
+                    state=TaskState.working,
                     message=new_agent_text_message("Running agentic loop..."),
                 ),
             )
@@ -97,8 +96,9 @@ class DaprAgentExecutor(AgentExecutor):
                 TaskStatusUpdateEvent(
                     task_id=context.task_id,
                     context_id=context.context_id,
+                    final=True,
                     status=TaskStatus(
-                        state=TaskState.TASK_STATE_COMPLETED,
+                        state=TaskState.completed,
                     ),
                 )
             )
@@ -108,8 +108,9 @@ class DaprAgentExecutor(AgentExecutor):
                 TaskStatusUpdateEvent(
                     task_id=context.task_id,
                     context_id=context.context_id,
+                    final=True,
                     status=TaskStatus(
-                        state=TaskState.TASK_STATE_FAILED,
+                        state=TaskState.failed,
                         message=new_agent_text_message(f"Error: {exc}"),
                     ),
                 )
@@ -125,8 +126,9 @@ class DaprAgentExecutor(AgentExecutor):
             TaskStatusUpdateEvent(
                 task_id=context.task_id,
                 context_id=context.context_id,
+                final=True,
                 status=TaskStatus(
-                    state=TaskState.TASK_STATE_CANCELED,
+                    state=TaskState.canceled,
                     message=new_agent_text_message("Task canceled."),
                 ),
             )
@@ -152,9 +154,7 @@ async def _build_agent() -> Agent:
         except Exception:
             logger.exception("Failed to discover MCP tools; continuing without tools")
     else:
-        logger.warning(
-            "SPRING_MCP_ENDPOINT or SPRING_AGENT_TOKEN not set; running without MCP tools"
-        )
+        logger.warning("SPRING_MCP_ENDPOINT or SPRING_AGENT_TOKEN not set; running without MCP tools")
 
     instructions = ["You are a helpful AI assistant."]
     if system_prompt:

@@ -70,7 +70,6 @@ def _build_args_model(tool_def: dict[str, Any]) -> type[BaseModel] | None:
         elif json_type == "boolean":
             py_type = bool
 
-        description = prop.get("description", "")
         if name in required:
             field_definitions[name] = (py_type, ...)
         else:

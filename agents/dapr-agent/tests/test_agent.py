@@ -18,7 +18,8 @@ class TestDaprAgentExecutor:
         executor = DaprAgentExecutor(mock_agent)
 
         context = MagicMock()
-        context.current_task = None
+        # Provide a truthy current_task so new_task() is not called.
+        context.current_task = MagicMock()
         context.task_id = "task-1"
         context.context_id = "ctx-1"
         context.message = MagicMock()
@@ -40,7 +41,7 @@ class TestDaprAgentExecutor:
         executor = DaprAgentExecutor(mock_agent)
 
         context = MagicMock()
-        context.current_task = None
+        context.current_task = MagicMock()
         context.task_id = "task-2"
         context.context_id = "ctx-2"
         context.message = MagicMock()
@@ -77,9 +78,16 @@ class TestBuildAgent:
         monkeypatch.delenv("SPRING_MCP_ENDPOINT", raising=False)
         monkeypatch.delenv("SPRING_AGENT_TOKEN", raising=False)
 
-        agent = await _build_agent()
+        with patch("agent.Agent") as mock_agent_cls:
+            mock_instance = MagicMock()
+            mock_instance.name = "SpringDaprAgent"
+            mock_agent_cls.return_value = mock_instance
+
+            agent = await _build_agent()
+
         assert agent is not None
         assert agent.name == "SpringDaprAgent"
+        mock_agent_cls.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_builds_agent_with_custom_prompt(self, monkeypatch):
@@ -87,8 +95,13 @@ class TestBuildAgent:
         monkeypatch.delenv("SPRING_AGENT_TOKEN", raising=False)
         monkeypatch.setenv("SPRING_SYSTEM_PROMPT", "Be concise.")
 
-        agent = await _build_agent()
-        assert "Be concise." in agent.instructions
+        with patch("agent.Agent") as mock_agent_cls:
+            mock_agent_cls.return_value = MagicMock()
+            await _build_agent()
+
+        # Verify the Agent constructor was called with the custom prompt.
+        call_kwargs = mock_agent_cls.call_args[1]
+        assert call_kwargs["instructions"] == ["Be concise."]
 
     @pytest.mark.asyncio
     async def test_builds_agent_with_mcp_tools(self, monkeypatch):
@@ -107,8 +120,13 @@ class TestBuildAgent:
             }
         ]
 
-        with patch("agent.discover_tools", new_callable=AsyncMock) as mock_discover:
+        with (
+            patch("agent.discover_tools", new_callable=AsyncMock) as mock_discover,
+            patch("agent.Agent") as mock_agent_cls,
+        ):
             mock_discover.return_value = mock_tools
-            agent = await _build_agent()
+            mock_agent_cls.return_value = MagicMock()
+            await _build_agent()
 
-        assert len(agent.tools) == 1
+        call_kwargs = mock_agent_cls.call_args[1]
+        assert len(call_kwargs["tools"]) == 1
