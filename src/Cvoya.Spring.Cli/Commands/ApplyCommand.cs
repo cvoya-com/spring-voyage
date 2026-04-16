@@ -6,8 +6,6 @@ namespace Cvoya.Spring.Cli.Commands;
 using System;
 using System.CommandLine;
 using System.IO;
-using System.Net.Http;
-using System.Net.Http.Headers;
 
 using Cvoya.Spring.Manifest;
 
@@ -72,37 +70,11 @@ public static class ApplyCommand
                 return 0;
             }
 
-            var (httpClient, baseUrl) = CreateHttpClient(apiUrlOverride);
-            using (httpClient)
-            {
-                var client = new SpringApiClient(httpClient, baseUrl);
-                return await ApplyRunner.ApplyAsync(manifest, client, Console.Out, Console.Error, ct);
-            }
+            var client = ClientFactory.Create(apiUrlOverride);
+            return await ApplyRunner.ApplyAsync(manifest, client, Console.Out, Console.Error, ct);
         });
 
         return command;
     }
 
-    /// <summary>
-    /// Builds the HTTP client used for the real apply path.
-    /// Resolution order for the base address: explicit <c>--api-url</c>, then
-    /// the <c>SPRING_API_URL</c> environment variable, then the CLI config file.
-    /// </summary>
-    private static (HttpClient HttpClient, string BaseUrl) CreateHttpClient(string? apiUrlOverride)
-    {
-        var config = CliConfig.Load();
-        var baseUrl = apiUrlOverride
-            ?? Environment.GetEnvironmentVariable("SPRING_API_URL")
-            ?? config.Endpoint;
-
-        var httpClient = new HttpClient();
-
-        if (config.ApiToken is not null)
-        {
-            httpClient.DefaultRequestHeaders.Authorization =
-                new AuthenticationHeaderValue("Bearer", config.ApiToken);
-        }
-
-        return (httpClient, baseUrl);
-    }
 }
