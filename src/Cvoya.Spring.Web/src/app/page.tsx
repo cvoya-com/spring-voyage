@@ -3,23 +3,28 @@
 import { useEffect, useState } from "react";
 import { Bot, DollarSign, Network } from "lucide-react";
 import { api } from "@/lib/api/client";
-import type {
-  AgentDashboardSummary,
-  UnitDashboardSummary,
-  CostDashboardSummary,
-} from "@/lib/api/types";
+import type { DashboardSummary } from "@/lib/api/types";
 import { formatCost } from "@/lib/utils";
-import { AgentCard } from "@/components/agent-card";
-import { UnitCard } from "@/components/unit-card";
 import { StatCard } from "@/components/stat-card";
+import { Badge } from "@/components/ui/badge";
 import { ActivityFeed } from "@/components/activity-feed";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useActivityStream } from "@/hooks/use-activity-stream";
 
+const statusVariant: Record<
+  string,
+  "default" | "success" | "warning" | "destructive" | "secondary" | "outline"
+> = {
+  Draft: "outline",
+  Stopped: "secondary",
+  Starting: "default",
+  Running: "success",
+  Stopping: "warning",
+  Error: "destructive",
+};
+
 export default function DashboardPage() {
-  const [agents, setAgents] = useState<AgentDashboardSummary[]>([]);
-  const [units, setUnits] = useState<UnitDashboardSummary[]>([]);
-  const [costs, setCosts] = useState<CostDashboardSummary | null>(null);
+  const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const { events } = useActivityStream();
 
@@ -28,15 +33,9 @@ export default function DashboardPage() {
 
     async function load() {
       try {
-        const [a, u, c] = await Promise.all([
-          api.getDashboardAgents(),
-          api.getDashboardUnits(),
-          api.getDashboardCosts(),
-        ]);
+        const s = await api.getDashboardSummary();
         if (!cancelled) {
-          setAgents(a);
-          setUnits(u);
-          setCosts(c);
+          setSummary(s);
           setLoading(false);
         }
       } catch {
@@ -68,69 +67,43 @@ export default function DashboardPage() {
           <>
             <StatCard
               label="Agents"
-              value={agents.length}
+              value={summary?.agentCount ?? 0}
               icon={<Bot className="h-5 w-5" />}
             />
             <StatCard
               label="Units"
-              value={units.length}
+              value={summary?.unitCount ?? 0}
               icon={<Network className="h-5 w-5" />}
             />
             <StatCard
               label="Total Cost"
-              value={formatCost(costs?.totalCost ?? 0)}
+              value={formatCost(summary?.totalCost ?? 0)}
               icon={<DollarSign className="h-5 w-5" />}
             />
           </>
         )}
       </div>
 
-      {/* Main content: agents/units + activity feed */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <div className="space-y-6 lg:col-span-2">
-          {/* Agents */}
-          <section>
-            <h2 className="mb-3 text-lg font-semibold">Agents</h2>
-            {loading ? (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <Skeleton className="h-24" />
-                <Skeleton className="h-24" />
-              </div>
-            ) : agents.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No agents registered</p>
-            ) : (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                {agents.map((a) => (
-                  <AgentCard key={a.name} agent={a} />
-                ))}
-              </div>
-            )}
-          </section>
+      {/* Unit status breakdown */}
+      {!loading && summary && summary.unitCount > 0 && (
+        <section>
+          <h2 className="mb-3 text-lg font-semibold">Units by Status</h2>
+          <div className="flex flex-wrap gap-2">
+            {Object.entries(summary.unitsByStatus).map(([status, count]) => (
+              <Badge
+                key={status}
+                variant={statusVariant[status] ?? "outline"}
+              >
+                {status}: {count}
+              </Badge>
+            ))}
+          </div>
+        </section>
+      )}
 
-          {/* Units */}
-          <section>
-            <h2 className="mb-3 text-lg font-semibold">Units</h2>
-            {loading ? (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <Skeleton className="h-24" />
-                <Skeleton className="h-24" />
-              </div>
-            ) : units.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No units registered</p>
-            ) : (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                {units.map((u) => (
-                  <UnitCard key={u.name} unit={u} />
-                ))}
-              </div>
-            )}
-          </section>
-        </div>
-
-        {/* Activity feed sidebar */}
-        <div>
-          <ActivityFeed items={events.slice(0, 20)} />
-        </div>
+      {/* Activity feed */}
+      <div>
+        <ActivityFeed items={events.slice(0, 20)} />
       </div>
     </div>
   );

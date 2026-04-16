@@ -162,6 +162,28 @@ export type GitHubInstallUrlResponse = Schemas["GitHubInstallUrlResponse"];
 export type UnitReadinessResponse = Schemas["UnitReadinessResponse"];
 
 // ---------------------------------------------------------------------------
+// Dashboard summary (hand-written until next OpenAPI regeneration)
+// ---------------------------------------------------------------------------
+
+/** GET /api/v1/dashboard/summary response. */
+export interface DashboardSummary {
+  unitCount: number;
+  unitsByStatus: Record<string, number>;
+  agentCount: number;
+  recentActivity: {
+    id: string;
+    source: string;
+    eventType: string;
+    severity: string;
+    summary: string;
+    correlationId?: string;
+    cost?: number;
+    timestamp: string;
+  }[];
+  totalCost: number;
+}
+
+// ---------------------------------------------------------------------------
 // Hand-written — not surfaced via the HTTP OpenAPI contract
 // ---------------------------------------------------------------------------
 

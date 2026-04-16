@@ -32,3 +32,18 @@ public record UnitDashboardSummary(string Name, string DisplayName, DateTimeOffs
 /// <param name="PeriodStart">The start of the reporting period.</param>
 /// <param name="PeriodEnd">The end of the reporting period.</param>
 public record CostDashboardSummary(decimal TotalCost, IReadOnlyList<CostBySource> CostsBySource, DateTimeOffset? PeriodStart, DateTimeOffset? PeriodEnd);
+
+/// <summary>
+/// Aggregated dashboard summary combining unit, agent, activity, and cost data.
+/// </summary>
+/// <param name="UnitCount">Total number of registered units.</param>
+/// <param name="UnitsByStatus">Breakdown of units by lifecycle status.</param>
+/// <param name="AgentCount">Total number of registered agents.</param>
+/// <param name="RecentActivity">The most recent activity events.</param>
+/// <param name="TotalCost">Aggregate cost across all sources.</param>
+public record DashboardSummary(
+    int UnitCount,
+    IReadOnlyDictionary<UnitStatus, int> UnitsByStatus,
+    int AgentCount,
+    IReadOnlyList<ActivityQueryResult.Item> RecentActivity,
+    decimal TotalCost);

@@ -7,6 +7,7 @@ import type {
   CreateSecretRequest,
   CreateUnitFromTemplateRequest,
   CreateUnitFromYamlRequest,
+  DashboardSummary,
   InitiativePolicy,
   SetBudgetRequest,
   UnitConnectorBindingRequest,
@@ -89,6 +90,13 @@ function assertOk(result: FetchResult<unknown>): void {
 
 export const api = {
   // Dashboard
+  getDashboardSummary: async (): Promise<DashboardSummary> => {
+    const resp = await fetch(`${BASE}/api/v1/dashboard/summary`);
+    if (!resp.ok) {
+      throw new ApiError(resp.status, resp.statusText, await resp.text());
+    }
+    return resp.json() as Promise<DashboardSummary>;
+  },
   getDashboardAgents: async () =>
     unwrap(await fetchClient.GET("/api/v1/dashboard/agents")),
   getDashboardUnits: async () =>

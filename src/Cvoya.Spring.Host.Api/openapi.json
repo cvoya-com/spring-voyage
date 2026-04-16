@@ -2504,6 +2504,27 @@
         }
       }
     },
+    "/api/v1/dashboard/summary": {
+      "get": {
+        "tags": [
+          "Dashboard"
+        ],
+        "summary": "Get an aggregated dashboard summary with unit/agent counts, status breakdown, recent activity, and total cost",
+        "operationId": "GetDashboardSummary",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardSummary"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/dashboard/agents": {
       "get": {
         "tags": [
@@ -4929,6 +4950,55 @@
               "null",
               "string"
             ]
+          }
+        }
+      },
+      "DashboardSummary": {
+        "required": [
+          "unitCount",
+          "unitsByStatus",
+          "agentCount",
+          "recentActivity",
+          "totalCost"
+        ],
+        "type": "object",
+        "properties": {
+          "unitCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "unitsByStatus": {
+            "type": "object",
+            "additionalProperties": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          "agentCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "recentActivity": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Item"
+            }
+          },
+          "totalCost": {
+            "type": "number",
+            "format": "double"
           }
         }
       },

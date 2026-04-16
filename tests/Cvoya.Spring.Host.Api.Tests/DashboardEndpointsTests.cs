@@ -11,7 +11,11 @@ using System.Text.Json.Serialization;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Observability;
+using Cvoya.Spring.Core.Units;
+using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Host.Api.Models;
+
+using global::Dapr.Actors;
 
 using NSubstitute;
 
@@ -33,6 +37,65 @@ public class DashboardEndpointsTests : IClassFixture<CustomWebApplicationFactory
     {
         _factory = factory;
         _client = factory.CreateClient();
+    }
+
+    [Fact]
+    public async Task GetDashboardSummary_ReturnsAggregatedData()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        // Two units (one Running, one Draft) and one agent.
+        var entries = new List<DirectoryEntry>
+        {
+            new(new Address("unit", "unit-1"), "actor-1", "Unit One", "First unit", null, DateTimeOffset.UtcNow),
+            new(new Address("unit", "unit-2"), "actor-2", "Unit Two", "Second unit", null, DateTimeOffset.UtcNow),
+            new(new Address("agent", "agent-1"), "actor-3", "Agent One", "An agent", "backend", DateTimeOffset.UtcNow),
+        };
+        _factory.DirectoryService.ListAllAsync(Arg.Any<CancellationToken>()).Returns(entries);
+
+        // Unit-1 is Running, Unit-2 defaults to Draft (proxy throws).
+        var runningProxy = Substitute.For<IUnitActor>();
+        runningProxy.GetStatusAsync(Arg.Any<CancellationToken>()).Returns(UnitStatus.Running);
+
+        _factory.ActorProxyFactory
+            .CreateActorProxy<IUnitActor>(
+                Arg.Is<ActorId>(id => id.GetId() == "actor-1"),
+                Arg.Any<string>())
+            .Returns(runningProxy);
+
+        _factory.ActorProxyFactory
+            .CreateActorProxy<IUnitActor>(
+                Arg.Is<ActorId>(id => id.GetId() == "actor-2"),
+                Arg.Any<string>())
+            .Returns(_ => throw new Exception("Actor unavailable"));
+
+        // Recent activity.
+        var recentItems = new List<ActivityQueryResult.Item>
+        {
+            new(Guid.NewGuid(), "agent://agent-1", "MessageReceived", "Info", "Agent received message", null, null, DateTimeOffset.UtcNow),
+        };
+        _factory.ActivityQueryService
+            .QueryAsync(Arg.Any<ActivityQueryParameters>(), Arg.Any<CancellationToken>())
+            .Returns(new ActivityQueryResult(recentItems, 1, 1, 10));
+
+        // Total cost.
+        _factory.ActivityQueryService
+            .GetTotalCostAsync(null, null, null, Arg.Any<CancellationToken>())
+            .Returns(25.50m);
+
+        var response = await _client.GetAsync("/api/v1/dashboard/summary", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var summary = await response.Content.ReadFromJsonAsync<DashboardSummary>(JsonOptions, ct);
+        summary.ShouldNotBeNull();
+        summary!.UnitCount.ShouldBe(2);
+        summary.AgentCount.ShouldBe(1);
+        summary.TotalCost.ShouldBe(25.50m);
+        summary.UnitsByStatus.ShouldContainKeyAndValue(UnitStatus.Running, 1);
+        summary.UnitsByStatus.ShouldContainKeyAndValue(UnitStatus.Draft, 1);
+        summary.RecentActivity.Count.ShouldBe(1);
+        summary.RecentActivity[0].Summary.ShouldBe("Agent received message");
     }
 
     [Fact]
