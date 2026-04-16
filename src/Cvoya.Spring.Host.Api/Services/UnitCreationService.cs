@@ -372,6 +372,38 @@ public class UnitCreationService : IUnitCreationService
                         warnings.Add(
                             $"member {resolved.Value.Scheme}:{resolved.Value.Path} added to actor state but membership table write failed: {ex.Message}");
                     }
+
+                    // Fix #374: auto-register agent-scheme members in the
+                    // directory so they are discoverable via GET /api/v1/agents
+                    // and the dashboard's Agents section. Idempotent — if the
+                    // agent was already registered (e.g. via `spring agent
+                    // create` before being added to the unit), the existing
+                    // entry is preserved.
+                    try
+                    {
+                        var agentAddress = new Address("agent", resolved.Value.Path);
+                        var existing = await _directoryService.ResolveAsync(agentAddress, cancellationToken);
+                        if (existing is null)
+                        {
+                            var agentActorId = Guid.NewGuid().ToString();
+                            var agentEntry = new DirectoryEntry(
+                                agentAddress,
+                                agentActorId,
+                                resolved.Value.Path,  // displayName = member name
+                                string.Empty,          // description
+                                null,                  // role
+                                DateTimeOffset.UtcNow);
+                            await _directoryService.RegisterAsync(agentEntry, cancellationToken);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex,
+                            "Unit '{UnitName}' member {Member}: failed to auto-register agent directory entry.",
+                            name, $"agent:{resolved.Value.Path}");
+                        warnings.Add(
+                            $"member agent:{resolved.Value.Path} added to unit but directory registration failed: {ex.Message}");
+                    }
                 }
             }
 

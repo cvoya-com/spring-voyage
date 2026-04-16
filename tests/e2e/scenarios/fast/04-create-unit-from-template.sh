@@ -108,4 +108,26 @@ else
     e2e::fail "CLI/memberships count drift — CLI=${cli_count}, /memberships=${mships_count}"
 fi
 
+# --- #374: verify agents are auto-registered as directory entries ----------
+#
+# Template-created agents must be discoverable via the platform-wide agents
+# list (GET /api/v1/agents) and the CLI's `spring agent list`. Without the
+# #374 fix, the directory has no entries for these agents and both paths
+# return [].
+
+e2e::log "spring agent list --output json"
+response="$(e2e::cli --output json agent list)"
+code="${response##*$'\n'}"
+body="${response%$'\n'*}"
+e2e::expect_status "0" "${code}" "agent list succeeds after template creation"
+e2e::expect_contains "tech-lead" "${body}" "agent list includes tech-lead (#374)"
+e2e::expect_contains "backend-engineer" "${body}" "agent list includes backend-engineer (#374)"
+e2e::expect_contains "qa-engineer" "${body}" "agent list includes qa-engineer (#374)"
+agent_count="$(printf '%s' "${body}" | grep -c '"name"' || true)"
+if [[ "${agent_count}" -ge "3" ]]; then
+    e2e::ok "agent list returns at least 3 agents (got ${agent_count})"
+else
+    e2e::fail "agent list count — expected ≥3, got ${agent_count}"
+fi
+
 e2e::summary

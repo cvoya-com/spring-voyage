@@ -440,9 +440,11 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
 
         // Manifest-name fallback must NOT trigger the new duplicate check
         // so legacy callers do not observe a new 400 on the same payloads
-        // they used to submit.
+        // they used to submit. The agent auto-registration (#374) does call
+        // ResolveAsync for agent-scheme addresses, so we narrow the assertion
+        // to unit-scheme only.
         await _factory.DirectoryService.DidNotReceive().ResolveAsync(
-            Arg.Any<Address>(), Arg.Any<CancellationToken>());
+            Arg.Is<Address>(a => a.Scheme == "unit"), Arg.Any<CancellationToken>());
     }
 
     [Fact]
