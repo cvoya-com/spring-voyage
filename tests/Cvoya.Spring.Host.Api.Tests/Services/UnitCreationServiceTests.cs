@@ -279,6 +279,93 @@ public class UnitCreationServiceTests
             && w.Contains("db down", StringComparison.Ordinal));
     }
 
+    // --- #374: template creation auto-registers agent directory entries ---
+
+    [Fact]
+    public async Task CreateFromManifestAsync_AgentMembers_RegistersAgentDirectoryEntries()
+    {
+        // Regression test for #374. Template-created agents should be
+        // auto-registered in the directory so GET /api/v1/agents returns them
+        // and the dashboard's Agents section populates.
+        var fixture = new Fixture();
+        fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
+
+        var members = new[]
+        {
+            new MemberManifest { Agent = "tech-lead" },
+            new MemberManifest { Agent = "backend-engineer" },
+            new MemberManifest { Agent = "qa-engineer" },
+        };
+
+        var result = await fixture.CreateFromManifestAsync("eng-team", members);
+
+        result.MembersAdded.ShouldBe(3);
+
+        // Each agent member should have a Resolve check + Register call.
+        foreach (var m in members)
+        {
+            await fixture.Directory.Received().ResolveAsync(
+                Arg.Is<Address>(a => a.Scheme == "agent" && a.Path == m.Agent),
+                Arg.Any<CancellationToken>());
+            await fixture.Directory.Received().RegisterAsync(
+                Arg.Is<DirectoryEntry>(e =>
+                    e.Address.Scheme == "agent"
+                    && e.Address.Path == m.Agent
+                    && e.DisplayName == m.Agent
+                    && e.Description == string.Empty),
+                Arg.Any<CancellationToken>());
+        }
+    }
+
+    [Fact]
+    public async Task CreateFromManifestAsync_AgentAlreadyRegistered_DoesNotDuplicate()
+    {
+        // Idempotency: if the agent already exists in the directory (e.g.
+        // created via `spring agent create` before being added to the unit),
+        // the existing entry is preserved — no duplicate, no error.
+        var fixture = new Fixture();
+        fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
+
+        // Pre-register "tech-lead" so the Resolve returns non-null.
+        var existingEntry = new DirectoryEntry(
+            new Address("agent", "tech-lead"),
+            Guid.NewGuid().ToString(),
+            "tech-lead",
+            "already exists",
+            null,
+            DateTimeOffset.UtcNow);
+        fixture.Directory
+            .ResolveAsync(
+                Arg.Is<Address>(a => a.Scheme == "agent" && a.Path == "tech-lead"),
+                Arg.Any<CancellationToken>())
+            .Returns(existingEntry);
+
+        var members = new[]
+        {
+            new MemberManifest { Agent = "tech-lead" },
+            new MemberManifest { Agent = "backend-engineer" },
+        };
+
+        var result = await fixture.CreateFromManifestAsync("eng-team-idem", members);
+
+        result.MembersAdded.ShouldBe(2);
+
+        // tech-lead was resolved as non-null so the auto-register skips it —
+        // no RegisterAsync call should be made for agent://tech-lead.
+        await fixture.Directory.DidNotReceive().RegisterAsync(
+            Arg.Is<DirectoryEntry>(e =>
+                e.Address.Scheme == "agent"
+                && e.Address.Path == "tech-lead"),
+            Arg.Any<CancellationToken>());
+
+        // backend-engineer resolved as null (default) so it gets registered.
+        await fixture.Directory.Received(1).RegisterAsync(
+            Arg.Is<DirectoryEntry>(e =>
+                e.Address.Scheme == "agent"
+                && e.Address.Path == "backend-engineer"),
+            Arg.Any<CancellationToken>());
+    }
+
     // --- #368: differentiated creation states ---
 
     [Fact]
