@@ -97,6 +97,13 @@ public static class UnitEndpoints
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict);
 
+        group.MapGet("/{id}/members", ListUnitMembersAsync)
+            .WithName("ListUnitMembers")
+            .WithSummary("List all members of a unit (agents and sub-units)")
+            .WithDescription("Returns the full member list from the unit actor, including both agent-scheme and unit-scheme members.")
+            .Produces<AddressDto[]>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
         group.MapPost("/{id}/members", AddMemberAsync)
             .WithName("AddMember")
             .WithSummary("Add a member to a unit")
@@ -847,6 +854,31 @@ public static class UnitEndpoints
         return Results.Accepted(
             $"/api/v1/units/{id}",
             new UnitLifecycleResponse(id, stoppedTransition.CurrentStatus));
+    }
+
+    private static async Task<IResult> ListUnitMembersAsync(
+        string id,
+        [FromServices] IDirectoryService directoryService,
+        [FromServices] IActorProxyFactory actorProxyFactory,
+        CancellationToken cancellationToken)
+    {
+        var unitAddress = new Address("unit", id);
+        var entry = await directoryService.ResolveAsync(unitAddress, cancellationToken);
+
+        if (entry is null)
+        {
+            return Results.Problem(detail: $"Unit '{id}' not found", statusCode: StatusCodes.Status404NotFound);
+        }
+
+        var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
+            new ActorId(entry.ActorId), nameof(UnitActor));
+        var members = await proxy.GetMembersAsync(cancellationToken);
+
+        var result = members
+            .Select(m => new AddressDto(m.Scheme, m.Path))
+            .ToArray();
+
+        return Results.Ok(result);
     }
 
     private static async Task<IResult> AddMemberAsync(

@@ -4,7 +4,6 @@
 namespace Cvoya.Spring.Cli;
 
 using System.Collections.Generic;
-using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -23,8 +22,6 @@ using Microsoft.Kiota.Http.HttpClientLibrary;
 public class SpringApiClient
 {
     private readonly SpringApiKiotaClient _client;
-    private readonly HttpClient _httpClient;
-    private readonly string _baseUrl;
 
     /// <summary>
     /// Builds a client that issues requests through the supplied <paramref name="httpClient"/>.
@@ -33,8 +30,6 @@ public class SpringApiClient
     /// </summary>
     public SpringApiClient(HttpClient httpClient, string baseUrl)
     {
-        _httpClient = httpClient;
-        _baseUrl = baseUrl;
         var adapter = new HttpClientRequestAdapter(
             new AnonymousAuthenticationProvider(),
             httpClient: httpClient)
@@ -160,26 +155,15 @@ public class SpringApiClient
         => _client.Api.V1.Units[id].DeleteAsync(cancellationToken: ct);
 
     /// <summary>
-    /// Reads <c>GET /api/v1/units/{id}</c> as raw JSON so the status-query
-    /// payload (<c>details.Members</c>) stays intact. The Kiota-generated
-    /// model types <c>details</c> as a composed <c>JsonElement</c> wrapper
-    /// that drops unknown properties on deserialisation, so Kiota would
-    /// return an empty object here. <c>UnitMembershipResponse</c> alone
-    /// only exposes agent-scheme rows — sub-unit members (#352) live only
-    /// in the actor's status-query payload until #217 lands the polymorphic
-    /// M:N support.
-    ///
-    /// The caller owns disposal of the returned <see cref="System.Text.Json.JsonDocument"/>.
+    /// Lists all members of a unit (agents and sub-units) via the typed
+    /// <c>GET /api/v1/units/{id}/members</c> endpoint.
     /// </summary>
-    public async Task<System.Text.Json.JsonDocument> GetUnitDetailRawAsync(
-        string id,
+    public async Task<IReadOnlyList<AddressDto>> ListUnitMembersAsync(
+        string unitId,
         CancellationToken ct = default)
     {
-        var url = $"{_baseUrl.TrimEnd('/')}/api/v1/units/{Uri.EscapeDataString(id)}";
-        using var response = await _httpClient.GetAsync(url, ct);
-        response.EnsureSuccessStatusCode();
-        await using var stream = await response.Content.ReadAsStreamAsync(ct);
-        return await System.Text.Json.JsonDocument.ParseAsync(stream, cancellationToken: ct);
+        var result = await _client.Api.V1.Units[unitId].Members.GetAsync(cancellationToken: ct);
+        return result ?? new List<AddressDto>();
     }
 
     /// <summary>

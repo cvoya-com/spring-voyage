@@ -340,27 +340,26 @@ public static class UnitCommand
             var client = ClientFactory.Create();
 
             // Two sources — unified here because neither alone gives the full
-            // picture today. Per #352:
-            //  - `unit_memberships` (ListUnitMembershipsAsync) holds only
-            //    agent-scheme rows with per-membership config. Unit-scheme
-            //    members are intentionally absent (deferred to #217).
-            //  - The actor's status-query payload (GetUnitDetailAsync →
-            //    Details.Members) carries every member regardless of scheme.
+            // picture today:
+            //  - `GET /units/{id}/members` returns every member (agents AND
+            //    sub-units) from the unit actor's member list.
+            //  - `GET /units/{id}/memberships` holds only agent-scheme rows
+            //    with per-membership config overrides.
             //
             // We join them so callers see both kinds in one command. The
             // `scheme` column lets scripts filter (`jq '.[] | select(.scheme
             // == "unit")'`) and the table output clearly distinguishes the
             // two kinds even at a glance.
-            var detailTask = client.GetUnitDetailRawAsync(unitId, ct);
+            var membersTask = client.ListUnitMembersAsync(unitId, ct);
             var membershipsTask = client.ListUnitMembershipsAsync(unitId, ct);
-            await Task.WhenAll(detailTask, membershipsTask);
+            await Task.WhenAll(membersTask, membershipsTask);
 
-            using var detail = detailTask.Result;
+            var members = membersTask.Result;
             var memberships = membershipsTask.Result;
 
             // Index agent-scheme overrides by address so we can enrich the
-            // authoritative status-payload member list with the per-membership
-            // config that lives in `unit_memberships`.
+            // authoritative member list with per-membership config that lives
+            // in `unit_memberships`.
             var overrides = memberships
                 .Where(m => !string.IsNullOrEmpty(m.AgentAddress))
                 .ToDictionary(m => m.AgentAddress!, StringComparer.Ordinal);
@@ -368,10 +367,10 @@ public static class UnitCommand
             var rows = new List<MemberListRow>();
             var seenAgents = new HashSet<string>(StringComparer.Ordinal);
 
-            foreach (var entry in ExtractStatusMembers(detail.RootElement))
+            foreach (var addr in members)
             {
-                var scheme = entry.Scheme;
-                var path = entry.Path;
+                var scheme = addr.Scheme ?? "agent";
+                var path = addr.Path ?? string.Empty;
 
                 if (string.Equals(scheme, "agent", StringComparison.Ordinal)
                     && overrides.TryGetValue(path, out var m))
@@ -403,11 +402,9 @@ public static class UnitCommand
                 }
             }
 
-            // Defensive fall-back: if the status payload was unavailable
-            // (actor unreachable, 200 with Details=null), surface the
-            // agent-scheme rows from the repository anyway so the command
-            // doesn't appear broken. Unit-scheme members would be missing
-            // in that case, but the operator still sees *something*.
+            // Defensive fall-back: if the /members call returned an empty
+            // list (actor unreachable), surface the agent-scheme rows from
+            // the repository anyway so the command doesn't appear broken.
             foreach (var m in memberships)
             {
                 var address = m.AgentAddress;
@@ -433,49 +430,6 @@ public static class UnitCommand
         return command;
     }
 
-    /// <summary>
-    /// Extracts the <c>Members</c> array from the unit-detail response's
-    /// opaque status-query payload. The payload is produced by
-    /// <c>UnitActor.HandleStatusQueryAsync</c> via
-    /// <c>JsonSerializer.SerializeToElement</c> with default (non-web)
-    /// options, so property names are PascalCase (<c>Members</c>,
-    /// <c>Scheme</c>, <c>Path</c>). <c>ConfigureHttpJsonOptions</c> does not
-    /// re-serialise the embedded <c>JsonElement</c>, so that casing reaches
-    /// the CLI as-is. Missing / malformed payloads yield an empty sequence
-    /// rather than an exception — the command falls back to the repository's
-    /// membership list in that case.
-    /// </summary>
-    private static IEnumerable<(string Scheme, string Path)> ExtractStatusMembers(
-        System.Text.Json.JsonElement root)
-    {
-        if (root.ValueKind != System.Text.Json.JsonValueKind.Object
-            || !root.TryGetProperty("details", out var details)
-            || details.ValueKind != System.Text.Json.JsonValueKind.Object
-            || !details.TryGetProperty("Members", out var members)
-            || members.ValueKind != System.Text.Json.JsonValueKind.Array)
-        {
-            yield break;
-        }
-
-        foreach (var member in members.EnumerateArray())
-        {
-            if (member.ValueKind != System.Text.Json.JsonValueKind.Object)
-            {
-                continue;
-            }
-            var scheme = member.TryGetProperty("Scheme", out var s)
-                ? s.GetString()
-                : null;
-            var path = member.TryGetProperty("Path", out var p)
-                ? p.GetString()
-                : null;
-            if (string.IsNullOrEmpty(scheme) || string.IsNullOrEmpty(path))
-            {
-                continue;
-            }
-            yield return (scheme, path);
-        }
-    }
 
     private static Command CreateMembersAddCommand(Option<string> outputOption)
     {

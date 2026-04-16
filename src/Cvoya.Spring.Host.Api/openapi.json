@@ -798,6 +798,49 @@
       }
     },
     "/api/v1/units/{id}/members": {
+      "get": {
+        "tags": [
+          "Units"
+        ],
+        "summary": "List all members of a unit (agents and sub-units)",
+        "description": "Returns the full member list from the unit actor, including both agent-scheme and unit-scheme members.",
+        "operationId": "ListUnitMembers",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AddressDto"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
       "post": {
         "tags": [
           "Units"
