@@ -120,6 +120,28 @@ The CLI reads its endpoint and token from `~/.spring/config.json` (see
 `LocalDev=true`, no token is required and the harness can run without
 configuring one.
 
+## Verifying membership changes
+
+Every scenario that creates, adds, or removes a member MUST cross-verify
+the change across BOTH read paths:
+
+1. The CLI `spring unit members list <unit> --output json` (exercises the
+   Kiota-generated client and the CLI formatting layer).
+2. The HTTP endpoint `GET /api/v1/units/{id}/memberships` (reads the DB
+   membership table — the Agents tab's source of truth).
+
+The scenario must assert these two paths AGREE (same count, same agent
+addresses). During #340, the two stores drifted: `membersAdded` in the
+response was non-zero, the actor's in-memory member list looked populated,
+but the DB membership table stayed empty, so `/memberships` and `/agents`
+returned `[]` while the CLI's read still reported success via the
+actor-state path. Asserting only one side let the regression slip past the
+suite. The two-path check catches that class of bug immediately.
+
+Where it matters for membership counts (e.g. template creation, which adds
+an exact known number of agents), also cross-check `GET /units/{id}/agents`
+so all three read paths (CLI, /memberships, /agents) must agree.
+
 ## Adding a scenario
 
 Create `scenarios/{fast,llm}/NN-short-name.sh`, source `../../_lib.sh`, use

@@ -56,6 +56,25 @@ body="${response%$'\n'*}"
 e2e::expect_status "0" "${code}" "unit members list succeeds"
 e2e::expect_contains "\"agentAddress\": \"${agent}\"" "${body}" "list contains the new membership"
 
+# --- Cross-verify via HTTP read paths (#340) ----------------------------------
+# The CLI `members list` alone can pass while the DB/Agents-tab read paths
+# stay empty (see #340's template-from-create bug). Assert both /memberships
+# AND /agents mention the newly-added agent so the direct-create path can't
+# regress into the same drift silently.
+e2e::log "GET /api/v1/units/${unit}/memberships"
+response="$(e2e::http GET "/api/v1/units/${unit}/memberships")"
+status="${response##*$'\n'}"
+mships_body="${response%$'\n'*}"
+e2e::expect_status "200" "${status}" "/memberships returns 200 for unit"
+e2e::expect_contains "\"agentAddress\": \"${agent}\"" "${mships_body}" "/memberships includes the added agent"
+
+e2e::log "GET /api/v1/units/${unit}/agents"
+response="$(e2e::http GET "/api/v1/units/${unit}/agents")"
+status="${response##*$'\n'}"
+agents_body="${response%$'\n'*}"
+e2e::expect_status "200" "${status}" "/agents returns 200 for unit"
+e2e::expect_contains "${agent}" "${agents_body}" "/agents includes the added agent"
+
 # --- Idempotent config update (upsert) ----------------------------------------
 e2e::log "spring unit members config ${unit} --agent ${agent} --enabled false"
 response="$(e2e::cli --output json unit members config "${unit}" --agent "${agent}" --enabled false)"
