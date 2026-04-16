@@ -149,6 +149,58 @@ model; `DatabaseMigrator` is a no-op against non-relational providers.
 3. Check the workflow container logs
 4. Check for dead-lettered pub/sub messages
 
+## DataProtection Keys
+
+ASP.NET Core's DataProtection API encrypts authentication cookies, OAuth
+session tokens, anti-forgery tokens, and anything routed through
+`IDataProtector.Protect(...)`. Without a stable persistence location the
+framework writes keys under `~/.aspnet/DataProtection-Keys` *inside the
+container*, regenerates them on every rebuild, and silently invalidates
+every payload protected by the previous key ring (issue #337).
+
+### OSS Podman topology
+
+`deploy.sh` mounts the named volume `spring-dataprotection-keys` into
+both `spring-api` and `spring-worker` at
+`/home/app/.aspnet/DataProtection-Keys`, and sets
+`DataProtection__KeysPath` in `spring.env.example` to that same path.
+The hosts register `AddCvoyaSpringDataProtection` (in `Program.cs`),
+which:
+
+- Sets `SetApplicationName("Cvoya.Spring")` so both hosts — and any
+  future replicas — agree on the key-ring identity.
+- Calls `PersistKeysToFileSystem(...)` on the configured path.
+
+`./deploy.sh down` preserves the volume. Clearing the key ring (which
+invalidates all existing encrypted payloads) requires an explicit
+`podman volume rm spring-dataprotection-keys` after stopping the stack.
+
+### Multi-replica deployments
+
+All replicas that talk to the same logical application MUST share one
+key ring. Two options:
+
+- **Shared on-disk path.** Back `DataProtection__KeysPath` with a
+  shared file system (NFS, Azure Files) and point every replica at it.
+  Acceptable for small horizontal fanouts and when the shared file
+  system's durability matches the encrypted data's sensitivity.
+- **Centralized persister.** Call `AddDataProtection()` in the host
+  *before* `AddCvoyaSpringDataProtection`, register your own
+  persister (e.g. `PersistKeysToStackExchangeRedis(...)` or the
+  EF Core-backed store), and let
+  `AddCvoyaSpringDataProtection` short-circuit. This is the
+  recommended path for anything beyond a single host.
+
+### Cloud deployments
+
+The private cloud host is expected to chain
+`ProtectKeysWithAzureKeyVault(...)` (or a comparable KMS-backed
+encryptor) and usually a centralized persister, and to register that
+chain via its own `AddDataProtection()` call *before*
+`AddCvoyaSpringDataProtection`. The OSS extension detects a
+pre-registered `IDataProtectionProvider` and is a no-op in that case,
+leaving the cloud configuration intact.
+
 ## Backup and Recovery
 
 ### Database

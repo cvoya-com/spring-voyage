@@ -234,21 +234,30 @@ start_worker_sidecar() {
 }
 
 start_worker() {
+    # DataProtection keys: API and Worker share the named volume
+    # `spring-dataprotection-keys` mounted at the path configured via
+    # DataProtection__KeysPath (defaults to /home/app/.aspnet/DataProtection-Keys).
+    # Keeps the key ring stable across `./deploy.sh restart` and image
+    # rebuilds so anything protected by IDataProtector (auth cookies,
+    # OAuth session tokens, anti-forgery tokens) survives deploys. See #337.
     run_container spring-worker \
         --env-file "${RESOLVED_ENV_FILE}" \
         -e "DAPR_APP_ID=spring-worker" \
         -e "DAPR_HTTP_ENDPOINT=http://spring-worker-dapr:3500" \
         -e "DAPR_GRPC_ENDPOINT=http://spring-worker-dapr:50001" \
+        -v spring-dataprotection-keys:/home/app/.aspnet/DataProtection-Keys \
         "${SPRING_PLATFORM_IMAGE:-localhost/spring-voyage:latest}" \
         dotnet /app/Cvoya.Spring.Host.Worker.dll
 }
 
 start_api() {
+    # DataProtection keys: see start_worker for the rationale (#337).
     run_container spring-api \
         --env-file "${RESOLVED_ENV_FILE}" \
         -e "DAPR_APP_ID=spring-api" \
         -e "DAPR_HTTP_ENDPOINT=http://spring-api-dapr:3500" \
         -e "DAPR_GRPC_ENDPOINT=http://spring-api-dapr:50001" \
+        -v spring-dataprotection-keys:/home/app/.aspnet/DataProtection-Keys \
         "${SPRING_PLATFORM_IMAGE:-localhost/spring-voyage:latest}" \
         dotnet /app/Cvoya.Spring.Host.Api.dll
 }
