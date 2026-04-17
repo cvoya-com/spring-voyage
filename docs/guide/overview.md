@@ -11,6 +11,7 @@ This guide covers how to use Spring Voyage V2 through the `spring` CLI. It walks
 | [Messaging and Interaction](messaging.md) | Sending messages, reading conversations, interacting with agents |
 | [Observing Activity](observing.md) | Activity streams, cost tracking, dashboards |
 | [Declarative Configuration](declarative.md) | YAML definitions, `spring apply`, and version-controlled setup |
+| [Deployment](deployment.md) | Operator guide: Docker Compose / Podman, Dapr components, TLS, secrets |
 
 ## Prerequisites
 

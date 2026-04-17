@@ -1,0 +1,262 @@
+# Spring Voyage — Docker Compose (single-host / operator) stack.
+#
+# This is a working, minimal reference stack for running Spring Voyage on a
+# single machine with Docker Compose. The canonical OSS deployment driver is
+# `deploy.sh` (Podman, rootless-friendly) — this compose file is offered for
+# operators who already standardise on Docker Compose. It mirrors the Podman
+# topology exactly (same service names, network, volumes, ports) so operators
+# can switch between the two without retraining.
+#
+# Quick start:
+#
+#   cd deployment/
+#   cp spring.env.example spring.env
+#   $EDITOR spring.env                 # fill in passwords + hostname
+#   docker compose --env-file spring.env build
+#   docker compose --env-file spring.env up -d
+#   docker compose --env-file spring.env ps
+#
+# Scope: single-host only (same constraints as deploy.sh). Kubernetes /
+# cloud-scale deployments live in the private Spring Voyage Cloud repo.
+#
+# Podman users: `podman compose` also understands this file, but the
+# Podman-native path is `deploy.sh` — it avoids the compose shim and exposes
+# operations like `ensure-user-net` for agent isolation.
+
+name: spring-voyage
+
+networks:
+  spring-net:
+    name: spring-net
+    driver: bridge
+
+volumes:
+  spring-postgres-data:
+  spring-redis-data:
+  spring-caddy-data:
+  spring-caddy-config:
+  spring-placement-data:
+  spring-scheduler-data:
+  spring-dataprotection-keys:
+
+services:
+  # -----------------------------------------------------------------
+  # PostgreSQL — platform data + Dapr state store backend.
+  # -----------------------------------------------------------------
+  spring-postgres:
+    image: ${POSTGRES_IMAGE:-docker.io/library/postgres:17}
+    container_name: spring-postgres
+    restart: unless-stopped
+    env_file: spring.env
+    volumes:
+      - spring-postgres-data:/var/lib/postgresql/data
+    networks: [spring-net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # -----------------------------------------------------------------
+  # Redis — Dapr pub/sub backend.
+  # -----------------------------------------------------------------
+  spring-redis:
+    image: ${REDIS_IMAGE:-docker.io/library/redis:7}
+    container_name: spring-redis
+    restart: unless-stopped
+    # REDIS_PASSWORD is optional; when empty Redis runs without auth (dev only).
+    command:
+      - sh
+      - -c
+      - >-
+        if [ -n "$${REDIS_PASSWORD}" ]; then
+          exec redis-server --appendonly yes --requirepass "$${REDIS_PASSWORD}";
+        else
+          exec redis-server --appendonly yes;
+        fi
+    env_file: spring.env
+    volumes:
+      - spring-redis-data:/data
+    networks: [spring-net]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # -----------------------------------------------------------------
+  # Dapr control plane — placement + scheduler.
+  # Self-contained on spring-net so the stack does not depend on a
+  # host-level `dapr init`.
+  # -----------------------------------------------------------------
+  spring-placement:
+    image: ${DAPR_IMAGE:-docker.io/daprio/dapr:1.17.4}
+    container_name: spring-placement
+    restart: unless-stopped
+    command: ["./placement"]
+    volumes:
+      - spring-placement-data:/var/run/dapr/raft
+    networks: [spring-net]
+
+  spring-scheduler:
+    image: ${DAPR_IMAGE:-docker.io/daprio/dapr:1.17.4}
+    container_name: spring-scheduler
+    restart: unless-stopped
+    command:
+      - ./scheduler
+      - --etcd-data-dir=/var/lock/dapr/scheduler
+      - --etcd-client-listen-address=0.0.0.0
+      - --override-broadcast-host-port=spring-scheduler:50006
+    volumes:
+      - spring-scheduler-data:/var/lock
+    networks: [spring-net]
+
+  # -----------------------------------------------------------------
+  # Per-app Dapr sidecars. Each .NET host runs in its own container and
+  # talks to its paired daprd sidecar over spring-net (container-sidecar
+  # form of the Dapr pattern; the app and sidecar do NOT share localhost).
+  # -----------------------------------------------------------------
+  spring-api-dapr:
+    image: ${DAPR_IMAGE:-docker.io/daprio/dapr:1.17.4}
+    container_name: spring-api-dapr
+    restart: unless-stopped
+    env_file: spring.env
+    command:
+      - ./daprd
+      - --app-id=spring-api
+      - --app-port=8080
+      - --app-channel-address=spring-api
+      - --dapr-http-port=3500
+      - --dapr-grpc-port=50001
+      - --dapr-listen-addresses=0.0.0.0
+      - --resources-path=/components
+      - --config=/config/config.yaml
+      - --placement-host-address=spring-placement:50005
+      - --scheduler-host-address=spring-scheduler:50006
+      - --log-level=info
+      - --enable-metrics=false
+    volumes:
+      - ../dapr/components/production:/components:ro
+      - ../dapr/config/production.yaml:/config/config.yaml:ro
+    networks: [spring-net]
+    depends_on:
+      spring-placement:
+        condition: service_started
+      spring-scheduler:
+        condition: service_started
+      spring-postgres:
+        condition: service_healthy
+      spring-redis:
+        condition: service_healthy
+
+  spring-worker-dapr:
+    image: ${DAPR_IMAGE:-docker.io/daprio/dapr:1.17.4}
+    container_name: spring-worker-dapr
+    restart: unless-stopped
+    env_file: spring.env
+    command:
+      - ./daprd
+      - --app-id=spring-worker
+      - --app-port=8080
+      - --app-channel-address=spring-worker
+      - --dapr-http-port=3500
+      - --dapr-grpc-port=50001
+      - --dapr-listen-addresses=0.0.0.0
+      - --resources-path=/components
+      - --config=/config/config.yaml
+      - --placement-host-address=spring-placement:50005
+      - --scheduler-host-address=spring-scheduler:50006
+      - --log-level=info
+      - --enable-metrics=false
+    volumes:
+      - ../dapr/components/production:/components:ro
+      - ../dapr/config/production.yaml:/config/config.yaml:ro
+    networks: [spring-net]
+    depends_on:
+      spring-placement:
+        condition: service_started
+      spring-scheduler:
+        condition: service_started
+      spring-postgres:
+        condition: service_healthy
+      spring-redis:
+        condition: service_healthy
+
+  # -----------------------------------------------------------------
+  # .NET hosts — one image, three commands.
+  # -----------------------------------------------------------------
+  spring-worker:
+    # Build from the repo root so the Dockerfile's COPY paths resolve.
+    image: ${SPRING_PLATFORM_IMAGE:-localhost/spring-voyage:latest}
+    container_name: spring-worker
+    restart: unless-stopped
+    env_file: spring.env
+    environment:
+      DAPR_APP_ID: spring-worker
+      DAPR_HTTP_ENDPOINT: http://spring-worker-dapr:3500
+      DAPR_GRPC_ENDPOINT: http://spring-worker-dapr:50001
+    command: ["dotnet", "/app/Cvoya.Spring.Host.Worker.dll"]
+    volumes:
+      - spring-dataprotection-keys:/home/app/.aspnet/DataProtection-Keys
+    networks: [spring-net]
+    depends_on:
+      spring-worker-dapr:
+        condition: service_started
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile
+
+  spring-api:
+    image: ${SPRING_PLATFORM_IMAGE:-localhost/spring-voyage:latest}
+    container_name: spring-api
+    restart: unless-stopped
+    env_file: spring.env
+    environment:
+      DAPR_APP_ID: spring-api
+      DAPR_HTTP_ENDPOINT: http://spring-api-dapr:3500
+      DAPR_GRPC_ENDPOINT: http://spring-api-dapr:50001
+    command: ["dotnet", "/app/Cvoya.Spring.Host.Api.dll"]
+    volumes:
+      - spring-dataprotection-keys:/home/app/.aspnet/DataProtection-Keys
+    networks: [spring-net]
+    depends_on:
+      spring-api-dapr:
+        condition: service_started
+      spring-worker:
+        # Worker owns EF migrations; wait for it before the API starts (#305).
+        condition: service_started
+
+  spring-web:
+    image: ${SPRING_PLATFORM_IMAGE:-localhost/spring-voyage:latest}
+    container_name: spring-web
+    restart: unless-stopped
+    env_file: spring.env
+    environment:
+      NEXT_PUBLIC_API_URL: http://spring-api:8080
+    command: ["node", "/app/web/src/Cvoya.Spring.Web/server.js"]
+    networks: [spring-net]
+    depends_on:
+      - spring-api
+
+  # -----------------------------------------------------------------
+  # Caddy — reverse proxy + automatic Let's Encrypt TLS.
+  # -----------------------------------------------------------------
+  spring-caddy:
+    image: ${CADDY_IMAGE:-docker.io/library/caddy:2}
+    container_name: spring-caddy
+    restart: unless-stopped
+    env_file: spring.env
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # Defaults to the single-host path-routed Caddyfile. Switch to
+      # ./Caddyfile.multi-host if you set WEB_HOSTNAME / API_HOSTNAME /
+      # WEBHOOK_HOSTNAME in spring.env.
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - spring-caddy-data:/data
+      - spring-caddy-config:/config
+    networks: [spring-net]
+    depends_on:
+      - spring-api
+      - spring-web
