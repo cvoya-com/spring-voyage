@@ -235,4 +235,22 @@ public static class StateKeys
     /// when the agent is explicitly resumed. See #142.
     /// </summary>
     public const string AgentPaused = "Agent:Paused";
+
+    /// <summary>
+    /// State key for the agent's configured expertise domains. Stored as a
+    /// <c>List&lt;ExpertiseDomain&gt;</c>. Replaced in full by
+    /// <c>SetExpertiseAsync</c>; empty list is a legitimate "no expertise"
+    /// state. See #412.
+    /// </summary>
+    public const string AgentExpertise = "Agent:Expertise";
+
+    /// <summary>
+    /// State key for the unit's own (non-aggregated) expertise domains —
+    /// the capabilities the unit advertises in its own right, independent
+    /// of its members. Stored as a <c>List&lt;ExpertiseDomain&gt;</c>.
+    /// Recursive composition over the member graph happens at read time in
+    /// <see cref="Cvoya.Spring.Core.Capabilities.IExpertiseAggregator"/>;
+    /// this state key only holds the slice <em>owned by the unit</em>. See #412.
+    /// </summary>
+    public const string UnitOwnExpertise = "Unit:OwnExpertise";
 }

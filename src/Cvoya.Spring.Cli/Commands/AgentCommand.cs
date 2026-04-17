@@ -69,6 +69,7 @@ public static class AgentCommand
         agentCommand.Subcommands.Add(CreateDeleteCommand());
         agentCommand.Subcommands.Add(CreatePurgeCommand());
         agentCommand.Subcommands.Add(CreateCloneCommand(outputOption));
+        agentCommand.Subcommands.Add(ExpertiseCommand.CreateAgentSubcommand(outputOption));
 
         return agentCommand;
     }

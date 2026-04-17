@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Dapr.Actors;
 
 using Cvoya.Spring.Core.Agents;
+using Cvoya.Spring.Core.Capabilities;
 
 /// <summary>
 /// Dapr actor interface for agent actors. Extends the shared
@@ -65,4 +66,28 @@ public interface IAgentActor : IAgent
     /// data-contract-safe types (arrays serialize natively).
     /// </remarks>
     Task SetSkillsAsync(string[] skills, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the agent's configured expertise domains. Seeded from the
+    /// agent definition (<c>expertise</c> block in YAML) and editable at
+    /// runtime through <see cref="SetExpertiseAsync(ExpertiseDomain[], CancellationToken)"/>.
+    /// Returned as an array so the value crosses the Dapr remoting boundary
+    /// (#319).
+    /// </summary>
+    /// <remarks>
+    /// The aggregator (#412) reads agent expertise through
+    /// <see cref="Core.Capabilities.IExpertiseStore"/>, which delegates to
+    /// this method — so changing an agent's expertise automatically reshapes
+    /// the effective expertise of every ancestor unit once the store
+    /// notifies the aggregator via
+    /// <c>IExpertiseAggregator.InvalidateAsync</c>.
+    /// </remarks>
+    Task<ExpertiseDomain[]> GetExpertiseAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Replaces the agent's expertise in full. Passing an empty array
+    /// clears the configuration. Emits a <c>StateChanged</c> activity event
+    /// so the observability pipeline (#44) sees directory-shape changes.
+    /// </summary>
+    Task SetExpertiseAsync(ExpertiseDomain[] domains, CancellationToken cancellationToken = default);
 }

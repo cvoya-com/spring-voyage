@@ -1773,6 +1773,258 @@
         }
       }
     },
+    "/api/v1/agents/{id}/expertise": {
+      "get": {
+        "tags": [
+          "Expertise"
+        ],
+        "summary": "Get an agent's configured expertise domains",
+        "operationId": "GetAgentExpertise",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExpertiseResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Expertise"
+        ],
+        "summary": "Replace an agent's configured expertise domains",
+        "operationId": "SetAgentExpertise",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetExpertiseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExpertiseResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/units/{id}/expertise/own": {
+      "get": {
+        "tags": [
+          "Expertise"
+        ],
+        "summary": "Get a unit's own (non-aggregated) expertise domains",
+        "operationId": "GetUnitOwnExpertise",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExpertiseResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Expertise"
+        ],
+        "summary": "Replace a unit's own (non-aggregated) expertise domains",
+        "operationId": "SetUnitOwnExpertise",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetExpertiseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExpertiseResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/units/{id}/expertise": {
+      "get": {
+        "tags": [
+          "Expertise"
+        ],
+        "summary": "Get the effective (recursive-aggregated) expertise of a unit",
+        "description": "Walks the unit's member graph to the leaves, returning every capability contributed by the unit or any descendant, annotated with the contributing origin and the path from this unit to it.",
+        "operationId": "GetUnitAggregatedExpertise",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AggregatedExpertiseResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/agents/{agentId}/clones": {
       "post": {
         "tags": [
@@ -4848,6 +5100,60 @@
           }
         }
       },
+      "AggregatedExpertiseEntryDto": {
+        "required": [
+          "domain",
+          "origin",
+          "path"
+        ],
+        "type": "object",
+        "properties": {
+          "domain": {
+            "$ref": "#/components/schemas/ExpertiseDomainDto"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/AddressDto"
+          },
+          "path": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AddressDto"
+            }
+          }
+        }
+      },
+      "AggregatedExpertiseResponse": {
+        "required": [
+          "unit",
+          "entries",
+          "depth",
+          "computedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "unit": {
+            "$ref": "#/components/schemas/AddressDto"
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AggregatedExpertiseEntryDto"
+            }
+          },
+          "depth": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "computedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "AttachmentMode": {
         "enum": [
           "detached",
@@ -5641,6 +5947,42 @@
           }
         }
       },
+      "ExpertiseDomainDto": {
+        "required": [
+          "name",
+          "description",
+          "level"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "level": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "ExpertiseResponse": {
+        "required": [
+          "domains"
+        ],
+        "type": "object",
+        "properties": {
+          "domains": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExpertiseDomainDto"
+            }
+          }
+        }
+      },
       "GitHubInstallationResponse": {
         "required": [
           "installationId",
@@ -6265,6 +6607,20 @@
           "dailyBudget": {
             "type": "number",
             "format": "double"
+          }
+        }
+      },
+      "SetExpertiseRequest": {
+        "required": [
+          "domains"
+        ],
+        "type": "object",
+        "properties": {
+          "domains": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExpertiseDomainDto"
+            }
           }
         }
       },
@@ -7177,6 +7533,9 @@
     },
     {
       "name": "Directory"
+    },
+    {
+      "name": "Expertise"
     },
     {
       "name": "Clones"

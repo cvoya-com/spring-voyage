@@ -82,6 +82,8 @@ public static class UnitCommand
         // #453 — policy <dimension> get/set/clear across the five UnitPolicy
         // dimensions.
         unitCommand.Subcommands.Add(UnitPolicyCommand.Create(outputOption));
+        // #412 — expertise get/set/aggregated.
+        unitCommand.Subcommands.Add(ExpertiseCommand.CreateUnitSubcommand(outputOption));
 
         return unitCommand;
     }

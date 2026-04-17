@@ -267,6 +267,43 @@ public class UnitActor : Actor, IUnitActor
     }
 
     /// <inheritdoc />
+    public async Task<ExpertiseDomain[]> GetOwnExpertiseAsync(CancellationToken ct = default)
+    {
+        var result = await StateManager
+            .TryGetStateAsync<List<ExpertiseDomain>>(StateKeys.UnitOwnExpertise, ct);
+        return result.HasValue ? result.Value.ToArray() : Array.Empty<ExpertiseDomain>();
+    }
+
+    /// <inheritdoc />
+    public async Task SetOwnExpertiseAsync(ExpertiseDomain[] domains, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(domains);
+
+        // Store normalized copy — dedup by (Name, Level) so a caller that
+        // PUTs duplicate domains does not bloat state.
+        var normalised = domains
+            .Where(d => !string.IsNullOrWhiteSpace(d.Name))
+            .GroupBy(d => d.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.First())
+            .ToList();
+
+        await StateManager.SetStateAsync(StateKeys.UnitOwnExpertise, normalised, ct);
+
+        _logger.LogInformation(
+            "Unit {ActorId} own expertise updated. Domain count: {Count}",
+            Id.GetId(), normalised.Count);
+
+        await EmitActivityEventAsync(ActivityEventType.StateChanged,
+            $"Unit expertise updated. Domains: {normalised.Count}",
+            ct,
+            details: JsonSerializer.SerializeToElement(new
+            {
+                action = "UnitExpertiseUpdated",
+                domains = normalised.Select(d => new { d.Name, d.Description, Level = d.Level?.ToString() }),
+            }));
+    }
+
+    /// <inheritdoc />
     public async Task<UnitMetadata> GetMetadataAsync(CancellationToken ct = default)
     {
         var modelResult = await StateManager.TryGetStateAsync<string>(StateKeys.UnitModel, ct);

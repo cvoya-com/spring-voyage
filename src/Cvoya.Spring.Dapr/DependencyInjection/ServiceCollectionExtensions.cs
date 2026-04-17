@@ -18,6 +18,7 @@ using Cvoya.Spring.Core.State;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Auth;
+using Cvoya.Spring.Dapr.Capabilities;
 using Cvoya.Spring.Dapr.Costs;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
@@ -194,6 +195,13 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IAgentProxyResolver, AgentProxyResolver>();
         services.TryAddSingleton<MessageRouter>();
         services.TryAddSingleton<IMessageRouter>(sp => sp.GetRequiredService<MessageRouter>());
+
+        // Expertise aggregation (#412). TryAdd so the private cloud repo can
+        // decorate with tenant filters or a different cache implementation
+        // without forking the OSS default. The store reads from the
+        // existing agent / unit actor state keys — no new persistence.
+        services.TryAddSingleton<IExpertiseStore, ActorBackedExpertiseStore>();
+        services.TryAddSingleton<IExpertiseAggregator, ExpertiseAggregator>();
 
         // Execution — AnthropicProvider needs HttpClient
         services.AddHttpClient<IAiProvider, AnthropicProvider>();
