@@ -12,6 +12,26 @@ When shipping a feature, update the relevant architecture doc(s) under `docs/arc
 
 When a PR touches `src/Cvoya.Spring.Web/`, it must also keep [`src/Cvoya.Spring.Web/DESIGN.md`](src/Cvoya.Spring.Web/DESIGN.md) in sync. `DESIGN.md` is the portal's visual contract (color palette, typography, spacing, radii, shadows, component patterns, voice & tone, dark-mode behavior) — update it in the same PR whenever the change introduces, modifies, or removes a visual pattern. Leaving the design doc stale is the same kind of drift as leaving architecture docs stale.
 
+### Repo-level MCP servers
+
+Spring Voyage registers project-scoped MCP servers in [`.mcp.json`](.mcp.json) at the repo root — Claude Code's standard location for per-project MCP configuration. Tool choices that bind to a specific Spring Voyage design source, API, or dataset live here so every contributor and every coding agent points at the same thing, and so changes go through PR review.
+
+**Stitch MCP** is the first repo-level server. It gives coding agents direct access to the portal's Stitch design context (screens, components, tokens), complementing [`src/Cvoya.Spring.Web/DESIGN.md`](src/Cvoya.Spring.Web/DESIGN.md). Use Stitch MCP when the relevant screen, design token, or visual pattern isn't fully captured by `DESIGN.md` alone.
+
+Setup (one-time, per contributor):
+
+1. Install / have `npx` available (the server runs via `npx -y @_davideast/stitch-mcp proxy`).
+2. Obtain a Stitch API key and export it in your shell:
+
+   ```bash
+   export STITCH_API_KEY=...
+   ```
+
+   Without `STITCH_API_KEY` the Stitch MCP server fails to start cleanly — that is the intended failure mode, not a bug.
+3. The first time Claude Code encounters the server in a session, it prompts for approval. Approve once per session and the server is available for subsequent tool calls.
+
+Credentials are **always** referenced via `${ENV_VAR}` in `.mcp.json`. Never commit a literal token.
+
 ## Architecture
 
 The architecture is documented under `docs/architecture/` — see [`docs/architecture/README.md`](docs/architecture/README.md) for the full index. For execution status and phased implementation plan, see [`docs/roadmap/`](docs/roadmap/README.md).
