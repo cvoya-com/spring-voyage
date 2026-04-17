@@ -23,6 +23,19 @@ See [docs/developer/setup.md](docs/developer/setup.md) for prerequisites and bui
 5. Run `dotnet format --verify-no-changes` to check formatting.
 6. Open a PR against `main` with a clear description.
 7. Reference the issue in your commit message: `Closes #N`.
+8. Add a one-line entry to `CHANGELOG.md` under the `## [Unreleased]` section (see [Changelog Expectations](#changelog-expectations)).
+
+### Changelog Expectations
+
+Every user-visible PR adds one line to [`CHANGELOG.md`](CHANGELOG.md) under the `## [Unreleased]` section, in the appropriate subsection (`Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, or `Security` — see [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)).
+
+- **One line per PR**, not per commit. Summarise the feature or fix in a single sentence and link the PR number: `- Brief description ([#NNN](https://github.com/cvoya-com/spring-voyage/pull/NNN)).`
+- **Skip internal-only changes** that users and extenders would never notice (refactors with no behavioural effect, test-only changes, CI plumbing, typo fixes in internal docs).
+- **Skip doc-only PRs** unless they document a new public concept or surface. The docs themselves are the record.
+- **Breaking changes go under `Changed` or `Removed`** and must be prefixed with `**BREAKING:**`. Also apply the `breaking-change` label to the PR. See [`docs/developer/releases.md`](docs/developer/releases.md) for the full breaking-change policy.
+- **Reference GitHub numbers.** Link the PR; cross-reference the issue if it adds context.
+
+Don't create a new release section in the changelog. Maintainers move entries from `[Unreleased]` into a tagged section when a release is cut — see [`docs/developer/releases.md`](docs/developer/releases.md).
 
 ### Code Review
 
@@ -60,6 +73,7 @@ All conventions are in [CONVENTIONS.md](CONVENTIONS.md). Key points:
 - [Architecture](docs/architecture/overview.md) — how it's built
 - [Design Decisions](docs/design-decisions.md) — the "why"
 - [Roadmap](docs/roadmap.md) — phased plan with OSS/Private split
+- [Releases and Versioning](docs/developer/releases.md) — SemVer, release process, CI/CD
 
 ## Labels
 
