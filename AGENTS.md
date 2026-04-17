@@ -6,6 +6,10 @@ AI agent orchestration platform — general-purpose, domain-agnostic. Built on .
 
 Read `CONVENTIONS.md` for all coding patterns, naming, testing, DI, Dapr usage, and error handling conventions. Everything in `CONVENTIONS.md` is mandatory.
 
+### Documentation Updates
+
+When shipping a feature, update the relevant architecture doc(s) under `docs/architecture/` and user guide(s) under `docs/guide/` in the same PR so the docs never lag behind the code. If the feature introduces a new concept, add or update the relevant concept doc under `docs/concepts/`. Treat these updates as part of the feature — a PR that changes user-visible behavior or architecture without touching the corresponding docs is not complete.
+
 ## Architecture
 
 The architecture is documented under `docs/architecture/` — see [`docs/architecture/README.md`](docs/architecture/README.md) for the full index. For execution status and phased implementation plan, see [`docs/roadmap/`](docs/roadmap/README.md).

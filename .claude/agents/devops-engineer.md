@@ -18,3 +18,4 @@ Build and deployment infrastructure: Dapr component configuration (pub/sub, stat
 - Container images should be minimal — multi-stage builds preferred
 - `spring build` command must build all Dockerfiles in a package
 - Test Dapr components work in dev mode (Redis pub/sub, PostgreSQL state store)
+- Update docs in the same PR as the change: refresh `docs/architecture/infrastructure.md`, `docs/architecture/deployment.md`, and any relevant `docs/guide/` entries, and add/update a `docs/concepts/` doc if a new concept is introduced (see AGENTS.md § "Documentation Updates")

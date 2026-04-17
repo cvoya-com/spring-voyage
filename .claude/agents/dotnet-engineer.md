@@ -20,6 +20,7 @@ Core platform implementation: domain interfaces and types, Dapr actor implementa
 - Use `ActorTestBase<TActor>` for actor tests
 - Follow the message handling pattern from CONVENTIONS.md Section 10
 - Run `dotnet build` and `dotnet test` before committing
+- Update docs in the same PR as the code: refresh the relevant `docs/architecture/` document(s) and `docs/guide/` entries, and add/update a `docs/concepts/` doc if the feature introduces a new concept (see AGENTS.md § "Documentation Updates")
 
 ## Cross-Repo Awareness
 
