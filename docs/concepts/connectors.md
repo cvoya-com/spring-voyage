@@ -55,3 +55,15 @@ For bidirectional, stateful, domain-aware integrations (GitHub, Slack, Figma), c
 ## Authentication
 
 Connectors that require authentication expose installation / OAuth flows through their typed endpoints. The CLI surfaces binding through `spring connector bind` (for example, `spring connector bind --unit engineering-team --type github --owner my-org --repo platform --installation-id <id>`) which atomically writes the connector binding plus its per-unit config. Interactive OAuth prompts are handled by the connector package that owns the auth flow; credentials are stored securely via the platform's secret management.
+
+## Label Roundtrip
+
+When a unit is configured with a `LabelRoutingPolicy` (see the unit's policy surface) and an inbound message carries a trigger label, the `LabelRoutedOrchestrationStrategy` dispatches the message to the mapped member and publishes a `DecisionMade` activity event carrying the originating `source`, `repository`, and `issue.number` plus the policy's `AddOnAssign` and `RemoveOnAssign` lists.
+
+The GitHub connector subscribes to that event and performs the label write back on the originating issue — applying the `AddOnAssign` labels (e.g. `in-progress`) and stripping the `RemoveOnAssign` labels (typically the trigger label itself, so a second agent does not race onto the same work). The strategy itself does not mutate external state because only the connector holds the GitHub App credentials needed to make the call.
+
+Roundtrip semantics:
+
+- **Idempotent.** Adding a label that is already applied is a server-side no-op; removing one that is already absent returns 404 and is swallowed. Re-delivery of an assignment event converges on the same final label set.
+- **Best-effort.** Permission errors (403 / 401) and transient failures are logged and swallowed; the subscription stays live so subsequent assignments keep flowing.
+- **Cross-connector.** Any future label-aware connector (Linear, Jira, ...) can subscribe to the same activity-event bus and filter on the event's `source` field — the contract is the event shape, not a direct dependency on the strategy.

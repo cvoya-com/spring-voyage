@@ -302,7 +302,7 @@ Three concrete implementations of `IOrchestrationStrategy` ship today. Each is r
 
 The strategy pattern is intentionally open — a host can register its own `IOrchestrationStrategy` under a new DI key without touching core code.
 
-Matching semantics and design rationale for label routing are captured in [ADR-0007](../decisions/0007-label-routing-match-semantics.md); the per-message resolution protocol that honours the manifest key is captured in [ADR-0010](../decisions/0010-manifest-orchestration-strategy-selector.md).
+Matching semantics and design rationale for label routing are captured in [ADR-0007](../decisions/0007-label-routing-match-semantics.md). Status-label roundtrip (the connector applying `AddOnAssign` / `RemoveOnAssign` after a successful assignment) is wired via the activity-event bus as described in [ADR-0009](../decisions/0009-github-label-roundtrip-via-activity-event.md): the strategy publishes a `DecisionMade` event with `decision = "LabelRouted"` and the GitHub connector subscribes to it. The per-message resolution protocol that honours the manifest key is captured in [ADR-0010](../decisions/0010-manifest-orchestration-strategy-selector.md).
 
 **Workflow patterns within a workflow strategy** — sequential, parallel, fan-out/fan-in, conditional, human-in-the-loop — are driven by the workflow engine inside the container; see [Workflows](workflows.md) for the full pattern catalogue.
 

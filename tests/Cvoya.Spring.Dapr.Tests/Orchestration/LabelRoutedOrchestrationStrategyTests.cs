@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Dapr.Tests.Orchestration;
 using System.Collections.Generic;
 using System.Text.Json;
 
+using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Policies;
@@ -327,5 +328,109 @@ public class LabelRoutedOrchestrationStrategyTests
             "ghost",
             [new Address("agent", "backend-engineer")]);
         result.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task OrchestrateAsync_SuccessfulAssignment_PublishesLabelRoutedEvent()
+    {
+        var target = new Address("agent", "backend-engineer");
+        _context.Members.Returns([target]);
+        _policyRepository
+            .GetAsync("engineering-team", Arg.Any<CancellationToken>())
+            .Returns(new UnitPolicy(LabelRouting: new LabelRoutingPolicy(
+                TriggerLabels: new Dictionary<string, string>
+                {
+                    ["agent:backend"] = "backend-engineer",
+                },
+                AddOnAssign: new[] { "in-progress" },
+                RemoveOnAssign: new[] { "agent:backend" })));
+
+        ActivityEvent? captured = null;
+        var bus = Substitute.For<IActivityEventBus>();
+        bus.PublishAsync(Arg.Do<ActivityEvent>(e => captured = e), Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+        var strategy = new LabelRoutedOrchestrationStrategy(
+            _policyRepository, _loggerFactory, bus);
+
+        var githubPayload = new
+        {
+            source = "github",
+            repository = new { owner = "acme", name = "widgets" },
+            issue = new { number = 42 },
+            labels = new[] { "agent:backend" },
+        };
+
+        await strategy.OrchestrateAsync(
+            CreateMessage(githubPayload),
+            _context,
+            TestContext.Current.CancellationToken);
+
+        captured.ShouldNotBeNull();
+        captured!.EventType.ShouldBe(ActivityEventType.DecisionMade);
+        captured.Details.ShouldNotBeNull();
+
+        var details = captured.Details!.Value;
+        details.GetProperty("decision").GetString()
+            .ShouldBe(LabelRoutedOrchestrationStrategy.LabelRoutedDecision);
+        details.GetProperty("source").GetString().ShouldBe("github");
+        details.GetProperty("repository").GetProperty("owner").GetString().ShouldBe("acme");
+        details.GetProperty("repository").GetProperty("name").GetString().ShouldBe("widgets");
+        details.GetProperty("issue").GetProperty("number").GetInt32().ShouldBe(42);
+        details.GetProperty("addOnAssign")[0].GetString().ShouldBe("in-progress");
+        details.GetProperty("removeOnAssign")[0].GetString().ShouldBe("agent:backend");
+    }
+
+    [Fact]
+    public async Task OrchestrateAsync_DroppedMessage_DoesNotPublishEvent()
+    {
+        _context.Members.Returns([new Address("agent", "backend-engineer")]);
+        _policyRepository
+            .GetAsync("engineering-team", Arg.Any<CancellationToken>())
+            .Returns(UnitPolicy.Empty);
+
+        var bus = Substitute.For<IActivityEventBus>();
+        var strategy = new LabelRoutedOrchestrationStrategy(
+            _policyRepository, _loggerFactory, bus);
+
+        await strategy.OrchestrateAsync(
+            CreateMessage(new { labels = new[] { "agent:backend" } }),
+            _context,
+            TestContext.Current.CancellationToken);
+
+        await bus.DidNotReceive().PublishAsync(
+            Arg.Any<ActivityEvent>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task OrchestrateAsync_BusPublishFailure_DoesNotFaultOrchestration()
+    {
+        var target = new Address("agent", "backend-engineer");
+        _context.Members.Returns([target]);
+        _policyRepository
+            .GetAsync("engineering-team", Arg.Any<CancellationToken>())
+            .Returns(new UnitPolicy(LabelRouting: new LabelRoutingPolicy(
+                TriggerLabels: new Dictionary<string, string>
+                {
+                    ["agent:backend"] = "backend-engineer",
+                })));
+
+        var bus = Substitute.For<IActivityEventBus>();
+        bus.PublishAsync(Arg.Any<ActivityEvent>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new InvalidOperationException("bus is down")));
+
+        var sent = CreateMessage(new { acknowledged = true });
+        _context.SendAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Returns(sent);
+
+        var strategy = new LabelRoutedOrchestrationStrategy(
+            _policyRepository, _loggerFactory, bus);
+
+        // The publish failure must not surface as an orchestration fault.
+        var result = await strategy.OrchestrateAsync(
+            CreateMessage(new { labels = new[] { "agent:backend" } }),
+            _context,
+            TestContext.Current.CancellationToken);
+
+        result.ShouldBe(sent);
     }
 }

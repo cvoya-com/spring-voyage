@@ -210,6 +210,16 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<GitHubConnectorType>();
         services.AddSingleton<IConnectorType>(sp => sp.GetRequiredService<GitHubConnectorType>());
 
+        // Label-roundtrip subscriber (#492): observes the platform activity
+        // bus for label-routed GitHub assignments and applies AddOnAssign /
+        // RemoveOnAssign on the originating issue. Hosted as an IHostedService
+        // so the subscription is set up during host start and disposed on
+        // shutdown. Registered unconditionally — when IActivityEventBus isn't
+        // available (older tests) the service resolution fails at activation
+        // and the host refuses to start, matching the pattern of other
+        // bus-coupled subscribers (ActivityEventPersister, CostTracker).
+        services.AddHostedService<Labels.LabelRoutingRoundtripSubscriber>();
+
         return services;
     }
 }
