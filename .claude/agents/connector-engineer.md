@@ -20,3 +20,4 @@ All connector implementations — currently GitHub (Octokit.net), and future con
 - GitHub App authentication (JWT + installation tokens)
 - Verify webhook signatures
 - Mock external APIs in tests — no live API calls in CI
+- Update docs in the same PR as the code: refresh `docs/architecture/connectors.md` and the relevant `docs/guide/` entries, and add/update a `docs/concepts/` doc if the connector introduces a new concept (see AGENTS.md § "Documentation Updates")

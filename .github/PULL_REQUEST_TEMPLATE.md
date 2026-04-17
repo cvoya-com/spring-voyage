@@ -24,3 +24,4 @@
 - [ ] Changes follow [CONVENTIONS.md](../CONVENTIONS.md)
 - [ ] No breaking changes to Core interfaces (or discussed in an issue first)
 - [ ] Copyright headers on new C# files
+- [ ] Docs updated alongside the code per [AGENTS.md § "Documentation Updates"](../AGENTS.md#documentation-updates): relevant `docs/architecture/` and `docs/guide/` entries refreshed, and `docs/concepts/` added/updated if a new concept is introduced (or N/A for doc-only/internal-only changes)
