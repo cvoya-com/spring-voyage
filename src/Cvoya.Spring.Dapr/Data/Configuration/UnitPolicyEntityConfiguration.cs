@@ -28,6 +28,7 @@ internal class UnitPolicyEntityConfiguration : IEntityTypeConfiguration<UnitPoli
         builder.Property(e => e.Cost).HasColumnName("cost").HasColumnType("jsonb");
         builder.Property(e => e.ExecutionMode).HasColumnName("execution_mode").HasColumnType("jsonb");
         builder.Property(e => e.Initiative).HasColumnName("initiative").HasColumnType("jsonb");
+        builder.Property(e => e.LabelRouting).HasColumnName("label_routing").HasColumnType("jsonb");
         builder.Property(e => e.CreatedAt).HasColumnName("created_at").IsRequired();
         builder.Property(e => e.UpdatedAt).HasColumnName("updated_at").IsRequired();
     }

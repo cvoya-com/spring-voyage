@@ -38,7 +38,8 @@ public class UnitPolicyRepository(SpringDbContext context) : IUnitPolicyReposito
             Model: Deserialize<ModelPolicy>(entity.Model),
             Cost: Deserialize<CostPolicy>(entity.Cost),
             ExecutionMode: Deserialize<ExecutionModePolicy>(entity.ExecutionMode),
-            Initiative: Deserialize<InitiativePolicy>(entity.Initiative));
+            Initiative: Deserialize<InitiativePolicy>(entity.Initiative),
+            LabelRouting: Deserialize<LabelRoutingPolicy>(entity.LabelRouting));
     }
 
     /// <inheritdoc />
@@ -63,6 +64,7 @@ public class UnitPolicyRepository(SpringDbContext context) : IUnitPolicyReposito
         var cost = Serialize(policy.Cost);
         var execMode = Serialize(policy.ExecutionMode);
         var initiative = Serialize(policy.Initiative);
+        var labelRouting = Serialize(policy.LabelRouting);
 
         if (existing is null)
         {
@@ -74,6 +76,7 @@ public class UnitPolicyRepository(SpringDbContext context) : IUnitPolicyReposito
                 Cost = cost,
                 ExecutionMode = execMode,
                 Initiative = initiative,
+                LabelRouting = labelRouting,
             });
         }
         else
@@ -83,6 +86,7 @@ public class UnitPolicyRepository(SpringDbContext context) : IUnitPolicyReposito
             existing.Cost = cost;
             existing.ExecutionMode = execMode;
             existing.Initiative = initiative;
+            existing.LabelRouting = labelRouting;
         }
 
         await context.SaveChangesAsync(cancellationToken);
