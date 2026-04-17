@@ -153,6 +153,23 @@ public class HumanActor(
             Id.GetId(), unitId, level);
     }
 
+    /// <inheritdoc />
+    public async Task RemovePermissionForUnitAsync(string unitId, CancellationToken cancellationToken = default)
+    {
+        var unitPermissions = await GetUnitPermissionsMapAsync(cancellationToken);
+        if (!unitPermissions.Remove(unitId))
+        {
+            // Idempotent: nothing to remove is not an error.
+            return;
+        }
+
+        await StateManager.SetStateAsync(StateKeys.HumanUnitPermissions, unitPermissions, cancellationToken);
+
+        _logger.LogInformation(
+            "Human actor {ActorId} permission for unit {UnitId} cleared",
+            Id.GetId(), unitId);
+    }
+
     /// <summary>
     /// Retrieves the unit-scoped permissions map from state.
     /// </summary>

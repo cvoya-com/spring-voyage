@@ -380,4 +380,232 @@ public class CommandParsingTests
         parseResult.GetValue<string>("--agent").ShouldBe("ada");
         parseResult.GetValue<string>("--unit").ShouldBe("child-unit");
     }
+
+    // --- #460: `spring unit create-from-template <pkg>/<tpl>` as first-class verb -----
+
+    [Fact]
+    public void UnitCreateFromTemplate_ParsesPositionalTargetAndFlags()
+    {
+        var outputOption = CreateOutputOption();
+        var unitCommand = UnitCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(unitCommand);
+
+        var parseResult = rootCommand.Parse(
+            "unit create-from-template software-engineering/engineering-team --name run42-eng --display \"Engineering (run 42)\" --model claude-sonnet-4 --color #336699");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<string>("target").ShouldBe("software-engineering/engineering-team");
+        parseResult.GetValue<string>("--name").ShouldBe("run42-eng");
+        parseResult.GetValue<string>("--display-name").ShouldBe("Engineering (run 42)");
+        parseResult.GetValue<string>("--model").ShouldBe("claude-sonnet-4");
+        parseResult.GetValue<string>("--color").ShouldBe("#336699");
+    }
+
+    [Fact]
+    public void UnitCreateFromTemplate_AcceptsProductManagementTarget()
+    {
+        // Exercises the second template package required by #460's acceptance
+        // criteria — the parser has no package-name whitelist, so this only
+        // verifies the positional is routed through verbatim.
+        var outputOption = CreateOutputOption();
+        var unitCommand = UnitCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(unitCommand);
+
+        var parseResult = rootCommand.Parse(
+            "unit create-from-template product-management/product-team --name pm-team");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<string>("target").ShouldBe("product-management/product-team");
+        parseResult.GetValue<string>("--name").ShouldBe("pm-team");
+    }
+
+    // --- #454: `spring unit humans add|remove|list` -------------------------
+
+    [Fact]
+    public void UnitHumansAdd_ParsesObservingGuideInvocationVerbatim()
+    {
+        // Must keep working verbatim — docs/guide/observing.md §Notifications
+        // references this exact invocation. If this test fails, the docs
+        // fail alongside it.
+        var outputOption = CreateOutputOption();
+        var unitCommand = UnitCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(unitCommand);
+
+        var parseResult = rootCommand.Parse(
+            "unit humans add engineering-team savasp --permission owner --notifications slack,email");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<string>("unit").ShouldBe("engineering-team");
+        parseResult.GetValue<string>("identity").ShouldBe("savasp");
+        parseResult.GetValue<string>("--permission").ShouldBe("owner");
+        parseResult.GetValue<string>("--notifications").ShouldBe("slack,email");
+    }
+
+    [Fact]
+    public void UnitHumansAdd_RejectsUnknownPermissionLevel()
+    {
+        var outputOption = CreateOutputOption();
+        var unitCommand = UnitCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(unitCommand);
+
+        var parseResult = rootCommand.Parse(
+            "unit humans add eng-team alice --permission superadmin");
+
+        parseResult.Errors.ShouldNotBeEmpty();
+    }
+
+    [Fact]
+    public void UnitHumansRemove_ParsesUnitAndIdentity()
+    {
+        var outputOption = CreateOutputOption();
+        var unitCommand = UnitCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(unitCommand);
+
+        var parseResult = rootCommand.Parse("unit humans remove eng-team alice");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<string>("unit").ShouldBe("eng-team");
+        parseResult.GetValue<string>("identity").ShouldBe("alice");
+    }
+
+    [Fact]
+    public void UnitHumansList_ParsesUnitArgumentWithJsonOutput()
+    {
+        var outputOption = CreateOutputOption();
+        var unitCommand = UnitCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(unitCommand);
+
+        var parseResult = rootCommand.Parse("--output json unit humans list eng-team");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<string>("unit").ShouldBe("eng-team");
+        parseResult.GetValue(outputOption).ShouldBe("json");
+    }
+
+    // --- #453: `spring unit policy <dim> get|set|clear` for all 5 dimensions -------
+
+    [Theory]
+    [InlineData("skill")]
+    [InlineData("model")]
+    [InlineData("cost")]
+    [InlineData("execution-mode")]
+    [InlineData("initiative")]
+    public void UnitPolicyGet_ParsesEachDimension(string dimension)
+    {
+        var outputOption = CreateOutputOption();
+        var unitCommand = UnitCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(unitCommand);
+
+        var parseResult = rootCommand.Parse($"unit policy {dimension} get eng-team");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<string>("unit").ShouldBe("eng-team");
+    }
+
+    [Theory]
+    [InlineData("skill")]
+    [InlineData("model")]
+    [InlineData("cost")]
+    [InlineData("execution-mode")]
+    [InlineData("initiative")]
+    public void UnitPolicyClear_ParsesEachDimension(string dimension)
+    {
+        var outputOption = CreateOutputOption();
+        var unitCommand = UnitCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(unitCommand);
+
+        var parseResult = rootCommand.Parse($"unit policy {dimension} clear eng-team");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<string>("unit").ShouldBe("eng-team");
+    }
+
+    [Fact]
+    public void UnitPolicySkillSet_ParsesAllowedAndBlockedLists()
+    {
+        var outputOption = CreateOutputOption();
+        var unitCommand = UnitCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(unitCommand);
+
+        var parseResult = rootCommand.Parse(
+            "unit policy skill set eng-team --allowed github,filesystem --blocked shell");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<string[]>("--allowed").ShouldBe(new[] { "github,filesystem" });
+        parseResult.GetValue<string[]>("--blocked").ShouldBe(new[] { "shell" });
+    }
+
+    [Fact]
+    public void UnitPolicyCostSet_ParsesNumericCaps()
+    {
+        var outputOption = CreateOutputOption();
+        var unitCommand = UnitCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(unitCommand);
+
+        var parseResult = rootCommand.Parse(
+            "unit policy cost set eng-team --max-per-invocation 0.5 --max-per-hour 5 --max-per-day 25");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<double?>("--max-per-invocation").ShouldBe(0.5);
+        parseResult.GetValue<double?>("--max-per-hour").ShouldBe(5.0);
+        parseResult.GetValue<double?>("--max-per-day").ShouldBe(25.0);
+    }
+
+    [Fact]
+    public void UnitPolicyExecutionModeSet_ParsesForcedValue()
+    {
+        var outputOption = CreateOutputOption();
+        var unitCommand = UnitCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(unitCommand);
+
+        var parseResult = rootCommand.Parse(
+            "unit policy execution-mode set eng-team --forced OnDemand");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<string>("--forced").ShouldBe("OnDemand");
+    }
+
+    [Fact]
+    public void UnitPolicyInitiativeSet_ParsesMaxLevelAndActions()
+    {
+        var outputOption = CreateOutputOption();
+        var unitCommand = UnitCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(unitCommand);
+
+        var parseResult = rootCommand.Parse(
+            "unit policy initiative set eng-team --max-level Proactive --blocked agent.spawn");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<string>("--max-level").ShouldBe("Proactive");
+        parseResult.GetValue<string[]>("--blocked").ShouldBe(new[] { "agent.spawn" });
+    }
+
+    [Fact]
+    public void UnitPolicySet_AcceptsYamlFragmentViaFileFlag()
+    {
+        var outputOption = CreateOutputOption();
+        var unitCommand = UnitCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(unitCommand);
+
+        var parseResult = rootCommand.Parse(
+            "unit policy skill set eng-team -f my-policy.yaml");
+
+        parseResult.Errors.ShouldBeEmpty();
+        // System.CommandLine stores options under their primary name
+        // ("--file" here, with "-f" as an alias); look up by primary name.
+        parseResult.GetValue<string>("--file").ShouldBe("my-policy.yaml");
+    }
 }

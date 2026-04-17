@@ -12,6 +12,23 @@ spring unit create <name> [--description "..."]
 
 A unit is usable immediately after creation. You can add agents, connectors, and policies incrementally.
 
+#### From a template
+
+Create a unit by instantiating a packaged template:
+
+```
+spring unit create-from-template <package>/<template-name> [--name <override>] [--display <display-name>]
+```
+
+Example:
+
+```
+spring unit create-from-template software-engineering/engineering-team --name eng-team
+spring unit create-from-template product-management/product-team --name pm-team
+```
+
+`--name` overrides the manifest-derived unit name so repeated instantiations of the same template don't collide. The legacy `spring unit create --from-template <package>/<template>` flag keeps working but prints a deprecation notice — use the first-class verb above.
+
 ### Listing Units
 
 ```
@@ -34,6 +51,43 @@ spring unit set <name> \
 ```
 
 ### Setting Policies
+
+Per-unit governance policies (skill, model, cost, execution mode, initiative) are edited through the unified `spring unit policy` verb group:
+
+```
+spring unit policy skill          get|set|clear <unit> [flags...]
+spring unit policy model          get|set|clear <unit> [flags...]
+spring unit policy cost           get|set|clear <unit> [flags...]
+spring unit policy execution-mode get|set|clear <unit> [flags...]
+spring unit policy initiative     get|set|clear <unit> [flags...]
+```
+
+Examples:
+
+```
+# Allow-list / block-list for tools (skills) and models.
+spring unit policy skill set eng-team --allowed github,filesystem --blocked shell
+spring unit policy model set eng-team --allowed claude-sonnet-4,gpt-4o --blocked gpt-3.5-turbo
+
+# Cost caps (USD).
+spring unit policy cost set eng-team --max-per-invocation 0.50 --max-per-hour 5 --max-per-day 25
+
+# Force every agent in the unit to a single execution mode.
+spring unit policy execution-mode set eng-team --forced OnDemand
+
+# Initiative deny-overlay plus ceiling level.
+spring unit policy initiative set eng-team --max-level Proactive --blocked agent.spawn
+```
+
+Alternatively, pass a YAML fragment for the same dimension:
+
+```
+spring unit policy skill set eng-team -f path/to/skill-policy.yaml
+```
+
+`spring unit policy <dimension> get <unit>` prints the current slot plus the inheritance chain (today a single hop — see [#414](https://github.com/cvoya-com/spring-voyage/issues/414) for parent-unit overlay). `clear` removes a dimension without touching the other four.
+
+The legacy shorthand below still exists for a handful of older flags and will be folded into the `policy` verb group over time:
 
 ```
 spring unit set <name> \
@@ -63,10 +117,12 @@ spring unit members list <unit>
 ### Managing Humans
 
 ```
-spring unit humans add <unit> <identity> --permission owner|operator|viewer
+spring unit humans add <unit> <identity> --permission owner|operator|viewer [--identity <display>] [--notifications slack,email]
 spring unit humans remove <unit> <identity>
 spring unit humans list <unit>
 ```
+
+`add` and `remove` require an `owner` on the target unit; `list` requires at least a `viewer`. `remove` is idempotent — calling it twice in a row succeeds both times. The `--notifications` flag accepts either `true`/`false` or a comma-separated channel list; any non-empty list enables notifications while `false` / `none` disables them.
 
 ### Starting and Stopping
 

@@ -34,4 +34,15 @@ public interface IHumanActor : IAgent
     /// <param name="level">The permission level to set.</param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     Task SetPermissionForUnitAsync(string unitId, PermissionLevel level, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Removes this human's unit-scoped permission entry for <paramref name="unitId"/>.
+    /// Idempotent — clearing an entry that was never set is a no-op. Paired
+    /// with <see cref="IUnitActor.RemoveHumanPermissionAsync"/> so the
+    /// unit-side and human-side views stay consistent after
+    /// <c>spring unit humans remove</c>.
+    /// </summary>
+    /// <param name="unitId">The unit identifier.</param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    Task RemovePermissionForUnitAsync(string unitId, CancellationToken cancellationToken = default);
 }

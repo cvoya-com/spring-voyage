@@ -427,6 +427,50 @@ public class UnitActorTests
         result.Count().ShouldBe(2);
     }
 
+    [Fact]
+    public async Task RemoveHumanPermissionAsync_ExistingEntry_RemovesAndPersists()
+    {
+        // #454 adds RemoveHumanPermissionAsync — the CLI's `spring unit
+        // humans remove` maps to DELETE on the server which delegates here.
+        // Verify the map shrinks by one and the persistence call fires.
+        var permissions = new Dictionary<string, UnitPermissionEntry>
+        {
+            ["human-1"] = new("human-1", PermissionLevel.Owner, "Alice", true),
+            ["human-2"] = new("human-2", PermissionLevel.Viewer, "Bob", false)
+        };
+        _stateManager.TryGetStateAsync<Dictionary<string, UnitPermissionEntry>>(
+            StateKeys.HumanPermissions, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<Dictionary<string, UnitPermissionEntry>>(true, permissions));
+
+        var removed = await _actor.RemoveHumanPermissionAsync("human-1", TestContext.Current.CancellationToken);
+
+        removed.ShouldBeTrue();
+        await _stateManager.Received(1).SetStateAsync(
+            StateKeys.HumanPermissions,
+            Arg.Is<Dictionary<string, UnitPermissionEntry>>(d =>
+                !d.ContainsKey("human-1") && d.ContainsKey("human-2")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RemoveHumanPermissionAsync_UnknownEntry_IsNoOpAndReturnsFalse()
+    {
+        // Idempotence is load-bearing: the CLI must not need to branch on
+        // "already absent" vs "just removed". Verify the state write is
+        // skipped so the actor does not rewrite the blob for no reason.
+        _stateManager.TryGetStateAsync<Dictionary<string, UnitPermissionEntry>>(
+            StateKeys.HumanPermissions, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<Dictionary<string, UnitPermissionEntry>>(false, default!));
+
+        var removed = await _actor.RemoveHumanPermissionAsync("unknown", TestContext.Current.CancellationToken);
+
+        removed.ShouldBeFalse();
+        await _stateManager.DidNotReceive().SetStateAsync(
+            StateKeys.HumanPermissions,
+            Arg.Any<Dictionary<string, UnitPermissionEntry>>(),
+            Arg.Any<CancellationToken>());
+    }
+
     // --- Activity Event Emission Tests ---
 
     [Fact]

@@ -67,12 +67,21 @@ public static class UnitCommand
 
         unitCommand.Subcommands.Add(CreateListCommand(outputOption));
         unitCommand.Subcommands.Add(CreateCreateCommand(outputOption));
+        // #460 — `create-from-template` promoted to a first-class verb; the
+        // `--from-template` flag on `create` keeps working but now prints a
+        // deprecation notice.
+        unitCommand.Subcommands.Add(CreateCreateFromTemplateCommand(outputOption));
         unitCommand.Subcommands.Add(CreateDeleteCommand());
         unitCommand.Subcommands.Add(CreatePurgeCommand());
         unitCommand.Subcommands.Add(CreateStartCommand());
         unitCommand.Subcommands.Add(CreateStopCommand());
         unitCommand.Subcommands.Add(CreateStatusCommand(outputOption));
         unitCommand.Subcommands.Add(CreateMembersCommand(outputOption));
+        // #454 — humans add/remove/list.
+        unitCommand.Subcommands.Add(UnitHumansCommand.Create(outputOption));
+        // #453 — policy <dimension> get/set/clear across the five UnitPolicy
+        // dimensions.
+        unitCommand.Subcommands.Add(UnitPolicyCommand.Create(outputOption));
 
         return unitCommand;
     }
@@ -190,60 +199,35 @@ public static class UnitCommand
                 // the override when --name is absent. This keeps the shell
                 // ergonomics close to the direct-create form while the flag
                 // spelling stays explicit for scripts.
+                //
+                // #460: this flag is deprecated in favour of the first-class
+                // `spring unit create-from-template` verb. The flag keeps
+                // working verbatim so existing scripts are not broken; we
+                // just nudge operators towards the new spelling in stderr
+                // so docs / onboarding mat
+                // erial can move off the flag.
+                await Console.Error.WriteLineAsync(
+                    "warning: `spring unit create --from-template` is deprecated (#460). " +
+                    "Use `spring unit create-from-template <package>/<template> [--name ...]` instead.");
+
                 var effectiveUnitName = !string.IsNullOrWhiteSpace(unitNameOverride)
                     ? unitNameOverride
                     : positionalName;
 
-                var slash = fromTemplate!.IndexOf('/');
-                if (slash <= 0 || slash == fromTemplate.Length - 1)
+                var exitCode = await ExecuteCreateFromTemplateAsync(
+                    fromTemplate!,
+                    effectiveUnitName,
+                    displayName,
+                    model,
+                    color,
+                    tool,
+                    provider,
+                    hosting,
+                    output,
+                    ct);
+                if (exitCode != 0)
                 {
-                    await Console.Error.WriteLineAsync(
-                        "--from-template must be in the form <package>/<template-name>.");
-                    Environment.Exit(1);
-                    return;
-                }
-
-                var package = fromTemplate[..slash];
-                var templateName = fromTemplate[(slash + 1)..];
-
-                var client = ClientFactory.Create();
-                var response = await client.CreateUnitFromTemplateAsync(
-                    package,
-                    templateName,
-                    unitName: effectiveUnitName,
-                    displayName: displayName,
-                    model: model,
-                    color: color,
-                    tool: tool,
-                    provider: provider,
-                    hosting: hosting,
-                    ct: ct);
-
-                // Surface server-side warnings (unresolved bundle tools,
-                // binding previews) on both table and JSON output paths so
-                // callers never miss the advisory messages.
-                if (response.Warnings is { Count: > 0 } warnings)
-                {
-                    foreach (var warning in warnings)
-                    {
-                        await Console.Error.WriteLineAsync($"warning: {warning}");
-                    }
-                }
-
-                if (output == "json")
-                {
-                    Console.WriteLine(OutputFormatter.FormatJson(response));
-                }
-                else
-                {
-                    // `response.Unit` is declared nullable by Kiota codegen;
-                    // the server always populates it on a successful 201 so
-                    // we surface a clear error rather than a blank table if
-                    // that invariant ever broke.
-                    var unit = response.Unit
-                        ?? throw new InvalidOperationException(
-                            "Server returned a from-template response with no unit envelope.");
-                    Console.WriteLine(OutputFormatter.FormatTable(unit, UnitColumns));
+                    Environment.Exit(exitCode);
                 }
                 return;
             }
@@ -275,6 +259,172 @@ public static class UnitCommand
         });
 
         return command;
+    }
+
+    /// <summary>
+    /// First-class <c>spring unit create-from-template &lt;package&gt;/&lt;template-name&gt;</c>
+    /// verb (#460). Mirrors the legacy <c>--from-template</c> flag on
+    /// <c>create</c> but surfaces template instantiation as a distinct verb
+    /// so <c>create</c>'s argument tree stays about "direct create" shape and
+    /// help output is easier to read. Shares the same HTTP surface
+    /// (<c>POST /api/v1/units/from-template</c>) via a common executor so the
+    /// two entry points never drift.
+    /// </summary>
+    private static Command CreateCreateFromTemplateCommand(Option<string> outputOption)
+    {
+        var targetArg = new Argument<string>("target")
+        {
+            Description = "Template reference in the form <package>/<template-name>.",
+        };
+        var unitNameOption = new Option<string?>("--name")
+        {
+            Description =
+                "Override the unit name (#325). Defaults to the manifest-derived name; pass this " +
+                "when instantiating the same template multiple times so the address paths don't collide.",
+        };
+        var displayNameOption = new Option<string?>("--display-name")
+        {
+            Description = "Human-readable display name (falls back to the template's default).",
+        };
+        // Alias --display alongside --display-name for shell ergonomics. The
+        // tracking issue spells the flag as --display; --display-name is the
+        // existing convention on `spring unit create`, so we accept both.
+        displayNameOption.Aliases.Add("--display");
+        var modelOption = new Option<string?>("--model")
+        {
+            Description = "Optional LLM model identifier override (e.g. claude-sonnet-4-20250514).",
+        };
+        var colorOption = new Option<string?>("--color")
+        {
+            Description = "Optional UI accent colour hint (e.g. #6366f1).",
+        };
+        var toolOption = new Option<string?>("--tool")
+        {
+            Description = "Execution tool (claude-code, codex, gemini, dapr-agent, custom).",
+        };
+        toolOption.AcceptOnlyFromAmong("claude-code", "codex", "gemini", "dapr-agent", "custom");
+        var providerOption = new Option<string?>("--provider")
+        {
+            Description = "LLM provider (ollama, openai, google, anthropic, claude).",
+        };
+        providerOption.AcceptOnlyFromAmong("ollama", "openai", "google", "anthropic", "claude");
+        var hostingOption = new Option<string?>("--hosting")
+        {
+            Description = "Agent hosting mode (ephemeral, persistent).",
+        };
+        hostingOption.AcceptOnlyFromAmong("ephemeral", "persistent");
+
+        var command = new Command(
+            "create-from-template",
+            "Instantiate a unit from a packaged template (#460). First-class verb equivalent to the " +
+            "deprecated `spring unit create --from-template <package>/<template>` flag.");
+        command.Arguments.Add(targetArg);
+        command.Options.Add(unitNameOption);
+        command.Options.Add(displayNameOption);
+        command.Options.Add(modelOption);
+        command.Options.Add(colorOption);
+        command.Options.Add(toolOption);
+        command.Options.Add(providerOption);
+        command.Options.Add(hostingOption);
+
+        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var target = parseResult.GetValue(targetArg)!;
+            var unitName = parseResult.GetValue(unitNameOption);
+            var displayName = parseResult.GetValue(displayNameOption);
+            var model = parseResult.GetValue(modelOption);
+            var color = parseResult.GetValue(colorOption);
+            var tool = parseResult.GetValue(toolOption);
+            var provider = parseResult.GetValue(providerOption);
+            var hosting = parseResult.GetValue(hostingOption);
+            var output = parseResult.GetValue(outputOption) ?? "table";
+
+            var exitCode = await ExecuteCreateFromTemplateAsync(
+                target,
+                unitName,
+                displayName,
+                model,
+                color,
+                tool,
+                provider,
+                hosting,
+                output,
+                ct);
+            if (exitCode != 0)
+            {
+                Environment.Exit(exitCode);
+            }
+        });
+
+        return command;
+    }
+
+    /// <summary>
+    /// Executes <c>POST /api/v1/units/from-template</c> with the supplied
+    /// inputs and renders the response in the requested output format.
+    /// Shared by both the legacy <c>--from-template</c> flag on
+    /// <c>create</c> and the new first-class <c>create-from-template</c>
+    /// verb so the two paths cannot drift on warnings / rendering / error
+    /// handling.
+    /// </summary>
+    private static async Task<int> ExecuteCreateFromTemplateAsync(
+        string target,
+        string? unitName,
+        string? displayName,
+        string? model,
+        string? color,
+        string? tool,
+        string? provider,
+        string? hosting,
+        string output,
+        CancellationToken ct)
+    {
+        var slash = target.IndexOf('/');
+        if (slash <= 0 || slash == target.Length - 1)
+        {
+            await Console.Error.WriteLineAsync(
+                "Template reference must be in the form <package>/<template-name>.");
+            return 1;
+        }
+
+        var package = target[..slash];
+        var templateName = target[(slash + 1)..];
+
+        var client = ClientFactory.Create();
+        var response = await client.CreateUnitFromTemplateAsync(
+            package,
+            templateName,
+            unitName: unitName,
+            displayName: displayName,
+            model: model,
+            color: color,
+            tool: tool,
+            provider: provider,
+            hosting: hosting,
+            ct: ct);
+
+        // Surface server-side warnings (unresolved bundle tools, binding
+        // previews) on both output paths so callers never miss them.
+        if (response.Warnings is { Count: > 0 } warnings)
+        {
+            foreach (var warning in warnings)
+            {
+                await Console.Error.WriteLineAsync($"warning: {warning}");
+            }
+        }
+
+        if (output == "json")
+        {
+            Console.WriteLine(OutputFormatter.FormatJson(response));
+        }
+        else
+        {
+            var unit = response.Unit
+                ?? throw new InvalidOperationException(
+                    "Server returned a from-template response with no unit envelope.");
+            Console.WriteLine(OutputFormatter.FormatTable(unit, UnitColumns));
+        }
+        return 0;
     }
 
     private static Command CreateDeleteCommand()

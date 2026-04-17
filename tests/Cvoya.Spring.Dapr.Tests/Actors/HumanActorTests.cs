@@ -228,4 +228,42 @@ public class HumanActorTests
 
         result.ShouldBeNull();
     }
+
+    [Fact]
+    public async Task RemovePermissionForUnitAsync_ExistingUnit_DropsEntry()
+    {
+        // #454 adds RemovePermissionForUnitAsync to keep the human-side
+        // view consistent with the unit-side after DELETE /humans/{humanId}.
+        var unitPermissions = new Dictionary<string, PermissionLevel>
+        {
+            ["unit-1"] = PermissionLevel.Owner,
+            ["unit-2"] = PermissionLevel.Viewer,
+        };
+        _stateManager.TryGetStateAsync<Dictionary<string, PermissionLevel>>(
+            StateKeys.HumanUnitPermissions, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<Dictionary<string, PermissionLevel>>(true, unitPermissions));
+
+        await _actor.RemovePermissionForUnitAsync("unit-1", TestContext.Current.CancellationToken);
+
+        await _stateManager.Received(1).SetStateAsync(
+            StateKeys.HumanUnitPermissions,
+            Arg.Is<Dictionary<string, PermissionLevel>>(d =>
+                !d.ContainsKey("unit-1") && d.ContainsKey("unit-2")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RemovePermissionForUnitAsync_UnknownUnit_IsNoOp()
+    {
+        _stateManager.TryGetStateAsync<Dictionary<string, PermissionLevel>>(
+            StateKeys.HumanUnitPermissions, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<Dictionary<string, PermissionLevel>>(false, default!));
+
+        await _actor.RemovePermissionForUnitAsync("unknown-unit", TestContext.Current.CancellationToken);
+
+        await _stateManager.DidNotReceive().SetStateAsync(
+            StateKeys.HumanUnitPermissions,
+            Arg.Any<Dictionary<string, PermissionLevel>>(),
+            Arg.Any<CancellationToken>());
+    }
 }

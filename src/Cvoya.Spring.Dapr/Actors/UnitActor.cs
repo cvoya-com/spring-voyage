@@ -201,6 +201,28 @@ public class UnitActor : Actor, IUnitActor
     }
 
     /// <inheritdoc />
+    public async Task<bool> RemoveHumanPermissionAsync(string humanId, CancellationToken ct = default)
+    {
+        var permissions = await GetHumanPermissionsMapAsync(ct);
+        if (!permissions.Remove(humanId))
+        {
+            // Idempotent: removing an entry that does not exist is a no-op.
+            // The DELETE endpoint still returns 204 to match `spring unit
+            // humans remove` ergonomics — the CLI should not have to branch
+            // on 404 vs 204 when the desired end state is "no such entry".
+            return false;
+        }
+
+        await StateManager.SetStateAsync(StateKeys.HumanPermissions, permissions, ct);
+
+        _logger.LogInformation(
+            "Unit {ActorId} removed permission for human {HumanId}",
+            Id.GetId(), humanId);
+
+        return true;
+    }
+
+    /// <inheritdoc />
     public async Task<UnitPermissionEntry[]> GetHumanPermissionsAsync(CancellationToken ct = default)
     {
         var permissions = await GetHumanPermissionsMapAsync(ct);
