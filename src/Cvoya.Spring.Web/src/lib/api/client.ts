@@ -525,12 +525,43 @@ export const api = {
 
   // Connectors — generic surface
   listConnectors: async () => unwrap(await fetchClient.GET("/api/v1/connectors")),
-  getConnector: async (slugOrId: string) =>
-    unwrap(
-      await fetchClient.GET("/api/v1/connectors/{slugOrId}", {
-        params: { path: { slugOrId } },
-      }),
-    ),
+  /**
+   * Returns the connector type metadata, or `null` when the slug/id
+   * isn't registered. Normalising 404 → null lets the detail page
+   * render a clean "not found" state without a try/catch.
+   */
+  getConnector: async (slugOrId: string) => {
+    const result = await fetchClient.GET("/api/v1/connectors/{slugOrId}", {
+      params: { path: { slugOrId } },
+    });
+    if (result.response.status === 404) {
+      return null;
+    }
+    return unwrap(result);
+  },
+  /**
+   * Fetches a connector's JSON Schema describing its per-unit config
+   * body. The endpoint URL lives on `ConnectorTypeResponse.configSchemaUrl`
+   * (e.g. `/api/v1/connectors/github/config-schema`); we accept the slug
+   * here and assemble the URL so call sites don't have to. Returns `null`
+   * when the connector doesn't expose a schema (404 or empty body).
+   */
+  getConnectorConfigSchema: async (slug: string): Promise<unknown | null> => {
+    const resp = await fetch(
+      `${BASE}/api/v1/connectors/${encodeURIComponent(slug)}/config-schema`,
+    );
+    if (resp.status === 404) {
+      return null;
+    }
+    if (!resp.ok) {
+      throw new ApiError(resp.status, resp.statusText, await resp.text());
+    }
+    const text = await resp.text();
+    if (!text.trim()) {
+      return null;
+    }
+    return JSON.parse(text) as unknown;
+  },
   /**
    * Returns the unit's active connector binding pointer, or `null` when
    * the unit isn't bound. Normalizing 404 → null here keeps call sites
