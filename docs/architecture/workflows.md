@@ -161,7 +161,7 @@ sequenceDiagram
     participant Launcher as IAgentToolLauncher
     participant MCP as IMcpServer
     participant Runtime as IContainerRuntime
-    participant Container as "Agent Container"
+    participant Container as AgentContainer
 
     Actor->>Disp: DispatchAsync(message, ctx)
     Disp->>Prov: GetByIdAsync(agentId)
@@ -192,7 +192,7 @@ sequenceDiagram
     participant Registry as PersistentAgentRegistry
     participant Launcher as IAgentToolLauncher
     participant Runtime as IContainerRuntime
-    participant Container as "Persistent Agent"
+    participant Container as PersistentAgent
 
     Actor->>Disp: DispatchAsync(message, ctx)
     Disp->>Registry: TryGetEndpoint(agentId)
