@@ -68,6 +68,11 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
     public IActivityEventBus ActivityEventBus { get; } = Substitute.For<IActivityEventBus>();
 
     /// <summary>
+    /// Gets the mock <see cref="IUnitActivityObservable"/> registered in the test DI container.
+    /// </summary>
+    public IUnitActivityObservable UnitActivityObservable { get; } = Substitute.For<IUnitActivityObservable>();
+
+    /// <summary>
     /// Gets the mock <see cref="IStateStore"/> registered in the test DI container.
     /// </summary>
     public IStateStore StateStore { get; } = Substitute.For<IStateStore>();
@@ -218,6 +223,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
                 typeof(IActivityQueryService),
                 typeof(IAnalyticsQueryService),
                 typeof(IActivityEventBus),
+                typeof(IUnitActivityObservable),
                 typeof(IUnitContainerLifecycle),
                 typeof(IGitHubWebhookRegistrar),
                 typeof(IUnitConnectorConfigStore),
@@ -245,6 +251,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
             services.AddSingleton(ActivityQueryService);
             services.AddSingleton(AnalyticsQueryService);
             services.AddSingleton(ActivityEventBus);
+            services.AddSingleton(UnitActivityObservable);
             services.AddSingleton(UnitContainerLifecycle);
             services.AddSingleton(GitHubWebhookRegistrar);
             services.AddSingleton(ConnectorConfigStore);

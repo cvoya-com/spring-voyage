@@ -312,6 +312,11 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<StreamEventPublisher>();
         services.AddSingleton<StreamEventSubscriber>();
 
+        // Per-unit merged activity stream (issue #391). TryAdd so the private
+        // cloud repo can decorate with tenant-scoped filtering without
+        // touching the endpoint.
+        services.TryAddSingleton<IUnitActivityObservable, UnitActivityObservable>();
+
         // Auth
         services.AddSingleton<IPermissionService, PermissionService>();
 

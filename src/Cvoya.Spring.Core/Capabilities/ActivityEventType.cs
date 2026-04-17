@@ -48,4 +48,19 @@ public enum ActivityEventType
     /// See #142.
     /// </summary>
     AmendmentRejected,
+
+    /// <summary>
+    /// Emitted when the execution environment dispatches a tool / skill
+    /// call. Details carry <c>toolName</c>, <c>callId</c>, and
+    /// <c>arguments</c>. Paired with <see cref="ToolResult"/> via
+    /// <c>callId</c>. See <see cref="Execution.StreamEvent.ToolCall"/>.
+    /// </summary>
+    ToolCall,
+
+    /// <summary>
+    /// Emitted when the execution environment receives a tool / skill
+    /// result. Details carry <c>toolName</c>, <c>callId</c>, <c>isError</c>,
+    /// and <c>result</c>. See <see cref="Execution.StreamEvent.ToolResult"/>.
+    /// </summary>
+    ToolResult,
 }

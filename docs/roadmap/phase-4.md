@@ -32,6 +32,6 @@ Cross-framework interoperability, full orchestration strategy spectrum, multi-AI
 
 ## Observability Follow-ups
 
-- [ ] Complete Rx.NET activity pipeline end-to-end (#391) — full observable graph wiring
+- [x] Complete Rx.NET activity pipeline end-to-end (#391) — full observable graph wiring
 
 **Delivers:** Full orchestration strategy spectrum, cross-framework agent collaboration, multi-AI runtime, rich portal experience.

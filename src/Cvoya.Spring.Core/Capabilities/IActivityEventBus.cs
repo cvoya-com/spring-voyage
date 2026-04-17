@@ -8,13 +8,16 @@ namespace Cvoya.Spring.Core.Capabilities;
 /// Implementations bridge the gap between event producers (actors, execution dispatchers)
 /// and the observation infrastructure (pub/sub, dashboards).
 /// </summary>
-public interface IActivityEventBus
+/// <remarks>
+/// Implementations of <see cref="IActivityObservable"/> expose the platform-wide
+/// hot stream. Per-unit and per-agent projections (e.g.,
+/// <c>IUnitActivityObservable</c>) are built by filtering / merging this stream,
+/// not by maintaining separate subjects — a single bus keeps the ordering
+/// guarantees simple and lets every consumer (SSE relay, cost aggregator,
+/// budget enforcer, event persister) share the same event flow.
+/// </remarks>
+public interface IActivityEventBus : IActivityObservable
 {
-    /// <summary>
-    /// Gets the observable stream of activity events flowing through the bus.
-    /// </summary>
-    IObservable<ActivityEvent> ActivityStream { get; }
-
     /// <summary>
     /// Publishes an activity event to all registered subscribers.
     /// </summary>

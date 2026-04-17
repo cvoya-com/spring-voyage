@@ -96,4 +96,85 @@ public class StreamEventSubscriberTests
                 e.Source.Path == "my-agent-id"),
             Arg.Any<CancellationToken>());
     }
+
+    [Fact]
+    public async Task HandleAsync_ToolCall_PublishesActivityEventWithCallIdCorrelation()
+    {
+        var call = new StreamEvent.ToolCall(
+            Guid.NewGuid(), DateTimeOffset.UtcNow,
+            CallId: "call-abc",
+            ToolName: "github.create_pr",
+            Arguments: "{}");
+        var envelope = new StreamEventEnvelope
+        {
+            AgentId = "agent-42",
+            EventType = nameof(StreamEvent.ToolCall),
+            Timestamp = DateTimeOffset.UtcNow,
+            Payload = JsonSerializer.SerializeToElement(call)
+        };
+
+        await _subscriber.HandleAsync(envelope, TestContext.Current.CancellationToken);
+
+        await _activityEventBus.Received(1).PublishAsync(
+            Arg.Is<ActivityEvent>(e =>
+                e.EventType == ActivityEventType.ToolCall &&
+                e.Summary == "Tool call: github.create_pr" &&
+                e.CorrelationId == "call-abc"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task HandleAsync_ToolResult_Success_PublishesInfoActivityEvent()
+    {
+        var result = new StreamEvent.ToolResult(
+            Guid.NewGuid(), DateTimeOffset.UtcNow,
+            CallId: "call-abc",
+            ToolName: "github.create_pr",
+            Result: "{\"url\":\"...\"}",
+            IsError: false);
+        var envelope = new StreamEventEnvelope
+        {
+            AgentId = "agent-42",
+            EventType = nameof(StreamEvent.ToolResult),
+            Timestamp = DateTimeOffset.UtcNow,
+            Payload = JsonSerializer.SerializeToElement(result)
+        };
+
+        await _subscriber.HandleAsync(envelope, TestContext.Current.CancellationToken);
+
+        await _activityEventBus.Received(1).PublishAsync(
+            Arg.Is<ActivityEvent>(e =>
+                e.EventType == ActivityEventType.ToolResult &&
+                e.Severity == ActivitySeverity.Info &&
+                e.CorrelationId == "call-abc" &&
+                e.Summary == "Tool result: github.create_pr"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task HandleAsync_ToolResult_Error_EscalatesSeverityToWarning()
+    {
+        var result = new StreamEvent.ToolResult(
+            Guid.NewGuid(), DateTimeOffset.UtcNow,
+            CallId: "call-xyz",
+            ToolName: "github.create_pr",
+            Result: "rate limited",
+            IsError: true);
+        var envelope = new StreamEventEnvelope
+        {
+            AgentId = "agent-42",
+            EventType = nameof(StreamEvent.ToolResult),
+            Timestamp = DateTimeOffset.UtcNow,
+            Payload = JsonSerializer.SerializeToElement(result)
+        };
+
+        await _subscriber.HandleAsync(envelope, TestContext.Current.CancellationToken);
+
+        await _activityEventBus.Received(1).PublishAsync(
+            Arg.Is<ActivityEvent>(e =>
+                e.EventType == ActivityEventType.ToolResult &&
+                e.Severity == ActivitySeverity.Warning &&
+                e.Summary == "Tool result (error): github.create_pr"),
+            Arg.Any<CancellationToken>());
+    }
 }

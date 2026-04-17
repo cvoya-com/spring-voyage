@@ -2877,6 +2877,13 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "unitId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {

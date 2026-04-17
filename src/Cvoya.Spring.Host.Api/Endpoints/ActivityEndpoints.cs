@@ -6,8 +6,10 @@ namespace Cvoya.Spring.Host.Api.Endpoints;
 using System.Reactive.Linq;
 using System.Security.Claims;
 using System.Text.Json;
+using System.Threading.Channels;
 
 using Cvoya.Spring.Core.Capabilities;
+using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Observability;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
@@ -15,10 +17,25 @@ using Cvoya.Spring.Host.Api.Models;
 
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// Maps activity-related API endpoints for querying and streaming activity events.
 /// </summary>
+/// <remarks>
+/// <para>
+/// The SSE endpoint subscribes to the reactive observable graph — either the
+/// platform-wide <see cref="IActivityEventBus.ActivityStream"/> (when no unit
+/// is specified) or the per-unit projection from
+/// <see cref="IUnitActivityObservable"/>. Permission checks run <strong>once
+/// at subscribe time</strong> for unit-scoped streams (issue #391): the
+/// caller's effective permission is resolved against the target unit before
+/// events start flowing, and unauthorized callers are rejected with 403 — no
+/// events reach the wire. For the unscoped platform stream, a per-source
+/// permission cache avoids recomputing authorisation per event without
+/// falling back to synchronous actor calls on the hot path.
+/// </para>
+/// </remarks>
 public static class ActivityEndpoints
 {
     /// <summary>
@@ -59,14 +76,15 @@ public static class ActivityEndpoints
     private static async Task StreamActivityAsync(
         HttpContext httpContext,
         IActivityEventBus activityEventBus,
+        IUnitActivityObservable unitActivityObservable,
         IPermissionService permissionService,
+        ILoggerFactory loggerFactory,
         string? source,
         string? severity,
+        string? unitId,
         CancellationToken cancellationToken)
     {
-        httpContext.Response.Headers.ContentType = "text/event-stream";
-        httpContext.Response.Headers.CacheControl = "no-cache";
-        httpContext.Response.Headers.Connection = "keep-alive";
+        var logger = loggerFactory.CreateLogger("Cvoya.Spring.Host.Api.Endpoints.ActivityEndpoints");
 
         var humanId = httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrEmpty(humanId))
@@ -75,12 +93,35 @@ public static class ActivityEndpoints
             return;
         }
 
-        var stream = activityEventBus.ActivityStream;
+        // Build the source observable once — unit-scoped when the caller
+        // passes ?unitId=..., platform-wide otherwise. Permission checks
+        // run before the SSE stream begins, so an unauthorized caller
+        // gets 403 instead of an empty stream that silently filters
+        // every event.
+        IObservable<ActivityEvent> stream;
+        if (!string.IsNullOrEmpty(unitId))
+        {
+            var permission = await permissionService
+                .ResolvePermissionAsync(humanId, unitId, cancellationToken);
 
-        // Apply permission-based filtering: only show events from sources the user can observe.
-        stream = stream.Where(evt => IsAuthorizedToObserve(evt, humanId, permissionService));
+            if (permission is null || permission.Value < PermissionLevel.Viewer)
+            {
+                httpContext.Response.StatusCode = StatusCodes.Status403Forbidden;
+                return;
+            }
 
-        // Apply query parameter filters.
+            stream = await unitActivityObservable.GetStreamAsync(unitId, cancellationToken);
+        }
+        else
+        {
+            stream = activityEventBus.ActivityStream;
+            // Per-event permission enforcement for the platform-wide stream.
+            // Resolution is cached per-(source-scheme,source-path) for the
+            // lifetime of the subscription so a chatty agent inside an
+            // authorised unit doesn't cause a storm of actor proxy calls.
+            stream = ApplyPlatformPermissionFilter(stream, humanId, permissionService, logger);
+        }
+
         if (!string.IsNullOrEmpty(source))
         {
             stream = stream.Where(evt =>
@@ -93,50 +134,101 @@ public static class ActivityEndpoints
             stream = stream.Where(evt => evt.Severity >= severityFilter);
         }
 
-        var tcs = new TaskCompletionSource();
-        using var reg = cancellationToken.Register(() => tcs.TrySetCanceled());
+        // Bounded channel decouples the Rx producer from the HTTP writer:
+        // the subscription drops into a fixed-size queue, and a single
+        // writer loop drains it in FIFO order. DropOldest handles the
+        // worst-case burst without blocking the producer thread that Rx.NET
+        // uses for OnNext.
+        var channel = Channel.CreateBounded<ActivityEvent>(new BoundedChannelOptions(capacity: 256)
+        {
+            FullMode = BoundedChannelFullMode.DropOldest,
+            SingleReader = true,
+            SingleWriter = false,
+        });
 
-        using var subscription = stream
-            .Subscribe(
-                evt =>
+        using var subscription = stream.Subscribe(
+            evt =>
+            {
+                if (!channel.Writer.TryWrite(evt))
                 {
-                    var json = JsonSerializer.Serialize(evt);
-                    // Fire-and-forget write within the subscription callback.
-                    // HttpContext response writing is inherently sequential per request.
-                    httpContext.Response.WriteAsync($"data: {json}\n\n", cancellationToken)
-                        .ContinueWith(_ => httpContext.Response.Body.FlushAsync(cancellationToken), cancellationToken);
-                },
-                ex => tcs.TrySetException(ex),
-                () => tcs.TrySetResult());
+                    // The channel is already completed — subscriber will dispose shortly.
+                }
+            },
+            ex =>
+            {
+                logger.LogWarning(ex, "Activity SSE stream faulted for human {HumanId}.", humanId);
+                channel.Writer.TryComplete(ex);
+            },
+            () => channel.Writer.TryComplete());
+
+        httpContext.Response.Headers.ContentType = "text/event-stream";
+        httpContext.Response.Headers.CacheControl = "no-cache";
+        httpContext.Response.Headers.Connection = "keep-alive";
+
+        // Flush headers up front so clients (dashboards, CLI, test harnesses)
+        // can treat ResponseHeadersRead completion as the "subscription is
+        // live" signal. The Rx subscription above is already receiving events
+        // into the channel by the time the flush returns.
+        await httpContext.Response.Body.FlushAsync(cancellationToken);
 
         try
         {
-            await tcs.Task;
+            await foreach (var evt in channel.Reader.ReadAllAsync(cancellationToken))
+            {
+                var json = JsonSerializer.Serialize(evt);
+                await httpContext.Response.WriteAsync($"data: {json}\n\n", cancellationToken);
+                await httpContext.Response.Body.FlushAsync(cancellationToken);
+            }
         }
         catch (OperationCanceledException)
         {
             // Client disconnected — expected.
         }
+        finally
+        {
+            channel.Writer.TryComplete();
+        }
     }
 
     /// <summary>
-    /// Checks whether the requesting user is authorized to observe events from the given source.
-    /// Unit-sourced events require at least Viewer permission; agent and other events are allowed by default.
+    /// Applies a per-source permission filter to the platform-wide stream,
+    /// resolving each source's authorisation at most once per subscription.
+    /// Unit sources that aren't authorised are dropped; agent, human, and
+    /// tenant sources pass through — permission is enforced at the unit the
+    /// caller is trying to observe, not at every descendant event.
     /// </summary>
-    private static bool IsAuthorizedToObserve(ActivityEvent evt, string humanId, IPermissionService permissionService)
+    private static IObservable<ActivityEvent> ApplyPlatformPermissionFilter(
+        IObservable<ActivityEvent> source,
+        string humanId,
+        IPermissionService permissionService,
+        ILogger logger)
     {
-        // Only unit-sourced events require permission checks.
-        if (!evt.Source.Scheme.Equals("unit", StringComparison.OrdinalIgnoreCase))
+        var cache = new System.Collections.Concurrent.ConcurrentDictionary<string, bool>(StringComparer.Ordinal);
+
+        return source.Where(evt =>
         {
-            return true;
-        }
+            if (!evt.Source.Scheme.Equals("unit", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
 
-        // Synchronous permission resolution for the Rx pipeline.
-        // PermissionService is designed for fast lookups (actor proxy call).
-        var permission = permissionService
-            .ResolvePermissionAsync(humanId, evt.Source.Path, CancellationToken.None)
-            .GetAwaiter().GetResult();
-
-        return permission.HasValue && permission.Value >= PermissionLevel.Viewer;
+            return cache.GetOrAdd(evt.Source.Path, unitPath =>
+            {
+                try
+                {
+                    var permission = permissionService
+                        .ResolvePermissionAsync(humanId, unitPath, CancellationToken.None)
+                        .GetAwaiter().GetResult();
+                    return permission.HasValue && permission.Value >= PermissionLevel.Viewer;
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex,
+                        "Permission lookup failed for human {HumanId} on unit {UnitId}; denying.",
+                        humanId, unitPath);
+                    return false;
+                }
+            });
+        });
     }
 }

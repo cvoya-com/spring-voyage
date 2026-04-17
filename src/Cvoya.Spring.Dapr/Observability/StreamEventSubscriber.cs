@@ -36,17 +36,39 @@ public class StreamEventSubscriber(
 
         var description = BuildDescription(envelope);
         var activityEventType = MapToActivityEventType(envelope.EventType);
+        var severity = ResolveSeverity(envelope);
+        var correlationId = TryGetOptionalText(envelope.Payload, "CallId");
 
         var activityEvent = new ActivityEvent(
             Guid.NewGuid(),
             envelope.Timestamp,
             new Address("agent", envelope.AgentId),
             activityEventType,
-            ActivitySeverity.Info,
+            severity,
             description,
-            envelope.Payload);
+            envelope.Payload,
+            CorrelationId: correlationId);
 
         await activityEventBus.PublishAsync(activityEvent, cancellationToken);
+    }
+
+    private static ActivitySeverity ResolveSeverity(StreamEventEnvelope envelope)
+    {
+        // Tool failures escalate to Warning so Rx alert pipelines
+        // (Where(e => e.Severity >= Warning)) can flag them without having
+        // to parse Details. Everything else flows at Info / Debug granularity.
+        if (envelope.EventType == nameof(StreamEvent.ToolResult) &&
+            envelope.Payload.TryGetProperty("IsError", out var errProp) &&
+            errProp.ValueKind == JsonValueKind.True)
+        {
+            return ActivitySeverity.Warning;
+        }
+
+        return envelope.EventType switch
+        {
+            nameof(StreamEvent.TokenDelta) => ActivitySeverity.Debug,
+            _ => ActivitySeverity.Info,
+        };
     }
 
     private static string BuildDescription(StreamEventEnvelope envelope)
@@ -57,6 +79,8 @@ public class StreamEventSubscriber(
             nameof(StreamEvent.ThinkingDelta) => "Thinking...",
             nameof(StreamEvent.Checkpoint) => "Checkpoint saved",
             nameof(StreamEvent.Completed) => "Execution completed",
+            nameof(StreamEvent.ToolCall) => $"Tool call: {TryGetText(envelope.Payload, "ToolName", "tool")}",
+            nameof(StreamEvent.ToolResult) => BuildToolResultDescription(envelope.Payload),
             _ => $"Stream event: {envelope.EventType}"
         };
     }
@@ -67,8 +91,18 @@ public class StreamEventSubscriber(
         {
             nameof(StreamEvent.TokenDelta) => ActivityEventType.TokenDelta,
             nameof(StreamEvent.Completed) => ActivityEventType.ConversationCompleted,
+            nameof(StreamEvent.ToolCall) => ActivityEventType.ToolCall,
+            nameof(StreamEvent.ToolResult) => ActivityEventType.ToolResult,
             _ => ActivityEventType.StateChanged
         };
+    }
+
+    private static string BuildToolResultDescription(JsonElement payload)
+    {
+        var name = TryGetText(payload, "ToolName", "tool");
+        var isError = payload.TryGetProperty("IsError", out var errProp)
+            && errProp.ValueKind == JsonValueKind.True;
+        return isError ? $"Tool result (error): {name}" : $"Tool result: {name}";
     }
 
     private static string TryGetText(JsonElement payload, string propertyName, string fallback)
@@ -79,5 +113,17 @@ public class StreamEventSubscriber(
         }
 
         return fallback;
+    }
+
+    private static string? TryGetOptionalText(JsonElement payload, string propertyName)
+    {
+        if (payload.ValueKind == JsonValueKind.Object &&
+            payload.TryGetProperty(propertyName, out var value) &&
+            value.ValueKind == JsonValueKind.String)
+        {
+            return value.GetString();
+        }
+
+        return null;
     }
 }

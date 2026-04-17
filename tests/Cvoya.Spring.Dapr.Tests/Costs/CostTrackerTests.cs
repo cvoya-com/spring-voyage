@@ -106,6 +106,46 @@ public class CostTrackerTests : IDisposable
         tracker.Dispose();
     }
 
+    /// <summary>
+    /// Closes the #391 acceptance: "A cost aggregator subscription computes
+    /// per-agent cost from the stream (no ActivityBus polling)." Publishes
+    /// three CostIncurred events for two agents via the Rx subject, then
+    /// asserts the per-agent totals materialised into <c>CostRecords</c> are
+    /// exactly what the stream carried — proving the subscriber, not a
+    /// polling loop, is the source of truth for cost aggregation.
+    /// </summary>
+    [Fact]
+    public async Task StartAsync_CostIncurredEventsForMultipleAgents_AggregatesPerAgentFromStream()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var tracker = CreateTracker();
+        await tracker.StartAsync(ct);
+
+        _bus.Publish(CreateCostEvent(agentId: "agent-a", cost: 0.10m));
+        _bus.Publish(CreateCostEvent(agentId: "agent-a", cost: 0.05m));
+        _bus.Publish(CreateCostEvent(agentId: "agent-b", cost: 0.20m));
+
+        // Wait for buffer window (1s) + processing time.
+        await Task.Delay(3000, ct);
+
+        using var scope = _serviceProvider.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+
+        var agentA = await db.CostRecords
+            .Where(r => r.AgentId == "agent-a")
+            .ToListAsync(ct);
+        var agentB = await db.CostRecords
+            .Where(r => r.AgentId == "agent-b")
+            .ToListAsync(ct);
+
+        agentA.Count.ShouldBe(2);
+        agentA.Sum(r => r.Cost).ShouldBe(0.15m);
+        agentB.ShouldHaveSingleItem().Cost.ShouldBe(0.20m);
+
+        await tracker.StopAsync(ct);
+        tracker.Dispose();
+    }
+
     [Fact]
     public async Task StartAsync_NonCostEvent_IsIgnored()
     {

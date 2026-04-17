@@ -23,7 +23,7 @@ Real-time visibility into what agents are doing, and support for multiple human 
 
 These extend Phase 2 deliverables and are tracked under [Phase 4](phase-4.md):
 
-- [ ] Complete Rx.NET activity pipeline end-to-end (#391) — full observable graph wiring
+- [x] Complete Rx.NET activity pipeline end-to-end (#391) — full observable graph wiring
 - [ ] Dashboard: drill-down views for units, agents, and conversations (#392)
 - [ ] Dashboard: multi-human RBAC management UI (#393)
 - [ ] Dashboard: cost rollup and per-agent attribution (#394)
