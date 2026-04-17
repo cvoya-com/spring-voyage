@@ -1,7 +1,8 @@
 "use client";
 
 import { createElement, useEffect, useState } from "react";
-import { Github, Link2, Settings } from "lucide-react";
+import Link from "next/link";
+import { ArrowRight, Github, Link2, Settings } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -142,6 +143,13 @@ export function ConnectorTab({ unitId }: ConnectorTabProps) {
             {pendingSlug && !pointer && (
               <Badge variant="outline">not saved</Badge>
             )}
+            <Link
+              href={`/connectors/${encodeURIComponent(activeSlug)}`}
+              className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+              aria-label={`Open ${activeSlug} connector detail`}
+            >
+              Details <ArrowRight className="h-3 w-3" />
+            </Link>
           </div>
           {pointer && (
             <Button

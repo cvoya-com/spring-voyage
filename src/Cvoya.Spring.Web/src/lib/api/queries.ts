@@ -431,6 +431,107 @@ export function useConnectorTypes(
   });
 }
 
+/**
+ * Single connector type by slug or id. Returns `null` when the
+ * connector isn't registered (404), so the detail page can render
+ * a clean not-found state without trapping the error boundary.
+ */
+export function useConnector(
+  slugOrId: string,
+  opts?: SliceOptions<ConnectorTypeResponse | null>,
+): UseQueryResult<ConnectorTypeResponse | null, Error> {
+  return useQuery({
+    queryKey: queryKeys.connectors.detail(slugOrId),
+    queryFn: () => api.getConnector(slugOrId),
+    enabled: opts?.enabled ?? Boolean(slugOrId),
+    refetchInterval: opts?.refetchInterval,
+    staleTime: opts?.staleTime,
+  });
+}
+
+/**
+ * JSON Schema describing the connector's per-unit config body. Each
+ * connector ships its own schema at `/api/v1/connectors/{slug}/config-schema`;
+ * the result is rendered as-is (pretty-printed JSON) on the detail page.
+ * Surfaces `null` for connectors that don't ship a schema endpoint so
+ * the page can show "(not advertised)" instead of erroring out.
+ */
+export function useConnectorConfigSchema(
+  slug: string,
+  opts?: SliceOptions<unknown | null>,
+): UseQueryResult<unknown | null, Error> {
+  return useQuery({
+    queryKey: [...queryKeys.connectors.detail(slug), "schema"] as const,
+    queryFn: async () => {
+      try {
+        return await api.getConnectorConfigSchema(slug);
+      } catch {
+        return null;
+      }
+    },
+    enabled: opts?.enabled ?? Boolean(slug),
+    refetchInterval: opts?.refetchInterval,
+    staleTime: opts?.staleTime,
+  });
+}
+
+/**
+ * Fan-out query that pairs every visible unit with its active
+ * connector binding pointer (or `null` when unbound) so the detail
+ * page can list "units bound to this connector".
+ *
+ * The unit list endpoint doesn't carry connector pointers, so we have
+ * to N+1 it; the catalog is small in practice and each call is cached
+ * independently by `useUnit`-style consumers via the underlying
+ * `getUnitConnector` cache layer (we don't dedupe further here because
+ * the binding pointer key is per-unit and would collide with the
+ * connector tab's own cache otherwise — keep the fan-out scoped to
+ * this query's key).
+ */
+export interface UnitConnectorBindingRow {
+  unitId: string;
+  unitName: string;
+  unitDisplayName: string;
+  typeId: string | null;
+  typeSlug: string | null;
+}
+
+export function useConnectorBindings(
+  slug: string,
+  opts?: SliceOptions<UnitConnectorBindingRow[]>,
+): UseQueryResult<UnitConnectorBindingRow[], Error> {
+  return useQuery({
+    queryKey: [...queryKeys.connectors.detail(slug), "bindings"] as const,
+    queryFn: async (): Promise<UnitConnectorBindingRow[]> => {
+      const units = await api.listUnits();
+      const rows: (UnitConnectorBindingRow | null)[] = await Promise.all(
+        units.map(async (u): Promise<UnitConnectorBindingRow | null> => {
+          const ptr = await api.getUnitConnector(u.id);
+          if (!ptr) return null;
+          if (
+            ptr.typeSlug &&
+            slug &&
+            ptr.typeSlug.toLowerCase() === slug.toLowerCase()
+          ) {
+            return {
+              unitId: u.id,
+              unitName: u.name,
+              unitDisplayName: u.displayName,
+              typeId: ptr.typeId ?? null,
+              typeSlug: ptr.typeSlug,
+            };
+          }
+          return null;
+        }),
+      );
+      return rows.filter((r): r is UnitConnectorBindingRow => r !== null);
+    },
+    enabled: opts?.enabled ?? Boolean(slug),
+    refetchInterval: opts?.refetchInterval,
+    staleTime: opts?.staleTime,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Ollama (model discovery for dapr-agent + ollama hosting)
 // ---------------------------------------------------------------------------

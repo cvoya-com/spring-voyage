@@ -61,3 +61,15 @@ A connector doesn't just pass events — it gives agents **skills**. The GitHub 
 These skills are surfaced to the agent's AI as available tools, making the agent capable in that domain.
 
 **Skill discovery:** Connectors register their available skills with the unit when they are initialized. At agent activation time, the actor assembles the agent's tool manifest by combining: (1) platform tools, (2) tools from the agent's own tool manifest, and (3) skills from all connectors attached to the agent's unit. This means an agent automatically gains access to connector capabilities without explicit per-agent configuration.
+
+## Connector discovery surfaces
+
+Connector types are first-class browseable resources on every operator surface:
+
+| Surface | Entry point | Notes |
+| ------- | ----------- | ----- |
+| **HTTP API** | `GET /api/v1/connectors` (catalog), `GET /api/v1/connectors/{slugOrId}` (single type), `GET /api/v1/connectors/{slug}/config-schema` (JSON Schema) | Authoritative — the CLI and portal both consume these. |
+| **CLI** | `spring connector catalog` (catalog), `spring connector show --unit <name>` (typed config for a unit binding) | See [src/Cvoya.Spring.Cli/Commands/ConnectorCommand.cs](../../src/Cvoya.Spring.Cli/Commands/ConnectorCommand.cs). |
+| **Portal** | `/connectors` (catalog), `/connectors/{slug}` (per-type detail with schema + bound units) | Sidebar entry under "Connectors". The unit detail page's Connector tab deep-links into the per-type detail page. See the [portal walkthrough](../guide/portal.md#connectors-browser-connectors). |
+
+The catalog is hydrated from the open-source registration API: every package that calls `services.AddSpringConnector<TConnector>()` becomes visible across all three surfaces with no further wiring. Connector authors only need to implement `IConnectorType.GetConfigSchemaAsync` to get a typed configuration form on the portal automatically.
