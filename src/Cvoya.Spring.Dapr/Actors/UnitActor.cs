@@ -374,6 +374,50 @@ public class UnitActor : Actor, IUnitActor
     }
 
     /// <inheritdoc />
+    public async Task<UnitBoundary> GetBoundaryAsync(CancellationToken ct = default)
+    {
+        var result = await StateManager
+            .TryGetStateAsync<UnitBoundary>(StateKeys.UnitBoundary, ct);
+        return result.HasValue ? result.Value : UnitBoundary.Empty;
+    }
+
+    /// <inheritdoc />
+    public async Task SetBoundaryAsync(UnitBoundary boundary, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(boundary);
+
+        if (boundary.IsEmpty)
+        {
+            // Represent "no rules" as an absent row — the next read returns
+            // UnitBoundary.Empty via the state-absent path, which is
+            // semantically identical to an explicit empty boundary.
+            await StateManager.RemoveStateAsync(StateKeys.UnitBoundary, ct);
+        }
+        else
+        {
+            await StateManager.SetStateAsync(StateKeys.UnitBoundary, boundary, ct);
+        }
+
+        _logger.LogInformation(
+            "Unit {ActorId} boundary updated. Opacities: {OpacityCount}, Projections: {ProjectionCount}, Syntheses: {SynthesisCount}",
+            Id.GetId(),
+            boundary.Opacities?.Count ?? 0,
+            boundary.Projections?.Count ?? 0,
+            boundary.Syntheses?.Count ?? 0);
+
+        await EmitActivityEventAsync(ActivityEventType.StateChanged,
+            $"Unit boundary updated. Opacities={boundary.Opacities?.Count ?? 0}, Projections={boundary.Projections?.Count ?? 0}, Syntheses={boundary.Syntheses?.Count ?? 0}",
+            ct,
+            details: JsonSerializer.SerializeToElement(new
+            {
+                action = "UnitBoundaryUpdated",
+                opacities = boundary.Opacities?.Count ?? 0,
+                projections = boundary.Projections?.Count ?? 0,
+                syntheses = boundary.Syntheses?.Count ?? 0,
+            }));
+    }
+
+    /// <inheritdoc />
     public async Task<UnitMetadata> GetMetadataAsync(CancellationToken ct = default)
     {
         var modelResult = await StateManager.TryGetStateAsync<string>(StateKeys.UnitModel, ct);

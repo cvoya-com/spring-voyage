@@ -440,6 +440,35 @@ unit:
       policy: permission-required       # permission-required | deny-all | allow-all
 ```
 
+#### Boundary configuration (#413)
+
+The boundary is a declarative record attached to the unit and stored on the unit actor (`StateKeys.UnitBoundary`). It's surfaced through `IUnitBoundaryStore` and composed over the aggregator via the `BoundaryFilteringExpertiseAggregator` decorator. The boundary has three slot types, each a nullable collection — a boundary with every slot empty is equivalent to "transparent" and the decorator is a straight pass-through.
+
+| Slot | Rule type | Effect on outside callers |
+|------|-----------|---------------------------|
+| `Opacities` | `BoundaryOpacityRule(DomainPattern?, OriginPattern?)` | Every matching `ExpertiseEntry` is removed from the outside view. Rules OR together. |
+| `Projections` | `BoundaryProjectionRule(DomainPattern?, OriginPattern?, RenameTo?, Retag?, OverrideLevel?)` | Matching entries are rewritten (new name / description / level). First matching rule wins. Origin and path are preserved so permission checks (#414) still see the true contributor. |
+| `Syntheses` | `BoundarySynthesisRule(Name, DomainPattern?, OriginPattern?, Description?, Level?)` | Matching entries are removed and replaced with a single synthesised entry attributed to the unit (`Origin = unit`, `Path = [unit]`). When no member matches the rule, the synthesised capability is **not** fabricated. |
+
+**Matching patterns** are case-insensitive and support a single trailing `*` (prefix match). `OriginPattern` matches against `scheme://path` so both `agent://internal-*` and `unit://core-team` are valid forms.
+
+**Rule precedence.** Opacity wins over projection and synthesis — a matched opaque entry is gone, not rewritten. Synthesis runs before projection so the raw entries consumed by a synthesis rule never flow through the projection stage.
+
+**Caller-aware filtering.** The decorator reads `BoundaryViewContext`:
+
+- `BoundaryViewContext.External` (default) — outside caller; opacity / projection / synthesis apply.
+- `BoundaryViewContext.InsideUnit` — the unit itself or a descendant; the raw aggregator output is returned verbatim.
+
+PR-PLAT-BOUND-3 (#414) consumes this seam to decide the caller's identity from the authenticated principal. Until then, HTTP callers are treated as external.
+
+**Write path.** The unit actor persists the boundary through `SetBoundaryAsync`; an empty boundary is represented as an absent state row. HTTP and CLI writes call `IExpertiseAggregator.InvalidateAsync` so the next aggregate read sees fresh rules.
+
+**Operator surface.**
+
+- **HTTP** — `GET / PUT / DELETE /api/v1/units/{id}/boundary`. The empty shape is always returned for units that have never had a boundary persisted, so callers never need to branch on 404 vs empty-boundary.
+- **CLI** — `spring unit boundary get|set|clear`. `set` accepts `--opaque`, `--project`, `--synthesise` repeatable flags (comma-separated key=value pairs) or a YAML fragment via `-f`. `clear` removes every rule.
+- **YAML manifest** — `unit.boundary` follows the same three-list shape so an operator can check the config in alongside `members` / `policies`.
+
 ### Organizational Patterns
 
 

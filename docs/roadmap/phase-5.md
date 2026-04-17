@@ -10,10 +10,10 @@ Organizational structure beyond flat teams.
 - [x] M:N agent-to-unit membership (#160, dispatch-time config #243)
 - [x] Basic directory service (exists but not recursive aggregation)
 - [x] Expertise directory aggregation — recursive composition to root (#412)
+- [x] Unit boundary — opacity, projection, filtering, synthesis (#413)
 
 ## Remaining
 
-- [ ] Unit boundary — opacity, projection, filtering, synthesis (#413)
 - [ ] Hierarchy-aware permission checks (#414) — [Messaging](../architecture/messaging.md), [Security](../architecture/security.md)
 - [ ] Proactive + Autonomous initiative levels (#415) — [Initiative](../architecture/initiative.md)
 - [ ] Persistent cloning policy — independent clone evolution, recursive cloning (#416)

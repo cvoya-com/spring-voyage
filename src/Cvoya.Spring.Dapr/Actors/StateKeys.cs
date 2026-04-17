@@ -253,4 +253,14 @@ public static class StateKeys
     /// this state key only holds the slice <em>owned by the unit</em>. See #412.
     /// </summary>
     public const string UnitOwnExpertise = "Unit:OwnExpertise";
+
+    /// <summary>
+    /// State key for the unit's boundary configuration — the
+    /// <see cref="Cvoya.Spring.Core.Capabilities.UnitBoundary"/> record that
+    /// controls which aggregated expertise entries are opaque, projected, or
+    /// synthesised when an outside caller reads the unit's effective
+    /// expertise. Empty / never-set means "transparent" (no boundary rules).
+    /// See #413.
+    /// </summary>
+    public const string UnitBoundary = "Unit:Boundary";
 }
