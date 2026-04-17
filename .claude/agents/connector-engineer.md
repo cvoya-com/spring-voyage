@@ -21,3 +21,4 @@ All connector implementations — currently GitHub (Octokit.net), and future con
 - Verify webhook signatures
 - Mock external APIs in tests — no live API calls in CI
 - Update docs in the same PR as the code: refresh `docs/architecture/connectors.md` and the relevant `docs/guide/` entries, and add/update a `docs/concepts/` doc if the connector introduces a new concept (see AGENTS.md § "Documentation Updates")
+- For `src/Cvoya.Spring.Web/` changes (e.g., a connector UI submodule under `src/Cvoya.Spring.Connector.*/web/`), verify `src/Cvoya.Spring.Web/DESIGN.md` adherence and update it in the same PR if the visual system changed

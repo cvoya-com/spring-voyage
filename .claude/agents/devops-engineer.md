@@ -19,3 +19,4 @@ Build and deployment infrastructure: Dapr component configuration (pub/sub, stat
 - `spring build` command must build all Dockerfiles in a package
 - Test Dapr components work in dev mode (Redis pub/sub, PostgreSQL state store)
 - Update docs in the same PR as the change: refresh `docs/architecture/infrastructure.md`, `docs/architecture/deployment.md`, and any relevant `docs/guide/` entries, and add/update a `docs/concepts/` doc if a new concept is introduced (see AGENTS.md § "Documentation Updates")
+- For `src/Cvoya.Spring.Web/` changes (e.g., build / Dockerfile / CI tweaks that alter what the portal renders), verify `src/Cvoya.Spring.Web/DESIGN.md` adherence and update it in the same PR if the visual system changed

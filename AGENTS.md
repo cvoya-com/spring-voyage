@@ -10,6 +10,8 @@ Read `CONVENTIONS.md` for all coding patterns, naming, testing, DI, Dapr usage, 
 
 When shipping a feature, update the relevant architecture doc(s) under `docs/architecture/` and user guide(s) under `docs/guide/` in the same PR so the docs never lag behind the code. If the feature introduces a new concept, add or update the relevant concept doc under `docs/concepts/`. Treat these updates as part of the feature — a PR that changes user-visible behavior or architecture without touching the corresponding docs is not complete.
 
+When a PR touches `src/Cvoya.Spring.Web/`, it must also keep [`src/Cvoya.Spring.Web/DESIGN.md`](src/Cvoya.Spring.Web/DESIGN.md) in sync. `DESIGN.md` is the portal's visual contract (color palette, typography, spacing, radii, shadows, component patterns, voice & tone, dark-mode behavior) — update it in the same PR whenever the change introduces, modifies, or removes a visual pattern. Leaving the design doc stale is the same kind of drift as leaving architecture docs stale.
+
 ## Architecture
 
 The architecture is documented under `docs/architecture/` — see [`docs/architecture/README.md`](docs/architecture/README.md) for the full index. For execution status and phased implementation plan, see [`docs/roadmap/`](docs/roadmap/README.md).

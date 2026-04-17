@@ -21,6 +21,7 @@ Core platform implementation: domain interfaces and types, Dapr actor implementa
 - Follow the message handling pattern from CONVENTIONS.md Section 10
 - Run `dotnet build` and `dotnet test` before committing
 - Update docs in the same PR as the code: refresh the relevant `docs/architecture/` document(s) and `docs/guide/` entries, and add/update a `docs/concepts/` doc if the feature introduces a new concept (see AGENTS.md § "Documentation Updates")
+- For `src/Cvoya.Spring.Web/` changes, verify `src/Cvoya.Spring.Web/DESIGN.md` adherence and update it in the same PR if the visual system (colour tokens, typography, spacing, radii, shadows, component patterns, voice & tone, dark-mode behaviour) changed
 
 ## Cross-Repo Awareness
 
