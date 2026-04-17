@@ -421,21 +421,6 @@ export const api = {
   setTenantBudget: async (body: SetBudgetRequest) =>
     unwrap(await fetchClient.PUT("/api/v1/tenant/budget", { body })),
 
-  // Conversations (#410)
-  //
-  // The conversation surface is derived from the activity event stream — the
-  // server replays correlated events to reconstruct the thread. Both endpoints
-  // are read-only here; threading a new message is out-of-scope until the
-  // chat UI ships.
-  listConversations: async () =>
-    unwrap(await fetchClient.GET("/api/v1/conversations")),
-  getConversation: async (id: string) =>
-    unwrap(
-      await fetchClient.GET("/api/v1/conversations/{id}", {
-        params: { path: { id } },
-      }),
-    ),
-
   // Activity
   //
   // The query endpoint accepts a set of filter/pagination parameters.

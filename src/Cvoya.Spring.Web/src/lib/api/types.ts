@@ -177,15 +177,6 @@ export type UnitMembershipResponse = Schemas["UnitMembershipResponse"];
 /** Request body for PUT /api/v1/units/{unitId}/memberships/{agentAddress}. */
 export type UpsertMembershipRequest = Schemas["UpsertMembershipRequest"];
 
-/** Entry returned by GET /api/v1/conversations. */
-export type ConversationSummary = Schemas["ConversationSummary"];
-
-/** Per-event row inside a ConversationDetail. */
-export type ConversationEvent = Schemas["ConversationEvent"];
-
-/** Response body for GET /api/v1/conversations/{id} (summary + events). */
-export type ConversationDetail = Schemas["ConversationDetail"];
-
 // ---------------------------------------------------------------------------
 // Connectors (generic + GitHub)
 // ---------------------------------------------------------------------------
