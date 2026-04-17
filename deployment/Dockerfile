@@ -63,12 +63,16 @@ RUN npm run build --workspace=spring-voyage-dashboard
 # ------------------------------------------------------------------
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 
-# Install Dapr CLI and Node.js runtime (for the web container).
-# Dapr CLI is included so operators can invoke `dapr` against the local sidecar
-# (status, metadata, etc.) from within the container.
+# Install Dapr CLI, Node.js runtime (for the web container), and the
+# `podman` binary. `podman` is included so the Worker process can launch
+# ephemeral agent containers via `IContainerRuntime` by talking to the
+# host's rootless podman socket mounted at /var/run/docker.sock (see
+# deploy.sh start_worker / docker-compose.yml). The binary Debian ships
+# doubles as a remote client when CONTAINER_HOST points at a socket, so
+# we do not need the separate `podman-remote` package. Closes #483.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-        curl ca-certificates gnupg \
+        curl ca-certificates gnupg podman \
  && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
  && apt-get install -y --no-install-recommends nodejs \
  && curl -fsSL https://raw.githubusercontent.com/dapr/cli/master/install/install.sh | /bin/bash -s 1.14.1 \

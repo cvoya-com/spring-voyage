@@ -25,6 +25,22 @@ open-source single-host scenario.
 - `bash`, `rsync`, `ssh` for the remote workflow.
 - On the VPS: Podman installed, a non-root user able to run rootless Podman,
   ports 80/443 available for Caddy.
+- **Rootless podman socket enabled on the host.** The `spring-worker`
+  container launches ephemeral agent containers (Claude Code, Codex, Gemini,
+  Dapr Agent) by talking to the host's podman daemon through a mounted
+  socket. Enable the socket once per host:
+
+  | Host platform | One-time setup |
+  | ------------- | -------------- |
+  | Linux (systemd) | `systemctl --user enable --now podman.socket` — the socket then lives at `/run/user/$(id -u)/podman/podman.sock`. |
+  | macOS         | `podman machine init && podman machine start` — the machine exposes `/run/podman/podman.sock` from inside the VM. |
+  | Rootful Linux | `systemctl enable --now podman.socket` — socket at `/run/podman/podman.sock`. |
+
+  `deploy.sh` auto-detects the socket via `podman info --format
+  '{{.Host.RemoteSocket.Path}}'`. Override with `PODMAN_SOCKET_PATH=…` in
+  `spring.env` when the daemon runs under an unusual path. Without this the
+  worker cannot dispatch any container-backed agent. See #483 and
+  [Agent Runtime — Deployment](../docs/architecture/agent-runtime.md#8-deployment-host-prerequisites).
 
 No Docker Compose / Podman Compose dependency — the script uses `podman` directly
 so behavior is deterministic across Podman versions.

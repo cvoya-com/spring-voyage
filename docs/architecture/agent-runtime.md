@@ -224,7 +224,51 @@ accepts both the top-level `execution:` block and the legacy
 
 ---
 
-## 7. Adding a new launcher
+## 7. Deployment host prerequisites
+
+`IContainerRuntime` (see `src/Cvoya.Spring.Dapr/Execution/ProcessContainerRuntime.cs`)
+shells out to `podman` from **inside** the `spring-worker` container. That only
+works when two things are true on the host:
+
+1. The worker image ships the `podman` CLI. `deployment/Dockerfile` installs
+   it via `apt-get install podman` in the `runtime` stage alongside the Dapr
+   CLI. The binary doubles as a remote client when `CONTAINER_HOST` points
+   at a Unix socket, so no separate `podman-remote` package is required.
+2. The host's podman daemon socket is mounted into the worker. The deploy
+   drivers (`deployment/deploy.sh`, `deployment/docker-compose.yml`) bind
+   the host socket to `/var/run/docker.sock` in the container and set
+   `CONTAINER_HOST=unix:///var/run/docker.sock` so the in-container CLI
+   targets it automatically.
+
+This is the "socket passthrough" topology. It is rootless-safe and keeps the
+worker container unprivileged — unlike nested podman (`--privileged` + a full
+second daemon) or an out-of-process dispatcher service. Operators enable the
+host socket once per machine:
+
+| Host platform     | Command                                                  | Socket path                                  |
+| ----------------- | -------------------------------------------------------- | -------------------------------------------- |
+| Linux (rootless)  | `systemctl --user enable --now podman.socket`           | `/run/user/$(id -u)/podman/podman.sock`      |
+| Linux (rootful)   | `systemctl enable --now podman.socket`                  | `/run/podman/podman.sock`                    |
+| macOS             | `podman machine init && podman machine start`           | `/run/podman/podman.sock` (inside the VM)    |
+
+`deploy.sh` resolves the host path at startup via
+`podman info --format '{{.Host.RemoteSocket.Path}}'`; `docker-compose.yml`
+defaults to `/run/podman/podman.sock`. Both honour an override via the
+`PODMAN_SOCKET_PATH` environment variable documented in
+`deployment/spring.env.example`. Missing or mis-configured sockets fail fast
+at deploy time with a pointer to this section (#483).
+
+### Why socket passthrough
+
+Of the three options considered in #483 — (1) socket passthrough, (2) nested
+podman-in-podman with `--privileged`, (3) an external host-side dispatcher —
+socket passthrough has the smallest blast radius: no privileged flag, no
+second daemon to keep healthy, and zero changes in `ProcessContainerRuntime`.
+Nested podman remains on the table if a future CI host disallows socket
+bind mounts; an external dispatcher is the natural successor once the
+persistent-agent registry grows beyond single-host.
+
+## 8. Adding a new launcher
 
 Checklist for a fresh `IAgentToolLauncher`:
 

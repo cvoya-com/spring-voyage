@@ -233,6 +233,28 @@ start_worker_sidecar() {
             --enable-metrics=false
 }
 
+resolve_podman_socket() {
+    # The worker dispatches ephemeral agent containers by shelling out to
+    # `podman`. Inside the container we talk to the host's podman daemon
+    # via a Unix socket bind-mounted at /var/run/docker.sock. Callers can
+    # override the host-side path with PODMAN_SOCKET_PATH; otherwise we
+    # ask `podman info` for the canonical RemoteSocket.Path. On Linux this
+    # is typically /run/user/$(id -u)/podman/podman.sock (rootless) or
+    # /run/podman/podman.sock (rootful / macOS podman-machine). See #483
+    # and docs/architecture/agent-runtime.md § Deployment host prereqs.
+    if [[ -n "${PODMAN_SOCKET_PATH:-}" ]]; then
+        printf '%s\n' "${PODMAN_SOCKET_PATH}"
+        return
+    fi
+
+    local socket
+    socket="$(podman info --format '{{.Host.RemoteSocket.Path}}' 2>/dev/null | sed 's|^unix://||')"
+    if [[ -z "${socket}" ]]; then
+        die "could not determine podman socket path. Enable the rootless socket with 'systemctl --user enable --now podman.socket' (Linux) or run 'podman machine start' (macOS), then re-run ./deploy.sh up. Override with PODMAN_SOCKET_PATH=/path/to/podman.sock."
+    fi
+    printf '%s\n' "${socket}"
+}
+
 start_worker() {
     # DataProtection keys: API and Worker share the named volume
     # `spring-dataprotection-keys` mounted at the path configured via
@@ -240,12 +262,35 @@ start_worker() {
     # Keeps the key ring stable across `./deploy.sh restart` and image
     # rebuilds so anything protected by IDataProtector (auth cookies,
     # OAuth session tokens, anti-forgery tokens) survives deploys. See #337.
+    #
+    # Podman socket passthrough: mount the host's podman socket into the
+    # worker so `ProcessContainerRuntime` can launch ephemeral agent
+    # containers (Claude Code / Codex / Gemini / Dapr Agent) by talking
+    # to the host daemon. The in-container `podman` CLI picks the socket
+    # up via CONTAINER_HOST. This is the rootless-safe alternative to
+    # running the worker with --privileged or to nested podman. See #483.
+    local podman_socket
+    podman_socket="$(resolve_podman_socket)"
+    log "mounting podman socket '${podman_socket}' into spring-worker"
+
+    # --user 0:0 runs the worker as uid 0 inside the container. Under
+    # rootless podman this is the rootless user on the host, not real
+    # root — we need it so the in-container process matches the owner of
+    # the mounted podman socket (which is root:root inside a macOS podman
+    # machine and the calling user under rootless Linux). Running as the
+    # image's default `app` user (uid 1654) yields EACCES on the socket.
+    # --security-opt label=disable keeps SELinux on relabelled hosts from
+    # denying socket I/O after the bind mount.
     run_container spring-worker \
         --env-file "${RESOLVED_ENV_FILE}" \
+        --user 0:0 \
+        --security-opt label=disable \
         -e "DAPR_APP_ID=spring-worker" \
         -e "DAPR_HTTP_ENDPOINT=http://spring-worker-dapr:3500" \
         -e "DAPR_GRPC_ENDPOINT=http://spring-worker-dapr:50001" \
+        -e "CONTAINER_HOST=unix:///var/run/docker.sock" \
         -v spring-dataprotection-keys:/home/app/.aspnet/DataProtection-Keys \
+        -v "${podman_socket}:/var/run/docker.sock" \
         "${SPRING_PLATFORM_IMAGE:-localhost/spring-voyage:latest}" \
         dotnet /app/Cvoya.Spring.Host.Worker.dll
 }

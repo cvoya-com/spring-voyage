@@ -191,13 +191,29 @@ services:
     container_name: spring-worker
     restart: unless-stopped
     env_file: spring.env
+    # Run as uid 0 to match the mounted podman socket's owner. Under
+    # rootless podman / docker this still maps to the calling host user
+    # so the container does not gain host root — see #483 and the deploy.sh
+    # start_worker comment for the full rationale.
+    user: "0:0"
+    security_opt:
+      - label=disable
     environment:
       DAPR_APP_ID: spring-worker
       DAPR_HTTP_ENDPOINT: http://spring-worker-dapr:3500
       DAPR_GRPC_ENDPOINT: http://spring-worker-dapr:50001
+      # Tell the in-container `podman` CLI where to find the host daemon.
+      # PODMAN_SOCKET_PATH (spring.env) selects which host path is mounted
+      # at /var/run/docker.sock below; default is the Linux rootful path.
+      # See #483 and docs/architecture/agent-runtime.md § Deployment.
+      CONTAINER_HOST: unix:///var/run/docker.sock
     command: ["dotnet", "/app/Cvoya.Spring.Host.Worker.dll"]
     volumes:
       - spring-dataprotection-keys:/home/app/.aspnet/DataProtection-Keys
+      # Mount the host's podman (or docker-compatible) socket so the
+      # Worker process can launch ephemeral agent containers. Operators
+      # must enable the rootless socket first — see deployment/README.md.
+      - ${PODMAN_SOCKET_PATH:-/run/podman/podman.sock}:/var/run/docker.sock
     networks: [spring-net]
     depends_on:
       spring-worker-dapr:
