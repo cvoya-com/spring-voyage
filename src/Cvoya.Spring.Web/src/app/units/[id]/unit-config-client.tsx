@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   DollarSign,
+  MessagesSquare,
   Play,
   Settings,
   Square,
@@ -324,6 +326,25 @@ export default function UnitConfigClient({ id }: ClientProps) {
           {actionError}
         </p>
       )}
+
+      {/* Quick link to the conversation surface filtered to this
+          unit (#410). Mirrors `spring conversation list --unit <name>`
+          so the portal exposes the same one-click jump. */}
+      <Card>
+        <CardContent className="flex items-center justify-between gap-3 py-4 text-sm">
+          <div className="flex items-center gap-2">
+            <MessagesSquare className="h-4 w-4 text-muted-foreground" />
+            <span>Conversations involving this unit</span>
+          </div>
+          <Link
+            href={`/conversations?unit=${encodeURIComponent(unit.name)}`}
+            className="inline-flex items-center gap-1 rounded-md border border-input bg-background px-3 py-1 text-xs font-medium text-primary hover:bg-accent"
+            data-testid="unit-conversations-link"
+          >
+            View threads →
+          </Link>
+        </CardContent>
+      </Card>
 
       <Tabs defaultValue="general">
         <TabsList>

@@ -30,12 +30,14 @@ namespace Cvoya.Spring.Core.Policies;
 /// <para>
 /// <paramref name="AddOnAssign"/> and <paramref name="RemoveOnAssign"/>
 /// are the status-label round-trip hooks from #389: after a successful
-/// assignment the connector is expected to apply the labels in
-/// <paramref name="AddOnAssign"/> and strip the labels in
-/// <paramref name="RemoveOnAssign"/>. The first ship of the strategy
-/// records the intent in the orchestration-decision activity event only —
-/// wiring it through the GitHub connector is tracked as follow-up work so
-/// this PR stays scoped to the routing behaviour.
+/// assignment the connector applies the labels in
+/// <paramref name="AddOnAssign"/> and strips the labels in
+/// <paramref name="RemoveOnAssign"/>. The orchestration strategy records
+/// the intent on a <c>DecisionMade</c> activity event so the GitHub
+/// connector (and any other label-aware connector) can observe the
+/// decision and issue the API call — the strategy itself does not mutate
+/// external state because only the connector holds the required
+/// credentials. See #492 and ADR-0009.
 /// </para>
 /// </remarks>
 /// <param name="TriggerLabels">

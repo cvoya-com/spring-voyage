@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 
+using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Policies;
@@ -62,18 +63,52 @@ using Microsoft.Extensions.Logging;
 /// <see cref="LabelRoutingPolicy.RemoveOnAssign"/>) is not applied by the
 /// strategy directly — that is the connector's responsibility because only
 /// the connector holds the external credentials needed to mutate remote
-/// state. The strategy records the intended labels on the forwarded
-/// message's routing decision so the GitHub connector (and any other
-/// label-aware connector) can observe them and apply the round-trip during
-/// post-processing. Wiring the GitHub connector is tracked as follow-up
-/// work so this PR stays scoped to the routing decision.
+/// state. Instead, after a successful forward the strategy publishes a
+/// <see cref="ActivityEventType.DecisionMade"/> activity event carrying
+/// <c>decision = "LabelRouted"</c>, the originating repository / issue
+/// coordinates extracted from the message payload, and the policy's
+/// <c>AddOnAssign</c> / <c>RemoveOnAssign</c> lists. The GitHub connector
+/// subscribes to that event and performs the roundtrip (#492). Any other
+/// label-aware connector can do the same without coupling to this
+/// strategy — the contract is the event shape, not a direct dependency.
 /// </para>
 /// </remarks>
-public class LabelRoutedOrchestrationStrategy(
-    IUnitPolicyRepository policyRepository,
-    ILoggerFactory loggerFactory) : IOrchestrationStrategy
+public class LabelRoutedOrchestrationStrategy : IOrchestrationStrategy
 {
-    private readonly ILogger _logger = loggerFactory.CreateLogger<LabelRoutedOrchestrationStrategy>();
+    /// <summary>
+    /// Marker value placed on the emitted activity event's
+    /// <c>decision</c> details field. Connectors (e.g. the GitHub
+    /// connector's roundtrip subscriber) filter on this exact string.
+    /// </summary>
+    public const string LabelRoutedDecision = "LabelRouted";
+
+    private readonly IUnitPolicyRepository _policyRepository;
+    private readonly IActivityEventBus? _activityEventBus;
+    private readonly ILogger _logger;
+
+    /// <summary>
+    /// Creates a new <see cref="LabelRoutedOrchestrationStrategy"/>.
+    /// </summary>
+    /// <param name="policyRepository">Per-unit policy lookup.</param>
+    /// <param name="loggerFactory">Logger factory.</param>
+    /// <param name="activityEventBus">
+    /// Optional activity-event sink. When supplied, successful label-routed
+    /// assignments publish a <see cref="ActivityEventType.DecisionMade"/>
+    /// event so connectors (GitHub label roundtrip, #492) can observe
+    /// the decision without a hard dependency on this assembly. When
+    /// <c>null</c> — legacy test constructor path — the strategy behaves
+    /// identically modulo the missing event, so existing unit tests keep
+    /// passing.
+    /// </param>
+    public LabelRoutedOrchestrationStrategy(
+        IUnitPolicyRepository policyRepository,
+        ILoggerFactory loggerFactory,
+        IActivityEventBus? activityEventBus = null)
+    {
+        _policyRepository = policyRepository;
+        _activityEventBus = activityEventBus;
+        _logger = loggerFactory.CreateLogger<LabelRoutedOrchestrationStrategy>();
+    }
 
     /// <inheritdoc />
     public async Task<Message?> OrchestrateAsync(Message message, IUnitContext context, CancellationToken cancellationToken = default)
@@ -86,7 +121,7 @@ public class LabelRoutedOrchestrationStrategy(
             return null;
         }
 
-        var policy = await policyRepository.GetAsync(context.UnitAddress.Path, cancellationToken);
+        var policy = await _policyRepository.GetAsync(context.UnitAddress.Path, cancellationToken);
         var routing = policy.LabelRouting;
 
         if (routing is null || routing.TriggerLabels is null || routing.TriggerLabels.Count == 0)
@@ -129,7 +164,135 @@ public class LabelRoutedOrchestrationStrategy(
             message.Id, matchedLabel, target, context.UnitAddress);
 
         var forwarded = message with { To = target };
-        return await context.SendAsync(forwarded, cancellationToken);
+        var response = await context.SendAsync(forwarded, cancellationToken);
+
+        // Publish the assignment decision so label-aware connectors can react
+        // (e.g. GitHub applies AddOnAssign / RemoveOnAssign labels — #492).
+        // Emission happens AFTER the forward succeeded so an un-routable
+        // message does not trigger a roundtrip. Any failure to publish is
+        // swallowed — the routing decision is the primary artefact; the
+        // activity event is an optional side channel and must never take the
+        // orchestration turn down.
+        await PublishAssignmentEventAsync(
+            message, context, matchedLabel, target, routing, cancellationToken);
+
+        return response;
+    }
+
+    /// <summary>
+    /// Publishes a <see cref="ActivityEventType.DecisionMade"/> event
+    /// describing the label-routed assignment, including the originating
+    /// source (e.g. <c>github</c>) and the roundtrip label lists the
+    /// connector should apply. Best-effort: a null bus, missing payload
+    /// source, or publish failure is logged and swallowed.
+    /// </summary>
+    private async Task PublishAssignmentEventAsync(
+        Message message,
+        IUnitContext context,
+        string matchedLabel,
+        Address target,
+        LabelRoutingPolicy routing,
+        CancellationToken cancellationToken)
+    {
+        var bus = _activityEventBus;
+        if (bus is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var details = BuildAssignmentDetails(message, context, matchedLabel, target, routing);
+            var evt = new ActivityEvent(
+                Id: Guid.NewGuid(),
+                Timestamp: DateTimeOffset.UtcNow,
+                Source: context.UnitAddress,
+                EventType: ActivityEventType.DecisionMade,
+                Severity: ActivitySeverity.Info,
+                Summary: $"Label-routed message {message.Id} via {matchedLabel} to {target}",
+                Details: details,
+                CorrelationId: message.ConversationId);
+            await bus.PublishAsync(evt, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            // A faulty subscriber must never fault the orchestration turn.
+            _logger.LogWarning(
+                ex,
+                "Failed to publish label-routed assignment event for message {MessageId} on unit {UnitAddress}; continuing",
+                message.Id, context.UnitAddress);
+        }
+    }
+
+    /// <summary>
+    /// Builds the <see cref="ActivityEvent.Details"/> payload for a
+    /// label-routed assignment. Extracts <c>source</c>, <c>repository</c>,
+    /// and <c>issue.number</c> from the inbound payload when present — these
+    /// are the anchors the GitHub connector uses to target the API call.
+    /// Shape is public-internal for test coverage.
+    /// </summary>
+    internal static JsonElement BuildAssignmentDetails(
+        Message message,
+        IUnitContext context,
+        string matchedLabel,
+        Address target,
+        LabelRoutingPolicy routing)
+    {
+        string? source = TryGetString(message.Payload, "source");
+
+        string? owner = null;
+        string? repo = null;
+        int? issueNumber = null;
+        if (message.Payload.ValueKind == JsonValueKind.Object
+            && message.Payload.TryGetProperty("repository", out var repoEl)
+            && repoEl.ValueKind == JsonValueKind.Object)
+        {
+            owner = TryGetString(repoEl, "owner");
+            repo = TryGetString(repoEl, "name");
+        }
+
+        if (message.Payload.ValueKind == JsonValueKind.Object
+            && message.Payload.TryGetProperty("issue", out var issueEl)
+            && issueEl.ValueKind == JsonValueKind.Object
+            && issueEl.TryGetProperty("number", out var numEl)
+            && numEl.ValueKind == JsonValueKind.Number
+            && numEl.TryGetInt32(out var n))
+        {
+            issueNumber = n;
+        }
+
+        var payload = new
+        {
+            decision = LabelRoutedDecision,
+            unitAddress = new { scheme = context.UnitAddress.Scheme, path = context.UnitAddress.Path },
+            matchedLabel,
+            target = new { scheme = target.Scheme, path = target.Path },
+            source,
+            repository = owner is not null || repo is not null
+                ? new { owner, name = repo }
+                : null,
+            issue = issueNumber is not null
+                ? new { number = issueNumber.Value }
+                : null,
+            addOnAssign = routing.AddOnAssign ?? (IReadOnlyList<string>)Array.Empty<string>(),
+            removeOnAssign = routing.RemoveOnAssign ?? (IReadOnlyList<string>)Array.Empty<string>(),
+            messageId = message.Id,
+        };
+
+        return JsonSerializer.SerializeToElement(payload);
+    }
+
+    private static string? TryGetString(JsonElement element, string propertyName)
+    {
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+        if (!element.TryGetProperty(propertyName, out var value))
+        {
+            return null;
+        }
+        return value.ValueKind == JsonValueKind.String ? value.GetString() : null;
     }
 
     /// <summary>

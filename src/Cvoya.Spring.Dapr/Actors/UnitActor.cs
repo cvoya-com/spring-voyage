@@ -41,13 +41,20 @@ public class UnitActor : Actor, IUnitActor
     private readonly IDirectoryService _directoryService;
     private readonly IActorProxyFactory _actorProxyFactory;
     private readonly IExpertiseSeedProvider? _expertiseSeedProvider;
+    private readonly IOrchestrationStrategyResolver? _strategyResolver;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="UnitActor"/> class.
     /// </summary>
     /// <param name="host">The actor host providing runtime services.</param>
     /// <param name="loggerFactory">The logger factory for creating loggers.</param>
-    /// <param name="orchestrationStrategy">The strategy used to orchestrate domain messages.</param>
+    /// <param name="orchestrationStrategy">
+    /// Default (unkeyed) strategy used to orchestrate domain messages when
+    /// no manifest-declared strategy key is available. Kept on the
+    /// constructor surface for backward compatibility with test harnesses
+    /// that construct the actor directly; in production the resolver below
+    /// is authoritative and this parameter acts as the last-resort fallback.
+    /// </param>
     /// <param name="activityEventBus">The activity event bus for emitting observable events.</param>
     /// <param name="directoryService">Directory used to resolve <c>unit://</c> member paths to actor ids during cycle detection.</param>
     /// <param name="actorProxyFactory">Factory used to build <see cref="IUnitActor"/> proxies for sub-units during cycle detection.</param>
@@ -57,6 +64,16 @@ public class UnitActor : Actor, IUnitActor
     /// Null in legacy test harnesses — seeding is skipped and the unit
     /// activates with whatever the state store holds.
     /// </param>
+    /// <param name="strategyResolver">
+    /// Optional manifest-driven strategy resolver (#491). When present,
+    /// <see cref="HandleDomainMessageAsync"/> asks the resolver for the
+    /// right <see cref="IOrchestrationStrategy"/> per message so the unit
+    /// honours its declared <c>orchestration.strategy</c> key (and the
+    /// inferred <c>label-routed</c> fallback when <c>UnitPolicy.LabelRouting</c>
+    /// is present). Null in legacy test harnesses that construct the actor
+    /// directly — the injected <paramref name="orchestrationStrategy"/>
+    /// handles every message in that path, matching pre-#491 behaviour.
+    /// </param>
     public UnitActor(
         ActorHost host,
         ILoggerFactory loggerFactory,
@@ -64,7 +81,8 @@ public class UnitActor : Actor, IUnitActor
         IActivityEventBus activityEventBus,
         IDirectoryService directoryService,
         IActorProxyFactory actorProxyFactory,
-        IExpertiseSeedProvider? expertiseSeedProvider = null)
+        IExpertiseSeedProvider? expertiseSeedProvider = null,
+        IOrchestrationStrategyResolver? strategyResolver = null)
         : base(host)
     {
         _logger = loggerFactory.CreateLogger<UnitActor>();
@@ -73,6 +91,7 @@ public class UnitActor : Actor, IUnitActor
         _directoryService = directoryService;
         _actorProxyFactory = actorProxyFactory;
         _expertiseSeedProvider = expertiseSeedProvider;
+        _strategyResolver = strategyResolver;
     }
 
     /// <summary>
@@ -736,27 +755,61 @@ public class UnitActor : Actor, IUnitActor
     /// <summary>
     /// Handles a domain message by delegating to the configured orchestration strategy.
     /// </summary>
+    /// <remarks>
+    /// When an <see cref="IOrchestrationStrategyResolver"/> is wired (the
+    /// production path, #491), each message picks its strategy by reading
+    /// the unit's declared <c>orchestration.strategy</c> key and, when
+    /// absent, inferring <c>label-routed</c> from <c>UnitPolicy.LabelRouting</c>.
+    /// The resolver owns a per-message DI scope so scoped strategies see
+    /// fresh policy reads. The injected unkeyed
+    /// <see cref="IOrchestrationStrategy"/> remains the final fallback for
+    /// both test harnesses that construct the actor directly and units
+    /// whose resolver resolved nothing.
+    /// </remarks>
     private async Task<Message?> HandleDomainMessageAsync(Message message, CancellationToken ct)
     {
         var members = await GetMembersListAsync(ct);
         var context = new UnitContext(Address, members.AsReadOnly(), _logger);
 
+        if (_strategyResolver is null)
+        {
+            _logger.LogInformation(
+                "Unit {ActorId} delegating domain message {MessageId} to default orchestration strategy with {MemberCount} members",
+                Id.GetId(), message.Id, members.Count);
+
+            await EmitActivityEventAsync(ActivityEventType.DecisionMade,
+                $"Delegating message {message.Id} to orchestration strategy with {members.Count} members",
+                ct,
+                details: JsonSerializer.SerializeToElement(new
+                {
+                    decision = "DelegateToStrategy",
+                    messageId = message.Id,
+                    memberCount = members.Count,
+                }),
+                correlationId: message.ConversationId);
+
+            return await _orchestrationStrategy.OrchestrateAsync(message, context, ct);
+        }
+
+        await using var lease = await _strategyResolver.ResolveAsync(Id.GetId(), ct);
+
         _logger.LogInformation(
-            "Unit {ActorId} delegating domain message {MessageId} to orchestration strategy with {MemberCount} members",
-            Id.GetId(), message.Id, members.Count);
+            "Unit {ActorId} delegating domain message {MessageId} to orchestration strategy '{StrategyKey}' with {MemberCount} members",
+            Id.GetId(), message.Id, lease.ResolvedKey ?? "<default>", members.Count);
 
         await EmitActivityEventAsync(ActivityEventType.DecisionMade,
-            $"Delegating message {message.Id} to orchestration strategy with {members.Count} members",
+            $"Delegating message {message.Id} to orchestration strategy '{lease.ResolvedKey ?? "<default>"}' with {members.Count} members",
             ct,
             details: JsonSerializer.SerializeToElement(new
             {
                 decision = "DelegateToStrategy",
                 messageId = message.Id,
-                memberCount = members.Count
+                memberCount = members.Count,
+                strategyKey = lease.ResolvedKey,
             }),
             correlationId: message.ConversationId);
 
-        return await _orchestrationStrategy.OrchestrateAsync(message, context, ct);
+        return await lease.Strategy.OrchestrateAsync(message, context, ct);
     }
 
     /// <summary>

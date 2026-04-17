@@ -1,11 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import {
   Activity,
   ChevronDown,
   ChevronRight,
   ChevronLeft,
+  MessagesSquare,
   RefreshCw,
 } from "lucide-react";
 
@@ -103,9 +105,21 @@ function EventRow({
             <span className="font-mono text-xs">{event.id}</span>
           </div>
           {event.correlationId && (
-            <div className="flex gap-2">
+            <div className="flex items-center gap-2">
               <span className="text-muted-foreground">Correlation ID:</span>
               <span className="font-mono text-xs">{event.correlationId}</span>
+              {/* Activity events that carry a correlation id are part
+                  of a conversation thread (#410). The conversations
+                  surface is keyed on that id so we surface a
+                  one-click jump straight into the thread view. */}
+              <Link
+                href={`/conversations/${encodeURIComponent(event.correlationId)}`}
+                className="inline-flex items-center gap-1 rounded border border-input bg-background px-2 py-0.5 text-xs text-primary hover:bg-accent"
+                aria-label="Open conversation thread"
+              >
+                <MessagesSquare className="h-3 w-3" />
+                Open thread
+              </Link>
             </div>
           )}
           {event.cost != null && (

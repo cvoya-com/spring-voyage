@@ -176,6 +176,21 @@ public class UnitCreationService : IUnitCreationService
             await PersistUnitDefinitionExpertiseAsync(name, manifest.Expertise, cancellationToken);
         }
 
+        // #491: persist the manifest's `orchestration.strategy` key onto the
+        // unit definition row so the unit actor resolves the right keyed
+        // IOrchestrationStrategy per message. Follows the same pattern as
+        // the expertise seed above — both surfaces write to
+        // `UnitDefinitions.Definition` because that is the single source of
+        // declarative truth the actor reads. A missing / blank strategy
+        // falls through to the policy-based inference and then the unkeyed
+        // default, so we only bother writing when the caller actually
+        // declared one.
+        if (!string.IsNullOrWhiteSpace(manifest.Orchestration?.Strategy))
+        {
+            await PersistUnitDefinitionOrchestrationAsync(
+                name, manifest.Orchestration!.Strategy!, cancellationToken);
+        }
+
         return result;
     }
 
@@ -243,6 +258,70 @@ public class UnitCreationService : IUnitCreationService
         {
             _logger.LogWarning(ex,
                 "Unit '{UnitName}': failed to persist seed expertise on UnitDefinition; actor will activate without seed.",
+                unitId);
+        }
+    }
+
+    /// <summary>
+    /// Writes the manifest <c>orchestration.strategy</c> key onto the
+    /// corresponding <see cref="Data.Entities.UnitDefinitionEntity.Definition"/>
+    /// JSON so the unit actor's <see cref="Cvoya.Spring.Core.Orchestration.IOrchestrationStrategyResolver"/>
+    /// picks it up at dispatch time (#491). Idempotent: a subsequent
+    /// manifest re-apply overwrites only the <c>orchestration</c> slot
+    /// without touching other fields (including the <c>expertise</c> slot
+    /// written by <see cref="PersistUnitDefinitionExpertiseAsync"/>).
+    /// </summary>
+    private async Task PersistUnitDefinitionOrchestrationAsync(
+        string unitId,
+        string strategyKey,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+
+            var entity = await db.UnitDefinitions
+                .FirstOrDefaultAsync(u => u.UnitId == unitId && u.DeletedAt == null, cancellationToken);
+
+            if (entity is null)
+            {
+                _logger.LogWarning(
+                    "Unit '{UnitName}': could not locate UnitDefinition row to persist orchestration strategy; actor will resolve the default strategy.",
+                    unitId);
+                return;
+            }
+
+            var payload = new Dictionary<string, object?>
+            {
+                ["orchestration"] = new { strategy = strategyKey },
+            };
+
+            // Preserve any other properties already on the Definition document
+            // so we don't clobber a pre-existing instructions / expertise /
+            // execution block.
+            if (entity.Definition is { ValueKind: System.Text.Json.JsonValueKind.Object } existing)
+            {
+                foreach (var prop in existing.EnumerateObject())
+                {
+                    if (!string.Equals(prop.Name, "orchestration", StringComparison.OrdinalIgnoreCase))
+                    {
+                        payload[prop.Name] = prop.Value;
+                    }
+                }
+            }
+
+            entity.Definition = System.Text.Json.JsonSerializer.SerializeToElement(payload);
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Unit '{UnitName}': failed to persist orchestration.strategy on UnitDefinition; actor will resolve the default strategy.",
                 unitId);
         }
     }

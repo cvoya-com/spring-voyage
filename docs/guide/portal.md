@@ -20,13 +20,14 @@ Authentication uses the same token flow as the CLI: when the API Host is running
 
 ## Navigation and shell
 
-The left sidebar ([src/Cvoya.Spring.Web/src/components/sidebar.tsx](../../src/Cvoya.Spring.Web/src/components/sidebar.tsx)) is the top-level navigator. It currently exposes five entries:
+The left sidebar ([src/Cvoya.Spring.Web/src/components/sidebar.tsx](../../src/Cvoya.Spring.Web/src/components/sidebar.tsx)) is the top-level navigator. It currently exposes six entries:
 
 | Portal route | What it shows | Primary CLI equivalent |
 |--------------|---------------|------------------------|
 | `/` — **Dashboard** | Stats header, unit cards, agent cards, recent activity | (no single CLI equivalent — see individual pages) |
 | `/units` — **Units** | List of all units with status + delete action | `spring unit list` |
 | `/activity` — **Activity** | Paginated activity feed with filters | `spring activity list` |
+| `/conversations` — **Conversations** | Filtered conversation list, "Awaiting you" inbox, deep links to threads | `spring conversation list` / `spring inbox list` |
 | `/initiative` — **Initiative** | Per-agent initiative policy editor + recent initiative events | (no CLI equivalent today — parity gap) |
 | `/budgets` — **Budgets** | Tenant daily budget + per-agent budget rows | (no CLI equivalent today — parity gap) |
 
@@ -248,6 +249,50 @@ spring activity list --severity Warning
 spring activity list --limit 50
 ```
 
+## Conversations (`/conversations`, `/conversations/{id}`)
+
+The conversations surface ([src/Cvoya.Spring.Web/src/app/conversations/](../../src/Cvoya.Spring.Web/src/app/conversations/)) is the chat-shaped projection over the activity event stream. A "conversation" is the set of activity events that share a `correlationId` (which the platform sets to the message envelope's `ConversationId` — see [Messaging — Conversation Surfaces](../architecture/messaging.md#conversation-surfaces)).
+
+### List (`/conversations`)
+
+The list page is the one-to-one portal counterpart of `spring conversation list`:
+
+- **Filters** — `unit`, `agent`, `participant`, and `status` (`active` / `completed`). Filter values live in the URL query string, so a link like `/conversations?unit=engineering-team&status=active` round-trips with the CLI's `--unit engineering-team --status active`.
+- **"Awaiting you"** — at the top, the inbox panel renders the rows returned by `GET /api/v1/inbox` (the same data feeding `spring inbox list`). Each row deep-links to the relevant conversation.
+- **Conversation grid** — one `<ConversationCard>` per row, showing the participants, status, last-activity time, and a one-click "Open" link.
+- **Live updates** — the page subscribes to the activity SSE stream (`/api/stream/activity`); whenever a relevant event lands, the list is invalidated and refetched. There is no polling.
+
+| Action | Portal | CLI |
+|--------|--------|-----|
+| List conversations | `/conversations` | `spring conversation list` |
+| Filter by unit | `?unit=…` | `--unit …` |
+| Filter by agent | `?agent=…` | `--agent …` |
+| Filter by participant | `?participant=scheme://path` | `--participant scheme://path` |
+| Filter by status | `?status=active|completed` | `--status active|completed` |
+| Inbox (awaiting me) | "Awaiting you" panel | `spring inbox list` |
+
+### Thread (`/conversations/{id}`)
+
+The thread page is the one-to-one portal counterpart of `spring conversation show <id>` — plus a composer that mirrors `spring conversation send --conversation <id> <addr> <text>`.
+
+- **Header** — conversation id, status, summary, participants, "Origin" address (a link back to `/activity?source=…` so users can pivot to the raw event log), and a "View activity" button that filters the activity surface by this conversation.
+- **Thread** — one bubble per `ConversationEvent`, with role attribution by source scheme:
+  - `human://` — right-aligned, primary surface (the human's voice).
+  - `agent://` — left-aligned, muted surface.
+  - `unit://` — left-aligned, dimmer muted surface.
+  - `system://` — left-aligned, italic muted surface.
+  - `DecisionMade` events render as left-aligned **tool calls** with an amber outline; they collapse by default to keep the thread readable. `StateChanged`, `WorkflowStepCompleted`, and `ReflectionCompleted` also collapse by default.
+  - Each bubble carries a "View in activity →" link to deep-link back to the activity surface, the inverse of the activity row's "Open thread" pill.
+- **Composer** — a textarea + recipient field at the bottom of the thread. The recipient is seeded with the most-recently-active non-human participant and can be changed via quick-pick pills. Submit on click or `⌘/Ctrl+Enter`. The composer POSTs to `/api/v1/conversations/{id}/messages` exactly like the CLI's `spring conversation send`.
+- **Live updates** — the page subscribes to the activity SSE stream filtered by `correlationId`; new events appear in the thread as they land, with no manual refresh.
+
+| Action | Portal | CLI |
+|--------|--------|-----|
+| Show a thread | `/conversations/{id}` | `spring conversation show <id>` |
+| Send into a thread | composer at the bottom of `/conversations/{id}` | `spring conversation send --conversation <id> <addr> <text>` |
+| Jump to activity event | "View in activity →" on any bubble | — |
+| Jump to thread from an activity row | "Open thread" pill on rows with a correlation id | — |
+
 ## Initiative (`/initiative`)
 
 The initiative page ([src/Cvoya.Spring.Web/src/app/initiative/page.tsx](../../src/Cvoya.Spring.Web/src/app/initiative/page.tsx)) lists every agent with its current initiative `level` and policy `maxLevel`. Clicking an agent opens an inline policy editor where you set:
@@ -341,7 +386,7 @@ Today's portal has capabilities not mirrored in the CLI, and vice versa. These a
 | `spring apply` for YAML manifests | not implemented | `spring apply -f` | |
 | Activity streaming (live follow) | polling refresh | not implemented | neither surface has a real-time `activity stream` today |
 | Cost summary / budget CLI | — | not implemented | the older `docs/guide/observing.md` references `spring cost summary`/`spring cost budget`/`spring activity stream` which are not on the shipped CLI surface |
-| Messaging UI | not implemented | `spring message send` | portal is observe-only for messages |
+| Messaging UI (one-shot send to an arbitrary address) | not implemented | `spring message send` | use the conversation composer for in-thread replies; new-conversation send is still CLI-only |
 
 Parity is a project norm (see the top-level `AGENTS.md`): any time you find yourself building a feature on one surface, file a follow-up to bring the other in line.
 

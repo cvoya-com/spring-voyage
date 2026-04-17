@@ -3,9 +3,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
 import {
   Copy,
   DollarSign,
+  MessagesSquare,
   Plus,
   Trash2,
   Wallet,
@@ -282,6 +284,25 @@ export default function AgentDetailClient({ id }: ClientProps) {
           <Trash2 className="mr-1 h-4 w-4" /> Delete
         </Button>
       </div>
+
+      {/* Quick link to the conversation surface filtered by this agent
+          (#410). Mirrors `spring conversation list --agent <name>` so
+          the portal exposes the same one-click jump. */}
+      <Card>
+        <CardContent className="flex items-center justify-between gap-3 py-4 text-sm">
+          <div className="flex items-center gap-2">
+            <MessagesSquare className="h-4 w-4 text-muted-foreground" />
+            <span>Conversations involving this agent</span>
+          </div>
+          <Link
+            href={`/conversations?agent=${encodeURIComponent(agent.name)}`}
+            className="inline-flex items-center gap-1 rounded-md border border-input bg-background px-3 py-1 text-xs font-medium text-primary hover:bg-accent"
+            data-testid="agent-conversations-link"
+          >
+            View threads →
+          </Link>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

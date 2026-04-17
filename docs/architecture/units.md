@@ -292,7 +292,7 @@ unit:
 
 ### Orchestration Strategies
 
-Three concrete implementations of `IOrchestrationStrategy` ship today. Each is registered under its own DI key in `AddCvoyaSpringDapr` (`"ai"` is the unkeyed default; `"workflow"` and `"label-routed"` are selected explicitly). `UnitActor` resolves the strategy by key; the manifest-driven selector that reads a unit's declared strategy key is tracked under #491.
+Three concrete implementations of `IOrchestrationStrategy` ship today. Each is registered under its own DI key in `AddCvoyaSpringDapr` (`"ai"` is the unkeyed default; `"workflow"` and `"label-routed"` are selected explicitly). `UnitActor` resolves the strategy per message through `IOrchestrationStrategyResolver`, which consults the unit's declared strategy key from the manifest and — when one isn't declared — falls back to policy-based inference and finally the unkeyed default (#491).
 
 | Strategy (DI key)              | Concrete type                            | How it routes                                                                                                                                                          | AI Involvement | Example                                   |
 | ------------------------------ | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- | ----------------------------------------- |
@@ -302,9 +302,31 @@ Three concrete implementations of `IOrchestrationStrategy` ship today. Each is r
 
 The strategy pattern is intentionally open — a host can register its own `IOrchestrationStrategy` under a new DI key without touching core code.
 
-Matching semantics and design rationale for label routing are captured in [ADR-0007](../decisions/0007-label-routing-match-semantics.md).
+Matching semantics and design rationale for label routing are captured in [ADR-0007](../decisions/0007-label-routing-match-semantics.md). Status-label roundtrip (the connector applying `AddOnAssign` / `RemoveOnAssign` after a successful assignment) is wired via the activity-event bus as described in [ADR-0009](../decisions/0009-github-label-roundtrip-via-activity-event.md): the strategy publishes a `DecisionMade` event with `decision = "LabelRouted"` and the GitHub connector subscribes to it. The per-message resolution protocol that honours the manifest key is captured in [ADR-0010](../decisions/0010-manifest-orchestration-strategy-selector.md).
 
 **Workflow patterns within a workflow strategy** — sequential, parallel, fan-out/fan-in, conditional, human-in-the-loop — are driven by the workflow engine inside the container; see [Workflows](workflows.md) for the full pattern catalogue.
+
+#### Selecting a strategy from YAML
+
+A unit manifest can pin the strategy explicitly via an `orchestration.strategy` key (#491). The value is the DI key the platform should resolve — `ai`, `workflow`, `label-routed`, or any key a host has registered under `AddKeyedScoped<IOrchestrationStrategy, ...>` / `AddKeyedSingleton<...>`:
+
+```yaml
+unit:
+  name: issue-triage
+  orchestration:
+    strategy: label-routed
+  members:
+    - agent: backend-engineer
+    - agent: qa-engineer
+```
+
+`UnitCreationService` persists the declared key onto the unit's `UnitDefinitions.Definition` JSON at manifest ingestion, alongside the `expertise:` seed written by PR-BOUND-1b. On each domain message `UnitActor` consults `IOrchestrationStrategyResolver`, which resolves in the following precedence:
+
+1. **Manifest key** — the `orchestration.strategy` value, when a DI registration matches.
+2. **Policy inference** — `label-routed`, when `UnitPolicy.LabelRouting` is non-null on a unit whose manifest did not declare a strategy (ADR-0007 revisit criterion). An operator who has already configured label routing through `spring unit policy label-routing set` does not need to also add an `orchestration` block to the manifest.
+3. **Unkeyed default** — the `IOrchestrationStrategy` registered without a key (the platform's `ai` strategy by default; a private-cloud host can override via `TryAdd*`).
+
+An unknown manifest key (declared but not registered in DI) is a misconfiguration, not a routing bug: the resolver logs a warning, drops to the policy inference, and then to the unkeyed default so messages keep flowing while the operator corrects the manifest. The resolver creates a fresh DI scope per message so scoped strategies — `LabelRoutedOrchestrationStrategy` in particular — pick up hot `IUnitPolicyRepository` edits without actor recycling.
 
 ### Unit Policy Framework
 

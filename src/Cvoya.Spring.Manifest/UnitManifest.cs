@@ -32,6 +32,20 @@ public class UnitManifest
     [YamlMember(Alias = "ai")]
     public AiManifest? Ai { get; set; }
 
+    /// <summary>
+    /// Optional orchestration configuration for the unit. Today this only
+    /// carries the <c>strategy</c> key — see #491 — so the unit actor can
+    /// resolve the right <c>IOrchestrationStrategy</c> implementation at
+    /// dispatch time instead of always binding to the unkeyed default.
+    /// Parsed and auto-applied; a <c>null</c> section leaves the unit on the
+    /// platform default (inferred to <c>label-routed</c> when the unit also
+    /// carries a <c>UnitPolicy.LabelRouting</c> slot, otherwise the
+    /// <c>ai</c> default — see
+    /// <c>docs/architecture/units.md § Manifest-driven strategy selection</c>).
+    /// </summary>
+    [YamlMember(Alias = "orchestration")]
+    public OrchestrationManifest? Orchestration { get; set; }
+
     /// <summary>Members of the unit (agents or other units).</summary>
     [YamlMember(Alias = "members")]
     public List<MemberManifest>? Members { get; set; }
@@ -95,6 +109,32 @@ public class ExpertiseManifestEntry
     /// </summary>
     [YamlMember(Alias = "level")]
     public string? Level { get; set; }
+}
+
+/// <summary>
+/// Orchestration configuration for a unit (#491). Today only carries the
+/// <c>strategy</c> key that names the <see cref="Cvoya.Spring.Core.Orchestration.IOrchestrationStrategy"/>
+/// DI registration the unit should resolve at dispatch time. Shipped as its
+/// own class rather than a bare <c>string</c> so follow-up work can
+/// layer per-strategy options (e.g. workflow image digest, label-routed
+/// default timeout) on top without reshaping the manifest grammar.
+/// </summary>
+public class OrchestrationManifest
+{
+    /// <summary>
+    /// The DI key naming the <see cref="Cvoya.Spring.Core.Orchestration.IOrchestrationStrategy"/>
+    /// implementation this unit should use. Expected values today:
+    /// <c>ai</c> (default), <c>workflow</c>, <c>label-routed</c>. A host that
+    /// registers additional strategies via
+    /// <c>AddKeyedScoped&lt;IOrchestrationStrategy, ...&gt;</c> can surface
+    /// their keys here without touching the manifest class — the selector
+    /// resolves by string key. Unknown keys are rejected at dispatch time
+    /// and the unit falls back to the platform default (the
+    /// <see cref="Cvoya.Spring.Core.Orchestration.IOrchestrationStrategy"/>
+    /// registered unkeyed, which is <c>ai</c> in the OSS stack).
+    /// </summary>
+    [YamlMember(Alias = "strategy")]
+    public string? Strategy { get; set; }
 }
 
 /// <summary>AI configuration for a unit (parsed; not yet applied).</summary>

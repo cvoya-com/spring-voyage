@@ -4,6 +4,14 @@
 
 ---
 
+## Deployment scope
+
+This open-source platform targets **standalone / single-host deployments** (Docker Compose / Podman Compose on a developer machine or a single server). Hosted or Kubernetes deployments are **not in scope for this repository**.
+
+The runtime abstractions (`IContainerRuntime`, `IExecutionDispatcher`) are deliberately backend-plural so a Kubernetes-native implementation can live in a separate downstream deployment repository, but this repository ships only the standalone runtime. Bug reports and feature requests against this repo should be for functionality that runs on the standalone target; multi-tenant hosted or K8s concerns belong in the downstream repo that consumes this codebase as a submodule.
+
+---
+
 ## Agent Hosting Modes
 
 Every agent is hosted in one of two modes, controlled by `AgentExecutionConfig.Hosting` (`Cvoya.Spring.Core.Execution.AgentHostingMode`):

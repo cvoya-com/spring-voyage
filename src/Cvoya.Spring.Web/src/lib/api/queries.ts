@@ -27,9 +27,13 @@ import type {
   BudgetResponse,
   CloneResponse,
   ConnectorTypeResponse,
+  ConversationDetail,
+  ConversationListFilters,
+  ConversationSummary,
   CostDashboardSummary,
   CostSummaryResponse,
   DashboardSummary,
+  InboxItem,
   InitiativeLevelResponse,
   InitiativePolicy,
   PackageDetail,
@@ -290,6 +294,51 @@ export function useActivityQuery(
     queryKey: queryKeys.activity.query(params),
     queryFn: async () =>
       (await api.queryActivity(params)) as ActivityQueryResult,
+    ...opts,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Conversations (#410)
+// ---------------------------------------------------------------------------
+//
+// The list endpoint accepts a small set of filter knobs; we serialize
+// them into the query key as-is so two pages with different filters
+// don't collide. Detail keeps its own per-id slice so the live SSE
+// stream can patch a single thread without touching unrelated rows.
+
+export function useConversations(
+  filters?: ConversationListFilters,
+  opts?: SliceOptions<ConversationSummary[]>,
+): UseQueryResult<ConversationSummary[], Error> {
+  return useQuery({
+    queryKey: queryKeys.conversations.list(
+      filters as Record<string, unknown> | undefined,
+    ),
+    queryFn: () => api.listConversations(filters),
+    ...opts,
+  });
+}
+
+export function useConversation(
+  id: string,
+  opts?: SliceOptions<ConversationDetail | null>,
+): UseQueryResult<ConversationDetail | null, Error> {
+  return useQuery({
+    queryKey: queryKeys.conversations.detail(id),
+    queryFn: () => api.getConversation(id),
+    enabled: opts?.enabled ?? Boolean(id),
+    refetchInterval: opts?.refetchInterval,
+    staleTime: opts?.staleTime,
+  });
+}
+
+export function useInbox(
+  opts?: SliceOptions<InboxItem[]>,
+): UseQueryResult<InboxItem[], Error> {
+  return useQuery({
+    queryKey: queryKeys.conversations.inbox(),
+    queryFn: () => api.listInbox(),
     ...opts,
   });
 }
