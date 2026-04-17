@@ -23,7 +23,7 @@
 
 **Not in scope.**
 
-- Pixel-perfect visual design or Figma prototypes.
+- Pixel-perfect visual design or high-fidelity prototypes. Those are produced in Google Stitch ([stitch.withgoogle.com](https://stitch.withgoogle.com)) — the replacement for a traditional Figma round — and exported to an agent-friendly [`DESIGN.md`](https://stitch.withgoogle.com/docs/design-md/overview/) that codifies the visual system. See §8.6 for how the tool and the file fit the implementation pipeline.
 - Code changes to the actual portal.
 - Features not yet shipped on the platform (marked clearly as "future" where referenced for context).
 - Branding, marketing site, public documentation site.
@@ -121,27 +121,32 @@ The portal should therefore privilege **two navigation lenses**: *by unit* (orga
 |  Spring Voyage   |   [search or cmd-palette]       [user] |
 |                  |----------------------------------------|
 |  Dashboard       |                                        |
-|  Units       >   |   (main content pane)                  |
+|  Inbox           |   (main content pane)                  |
+|  Units       >   |                                        |
 |  Agents      >   |                                        |
 |  Conversations>  |                                        |
 |  Activity        |                                        |
-|  Costs           |                                        |
+|  Analytics   >   |                                        |
+|      Costs       |                                        |
+|      Throughput  |                                        |
+|      Wait times  |                                        |
 |  Policies        |                                        |
 |  Connectors      |                                        |
 |  Packages        |                                        |
 |------------------|                                        |
 |  [v] Settings    |                                        |
-|      Tokens      |                                        |
-|      People      |    (hosted adds: Tenant, Billing,      |
-|      Packages    |     Members, Audit)                    |
+|      Tokens      |    (hosted adds: Tenant, Billing,      |
+|      People      |     Members, Audit)                    |
+|      Packages    |                                        |
 +------------------+----------------------------------------+
 ```
 
 Proposed changes from current sidebar (Dashboard / Units / Activity / Initiative / Budgets):
 
-- Rename **Budgets → Costs** (costs are the primary surface; budgets are a tool within it). Budgets landing keeps, but promote total/breakdown.
+- Add **Inbox** — a dedicated "things waiting on me (a human)" surface. See §3.4 below for the rationale and how it relates to Conversations.
 - Add **Agents** as a first-class lens (today agents are only reachable by drilling from unit or dashboard).
 - Add **Conversations** as a top-level surface — conversations are the artefact users most frequently want to inspect (unblocks #392's "conversation detail").
+- Add **Analytics** as a new top-level surface (§3.5). **Costs** moves under it as a subsection and gains peers: throughput, wait times, interaction counts, utilization. The current sidebar's standalone "Budgets" entry folds into `Analytics → Costs` (budgets are a control within cost management).
 - Replace **Initiative** with a broader **Policies** surface covering all five `UnitPolicy` dimensions (Skill / Model / Cost / ExecutionMode / Initiative) plus the per-agent initiative policy that exists today. Initiative becomes a sub-view.
 - Add **Connectors** and **Packages** as top-level browsers (catalogue of available connector types and installed packages / templates). Today these exist only inside modals.
 - Add a **Settings** drawer at the bottom: tokens, personal profile, installed packages. In hosted mode this gains Tenant, Billing, Members, Audit.
@@ -152,6 +157,45 @@ Proposed changes from current sidebar (Dashboard / Units / Activity / Initiative
 - **Breadcrumbs are mandatory** on any page two levels or deeper: `Units / engineering-team / backend / ada`. Today each page hard-codes an "← Back" chevron with inconsistent targets.
 - **Cross-links are required, not optional.** Every unit card links to its conversations, costs, activity, policies. Every agent card links to its parent units and its conversations. Activity rows link to the agent / conversation that produced them (gap flagged in #392).
 - **Object cards are the primary unit of IA.** A unit card, agent card, and conversation card should be reusable primitives (title, status, badge, quick actions, cost mini-sparkline, "open" affordance) — not bespoke layouts per page.
+
+### 3.4 Inbox: the human-facing "awaiting me" surface
+
+Humans participate in Spring Voyage as first-class actors (`human://<unit>/<identity>`). They send work, they receive work, and — critically — agents frequently **wait on them**: approvals, clarifications, go/no-go decisions, escalations. Today the portal has no surface for "things pointed at me that I have not responded to". An operator opening the app has to know which unit / agent / conversation to drill into. That is a gap for the hosted story especially (many tenants, many concurrent asks) but it applies to standalone too.
+
+**Proposal: add an Inbox as its own top-level surface, distinct from Conversations.**
+
+- **Inbox** answers *"What is waiting on me?"* It is scoped to the current user and ordered by age / priority. Each row names the requesting unit/agent, the conversation, the ask, and the action (approve, reject, reply, open). Items drop off as soon as the user acts or the agent retracts.
+- **Conversations** answers *"What threads have I been part of?"* It is the full-history lens, ordered by recency, filterable by unit/agent/participant. No action affordance is required for a row to appear.
+
+One is a task queue; the other is an archive. They share the Conversation primitive (each Inbox row links to its parent conversation), but treating them as the same page conflates a blocker list with a journal and we lose the "what do I need to do right now" clarity.
+
+**Smallest coherent v1:** Inbox page lists conversations where the latest event is a `MessageReceived` targeting the current `human://` address *and* no subsequent message from that human has shipped. Click → open the conversation with the reply box focused. Completion deletes the row.
+
+**Hosted additions:** delegation ("assign this to another human in the tenant") and SLA badges ("waiting 4h"). Both layer cleanly once the base exists.
+
+### 3.5 Analytics: a first-class surface, with Costs as a peer subsection
+
+Cost is one lens on operational health. It is not the only one worth answering. An operator managing a running fleet of units and agents regularly wants to know:
+
+- How long are units/agents **idle** waiting for work?
+- How long are they **busy** per turn? Per conversation? Per day?
+- How many **interactions** (messages, tool calls, handoffs) are they driving?
+- How long are conversations **blocked on a human** vs blocked on an LLM vs blocked on an external tool?
+- What fraction of work is coming in via which **surface** (CLI, portal, connector, scheduled)?
+
+Today only cost exists as a sibling to everything else (portal `/budgets`, CLI `spring cost summary`). Treating cost as the whole of analytics limits the portal's ability to answer operational questions.
+
+**Proposal: Analytics becomes a top-level surface with Costs as one subsection. The other subsections are deliberately thin at v1 and can grow over time.**
+
+Initial subsections:
+
+- **Costs** — what today's `/budgets` page is, promoted. Totals, breakdown by agent/unit/model/source, budget utilization, sparklines. Budget configuration lives here.
+- **Throughput** — interaction counts over time: messages per agent, conversations per unit, turns per model. A single stacked chart per dimension.
+- **Wait times** — time-in-state rollups derived from the `StateChanged` activity events the platform already emits. Idle time, busy time, waiting-on-human time (from conversations where the latest event awaits a `human://` address). This is where the inbox-style SLA metrics roll up.
+
+Each analytics subsection is a filtered roll-up over the same activity event stream that feeds §3.2 Activity. That keeps implementation bounded — one query layer, many lenses — and the surface can grow (capacity, failure rates, policy-denial rates, connector-call rates) without adding new pipelines.
+
+**Platform gaps this may surface:** wait-time analytics assumes the activity stream tags each state transition with enough detail to compute durations (e.g. `StateChanged` events must include both the previous and current state and be timestamped consistently). A short spike before implementation should verify this and file any gaps.
 
 ---
 
@@ -353,7 +397,18 @@ Key changes:
 - Messages render with role attribution, tool-call summaries, and outcomes. Tool I/O is collapsed by default; click to expand.
 - A conversation shows its **origin** — the GitHub issue, CLI invocation, connector event, or message that started it. The conversation can always link back.
 - The compose box is only rendered when the human has permission to send — checked via the permission service. In OSS (no auth), it is always available. In hosted, it respects role.
-- Conversations must support **real-time updates** via SSE (the platform already emits `MessageSent` / `MessageReceived` activity events — we subscribe and patch the thread).
+- Conversations must support **real-time updates** via SSE or the streaming route handler proposed in §8 (the platform already emits `MessageSent` / `MessageReceived` activity events — we subscribe and patch the thread).
+
+**How this relates to the Activity log.** Reviewer question: should Conversations and Activity share a surface?
+
+*Recommendation: no — keep them as separate surfaces, but share the underlying event stream and link each Activity row to its conversation.*
+
+- **Activity** is the raw, chronologically-ordered stream of every event the platform emits (`MessageReceived`, `StateChanged`, `ToolCall`, `CostRecorded`, `ErrorOccurred`, …). It is a log — comprehensive, filterable, optimised for debugging and auditing. It spans agents, units, connectors, and cost events.
+- **Conversations** is the narrative view of one specific event type — the message thread — rendered with role attribution, tool-call summaries, outcome, and reply affordance. It is a message log, not an event log, and is optimised for reading and responding.
+
+They share a source (both derive from the activity bus) but serve different jobs. Treating them as one page would force every conversation view to carry event types that have nothing to do with the message thread (cost ticks, policy evaluations, container-lifecycle events), and force every activity row to render the conversation prose inline. The alignment we should enforce instead is **cross-linking**: every activity row that belongs to a conversation links into the conversation view; every conversation's "origin" shows the activity row that kicked it off. The Unit/Agent detail page already splits these into separate tabs — keep that split at the top level too.
+
+A useful side effect of this split: it lets the **Inbox** (§3.4) stay lightweight. Inbox is derived from conversations where the latest event awaits a human — it does not need to rebuild the entire activity stream to answer "what is waiting on me?".
 
 **CLI parity.** Gaps:
 
@@ -519,6 +574,57 @@ Key changes:
 
 **CLI parity.** The CLI does not expose unit-policy editing commands today — `spring unit policy set-skill ...` and friends don't exist. That's a major parity gap given the policy framework is in the core. Parity gap to file.
 
+### 5.7 Analytics
+
+**Before.** Costs are the only operational metric visualised today (dashboard stats header and `/budgets` page). No lens on throughput, utilization, wait times, or interaction counts exists in the portal. The CLI is similarly thin: `spring cost summary` exists; nothing else does.
+
+**Proposed direction.** `/analytics` is a new top-level surface with tabbed subsections. v1 ships three tabs; the rest are placeholders for future waves.
+
+```
++----------------------------------------------------------------+
+| Analytics                                                      |
+|----------------------------------------------------------------|
+| [ Costs | Throughput | Wait times ]   [ range: 7d v ]          |
+|----------------------------------------------------------------|
+|                                                                |
+|  (Costs tab — what was /budgets, promoted)                     |
+|                                                                |
+|  Total spend (7d):  $42.18                                     |
+|                                                                |
+|  [======= area chart: daily spend, stacked by model =====]     |
+|                                                                |
+|  Breakdown                                                     |
+|  by agent:  ada $18.30  grace $12.40  kay $11.48               |
+|  by unit:   engineering-team $32.10  research-team $10.08      |
+|  by model:  gpt-4o $22.40  sonnet $19.78                       |
+|                                                                |
+|  Budgets: tenant $100/mo ([==============        ] 42%)        |
+|           ada    $25/mo  ([=========             ] 35%)        |
+|                                                                |
++----------------------------------------------------------------+
+```
+
+Key changes and composition:
+
+- **Costs tab** is `/budgets` expanded — stack chart, breakdown by agent/unit/model, budget progress bars. Budget configuration (tenant + per-agent) stays here.
+- **Throughput tab** shows interaction counts over the selected window: messages per agent, turns per unit, tool calls by type. One stacked chart per dimension with a legend; click a series to filter.
+- **Wait times tab** rolls up `StateChanged` event durations: Idle → Busy, Busy → Idle, Busy → WaitingForHuman. Reported per agent and per unit. This is the lens that answers "is the fleet bottlenecked on humans, tools, or inference?".
+
+All three tabs use the same range picker (today / 7d / 30d / custom). All three derive from the activity bus — no new backend pipeline is required; only new query projections on top of the existing `ActivityEventPersister` storage.
+
+**Progressive loading.** Analytics queries can be expensive; the page should render the tab shell immediately and stream each widget's result in as it arrives. Dovetails with the streaming proposal in §8.
+
+**CLI parity.** `spring analytics costs --window 7d`, `spring analytics throughput --unit <name>`, `spring analytics waits --agent <name>`. None exist today. Cost summary is the only subset. The existing `spring cost summary` becomes the Costs tab's CLI equivalent; the other two are new commands to file as parity gaps (joining the set in §9).
+
+**Future subsections (not in v1, but keep the IA open for them).**
+
+- **Errors / retries** — failure rate per agent/model/tool, MTTR.
+- **Policy denials** — which policies are firing, for whom, at what rate.
+- **Connector activity** — per-connector call volume and latency.
+- **Human-in-the-loop** — inbox depth, response times, stale asks.
+
+Each is one more tab in `/analytics`; none requires re-architecting the query layer.
+
 ---
 
 ## 6. Responsive / mobile considerations
@@ -557,26 +663,74 @@ An accessibility audit should be commissioned after the next major visual change
 
 ## 8. Technology approach — recommendation
 
-**Recommendation: stay on Next.js (App Router) + Tailwind, static export.**
+**Recommendation: stay on Next.js (App Router) + Tailwind, `output: "standalone"` (the portal's *current* mode — keep it, don't revert to static export).**
 
-Reasoning:
+### 8.1 Reality check on ADR 0001
 
-1. **ADR 0001 is recent (2026-04-13) and its constraints still hold.** The portal is a thin client over the API. No server-side data dependency. Static export gives OSS deployers the simplest possible hosting story (nginx / S3 / CDN / bundled in the container image). Moving to SSR would push every self-hoster onto a Node runtime and gain us nothing the browser couldn't already render.
-2. **The extension model works.** Private Spring Voyage Cloud can consume the same Next.js app as a git submodule and layer tenant-aware middleware + route extensions without touching OSS files — if we honour the extension slots proposed in §4. No tech switch is needed to unlock hosted.
-3. **The component vocabulary is in good shape.** `components/ui/*` is a reasonable shadcn-style primitive set. Tailwind 4 is current. `openapi-fetch` + `openapi-typescript` gives us fully-typed API calls. Replacing any of this would cost weeks with no user-facing benefit.
-4. **Rejected alternatives.**
-   - *Remix / React Router 7* — strictly strictly better for server-data workflows; we don't have server-data workflows.
-   - *SvelteKit / SolidStart* — smaller bundle, but a full rewrite, loss of openapi-fetch ergonomics, and the team's React muscle memory.
-   - *Blazor* — native .NET fit, but the portal is already shipping as static assets that integrate cleanly into the existing Dockerfile. Switching runtimes to match the backend language would add a new CLR dependency to the web tier for no clear win.
-   - *Static marketing-style site + separate SPA* — this *is* the current architecture (SPA, no marketing copy); no change needed.
+ADR 0001 (2026-04-13) recommended `output: "export"` (pure static), but the portal's current `src/Cvoya.Spring.Web/next.config.ts` reads `output: "standalone"`. The flip happened after ADR 0001 was accepted and the ADR was not updated — so the document is stale, not the code. Concretely:
 
-**Small adjustments to propose, not a rewrite.**
+- **Current:** `output: "standalone"` → a Node runtime serves the app; SSR, streaming, server components, and route handlers are all available.
+- **Still present from the export era:** `generateStaticParams` + `__placeholder__` guards in `/units/[id]/page.tsx`, `/agents/[id]/page.tsx`, and the matching `*-client.tsx` files. These are dead code in standalone mode (the source comment in `units/[id]/page.tsx` still says "The dashboard is exported as a static site").
+- **ADR 0001 revisit criteria** (streaming, per-request personalization, server-held credentials) are exactly the capabilities the reviewer flagged as likely-wanted (activity feed streaming, conversation tailing, per-tenant shell personalization in hosted). The migration has effectively happened; only the documentation hasn't caught up.
 
-- Introduce a lightweight **data-fetching layer** (TanStack Query or similar) to replace the ad-hoc `useEffect` + `setInterval` polling we see in `page.tsx` and `/units/[id]` pages. This isn't a framework switch — just a library add that gives us cache invalidation, retries, and deduplication.
+**Proposed:** supersede ADR 0001 with a new ADR that records "standalone is the decision; static-export workarounds to be removed", and clean up the dead `__placeholder__` pattern in a follow-up PR. Filed as a tracked follow-up at the end of this section.
+
+### 8.2 Reasoning for staying on standalone
+
+1. **Thin client over the API is still the shape.** Every page still fetches from the API on mount using the caller's auth context. The win of SSR over export in our case isn't "render data at the server for SEO" — it's that we unlock streaming, route handlers, and the ability to sink ad-hoc hosted-only concerns (tenant shell, auth callbacks, feature flags) into the Node process when we need them.
+2. **Streaming enables the surfaces we actually want.**
+   - **Activity feed** (§3.2, §5.2) — streaming the server's event stream to the client as it arrives removes the client-side `setInterval` polling we have today.
+   - **Conversation tailing** (§5.3) — a live "watch the agent work" view is a natural fit for streaming message events into the open page.
+   - **Long-running workflow status** (§5.2) — the same stream can feed the per-agent running-indicator without a polling loop.
+   A follow-up section below proposes the concrete wiring.
+3. **Hosted extension model works unchanged.** Spring Voyage Cloud (private repo) consumes the same Next.js app as a git submodule. Standalone mode means tenant-aware middleware + per-route server handlers can be added via the extension slots proposed in §4 without forking the web tier. Static export would have forced all of that into an external edge/CDN layer instead.
+4. **Deployment story is not meaningfully worse.** The shipped `deployment/Dockerfile` already runs Node to serve the portal — this was the case before and after the flip. The ADR's original worry ("every self-hoster needs a Node process") was already invalidated by the existing container topology.
+5. **Component vocabulary is in good shape.** `components/ui/*` is a reasonable shadcn-style primitive set. Tailwind 4 is current. `openapi-fetch` + `openapi-typescript` gives us fully-typed API calls. No framework-level change is warranted.
+6. **Rejected alternatives.**
+   - *Remix / React Router 7* — would be a Next.js replacement for functionality we already have.
+   - *SvelteKit / SolidStart* — full rewrite, loss of openapi-fetch ergonomics.
+   - *Blazor* — native .NET fit, but adds a CLR dependency to the web tier for no clear win.
+   - *Revert to `output: "export"`* — gives up streaming and the hosted extension surface for a deployment simplicity we no longer gain (Node is already in the container).
+
+### 8.3 Where streaming fits concretely
+
+The server side already emits the events we want to stream: `ActivityEventPersister` writes to the activity bus; `AgentActor` publishes state transitions; `ConversationChannel` publishes message events. The current portal queries these via REST polling; a streaming upgrade would:
+
+- Add a route handler at `/api/stream/activity` (server-side) that proxies the platform's activity stream into SSE or a readable stream.
+- Introduce a small client hook (`useActivityStream`) that opens the stream and feeds a TanStack Query cache.
+- Replace the `setInterval` polling in `page.tsx`, `/units/[id]/activity-tab`, and `/agents/[id]/activity-tab`. These three sites drop the poll loops and subscribe instead.
+- Conversation tailing (§5.3) consumes the same stream filtered by `conversationId`.
+
+This is a targeted change (one route handler, one hook, three consumers) and does not require a framework switch. It sits cleanly on top of what we already have.
+
+### 8.4 Small adjustments to propose, not a rewrite
+
+- Introduce a lightweight **data-fetching layer** (TanStack Query) to replace the ad-hoc `useEffect` + `setInterval` polling we see in `page.tsx` and `/units/[id]` pages. Gives us cache invalidation, retries, deduplication, and pairs naturally with the streaming hook above.
 - Introduce a **command palette** (e.g. `cmdk` package) to host the CLI-equivalent actions from §3.2.
 - Adopt **Vitest browser mode** (we already use Vitest) or Playwright for accessibility smoke tests. The current `vitest` config is JSDOM only — not sufficient for keyboard / screen-reader regression.
 
-If (and only if) the revisit criteria in ADR 0001 become true (SEO for public pages, per-request personalization, streaming, server-held credentials), we reopen ADR 0001 and switch to `output: "standalone"`. That path is documented and cheap.
+### 8.5 Cleanup follow-ups (to file as issues once this direction is accepted)
+
+- **Supersede ADR 0001** with an ADR that records "portal is on `output: 'standalone'`; static-export workarounds to be removed; streaming enabled for activity + conversation views".
+- **Remove dead static-export scaffolding** in `units/[id]/page.tsx`, `agents/[id]/page.tsx`, and the matching `*-client.tsx` files: delete the `generateStaticParams` functions, the `__placeholder__` literal, the guards in the clients, and the now-stale source comments.
+- **Wire the activity stream route handler** described above and migrate the three known polling sites off `setInterval`.
+
+### 8.6 Design tool and the agent-facing design system
+
+We will use **Google Stitch** ([stitch.withgoogle.com](https://stitch.withgoogle.com)) as the visual design tool for the directions proposed in this document — not Figma. Stitch is Google Labs' AI-native design canvas (Vibe Design, Voice Canvas, multi-screen generation) and ships a companion file format, [`DESIGN.md`](https://stitch.withgoogle.com/docs/design-md/overview/), that we will treat as the contract between design and code.
+
+**How it fits this project.**
+
+- **Single source of visual truth.** `DESIGN.md` is a plain, human-readable, version-controllable markdown file that codifies the portal's color palette, typography, spacing, component patterns, and visual language. It is paired with every Stitch prompt so later iterations stay on-brand, and it is read by coding agents when they write or refactor UI — so agent-generated components pick up the system without the engineer spelling out tokens each time.
+- **Committed to the repo.** We plan to commit `DESIGN.md` at the root of `src/Cvoya.Spring.Web/` (proposed location — adjust when the file lands). `CLAUDE.md` and the relevant agent definitions under `.claude/agents/` will reference it as mandatory reading for any portal change, same pattern as `AGENTS.md` / `CONVENTIONS.md`.
+- **Round-tripping.** Stitch generates the screens from prompts + `DESIGN.md`. Engineers export the relevant screens and, where the agent integration allows, use the Stitch MCP server so a coding agent can fetch screen metadata directly. The generated React + Tailwind code is a starting point, not a drop-in — the agent still maps everything through our `components/ui/*` primitives and keeps our conventions (`openapi-fetch`, TanStack Query, path aliases, etc.).
+- **Accessibility and responsive.** Stitch does not replace the accessibility checklist in §7 or the responsive rules in §6. It seeds the visual direction; we still test against screen readers and keyboard navigation, and we still verify mobile layouts on real devices.
+
+**Follow-ups to file once this direction is accepted.**
+
+- **Author the initial `DESIGN.md`** from the portal's current look and the directions in this document. Treat as a checkpoint — iterate as the design evolves.
+- **Wire Stitch's MCP server into the coding agent workflow** if available in our environment, so `.claude/agents/dotnet-engineer.md` (and any web-specific agents we add) can fetch design context the same way they fetch docs.
+- **Update `AGENTS.md` / `.claude/agents/*.md` DoD bullets** (added in #424) to include a check for `DESIGN.md` adherence whenever a change touches `src/Cvoya.Spring.Web/`.
 
 ---
 
@@ -595,6 +749,8 @@ Every workflow above was matched against `src/Cvoya.Spring.Cli/Commands/*.cs`. G
 | 7 | No `spring unit create-from-template` first-class CLI (API exists).                   | §5.1 Unit creation              | Low      |
 | 8 | No `spring connector ...` catalog / bind CLI surface.                                 | §3.2 Connectors top-level       | Medium   |
 | 9 | No `spring package ...` list / install CLI despite `spring images list` hint in docs. | §3.2 Packages top-level         | Low      |
+| 10 | No `spring inbox list` / `spring inbox show` / `spring inbox respond` CLI.            | §3.4 Inbox                      | High     |
+| 11 | No `spring analytics costs --window ...` / `throughput` / `waits` CLI.                | §5.7 Analytics tabs             | Medium   |
 
 These are implementation gaps, not design gaps. They should be filed as individual issues once this direction is accepted. The hard rule from the repo's memory (UI and CLI stay in parity) means these must ship together with the corresponding portal surfaces, not before / after.
 
@@ -602,7 +758,7 @@ These are implementation gaps, not design gaps. They should be filed as individu
 
 ## 10. What this doc explicitly defers
 
-- **Final visual design.** No colour system, typography scale, or component-level spec. Those follow once this direction is accepted.
+- **Final visual design.** No colour system, typography scale, or component-level spec. Those are produced in Google Stitch and captured in `DESIGN.md` (§8.6) once this direction is accepted.
 - **Onboarding copy.** Empty-state text and first-run walkthrough are placeholder; real copy is a content-design pass.
 - **Pricing-gated features.** Hosted plan tiers are not designed here — §4 only identifies where the "upgrade" affordance sits.
 - **Offline / degraded modes.** The portal assumes the API is reachable. A fuller offline story (e.g. local CLI-driven mode with IndexedDB cache) is worth considering but out of scope.
@@ -616,9 +772,11 @@ These are implementation gaps, not design gaps. They should be filed as individu
 
 1. Review + revise this direction. Iteration is expected; this document is a branch point, not a decision.
 2. File the CLI parity follow-up issues (§9) — one issue per gap, each referencing the workflow it blocks.
-3. Re-scope #392 / #393 / #394 against this direction:
-   - #392 absorbs the conversation detail page (§5.3) and IA breadcrumb rules (§3.3).
+3. File the §8 cleanup follow-ups — supersede ADR 0001, remove static-export scaffolding, wire the streaming route handler.
+4. Author the initial `DESIGN.md` (§8.6) from Google Stitch and commit under `src/Cvoya.Spring.Web/`. Update `AGENTS.md` and agent DoDs to treat it as mandatory reading for portal changes.
+5. Re-scope #392 / #393 / #394 against this direction:
+   - #392 absorbs the conversation detail page (§5.3), the Inbox surface (§3.4), and IA breadcrumb rules (§3.3).
    - #393 scopes to the *hosted* Members extension (§5.5) and stays out of OSS routes.
-   - #394 aligns with the `/costs` redesign (§5.4).
-4. Split a small "plumbing PR" to introduce the extension slots (§4) so the hosted portal can start consuming them in parallel with OSS feature work.
-5. Decide on TanStack Query adoption as a follow-up RFC; non-blocking.
+   - #394 aligns with the `/costs` redesign and the broader `/analytics` surface (§5.4, §5.7).
+6. Split a small "plumbing PR" to introduce the extension slots (§4) so the hosted portal can start consuming them in parallel with OSS feature work.
+7. Decide on TanStack Query adoption as a follow-up RFC; non-blocking.
