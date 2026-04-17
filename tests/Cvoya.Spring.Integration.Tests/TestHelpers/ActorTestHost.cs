@@ -181,6 +181,50 @@ public static class ActorTestHost
     }
 
     /// <summary>
+    /// Creates a <see cref="UnitActor"/> with an <see cref="IOrchestrationStrategyResolver"/>
+    /// wired (the production path added by #491) so tests can assert the
+    /// actor consults the resolver per message. The constructor-injected
+    /// unkeyed strategy is still supplied because the actor signature keeps
+    /// it as the legacy fallback — test assertions can verify it is NOT
+    /// called when the resolver is present.
+    /// </summary>
+    public static (UnitActor Actor, IActorStateManager StateManager, IOrchestrationStrategyResolver Resolver, IOrchestrationStrategy FallbackStrategy) CreateUnitActorWithResolver(
+        IOrchestrationStrategyResolver resolver,
+        string? actorId = null,
+        IDirectoryService? directoryService = null,
+        IActorProxyFactory? actorProxyFactory = null)
+    {
+        var stateManager = Substitute.For<IActorStateManager>();
+        var loggerFactory = Substitute.For<ILoggerFactory>();
+        loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
+        var fallbackStrategy = Substitute.For<IOrchestrationStrategy>();
+        directoryService ??= Substitute.For<IDirectoryService>();
+        actorProxyFactory ??= Substitute.For<IActorProxyFactory>();
+
+        var host = ActorHost.CreateForTest<UnitActor>(new ActorTestOptions
+        {
+            ActorId = new ActorId(actorId ?? Guid.NewGuid().ToString()),
+        });
+
+        var activityEventBus = Substitute.For<Core.Capabilities.IActivityEventBus>();
+        var actor = new UnitActor(
+            host,
+            loggerFactory,
+            fallbackStrategy,
+            activityEventBus,
+            directoryService,
+            actorProxyFactory,
+            expertiseSeedProvider: null,
+            strategyResolver: resolver);
+        SetStateManager(actor, stateManager);
+
+        stateManager.TryGetStateAsync<List<CoreMessaging.Address>>(StateKeys.Members, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<List<CoreMessaging.Address>>(false, default!));
+
+        return (actor, stateManager, resolver, fallbackStrategy);
+    }
+
+    /// <summary>
     /// Sets the state manager on a Dapr actor instance using reflection.
     /// </summary>
     private static void SetStateManager(Actor actor, IActorStateManager stateManager)

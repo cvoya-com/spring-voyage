@@ -309,6 +309,16 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IOrchestrationStrategy>(
             sp => sp.GetRequiredKeyedService<IOrchestrationStrategy>("ai"));
 
+        // Manifest-driven orchestration strategy selection (#491). The
+        // provider reads the `orchestration.strategy` key from the persisted
+        // UnitDefinition JSON; the resolver combines that with `UnitPolicy.LabelRouting`
+        // inference (ADR-0007) and the unkeyed default into a single
+        // per-message resolution path that UnitActor consults through
+        // IOrchestrationStrategyResolver. Both are TryAdd'd so the private
+        // cloud host can swap in tenant-scoped readers without forking.
+        services.TryAddSingleton<IOrchestrationStrategyProvider, DbOrchestrationStrategyProvider>();
+        services.TryAddSingleton<IOrchestrationStrategyResolver, DefaultOrchestrationStrategyResolver>();
+
 
         // Prompt
         services.AddSingleton<UnitContextBuilder>();
