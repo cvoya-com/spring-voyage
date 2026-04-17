@@ -34,9 +34,10 @@ public record ThroughputRollupResponse(
 
 /// <summary>
 /// Response body for <c>GET /api/v1/analytics/waits</c>. Mirrors
-/// <see cref="Cvoya.Spring.Core.Observability.WaitTimeEntry"/>. Duration
-/// fields are zero-filled until PR-PLAT-OBS-1 (#391) lands; the
-/// <c>StateTransitions</c> counter is the placeholder signal.
+/// <see cref="Cvoya.Spring.Core.Observability.WaitTimeEntry"/>. Durations are
+/// derived from paired <c>StateChanged</c> lifecycle transitions (#476); the
+/// <c>StateTransitions</c> counter reports every <c>StateChanged</c> event in
+/// the window.
 /// </summary>
 /// <param name="Source">Wire-format source address.</param>
 /// <param name="IdleSeconds">Seconds spent idle.</param>

@@ -89,14 +89,19 @@ public class AnalyticsEndpointsTests : IClassFixture<CustomWebApplicationFactory
     }
 
     [Fact]
-    public async Task GetWaits_ReturnsPlaceholderDurationsAndTransitionCount()
+    public async Task GetWaits_ReturnsDurationsAndTransitionCountFromQueryService()
     {
         var ct = TestContext.Current.CancellationToken;
 
+        // Durations are computed by AnalyticsQueryService from paired
+        // StateChanged events (#476); the endpoint just projects whatever
+        // the service returns. The direct computation is covered by
+        // AnalyticsQueryServiceTests in the Dapr test project — here we
+        // verify the endpoint surfaces non-zero duration values end-to-end.
         var rollup = new WaitTimeRollup(
             new List<WaitTimeEntry>
             {
-                new("agent://ada", 0, 0, 0, 9),
+                new("agent://ada", IdleSeconds: 120, BusySeconds: 45, WaitingForHumanSeconds: 30, StateTransitions: 9),
             },
             DateTimeOffset.Parse("2026-04-01T00:00:00Z"),
             DateTimeOffset.Parse("2026-04-16T00:00:00Z"));
@@ -114,9 +119,9 @@ public class AnalyticsEndpointsTests : IClassFixture<CustomWebApplicationFactory
         var body = await response.Content.ReadFromJsonAsync<WaitTimeRollupResponse>(ct);
         body.ShouldNotBeNull();
         body!.Entries.Count.ShouldBe(1);
-        // Duration fields are placeholders until PR-PLAT-OBS-1 (#391) lands;
-        // the StateTransitions counter is the interim signal.
-        body.Entries[0].IdleSeconds.ShouldBe(0);
+        body.Entries[0].IdleSeconds.ShouldBe(120);
+        body.Entries[0].BusySeconds.ShouldBe(45);
+        body.Entries[0].WaitingForHumanSeconds.ShouldBe(30);
         body.Entries[0].StateTransitions.ShouldBe(9);
     }
 }

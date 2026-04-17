@@ -788,9 +788,9 @@ public class SpringApiClient
     }
 
     /// <summary>
-    /// Gets wait-time rollups per source. Duration fields are zero-filled
-    /// until the activity pipeline supplies them (tracked in #476); the
-    /// <c>stateTransitions</c> counter is the current signal.
+    /// Gets wait-time rollups per source: idle / busy / waiting-for-human
+    /// durations derived from paired <c>StateChanged</c> lifecycle
+    /// transitions, plus the raw <c>stateTransitions</c> event count (#476).
     /// </summary>
     public async Task<WaitTimeRollupResponse> GetWaitTimesAsync(
         string? source = null,

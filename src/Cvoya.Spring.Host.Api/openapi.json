@@ -3246,7 +3246,7 @@
         "tags": [
           "Analytics"
         ],
-        "summary": "Get wait-time rollups per source; duration fields are zero-filled until the observability pipeline (PR-PLAT-OBS-1) supplies them",
+        "summary": "Get wait-time rollups per source; durations are computed from paired StateChanged lifecycle transitions",
         "operationId": "GetAnalyticsWaits",
         "parameters": [
           {

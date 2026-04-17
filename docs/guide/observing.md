@@ -118,9 +118,9 @@ spring analytics throughput --window 7d
 spring analytics throughput --window 30d --unit engineering-team
 spring analytics throughput --window 7d --agent ada
 
-# Wait-time rollups. Duration fields are placeholders until the observability
-# pipeline (tracked under #391) supplies real start/end timestamps; the
-# `transitions` column is the interim signal.
+# Wait-time rollups. Durations (idle / busy / waiting-for-human) are computed
+# by pairing consecutive StateChanged lifecycle transitions; the `transitions`
+# column still reports the raw StateChanged event count for the window.
 spring analytics waits --window 7d --agent ada
 ```
 

@@ -30,9 +30,10 @@ public interface IAnalyticsQueryService
 
     /// <summary>
     /// Aggregates idle / busy / waiting-on-human durations per source over a
-    /// time range. Duration fields are placeholders until PR-PLAT-OBS-1 (#391)
-    /// supplies the underlying start/end timestamps; the <c>StateTransitions</c>
-    /// counter is the fallback signal.
+    /// time range. Durations are derived by pairing consecutive canonical
+    /// <c>StateChanged</c> lifecycle transitions (see #476); the
+    /// <c>StateTransitions</c> counter reports every <c>StateChanged</c> event
+    /// (including metadata edits).
     /// </summary>
     /// <param name="sourceFilter">Optional substring filter on the source address.</param>
     /// <param name="from">Start of the rollup window.</param>

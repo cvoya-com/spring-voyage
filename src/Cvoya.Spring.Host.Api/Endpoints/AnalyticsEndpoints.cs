@@ -31,7 +31,7 @@ public static class AnalyticsEndpoints
 
         group.MapGet("/waits", GetWaitTimesAsync)
             .WithName("GetAnalyticsWaits")
-            .WithSummary("Get wait-time rollups per source; duration fields are zero-filled until the observability pipeline (PR-PLAT-OBS-1) supplies them")
+            .WithSummary("Get wait-time rollups per source; durations are computed from paired StateChanged lifecycle transitions")
             .Produces<WaitTimeRollupResponse>(StatusCodes.Status200OK);
 
         return group;

@@ -257,7 +257,7 @@ public static class AnalyticsCommand
         };
         var command = new Command(
             "waits",
-            "Per-source wait-time rollups. Duration fields are placeholders until PR-PLAT-OBS-1 (#391) lands — use 'transitions' as the interim signal.");
+            "Per-source wait-time rollups: idle / busy / waiting-for-human durations derived from paired StateChanged lifecycle transitions, plus the raw StateChanged event count.");
         command.Options.Add(windowOption);
         command.Options.Add(unitOption);
         command.Options.Add(agentOption);
