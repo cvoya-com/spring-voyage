@@ -155,7 +155,7 @@ Persistent agents are probed at `${endpoint}/.well-known/agent.json` during star
 
 ```mermaid
 sequenceDiagram
-    participant Actor as AgentActor
+    participant A as AgentActor
     participant Disp as A2AExecutionDispatcher
     participant Prov as IAgentDefinitionProvider
     participant Launcher as IAgentToolLauncher
@@ -163,7 +163,7 @@ sequenceDiagram
     participant Runtime as IContainerRuntime
     participant Container as AgentContainer
 
-    Actor->>Disp: DispatchAsync(message, ctx)
+    A->>Disp: DispatchAsync(message, ctx)
     Disp->>Prov: GetByIdAsync(agentId)
     Prov-->>Disp: AgentDefinition (tool, image, hosting)
     Disp->>MCP: IssueSession(agentId, convId)
@@ -173,12 +173,12 @@ sequenceDiagram
     Launcher-->>Disp: AgentLaunchPrep (workdir, envVars, mounts)
     Disp->>Runtime: RunAsync(ContainerConfig)
     Runtime->>Container: start (mount workdir, inject envVars)
-    Container->>MCP: MCP calls (checkpoint, recallMemory, …)
+    Container->>MCP: MCP calls (checkpoint, recallMemory, ...)
     Container-->>Runtime: stdout / exit code
     Runtime-->>Disp: ContainerResult
     Disp->>Launcher: CleanupAsync(workdir)
     Disp->>MCP: RevokeSession(token)
-    Disp-->>Actor: response Message
+    Disp-->>A: response Message
 ```
 
 ### Persistent dispatch sequence
@@ -187,14 +187,14 @@ Persistent agents live longer than a single call. The dispatcher reuses a runnin
 
 ```mermaid
 sequenceDiagram
-    participant Actor as AgentActor
+    participant A as AgentActor
     participant Disp as A2AExecutionDispatcher
     participant Registry as PersistentAgentRegistry
     participant Launcher as IAgentToolLauncher
     participant Runtime as IContainerRuntime
     participant Container as PersistentAgent
 
-    Actor->>Disp: DispatchAsync(message, ctx)
+    A->>Disp: DispatchAsync(message, ctx)
     Disp->>Registry: TryGetEndpoint(agentId)
     alt not registered / unhealthy
         Registry-->>Disp: null
@@ -213,7 +213,7 @@ sequenceDiagram
     Disp->>Container: A2A SendMessageAsync
     Container-->>Disp: SendMessageResponse (Task or Message)
     Disp->>Disp: MapA2AResponseToMessage(...)
-    Disp-->>Actor: response Message
+    Disp-->>A: response Message
 ```
 
 If the A2A call fails mid-dispatch, the dispatcher marks the entry unhealthy via `PersistentAgentRegistry.MarkUnhealthy(agentId)`; the next background health sweep (every 30 s by default) will then attempt a restart.
