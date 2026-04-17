@@ -33,6 +33,27 @@ public static class AgentCommand
         new("id", a => a.Agent?.Id),
         new("name", a => a.Agent?.Name),
         new("enabled", a => a.Agent?.Enabled?.ToString().ToLowerInvariant()),
+        // Persistent-agent enrichment (#396). Kiota models the nullable
+        // deployment slot as a composed oneOf; the typed branch is the
+        // PersistentAgentDeploymentResponse member. When the agent is not
+        // deployed the slot is null and these columns stay blank.
+        new("running", a => a.Deployment?.PersistentAgentDeploymentResponse?.Running?.ToString().ToLowerInvariant()),
+        new("health", a => a.Deployment?.PersistentAgentDeploymentResponse?.HealthStatus),
+        new("container", a => a.Deployment?.PersistentAgentDeploymentResponse?.ContainerId),
+    };
+
+    private static readonly OutputFormatter.Column<PersistentAgentDeploymentResponse>[] DeploymentColumns =
+    {
+        new("agentId", d => d.AgentId),
+        new("running", d => d.Running?.ToString().ToLowerInvariant()),
+        new("health", d => d.HealthStatus),
+        new("replicas", d => d.Replicas?.ToString()),
+        new("image", d => d.Image),
+        new("endpoint", d => d.Endpoint),
+        new("container", d => d.ContainerId),
+        new("startedAt", d => d.StartedAt is DateTimeOffset dto
+            ? dto.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture)
+            : null),
     };
 
     private sealed record CloneRow(
@@ -70,6 +91,15 @@ public static class AgentCommand
         agentCommand.Subcommands.Add(CreatePurgeCommand());
         agentCommand.Subcommands.Add(CreateCloneCommand(outputOption));
         agentCommand.Subcommands.Add(ExpertiseCommand.CreateAgentSubcommand(outputOption));
+
+        // Persistent-agent lifecycle verbs (#396). Together with the extended
+        // `status` verb above, these close the CLI gap for operators managing
+        // long-lived agent services. Ephemeral agents are unaffected — the
+        // server returns a 400 if you try to deploy one.
+        agentCommand.Subcommands.Add(CreateDeployCommand(outputOption));
+        agentCommand.Subcommands.Add(CreateUndeployCommand(outputOption));
+        agentCommand.Subcommands.Add(CreateScaleCommand(outputOption));
+        agentCommand.Subcommands.Add(CreateLogsCommand());
 
         return agentCommand;
     }
@@ -358,6 +388,148 @@ public static class AgentCommand
                 }
 
                 Console.WriteLine(OutputFormatter.FormatTable(rows, CloneColumns));
+            }
+        });
+
+        return command;
+    }
+
+    // --- Persistent-agent lifecycle commands (#396) --------------------------
+
+    private static Command CreateDeployCommand(Option<string> outputOption)
+    {
+        var idArg = new Argument<string>("id") { Description = "The agent identifier" };
+        var imageOption = new Option<string?>("--image")
+        {
+            Description =
+                "Optional image override for this deployment only. When omitted, " +
+                "the server uses the image recorded on the agent definition.",
+        };
+        var replicasOption = new Option<int?>("--replicas")
+        {
+            Description =
+                "Desired replica count. OSS core supports 0 or 1 today; horizontal scale is tracked as a follow-up.",
+        };
+
+        var command = new Command(
+            "deploy",
+            "Stand up (or reconcile) the backing container for a persistent agent")
+        {
+            idArg,
+        };
+        command.Options.Add(imageOption);
+        command.Options.Add(replicasOption);
+
+        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var id = parseResult.GetValue(idArg)!;
+            var image = parseResult.GetValue(imageOption);
+            var replicas = parseResult.GetValue(replicasOption);
+            var output = parseResult.GetValue(outputOption) ?? "table";
+            var client = ClientFactory.Create();
+
+            var result = await client.DeployPersistentAgentAsync(id, image, replicas, ct);
+
+            Console.WriteLine(output == "json"
+                ? OutputFormatter.FormatJson(result)
+                : OutputFormatter.FormatTable(result, DeploymentColumns));
+        });
+
+        return command;
+    }
+
+    private static Command CreateUndeployCommand(Option<string> outputOption)
+    {
+        var idArg = new Argument<string>("id") { Description = "The agent identifier" };
+        var command = new Command(
+            "undeploy",
+            "Tear down the backing container for a persistent agent (distinct from `delete`, which removes the record)")
+        {
+            idArg,
+        };
+
+        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var id = parseResult.GetValue(idArg)!;
+            var output = parseResult.GetValue(outputOption) ?? "table";
+            var client = ClientFactory.Create();
+
+            var result = await client.UndeployPersistentAgentAsync(id, ct);
+
+            Console.WriteLine(output == "json"
+                ? OutputFormatter.FormatJson(result)
+                : OutputFormatter.FormatTable(result, DeploymentColumns));
+        });
+
+        return command;
+    }
+
+    private static Command CreateScaleCommand(Option<string> outputOption)
+    {
+        var idArg = new Argument<string>("id") { Description = "The agent identifier" };
+        var replicasOption = new Option<int>("--replicas")
+        {
+            Description = "Target replica count (0 = undeploy, 1 = ensure deployed; >1 is not supported yet)",
+            Required = true,
+        };
+
+        var command = new Command(
+            "scale",
+            "Adjust replica count for a persistent agent")
+        {
+            idArg,
+        };
+        command.Options.Add(replicasOption);
+
+        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var id = parseResult.GetValue(idArg)!;
+            var replicas = parseResult.GetValue(replicasOption);
+            var output = parseResult.GetValue(outputOption) ?? "table";
+            var client = ClientFactory.Create();
+
+            var result = await client.ScalePersistentAgentAsync(id, replicas, ct);
+
+            Console.WriteLine(output == "json"
+                ? OutputFormatter.FormatJson(result)
+                : OutputFormatter.FormatTable(result, DeploymentColumns));
+        });
+
+        return command;
+    }
+
+    private static Command CreateLogsCommand()
+    {
+        var idArg = new Argument<string>("id") { Description = "The agent identifier" };
+        var tailOption = new Option<int?>("--tail")
+        {
+            Description = "Number of log lines to return from the end of the container's combined output (default: 200).",
+        };
+
+        var command = new Command(
+            "logs",
+            "Read the last N log lines from a persistent agent's container")
+        {
+            idArg,
+        };
+        command.Options.Add(tailOption);
+
+        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var id = parseResult.GetValue(idArg)!;
+            var tail = parseResult.GetValue(tailOption);
+            var client = ClientFactory.Create();
+
+            var result = await client.GetPersistentAgentLogsAsync(id, tail, ct);
+
+            // Unlike every other verb in the agent tree, logs prints the raw
+            // captured text directly — operators pipe this into grep/less.
+            // JSON users should use `--output` at the agent level, but the
+            // default (table) surface stays plain-text.
+            Console.Write(result.Logs);
+            if (!string.IsNullOrEmpty(result.Logs) && !result.Logs.EndsWith('\n'))
+            {
+                Console.WriteLine();
             }
         });
 

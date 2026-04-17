@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Host.Api.Endpoints;
 
 using System.Text.Json;
 
+using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Agents;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
@@ -12,6 +13,7 @@ using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Data;
+using Cvoya.Spring.Dapr.Execution;
 using Cvoya.Spring.Dapr.Routing;
 using Cvoya.Spring.Host.Api.Auth;
 using Cvoya.Spring.Host.Api.Models;
@@ -78,8 +80,228 @@ public static class AgentEndpoints
             .Produces(StatusCodes.Status204NoContent)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
+        // Persistent-agent lifecycle surface (#396). Distinct from ephemeral
+        // dispatch — `deploy` stands up the long-lived container, `undeploy`
+        // tears it down, `scale` changes replica count (reserved), and `logs`
+        // streams the container tail. `delete` above still removes the agent
+        // record itself; a persistent agent should be undeployed first so the
+        // dangling container is cleaned up.
+        group.MapPost("/{id}/deploy", DeployPersistentAgentAsync)
+            .WithName("DeployPersistentAgent")
+            .WithSummary("Deploy (or reconcile) a persistent agent's backing container")
+            .Produces<PersistentAgentDeploymentResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        group.MapPost("/{id}/undeploy", UndeployPersistentAgentAsync)
+            .WithName("UndeployPersistentAgent")
+            .WithSummary("Tear down a persistent agent's backing container (idempotent)")
+            .Produces<PersistentAgentDeploymentResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        group.MapPost("/{id}/scale", ScalePersistentAgentAsync)
+            .WithName("ScalePersistentAgent")
+            .WithSummary("Adjust replica count for a persistent agent (OSS core supports 0 or 1 today)")
+            .Produces<PersistentAgentDeploymentResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        group.MapGet("/{id}/logs", GetPersistentAgentLogsAsync)
+            .WithName("GetPersistentAgentLogs")
+            .WithSummary("Read the container logs for a persistent agent")
+            .Produces<PersistentAgentLogsResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        group.MapGet("/{id}/deployment", GetPersistentAgentDeploymentAsync)
+            .WithName("GetPersistentAgentDeployment")
+            .WithSummary("Get the current deployment state of a persistent agent (container + health)")
+            .Produces<PersistentAgentDeploymentResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
         return group;
     }
+
+    private static async Task<IResult> DeployPersistentAgentAsync(
+        string id,
+        DeployPersistentAgentRequest? request,
+        [FromServices] IDirectoryService directoryService,
+        [FromServices] PersistentAgentLifecycle lifecycle,
+        CancellationToken cancellationToken)
+    {
+        var entry = await directoryService.ResolveAsync(new Address("agent", id), cancellationToken);
+        if (entry is null)
+        {
+            return Results.Problem(detail: $"Agent '{id}' not found", statusCode: StatusCodes.Status404NotFound);
+        }
+
+        // The OSS core only supports replicas ∈ {0, 1} today. We accept a
+        // nullable int on the wire so the default (and most callers) don't
+        // need to send a body at all.
+        var replicas = request?.Replicas ?? 1;
+        if (replicas < 0 || replicas > 1)
+        {
+            return Results.Problem(
+                detail: "Only replicas in {0, 1} are supported by the OSS core; horizontal scaling is a tracked follow-up.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        try
+        {
+            if (replicas == 0)
+            {
+                // Scale-to-zero intent: the caller asked to deploy with 0
+                // replicas. Treat as undeploy and return the canonical empty
+                // shape so CLIs see a consistent wire contract.
+                await lifecycle.UndeployAsync(id, cancellationToken);
+                return Results.Ok(EmptyDeploymentResponse(id, replicas: 0));
+            }
+
+            var deployed = await lifecycle.DeployAsync(
+                id,
+                imageOverride: request?.Image,
+                cancellationToken);
+            return Results.Ok(ToDeploymentResponse(deployed, replicas: 1));
+        }
+        catch (SpringException ex)
+        {
+            return Results.Problem(detail: ex.Message, statusCode: StatusCodes.Status400BadRequest);
+        }
+    }
+
+    private static async Task<IResult> UndeployPersistentAgentAsync(
+        string id,
+        [FromServices] IDirectoryService directoryService,
+        [FromServices] PersistentAgentLifecycle lifecycle,
+        CancellationToken cancellationToken)
+    {
+        var entry = await directoryService.ResolveAsync(new Address("agent", id), cancellationToken);
+        if (entry is null)
+        {
+            return Results.Problem(detail: $"Agent '{id}' not found", statusCode: StatusCodes.Status404NotFound);
+        }
+
+        await lifecycle.UndeployAsync(id, cancellationToken);
+
+        // Always return the canonical "not running" shape so the CLI can
+        // treat the response the same whether the agent was running or not.
+        return Results.Ok(EmptyDeploymentResponse(id, replicas: 0));
+    }
+
+    private static async Task<IResult> ScalePersistentAgentAsync(
+        string id,
+        ScalePersistentAgentRequest request,
+        [FromServices] IDirectoryService directoryService,
+        [FromServices] PersistentAgentLifecycle lifecycle,
+        CancellationToken cancellationToken)
+    {
+        var entry = await directoryService.ResolveAsync(new Address("agent", id), cancellationToken);
+        if (entry is null)
+        {
+            return Results.Problem(detail: $"Agent '{id}' not found", statusCode: StatusCodes.Status404NotFound);
+        }
+
+        try
+        {
+            var scaled = await lifecycle.ScaleAsync(id, request.Replicas, cancellationToken);
+            return Results.Ok(ToDeploymentResponse(scaled, request.Replicas));
+        }
+        catch (SpringException ex)
+        {
+            return Results.Problem(detail: ex.Message, statusCode: StatusCodes.Status400BadRequest);
+        }
+    }
+
+    private static async Task<IResult> GetPersistentAgentLogsAsync(
+        string id,
+        [FromServices] IDirectoryService directoryService,
+        [FromServices] PersistentAgentLifecycle lifecycle,
+        [FromServices] PersistentAgentRegistry registry,
+        [FromQuery] int? tail,
+        CancellationToken cancellationToken)
+    {
+        var entry = await directoryService.ResolveAsync(new Address("agent", id), cancellationToken);
+        if (entry is null)
+        {
+            return Results.Problem(detail: $"Agent '{id}' not found", statusCode: StatusCodes.Status404NotFound);
+        }
+
+        var effectiveTail = tail is > 0 ? tail.Value : 200;
+
+        try
+        {
+            var logs = await lifecycle.GetLogsAsync(id, effectiveTail, cancellationToken);
+            registry.TryGet(id, out var registered);
+            return Results.Ok(new PersistentAgentLogsResponse(
+                AgentId: id,
+                ContainerId: registered?.ContainerId ?? string.Empty,
+                Tail: effectiveTail,
+                Logs: logs));
+        }
+        catch (SpringException ex)
+        {
+            return Results.Problem(detail: ex.Message, statusCode: StatusCodes.Status404NotFound);
+        }
+    }
+
+    private static async Task<IResult> GetPersistentAgentDeploymentAsync(
+        string id,
+        [FromServices] IDirectoryService directoryService,
+        [FromServices] PersistentAgentRegistry registry,
+        CancellationToken cancellationToken)
+    {
+        var entry = await directoryService.ResolveAsync(new Address("agent", id), cancellationToken);
+        if (entry is null)
+        {
+            return Results.Problem(detail: $"Agent '{id}' not found", statusCode: StatusCodes.Status404NotFound);
+        }
+
+        if (registry.TryGet(id, out var deployment) && deployment is not null)
+        {
+            return Results.Ok(ToDeploymentResponse(deployment, replicas: 1));
+        }
+
+        return Results.Ok(EmptyDeploymentResponse(id, replicas: 0));
+    }
+
+    /// <summary>
+    /// Canonical "running" wire shape for a persistent deployment. Maps the
+    /// registry's <see cref="PersistentAgentEntry"/> to the HTTP response so
+    /// callers never have to reach into the registry types directly.
+    /// </summary>
+    internal static PersistentAgentDeploymentResponse ToDeploymentResponse(
+        PersistentAgentEntry entry,
+        int replicas) =>
+        new(
+            AgentId: entry.AgentId,
+            Running: entry.ContainerId is not null,
+            HealthStatus: entry.HealthStatus switch
+            {
+                AgentHealthStatus.Healthy => "healthy",
+                AgentHealthStatus.Unhealthy => "unhealthy",
+                _ => "unknown",
+            },
+            Replicas: replicas,
+            Image: entry.Definition?.Execution?.Image,
+            Endpoint: entry.Endpoint?.ToString(),
+            ContainerId: entry.ContainerId,
+            StartedAt: entry.StartedAt,
+            ConsecutiveFailures: entry.ConsecutiveFailures);
+
+    /// <summary>
+    /// Canonical "not running" shape. Returned when there is no entry in the
+    /// registry (never deployed, or already undeployed).
+    /// </summary>
+    internal static PersistentAgentDeploymentResponse EmptyDeploymentResponse(string agentId, int replicas) =>
+        new(
+            AgentId: agentId,
+            Running: false,
+            HealthStatus: "unknown",
+            Replicas: replicas,
+            Image: null,
+            Endpoint: null,
+            ContainerId: null,
+            StartedAt: null,
+            ConsecutiveFailures: 0);
 
     private static async Task<IResult> ListAgentsAsync(
         IDirectoryService directoryService,
@@ -107,6 +329,7 @@ public static class AgentEndpoints
         [FromServices] IUnitMembershipRepository membershipRepository,
         [FromServices] MessageRouter messageRouter,
         [FromServices] IAuthenticatedCallerAccessor callerAccessor,
+        [FromServices] PersistentAgentRegistry persistentAgentRegistry,
         CancellationToken cancellationToken)
     {
         var address = new Address("agent", id);
@@ -139,13 +362,23 @@ public static class AgentEndpoints
 
         var result = await messageRouter.RouteAsync(statusQuery, cancellationToken);
 
+        // Persistent-agent health enrichment (#396): when a persistent
+        // deployment is tracked, surface it alongside the actor's status
+        // payload so `spring agent status <id>` is a single stop for both
+        // ephemeral-actor state and persistent-container state.
+        PersistentAgentDeploymentResponse? deployment = null;
+        if (persistentAgentRegistry.TryGet(id, out var persistentEntry) && persistentEntry is not null)
+        {
+            deployment = ToDeploymentResponse(persistentEntry, replicas: 1);
+        }
+
         var agentResponse = ToAgentResponse(entry, metadata);
         if (!result.IsSuccess)
         {
-            return Results.Ok(new AgentDetailResponse(agentResponse, null));
+            return Results.Ok(new AgentDetailResponse(agentResponse, null, deployment));
         }
 
-        return Results.Ok(new AgentDetailResponse(agentResponse, result.Value?.Payload));
+        return Results.Ok(new AgentDetailResponse(agentResponse, result.Value?.Payload, deployment));
     }
 
     private static async Task<IResult> UpdateAgentMetadataAsync(

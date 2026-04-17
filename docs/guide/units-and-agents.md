@@ -207,6 +207,61 @@ spring agent clone create --agent ada \
 spring agent clone list --agent ada
 ```
 
+## Persistent Agents
+
+Agents configured with `execution.hosting: persistent` run as long-lived
+services instead of spinning a fresh container per turn. The CLI exposes a
+lifecycle surface so operators can stand them up, inspect container health,
+stream logs, and tear them down without deleting the underlying agent
+record.
+
+```
+spring agent deploy   <id> [--image <image>] [--replicas 0|1]
+spring agent undeploy <id>
+spring agent scale    <id> --replicas 0|1
+spring agent logs     <id> [--tail N]
+spring agent status   <id>
+spring agent delete   <id>   # removes the agent record; does NOT stop a running container
+```
+
+### Deploy
+
+`spring agent deploy <id>` is idempotent — redeploying a healthy agent is a
+no-op. When the agent is unhealthy the old container is stopped and a fresh
+one is started. `--image` applies the override to this deployment only; the
+stored `execution.image` on the agent definition is untouched, so the
+override is useful for smoke-testing candidate images before rolling the
+YAML.
+
+### Undeploy vs delete
+
+`undeploy` stops the container and drops the registry entry; the agent
+record, memberships, and history survive, and a later `deploy` brings the
+same agent back. `delete` removes the directory record — call `undeploy`
+first, otherwise a dangling container survives.
+
+### Scale
+
+The OSS core supports `--replicas 0` (equivalent to `undeploy`) and
+`--replicas 1` (equivalent to `deploy`) today. Values above 1 return a
+clear error until horizontal scale / container pooling lands (see
+[#362](https://github.com/cvoya-com/spring-voyage/issues/362)).
+
+### Logs
+
+`spring agent logs <id>` prints the tail of the container's combined
+stdout+stderr. Pipe into `grep` or `less` as you would `docker logs`.
+`--tail N` caps the number of lines (default: 200). When the agent is not
+currently deployed the command exits with a clear "not deployed" error —
+deploy first, then read.
+
+### Status
+
+`spring agent status <id>` renders the usual directory info plus, for a
+persistent deployment, the container's running state, health, and id in
+the same table. Use `--output json` to see the full deployment block
+(image, endpoint, container id, started-at, consecutive failures).
+
 ## Connector Management
 
 The `spring connector` verb family mirrors the web portal's connector chooser and unit Connector tab. Every verb reads from the same underlying service the portal uses, so the CLI and UI stay at parity.
