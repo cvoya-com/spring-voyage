@@ -170,3 +170,18 @@ spring images list                                            # list built image
 ```
 
 For local development, `spring apply` auto-builds missing images.
+
+## See it in action
+
+The end-to-end scenarios under [`tests/e2e/scenarios/`](../../tests/e2e/scenarios/) exercise every CRUD and lifecycle path in this guide. They double as reference examples — each script drives the real `spring` CLI against a running stack. See [`tests/e2e/README.md`](../../tests/e2e/README.md) for the runner and prerequisites.
+
+Scenarios most relevant to this guide:
+
+- [`fast/02-create-unit-scratch.sh`](../../tests/e2e/scenarios/fast/02-create-unit-scratch.sh) — minimal `spring unit create` + `spring unit list` round-trip (covered in "Unit Lifecycle" above).
+- [`fast/03-create-unit-with-model.sh`](../../tests/e2e/scenarios/fast/03-create-unit-with-model.sh) — create a unit with `--model` and `--color` overrides and assert the response carries them. This is the path that exercises actor metadata wiring.
+- [`fast/04-create-unit-from-template.sh`](../../tests/e2e/scenarios/fast/04-create-unit-from-template.sh) — template-based creation with three-way cross-verification between CLI, `/memberships`, and `/agents` read paths.
+- [`fast/06-unit-membership-roundtrip.sh`](../../tests/e2e/scenarios/fast/06-unit-membership-roundtrip.sh) — full membership CRUD: `spring unit members add` with `--model`/`--specialty`/`--enabled`/`--execution-mode`, `members config` (upsert), `members remove`, and `unit purge --confirm` (which refuses without `--confirm`). Matches every section under "Managing Members" above.
+- [`fast/07-create-start-unit.sh`](../../tests/e2e/scenarios/fast/07-create-start-unit.sh) — `spring unit start` + status polling, matching "Starting and Stopping".
+- [`fast/12-nested-units.sh`](../../tests/e2e/scenarios/fast/12-nested-units.sh) — nested units via `spring unit members add <parent> --unit <child>`, with verification that the sub-unit appears in both the actor's status payload and the CLI's joined member list.
+- [`llm/30-policy-block-at-turn-time.sh`](../../tests/e2e/scenarios/llm/30-policy-block-at-turn-time.sh) — (requires Ollama) unit + agent + policy + turn dispatch, the wiring proof that `spring message send` surfaces denials at turn time.
+- [`llm/40-dapr-agent-turn.sh`](../../tests/e2e/scenarios/llm/40-dapr-agent-turn.sh) — (requires Ollama) create an agent with `--tool dapr-agent` and dispatch a turn through the A2A protocol, proving the DaprAgentLauncher + container path end-to-end.
