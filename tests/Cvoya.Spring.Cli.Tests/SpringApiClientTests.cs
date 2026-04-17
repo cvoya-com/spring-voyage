@@ -368,7 +368,7 @@ public class SpringApiClientTests
         handler.WasCalled.ShouldBeTrue();
     }
 
-    // --- #453: Unit policy endpoints ---------------------------------------
+    // --- Unit policy endpoints ---------------------------------------------
 
     [Fact]
     public async Task GetUnitPolicyAsync_CallsCorrectEndpointAndParsesEmptyPolicy()
@@ -436,7 +436,7 @@ public class SpringApiClientTests
         handler.WasCalled.ShouldBeTrue();
     }
 
-    // --- #454: Humans endpoints --------------------------------------------
+    // --- Humans endpoints --------------------------------------------------
 
     [Fact]
     public async Task ListUnitHumanPermissionsAsync_CallsCorrectEndpoint()
@@ -502,6 +502,284 @@ public class SpringApiClientTests
 
         handler.WasCalled.ShouldBeTrue();
     }
+
+    // --- Analytics: costs, throughput, waits -------------------------------
+
+    [Fact]
+    public async Task GetTenantCostAsync_CallsCorrectEndpoint_AndHonoursWindow()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/costs/tenant",
+            expectedMethod: HttpMethod.Get,
+            responseBody: """{"totalCost":12.34,"totalInputTokens":100,"totalOutputTokens":50,"recordCount":3,"workCost":10.00,"initiativeCost":2.34,"from":"2026-04-01T00:00:00Z","to":"2026-04-16T00:00:00Z"}""",
+            validateQuery: query =>
+            {
+                // `from` and `to` travel as ISO 8601 timestamps per the
+                // Kiota query parameter bindings (`DateTimeOffset? From`).
+                query.ShouldContain("from=");
+                query.ShouldContain("to=");
+            });
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var result = await client.GetTenantCostAsync(
+            from: DateTimeOffset.Parse("2026-04-01T00:00:00Z"),
+            to: DateTimeOffset.Parse("2026-04-16T00:00:00Z"),
+            ct: TestContext.Current.CancellationToken);
+
+        result.TotalCost.ShouldBe(12.34);
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task GetUnitCostAsync_CallsCorrectEndpoint()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/costs/units/eng-team",
+            expectedMethod: HttpMethod.Get,
+            responseBody: """{"totalCost":0.0,"totalInputTokens":0,"totalOutputTokens":0,"recordCount":0,"workCost":0.0,"initiativeCost":0.0,"from":"2026-04-01T00:00:00Z","to":"2026-04-16T00:00:00Z"}""");
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var result = await client.GetUnitCostAsync("eng-team", ct: TestContext.Current.CancellationToken);
+
+        result.TotalCost.ShouldBe(0.0);
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task GetAgentCostAsync_CallsCorrectEndpoint()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/costs/agents/ada",
+            expectedMethod: HttpMethod.Get,
+            responseBody: """{"totalCost":1.25,"totalInputTokens":1,"totalOutputTokens":1,"recordCount":1,"workCost":1.25,"initiativeCost":0.0,"from":"2026-04-01T00:00:00Z","to":"2026-04-16T00:00:00Z"}""");
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var result = await client.GetAgentCostAsync("ada", ct: TestContext.Current.CancellationToken);
+
+        result.TotalCost.ShouldBe(1.25);
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task GetThroughputAsync_CallsCorrectEndpoint_WithSourceFilter()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/analytics/throughput",
+            expectedMethod: HttpMethod.Get,
+            responseBody: """{"entries":[{"source":"agent://ada","messagesReceived":3,"messagesSent":2,"turns":1,"toolCalls":4}],"from":"2026-04-01T00:00:00Z","to":"2026-04-16T00:00:00Z"}""",
+            validateQuery: query =>
+            {
+                // Substring filter for cross-agent rollups — `agent://`
+                // matches every agent, `agent://ada` scopes to ada.
+                query.ShouldContain("source=agent%3A%2F%2Fada");
+            });
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var result = await client.GetThroughputAsync(
+            source: "agent://ada",
+            ct: TestContext.Current.CancellationToken);
+
+        result.Entries.ShouldNotBeNull();
+        result.Entries!.Count.ShouldBe(1);
+        result.Entries![0].Source.ShouldBe("agent://ada");
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task GetThroughputAsync_WithoutSource_RetrievesCrossAgentRollup()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/analytics/throughput",
+            expectedMethod: HttpMethod.Get,
+            responseBody: """{"entries":[{"source":"agent://ada","messagesReceived":1,"messagesSent":1,"turns":1,"toolCalls":0},{"source":"agent://grace","messagesReceived":2,"messagesSent":0,"turns":0,"toolCalls":3}],"from":"2026-04-01T00:00:00Z","to":"2026-04-16T00:00:00Z"}""");
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var result = await client.GetThroughputAsync(ct: TestContext.Current.CancellationToken);
+
+        result.Entries.ShouldNotBeNull();
+        result.Entries!.Count.ShouldBe(2);
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task GetWaitTimesAsync_CallsCorrectEndpoint_AndDeserializesEntries()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/analytics/waits",
+            expectedMethod: HttpMethod.Get,
+            responseBody: """{"entries":[{"source":"agent://ada","idleSeconds":0.0,"busySeconds":0.0,"waitingForHumanSeconds":0.0,"stateTransitions":7}],"from":"2026-04-01T00:00:00Z","to":"2026-04-16T00:00:00Z"}""");
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var result = await client.GetWaitTimesAsync(ct: TestContext.Current.CancellationToken);
+
+        result.Entries.ShouldNotBeNull();
+        result.Entries!.Count.ShouldBe(1);
+        result.Entries![0].Source.ShouldBe("agent://ada");
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    // --- PR-C3 / #459: set-budget across tenant / unit / agent scopes --------
+
+    [Fact]
+    public async Task SetTenantBudgetAsync_PutsEndpointAndReturnsDailyBudget()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/tenant/budget",
+            expectedMethod: HttpMethod.Put,
+            responseBody: """{"dailyBudget":50.0}""",
+            validateRequestBody: body =>
+            {
+                var json = JsonSerializer.Deserialize<JsonElement>(body);
+                json.GetProperty("dailyBudget").GetDouble().ShouldBe(50.0);
+            });
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var result = await client.SetTenantBudgetAsync(50m, ct: TestContext.Current.CancellationToken);
+
+        result.DailyBudget.ShouldBe(50.0);
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task SetUnitBudgetAsync_PutsEndpointAndReturnsDailyBudget()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/units/eng-team/budget",
+            expectedMethod: HttpMethod.Put,
+            responseBody: """{"dailyBudget":20.0}""",
+            validateRequestBody: body =>
+            {
+                var json = JsonSerializer.Deserialize<JsonElement>(body);
+                json.GetProperty("dailyBudget").GetDouble().ShouldBe(20.0);
+            });
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var result = await client.SetUnitBudgetAsync(
+            "eng-team", 20m, TestContext.Current.CancellationToken);
+
+        // Round-trip: what the CLI reads back must match what `spring cost
+        // budget` reads (both hit the same GET endpoint for the same key).
+        result.DailyBudget.ShouldBe(20.0);
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task SetAgentBudgetAsync_PutsEndpointAndReturnsDailyBudget()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/agents/ada/budget",
+            expectedMethod: HttpMethod.Put,
+            responseBody: """{"dailyBudget":5.0}""",
+            validateRequestBody: body =>
+            {
+                var json = JsonSerializer.Deserialize<JsonElement>(body);
+                json.GetProperty("dailyBudget").GetDouble().ShouldBe(5.0);
+            });
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var result = await client.SetAgentBudgetAsync(
+            "ada", 5m, TestContext.Current.CancellationToken);
+
+        result.DailyBudget.ShouldBe(5.0);
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    // --- PR-C3 / #458: agent clone create / list --------------------------
+
+    [Fact]
+    public async Task CreateCloneAsync_PostsDefaultsMatchingPortalAction()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/agents/ada/clones",
+            expectedMethod: HttpMethod.Post,
+            responseBody: $$"""{"cloneId":"{{Guid.NewGuid()}}","parentAgentId":"ada","cloneType":"ephemeral-no-memory","attachmentMode":"detached","status":"provisioning","createdAt":"2026-04-16T00:00:00Z"}""",
+            returnStatusCode: System.Net.HttpStatusCode.Accepted,
+            validateRequestBody: body =>
+            {
+                // Defaults must match the portal's Create Clone form so a
+                // clone created via CLI carries the same identity / config
+                // as one created by the UI.
+                var json = JsonSerializer.Deserialize<JsonElement>(body);
+                json.GetProperty("cloneType").GetString().ShouldBe("ephemeral-no-memory");
+                json.GetProperty("attachmentMode").GetString().ShouldBe("detached");
+            });
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var result = await client.CreateCloneAsync(
+            "ada", ct: TestContext.Current.CancellationToken);
+
+        result.ParentAgentId.ShouldBe("ada");
+        result.CloneType.ShouldBe(Cvoya.Spring.Cli.Generated.Models.CloningPolicy.EphemeralNoMemory);
+        result.AttachmentMode.ShouldBe(Cvoya.Spring.Cli.Generated.Models.AttachmentMode.Detached);
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task CreateCloneAsync_ForwardsExplicitCloneTypeAndAttachment()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/agents/ada/clones",
+            expectedMethod: HttpMethod.Post,
+            responseBody: $$"""{"cloneId":"{{Guid.NewGuid()}}","parentAgentId":"ada","cloneType":"ephemeral-with-memory","attachmentMode":"attached","status":"provisioning","createdAt":"2026-04-16T00:00:00Z"}""",
+            returnStatusCode: System.Net.HttpStatusCode.Accepted,
+            validateRequestBody: body =>
+            {
+                var json = JsonSerializer.Deserialize<JsonElement>(body);
+                json.GetProperty("cloneType").GetString().ShouldBe("ephemeral-with-memory");
+                json.GetProperty("attachmentMode").GetString().ShouldBe("attached");
+            });
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        await client.CreateCloneAsync(
+            "ada",
+            cloneType: Cvoya.Spring.Cli.Generated.Models.CloningPolicy.EphemeralWithMemory,
+            attachmentMode: Cvoya.Spring.Cli.Generated.Models.AttachmentMode.Attached,
+            ct: TestContext.Current.CancellationToken);
+
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task ListClonesAsync_CallsCorrectEndpoint_AndDeserializesList()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/agents/ada/clones",
+            expectedMethod: HttpMethod.Get,
+            responseBody: """[{"cloneId":"11111111-1111-1111-1111-111111111111","parentAgentId":"ada","cloneType":"ephemeral-no-memory","attachmentMode":"detached","status":"active","createdAt":"2026-04-16T00:00:00Z"}]""");
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var result = await client.ListClonesAsync(
+            "ada", TestContext.Current.CancellationToken);
+
+        result.Count.ShouldBe(1);
+        result[0].ParentAgentId.ShouldBe("ada");
+        handler.WasCalled.ShouldBeTrue();
+    }
+
 
     // --- #331: AddUnitMemberAsync ------------------------------------------
 

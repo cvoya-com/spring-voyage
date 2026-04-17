@@ -155,4 +155,71 @@ public class BudgetEndpointsTests : IClassFixture<CustomWebApplicationFactory>
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
+
+    // --- PR-C3 / #459: unit budgets ---------------------------------------
+
+    [Fact]
+    public async Task SetUnitBudget_ValidRequest_PersistsDailyBudgetUnderUnitKey()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var request = new SetBudgetRequest(30.00m);
+
+        var response = await _client.PutAsJsonAsync("/api/v1/units/eng-team/budget", request, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var budget = await response.Content.ReadFromJsonAsync<BudgetResponse>(ct);
+        budget.ShouldNotBeNull();
+        budget!.DailyBudget.ShouldBe(30.00m);
+
+        await _factory.StateStore.Received(1).SetAsync(
+            $"eng-team:{StateKeys.UnitCostBudget}",
+            30.00m,
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SetUnitBudget_ZeroBudget_ReturnsBadRequest()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var request = new SetBudgetRequest(0m);
+
+        var response = await _client.PutAsJsonAsync("/api/v1/units/unit-zero/budget", request, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task GetUnitBudget_BudgetExists_ReturnsBudget()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        _factory.StateStore.GetAsync<decimal?>(
+            $"unit-get:{StateKeys.UnitCostBudget}",
+            Arg.Any<CancellationToken>())
+            .Returns(12.5m);
+
+        var response = await _client.GetAsync("/api/v1/units/unit-get/budget", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var budget = await response.Content.ReadFromJsonAsync<BudgetResponse>(ct);
+        budget.ShouldNotBeNull();
+        budget!.DailyBudget.ShouldBe(12.5m);
+    }
+
+    [Fact]
+    public async Task GetUnitBudget_NoBudget_ReturnsNotFound()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        _factory.StateStore.GetAsync<decimal?>(
+            $"unit-missing:{StateKeys.UnitCostBudget}",
+            Arg.Any<CancellationToken>())
+            .Returns((decimal?)null);
+
+        var response = await _client.GetAsync("/api/v1/units/unit-missing/budget", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+    }
 }

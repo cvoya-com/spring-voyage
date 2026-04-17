@@ -187,6 +187,26 @@ spring agent set <agent> \
   --cloning-max 3
 ```
 
+### Creating and Listing Clones
+
+Mirror the portal's Create Clone action from the CLI. The server assigns the
+clone id; `--name` is an optional local alias the CLI echoes back for
+scripts that need to tag a clone during provisioning.
+
+```
+# Create a clone with the portal's default policy (ephemeral-no-memory, detached).
+spring agent clone create --agent ada
+
+# Override the defaults.
+spring agent clone create --agent ada \
+  --clone-type ephemeral-with-memory \
+  --attachment-mode attached \
+  --name ada-review-clone
+
+# List every clone of an agent.
+spring agent clone list --agent ada
+```
+
 ## Connector Management
 
 The `spring connector` verb family mirrors the web portal's connector chooser and unit Connector tab. Every verb reads from the same underlying service the portal uses, so the CLI and UI stay at parity.

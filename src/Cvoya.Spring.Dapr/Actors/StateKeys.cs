@@ -179,6 +179,14 @@ public static class StateKeys
     public const string TenantCostBudget = "Tenant:CostBudget";
 
     /// <summary>
+    /// State key for the unit-level cost budget limit. Mirrors
+    /// <see cref="AgentCostBudget"/> but scoped to a unit so that
+    /// `spring cost set-budget --scope unit` and the portal's per-unit
+    /// "Edit budget" action can both target the same key.
+    /// </summary>
+    public const string UnitCostBudget = "Unit:CostBudget";
+
+    /// <summary>
     /// State key for the unit's lifecycle status.
     /// </summary>
     public const string UnitStatus = "Unit:Status";

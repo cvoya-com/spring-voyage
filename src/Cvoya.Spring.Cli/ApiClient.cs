@@ -634,6 +634,219 @@ public class SpringApiClient
         }
     }
 
+    // Costs — shared between `spring analytics costs` and the legacy
+    // `spring cost summary` alias.
+
+    /// <summary>Gets the tenant cost summary for a time range.</summary>
+    public async Task<CostSummaryResponse> GetTenantCostAsync(
+        DateTimeOffset? from = null,
+        DateTimeOffset? to = null,
+        CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Costs.Tenant.GetAsync(
+            config =>
+            {
+                config.QueryParameters.From = from;
+                config.QueryParameters.To = to;
+            },
+            cancellationToken: ct);
+        return result ?? throw new InvalidOperationException("Server returned an empty tenant cost response.");
+    }
+
+    /// <summary>Gets the cost summary for a unit.</summary>
+    public async Task<CostSummaryResponse> GetUnitCostAsync(
+        string unitId,
+        DateTimeOffset? from = null,
+        DateTimeOffset? to = null,
+        CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Costs.Units[unitId].GetAsync(
+            config =>
+            {
+                config.QueryParameters.From = from;
+                config.QueryParameters.To = to;
+            },
+            cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty unit cost response for '{unitId}'.");
+    }
+
+    /// <summary>Gets the cost summary for an agent.</summary>
+    public async Task<CostSummaryResponse> GetAgentCostAsync(
+        string agentId,
+        DateTimeOffset? from = null,
+        DateTimeOffset? to = null,
+        CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Costs.Agents[agentId].GetAsync(
+            config =>
+            {
+                config.QueryParameters.From = from;
+                config.QueryParameters.To = to;
+            },
+            cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty agent cost response for '{agentId}'.");
+    }
+
+    // Analytics — throughput + waits. The costs slice reuses the Costs
+    // wrappers above because the portal's Costs tab and the CLI's `analytics
+    // costs` verb both point at /api/v1/costs; adding a third aggregation
+    // layer would fork the data source with no gain.
+
+    /// <summary>
+    /// Gets throughput counters (messages / turns / tool calls) per source over
+    /// a time range. <paramref name="source"/> is a substring filter on the
+    /// wire-format source address (e.g. <c>agent://</c>, <c>unit://eng-team</c>).
+    /// </summary>
+    public async Task<ThroughputRollupResponse> GetThroughputAsync(
+        string? source = null,
+        DateTimeOffset? from = null,
+        DateTimeOffset? to = null,
+        CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Analytics.Throughput.GetAsync(
+            config =>
+            {
+                config.QueryParameters.Source = source;
+                config.QueryParameters.From = from;
+                config.QueryParameters.To = to;
+            },
+            cancellationToken: ct);
+        return result ?? throw new InvalidOperationException("Server returned an empty analytics throughput response.");
+    }
+
+    /// <summary>
+    /// Gets wait-time rollups per source. Duration fields are zero-filled
+    /// until the activity pipeline supplies them (tracked in #476); the
+    /// <c>stateTransitions</c> counter is the current signal.
+    /// </summary>
+    public async Task<WaitTimeRollupResponse> GetWaitTimesAsync(
+        string? source = null,
+        DateTimeOffset? from = null,
+        DateTimeOffset? to = null,
+        CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Analytics.Waits.GetAsync(
+            config =>
+            {
+                config.QueryParameters.Source = source;
+                config.QueryParameters.From = from;
+                config.QueryParameters.To = to;
+            },
+            cancellationToken: ct);
+        return result ?? throw new InvalidOperationException("Server returned an empty analytics waits response.");
+    }
+
+    // Budgets — GET/PUT per scope. The server enforces DailyBudget > 0;
+    // the CLI's `--period` flag normalises weekly/monthly amounts into a
+    // daily figure before calling these so the wire contract stays stable.
+
+    /// <summary>Sets the daily cost budget for an agent.</summary>
+    public async Task<BudgetResponse> SetAgentBudgetAsync(
+        string agentId,
+        decimal dailyBudget,
+        CancellationToken ct = default)
+    {
+        var request = new SetBudgetRequest { DailyBudget = (double)dailyBudget };
+        var result = await _client.Api.V1.Agents[agentId].Budget.PutAsync(request, cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty SetAgentBudget response for agent '{agentId}'.");
+    }
+
+    /// <summary>Sets the daily cost budget for a unit.</summary>
+    public async Task<BudgetResponse> SetUnitBudgetAsync(
+        string unitId,
+        decimal dailyBudget,
+        CancellationToken ct = default)
+    {
+        var request = new SetBudgetRequest { DailyBudget = (double)dailyBudget };
+        var result = await _client.Api.V1.Units[unitId].Budget.PutAsync(request, cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty SetUnitBudget response for unit '{unitId}'.");
+    }
+
+    /// <summary>Sets the daily cost budget for the tenant.</summary>
+    public async Task<BudgetResponse> SetTenantBudgetAsync(
+        decimal dailyBudget,
+        string? tenantId = null,
+        CancellationToken ct = default)
+    {
+        var request = new SetBudgetRequest { DailyBudget = (double)dailyBudget };
+        var result = await _client.Api.V1.Tenant.Budget.PutAsync(
+            request,
+            config =>
+            {
+                config.QueryParameters.TenantId = tenantId;
+            },
+            cancellationToken: ct);
+        return result ?? throw new InvalidOperationException("Server returned an empty SetTenantBudget response.");
+    }
+
+    /// <summary>Gets the daily cost budget for an agent.</summary>
+    public async Task<BudgetResponse> GetAgentBudgetAsync(string agentId, CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Agents[agentId].Budget.GetAsync(cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty GetAgentBudget response for agent '{agentId}'.");
+    }
+
+    /// <summary>Gets the daily cost budget for a unit.</summary>
+    public async Task<BudgetResponse> GetUnitBudgetAsync(string unitId, CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Units[unitId].Budget.GetAsync(cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty GetUnitBudget response for unit '{unitId}'.");
+    }
+
+    /// <summary>Gets the daily cost budget for the tenant.</summary>
+    public async Task<BudgetResponse> GetTenantBudgetAsync(
+        string? tenantId = null,
+        CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Tenant.Budget.GetAsync(
+            config =>
+            {
+                config.QueryParameters.TenantId = tenantId;
+            },
+            cancellationToken: ct);
+        return result ?? throw new InvalidOperationException("Server returned an empty GetTenantBudget response.");
+    }
+
+    // Clones — ride the same CloneType + AttachmentMode contract that the
+    // portal's Create Clone action uses so both surfaces produce identical
+    // clone identities and configuration.
+
+    /// <summary>
+    /// Creates a clone of an agent. <paramref name="cloneType"/> and
+    /// <paramref name="attachmentMode"/> default to the portal's defaults
+    /// (<see cref="CloningPolicy.EphemeralNoMemory"/> + <see cref="AttachmentMode.Detached"/>)
+    /// so `spring agent clone create --agent ada` produces the same clone
+    /// the UI would.
+    /// </summary>
+    public async Task<CloneResponse> CreateCloneAsync(
+        string agentId,
+        CloningPolicy cloneType = CloningPolicy.EphemeralNoMemory,
+        AttachmentMode attachmentMode = AttachmentMode.Detached,
+        CancellationToken ct = default)
+    {
+        var request = new CreateCloneRequest
+        {
+            CloneType = cloneType,
+            AttachmentMode = attachmentMode,
+        };
+        var result = await _client.Api.V1.Agents[agentId].Clones.PostAsync(request, cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty CreateClone response for agent '{agentId}'.");
+    }
+
+    /// <summary>Lists the clones registered under an agent.</summary>
+    public async Task<IReadOnlyList<CloneResponse>> ListClonesAsync(string agentId, CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Agents[agentId].Clones.GetAsync(cancellationToken: ct);
+        return result ?? new List<CloneResponse>();
+    }
+
     // Auth tokens
 
     /// <summary>Creates a new API token.</summary>

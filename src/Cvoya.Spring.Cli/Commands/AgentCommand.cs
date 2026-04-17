@@ -35,9 +35,29 @@ public static class AgentCommand
         new("enabled", a => a.Agent?.Enabled?.ToString().ToLowerInvariant()),
     };
 
+    private sealed record CloneRow(
+        string CloneId,
+        string Parent,
+        string CloneType,
+        string AttachmentMode,
+        string Status,
+        string CreatedAt,
+        string? LocalAlias);
+
+    private static readonly OutputFormatter.Column<CloneRow>[] CloneColumns =
+    {
+        new("cloneId", r => r.CloneId),
+        new("parent", r => r.Parent),
+        new("cloneType", r => r.CloneType),
+        new("attachmentMode", r => r.AttachmentMode),
+        new("status", r => r.Status),
+        new("createdAt", r => r.CreatedAt),
+        new("alias", r => r.LocalAlias),
+    };
+
     /// <summary>
-    /// Creates the "agent" command with subcommands for CRUD operations and
-    /// the cascading purge helper (#320).
+    /// Creates the "agent" command with subcommands for CRUD operations,
+    /// the cascading purge helper (#320), and the clone surface (#458).
     /// </summary>
     public static Command Create(Option<string> outputOption)
     {
@@ -48,6 +68,7 @@ public static class AgentCommand
         agentCommand.Subcommands.Add(CreateStatusCommand(outputOption));
         agentCommand.Subcommands.Add(CreateDeleteCommand());
         agentCommand.Subcommands.Add(CreatePurgeCommand());
+        agentCommand.Subcommands.Add(CreateCloneCommand(outputOption));
 
         return agentCommand;
     }
@@ -188,4 +209,138 @@ public static class AgentCommand
 
         return command;
     }
+
+    // Clone subcommand tree (#458) — mirrors the portal's Create/List clone
+    // actions so CLI and UI stay at parity. Clone identity comes from the
+    // server (a new GUID); --name is a local alias echoed back in table/JSON
+    // output so callers can tag a clone when they script provisioning, but
+    // it is not persisted because the server contract today has no clone
+    // name field. When PR-PLAT-CLONE-1 adds persistent naming we swap the
+    // local alias in for the server-side field without changing the flag.
+    private static Command CreateCloneCommand(Option<string> outputOption)
+    {
+        var cloneCommand = new Command("clone", "Manage agent clones");
+        cloneCommand.Subcommands.Add(CreateCloneCreateCommand(outputOption));
+        cloneCommand.Subcommands.Add(CreateCloneListCommand(outputOption));
+        return cloneCommand;
+    }
+
+    private static Command CreateCloneCreateCommand(Option<string> outputOption)
+    {
+        var agentOption = new Option<string>("--agent")
+        {
+            Description = "The parent agent's identifier.",
+            Required = true,
+        };
+        var nameOption = new Option<string?>("--name")
+        {
+            Description = "Optional local alias for the clone, echoed in CLI output. The server assigns the canonical clone id.",
+        };
+        var cloneTypeOption = new Option<string>("--clone-type")
+        {
+            Description = "Cloning policy: none, ephemeral-no-memory (default), or ephemeral-with-memory. Matches the portal's Clone type dropdown.",
+            DefaultValueFactory = _ => "ephemeral-no-memory",
+        };
+        cloneTypeOption.AcceptOnlyFromAmong("none", "ephemeral-no-memory", "ephemeral-with-memory");
+
+        var attachmentOption = new Option<string>("--attachment-mode")
+        {
+            Description = "Attachment mode: detached (default) or attached. Matches the portal's Attachment mode dropdown.",
+            DefaultValueFactory = _ => "detached",
+        };
+        attachmentOption.AcceptOnlyFromAmong("detached", "attached");
+
+        var command = new Command("create", "Create a clone of an agent (same contract as the portal's Create clone action)");
+        command.Options.Add(agentOption);
+        command.Options.Add(nameOption);
+        command.Options.Add(cloneTypeOption);
+        command.Options.Add(attachmentOption);
+
+        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var agent = parseResult.GetValue(agentOption)!;
+            var alias = parseResult.GetValue(nameOption);
+            var cloneTypeRaw = parseResult.GetValue(cloneTypeOption) ?? "ephemeral-no-memory";
+            var attachmentRaw = parseResult.GetValue(attachmentOption) ?? "detached";
+            var output = parseResult.GetValue(outputOption) ?? "table";
+
+            var cloneType = cloneTypeRaw switch
+            {
+                "none" => CloningPolicy.None,
+                "ephemeral-no-memory" => CloningPolicy.EphemeralNoMemory,
+                "ephemeral-with-memory" => CloningPolicy.EphemeralWithMemory,
+                _ => throw new InvalidOperationException($"Unexpected clone type '{cloneTypeRaw}'."),
+            };
+            var attachmentMode = attachmentRaw switch
+            {
+                "detached" => AttachmentMode.Detached,
+                "attached" => AttachmentMode.Attached,
+                _ => throw new InvalidOperationException($"Unexpected attachment mode '{attachmentRaw}'."),
+            };
+
+            var client = ClientFactory.Create();
+            var result = await client.CreateCloneAsync(agent, cloneType, attachmentMode, ct);
+
+            if (output == "json")
+            {
+                Console.WriteLine(OutputFormatter.FormatJson(result));
+            }
+            else
+            {
+                var row = ToCloneRow(result, alias);
+                Console.WriteLine(OutputFormatter.FormatTable(row, CloneColumns));
+            }
+        });
+
+        return command;
+    }
+
+    private static Command CreateCloneListCommand(Option<string> outputOption)
+    {
+        var agentOption = new Option<string>("--agent")
+        {
+            Description = "The parent agent's identifier.",
+            Required = true,
+        };
+        var command = new Command("list", "List the clones of an agent");
+        command.Options.Add(agentOption);
+
+        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var agent = parseResult.GetValue(agentOption)!;
+            var output = parseResult.GetValue(outputOption) ?? "table";
+
+            var client = ClientFactory.Create();
+            var clones = await client.ListClonesAsync(agent, ct);
+
+            if (output == "json")
+            {
+                Console.WriteLine(OutputFormatter.FormatJson(clones));
+            }
+            else
+            {
+                var rows = new List<CloneRow>();
+                foreach (var clone in clones)
+                {
+                    rows.Add(ToCloneRow(clone, alias: null));
+                }
+
+                Console.WriteLine(OutputFormatter.FormatTable(rows, CloneColumns));
+            }
+        });
+
+        return command;
+    }
+
+    private static CloneRow ToCloneRow(CloneResponse response, string? alias) =>
+        new(
+            response.CloneId ?? string.Empty,
+            response.ParentAgentId ?? string.Empty,
+            response.CloneType?.ToString() ?? string.Empty,
+            response.AttachmentMode?.ToString() ?? string.Empty,
+            response.Status ?? string.Empty,
+            response.CreatedAt is System.DateTimeOffset dto
+                ? dto.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture)
+                : string.Empty,
+            alias);
 }

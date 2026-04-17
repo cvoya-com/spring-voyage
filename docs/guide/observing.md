@@ -102,30 +102,45 @@ Shows detailed status: current conversation, pending conversations, recent activ
 
 ## Cost Tracking
 
-### Cost Summary
+### Analytics (Costs, Throughput, Wait Times)
+
+`spring analytics` is the current CLI surface for operational rollups. All
+three verbs accept a shared `--window` flag (`24h`, `7d`, `30d`, `90d`, ...).
 
 ```
-spring cost summary --unit engineering-team --period today
-spring cost summary --unit engineering-team --period this-month
-spring cost summary --tenant --period last-30d
+# Costs over a window — tenant, unit, or agent scoped.
+spring analytics costs --window 7d
+spring analytics costs --window 30d --unit engineering-team
+spring analytics costs --window 24h --agent ada
+
+# Throughput (messages / turns / tool calls) per source.
+spring analytics throughput --window 7d
+spring analytics throughput --window 30d --unit engineering-team
+spring analytics throughput --window 7d --agent ada
+
+# Wait-time rollups. Duration fields are placeholders until the observability
+# pipeline (tracked under #391) supplies real start/end timestamps; the
+# `transitions` column is the interim signal.
+spring analytics waits --window 7d --agent ada
 ```
 
-### Cost by Agent
+`spring cost summary` continues to work as a deprecated alias for
+`spring analytics costs`; the help text flags the deprecation. New scripts
+should use the `analytics` verb.
+
+### Budgets
 
 ```
-spring cost breakdown --unit engineering-team --period today
+# Tenant / unit / agent budgets all flow through the same verb.
+spring cost set-budget --scope tenant --amount 50 --period monthly
+spring cost set-budget --scope unit --target engineering-team --amount 20 --period weekly
+spring cost set-budget --scope agent --target ada --amount 5 --period daily
 ```
 
-Shows cost per agent, broken down by work vs. initiative.
-
-### Budget Status
-
-```
-spring cost budget --unit engineering-team
-spring cost budget --tenant
-```
-
-Shows current spending against configured limits.
+`--period` accepts `daily`, `weekly`, or `monthly`. The server stores a daily
+value; weekly / monthly amounts are normalised locally (`amount / 7` and
+`amount / 30` respectively) so the portal's "Edit budget" action and the CLI
+agree on what "$50 monthly" means.
 
 ## Web Dashboard
 
@@ -162,7 +177,8 @@ Notification events include:
 
 - **Use `spring activity stream`** during active work to watch agents in real-time
 - **Use `spring agent status`** for a quick check of what's happening
-- **Use `spring cost summary`** regularly to track spending
+- **Use `spring analytics costs`** regularly to track spending (or the
+  deprecated `spring cost summary` alias)
 - **Use the dashboard** for a comprehensive overview when managing multiple units
 
 ## See it in action

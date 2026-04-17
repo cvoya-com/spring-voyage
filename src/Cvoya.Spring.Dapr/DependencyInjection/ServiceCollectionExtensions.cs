@@ -311,8 +311,11 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ICostQueryService, CostAggregation>();
         services.AddScoped<ICostTracker, CloneCostTracker>();
 
-        // Observability — query service
+        // Observability — query services
         services.AddScoped<IActivityQueryService, ActivityQueryService>();
+        // Analytics rollups (#457). TryAdd so the private cloud repo can
+        // decorate with tenant-scoped filters without forking the OSS default.
+        services.TryAddScoped<IAnalyticsQueryService, AnalyticsQueryService>();
 
         // Conversation projection (#452 / #456). Materialises conversations
         // and inbox rows from the activity-event table — no separate message
