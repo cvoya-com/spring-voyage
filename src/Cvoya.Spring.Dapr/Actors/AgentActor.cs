@@ -1217,6 +1217,44 @@ public class AgentActor(
             }));
     }
 
+    /// <inheritdoc />
+    public async Task<ExpertiseDomain[]> GetExpertiseAsync(CancellationToken cancellationToken = default)
+    {
+        var result = await StateManager.TryGetStateAsync<List<ExpertiseDomain>>(StateKeys.AgentExpertise, cancellationToken);
+        return result.HasValue ? result.Value.ToArray() : Array.Empty<ExpertiseDomain>();
+    }
+
+    /// <inheritdoc />
+    public async Task SetExpertiseAsync(ExpertiseDomain[] domains, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(domains);
+
+        // De-dup by domain name case-insensitively; the last write for a given
+        // name wins so a caller can PATCH a level or description by re-listing
+        // the same domain.
+        var normalised = domains
+            .Where(d => !string.IsNullOrWhiteSpace(d.Name))
+            .GroupBy(d => d.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.Last())
+            .OrderBy(d => d.Name, StringComparer.Ordinal)
+            .ToList();
+
+        await StateManager.SetStateAsync(StateKeys.AgentExpertise, normalised, cancellationToken);
+
+        _logger.LogInformation(
+            "Agent {ActorId} expertise replaced. Count: {Count}", Id.GetId(), normalised.Count);
+
+        await EmitActivityEventAsync(ActivityEventType.StateChanged,
+            $"Agent expertise replaced: {normalised.Count} domain(s).",
+            cancellationToken,
+            details: JsonSerializer.SerializeToElement(new
+            {
+                action = "AgentExpertiseReplaced",
+                count = normalised.Count,
+                domains = normalised.Select(d => new { d.Name, d.Description, Level = d.Level?.ToString() }),
+            }));
+    }
+
     /// <summary>
     /// Emits a <see cref="ActivityEventType.CostIncurred"/> event for this agent's execution costs.
     /// </summary>

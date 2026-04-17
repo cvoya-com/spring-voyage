@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Dapr.Actors;
 using System.Text.Json;
 
 using Cvoya.Spring.Connectors;
+using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Auth;
@@ -181,4 +182,31 @@ public interface IUnitActor : IAgent
     /// <param name="ct">A token to cancel the operation.</param>
     /// <returns>A <see cref="ReadinessResult"/> describing readiness.</returns>
     Task<ReadinessResult> CheckReadinessAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns the unit's own (non-aggregated) expertise — the domains
+    /// declared on the unit itself, independent of its members. Used by
+    /// <see cref="Core.Capabilities.IExpertiseAggregator"/> as one input of
+    /// the recursive composition. Unit-level expertise is typically empty
+    /// for leaf organizational units, but the slot exists so a unit can
+    /// advertise a synthesised capability that isn't owned by any single
+    /// member (see #412 / #413).
+    /// </summary>
+    /// <param name="ct">A token to cancel the operation.</param>
+    /// <returns>
+    /// Every configured <see cref="ExpertiseDomain"/> for this unit. Returns
+    /// an empty array when nothing is configured.
+    /// </returns>
+    Task<ExpertiseDomain[]> GetOwnExpertiseAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Replaces the unit's own (non-aggregated) expertise with
+    /// <paramref name="domains"/>. Passing an empty array clears the
+    /// configuration. Emits a <c>StateChanged</c> activity event on every
+    /// write so the activity-stream projection in #44 can surface
+    /// directory-change events without additional wiring.
+    /// </summary>
+    /// <param name="domains">The replacement expertise set.</param>
+    /// <param name="ct">A token to cancel the operation.</param>
+    Task SetOwnExpertiseAsync(ExpertiseDomain[] domains, CancellationToken ct = default);
 }

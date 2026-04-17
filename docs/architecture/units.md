@@ -476,6 +476,38 @@ Default implementation: profiles stay at seeded values. With a cognitive backbon
 
 The directory is a **property of the unit** — each unit maintains its members' expertise profiles. Directories compose recursively through the unit hierarchy. The root unit aggregates all.
 
+#### Recursive Expertise Aggregation
+
+A unit's **effective expertise** is the union of:
+
+1. The unit's own configured domains (from `UnitActor.SetOwnExpertiseAsync`) — used when a unit advertises a synthesised capability that isn't owned by any single member.
+2. Every descendant's effective expertise, composed recursively down through sub-units to each leaf agent.
+
+Each contributed capability is preserved with:
+
+| Field | Meaning |
+|-------|---------|
+| `Domain` | The name, description, and optional level (`beginner | intermediate | advanced | expert`). |
+| `Origin` | Address of the contributor (`agent://id` for leaves, `unit://id` when a nested unit advertises its own domain). |
+| `Path` | Ordered addresses from the aggregating unit down to `Origin`. Length − 1 is the depth. |
+
+The origin chain lets peer-lookup callers tell **where** a capability came from so they can route work to the leaf, and lets permission checks (#414) decide whether the requester is allowed to traverse into that origin. The path is what the boundary layer (#413) will consume when it decides to project, filter, or synthesize.
+
+**De-duplication.** When the same `(domain-name, origin)` pair is reachable through multiple DAG paths (e.g. a shared sub-unit), the aggregator collapses duplicates. If levels disagree on the collapsed pair, the stronger level wins — "closest to the root" never silently downgrades an `expert` contribution.
+
+**Walk bound.** The recursive walk is bounded by the same depth cap (`64`) that `UnitActor.AddMemberAsync` uses for membership cycle detection. Exceeding the bound surfaces as `ExpertiseAggregationException` so a misconfigured parent cycle is reported, not silently looped. A back-edge onto the aggregating unit is likewise rejected — a DAG that converges benignly on a non-root node is fine, but one that closes back on the root is a hard error.
+
+**Caching.** Aggregated snapshots are cached per unit via `IExpertiseAggregator`. Membership changes (add/remove member, assign/unassign agent) and expertise edits (agent or unit own expertise) call `IExpertiseAggregator.InvalidateAsync`. Invalidation walks **up** — for an agent origin, through the agent's unit memberships; for a unit origin, by resolving every unit whose members list contains the child — evicting the target plus every ancestor so the next aggregate read recomputes. There's no TTL: aggregated expertise is small, writes are rare, and invalidation is precise.
+
+**Extension points.** The aggregator is a DI service (`TryAddSingleton<IExpertiseAggregator, ExpertiseAggregator>`). A cloud host can pre-register a decorator to layer tenant-scoped caches or audit logging. A future **boundary projection / filtering** layer (#413) will plug in as a filter over the aggregator's output rather than altering the walk itself, so the basic recursive composition keeps shipping unchanged while opacity rules evolve.
+
+**Wire surface.**
+
+- `GET /api/v1/agents/{id}/expertise` · `PUT /api/v1/agents/{id}/expertise` — per-agent profile.
+- `GET /api/v1/units/{id}/expertise/own` · `PUT /api/v1/units/{id}/expertise/own` — unit-level own expertise (no aggregation).
+- `GET /api/v1/units/{id}/expertise` — effective / recursive-aggregated expertise.
+- CLI: `spring agent expertise get|set <id>` and `spring unit expertise get|set|aggregated <id>` — same shape on both surfaces for UI/CLI parity.
+
 ---
 
 ## Unit Lifecycle: From Definition to Operation

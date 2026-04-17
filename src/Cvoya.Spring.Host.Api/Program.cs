@@ -117,6 +117,7 @@ app.MapMembershipEndpoints().RequireAuthorization();
 app.MapPackageEndpoints().RequireAuthorization();
 app.MapMessageEndpoints().RequireAuthorization();
 app.MapDirectoryEndpoints().RequireAuthorization();
+app.MapExpertiseEndpoints();
 app.MapCloneEndpoints().RequireAuthorization();
 app.MapCostEndpoints().RequireAuthorization();
 app.MapBudgetEndpoints().RequireAuthorization();

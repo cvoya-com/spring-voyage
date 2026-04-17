@@ -1,0 +1,343 @@
+// Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
+// See LICENSE.md in the project root for full license terms.
+
+namespace Cvoya.Spring.Dapr.Tests.Capabilities;
+
+using Cvoya.Spring.Core.Capabilities;
+using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Units;
+using Cvoya.Spring.Dapr.Actors;
+using Cvoya.Spring.Dapr.Capabilities;
+
+using global::Dapr.Actors;
+using global::Dapr.Actors.Client;
+
+using Microsoft.Extensions.Logging;
+
+using NSubstitute;
+
+using Shouldly;
+
+using Xunit;
+
+/// <summary>
+/// Tests for <see cref="ExpertiseAggregator"/>: recursive composition,
+/// cycle guard, depth cap, origin tracking, and cache invalidation. See
+/// #412.
+/// </summary>
+public class ExpertiseAggregatorTests
+{
+    private readonly IExpertiseStore _store = Substitute.For<IExpertiseStore>();
+    private readonly IDirectoryService _directory = Substitute.For<IDirectoryService>();
+    private readonly IActorProxyFactory _proxyFactory = Substitute.For<IActorProxyFactory>();
+    private readonly IUnitMembershipRepository _memberships = Substitute.For<IUnitMembershipRepository>();
+    private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
+    private readonly Dictionary<string, IUnitActor> _unitActors = new();
+    private readonly TimeProvider _timeProvider = TimeProvider.System;
+
+    public ExpertiseAggregatorTests()
+    {
+        _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
+
+        // No expertise unless the test arranges otherwise.
+        _store.GetDomainsAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<ExpertiseDomain>());
+
+        // Directory resolves by default — ActorId = path — so the real
+        // aggregator flow has something to hand to the proxy factory. Per-
+        // test overrides can replace this.
+        _directory.ResolveAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
+            .Returns(ci =>
+            {
+                var addr = ci.ArgAt<Address>(0);
+                return new DirectoryEntry(addr, addr.Path, addr.Path, string.Empty, null, DateTimeOffset.UtcNow);
+            });
+
+        // Proxy factory hands out per-path substitute IUnitActor instances
+        // the tests configure through RegisterUnit().
+        _proxyFactory.CreateActorProxy<IUnitActor>(Arg.Any<ActorId>(), nameof(UnitActor))
+            .Returns(ci =>
+            {
+                var actorId = ci.ArgAt<ActorId>(0).GetId();
+                if (!_unitActors.TryGetValue(actorId, out var actor))
+                {
+                    actor = Substitute.For<IUnitActor>();
+                    actor.GetMembersAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<Address>());
+                    _unitActors[actorId] = actor;
+                }
+                return actor;
+            });
+
+        _memberships.ListByAgentAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<UnitMembership>());
+        _directory.ListAllAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<DirectoryEntry>());
+    }
+
+    private ExpertiseAggregator CreateAggregator() =>
+        new(_store, _directory, _proxyFactory, _memberships, _timeProvider, _loggerFactory);
+
+    private void RegisterUnit(string unitId, params Address[] members)
+    {
+        if (!_unitActors.TryGetValue(unitId, out var actor))
+        {
+            actor = Substitute.For<IUnitActor>();
+            _unitActors[unitId] = actor;
+        }
+        actor.GetMembersAsync(Arg.Any<CancellationToken>()).Returns(members);
+    }
+
+    private void ArrangeExpertise(Address address, params ExpertiseDomain[] domains)
+    {
+        _store.GetDomainsAsync(address, Arg.Any<CancellationToken>()).Returns(domains);
+    }
+
+    [Fact]
+    public async Task GetAsync_EmptyUnit_ReturnsEmptyAggregation()
+    {
+        var aggregator = CreateAggregator();
+        var unit = new Address("unit", "empty");
+        RegisterUnit("empty");
+
+        var result = await aggregator.GetAsync(unit, TestContext.Current.CancellationToken);
+
+        result.ShouldNotBeNull();
+        result.Unit.ShouldBe(unit);
+        result.Entries.ShouldBeEmpty();
+        result.Depth.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task GetAsync_FlatUnitWithAgents_IncludesAgentExpertiseWithOrigin()
+    {
+        var aggregator = CreateAggregator();
+        var unit = new Address("unit", "eng");
+        var ada = new Address("agent", "ada");
+        var kay = new Address("agent", "kay");
+
+        RegisterUnit("eng", ada, kay);
+        ArrangeExpertise(ada, new ExpertiseDomain("python", "FastAPI", ExpertiseLevel.Expert));
+        ArrangeExpertise(kay, new ExpertiseDomain("react", "Next.js", ExpertiseLevel.Advanced));
+
+        var result = await aggregator.GetAsync(unit, TestContext.Current.CancellationToken);
+
+        result.Entries.Count.ShouldBe(2);
+        result.Entries.ShouldContain(e => e.Domain.Name == "python" && e.Origin == ada);
+        result.Entries.ShouldContain(e => e.Domain.Name == "react" && e.Origin == kay);
+        result.Depth.ShouldBe(1);
+
+        // Each entry's Path should be [unit, origin].
+        var python = result.Entries.Single(e => e.Domain.Name == "python");
+        python.Path.ShouldBe(new[] { unit, ada });
+    }
+
+    [Fact]
+    public async Task GetAsync_ThreeLevelNesting_ComposesRecursivelyToLeaves()
+    {
+        var aggregator = CreateAggregator();
+        // root -> eng -> backend -> ada
+        var root = new Address("unit", "root");
+        var eng = new Address("unit", "eng");
+        var backend = new Address("unit", "backend");
+        var ada = new Address("agent", "ada");
+        var dijkstra = new Address("agent", "dijkstra");
+
+        RegisterUnit("root", eng);
+        RegisterUnit("eng", backend);
+        RegisterUnit("backend", ada, dijkstra);
+
+        ArrangeExpertise(ada, new ExpertiseDomain("csharp", "server-side", ExpertiseLevel.Expert));
+        ArrangeExpertise(dijkstra, new ExpertiseDomain("algorithms", "graph theory", ExpertiseLevel.Expert));
+
+        var result = await aggregator.GetAsync(root, TestContext.Current.CancellationToken);
+
+        result.Entries.Count.ShouldBe(2);
+        result.Depth.ShouldBe(3);
+        var csharp = result.Entries.Single(e => e.Domain.Name == "csharp");
+        csharp.Origin.ShouldBe(ada);
+        csharp.Path.ShouldBe(new[] { root, eng, backend, ada });
+    }
+
+    [Fact]
+    public async Task GetAsync_UnitOwnExpertiseIncluded()
+    {
+        var aggregator = CreateAggregator();
+        var unit = new Address("unit", "eng");
+        RegisterUnit("eng");
+
+        ArrangeExpertise(unit, new ExpertiseDomain("full-stack", "synthesized", ExpertiseLevel.Advanced));
+
+        var result = await aggregator.GetAsync(unit, TestContext.Current.CancellationToken);
+
+        result.Entries.Count.ShouldBe(1);
+        result.Entries[0].Origin.ShouldBe(unit);
+        result.Entries[0].Path.ShouldBe(new[] { unit });
+    }
+
+    [Fact]
+    public async Task GetAsync_DuplicateDomainAcrossPaths_StrongerLevelWins()
+    {
+        var aggregator = CreateAggregator();
+        var unit = new Address("unit", "eng");
+        var ada = new Address("agent", "ada");
+
+        RegisterUnit("eng", ada);
+        // Arrange two reads for same (domain, origin) with different levels —
+        // simulates two passes with different writes. In practice de-dup
+        // happens across origins; here we supply two entries to the store in
+        // a single call for the same agent, and expect the stronger one.
+        ArrangeExpertise(ada,
+            new ExpertiseDomain("python", "intro", ExpertiseLevel.Beginner),
+            new ExpertiseDomain("python", "expert-level", ExpertiseLevel.Expert));
+
+        var result = await aggregator.GetAsync(unit, TestContext.Current.CancellationToken);
+
+        var python = result.Entries.Single();
+        python.Domain.Level.ShouldBe(ExpertiseLevel.Expert);
+    }
+
+    [Fact]
+    public async Task GetAsync_DirectCycleThrows()
+    {
+        var aggregator = CreateAggregator();
+        // root is a member of itself — the membership-time cycle check in
+        // UnitActor.AddMemberAsync should have rejected this, but if state
+        // is corrupted the aggregator must refuse to loop.
+        var root = new Address("unit", "root");
+        RegisterUnit("root", root);
+
+        await Should.ThrowAsync<ExpertiseAggregationException>(() =>
+            aggregator.GetAsync(root, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task GetAsync_TwoCycle_Throws()
+    {
+        var aggregator = CreateAggregator();
+        var a = new Address("unit", "a");
+        var b = new Address("unit", "b");
+
+        // a contains b, b contains a.
+        RegisterUnit("a", b);
+        RegisterUnit("b", a);
+
+        var ex = await Should.ThrowAsync<ExpertiseAggregationException>(() =>
+            aggregator.GetAsync(a, TestContext.Current.CancellationToken));
+        ex.Path.Count.ShouldBeGreaterThanOrEqualTo(2);
+    }
+
+    [Fact]
+    public async Task GetAsync_BenignDAGConvergence_DoesNotThrow()
+    {
+        var aggregator = CreateAggregator();
+        // root -> [a, b] -> both contain shared. `shared` is visited twice
+        // via different paths but isn't a cycle reaching back to root.
+        var root = new Address("unit", "root");
+        var a = new Address("unit", "a");
+        var b = new Address("unit", "b");
+        var shared = new Address("unit", "shared");
+        var leafAgent = new Address("agent", "leaf");
+
+        RegisterUnit("root", a, b);
+        RegisterUnit("a", shared);
+        RegisterUnit("b", shared);
+        RegisterUnit("shared", leafAgent);
+        ArrangeExpertise(leafAgent, new ExpertiseDomain("leaf-skill", "", ExpertiseLevel.Advanced));
+
+        var result = await aggregator.GetAsync(root, TestContext.Current.CancellationToken);
+
+        // The shared leaf's expertise is included exactly once (dedup by
+        // (domain, origin)).
+        result.Entries.Count(e => e.Domain.Name == "leaf-skill").ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task GetAsync_CachesResult_SecondCallSkipsRecompute()
+    {
+        var aggregator = CreateAggregator();
+        var unit = new Address("unit", "eng");
+        var ada = new Address("agent", "ada");
+        RegisterUnit("eng", ada);
+        ArrangeExpertise(ada, new ExpertiseDomain("python", "", ExpertiseLevel.Advanced));
+
+        await aggregator.GetAsync(unit, TestContext.Current.CancellationToken);
+        await aggregator.GetAsync(unit, TestContext.Current.CancellationToken);
+
+        // Each GetAsync on the unit reads the store once for `unit` and once
+        // for each member. With cache, the second call should not re-read
+        // anything.
+        await _store.Received(1).GetDomainsAsync(ada, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task InvalidateAsync_ForUnit_EvictsItFromCache()
+    {
+        var aggregator = CreateAggregator();
+        var unit = new Address("unit", "eng");
+        var ada = new Address("agent", "ada");
+        RegisterUnit("eng", ada);
+        ArrangeExpertise(ada, new ExpertiseDomain("python", "", ExpertiseLevel.Advanced));
+
+        await aggregator.GetAsync(unit, TestContext.Current.CancellationToken);
+        await aggregator.InvalidateAsync(unit, TestContext.Current.CancellationToken);
+        await aggregator.GetAsync(unit, TestContext.Current.CancellationToken);
+
+        await _store.Received(2).GetDomainsAsync(ada, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task InvalidateAsync_ForAgent_EvictsEveryUnitThatContainsIt()
+    {
+        var aggregator = CreateAggregator();
+        var unit = new Address("unit", "eng");
+        var ada = new Address("agent", "ada");
+
+        RegisterUnit("eng", ada);
+        ArrangeExpertise(ada, new ExpertiseDomain("python", "", ExpertiseLevel.Advanced));
+        _memberships.ListByAgentAsync("ada", Arg.Any<CancellationToken>())
+            .Returns(new[] { new UnitMembership(unit.Path, "ada") });
+
+        await aggregator.GetAsync(unit, TestContext.Current.CancellationToken);
+        // Invalidation driven by an agent-level edit must evict the unit's
+        // cached aggregation.
+        await aggregator.InvalidateAsync(ada, TestContext.Current.CancellationToken);
+        await aggregator.GetAsync(unit, TestContext.Current.CancellationToken);
+
+        await _store.Received(2).GetDomainsAsync(ada, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task InvalidateAsync_MidTreeChange_PropagatesToAncestorCaches()
+    {
+        // root -> mid -> leaf   (agent under leaf)
+        var aggregator = CreateAggregator();
+        var root = new Address("unit", "root");
+        var mid = new Address("unit", "mid");
+        var leaf = new Address("unit", "leaf");
+        var ada = new Address("agent", "ada");
+
+        RegisterUnit("root", mid);
+        RegisterUnit("mid", leaf);
+        RegisterUnit("leaf", ada);
+        ArrangeExpertise(ada, new ExpertiseDomain("python", "", ExpertiseLevel.Advanced));
+
+        // The directory must list every unit for the reverse-parent walk.
+        _directory.ListAllAsync(Arg.Any<CancellationToken>()).Returns(new[]
+        {
+            new DirectoryEntry(root, "root", "root", string.Empty, null, DateTimeOffset.UtcNow),
+            new DirectoryEntry(mid, "mid", "mid", string.Empty, null, DateTimeOffset.UtcNow),
+            new DirectoryEntry(leaf, "leaf", "leaf", string.Empty, null, DateTimeOffset.UtcNow),
+        });
+
+        // Warm the cache at root.
+        await aggregator.GetAsync(root, TestContext.Current.CancellationToken);
+
+        // A mid-tree change (leaf's expertise flipped) invalidates leaf + its
+        // ancestors (mid + root). The next root read must recompute.
+        await aggregator.InvalidateAsync(leaf, TestContext.Current.CancellationToken);
+        await aggregator.GetAsync(root, TestContext.Current.CancellationToken);
+
+        await _store.Received(2).GetDomainsAsync(ada, Arg.Any<CancellationToken>());
+    }
+}

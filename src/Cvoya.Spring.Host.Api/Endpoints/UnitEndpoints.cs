@@ -889,6 +889,7 @@ public static class UnitEndpoints
         AddMemberRequest request,
         IDirectoryService directoryService,
         IActorProxyFactory actorProxyFactory,
+        IExpertiseAggregator expertiseAggregator,
         CancellationToken cancellationToken)
     {
         var unitAddress = new Address("unit", id);
@@ -927,6 +928,9 @@ public static class UnitEndpoints
                 });
         }
 
+        // Membership change reshapes the unit's effective expertise (#412).
+        await expertiseAggregator.InvalidateAsync(unitAddress, cancellationToken);
+
         // Previous behaviour returned `{ Status = "Member added" }`; the
         // string carried no new information beyond the HTTP status, and the
         // anonymous shape kept the endpoint out of the OpenAPI contract.
@@ -939,6 +943,7 @@ public static class UnitEndpoints
         string memberId,
         IDirectoryService directoryService,
         IActorProxyFactory actorProxyFactory,
+        IExpertiseAggregator expertiseAggregator,
         CancellationToken cancellationToken)
     {
         var unitAddress = new Address("unit", id);
@@ -961,6 +966,8 @@ public static class UnitEndpoints
 
         await unitProxy.RemoveMemberAsync(new Address("agent", memberId), cancellationToken);
         await unitProxy.RemoveMemberAsync(new Address("unit", memberId), cancellationToken);
+
+        await expertiseAggregator.InvalidateAsync(unitAddress, cancellationToken);
 
         return Results.NoContent();
     }
@@ -1225,6 +1232,7 @@ public static class UnitEndpoints
         [FromServices] IDirectoryService directoryService,
         [FromServices] IActorProxyFactory actorProxyFactory,
         [FromServices] IUnitMembershipRepository membershipRepository,
+        [FromServices] IExpertiseAggregator expertiseAggregator,
         [FromServices] ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
@@ -1273,6 +1281,10 @@ public static class UnitEndpoints
             new AgentMetadata(ParentUnit: id),
             cancellationToken);
 
+        // Membership change reshapes the unit's effective expertise and,
+        // transitively, every ancestor unit's aggregated view (#412).
+        await expertiseAggregator.InvalidateAsync(unitAddress, cancellationToken);
+
         logger.LogInformation(
             "Agent {AgentId} assigned to unit {UnitId}.", agentId, id);
 
@@ -1287,6 +1299,7 @@ public static class UnitEndpoints
         [FromServices] IDirectoryService directoryService,
         [FromServices] IActorProxyFactory actorProxyFactory,
         [FromServices] IUnitMembershipRepository membershipRepository,
+        [FromServices] IExpertiseAggregator expertiseAggregator,
         [FromServices] ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
@@ -1330,6 +1343,10 @@ public static class UnitEndpoints
                 new AgentMetadata(ParentUnit: remaining[0].UnitId),
                 cancellationToken);
         }
+
+        // Invalidate the aggregator cache up the chain: removing the agent
+        // changes this unit's effective expertise and every ancestor's.
+        await expertiseAggregator.InvalidateAsync(unitAddress, cancellationToken);
 
         logger.LogInformation(
             "Agent {AgentId} unassigned from unit {UnitId}.", agentId, id);

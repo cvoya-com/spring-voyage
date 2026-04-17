@@ -1,0 +1,126 @@
+// Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
+// See LICENSE.md in the project root for full license terms.
+
+namespace Cvoya.Spring.Dapr.Tests.Actors;
+
+using Cvoya.Spring.Core.Capabilities;
+using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Orchestration;
+using Cvoya.Spring.Core.Units;
+using Cvoya.Spring.Dapr.Actors;
+
+using global::Dapr.Actors;
+using global::Dapr.Actors.Client;
+using global::Dapr.Actors.Runtime;
+
+using Microsoft.Extensions.Logging;
+
+using NSubstitute;
+
+using Shouldly;
+
+using Xunit;
+
+/// <summary>
+/// Tests for UnitActor's own-expertise surface (#412).
+/// </summary>
+public class UnitActorExpertiseTests
+{
+    private readonly IActorStateManager _stateManager = Substitute.For<IActorStateManager>();
+    private readonly UnitActor _actor;
+
+    public UnitActorExpertiseTests()
+    {
+        var loggerFactory = Substitute.For<ILoggerFactory>();
+        loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
+
+        var host = ActorHost.CreateForTest<UnitActor>(new ActorTestOptions
+        {
+            ActorId = new ActorId("test-unit")
+        });
+        _actor = new UnitActor(
+            host,
+            loggerFactory,
+            Substitute.For<IOrchestrationStrategy>(),
+            Substitute.For<IActivityEventBus>(),
+            Substitute.For<IDirectoryService>(),
+            Substitute.For<IActorProxyFactory>());
+
+        var field = typeof(Actor).GetField("<StateManager>k__BackingField",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        field?.SetValue(_actor, _stateManager);
+
+        _stateManager.TryGetStateAsync<List<ExpertiseDomain>>(StateKeys.UnitOwnExpertise, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<List<ExpertiseDomain>>(false, default!));
+    }
+
+    [Fact]
+    public async Task GetOwnExpertiseAsync_NoState_ReturnsEmpty()
+    {
+        var result = await _actor.GetOwnExpertiseAsync(TestContext.Current.CancellationToken);
+        result.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task SetOwnExpertiseAsync_ReplacesState()
+    {
+        var domains = new[]
+        {
+            new ExpertiseDomain("python", "fastapi", ExpertiseLevel.Expert),
+            new ExpertiseDomain("react", "next.js", ExpertiseLevel.Advanced),
+        };
+        List<ExpertiseDomain>? captured = null;
+        _stateManager.SetStateAsync(
+                StateKeys.UnitOwnExpertise,
+                Arg.Do<List<ExpertiseDomain>>(v => captured = v),
+                Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+
+        await _actor.SetOwnExpertiseAsync(domains, TestContext.Current.CancellationToken);
+
+        captured.ShouldNotBeNull();
+        captured!.Count.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task SetOwnExpertiseAsync_DedupesByName()
+    {
+        var domains = new[]
+        {
+            new ExpertiseDomain("python", "", ExpertiseLevel.Beginner),
+            new ExpertiseDomain("python", "", ExpertiseLevel.Expert),
+        };
+        List<ExpertiseDomain>? captured = null;
+        _stateManager.SetStateAsync(
+                StateKeys.UnitOwnExpertise,
+                Arg.Do<List<ExpertiseDomain>>(v => captured = v),
+                Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+
+        await _actor.SetOwnExpertiseAsync(domains, TestContext.Current.CancellationToken);
+
+        captured!.Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task SetOwnExpertiseAsync_IgnoresEntriesWithBlankName()
+    {
+        var domains = new[]
+        {
+            new ExpertiseDomain("", "empty", ExpertiseLevel.Beginner),
+            new ExpertiseDomain("python", "ok", ExpertiseLevel.Expert),
+        };
+        List<ExpertiseDomain>? captured = null;
+        _stateManager.SetStateAsync(
+                StateKeys.UnitOwnExpertise,
+                Arg.Do<List<ExpertiseDomain>>(v => captured = v),
+                Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+
+        await _actor.SetOwnExpertiseAsync(domains, TestContext.Current.CancellationToken);
+
+        captured!.Count.ShouldBe(1);
+        captured[0].Name.ShouldBe("python");
+    }
+}

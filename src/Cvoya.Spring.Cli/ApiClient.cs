@@ -82,6 +82,70 @@ public class SpringApiClient
     public Task DeleteAgentAsync(string id, CancellationToken ct = default)
         => _client.Api.V1.Agents[id].DeleteAsync(cancellationToken: ct);
 
+    // Expertise (#412)
+
+    /// <summary>
+    /// Gets the configured expertise domains for an agent. Returns an empty
+    /// list when the agent has no expertise set; the server distinguishes
+    /// "not found" (404) from "empty" by throwing on the former.
+    /// </summary>
+    public async Task<IReadOnlyList<ExpertiseDomainDto>> GetAgentExpertiseAsync(
+        string agentId, CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Agents[agentId].Expertise.GetAsync(cancellationToken: ct);
+        return result?.Domains ?? new List<ExpertiseDomainDto>();
+    }
+
+    /// <summary>
+    /// Replaces an agent's expertise domains in full. Pass an empty list to
+    /// clear the configuration.
+    /// </summary>
+    public async Task<IReadOnlyList<ExpertiseDomainDto>> SetAgentExpertiseAsync(
+        string agentId,
+        IReadOnlyList<ExpertiseDomainDto> domains,
+        CancellationToken ct = default)
+    {
+        var body = new SetExpertiseRequest { Domains = domains?.ToList() ?? new List<ExpertiseDomainDto>() };
+        var result = await _client.Api.V1.Agents[agentId].Expertise.PutAsync(body, cancellationToken: ct);
+        return result?.Domains ?? new List<ExpertiseDomainDto>();
+    }
+
+    /// <summary>
+    /// Gets a unit's own (non-aggregated) expertise domains.
+    /// </summary>
+    public async Task<IReadOnlyList<ExpertiseDomainDto>> GetUnitOwnExpertiseAsync(
+        string unitId, CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Units[unitId].Expertise.Own.GetAsync(cancellationToken: ct);
+        return result?.Domains ?? new List<ExpertiseDomainDto>();
+    }
+
+    /// <summary>
+    /// Replaces a unit's own (non-aggregated) expertise domains in full.
+    /// </summary>
+    public async Task<IReadOnlyList<ExpertiseDomainDto>> SetUnitOwnExpertiseAsync(
+        string unitId,
+        IReadOnlyList<ExpertiseDomainDto> domains,
+        CancellationToken ct = default)
+    {
+        var body = new SetExpertiseRequest { Domains = domains?.ToList() ?? new List<ExpertiseDomainDto>() };
+        var result = await _client.Api.V1.Units[unitId].Expertise.Own.PutAsync(body, cancellationToken: ct);
+        return result?.Domains ?? new List<ExpertiseDomainDto>();
+    }
+
+    /// <summary>
+    /// Returns the unit's effective (recursive-aggregated) expertise. Each
+    /// entry carries the contributing origin and the path walked to reach
+    /// it, so peer-lookup callers can follow the origin one hop at a time.
+    /// </summary>
+    public async Task<AggregatedExpertiseResponse> GetUnitAggregatedExpertiseAsync(
+        string unitId, CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Units[unitId].Expertise.GetAsync(cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty aggregated-expertise response for unit '{unitId}'.");
+    }
+
     // Units
 
     /// <summary>Lists all units.</summary>

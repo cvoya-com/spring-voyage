@@ -19,6 +19,7 @@ For the high-level architectural "why" behind the platform as a whole, see [`../
 | [0003](0003-secret-inheritance-unit-to-tenant.md) | Secret inheritance semantics (Unit → Tenant) | Accepted — automatic fall-through with opt-out |
 | [0004](0004-per-agent-secrets.md) | Per-agent secrets: storage scope vs ACL vs status quo | Deferred — unit remains the trust boundary |
 | [0005](0005-portal-standalone-mode.md) | Web portal runs in Next.js `standalone` mode | Accepted — `output: "standalone"` |
+| [0006](0006-expertise-directory-aggregation.md) | Recursive expertise directory aggregation | Accepted — single aggregator, path+origin on every entry |
 
 ## Format
 
