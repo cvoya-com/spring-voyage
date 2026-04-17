@@ -32,6 +32,22 @@ public interface IContainerRuntime
     /// <param name="containerId">The identifier of the container to stop.</param>
     /// <param name="ct">A token to cancel the operation.</param>
     Task StopAsync(string containerId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Reads the most recent log lines from a running (or recently-stopped)
+    /// container. Implementations should cap the buffer at
+    /// <paramref name="tail"/> lines to keep memory bounded. Used by
+    /// <c>spring agent logs</c> for the persistent-agent surface (#396).
+    /// </summary>
+    /// <param name="containerId">The identifier of the container to read.</param>
+    /// <param name="tail">Maximum number of log lines to return. Defaults to 200.</param>
+    /// <param name="ct">A token to cancel the operation.</param>
+    /// <returns>
+    /// The combined stdout+stderr tail as a single string. Returns an empty
+    /// string when the container has produced no output yet. Throws if the
+    /// container id is unknown so the caller can surface a 404.
+    /// </returns>
+    Task<string> GetLogsAsync(string containerId, int tail = 200, CancellationToken ct = default);
 }
 
 /// <summary>

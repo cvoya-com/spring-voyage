@@ -128,6 +128,61 @@ public class ProcessContainerRuntime(
     }
 
     /// <summary>
+    /// Reads the last <paramref name="tail"/> lines of a container's combined
+    /// stdout+stderr. Shells out to <c>&lt;binary&gt; logs --tail &lt;N&gt;</c> and
+    /// surfaces the captured output verbatim. Used by the persistent-agent
+    /// CLI surface (<c>spring agent logs</c>, #396).
+    /// </summary>
+    /// <param name="containerId">The identifier of the container to read.</param>
+    /// <param name="tail">Maximum number of log lines to return.</param>
+    /// <param name="ct">A token to cancel the operation.</param>
+    public async Task<string> GetLogsAsync(string containerId, int tail = 200, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(containerId))
+        {
+            throw new ArgumentException("Container id is required.", nameof(containerId));
+        }
+
+        // Clamp the tail value so a caller can't drive the CLI into an
+        // unbounded read. `docker logs --tail 0` (or `all`) is valid but we
+        // require a positive value here because the API endpoint exposes this
+        // directly and we want the contract stable.
+        var effectiveTail = tail <= 0 ? 200 : tail;
+
+        var arguments = $"logs --tail {effectiveTail} {containerId}";
+
+        _logger.LogDebug(
+            "Reading last {Tail} log lines from container {ContainerId} using {Binary}",
+            effectiveTail, containerId, binaryName);
+
+        var (exitCode, stdout, stderr) = await RunProcessAsync(binaryName, arguments, ct);
+
+        if (exitCode != 0)
+        {
+            // The CLI sends diagnostic text to stderr when the container id is
+            // unknown. Surface a meaningful exception so the API endpoint can
+            // translate into a 404.
+            throw new InvalidOperationException(
+                $"Failed to read logs for container {containerId}. Exit code: {exitCode}. Stderr: {stderr}");
+        }
+
+        // Docker and podman write container stdout to the process stdout and
+        // container stderr to the process stderr — combine them so the single
+        // return string matches what an operator sees on a local `docker logs`.
+        if (string.IsNullOrEmpty(stderr))
+        {
+            return stdout;
+        }
+
+        if (string.IsNullOrEmpty(stdout))
+        {
+            return stderr;
+        }
+
+        return stdout + stderr;
+    }
+
+    /// <summary>
     /// Builds the argument string for the container run command.
     /// </summary>
     /// <param name="config">The container configuration.</param>

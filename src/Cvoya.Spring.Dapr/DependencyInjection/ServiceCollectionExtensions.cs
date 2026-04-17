@@ -249,6 +249,12 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IAgentToolLauncher, GeminiLauncher>();
         services.AddSingleton<IAgentToolLauncher, DaprAgentLauncher>();
         services.TryAddSingleton<PersistentAgentRegistry>();
+        // Imperative lifecycle service powering the persistent-agent CLI surface
+        // (spring agent deploy/status/scale/logs/undeploy — #396). Kept separate
+        // from A2AExecutionDispatcher so the turn-dispatch path stays focused on
+        // "there is a message to run" and the operator surface stays focused on
+        // "there is a container to manage."
+        services.TryAddSingleton<PersistentAgentLifecycle>();
 
         // In-process MCP server — options and singleton always registered so
         // endpoints that depend on IMcpServer resolve correctly during OpenAPI

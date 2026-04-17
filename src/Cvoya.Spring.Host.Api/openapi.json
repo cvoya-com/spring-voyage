@@ -401,6 +401,269 @@
         }
       }
     },
+    "/api/v1/agents/{id}/deploy": {
+      "post": {
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Deploy (or reconcile) a persistent agent's backing container",
+        "operationId": "DeployPersistentAgent",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/DeployPersistentAgentRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersistentAgentDeploymentResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/agents/{id}/undeploy": {
+      "post": {
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Tear down a persistent agent's backing container (idempotent)",
+        "operationId": "UndeployPersistentAgent",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersistentAgentDeploymentResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/agents/{id}/scale": {
+      "post": {
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Adjust replica count for a persistent agent (OSS core supports 0 or 1 today)",
+        "operationId": "ScalePersistentAgent",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScalePersistentAgentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersistentAgentDeploymentResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/agents/{id}/logs": {
+      "get": {
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Read the container logs for a persistent agent",
+        "operationId": "GetPersistentAgentLogs",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tail",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersistentAgentLogsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/agents/{id}/deployment": {
+      "get": {
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Get the current deployment state of a persistent agent (container + health)",
+        "operationId": "GetPersistentAgentDeployment",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersistentAgentDeploymentResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/units": {
       "get": {
         "tags": [
@@ -5258,6 +5521,16 @@
                 "$ref": "#/components/schemas/JsonElement"
               }
             ]
+          },
+          "deployment": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PersistentAgentDeploymentResponse"
+              }
+            ]
           }
         }
       },
@@ -6300,6 +6573,26 @@
           }
         }
       },
+      "DeployPersistentAgentRequest": {
+        "type": "object",
+        "properties": {
+          "image": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "replicas": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
       "DirectoryEntryResponse": {
         "required": [
           "address",
@@ -6908,6 +7201,100 @@
           "Owner"
         ]
       },
+      "PersistentAgentDeploymentResponse": {
+        "required": [
+          "agentId",
+          "running",
+          "healthStatus",
+          "replicas",
+          "image",
+          "endpoint",
+          "containerId",
+          "startedAt",
+          "consecutiveFailures"
+        ],
+        "type": "object",
+        "properties": {
+          "agentId": {
+            "type": "string"
+          },
+          "running": {
+            "type": "boolean"
+          },
+          "healthStatus": {
+            "type": "string"
+          },
+          "replicas": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "image": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "endpoint": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "containerId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "startedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "consecutiveFailures": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "PersistentAgentLogsResponse": {
+        "required": [
+          "agentId",
+          "containerId",
+          "tail",
+          "logs"
+        ],
+        "type": "object",
+        "properties": {
+          "agentId": {
+            "type": "string"
+          },
+          "containerId": {
+            "type": "string"
+          },
+          "tail": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "logs": {
+            "type": "string"
+          }
+        }
+      },
       "ProblemDetails": {
         "type": "object",
         "properties": {
@@ -7011,6 +7398,22 @@
             "$ref": "#/components/schemas/SecretScope"
           },
           "version": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "ScalePersistentAgentRequest": {
+        "required": [
+          "replicas"
+        ],
+        "type": "object",
+        "properties": {
+          "replicas": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
               "integer",

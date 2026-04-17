@@ -89,6 +89,114 @@ public class SpringApiClient
     public Task DeleteAgentAsync(string id, CancellationToken ct = default)
         => _client.Api.V1.Agents[id].DeleteAsync(cancellationToken: ct);
 
+    // Persistent-agent lifecycle (#396). Each verb maps 1:1 to the endpoint
+    // of the same name under /api/v1/agents/{id}. The CLI layer composes
+    // these into `spring agent deploy / undeploy / scale / logs`; the status
+    // verb falls back to GetAgentStatusAsync above because the server
+    // enriches that response with the deployment block when present.
+
+    /// <summary>
+    /// Deploys (or reconciles) the backing container for a persistent agent.
+    /// Idempotent — redeploying a healthy agent is a no-op on the server.
+    /// </summary>
+    public async Task<PersistentAgentDeploymentResponse> DeployPersistentAgentAsync(
+        string agentId,
+        string? image = null,
+        int? replicas = null,
+        CancellationToken ct = default)
+    {
+        // OpenAPI 3.1 models nullable ints as the integer-or-null union, which
+        // Kiota maps to UntypedNode. Wrap the C# int? in UntypedInteger when
+        // present so the wire representation is a plain JSON number, not an
+        // object. The policy/boundary wrappers above use the same oneOf
+        // request-body pattern; mirror their discriminator shape.
+        var typed = new DeployPersistentAgentRequest
+        {
+            Image = string.IsNullOrWhiteSpace(image) ? null : image,
+            Replicas = replicas is int r ? new UntypedInteger(r) : null,
+        };
+        var body = new Cvoya.Spring.Cli.Generated.Api.V1.Agents.Item.Deploy.DeployRequestBuilder.DeployPostRequestBody
+        {
+            DeployPersistentAgentRequest = typed,
+        };
+        var result = await _client.Api.V1.Agents[agentId].Deploy.PostAsync(body, cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty deploy response for agent '{agentId}'.");
+    }
+
+    /// <summary>
+    /// Tears down the backing container for a persistent agent. Idempotent —
+    /// undeploying an agent that is not running returns the canonical empty
+    /// response.
+    /// </summary>
+    public async Task<PersistentAgentDeploymentResponse> UndeployPersistentAgentAsync(
+        string agentId,
+        CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Agents[agentId].Undeploy.PostAsync(cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty undeploy response for agent '{agentId}'.");
+    }
+
+    /// <summary>
+    /// Adjusts the replica count for a persistent agent. OSS core supports
+    /// <c>0</c> (equivalent to undeploy) or <c>1</c>; anything else surfaces
+    /// as a 400 with a clear "not supported yet" message.
+    /// </summary>
+    public async Task<PersistentAgentDeploymentResponse> ScalePersistentAgentAsync(
+        string agentId,
+        int replicas,
+        CancellationToken ct = default)
+    {
+        var request = new ScalePersistentAgentRequest
+        {
+            Replicas = new UntypedInteger(replicas),
+        };
+        var result = await _client.Api.V1.Agents[agentId].Scale.PostAsync(request, cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty scale response for agent '{agentId}'.");
+    }
+
+    /// <summary>
+    /// Reads the tail of a persistent agent's container logs. Returns a 404
+    /// (surfaced as an ApiException) when the agent is not currently deployed.
+    /// </summary>
+    public async Task<PersistentAgentLogsResponse> GetPersistentAgentLogsAsync(
+        string agentId,
+        int? tail = null,
+        CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Agents[agentId].Logs.GetAsync(
+            config =>
+            {
+                if (tail is int t)
+                {
+                    // Kiota's query-param helper treats ints as strings when
+                    // the OpenAPI spec doesn't pin format: int32. The server
+                    // parses it back with int.TryParse, so sending the
+                    // invariant-culture representation is fine.
+                    config.QueryParameters.Tail = t.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                }
+            },
+            cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty logs response for agent '{agentId}'.");
+    }
+
+    /// <summary>
+    /// Fetches the current deployment state of a persistent agent without
+    /// triggering a StatusQuery to the agent actor. Backs operators who want
+    /// a cheap "is this agent up" probe.
+    /// </summary>
+    public async Task<PersistentAgentDeploymentResponse> GetPersistentAgentDeploymentAsync(
+        string agentId,
+        CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Agents[agentId].Deployment.GetAsync(cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty deployment response for agent '{agentId}'.");
+    }
+
     // Expertise (#412)
 
     /// <summary>

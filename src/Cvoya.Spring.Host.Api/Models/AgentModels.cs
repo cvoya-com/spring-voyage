@@ -70,9 +70,15 @@ public record UpdateAgentMetadataRequest(
 /// the actor succeeds. Combines the directory-level <see cref="AgentResponse"/>
 /// with the opaque runtime status payload returned by the actor. When the
 /// StatusQuery fails, the endpoint falls back to returning the
-/// <see cref="AgentResponse"/> alone.
+/// <see cref="AgentResponse"/> alone. <c>Deployment</c> is populated for
+/// persistent agents that have a current container-level deployment tracked
+/// in <c>PersistentAgentRegistry</c> (#396); <c>null</c> for ephemeral agents
+/// or persistent agents that have been undeployed.
 /// </summary>
-public record AgentDetailResponse(AgentResponse Agent, JsonElement? Status);
+public record AgentDetailResponse(
+    AgentResponse Agent,
+    JsonElement? Status,
+    PersistentAgentDeploymentResponse? Deployment = null);
 
 /// <summary>
 /// An entry in the platform-wide skill catalog returned by

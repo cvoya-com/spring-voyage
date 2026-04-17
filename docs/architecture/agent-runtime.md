@@ -224,7 +224,35 @@ accepts both the top-level `execution:` block and the legacy
 
 ---
 
-## 7. Adding a new launcher
+## 7. Persistent-agent lifecycle operations
+
+Persistent agents (those with `execution.hosting: persistent`) have an
+explicit operator surface distinct from turn dispatch — see
+[ADR 0011](../decisions/0011-persistent-agent-lifecycle-http-surface.md).
+
+Source: `src/Cvoya.Spring.Dapr/Execution/PersistentAgentLifecycle.cs`.
+
+| Verb | CLI | HTTP | Behaviour |
+| ---- | --- | ---- | --------- |
+| Deploy   | `spring agent deploy <id> [--image <img>] [--replicas 0\|1]` | `POST /api/v1/agents/{id}/deploy`     | Idempotent. Starts the container (via the matching `IAgentToolLauncher` + `IContainerRuntime`), waits for the A2A readiness probe, and registers with `PersistentAgentRegistry`. An `--image` override applies to this deployment only. |
+| Undeploy | `spring agent undeploy <id>`                                 | `POST /api/v1/agents/{id}/undeploy`   | Idempotent. Stops the container and removes the registry entry. Distinct from `delete`, which removes the directory record. |
+| Scale    | `spring agent scale <id> --replicas 0\|1`                     | `POST /api/v1/agents/{id}/scale`      | `0` is equivalent to `undeploy`; `1` is equivalent to `deploy`. `>1` returns 400 (horizontal scale is tracked in #362). |
+| Logs     | `spring agent logs <id> [--tail N]`                          | `GET /api/v1/agents/{id}/logs?tail=N` | Returns the last N lines of the container's combined stdout+stderr. Snapshot, not a live stream. |
+| Status   | `spring agent status <id>`                                   | `GET /api/v1/agents/{id}`             | Extended: the response's `deployment` slot carries the registry entry when the agent is persistent and deployed. |
+| Deployment | _(covered by `status`)_                                    | `GET /api/v1/agents/{id}/deployment`  | Cheap "is this agent up" probe — a pure read off the registry without round-tripping to the agent actor. |
+
+Ephemeral agents are unaffected: calling `deploy` on one returns a 400 with
+a clear "not configured as persistent" message.
+
+The dispatcher's auto-start on first dispatch is unchanged. The lifecycle
+service and the dispatcher share `PersistentAgentRegistry`, so a container
+started by either path is visible to both. `DeployAsync` has an idempotent
+fast-path that returns the existing entry when it is healthy, so a `deploy`
+call against a running agent is a cheap no-op.
+
+---
+
+## 8. Adding a new launcher
 
 Checklist for a fresh `IAgentToolLauncher`:
 

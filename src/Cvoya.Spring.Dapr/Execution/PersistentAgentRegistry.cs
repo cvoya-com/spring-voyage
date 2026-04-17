@@ -126,11 +126,44 @@ public class PersistentAgentRegistry(
     }
 
     /// <summary>
-    /// Returns a snapshot of all registered entries. Used for testing and diagnostics.
+    /// Returns a snapshot of all registered entries. Used by the persistent-
+    /// agent lifecycle HTTP surface (<c>spring agent deploy/status/undeploy</c>,
+    /// #396) and by tests/diagnostics.
     /// </summary>
-    internal IReadOnlyCollection<PersistentAgentEntry> GetAllEntries()
+    public IReadOnlyCollection<PersistentAgentEntry> GetAllEntries()
     {
         return _entries.Values.ToList().AsReadOnly();
+    }
+
+    /// <summary>
+    /// Stops (and removes) the backing container for an agent and drops its
+    /// registry entry. Used by <c>spring agent undeploy</c> (#396). Returns
+    /// <c>true</c> when the agent was tracked and cleaned up, <c>false</c>
+    /// when there was nothing to undeploy. Failures to stop the container are
+    /// logged but do not prevent the entry from being removed — the operator
+    /// intent is "this agent should not be running" and a dangling container
+    /// is recoverable via the runtime's own cleanup tools.
+    /// </summary>
+    /// <param name="agentId">The agent identifier.</param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    public async Task<bool> UndeployAsync(string agentId, CancellationToken cancellationToken = default)
+    {
+        if (!_entries.TryRemove(agentId, out var entry))
+        {
+            return false;
+        }
+
+        if (entry.ContainerId is not null)
+        {
+            await StopContainerSafeAsync(entry.ContainerId, cancellationToken);
+        }
+
+        _logger.LogInformation(
+            EventIds.AgentUnregistered,
+            "Persistent agent {AgentId} undeployed (container {ContainerId})",
+            agentId, entry.ContainerId);
+
+        return true;
     }
 
     /// <inheritdoc />
