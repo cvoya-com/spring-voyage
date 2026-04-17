@@ -110,7 +110,13 @@ counterpart stay on `e2e::http` with a TODO referencing the gap.
 | 04 | create-unit-from-template | fast | CLI (`spring unit create --from-template`) | #316 exposed the CLI path; #325 added the `UnitName` override that makes this scenario concurrent-safe. |
 | 05 | cli-version-and-help | fast | CLI (`spring --help`) | Sanity-check the CLI starts up before heavier scenarios spend API time. |
 | 06 | unit-membership-roundtrip | fast | CLI (`spring unit members …`) | Full CLI coverage of #320. |
+| 07 | create-start-unit | fast | CLI (`spring unit start / status`) | Lifecycle path through `Running` (or `Starting`). |
 | 12 | nested-units | fast | CLI (`spring unit members add --unit`) | #331 added the `--unit` flag so the scenario drops its HTTP fallback. |
+| 13 | agent-domain-message | fast | CLI + curl | #404: asserts `MessageReceived` persists after a Domain message to an agent, proving the router → actor → activity-bus path without an LLM. |
+| 14 | conversation-lifecycle | fast | CLI + curl | #404: verifies `MessageReceived` → `ConversationStarted` → `StateChanged (Idle→Active)` all fire when a fresh conversation kicks off on an idle agent. |
+| 15 | unit-policy-roundtrip | fast | CLI + curl | #404: GET empty → PUT (skill + model) → GET round-trip → PUT clear → GET empty; also asserts 404 for an unknown unit. |
+| 16 | cost-api-shape | fast | CLI + curl | #404: fresh agent/unit return the full CostSummaryResponse with zero counters and a valid time window; explicit from/to override is honoured. |
+| 17 | activity-query-filters | fast | curl | #404: asserts the four server-side filters on `/api/v1/activity` (source, eventType, severity, pageSize) actually narrow results — complements the SSE path until a cross-host event bridge lands. |
 
 ## Authentication
 
@@ -154,6 +160,11 @@ with `e2e::summary`.
 
 ## Tracking
 
-See issue #311 for the full roadmap and future scenario list. CLI gaps
-discovered while porting scenarios live under #315, #316, and #331. The
-LLM-backed scenario pool is tracked by #330.
+See issue #311 for the full roadmap and future scenario list. #404 tracks the
+ongoing fast-pool expansion for messaging, conversation lifecycle, policy,
+cost, and activity coverage (scenarios 13–17). CLI gaps discovered while
+porting scenarios live under #315, #316, and #331. The LLM-backed scenario
+pool is tracked by #330; the secrets, SSE-push, and clone-lifecycle items
+from #404 are deferred until the supporting plumbing (pass-through secret
+encryption defaults, cross-host activity bridging, and workflow-driven
+clone liveness) stabilises on main.
