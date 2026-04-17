@@ -1,4 +1,4 @@
-# 0009 — Persistent-agent lifecycle as a distinct HTTP surface (and CLI verbs) on top of `PersistentAgentRegistry`
+# 0011 — Persistent-agent lifecycle as a distinct HTTP surface (and CLI verbs) on top of `PersistentAgentRegistry`
 
 - **Status:** Accepted — `spring agent deploy / scale / logs / undeploy` (and the matching `POST /api/v1/agents/{id}/deploy|undeploy|scale`, `GET /api/v1/agents/{id}/logs|deployment` endpoints) delegate to a new `PersistentAgentLifecycle` service that shares `PersistentAgentRegistry` with the turn-dispatch path.
 - **Date:** 2026-04-16

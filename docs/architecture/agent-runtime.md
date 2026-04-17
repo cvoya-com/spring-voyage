@@ -228,7 +228,7 @@ accepts both the top-level `execution:` block and the legacy
 
 Persistent agents (those with `execution.hosting: persistent`) have an
 explicit operator surface distinct from turn dispatch — see
-[ADR 0009](../decisions/0009-persistent-agent-lifecycle-http-surface.md).
+[ADR 0011](../decisions/0011-persistent-agent-lifecycle-http-surface.md).
 
 Source: `src/Cvoya.Spring.Dapr/Execution/PersistentAgentLifecycle.cs`.
 
