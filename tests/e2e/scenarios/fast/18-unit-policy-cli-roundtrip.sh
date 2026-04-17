@@ -64,8 +64,14 @@ response="$(e2e::cli --output json unit policy initiative set "${unit}" --max-le
 code="${response##*$'\n'}"
 e2e::expect_status "0" "${code}" "policy initiative set succeeds"
 
+# --- label-routing: trigger map + status-label roundtrip (#389) --------------
+e2e::log "spring unit policy label-routing set ${unit} --trigger agent:backend=backend-engineer --add-on-assign in-progress --remove-on-assign agent:backend"
+response="$(e2e::cli --output json unit policy label-routing set "${unit}" --trigger agent:backend=backend-engineer --add-on-assign in-progress --remove-on-assign agent:backend)"
+code="${response##*$'\n'}"
+e2e::expect_status "0" "${code}" "policy label-routing set succeeds"
+
 # --- get each dimension returns the current slot + inheritance chain ---------
-for dim in skill model cost execution-mode initiative; do
+for dim in skill model cost execution-mode initiative label-routing; do
     e2e::log "spring unit policy ${dim} get ${unit}"
     response="$(e2e::cli --output json unit policy "${dim}" get "${unit}")"
     code="${response##*$'\n'}"
@@ -76,7 +82,7 @@ for dim in skill model cost execution-mode initiative; do
 done
 
 # --- clear each dimension and verify it comes back empty ---------------------
-for dim in skill model cost execution-mode initiative; do
+for dim in skill model cost execution-mode initiative label-routing; do
     e2e::log "spring unit policy ${dim} clear ${unit}"
     response="$(e2e::cli --output json unit policy "${dim}" clear "${unit}")"
     code="${response##*$'\n'}"
@@ -93,5 +99,6 @@ e2e::expect_contains "\"model\":null" "${body}" "model cleared"
 e2e::expect_contains "\"cost\":null" "${body}" "cost cleared"
 e2e::expect_contains "\"executionMode\":null" "${body}" "executionMode cleared"
 e2e::expect_contains "\"initiative\":null" "${body}" "initiative cleared"
+e2e::expect_contains "\"labelRouting\":null" "${body}" "labelRouting cleared"
 
 e2e::summary

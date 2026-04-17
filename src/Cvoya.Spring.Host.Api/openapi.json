@@ -6179,6 +6179,38 @@
         }
       },
       "JsonElement": { },
+      "LabelRoutingPolicy": {
+        "type": "object",
+        "properties": {
+          "triggerLabels": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "addOnAssign": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "removeOnAssign": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "MessageResponse": {
         "required": [
           "messageId",
@@ -7187,6 +7219,16 @@
               },
               {
                 "$ref": "#/components/schemas/InitiativePolicy"
+              }
+            ]
+          },
+          "labelRouting": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LabelRoutingPolicy"
               }
             ]
           }

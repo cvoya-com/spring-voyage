@@ -266,6 +266,12 @@ public static class ServiceCollectionExtensions
         // Orchestration
         services.AddKeyedSingleton<IOrchestrationStrategy, AiOrchestrationStrategy>("ai");
         services.AddKeyedSingleton<IOrchestrationStrategy, WorkflowOrchestrationStrategy>("workflow");
+        // Label-routed strategy (#389). Scoped keyed registration because it
+        // depends on IUnitPolicyRepository (scoped) for per-turn policy reads.
+        // Manifest-driven selection of this strategy per unit is tracked as
+        // follow-up work; for now hosts that want label routing wire it up
+        // explicitly via the keyed registration.
+        services.AddKeyedScoped<IOrchestrationStrategy, LabelRoutedOrchestrationStrategy>("label-routed");
 
         // Unkeyed default: UnitActor (activated by the Dapr runtime via DI) takes an
         // unkeyed IOrchestrationStrategy — provide one so construction succeeds.

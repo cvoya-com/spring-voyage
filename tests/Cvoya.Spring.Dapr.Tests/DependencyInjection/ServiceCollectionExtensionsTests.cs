@@ -82,6 +82,23 @@ public class ServiceCollectionExtensionsTests
     }
 
     /// <summary>
+    /// #389: the label-routed strategy is a scoped keyed registration (it
+    /// depends on <c>IUnitPolicyRepository</c>, which is scoped). Resolving
+    /// from a scope must produce an instance; the unkeyed default remains
+    /// AI to preserve backward compatibility.
+    /// </summary>
+    [Fact]
+    public void AddCvoyaSpringDapr_RegistersLabelRoutedStrategyUnderItsKey()
+    {
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+
+        var labelRouted = scope.ServiceProvider.GetKeyedService<IOrchestrationStrategy>("label-routed");
+        labelRouted.ShouldNotBeNull();
+        labelRouted.ShouldBeOfType<LabelRoutedOrchestrationStrategy>();
+    }
+
+    /// <summary>
     /// Regression test for #312. <c>UnitActor</c> is constructed by the Dapr
     /// actor runtime via plain DI and takes an unkeyed
     /// <see cref="IOrchestrationStrategy"/>. Without an unkeyed default

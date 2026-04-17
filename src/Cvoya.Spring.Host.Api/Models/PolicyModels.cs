@@ -21,17 +21,23 @@ using Cvoya.Spring.Core.Policies;
 /// Optional unit-level initiative policy (#250); <c>null</c> means the unit
 /// does not overlay the agent-level initiative policy with a deny filter.
 /// </param>
+/// <param name="LabelRouting">
+/// Optional label-routing policy (#389); <c>null</c> means the unit is not
+/// configured for label-based orchestration. A non-null slot carries the
+/// trigger-label → member map and optional status-label roundtrip hooks.
+/// </param>
 public record UnitPolicyResponse(
     SkillPolicy? Skill = null,
     ModelPolicy? Model = null,
     CostPolicy? Cost = null,
     ExecutionModePolicy? ExecutionMode = null,
-    InitiativePolicy? Initiative = null)
+    InitiativePolicy? Initiative = null,
+    LabelRoutingPolicy? LabelRouting = null)
 {
     /// <summary>Lifts a core <see cref="UnitPolicy"/> into the response shape.</summary>
     public static UnitPolicyResponse From(UnitPolicy policy) =>
-        new(policy.Skill, policy.Model, policy.Cost, policy.ExecutionMode, policy.Initiative);
+        new(policy.Skill, policy.Model, policy.Cost, policy.ExecutionMode, policy.Initiative, policy.LabelRouting);
 
     /// <summary>Projects this response back into the core record.</summary>
-    public UnitPolicy ToCore() => new(Skill, Model, Cost, ExecutionMode, Initiative);
+    public UnitPolicy ToCore() => new(Skill, Model, Cost, ExecutionMode, Initiative, LabelRouting);
 }
