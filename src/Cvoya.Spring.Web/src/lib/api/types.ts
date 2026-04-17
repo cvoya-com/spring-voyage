@@ -71,6 +71,27 @@ export type CreateUnitFromTemplateRequest =
 /** Entry returned by GET /api/v1/packages/templates. */
 export type UnitTemplateSummary = Schemas["UnitTemplateSummary"];
 
+/** Response body for GET /api/v1/packages/{package}/templates/{name}. */
+export type UnitTemplateDetail = Schemas["UnitTemplateDetail"];
+
+/** Entry in the package browse list (GET /api/v1/packages). */
+export type PackageSummary = Schemas["PackageSummary"];
+
+/** Full package detail (GET /api/v1/packages/{name}). */
+export type PackageDetail = Schemas["PackageDetail"];
+
+/** Agent template entry inside a package detail. */
+export type AgentTemplateSummary = Schemas["AgentTemplateSummary"];
+
+/** Skill bundle entry inside a package detail. */
+export type SkillSummary = Schemas["SkillSummary"];
+
+/** Connector asset entry inside a package detail. */
+export type PackageConnectorSummary = Schemas["ConnectorSummary"];
+
+/** Workflow bundle entry inside a package detail. */
+export type WorkflowSummary = Schemas["WorkflowSummary"];
+
 /** GET /api/v1/costs/agents/{id} or /units/{id} response. */
 export type CostSummaryResponse = Schemas["CostSummaryResponse"];
 

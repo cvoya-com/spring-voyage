@@ -32,10 +32,13 @@ import type {
   DashboardSummary,
   InitiativeLevelResponse,
   InitiativePolicy,
+  PackageDetail,
+  PackageSummary,
   UnitDashboardSummary,
   UnitDetailResponse,
   UnitReadinessResponse,
   UnitResponse,
+  UnitTemplateDetail,
   UnitTemplateSummary,
 } from "./types";
 
@@ -323,6 +326,49 @@ export function useUnitTemplates(
     queryKey: queryKeys.templates.list(),
     queryFn: () => api.listUnitTemplates(),
     ...opts,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Packages (#395 / PR-PLAT-PKG-1). `/packages` is a sidebar entry
+// in the portal IA (§ 3.2) and the data the CLI's `spring package
+// list / show` consumes too — both surfaces ride these hooks.
+// ---------------------------------------------------------------------------
+
+export function usePackages(
+  opts?: SliceOptions<PackageSummary[]>,
+): UseQueryResult<PackageSummary[], Error> {
+  return useQuery({
+    queryKey: queryKeys.packages.list(),
+    queryFn: () => api.listPackages(),
+    ...opts,
+  });
+}
+
+export function usePackage(
+  name: string,
+  opts?: SliceOptions<PackageDetail | null>,
+): UseQueryResult<PackageDetail | null, Error> {
+  return useQuery({
+    queryKey: queryKeys.packages.detail(name),
+    queryFn: () => api.getPackage(name),
+    enabled: opts?.enabled ?? Boolean(name),
+    refetchInterval: opts?.refetchInterval,
+    staleTime: opts?.staleTime,
+  });
+}
+
+export function useUnitTemplateDetail(
+  pkg: string,
+  name: string,
+  opts?: SliceOptions<UnitTemplateDetail | null>,
+): UseQueryResult<UnitTemplateDetail | null, Error> {
+  return useQuery({
+    queryKey: queryKeys.templates.detail(pkg, name),
+    queryFn: () => api.getUnitTemplate(pkg, name),
+    enabled: opts?.enabled ?? Boolean(pkg && name),
+    refetchInterval: opts?.refetchInterval,
+    staleTime: opts?.staleTime,
   });
 }
 

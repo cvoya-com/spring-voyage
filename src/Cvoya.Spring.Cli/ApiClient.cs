@@ -938,4 +938,73 @@ public class SpringApiClient
     /// <summary>Revokes an API token by name.</summary>
     public Task RevokeTokenAsync(string name, CancellationToken ct = default)
         => _client.Api.V1.Auth.Tokens[name].DeleteAsync(cancellationToken: ct);
+
+    // Packages (#395). Backs `spring package list / show` and
+    // `spring template show <package>/<template>`. The portal's
+    // /packages route consumes the same endpoints, so the CLI stays at
+    // parity. The `list` and `show` shapes are forward compatible with
+    // the Phase-6 install flow (#417 / PR-PLAT-PKG-2) — install adds a
+    // new POST endpoint rather than changing the browse contract.
+
+    /// <summary>
+    /// Lists every installed package with per-package content counts.
+    /// Matches the payload the portal's /packages card grid renders, so
+    /// `spring package list` stays at parity with the UI.
+    /// </summary>
+    public async Task<IReadOnlyList<PackageSummary>> ListPackagesAsync(CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Packages.GetAsync(cancellationToken: ct);
+        return result ?? new List<PackageSummary>();
+    }
+
+    /// <summary>
+    /// Returns detailed contents for a single package (templates, agents,
+    /// skills, connectors, workflows), or <c>null</c> when the package is
+    /// not found. The 404 is normalised to null so callers surface a
+    /// clean "not found" message rather than an exception.
+    /// </summary>
+    public async Task<PackageDetail?> GetPackageAsync(string name, CancellationToken ct = default)
+    {
+        try
+        {
+            return await _client.Api.V1.Packages[name].GetAsync(cancellationToken: ct);
+        }
+        catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode == 404)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Lists every unit template discovered across packages. Kept as a
+    /// convenience for the unit-creation wizard and the CLI's legacy
+    /// `--output json` consumers; package-aware callers now prefer
+    /// <see cref="ListPackagesAsync"/> + <see cref="GetPackageAsync"/>.
+    /// </summary>
+    public async Task<IReadOnlyList<UnitTemplateSummary>> ListUnitTemplatesAsync(CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Packages.Templates.GetAsync(cancellationToken: ct);
+        return result ?? new List<UnitTemplateSummary>();
+    }
+
+    /// <summary>
+    /// Returns the raw YAML + metadata for a single unit template, or
+    /// <c>null</c> when the template is not found. Backs
+    /// <c>spring template show &lt;package&gt;/&lt;template&gt;</c> and
+    /// the portal's template preview card.
+    /// </summary>
+    public async Task<UnitTemplateDetail?> GetUnitTemplateAsync(
+        string package,
+        string name,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            return await _client.Api.V1.Packages[package].Templates[name].GetAsync(cancellationToken: ct);
+        }
+        catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode == 404)
+        {
+            return null;
+        }
+    }
 }

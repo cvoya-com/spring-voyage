@@ -1640,6 +1640,30 @@
         }
       }
     },
+    "/api/v1/packages": {
+      "get": {
+        "tags": [
+          "Packages"
+        ],
+        "summary": "List installed packages with per-package content counts",
+        "operationId": "ListPackages",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PackageSummary"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/packages/templates": {
       "get": {
         "tags": [
@@ -1660,6 +1684,82 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/v1/packages/{package}/templates/{name}": {
+      "get": {
+        "tags": [
+          "Packages"
+        ],
+        "summary": "Returns the raw YAML for a unit template inside a package",
+        "operationId": "GetUnitTemplate",
+        "parameters": [
+          {
+            "name": "package",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnitTemplateDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/v1/packages/{name}": {
+      "get": {
+        "tags": [
+          "Packages"
+        ],
+        "summary": "Returns detailed contents of a single package",
+        "operationId": "GetPackage",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PackageDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
           }
         }
       }
@@ -5107,6 +5207,46 @@
           }
         }
       },
+      "AgentTemplateSummary": {
+        "required": [
+          "package",
+          "name",
+          "displayName",
+          "role",
+          "description",
+          "path"
+        ],
+        "type": "object",
+        "properties": {
+          "package": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "role": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "path": {
+            "type": "string"
+          }
+        }
+      },
       "AggregatedExpertiseEntryDto": {
         "required": [
           "domain",
@@ -5217,6 +5357,25 @@
           "ephemeral-no-memory",
           "ephemeral-with-memory"
         ]
+      },
+      "ConnectorSummary": {
+        "required": [
+          "package",
+          "name",
+          "path"
+        ],
+        "type": "object",
+        "properties": {
+          "package": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        }
       },
       "ConnectorTypeResponse": {
         "required": [
@@ -6354,6 +6513,122 @@
           }
         }
       },
+      "PackageDetail": {
+        "required": [
+          "name",
+          "description",
+          "unitTemplates",
+          "agentTemplates",
+          "skills",
+          "connectors",
+          "workflows"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "unitTemplates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UnitTemplateSummary"
+            }
+          },
+          "agentTemplates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentTemplateSummary"
+            }
+          },
+          "skills": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SkillSummary"
+            }
+          },
+          "connectors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConnectorSummary"
+            }
+          },
+          "workflows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkflowSummary"
+            }
+          }
+        }
+      },
+      "PackageSummary": {
+        "required": [
+          "name",
+          "description",
+          "unitTemplateCount",
+          "agentTemplateCount",
+          "skillCount",
+          "connectorCount",
+          "workflowCount"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "unitTemplateCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "agentTemplateCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "skillCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "connectorCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "workflowCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
       "PermissionLevel": {
         "enum": [
           "Viewer",
@@ -6714,6 +6989,29 @@
             "items": {
               "type": "string"
             }
+          }
+        }
+      },
+      "SkillSummary": {
+        "required": [
+          "package",
+          "name",
+          "hasTools",
+          "path"
+        ],
+        "type": "object",
+        "properties": {
+          "package": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "hasTools": {
+            "type": "boolean"
+          },
+          "path": {
+            "type": "string"
           }
         }
       },
@@ -7298,6 +7596,29 @@
           "Error"
         ]
       },
+      "UnitTemplateDetail": {
+        "required": [
+          "package",
+          "name",
+          "path",
+          "yaml"
+        ],
+        "type": "object",
+        "properties": {
+          "package": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "yaml": {
+            "type": "string"
+          }
+        }
+      },
       "UnitTemplateSummary": {
         "required": [
           "package",
@@ -7520,6 +7841,25 @@
           "to": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "WorkflowSummary": {
+        "required": [
+          "package",
+          "name",
+          "path"
+        ],
+        "type": "object",
+        "properties": {
+          "package": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
           }
         }
       }

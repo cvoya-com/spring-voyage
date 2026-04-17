@@ -36,6 +36,21 @@ For local development, `spring apply` auto-builds if a referenced image doesn't 
 
 In Phase 1, domain packages are simply directories applied with `spring apply -f packages/software-engineering/units/engineering-team.yaml`. Connectors within a domain package are compiled into the host. Workflows and execution environments are deployed as containers (see [Workflows](workflows.md)).
 
+## Browsing Packages (CLI + Portal)
+
+Discovery runs through a shared endpoint family so the CLI and portal stay in parity per [`CONVENTIONS.md`](../../CONVENTIONS.md) § `ui-cli-parity`:
+
+| Surface | CLI | Portal | Endpoint |
+|---------|-----|--------|----------|
+| List packages with content counts | `spring package list` | `/packages` | `GET /api/v1/packages` |
+| Show contents of a single package | `spring package show <name>` | `/packages/<name>` | `GET /api/v1/packages/{name}` |
+| Render a template's raw YAML | `spring template show <pkg>/<name>` | `/packages/<pkg>/templates/<name>` | `GET /api/v1/packages/{package}/templates/{name}` |
+| Flat template list consumed by the create-unit wizard | — | wizard Step 2 | `GET /api/v1/packages/templates` |
+
+The resolver is the `IPackageCatalogService`, with `FileSystemPackageCatalogService` as the OSS implementation. The packages root is configured via `Packages:Root` (falling back to the `SPRING_PACKAGES_ROOT` environment variable). The hosted cloud repo swaps in a tenant-scoped implementation via DI — consumers never reference the file-system layout directly.
+
+Summary payloads carry only stable fields (name, description, per-content counts). Detail payloads carry the full content lists (unit templates, agent templates, skills, connectors, workflows). Phase-6 `spring package install` (see [Package System](#package-system-phase-6) below) layers versioning and a POST endpoint on top of this surface without altering the browse contract.
+
 ## Skill Format & Composition
 
 A **skill** is a bundle of a prompt fragment and optional tool definitions. Skills are how domain knowledge and domain-specific actions are packaged for reuse.

@@ -10,22 +10,44 @@ using System.Threading.Tasks;
 using Cvoya.Spring.Host.Api.Models;
 
 /// <summary>
-/// Surfaces the on-disk <c>packages/*/units/*.yaml</c> tree as a catalog of
-/// unit templates the wizard can pick from. A pluggable interface so the
-/// private cloud repo can back the catalog with a tenant-scoped store.
+/// Surfaces the on-disk <c>packages/*</c> tree as a catalog of packages
+/// and their contents (unit templates, agent templates, skills, connector
+/// and workflow assets). A pluggable interface so the private cloud repo
+/// can back the catalog with a tenant-scoped store without altering the
+/// portal or CLI contracts.
 /// </summary>
 public interface IPackageCatalogService
 {
     /// <summary>
+    /// Lists every package currently reachable from the configured
+    /// packages root with per-package summary counts for each content
+    /// type. Returns an empty list when the packages directory does not
+    /// exist (e.g. the API is running outside the repo).
+    /// </summary>
+    Task<IReadOnlyList<PackageSummary>> ListPackagesAsync(
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Returns the full content lists for a package by name, or
+    /// <c>null</c> when the package is not found. The detail view is
+    /// what the portal's <c>/packages/[name]</c> route and the CLI's
+    /// <c>spring package show</c> verb both render.
+    /// </summary>
+    Task<PackageDetail?> GetPackageAsync(
+        string name,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Lists every unit template currently reachable from the configured
-    /// packages root. Returns an empty list when the packages directory does
-    /// not exist (e.g. the API is running outside the repo).
+    /// packages root (across all packages). This is the wizard-side view
+    /// kept from the original #316 iteration — package-aware callers now
+    /// prefer <see cref="ListPackagesAsync"/> + <see cref="GetPackageAsync"/>.
     /// </summary>
     Task<IReadOnlyList<UnitTemplateSummary>> ListUnitTemplatesAsync(
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// Loads the raw YAML for the template identified by
+    /// Loads the raw YAML for the unit template identified by
     /// <paramref name="package"/> and <paramref name="name"/>, or returns
     /// <c>null</c> when the template is not found.
     /// </summary>

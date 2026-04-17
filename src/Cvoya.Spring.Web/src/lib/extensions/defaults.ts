@@ -7,6 +7,7 @@ import {
   Activity,
   LayoutDashboard,
   Network,
+  Package,
   Plus,
   Play,
   Square,
@@ -83,6 +84,15 @@ export const defaultRoutes: readonly RouteEntry[] = [
     keywords: ["cost", "spend", "limits"],
     description: "Tenant-wide and per-agent spend caps.",
   },
+  {
+    path: "/packages",
+    label: "Packages",
+    icon: Package,
+    navSection: "primary",
+    orderHint: 60,
+    keywords: ["templates", "skills", "domain", "catalog"],
+    description: "Browse installed packages and their unit/agent templates.",
+  },
 ];
 
 /**
@@ -158,5 +168,15 @@ export const defaultActions: readonly PaletteAction[] = [
     orderHint: 70,
     keywords: ["autonomy", "policy"],
     href: "/initiative",
+  },
+  {
+    id: "packages.browse",
+    label: "Browse packages",
+    icon: Package,
+    section: "actions",
+    orderHint: 80,
+    keywords: ["spring package list", "templates", "catalog"],
+    description: "List installed packages and their templates.",
+    href: "/packages",
   },
 ];

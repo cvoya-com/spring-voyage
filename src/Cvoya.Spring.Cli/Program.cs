@@ -39,6 +39,8 @@ public class Program
                 ConnectorCommand.Create(outputOption),
                 AnalyticsCommand.Create(outputOption),
                 CostCommand.Create(outputOption),
+                PackageCommand.Create(outputOption),
+                TemplateCommand.Create(outputOption),
                 ApplyCommand.Create()
             }
         };

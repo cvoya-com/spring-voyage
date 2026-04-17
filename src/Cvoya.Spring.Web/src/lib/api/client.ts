@@ -201,6 +201,34 @@ export const api = {
     ),
   listUnitTemplates: async () =>
     unwrap(await fetchClient.GET("/api/v1/packages/templates")),
+  // Package browse (#395 / PR-PLAT-PKG-1). The /packages and
+  // /packages/{name} endpoints are the same data the CLI's
+  // `spring package list` / `spring package show` consume, keeping
+  // CLI and portal at parity per CONVENTIONS.md § ui-cli-parity.
+  listPackages: async () =>
+    unwrap(await fetchClient.GET("/api/v1/packages")),
+  getPackage: async (name: string) => {
+    // Surface 404 as null so the detail page can render a clean
+    // "not found" state instead of bubbling an ApiError up to the
+    // error boundary.
+    const result = await fetchClient.GET("/api/v1/packages/{name}", {
+      params: { path: { name } },
+    });
+    if (result.response.status === 404) {
+      return null;
+    }
+    return unwrap(result);
+  },
+  getUnitTemplate: async (pkg: string, name: string) => {
+    const result = await fetchClient.GET(
+      "/api/v1/packages/{package}/templates/{name}",
+      { params: { path: { package: pkg, name } } },
+    );
+    if (result.response.status === 404) {
+      return null;
+    }
+    return unwrap(result);
+  },
   updateUnit: async (
     id: string,
     patch: Partial<{

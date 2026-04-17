@@ -76,6 +76,14 @@ export const queryKeys = {
 
   templates: {
     list: () => ["templates", "list"] as const,
+    detail: (pkg: string, name: string) =>
+      ["templates", "detail", pkg, name] as const,
+  },
+
+  packages: {
+    all: ["packages"] as const,
+    list: () => ["packages", "list"] as const,
+    detail: (name: string) => ["packages", "detail", name] as const,
   },
 
   skills: {
