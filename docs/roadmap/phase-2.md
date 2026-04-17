@@ -1,6 +1,6 @@
 # Phase 2: Observability + Multi-Human
 
-> **[Roadmap Index](README.md)** | **Status: In progress**
+> **[Roadmap Index](README.md)** | **Status: Complete**
 
 Real-time visibility into what agents are doing, and support for multiple human participants.
 
@@ -13,13 +13,19 @@ Real-time visibility into what agents are doing, and support for multiple human 
 - [x] Clone state model + ephemeral lifecycle (model; #5) — [Units & Agents](../architecture/units.md)
 - [x] Clone API endpoints + cost attribution (model; #6) — [Units & Agents](../architecture/units.md)
 - [x] Real-time SSE endpoint + activity query API (model; #7) — [Observability](../architecture/observability.md)
-
-## Remaining Work
-
-- [ ] Wire Rx.NET reactive pipeline end-to-end (#44) — [Observability](../architecture/observability.md) (ActivityBus disconnect — not truly complete)
+- [x] Wire Rx.NET reactive pipeline end-to-end (#44) — [Observability](../architecture/observability.md)
 - [x] Implement cost tracking aggregation service + API endpoints (#41) — [Observability](../architecture/observability.md)
 - [x] Implement agent cloning lifecycle workflow + clone API (#43) — [Units & Agents](../architecture/units.md)
 - [x] Implement SSE activity stream endpoint + activity query API (#42) — [Observability](../architecture/observability.md)
-- [ ] React/Next.js web dashboard (#8, in progress) — [CLI & Web](../architecture/cli-and-web.md)
+- [x] React/Next.js web dashboard (#8) — [CLI & Web](../architecture/cli-and-web.md)
+
+## Follow-up Enhancements (tracked in Phase 4)
+
+These extend Phase 2 deliverables and are tracked under [Phase 4](phase-4.md):
+
+- [ ] Complete Rx.NET activity pipeline end-to-end (#391) — full observable graph wiring
+- [ ] Dashboard: drill-down views for units, agents, and conversations (#392)
+- [ ] Dashboard: multi-human RBAC management UI (#393)
+- [ ] Dashboard: cost rollup and per-agent attribution (#394)
 
 **Delivers:** Real-time observation of agent work, multi-human participation, elastic agent scaling.

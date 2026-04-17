@@ -1,17 +1,30 @@
 # Roadmap
 
-Spring Voyage V2 is developed in six phases. Each phase delivers a complete, usable increment. Later phases build on earlier ones but don't invalidate them.
+Spring Voyage V2 is developed in six phases plus a parallel Foundation track. Each phase delivers a complete, usable increment. Later phases build on earlier ones but don't invalidate them.
 
-For architectural details, see [`docs/architecture/`](../architecture/README.md).
+For architectural details, see [`docs/architecture/`](../architecture/README.md). For the full tracking issue, see [#418](https://github.com/cvoya-com/spring-voyage/issues/418).
 
 | Phase | Name | Status | Details |
 | --- | --- | --- | --- |
+| — | [Foundation](foundation.md) | In progress | Documentation, UX exploration, test infrastructure |
 | 1 | [Platform Foundation + Software Engineering](phase-1.md) | Complete | Core actors, messaging, orchestration, GitHub connector, CLI |
-| 2 | [Observability + Multi-Human](phase-2.md) | In progress | Activity events, cost tracking, cloning, RBAC, web dashboard (2 items remaining) |
-| 3 | [Initiative + Product Management](phase-3.md) | Not started | Initiative levels, tiered cognition, second domain |
-| 4 | [A2A + Additional Strategies](phase-4.md) | Not started | Cross-framework interop, rule-based/peer strategies |
-| 5 | [Unit Nesting + Directory + Boundaries](phase-5.md) | Not started | Recursive composition, expertise directory, boundaries |
+| 2 | [Observability + Multi-Human](phase-2.md) | Complete | Activity events, cost tracking, cloning, RBAC, web dashboard |
+| 3 | [Initiative + Product Management](phase-3.md) | Complete | Initiative levels, tiered cognition, second domain |
+| 4 | [A2A + Strategies + Runtime + Portal UX](phase-4.md) | Partially complete | A2A shipped; orchestration strategies, runtime, portal UX remaining |
+| 5 | [Unit Nesting + Directory + Boundaries](phase-5.md) | Partially complete | Nesting + M:N shipped; boundaries, expertise remaining |
 | 6 | [Platform Maturity](phase-6.md) | Not started | Package system, additional domain packages |
+
+## Work Beyond Original Phasing
+
+Significant work shipped that the original roadmap didn't anticipate:
+
+- **Multi-AI agent runtime** — Claude Code, Codex, Gemini, Ollama, Dapr Agents, custom A2A agents (#334, #346-#361)
+- **Persistent agent hosting** — long-lived agent containers with Dapr sidecars (#349, #361)
+- **E2E test harness** — shell-based CLI scenarios against a live local stack (#311)
+- **Policy framework** — unit-level skill, model, cost, and execution-mode policies (#162, #163, #247-#250)
+- **Secrets stack** — multi-version, at-rest encryption, rotation, inheritance, audit logging (#200-#209, #253)
+- **GitHub connector depth** — OAuth, Projects v2, GraphQL batching, caching, rate limiting, webhooks (#224-#242)
+- **Web portal** — unit CRUD, agents tab, skills, connectors, secrets, sub-units, costs, delete, activity feed (#82-#84, #119-#126)
 
 ## Open Core Model
 
