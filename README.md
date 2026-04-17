@@ -98,6 +98,23 @@ curl -s http://localhost:3500/v1.0/metadata | jq '.actorRuntime'
 
 For Dapr component layout (local vs. production profiles, secret stores, configs), see [`dapr/README.md`](dapr/README.md). For platform operations (health checks, database migrations, troubleshooting, DataProtection), see [`docs/developer/operations.md`](docs/developer/operations.md).
 
+## Self-Hosting
+
+If you want to run the full stack (Postgres, Redis, Dapr control plane, API, Worker, web dashboard, Caddy with automatic TLS) on a single workstation or VPS, use the Podman-based scripts under [`deployment/`](deployment/README.md) instead of `dapr run`:
+
+```bash
+cd deployment/
+cp spring.env.example spring.env
+$EDITOR spring.env             # fill in secrets, hostname, image tags
+
+./deploy.sh build              # build platform + agent images from source
+./deploy.sh up                 # create the network and start the full stack
+```
+
+You can skip the build step entirely if you point `SPRING_PLATFORM_IMAGE` / `SPRING_AGENT_IMAGE` in `spring.env` at pre-published images in a registry; Podman pulls them on first `up`. For remote VPS deployments, `deploy-remote.sh` wraps SSH + rsync and supports the same registry flow via `SPRING_SKIP_SOURCE_SYNC=1`.
+
+See [`deployment/README.md`](deployment/README.md) for the full container topology, reverse-proxy/TLS setup, secrets handling, optional Ollama backend, and per-user agent network isolation.
+
 ## CLI
 
 The platform's primary user-facing surface is the `spring` CLI, in `src/Cvoya.Spring.Cli/`:
