@@ -193,6 +193,14 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
             {
                 break;
             }
+            catch (InvalidOperationException)
+            {
+                // Race on shutdown: IsListening read true, then StopAsync called
+                // _listener.Stop(), and GetContextAsync rejected the call with
+                // "Please call the Start() method before calling this method."
+                // Treat identically to HttpListenerException — the listener is gone.
+                break;
+            }
 
             _ = Task.Run(async () =>
             {

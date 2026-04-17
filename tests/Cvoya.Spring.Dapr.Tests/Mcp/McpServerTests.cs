@@ -155,6 +155,36 @@ public class McpServerTests : IAsyncLifetime
         Should.Throw<SpringException>(act).Message.ShouldContain("more than one ISkillRegistry");
     }
 
+    [Fact]
+    public async Task StopAsync_DuringActiveAcceptLoop_DoesNotLeakInvalidOperationException()
+    {
+        // Regression: HttpListener.GetContextAsync throws
+        // InvalidOperationException("Please call the Start() method...") if
+        // Stop() races past the IsListening check inside the accept loop. The
+        // loop must treat it as a shutdown signal, not propagate. Without the
+        // fix the StopAsync await observed the exception and bubbled it out
+        // of the fixture DisposeAsync, which is how CI saw it surface on
+        // `DuplicateToolRegistration_ThrowsAtConstruction` under parallel load.
+        var registry = new FakeSkillRegistry("race");
+        var server = new McpServer(
+            [registry],
+            Options.Create(new McpServerOptions { ContainerHost = "127.0.0.1" }),
+            _loggerFactory);
+
+        await server.StartAsync(CancellationToken.None);
+
+        // Hammer the start/stop boundary to make the race reproducible on
+        // machines that might otherwise never hit it.
+        for (var i = 0; i < 20; i++)
+        {
+            await server.StopAsync(CancellationToken.None);
+            await server.StartAsync(CancellationToken.None);
+        }
+
+        await server.StopAsync(CancellationToken.None);
+        server.Dispose();
+    }
+
     private async Task<HttpResponseMessage> PostAsync(string? token, object body)
     {
         var json = JsonSerializer.Serialize(body);
