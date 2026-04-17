@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   Activity,
@@ -14,7 +13,8 @@ import {
   Plus,
   Users,
 } from "lucide-react";
-import { api } from "@/lib/api/client";
+import { useDashboardSummary } from "@/lib/api/queries";
+import { useActivityStream } from "@/lib/stream/use-activity-stream";
 import type { DashboardSummary } from "@/lib/api/types";
 import { formatCost, timeAgo } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -483,33 +483,20 @@ function DashboardSkeleton() {
 /* ------------------------------------------------------------------ */
 
 export default function DashboardPage() {
-  const [summary, setSummary] = useState<DashboardSummary | null>(null);
-  const [loading, setLoading] = useState(true);
+  // Replaces the legacy `useEffect` + `setInterval(10s)` loop (#438).
+  // The dashboard now stays fresh via two paths:
+  //   1. SSE activity stream — every new event invalidates the
+  //      dashboard cache slice (see queryKeysAffectedBySource).
+  //   2. TanStack Query defaults — a 30s staleTime plus the cache
+  //      invalidation above means data is never older than one event
+  //      or one minute, whichever comes first.
+  const { data: summary, isPending } = useDashboardSummary();
+  // Subscribe to the platform's activity stream; side-effect is cache
+  // invalidation inside the hook. We don't need the local `events`
+  // array here — the stream's job is to trigger refetches.
+  useActivityStream();
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
-      try {
-        const s = await api.getDashboardSummary();
-        if (!cancelled) {
-          setSummary(s);
-          setLoading(false);
-        }
-      } catch {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    load();
-    const interval = setInterval(load, 10_000);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, []);
-
-  if (loading) {
+  if (isPending) {
     return <DashboardSkeleton />;
   }
 

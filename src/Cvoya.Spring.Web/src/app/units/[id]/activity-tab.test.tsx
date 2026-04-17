@@ -1,5 +1,8 @@
 import { render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi, beforeEach } from "vitest";
+import type { ReactNode } from "react";
+
 import { ActivityTab } from "./activity-tab";
 
 const mockQueryActivity = vi.fn();
@@ -8,6 +11,12 @@ vi.mock("@/lib/api/client", () => ({
   api: {
     queryActivity: (...args: unknown[]) => mockQueryActivity(...args),
   },
+}));
+
+// The SSE hook would try to open a real EventSource during tests. Stub
+// it out — the tests cover the REST-backed query layer here.
+vi.mock("@/lib/stream/use-activity-stream", () => ({
+  useActivityStream: () => ({ events: [], connected: false }),
 }));
 
 const mockResult = {
@@ -28,6 +37,15 @@ const mockResult = {
   pageSize: 20,
 };
 
+function Wrapper({ children }: { children: ReactNode }) {
+  const client = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false, gcTime: 0, staleTime: 0 },
+    },
+  });
+  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+}
+
 describe("ActivityTab", () => {
   beforeEach(() => {
     mockQueryActivity.mockReset();
@@ -35,7 +53,11 @@ describe("ActivityTab", () => {
   });
 
   it("calls API with unit source filter", async () => {
-    render(<ActivityTab unitId="eng-team" />);
+    render(
+      <Wrapper>
+        <ActivityTab unitId="eng-team" />
+      </Wrapper>,
+    );
     await waitFor(() => {
       expect(mockQueryActivity).toHaveBeenCalledWith({
         source: "unit:eng-team",
@@ -45,7 +67,11 @@ describe("ActivityTab", () => {
   });
 
   it("renders activity events for the unit", async () => {
-    render(<ActivityTab unitId="eng-team" />);
+    render(
+      <Wrapper>
+        <ActivityTab unitId="eng-team" />
+      </Wrapper>,
+    );
     await waitFor(() => {
       expect(screen.getByText("Unit started")).toBeInTheDocument();
     });
@@ -58,7 +84,11 @@ describe("ActivityTab", () => {
       page: 1,
       pageSize: 20,
     });
-    render(<ActivityTab unitId="eng-team" />);
+    render(
+      <Wrapper>
+        <ActivityTab unitId="eng-team" />
+      </Wrapper>,
+    );
     await waitFor(() => {
       expect(
         screen.getByText("No activity events for this unit."),

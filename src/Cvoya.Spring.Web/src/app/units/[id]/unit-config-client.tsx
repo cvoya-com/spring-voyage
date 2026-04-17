@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -13,6 +13,7 @@ import {
   Square,
   Trash2,
 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { ActivityTab } from "./activity-tab";
 import { AgentsTab } from "./agents-tab";
@@ -35,9 +36,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/api/client";
+import { useUnit, useUnitCost, useUnitReadiness } from "@/lib/api/queries";
+import { queryKeys } from "@/lib/api/query-keys";
 import type {
-  CostSummaryResponse,
-  UnitReadinessResponse,
   UnitResponse,
   UnitStatus,
 } from "@/lib/api/types";
@@ -73,11 +74,30 @@ interface ClientProps {
 export default function UnitConfigClient({ id }: ClientProps) {
   const { toast } = useToast();
   const router = useRouter();
+  const queryClient = useQueryClient();
 
-  const [unit, setUnit] = useState<UnitResponse | null>(null);
   const [status, setStatus] = useState<UnitStatus>("Draft");
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+
+  // Poll the unit while it's in a transitional state (Starting /
+  // Stopping). Non-activity data intentionally stays on short-window
+  // polling via `refetchInterval` rather than SSE — #438/#437
+  // migration. When the status settles, `refetchInterval` collapses
+  // to `false` and the query goes quiet.
+  const transitional = status === "Starting" || status === "Stopping";
+  const unitQuery = useUnit(id, {
+    refetchInterval: transitional ? 2_000 : false,
+  });
+  const readinessQuery = useUnitReadiness(id, {
+    refetchInterval: transitional ? 2_000 : false,
+  });
+  const costQuery = useUnitCost(id);
+
+  const unit = unitQuery.data ?? null;
+  const readiness = readinessQuery.data ?? null;
+  const cost = costQuery.data ?? null;
+  const loading = unitQuery.isPending;
+  const loadError =
+    unitQuery.error instanceof Error ? unitQuery.error.message : null;
 
   // Edit form state (seeded from unit once loaded).
   const [formDisplayName, setFormDisplayName] = useState("");
@@ -91,36 +111,12 @@ export default function UnitConfigClient({ id }: ClientProps) {
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionPending, setActionPending] = useState(false);
 
-  // Readiness state (#368).
-  const [readiness, setReadiness] = useState<UnitReadinessResponse | null>(
-    null,
-  );
-
   // Delete dialog state.
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const [cost, setCost] = useState<CostSummaryResponse | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    api
-      .getUnitCost(id)
-      .then((c) => {
-        if (!cancelled) setCost(c);
-      })
-      .catch(() => {
-        // Costs may legitimately be empty before any activity — swallow.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [id]);
-
+  // Keep form state in sync with the latest unit payload.
   const applyUnit = useCallback((u: UnitResponse) => {
-    setUnit(u);
     setStatus(u.status ?? "Draft");
     setFormDisplayName(u.displayName ?? "");
     setFormDescription(u.description ?? "");
@@ -128,53 +124,14 @@ export default function UnitConfigClient({ id }: ClientProps) {
     setFormColor(u.color ?? "");
   }, []);
 
+  useEffect(() => {
+    if (unit) applyUnit(unit);
+  }, [unit, applyUnit]);
+
   const refresh = useCallback(async () => {
-    try {
-      const [u, r] = await Promise.all([
-        api.getUnit(id),
-        api.getUnitReadiness(id),
-      ]);
-      applyUnit(u);
-      setReadiness(r);
-      setLoadError(null);
-      return u;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setLoadError(message);
-      return null;
-    }
-  }, [id, applyUnit]);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    refresh().finally(() => {
-      if (!cancelled) setLoading(false);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [refresh]);
-
-  // Poll while transitional.
-  useEffect(() => {
-    const transitional = status === "Starting" || status === "Stopping";
-    if (transitional) {
-      if (pollingRef.current) return;
-      pollingRef.current = setInterval(() => {
-        refresh();
-      }, 2000);
-    } else if (pollingRef.current) {
-      clearInterval(pollingRef.current);
-      pollingRef.current = null;
-    }
-    return () => {
-      if (pollingRef.current) {
-        clearInterval(pollingRef.current);
-        pollingRef.current = null;
-      }
-    };
-  }, [status, refresh]);
+    const results = await Promise.all([unitQuery.refetch(), readinessQuery.refetch()]);
+    return results[0].data ?? null;
+  }, [unitQuery, readinessQuery]);
 
   // #368: Draft units can be started only when ready (model configured).
   const draftNotReady = status === "Draft" && readiness?.isReady !== true;
@@ -246,6 +203,10 @@ export default function UnitConfigClient({ id }: ClientProps) {
         color: formColor,
       };
       const updated = await api.updateUnit(id, patch);
+      // Seed the cache so the unit query stays fresh without a round
+      // trip. `applyUnit` updates local form state for the rendered
+      // value that doesn't live in the query.
+      queryClient.setQueryData(queryKeys.units.detail(id), updated);
       applyUnit(updated);
       toast({ title: "Saved" });
     } catch (err) {

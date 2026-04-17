@@ -1,5 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ReactNode } from "react";
 
 import type { DashboardSummary } from "@/lib/api/types";
 
@@ -10,6 +12,12 @@ vi.mock("@/lib/api/client", () => ({
   api: {
     getDashboardSummary: () => getDashboardSummary(),
   },
+}));
+
+// The dashboard now subscribes to the activity stream for live
+// refreshes. Stub the hook so tests don't open a real EventSource.
+vi.mock("@/lib/stream/use-activity-stream", () => ({
+  useActivityStream: () => ({ events: [], connected: false }),
 }));
 
 vi.mock("next/link", () => ({
@@ -28,6 +36,18 @@ vi.mock("next/link", () => ({
 }));
 
 import DashboardPage from "./page";
+
+function renderDashboard() {
+  const client = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false, gcTime: 0, staleTime: 0 },
+    },
+  });
+  const Wrapper = ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  );
+  return render(<DashboardPage />, { wrapper: Wrapper });
+}
 
 function makeSummary(
   overrides: Partial<DashboardSummary> = {},
@@ -97,7 +117,7 @@ describe("DashboardPage", () => {
       }),
     );
 
-    render(<DashboardPage />);
+    renderDashboard();
 
     // All three sections render
     await waitFor(() => {
@@ -117,7 +137,7 @@ describe("DashboardPage", () => {
       }),
     );
 
-    render(<DashboardPage />);
+    renderDashboard();
 
     await waitFor(() => {
       expect(screen.getByTestId("stats-header")).toBeInTheDocument();
@@ -156,7 +176,7 @@ describe("DashboardPage", () => {
       }),
     );
 
-    render(<DashboardPage />);
+    renderDashboard();
 
     await waitFor(() => {
       expect(screen.getByTestId("health-label")).toHaveTextContent("Healthy");
@@ -166,7 +186,7 @@ describe("DashboardPage", () => {
   it("unit card click navigates to unit detail page", async () => {
     getDashboardSummary.mockResolvedValue(makeSummary());
 
-    render(<DashboardPage />);
+    renderDashboard();
 
     await waitFor(() => {
       expect(screen.getByTestId("unit-card-unit-alpha")).toBeInTheDocument();
@@ -178,7 +198,7 @@ describe("DashboardPage", () => {
   it("unit cards display status badge and status dot", async () => {
     getDashboardSummary.mockResolvedValue(makeSummary());
 
-    render(<DashboardPage />);
+    renderDashboard();
 
     await waitFor(() => {
       expect(screen.getByText("Unit Alpha")).toBeInTheDocument();
@@ -195,7 +215,7 @@ describe("DashboardPage", () => {
   it("agent card shows parent-unit badge when agent is nested", async () => {
     getDashboardSummary.mockResolvedValue(makeSummary());
 
-    render(<DashboardPage />);
+    renderDashboard();
 
     await waitFor(() => {
       expect(screen.getByText("Agent One")).toBeInTheDocument();
@@ -210,7 +230,7 @@ describe("DashboardPage", () => {
   it("agent card shows role badge", async () => {
     getDashboardSummary.mockResolvedValue(makeSummary());
 
-    render(<DashboardPage />);
+    renderDashboard();
 
     await waitFor(() => {
       expect(screen.getByText("Agent One")).toBeInTheDocument();
@@ -235,7 +255,7 @@ describe("DashboardPage", () => {
       }),
     );
 
-    render(<DashboardPage />);
+    renderDashboard();
 
     await waitFor(() => {
       expect(screen.getByText("Agent One")).toBeInTheDocument();
@@ -260,7 +280,7 @@ describe("DashboardPage", () => {
       }),
     );
 
-    render(<DashboardPage />);
+    renderDashboard();
 
     await waitFor(() => {
       // Text appears as both a heading and a CTA link
@@ -285,7 +305,7 @@ describe("DashboardPage", () => {
       }),
     );
 
-    render(<DashboardPage />);
+    renderDashboard();
 
     await waitFor(() => {
       expect(screen.getByTestId("create-unit-cta")).toBeInTheDocument();
@@ -299,7 +319,7 @@ describe("DashboardPage", () => {
   it("shows 'View all' link for units when units exist", async () => {
     getDashboardSummary.mockResolvedValue(makeSummary());
 
-    render(<DashboardPage />);
+    renderDashboard();
 
     await waitFor(() => {
       expect(screen.getByText("View all")).toBeInTheDocument();
@@ -323,7 +343,7 @@ describe("DashboardPage", () => {
       }),
     );
 
-    render(<DashboardPage />);
+    renderDashboard();
 
     await waitFor(() => {
       // There will be two "View all" links - one for units, one for activity
@@ -358,7 +378,7 @@ describe("DashboardPage", () => {
       }),
     );
 
-    render(<DashboardPage />);
+    renderDashboard();
 
     await waitFor(() => {
       expect(
@@ -381,7 +401,7 @@ describe("DashboardPage", () => {
       }),
     );
 
-    render(<DashboardPage />);
+    renderDashboard();
 
     await waitFor(() => {
       expect(screen.getByTestId("health-label")).toHaveTextContent("No units");

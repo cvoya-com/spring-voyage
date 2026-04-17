@@ -5,7 +5,9 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ReactNode } from "react";
 
 import type { UnitResponse } from "@/lib/api/types";
 
@@ -55,6 +57,18 @@ vi.mock("next/link", () => ({
 
 import UnitConfigClient from "./unit-config-client";
 
+function renderClient(id: string) {
+  const client = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false, gcTime: 0, staleTime: 0 },
+    },
+  });
+  const Wrapper = ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  );
+  return render(<UnitConfigClient id={id} />, { wrapper: Wrapper });
+}
+
 function makeUnit(overrides: Partial<UnitResponse> = {}): UnitResponse {
   return {
     id: "actor-id",
@@ -90,7 +104,7 @@ describe("UnitConfigClient — delete unit", () => {
   it("renders the Delete button on the unit detail page", async () => {
     getUnit.mockResolvedValue(makeUnit());
 
-    render(<UnitConfigClient id="engineering" />);
+    renderClient("engineering");
 
     await waitFor(() => {
       expect(
@@ -102,7 +116,7 @@ describe("UnitConfigClient — delete unit", () => {
   it("opens the confirm dialog when Delete is clicked", async () => {
     getUnit.mockResolvedValue(makeUnit());
 
-    render(<UnitConfigClient id="engineering" />);
+    renderClient("engineering");
 
     await waitFor(() => {
       expect(
@@ -124,7 +138,7 @@ describe("UnitConfigClient — delete unit", () => {
   it("closes the dialog on Cancel without calling the API", async () => {
     getUnit.mockResolvedValue(makeUnit());
 
-    render(<UnitConfigClient id="engineering" />);
+    renderClient("engineering");
 
     await waitFor(() => {
       expect(
@@ -146,7 +160,7 @@ describe("UnitConfigClient — delete unit", () => {
     getUnit.mockResolvedValue(makeUnit());
     deleteUnit.mockResolvedValue(undefined);
 
-    render(<UnitConfigClient id="engineering" />);
+    renderClient("engineering");
 
     await waitFor(() => {
       expect(
@@ -179,7 +193,7 @@ describe("UnitConfigClient — delete unit", () => {
       new Error("API error 404: Not Found"),
     );
 
-    render(<UnitConfigClient id="engineering" />);
+    renderClient("engineering");
 
     await waitFor(() => {
       expect(

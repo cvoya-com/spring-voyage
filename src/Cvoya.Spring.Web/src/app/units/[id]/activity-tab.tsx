@@ -1,12 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
 import { Activity, RefreshCw } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { api } from "@/lib/api/client";
+import { useActivityQuery } from "@/lib/api/queries";
+import { useActivityStream } from "@/lib/stream/use-activity-stream";
 import type {
   ActivityQueryResult,
   ActivitySeverity,
@@ -24,29 +24,28 @@ const severityVariant: Record<
 };
 
 export function ActivityTab({ unitId }: { unitId: string }) {
-  const [result, setResult] = useState<ActivityQueryResult | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // REST baseline — paginated query for this unit's events. The
+  // stream layered on top keeps it fresh (#437).
+  const queryParams = { source: `unit:${unitId}`, pageSize: "20" };
+  const {
+    data: result,
+    error,
+    isLoading,
+    isFetching,
+    refetch,
+  } = useActivityQuery(queryParams);
 
-  const fetchActivity = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await api.queryActivity({
-        source: `unit:${unitId}`,
-        pageSize: "20",
-      });
-      setResult(data as ActivityQueryResult);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-    }
-  }, [unitId]);
+  // Subscribe to the unit-scoped live stream so the tab updates as
+  // events arrive — no more manual refresh loop. The hook invalidates
+  // the matching cache slice on every event, so the `useActivityQuery`
+  // above re-fetches and the list stays in order.
+  useActivityStream({
+    filter: (event) =>
+      event.source.scheme === "unit" && event.source.path === unitId,
+  });
 
-  useEffect(() => {
-    fetchActivity();
-  }, [fetchActivity]);
+  const errorMessage =
+    error instanceof Error ? error.message : error ? String(error) : null;
 
   return (
     <Card>
@@ -58,29 +57,31 @@ export function ActivityTab({ unitId }: { unitId: string }) {
             variant="ghost"
             size="sm"
             className="ml-auto"
-            onClick={fetchActivity}
-            disabled={loading}
+            onClick={() => refetch()}
+            disabled={isFetching}
           >
             <RefreshCw
-              className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`}
+              className={`h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`}
             />
           </Button>
         </CardTitle>
       </CardHeader>
       <CardContent>
-        {error && (
+        {errorMessage && (
           <p className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive mb-3">
-            {error}
+            {errorMessage}
           </p>
         )}
-        {loading && !result ? (
+        {isLoading && !result ? (
           <p className="text-sm text-muted-foreground">Loading activity...</p>
-        ) : result?.items.length === 0 ? (
+        ) : (result as ActivityQueryResult | undefined)?.items.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             No activity events for this unit.
           </p>
         ) : (
-          <div className="space-y-0">
+          // `aria-live="polite"` so screen readers announce new events as
+          // they stream in (portal design doc §7 — accessibility).
+          <div className="space-y-0" aria-live="polite">
             {result?.items.map((e) => (
               <div
                 key={e.id}

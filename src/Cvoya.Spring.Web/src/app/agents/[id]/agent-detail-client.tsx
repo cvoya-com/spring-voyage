@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   Copy,
@@ -32,16 +33,19 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toast";
-import { useActivityStream } from "@/hooks/use-activity-stream";
+import { useActivityStream } from "@/lib/stream/use-activity-stream";
 import { api } from "@/lib/api/client";
+import {
+  useAgent,
+  useAgentBudget,
+  useAgentClones,
+  useAgentCost,
+} from "@/lib/api/queries";
+import { queryKeys } from "@/lib/api/query-keys";
 import type {
   ActivityEvent,
-  AgentDetailResponse,
-  BudgetResponse,
   CloneAttachmentMode,
-  CloneResponse,
   CloneType,
-  CostSummaryResponse,
 } from "@/lib/api/types";
 import { formatCost, timeAgo } from "@/lib/utils";
 
@@ -85,11 +89,32 @@ interface ClientProps {
 export default function AgentDetailClient({ id }: ClientProps) {
   const router = useRouter();
   const { toast } = useToast();
-  const [data, setData] = useState<AgentDetailResponse | null>(null);
-  const [cost, setCost] = useState<CostSummaryResponse | null>(null);
-  const [clones, setClones] = useState<CloneResponse[]>([]);
-  const [budget, setBudget] = useState<BudgetResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const enabled = Boolean(id && id !== "__placeholder__");
+
+  // TanStack-managed reads. The activity stream below invalidates
+  // `agents.*` keys on matching events so these stay fresh without
+  // manual polling (#438 migration). Mutations below still write
+  // through the raw `api` client and then hand-seed / invalidate the
+  // cache.
+  const agentQuery = useAgent(id, { enabled });
+  const costQuery = useAgentCost(id, { enabled });
+  const clonesQuery = useAgentClones(id, { enabled });
+  const budgetQuery = useAgentBudget(id, { enabled });
+
+  const data = agentQuery.data ?? null;
+  const cost = costQuery.data ?? null;
+  const clones = clonesQuery.data ?? [];
+  const budget = budgetQuery.data ?? null;
+  const loading =
+    enabled &&
+    (agentQuery.isPending ||
+      costQuery.isPending ||
+      clonesQuery.isPending ||
+      budgetQuery.isPending);
+
+  // Keep the original `events` array around for the cost breakdown
+  // table; the hook also patches the TanStack cache on every event.
   const { events } = useActivityStream();
 
   const [cloneType, setCloneType] = useState<CloneType>("ephemeral-no-memory");
@@ -100,54 +125,14 @@ export default function AgentDetailClient({ id }: ClientProps) {
   const [budgetInput, setBudgetInput] = useState("");
   const [savingBudget, setSavingBudget] = useState(false);
 
-  const loadClones = useCallback(async () => {
-    try {
-      const list = await api.getClones(id);
-      setClones(list);
-    } catch {
-      // Swallowed: list endpoint 404s when parent is missing; handled by agent load.
-    }
-  }, [id]);
-
-  const loadBudget = useCallback(async () => {
-    try {
-      const b = await api.getAgentBudget(id);
-      setBudget(b);
-      setBudgetInput(b.dailyBudget.toString());
-    } catch {
-      // No budget set yet — that's the normal initial state.
-      setBudget(null);
-    }
-  }, [id]);
-
+  // Seed the budget input once the budget loads. Keeps the user's
+  // in-progress edits intact on subsequent refetches.
   useEffect(() => {
-    if (!id) return;
-    let cancelled = false;
-
-    async function load() {
-      const [agentData, costData, clonesData, budgetData] =
-        await Promise.allSettled([
-          api.getAgent(id),
-          api.getAgentCost(id),
-          api.getClones(id),
-          api.getAgentBudget(id),
-        ]);
-      if (cancelled) return;
-      if (agentData.status === "fulfilled") setData(agentData.value);
-      if (costData.status === "fulfilled") setCost(costData.value);
-      if (clonesData.status === "fulfilled") setClones(clonesData.value);
-      if (budgetData.status === "fulfilled") {
-        setBudget(budgetData.value);
-        setBudgetInput(budgetData.value.dailyBudget.toString());
-      }
-      setLoading(false);
+    if (budget && budgetInput === "" && budget.dailyBudget > 0) {
+      setBudgetInput(budget.dailyBudget.toString());
     }
-
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [budget]);
 
   const handleDeleteAgent = async () => {
     try {
@@ -168,8 +153,9 @@ export default function AgentDetailClient({ id }: ClientProps) {
     try {
       await api.createClone(id, { cloneType, attachmentMode });
       toast({ title: "Clone creation requested" });
-      // Provisioning is async; the new clone shows up on the next poll.
-      await loadClones();
+      // Provisioning is async; refetch the clones list so the new row
+      // appears as soon as the server has it.
+      await clonesQuery.refetch();
     } catch (err) {
       toast({
         title: "Failed to create clone",
@@ -185,7 +171,7 @@ export default function AgentDetailClient({ id }: ClientProps) {
     try {
       await api.deleteClone(id, cloneId);
       toast({ title: "Clone deletion requested" });
-      await loadClones();
+      await clonesQuery.refetch();
     } catch (err) {
       toast({
         title: "Failed to delete clone",
@@ -208,7 +194,9 @@ export default function AgentDetailClient({ id }: ClientProps) {
     setSavingBudget(true);
     try {
       const updated = await api.setAgentBudget(id, { dailyBudget: value });
-      setBudget(updated);
+      // Hand-seed the budget cache so the UI reflects the new value
+      // without a round trip.
+      queryClient.setQueryData(queryKeys.agents.budget(id), updated);
       toast({ title: "Budget saved" });
     } catch (err) {
       toast({
