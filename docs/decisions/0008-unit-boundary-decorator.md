@@ -1,4 +1,4 @@
-# 0007 — Unit boundary as decorator over the expertise aggregator
+# 0008 — Unit boundary as decorator over the expertise aggregator
 
 - **Status:** Accepted — a `BoundaryFilteringExpertiseAggregator` decorator wraps the base `ExpertiseAggregator`, reading per-unit `UnitBoundary` rules on every read and applying opacity / projection / synthesis to the outside-the-unit view only.
 - **Date:** 2026-04-16
