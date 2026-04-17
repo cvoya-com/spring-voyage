@@ -20,6 +20,7 @@ using global::Dapr.Actors;
 using global::Dapr.Actors.Client;
 
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
 using NSubstitute;
@@ -147,6 +148,11 @@ public class UnitCreationServiceTests
                 .CreateActorProxy<IHumanActor>(Arg.Any<ActorId>(), Arg.Any<string>())
                 .Returns(Substitute.For<IHumanActor>());
 
+            // A no-op scope factory keeps tests free of a real DbContext —
+            // the service's seed-expertise persistence branch only fires when
+            // a manifest carries `expertise:`, which these tests never do.
+            var scopeFactory = Substitute.For<IServiceScopeFactory>();
+
             Service = new UnitCreationService(
                 Directory,
                 ActorProxyFactory,
@@ -157,6 +163,7 @@ public class UnitCreationServiceTests
                 BundleValidator,
                 BundleStore,
                 MembershipRepository,
+                scopeFactory,
                 NullLoggerFactory.Instance);
         }
 

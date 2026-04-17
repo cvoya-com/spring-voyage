@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.Dapr.Tests.Actors;
 
+using System.Reflection;
+
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
@@ -23,7 +25,8 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Tests for UnitActor's own-expertise surface (#412).
+/// Tests for UnitActor's own-expertise surface (#412) plus the auto-seed
+/// from <c>UnitDefinition</c> YAML on activation (#488).
 /// </summary>
 public class UnitActorExpertiseTests
 {
@@ -122,5 +125,124 @@ public class UnitActorExpertiseTests
 
         captured!.Count.ShouldBe(1);
         captured[0].Name.ShouldBe("python");
+    }
+
+    /// <summary>
+    /// When actor state has no own-expertise and the seed provider offers a
+    /// YAML-declared list, activation writes it through the same
+    /// <c>SetOwnExpertiseAsync</c> path. See #488.
+    /// </summary>
+    [Fact]
+    public async Task OnActivateAsync_EmptyState_SeedsFromProvider()
+    {
+        var harness = BuildSeedHarness(
+            stateHasValue: false,
+            seed: new[]
+            {
+                new ExpertiseDomain("platform", "", ExpertiseLevel.Expert),
+                new ExpertiseDomain("routing", "", ExpertiseLevel.Advanced),
+            },
+            out var stateManager);
+
+        List<ExpertiseDomain>? captured = null;
+        stateManager.SetStateAsync(
+                StateKeys.UnitOwnExpertise,
+                Arg.Do<List<ExpertiseDomain>>(v => captured = v),
+                Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+
+        await InvokeOnActivateAsync(harness);
+
+        captured.ShouldNotBeNull();
+        captured!.Count.ShouldBe(2);
+        captured[0].Name.ShouldBe("platform");
+        captured[1].Name.ShouldBe("routing");
+    }
+
+    /// <summary>
+    /// Precedence rule: when actor state already holds a value (even an
+    /// empty list written through <c>SetOwnExpertiseAsync</c>), the seed is
+    /// NOT re-applied on activation. Keeps runtime operator edits
+    /// authoritative across process restarts.
+    /// </summary>
+    [Fact]
+    public async Task OnActivateAsync_StateHasValue_DoesNotSeed()
+    {
+        var harness = BuildSeedHarness(
+            stateHasValue: true,
+            seed: new[] { new ExpertiseDomain("should-not-seed", "", null) },
+            out var stateManager);
+
+        await InvokeOnActivateAsync(harness);
+
+        await stateManager.DidNotReceive().SetStateAsync(
+            StateKeys.UnitOwnExpertise,
+            Arg.Any<List<ExpertiseDomain>>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// When the seed provider returns null (no YAML declared) the activation
+    /// path must not write anything to actor state.
+    /// </summary>
+    [Fact]
+    public async Task OnActivateAsync_NoSeed_NoWrite()
+    {
+        var harness = BuildSeedHarness(
+            stateHasValue: false,
+            seed: null,
+            out var stateManager);
+
+        await InvokeOnActivateAsync(harness);
+
+        await stateManager.DidNotReceive().SetStateAsync(
+            StateKeys.UnitOwnExpertise,
+            Arg.Any<List<ExpertiseDomain>>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    private static UnitActor BuildSeedHarness(
+        bool stateHasValue,
+        IReadOnlyList<ExpertiseDomain>? seed,
+        out IActorStateManager stateManager)
+    {
+        var loggerFactory = Substitute.For<ILoggerFactory>();
+        loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
+
+        stateManager = Substitute.For<IActorStateManager>();
+        stateManager
+            .TryGetStateAsync<List<ExpertiseDomain>>(StateKeys.UnitOwnExpertise, Arg.Any<CancellationToken>())
+            .Returns(stateHasValue
+                ? new ConditionalValue<List<ExpertiseDomain>>(true, new List<ExpertiseDomain>())
+                : new ConditionalValue<List<ExpertiseDomain>>(false, default!));
+
+        var seedProvider = Substitute.For<IExpertiseSeedProvider>();
+        seedProvider
+            .GetUnitSeedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(seed);
+
+        var host = ActorHost.CreateForTest<UnitActor>(new ActorTestOptions { ActorId = new ActorId("seed-unit") });
+        var actor = new UnitActor(
+            host,
+            loggerFactory,
+            Substitute.For<IOrchestrationStrategy>(),
+            Substitute.For<IActivityEventBus>(),
+            Substitute.For<IDirectoryService>(),
+            Substitute.For<IActorProxyFactory>(),
+            seedProvider);
+
+        typeof(Actor).GetField("<StateManager>k__BackingField", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .SetValue(actor, stateManager);
+
+        return actor;
+    }
+
+    private static Task InvokeOnActivateAsync(UnitActor actor)
+    {
+        var method = typeof(UnitActor).GetMethod(
+            "OnActivateAsync",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        method.ShouldNotBeNull();
+        return (Task)method!.Invoke(actor, Array.Empty<object>())!;
     }
 }

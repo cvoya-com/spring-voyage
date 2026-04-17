@@ -40,6 +40,7 @@ public class UnitActor : Actor, IUnitActor
     private readonly IActivityEventBus _activityEventBus;
     private readonly IDirectoryService _directoryService;
     private readonly IActorProxyFactory _actorProxyFactory;
+    private readonly IExpertiseSeedProvider? _expertiseSeedProvider;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="UnitActor"/> class.
@@ -50,13 +51,20 @@ public class UnitActor : Actor, IUnitActor
     /// <param name="activityEventBus">The activity event bus for emitting observable events.</param>
     /// <param name="directoryService">Directory used to resolve <c>unit://</c> member paths to actor ids during cycle detection.</param>
     /// <param name="actorProxyFactory">Factory used to build <see cref="IUnitActor"/> proxies for sub-units during cycle detection.</param>
+    /// <param name="expertiseSeedProvider">
+    /// Optional provider that supplies seed <em>own</em>-expertise from the
+    /// persisted <c>UnitDefinition</c> YAML on first activation (#488).
+    /// Null in legacy test harnesses — seeding is skipped and the unit
+    /// activates with whatever the state store holds.
+    /// </param>
     public UnitActor(
         ActorHost host,
         ILoggerFactory loggerFactory,
         IOrchestrationStrategy orchestrationStrategy,
         IActivityEventBus activityEventBus,
         IDirectoryService directoryService,
-        IActorProxyFactory actorProxyFactory)
+        IActorProxyFactory actorProxyFactory,
+        IExpertiseSeedProvider? expertiseSeedProvider = null)
         : base(host)
     {
         _logger = loggerFactory.CreateLogger<UnitActor>();
@@ -64,12 +72,74 @@ public class UnitActor : Actor, IUnitActor
         _activityEventBus = activityEventBus;
         _directoryService = directoryService;
         _actorProxyFactory = actorProxyFactory;
+        _expertiseSeedProvider = expertiseSeedProvider;
     }
 
     /// <summary>
     /// Gets the address of this unit actor.
     /// </summary>
     public Address Address => new("unit", Id.GetId());
+
+    /// <summary>
+    /// Seeds the unit's own expertise from its <c>UnitDefinition</c> YAML on
+    /// first activation (#488). Precedence rule: actor state is authoritative
+    /// — the seed only applies when no own-expertise has been persisted to
+    /// actor state yet (<see cref="StateKeys.UnitOwnExpertise"/> unset). Once
+    /// an operator has PUT an expertise list (even an empty one), the unit
+    /// never re-seeds from YAML so runtime edits survive process restarts.
+    /// See <c>docs/architecture/units.md § Seeding from YAML</c>.
+    /// </summary>
+    /// <remarks>
+    /// Failures in seeding are non-fatal: the actor still activates and the
+    /// operator can push the seed later via
+    /// <c>PUT /api/v1/units/{id}/expertise/own</c>. The warning is logged so
+    /// persistent seeding failures are visible in the observability pipeline.
+    /// </remarks>
+    protected override async Task OnActivateAsync()
+    {
+        await SeedOwnExpertiseFromDefinitionAsync(CancellationToken.None);
+        await base.OnActivateAsync();
+    }
+
+    private async Task SeedOwnExpertiseFromDefinitionAsync(CancellationToken ct)
+    {
+        if (_expertiseSeedProvider is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var existing = await StateManager
+                .TryGetStateAsync<List<ExpertiseDomain>>(StateKeys.UnitOwnExpertise, ct);
+
+            // Actor state wins — if ANY value (including an empty list) was
+            // persisted through SetOwnExpertiseAsync, the operator's runtime
+            // edit is preserved across activations.
+            if (existing.HasValue)
+            {
+                return;
+            }
+
+            var seed = await _expertiseSeedProvider.GetUnitSeedAsync(Id.GetId(), ct);
+            if (seed is null || seed.Count == 0)
+            {
+                return;
+            }
+
+            await SetOwnExpertiseAsync(seed.ToArray(), ct);
+
+            _logger.LogInformation(
+                "Unit {ActorId} seeded own expertise from UnitDefinition YAML. Domain count: {Count}",
+                Id.GetId(), seed.Count);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex,
+                "Unit {ActorId} failed to seed own expertise from UnitDefinition; activation proceeding with empty expertise.",
+                Id.GetId());
+        }
+    }
 
     /// <inheritdoc />
     public async Task<Message?> ReceiveAsync(Message message, CancellationToken ct = default)

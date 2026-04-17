@@ -17,6 +17,7 @@ using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
+using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Host.Api.Models;
 using Cvoya.Spring.Manifest;
 
@@ -24,6 +25,8 @@ using global::Dapr.Actors;
 using global::Dapr.Actors.Client;
 
 using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
@@ -54,6 +57,7 @@ public class UnitCreationService : IUnitCreationService
     private readonly ISkillBundleValidator _bundleValidator;
     private readonly IUnitSkillBundleStore _bundleStore;
     private readonly IUnitMembershipRepository _membershipRepository;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<UnitCreationService> _logger;
 
     /// <summary>
@@ -69,6 +73,7 @@ public class UnitCreationService : IUnitCreationService
         ISkillBundleValidator bundleValidator,
         IUnitSkillBundleStore bundleStore,
         IUnitMembershipRepository membershipRepository,
+        IServiceScopeFactory scopeFactory,
         ILoggerFactory loggerFactory)
     {
         _directoryService = directoryService;
@@ -80,6 +85,7 @@ public class UnitCreationService : IUnitCreationService
         _bundleValidator = bundleValidator;
         _bundleStore = bundleStore;
         _membershipRepository = membershipRepository;
+        _scopeFactory = scopeFactory;
         _logger = loggerFactory.CreateLogger<UnitCreationService>();
     }
 
@@ -108,7 +114,7 @@ public class UnitCreationService : IUnitCreationService
             cancellationToken);
 
     /// <inheritdoc />
-    public Task<UnitCreationResult> CreateFromManifestAsync(
+    public async Task<UnitCreationResult> CreateFromManifestAsync(
         UnitManifest manifest,
         UnitCreationOverrides overrides,
         CancellationToken cancellationToken,
@@ -142,7 +148,7 @@ public class UnitCreationService : IUnitCreationService
         // the /from-yaml and /from-template defaults unannounced.
         var rejectDuplicates = !string.IsNullOrWhiteSpace(overrides.Name);
 
-        return CreateCoreAsync(
+        var result = await CreateCoreAsync(
             name,
             displayName,
             description,
@@ -157,6 +163,88 @@ public class UnitCreationService : IUnitCreationService
             ExtractSkillReferences(manifest),
             rejectDuplicates,
             cancellationToken);
+
+        // #488: persist the manifest's `expertise:` block onto the unit
+        // definition row so the unit actor can auto-seed own-expertise from
+        // it on first activation. Runs after CreateCoreAsync so the
+        // UnitDefinitionEntity row already exists (the directory service
+        // upserts it during RegisterAsync). Failures are non-fatal — the
+        // unit is already live; the operator can push expertise via
+        // `PUT /api/v1/units/{id}/expertise/own` if seed persistence hiccups.
+        if (manifest.Expertise is { Count: > 0 })
+        {
+            await PersistUnitDefinitionExpertiseAsync(name, manifest.Expertise, cancellationToken);
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Writes the manifest <c>expertise:</c> block onto the corresponding
+    /// <see cref="Data.Entities.UnitDefinitionEntity.Definition"/> JSON so
+    /// the unit actor's seed path picks it up on first activation. Idempotent:
+    /// a subsequent manifest re-apply overwrites the expertise slot in place
+    /// without touching other fields.
+    /// </summary>
+    private async Task PersistUnitDefinitionExpertiseAsync(
+        string unitId,
+        IReadOnlyList<ExpertiseManifestEntry> entries,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+
+            var entity = await db.UnitDefinitions
+                .FirstOrDefaultAsync(u => u.UnitId == unitId && u.DeletedAt == null, cancellationToken);
+
+            if (entity is null)
+            {
+                _logger.LogWarning(
+                    "Unit '{UnitName}': could not locate UnitDefinition row to persist seed expertise; actor will activate without seed.",
+                    unitId);
+                return;
+            }
+
+            var shaped = entries
+                .Where(e => !string.IsNullOrWhiteSpace(e.Domain) || !string.IsNullOrWhiteSpace(e.Name))
+                .Select(e => new
+                {
+                    domain = !string.IsNullOrWhiteSpace(e.Domain) ? e.Domain : e.Name,
+                    description = e.Description,
+                    level = e.Level,
+                })
+                .ToList();
+
+            var payload = new Dictionary<string, object?> { ["expertise"] = shaped };
+
+            // Preserve any other properties already on the Definition document
+            // so we don't clobber a pre-existing instructions/execution block.
+            if (entity.Definition is { ValueKind: System.Text.Json.JsonValueKind.Object } existing)
+            {
+                foreach (var prop in existing.EnumerateObject())
+                {
+                    if (!string.Equals(prop.Name, "expertise", StringComparison.OrdinalIgnoreCase))
+                    {
+                        payload[prop.Name] = prop.Value;
+                    }
+                }
+            }
+
+            entity.Definition = System.Text.Json.JsonSerializer.SerializeToElement(payload);
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Unit '{UnitName}': failed to persist seed expertise on UnitDefinition; actor will activate without seed.",
+                unitId);
+        }
     }
 
     private static IReadOnlyList<SkillBundleReference> ExtractSkillReferences(UnitManifest manifest)

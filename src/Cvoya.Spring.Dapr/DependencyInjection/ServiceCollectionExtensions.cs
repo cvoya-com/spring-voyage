@@ -203,6 +203,13 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IExpertiseStore, ActorBackedExpertiseStore>();
         services.TryAddSingleton<IExpertiseAggregator, ExpertiseAggregator>();
 
+        // Seed expertise from persisted AgentDefinition / UnitDefinition YAML
+        // on actor activation (#488). TryAdd so a tenant-scoped host can swap
+        // in a store-specific reader without forking. The agent/unit actors
+        // depend on this via optional resolution so pre-#488 test harnesses
+        // that construct actors manually keep working.
+        services.TryAddSingleton<IExpertiseSeedProvider, DbExpertiseSeedProvider>();
+
         // Execution — AnthropicProvider needs HttpClient
         services.AddHttpClient<IAiProvider, AnthropicProvider>();
         services.AddSingleton<IPromptAssembler, PromptAssembler>();
