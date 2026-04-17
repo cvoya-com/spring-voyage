@@ -43,6 +43,7 @@ How to use Spring Voyage V2 through the `spring` CLI.
 - [Messaging and Interaction](guide/messaging.md) -- sending messages, conversations
 - [Observing Activity](guide/observing.md) -- streams, cost tracking, dashboards
 - [Declarative Configuration](guide/declarative.md) -- YAML definitions and `spring apply`
+- [Deployment](guide/deployment.md) -- self-hosting on Docker Compose or Podman (including the no-build / registry path)
 
 ### [Developer Guide](developer/overview.md)
 
