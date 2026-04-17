@@ -368,6 +368,141 @@ public class SpringApiClientTests
         handler.WasCalled.ShouldBeTrue();
     }
 
+    // --- #453: Unit policy endpoints ---------------------------------------
+
+    [Fact]
+    public async Task GetUnitPolicyAsync_CallsCorrectEndpointAndParsesEmptyPolicy()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/units/eng-team/policy",
+            expectedMethod: HttpMethod.Get,
+            responseBody: "{\"skill\":null,\"model\":null,\"cost\":null,\"executionMode\":null,\"initiative\":null}");
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var policy = await client.GetUnitPolicyAsync("eng-team", TestContext.Current.CancellationToken);
+
+        policy.ShouldNotBeNull();
+        policy.Skill?.SkillPolicy.ShouldBeNull();
+        policy.Model?.ModelPolicy.ShouldBeNull();
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task SetUnitPolicyAsync_PutsMergedPolicyBodyAndDeserialisesResponse()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/units/eng-team/policy",
+            expectedMethod: HttpMethod.Put,
+            responseBody: "{\"skill\":{\"allowed\":[\"github\"],\"blocked\":[\"shell\"]}}",
+            validateRequestBody: body =>
+            {
+                // Kiota's oneOf-composed body serialises as the inner
+                // UnitPolicyResponse shape; the wire contract is the same
+                // JSON the server reads from the OSS `UnitPolicyResponse`
+                // record — verify skill fields round-trip verbatim.
+                var json = JsonSerializer.Deserialize<JsonElement>(body);
+                var skill = json.GetProperty("skill");
+                skill.GetProperty("allowed")[0].GetString().ShouldBe("github");
+                skill.GetProperty("blocked")[0].GetString().ShouldBe("shell");
+            });
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var policy = new Cvoya.Spring.Cli.Generated.Models.UnitPolicyResponse
+        {
+            Skill = new Cvoya.Spring.Cli.Generated.Models.UnitPolicyResponse.UnitPolicyResponse_skill
+            {
+                SkillPolicy = new Cvoya.Spring.Cli.Generated.Models.SkillPolicy
+                {
+                    Allowed = new List<string> { "github" },
+                    Blocked = new List<string> { "shell" },
+                },
+            },
+        };
+
+        var result = await client.SetUnitPolicyAsync("eng-team", policy, TestContext.Current.CancellationToken);
+
+        // Kiota emits each policy slot as an IComposedTypeWrapper. The
+        // request / response round-trip proves both halves are wired: the
+        // PUT body carries the skill rules verbatim (validated in the
+        // request-body hook above), and the 200 body deserialises into a
+        // non-null envelope regardless of which composed-type branch Kiota
+        // picks on the read side.
+        result.ShouldNotBeNull();
+        result.Skill.ShouldNotBeNull();
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    // --- #454: Humans endpoints --------------------------------------------
+
+    [Fact]
+    public async Task ListUnitHumanPermissionsAsync_CallsCorrectEndpoint()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/units/eng-team/humans",
+            expectedMethod: HttpMethod.Get,
+            responseBody: "[{\"humanId\":\"alice\",\"permission\":\"Owner\",\"identity\":\"alice@example.com\",\"notifications\":true}]");
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var entries = await client.ListUnitHumanPermissionsAsync("eng-team", TestContext.Current.CancellationToken);
+
+        entries.Count.ShouldBe(1);
+        entries[0].HumanId.ShouldBe("alice");
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task SetUnitHumanPermissionAsync_PatchesWithContractFields()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/units/eng-team/humans/alice/permissions",
+            expectedMethod: HttpMethod.Patch,
+            responseBody: "{\"humanId\":\"alice\",\"permission\":\"Operator\"}",
+            validateRequestBody: body =>
+            {
+                var json = JsonSerializer.Deserialize<JsonElement>(body);
+                json.GetProperty("permission").GetString().ShouldBe("operator");
+                json.GetProperty("identity").GetString().ShouldBe("alice@example.com");
+                json.GetProperty("notifications").GetBoolean().ShouldBeTrue();
+            });
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var result = await client.SetUnitHumanPermissionAsync(
+            "eng-team",
+            "alice",
+            permission: "operator",
+            identity: "alice@example.com",
+            notifications: true,
+            ct: TestContext.Current.CancellationToken);
+
+        result.HumanId.ShouldBe("alice");
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task RemoveUnitHumanPermissionAsync_DeletesAtCorrectEndpoint()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/units/eng-team/humans/alice/permissions",
+            expectedMethod: HttpMethod.Delete,
+            responseBody: "",
+            returnStatusCode: HttpStatusCode.NoContent);
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        await client.RemoveUnitHumanPermissionAsync("eng-team", "alice", TestContext.Current.CancellationToken);
+
+        handler.WasCalled.ShouldBeTrue();
+    }
+
     // --- #331: AddUnitMemberAsync ------------------------------------------
 
     [Fact]

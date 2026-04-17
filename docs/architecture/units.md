@@ -351,6 +351,15 @@ For every dimension, the enforcer walks **every unit the agent is a member of** 
 - **Agent dispatch (`AgentActor.ApplyUnitPoliciesAsync`)** — model, cost, and execution-mode evaluators run in sequence before every turn. An allowed execution-mode resolution whose `Mode` differs from the requested mode rewrites the effective `AgentMetadata` so downstream dispatch uses the coerced mode.
 - **Initiative reflection** — before emitting a reflection action the engine checks `EvaluateSkillInvocationAsync` (for the tool) and `EvaluateInitiativeActionAsync` (for the action class) to keep the initiative surface policy-aware.
 
+##### Operator surface
+
+Operators edit unit policies through two equivalent paths:
+
+- **HTTP** — unified `GET / PUT /api/v1/units/{id}/policy` with the five optional dimension slots. The empty response shape is always returned for units that have never had a policy persisted, so callers never need to branch on 404 vs empty-policy.
+- **CLI** (#453) — `spring unit policy <dimension> get|set|clear <unit>` for each of `skill`, `model`, `cost`, `execution-mode`, `initiative`. `set` accepts either per-dimension typed flags (e.g. `--allowed`, `--max-per-hour`, `--forced`) or a YAML fragment via `-f`. `get` prints the current slot plus the effective-policy inheritance chain; today the chain has a single hop because parent-unit overlay is tracked under #414.
+
+Both paths share the same wire contract — the CLI never mints a per-dimension endpoint. `set` and `clear` read the current policy, mutate only the target slot, and PUT the merged result so the other four slots are preserved across a dimension-scoped edit.
+
 See [Security](security.md) for how unit policies compose with other authorization surfaces (permissions, RBAC, secret access policies).
 
 ### Root Unit

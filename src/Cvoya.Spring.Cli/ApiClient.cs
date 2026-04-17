@@ -301,6 +301,110 @@ public class SpringApiClient
     public Task DeleteMembershipAsync(string unitId, string agentId, CancellationToken ct = default)
         => _client.Api.V1.Units[unitId].Memberships[agentId].DeleteAsync(cancellationToken: ct);
 
+    // Unit policy (#453 — unified policy surface across all five UnitPolicy
+    // dimensions: skill, model, cost, execution-mode, initiative). The
+    // server exposes a single GET/PUT pair that carries every dimension as
+    // an optional slot. `spring unit policy <dim> get|set|clear` composes
+    // this pair with a merge helper in the CLI layer so per-dimension verbs
+    // never need a per-dimension endpoint. Per-dimension endpoints would
+    // have doubled the OpenAPI surface without unlocking anything the
+    // unified shape does not already do.
+
+    /// <summary>
+    /// Gets the unit's <see cref="UnitPolicyResponse"/>. Returns the canonical
+    /// empty shape (every dimension null) when the unit has never had a
+    /// policy persisted — matches the server contract so callers never need
+    /// to branch on 404 vs empty-policy.
+    /// </summary>
+    public async Task<UnitPolicyResponse> GetUnitPolicyAsync(
+        string unitId,
+        CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Units[unitId].Policy.GetAsync(cancellationToken: ct);
+        return result ?? new UnitPolicyResponse();
+    }
+
+    /// <summary>
+    /// Upserts the unit's <see cref="UnitPolicyResponse"/>. Sends the entire
+    /// policy body verbatim — per-dimension semantics live in the CLI layer
+    /// (it is responsible for reading the current policy, mutating only the
+    /// target slot, and calling this method with the merged result). The
+    /// server echoes the canonical post-write shape; returning it lets
+    /// callers surface the merged view without a separate GET.
+    /// </summary>
+    public async Task<UnitPolicyResponse> SetUnitPolicyAsync(
+        string unitId,
+        UnitPolicyResponse policy,
+        CancellationToken ct = default)
+    {
+        // The Kiota-generated PUT accepts a composed `oneOf` body. The OSS
+        // contract shape we care about is always the fully-typed
+        // UnitPolicyResponse branch — wrap it here so commands never have to
+        // spell out the Member1 discriminator.
+        var body = new Cvoya.Spring.Cli.Generated.Api.V1.Units.Item.Policy.PolicyRequestBuilder.PolicyPutRequestBody
+        {
+            UnitPolicyResponse = policy,
+        };
+        var result = await _client.Api.V1.Units[unitId].Policy.PutAsync(body, cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty policy response for unit '{unitId}'.");
+    }
+
+    // Humans (#454). Three verbs — add, remove, list — all target the
+    // server's /humans surface. `add` maps to PATCH
+    // /humans/{humanId}/permissions; `remove` maps to DELETE on the same
+    // path (added by this PR so the CLI doesn't have to round-trip through
+    // a PATCH-to-viewer workaround); `list` maps to GET /humans.
+
+    /// <summary>
+    /// Lists every human permission entry for <paramref name="unitId"/>. The
+    /// GET endpoint is Viewer-gated; an unauthorised caller surfaces as a
+    /// Kiota <c>ApiException</c> carrying the 401/403.
+    /// </summary>
+    public async Task<IReadOnlyList<UnitPermissionEntry>> ListUnitHumanPermissionsAsync(
+        string unitId,
+        CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Units[unitId].Humans.GetAsync(cancellationToken: ct);
+        return result ?? new List<UnitPermissionEntry>();
+    }
+
+    /// <summary>
+    /// Sets / adds a human's permission entry on a unit. PATCH semantics —
+    /// only the supplied fields are overwritten. Owner-gated on the server,
+    /// so an Operator or Viewer caller surfaces an auth failure here.
+    /// </summary>
+    public async Task<SetHumanPermissionResponse> SetUnitHumanPermissionAsync(
+        string unitId,
+        string humanId,
+        string permission,
+        string? identity = null,
+        bool? notifications = null,
+        CancellationToken ct = default)
+    {
+        var request = new SetHumanPermissionRequest
+        {
+            Permission = permission,
+            Identity = string.IsNullOrWhiteSpace(identity) ? null : identity,
+            Notifications = notifications,
+        };
+        var result = await _client.Api.V1.Units[unitId].Humans[humanId].Permissions
+            .PatchAsync(request, cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty SetHumanPermission response for unit '{unitId}' / human '{humanId}'.");
+    }
+
+    /// <summary>
+    /// Removes a human's permission entry from a unit. Idempotent — DELETE
+    /// on a human that has no entry still returns 204 so the CLI does not
+    /// need to branch on prior presence.
+    /// </summary>
+    public Task RemoveUnitHumanPermissionAsync(
+        string unitId,
+        string humanId,
+        CancellationToken ct = default)
+        => _client.Api.V1.Units[unitId].Humans[humanId].Permissions.DeleteAsync(cancellationToken: ct);
+
     // Activity
 
     /// <summary>Queries activity events with optional filters and pagination.</summary>

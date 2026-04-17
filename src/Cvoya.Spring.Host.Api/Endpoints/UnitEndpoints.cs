@@ -144,6 +144,18 @@ public static class UnitEndpoints
             .Produces<IReadOnlyList<UnitPermissionEntry>>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
+        // DELETE pairs with PATCH above so `spring unit humans remove` has a
+        // dedicated call — the PATCH endpoint has no "unset" shape. Idempotent:
+        // removing an entry that does not exist still returns 204 so the CLI
+        // does not need to branch on "never set" vs "already removed".
+        // Owner-gated to match the PATCH authorisation policy.
+        group.MapDelete("/{id}/humans/{humanId}/permissions", RemoveHumanPermissionAsync)
+            .WithName("RemoveHumanPermission")
+            .WithSummary("Remove a human's permission entry from a unit")
+            .RequireAuthorization(PermissionPolicies.UnitOwner)
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
         group.MapGet("/{id}/agents", ListUnitAgentsAsync)
             .WithName("ListUnitAgents")
             .WithSummary("List the agents that belong to this unit (members with scheme=agent), enriched with each agent's metadata")
@@ -1014,6 +1026,45 @@ public static class UnitEndpoints
         var permissions = await unitProxy.GetHumanPermissionsAsync(cancellationToken);
 
         return Results.Ok(permissions);
+    }
+
+    /// <summary>
+    /// Handler for <c>DELETE /api/v1/units/{id}/humans/{humanId}/permissions</c>.
+    /// Pairs with <see cref="SetHumanPermissionAsync"/> so
+    /// <c>spring unit humans remove</c> has a dedicated endpoint. Returns 204
+    /// whether or not the human had an entry — the desired end state is "no
+    /// entry for this human on this unit" regardless of the prior state, so
+    /// the CLI stays a simple one-shot without retry branching.
+    /// </summary>
+    private static async Task<IResult> RemoveHumanPermissionAsync(
+        string id,
+        string humanId,
+        IDirectoryService directoryService,
+        IActorProxyFactory actorProxyFactory,
+        CancellationToken cancellationToken)
+    {
+        var unitAddress = new Address("unit", id);
+        var entry = await directoryService.ResolveAsync(unitAddress, cancellationToken);
+
+        if (entry is null)
+        {
+            return Results.Problem(detail: $"Unit '{id}' not found", statusCode: StatusCodes.Status404NotFound);
+        }
+
+        var unitProxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
+            new ActorId(entry.ActorId), nameof(UnitActor));
+
+        await unitProxy.RemoveHumanPermissionAsync(humanId, cancellationToken);
+
+        // Keep the human actor's unit-scoped map in sync so readers on the
+        // human side see the removal immediately — matches what
+        // SetHumanPermissionAsync does on the write path.
+        var humanProxy = actorProxyFactory.CreateActorProxy<IHumanActor>(
+            new ActorId(humanId), nameof(HumanActor));
+
+        await humanProxy.RemovePermissionForUnitAsync(id, cancellationToken);
+
+        return Results.NoContent();
     }
 
     /// <summary>
