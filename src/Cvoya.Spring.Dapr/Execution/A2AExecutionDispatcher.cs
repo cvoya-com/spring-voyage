@@ -116,7 +116,9 @@ public class A2AExecutionDispatcher(
             ConversationId: conversationId,
             Prompt: prompt,
             McpEndpoint: mcpServer.Endpoint,
-            McpToken: session.Token);
+            McpToken: session.Token,
+            Provider: definition.Execution.Provider,
+            Model: definition.Execution.Model);
 
         var prep = await launcher.PrepareAsync(launchContext, cancellationToken);
 
@@ -232,7 +234,9 @@ public class A2AExecutionDispatcher(
             ConversationId: sessionId,
             Prompt: prompt,
             McpEndpoint: mcpServer.Endpoint,
-            McpToken: session.Token);
+            McpToken: session.Token,
+            Provider: definition.Execution.Provider,
+            Model: definition.Execution.Model);
 
         var prep = await launcher.PrepareAsync(launchContext, cancellationToken);
 

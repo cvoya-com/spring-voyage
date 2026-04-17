@@ -123,6 +123,55 @@ public class DaprAgentLauncherTests
     }
 
     [Fact]
+    public async Task PrepareAsync_UsesProviderAndModelFromLaunchContext_WhenProvided()
+    {
+        // #480 step 5: when the AgentDefinition specifies a provider/model,
+        // DaprAgentLauncher must forward them to the container env vars so the
+        // Python Dapr Agent binds to the matching Conversation component.
+        var context = new AgentLaunchContext(
+            AgentId: "dapr-test-agent",
+            ConversationId: "conv-openai",
+            Prompt: "prompt",
+            McpEndpoint: "http://host.docker.internal:9999/mcp/",
+            McpToken: "t",
+            Provider: "openai",
+            Model: "gpt-4o-mini");
+
+        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
+
+        try
+        {
+            prep.EnvironmentVariables["SPRING_LLM_PROVIDER"].ShouldBe("openai");
+            prep.EnvironmentVariables["SPRING_MODEL"].ShouldBe("gpt-4o-mini");
+        }
+        finally
+        {
+            await _launcher.CleanupAsync(prep.WorkingDirectory, TestContext.Current.CancellationToken);
+        }
+    }
+
+    [Fact]
+    public async Task PrepareAsync_FallsBackToOllamaDefaults_WhenLaunchContextLeavesProviderNull()
+    {
+        // Back-compat path: AgentDefinitions that predate the provider/model
+        // fields must keep working. The launcher falls back to Ollama with the
+        // configured OllamaOptions.DefaultModel so nothing regresses.
+        var context = CreateContext();
+
+        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
+
+        try
+        {
+            prep.EnvironmentVariables["SPRING_LLM_PROVIDER"].ShouldBe("ollama");
+            prep.EnvironmentVariables["SPRING_MODEL"].ShouldBe("llama3.2:3b");
+        }
+        finally
+        {
+            await _launcher.CleanupAsync(prep.WorkingDirectory, TestContext.Current.CancellationToken);
+        }
+    }
+
+    [Fact]
     public async Task CleanupAsync_DeletesWorkingDirectory()
     {
         var context = CreateContext();

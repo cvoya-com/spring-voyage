@@ -14,11 +14,23 @@ using Cvoya.Spring.Core.Agents;
 /// <param name="DisplayName">A human-readable display name.</param>
 /// <param name="Description">A description of the agent's purpose.</param>
 /// <param name="Role">An optional role identifier for multicast resolution.</param>
+/// <param name="DefinitionJson">
+/// Optional agent-definition JSON document serialised as a string (e.g.
+/// <c>{"execution":{"tool":"dapr-agent","image":"…","provider":"ollama","model":"llama3.2:3b"}}</c>).
+/// When supplied, the server parses it and persists the <see cref="JsonElement"/>
+/// to <c>AgentDefinitions.Definition</c> so the execution layer can read
+/// <see cref="Cvoya.Spring.Core.Execution.AgentExecutionConfig"/> from it.
+/// Using a string on the wire keeps the Kiota-generated client surface flat —
+/// the equivalent nested-object shape leaks Kiota's <c>UntypedNode</c> into
+/// every caller.  Leaving it <c>null</c> produces the lightweight
+/// directory-only agent shape older clients use.
+/// </param>
 public record CreateAgentRequest(
     string Name,
     string DisplayName,
     string Description,
-    string? Role);
+    string? Role,
+    string? DefinitionJson = null);
 
 /// <summary>
 /// Response body representing an agent. Fields below <c>RegisteredAt</c>

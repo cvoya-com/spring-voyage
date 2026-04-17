@@ -146,6 +146,57 @@ public class DbAgentDefinitionProviderTests
     }
 
     [Fact]
+    public void Project_ExtractsProviderAndModel_ForDaprConversationAgents()
+    {
+        // #480 step 5: switching the Dapr-Conversation-backed runtime's provider
+        // / model must be a YAML-only change. The projection extracts both
+        // fields so DaprAgentLauncher can forward them to the container.
+        var entity = new AgentDefinitionEntity
+        {
+            Id = Guid.NewGuid(),
+            AgentId = "ada",
+            Name = "Ada",
+            Definition = JsonSerializer.SerializeToElement(new
+            {
+                execution = new
+                {
+                    tool = "dapr-agent",
+                    image = "localhost/spring-dapr-agent:latest",
+                    provider = "openai",
+                    model = "gpt-4o-mini",
+                }
+            })
+        };
+
+        var def = DbAgentDefinitionProvider.Project(entity);
+
+        def.Execution.ShouldNotBeNull();
+        def.Execution!.Provider.ShouldBe("openai");
+        def.Execution.Model.ShouldBe("gpt-4o-mini");
+    }
+
+    [Fact]
+    public void Project_MissingProviderAndModel_LeavesThemNull()
+    {
+        var entity = new AgentDefinitionEntity
+        {
+            Id = Guid.NewGuid(),
+            AgentId = "ada",
+            Name = "Ada",
+            Definition = JsonSerializer.SerializeToElement(new
+            {
+                execution = new { tool = "dapr-agent", image = "localhost/spring-dapr-agent:latest" }
+            })
+        };
+
+        var def = DbAgentDefinitionProvider.Project(entity);
+
+        def.Execution.ShouldNotBeNull();
+        def.Execution!.Provider.ShouldBeNull();
+        def.Execution.Model.ShouldBeNull();
+    }
+
+    [Fact]
     public void Project_NullImage_AllowedForA2ANativeAgents()
     {
         var entity = new AgentDefinitionEntity

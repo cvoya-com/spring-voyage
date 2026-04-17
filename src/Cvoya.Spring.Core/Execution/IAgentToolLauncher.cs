@@ -38,12 +38,24 @@ public interface IAgentToolLauncher
 /// <param name="Prompt">The assembled system prompt (Layer 1–4).</param>
 /// <param name="McpEndpoint">The URL the container should use to reach the MCP server.</param>
 /// <param name="McpToken">The bearer token the container must present on MCP calls.</param>
+/// <param name="Provider">
+/// Optional LLM provider selector from the agent's <see cref="AgentExecutionConfig.Provider"/>.
+/// Launchers that front a Dapr Conversation runtime (e.g. the Dapr Agent) use
+/// this to pin the component by name. <c>null</c> means "use launcher default".
+/// Launchers that do not route through Dapr Conversation may ignore this field.
+/// </param>
+/// <param name="Model">
+/// Optional model identifier from the agent's <see cref="AgentExecutionConfig.Model"/>.
+/// <c>null</c> means "use launcher default".
+/// </param>
 public record AgentLaunchContext(
     string AgentId,
     string ConversationId,
     string Prompt,
     string McpEndpoint,
-    string McpToken);
+    string McpToken,
+    string? Provider = null,
+    string? Model = null);
 
 /// <summary>
 /// Output of <see cref="IAgentToolLauncher.PrepareAsync"/>.

@@ -73,4 +73,50 @@ public class ConversationContextBuilderTests
 
         result.ShouldBeEmpty();
     }
+
+    /// <summary>
+    /// Regression — #480 step 2 surfaced this while running the dapr-agent
+    /// scenario end-to-end. The CLI `message send` path serialises the user
+    /// text as a bare JSON string (UntypedString on the wire); the builder
+    /// used to call JsonElement.TryGetProperty on the non-object payload and
+    /// crash with InvalidOperationException. ExtractText now accepts every
+    /// ValueKind without throwing.
+    /// </summary>
+    [Fact]
+    public void Build_AcceptsBareStringPayload()
+    {
+        var message = new Message(
+            Guid.NewGuid(),
+            new Address("agent", "human"),
+            new Address("agent", "receiver"),
+            MessageType.Domain,
+            "conv-1",
+            JsonSerializer.SerializeToElement("Say hello in one sentence."),
+            DateTimeOffset.UtcNow);
+
+        var result = _builder.Build([message], null);
+
+        result.ShouldContain("Say hello in one sentence.");
+    }
+
+    /// <summary>
+    /// The A2A-backed path wraps the message in { Task: "..." }; both shapes
+    /// must produce readable history to keep conversation context useful.
+    /// </summary>
+    [Fact]
+    public void Build_AcceptsTaskPayloadShape()
+    {
+        var message = new Message(
+            Guid.NewGuid(),
+            new Address("agent", "human"),
+            new Address("agent", "receiver"),
+            MessageType.Domain,
+            "conv-1",
+            JsonSerializer.SerializeToElement(new { Task = "do-work" }),
+            DateTimeOffset.UtcNow);
+
+        var result = _builder.Build([message], null);
+
+        result.ShouldContain("do-work");
+    }
 }

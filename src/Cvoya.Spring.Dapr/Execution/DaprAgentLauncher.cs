@@ -49,6 +49,17 @@ public class DaprAgentLauncher(
 
         var opts = ollamaOptions.Value;
 
+        // Provider / model selection is YAML-driven via AgentDefinition.Execution:
+        // when the definition specifies execution.provider / execution.model those win.
+        // Otherwise the launcher falls back to Ollama defaults so existing definitions
+        // without the fields continue to work. These env vars map to the Dapr
+        // Conversation component name ("llm-provider") and model metadata consumed by
+        // the Python agent; changing provider is a YAML-only change (#480 acceptance).
+        var provider = !string.IsNullOrWhiteSpace(context.Provider) ? context.Provider! : "ollama";
+        var model = !string.IsNullOrWhiteSpace(context.Model)
+            ? context.Model!
+            : opts.DefaultModel ?? "llama3.2:3b";
+
         var envVars = new Dictionary<string, string>
         {
             ["SPRING_AGENT_ID"] = context.AgentId,
@@ -56,8 +67,8 @@ public class DaprAgentLauncher(
             ["SPRING_MCP_ENDPOINT"] = context.McpEndpoint,
             ["SPRING_AGENT_TOKEN"] = context.McpToken,
             ["SPRING_SYSTEM_PROMPT"] = context.Prompt,
-            ["SPRING_MODEL"] = opts.DefaultModel ?? "llama3.2:3b",
-            ["SPRING_LLM_PROVIDER"] = "ollama",
+            ["SPRING_MODEL"] = model,
+            ["SPRING_LLM_PROVIDER"] = provider,
             ["AGENT_PORT"] = DefaultAgentPort.ToString(),
         };
 

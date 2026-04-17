@@ -104,6 +104,24 @@ class TestBuildAgent:
         assert call_kwargs["instructions"] == ["Be concise."]
 
     @pytest.mark.asyncio
+    async def test_passes_provider_and_model_to_agent(self, monkeypatch):
+        """SPRING_LLM_PROVIDER and SPRING_MODEL must flow into the DurableAgent
+        constructor as `llm` and `model` so the Dapr Conversation component is
+        pinned explicitly — not silently resolved by the SDK default."""
+        monkeypatch.delenv("SPRING_MCP_ENDPOINT", raising=False)
+        monkeypatch.delenv("SPRING_AGENT_TOKEN", raising=False)
+        monkeypatch.setenv("SPRING_LLM_PROVIDER", "openai")
+        monkeypatch.setenv("SPRING_MODEL", "gpt-4o-mini")
+
+        with patch("agent.Agent") as mock_agent_cls:
+            mock_agent_cls.return_value = MagicMock()
+            await _build_agent()
+
+        call_kwargs = mock_agent_cls.call_args[1]
+        assert call_kwargs["llm"] == "openai"
+        assert call_kwargs["model"] == "gpt-4o-mini"
+
+    @pytest.mark.asyncio
     async def test_builds_agent_with_mcp_tools(self, monkeypatch):
         monkeypatch.setenv("SPRING_MCP_ENDPOINT", "http://mcp:9999/mcp")
         monkeypatch.setenv("SPRING_AGENT_TOKEN", "tok-abc")

@@ -11,6 +11,7 @@ using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
+using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Routing;
 using Cvoya.Spring.Host.Api.Auth;
 using Cvoya.Spring.Host.Api.Models;
@@ -19,6 +20,7 @@ using global::Dapr.Actors;
 using global::Dapr.Actors.Client;
 
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 /// <summary>
 /// Maps agent-related API endpoints.
@@ -183,6 +185,7 @@ public static class AgentEndpoints
     private static async Task<IResult> CreateAgentAsync(
         CreateAgentRequest request,
         IDirectoryService directoryService,
+        SpringDbContext db,
         CancellationToken cancellationToken)
     {
         var actorId = Guid.NewGuid().ToString();
@@ -196,6 +199,36 @@ public static class AgentEndpoints
             DateTimeOffset.UtcNow);
 
         await directoryService.RegisterAsync(entry, cancellationToken);
+
+        // If the caller supplied a definition JSON document, parse and persist
+        // it on the AgentDefinitionEntity so IAgentDefinitionProvider can
+        // surface the execution configuration to the dispatcher. This is the
+        // YAML-only path for selecting the agent's runtime (tool / image /
+        // provider / model) — required by #480 acceptance so switching provider
+        // is a pure-configuration change, no code edit.
+        if (!string.IsNullOrWhiteSpace(request.DefinitionJson))
+        {
+            JsonElement definition;
+            try
+            {
+                using var doc = JsonDocument.Parse(request.DefinitionJson);
+                definition = doc.RootElement.Clone();
+            }
+            catch (JsonException ex)
+            {
+                return Results.Problem(
+                    detail: $"DefinitionJson is not valid JSON: {ex.Message}",
+                    statusCode: StatusCodes.Status400BadRequest);
+            }
+
+            var entity = await db.AgentDefinitions
+                .FirstOrDefaultAsync(a => a.AgentId == request.Name, cancellationToken);
+            if (entity is not null)
+            {
+                entity.Definition = definition;
+                await db.SaveChangesAsync(cancellationToken);
+            }
+        }
 
         return Results.Created($"/api/v1/agents/{request.Name}", ToAgentResponse(entry));
     }

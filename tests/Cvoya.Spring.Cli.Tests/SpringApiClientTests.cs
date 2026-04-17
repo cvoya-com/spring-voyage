@@ -51,7 +51,7 @@ public class SpringApiClientTests
         var httpClient = new HttpClient(handler);
         var client = new SpringApiClient(httpClient, BaseUrl);
 
-        var result = await client.CreateAgentAsync("ada", "Ada", "coder", TestContext.Current.CancellationToken);
+        var result = await client.CreateAgentAsync("ada", "Ada", "coder", ct: TestContext.Current.CancellationToken);
 
         result.Id.ShouldBe("ada");
         result.DisplayName.ShouldBe("Ada");

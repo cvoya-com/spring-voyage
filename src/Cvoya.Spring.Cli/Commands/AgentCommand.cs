@@ -97,20 +97,51 @@ public static class AgentCommand
         var idArg = new Argument<string>("id") { Description = "The agent identifier (sent as the server's Name field)" };
         var nameOption = new Option<string?>("--name") { Description = "Human-readable display name (defaults to id)" };
         var roleOption = new Option<string?>("--role") { Description = "The agent role" };
+        var definitionFileOption = new Option<string?>("--definition-file")
+        {
+            Description =
+                "Path to a JSON file containing the agent definition document (e.g. execution.tool/image/provider/model). " +
+                "When supplied, its contents are sent verbatim to the server and persisted on AgentDefinitions.Definition.",
+        };
+        var definitionOption = new Option<string?>("--definition")
+        {
+            Description = "Inline JSON literal for the agent definition document. Alternative to --definition-file.",
+        };
         var command = new Command("create", "Create a new agent");
         command.Arguments.Add(idArg);
         command.Options.Add(nameOption);
         command.Options.Add(roleOption);
+        command.Options.Add(definitionFileOption);
+        command.Options.Add(definitionOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
             var id = parseResult.GetValue(idArg)!;
             var displayName = parseResult.GetValue(nameOption);
             var role = parseResult.GetValue(roleOption);
+            var definitionFile = parseResult.GetValue(definitionFileOption);
+            var definitionInline = parseResult.GetValue(definitionOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
+
+            string? definitionJson = definitionInline;
+            if (!string.IsNullOrWhiteSpace(definitionFile))
+            {
+                if (!System.IO.File.Exists(definitionFile))
+                {
+                    await Console.Error.WriteLineAsync($"Definition file not found: {definitionFile}");
+                    Environment.Exit(1);
+                    return;
+                }
+
+                // Inline takes precedence only when --definition-file is not set
+                // so `--definition-file` is the canonical path; inline stays for
+                // one-liners in shell scenarios.
+                definitionJson = await System.IO.File.ReadAllTextAsync(definitionFile, ct);
+            }
+
             var client = ClientFactory.Create();
 
-            var result = await client.CreateAgentAsync(id, displayName, role, ct);
+            var result = await client.CreateAgentAsync(id, displayName, role, definitionJson, ct);
 
             Console.WriteLine(output == "json"
                 ? OutputFormatter.FormatJson(result)

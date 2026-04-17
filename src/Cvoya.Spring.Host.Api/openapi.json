@@ -5233,6 +5233,12 @@
               "null",
               "string"
             ]
+          },
+          "definitionJson": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },

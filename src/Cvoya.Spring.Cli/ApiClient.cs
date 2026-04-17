@@ -53,11 +53,16 @@ public class SpringApiClient
     /// server's <c>Name</c> field (the unique identifier on the wire), while
     /// <paramref name="displayName"/> maps to <c>DisplayName</c>. Server requires both,
     /// so when no display name is supplied we fall back to <paramref name="id"/>.
+    /// <paramref name="definitionJson"/> is the optional agent-definition JSON document
+    /// (e.g. the execution block that selects <c>tool</c> / <c>image</c> / <c>provider</c>
+    /// / <c>model</c>). When non-null the server persists it to
+    /// <c>AgentDefinitions.Definition</c> so the dispatcher can honour it.
     /// </summary>
     public async Task<AgentResponse> CreateAgentAsync(
         string id,
         string? displayName,
         string? role,
+        string? definitionJson = null,
         CancellationToken ct = default)
     {
         var request = new CreateAgentRequest
@@ -66,7 +71,9 @@ public class SpringApiClient
             DisplayName = string.IsNullOrWhiteSpace(displayName) ? id : displayName,
             Description = string.Empty,
             Role = role,
+            DefinitionJson = string.IsNullOrWhiteSpace(definitionJson) ? null : definitionJson,
         };
+
         var result = await _client.Api.V1.Agents.PostAsync(request, cancellationToken: ct);
         return result ?? throw new InvalidOperationException("Server returned an empty CreateAgent response.");
     }

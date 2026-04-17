@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from typing import Any
 
 import uvicorn
 from a2a.server.agent_execution import AgentExecutor, RequestContext
@@ -160,13 +161,26 @@ async def _build_agent() -> Agent:
     if system_prompt:
         instructions = [system_prompt]
 
-    agent = Agent(
-        name="SpringDaprAgent",
-        role="AI Assistant",
-        goal="Complete tasks using available tools and LLM reasoning",
-        instructions=instructions,
-        tools=tools,
-    )
+    # Build the DurableAgent kwargs. `llm` names the Dapr Conversation component
+    # (component metadata.name, not the building-block type) that the agent's
+    # sidecar exposes; passing it explicitly pins the provider so mis-routed or
+    # unconfigured components fail loudly at startup instead of silently falling
+    # back to DurableAgent's environment-driven default. `model` likewise pins
+    # the model the component will request — required for multi-model Ollama
+    # deployments and to make the provider/model knob visible on every turn.
+    agent_kwargs: dict[str, Any] = {
+        "name": "SpringDaprAgent",
+        "role": "AI Assistant",
+        "goal": "Complete tasks using available tools and LLM reasoning",
+        "instructions": instructions,
+        "tools": tools,
+    }
+    if provider:
+        agent_kwargs["llm"] = provider
+    if model:
+        agent_kwargs["model"] = model
+
+    agent = Agent(**agent_kwargs)
 
     logger.info(
         "Dapr Agent built: provider=%s, model=%s, tools=%d",

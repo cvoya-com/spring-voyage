@@ -66,7 +66,7 @@ public class DbAgentDefinitionProvider(
 
     private static AgentExecutionConfig? ExtractExecution(JsonElement definition)
     {
-        // Preferred: top-level `execution: { tool, image, runtime, hosting }`.
+        // Preferred: top-level `execution: { tool, image, runtime, hosting, provider, model }`.
         if (definition.TryGetProperty("execution", out var exec) &&
             exec.ValueKind == JsonValueKind.Object)
         {
@@ -74,10 +74,12 @@ public class DbAgentDefinitionProvider(
             var image = GetStringOrNull(exec, "image");
             var runtime = GetStringOrNull(exec, "runtime");
             var hosting = ParseHosting(GetStringOrNull(exec, "hosting"));
+            var provider = GetStringOrNull(exec, "provider");
+            var model = GetStringOrNull(exec, "model");
 
             if (tool is not null)
             {
-                return new AgentExecutionConfig(tool, image, runtime, hosting);
+                return new AgentExecutionConfig(tool, image, runtime, hosting, provider, model);
             }
         }
 

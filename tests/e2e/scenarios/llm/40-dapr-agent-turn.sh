@@ -1,14 +1,21 @@
 #!/usr/bin/env bash
 # LLM scenario: Dapr Agent turn via A2A protocol.
 #
-# Creates a unit + agent configured with tool="dapr-agent", dispatches a
-# simple message, and verifies the round-trip completes without 5xx errors.
-# The agent uses the Ollama container for inference — this scenario gates
-# on e2e::require_ollama.
+# Creates a unit + agent definition with execution.tool=dapr-agent, dispatches a
+# simple message, and verifies the round-trip produces a non-empty, non-error
+# LLM response. This is the real gate on the Ollama-driven agent runtime
+# (closes #480): the previous smoke test asserted only that the HTTP call did
+# not 5xx, which silently passed when the executor fell through to
+# TaskState.failed. The executor's failure path returns a 200 with an error
+# artefact, so we explicitly check the artefact content.
 #
-# Scope: wiring proof that the DaprAgentLauncher + Python Dapr Agent
-# container can receive a task and return a response. We cannot assert on
-# the LLM's text output, so the check is that the dispatch succeeds.
+# Scope: gated on e2e::require_ollama so the base scenario set stays green on
+# hosts without a reachable Ollama.
+#
+# Seeding path: we persist `execution.tool=dapr-agent` on the agent definition
+# via `spring agent create --definition`. That knob is what tells
+# A2AExecutionDispatcher to route through DaprAgentLauncher. Without it the
+# dispatcher throws "Agent has no execution configuration".
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
@@ -21,6 +28,9 @@ fi
 
 unit="$(e2e::unit_name llm-dapr-agent)"
 agent="$(e2e::agent_name llm-dapr-agent)"
+image="${SPRING_DAPR_AGENT_IMAGE:-localhost/spring-dapr-agent:latest}"
+model="${SPRING_DAPR_AGENT_MODEL:-llama3.2:3b}"
+provider="${SPRING_DAPR_AGENT_PROVIDER:-ollama}"
 
 cleanup() {
     e2e::cli unit purge "${unit}" --confirm >/dev/null 2>&1 || true
@@ -28,21 +38,104 @@ cleanup() {
 }
 trap cleanup EXIT
 
-e2e::log "creating unit '${unit}'"
-e2e::cli unit create "${unit}" --display-name "Dapr Agent E2E"
+# --- Setup --------------------------------------------------------------------
+e2e::log "spring unit create ${unit}"
+response="$(e2e::cli --output json unit create "${unit}")"
+code="${response##*$'\n'}"
+e2e::expect_status "0" "${code}" "unit create succeeds"
 
-e2e::log "creating agent '${agent}' with tool=dapr-agent"
-e2e::cli agent create "${agent}" \
-    --unit "${unit}" \
-    --display-name "Dapr Agent" \
-    --tool dapr-agent \
-    --image "${SPRING_DAPR_AGENT_IMAGE:-localhost/spring-dapr-agent:latest}"
+# Inline JSON body for `--definition`. Uses jq when available (clean escaping)
+# and falls back to a hand-written literal otherwise so the scenario runs on
+# hosts without jq.
+if command -v jq >/dev/null 2>&1; then
+    definition="$(jq -cn \
+        --arg tool "dapr-agent" \
+        --arg image "${image}" \
+        --arg provider "${provider}" \
+        --arg model "${model}" \
+        '{execution: {tool: $tool, image: $image, provider: $provider, model: $model}}')"
+else
+    definition="{\"execution\":{\"tool\":\"dapr-agent\",\"image\":\"${image}\",\"provider\":\"${provider}\",\"model\":\"${model}\"}}"
+fi
 
-e2e::log "sending message to agent '${agent}'"
-response=$(e2e::cli message send "${agent}" --text "Say hello in one sentence." 2>&1) || {
-    e2e::log "message send failed (exit $?): ${response}"
-    exit 1
-}
+e2e::log "spring agent create ${agent} (tool=dapr-agent, provider=${provider}, model=${model})"
+response="$(e2e::cli --output json agent create "${agent}" \
+    --name "Dapr Agent" \
+    --definition "${definition}")"
+code="${response##*$'\n'}"
+e2e::expect_status "0" "${code}" "agent create with dapr-agent execution succeeds"
 
-e2e::log "dapr-agent turn completed successfully"
-e2e::log "response: ${response}"
+e2e::log "spring unit members add ${unit} --agent ${agent}"
+response="$(e2e::cli --output json unit members add "${unit}" --agent "${agent}")"
+code="${response##*$'\n'}"
+e2e::expect_status "0" "${code}" "membership add succeeds"
+
+# --- Dispatch a turn ----------------------------------------------------------
+# The send itself returns as soon as the message is accepted. The actual agent
+# turn runs async — we then tail the conversation until an agent reply appears
+# (or we hit the timeout, which itself is a failure signal because the turn
+# should complete in under a minute for a trivial prompt on llama3.2:3b).
+conv_id="e2e-conv-$(date +%s)-$$"
+e2e::log "spring message send agent://${agent} (conversation=${conv_id})"
+response="$(e2e::cli --output json message send "agent://${agent}" \
+    "Say the word 'hello' in a single sentence and nothing else." \
+    --conversation "${conv_id}")"
+code="${response##*$'\n'}"
+body="${response%$'\n'*}"
+e2e::expect_status "0" "${code}" "message send succeeds"
+e2e::expect_contains "messageId" "${body}" "send response carries a messageId"
+
+# --- Assert on the LLM's actual reply -----------------------------------------
+# Poll `conversation show` (up to the timeout) for an event sourced from the
+# agent. A TaskState.failed payload surfaces as an event whose summary carries
+# "Error:"; we flag that explicitly so the scenario fails loud instead of
+# silently passing the way the old smoke test did (#480 finding 5).
+timeout="${SPRING_DAPR_AGENT_TURN_TIMEOUT:-180}"
+deadline=$(( $(date +%s) + timeout ))
+agent_reply=""
+last_show=""
+while (( $(date +%s) < deadline )); do
+    show_raw="$(e2e::cli --output json conversation show "${conv_id}" 2>&1)" || true
+    show_code="${show_raw##*$'\n'}"
+    show_body="${show_raw%$'\n'*}"
+    last_show="${show_body}"
+
+    if [[ "${show_code}" != "0" ]]; then
+        sleep 2
+        continue
+    fi
+
+    # Any event whose source starts with "agent://" represents output from the
+    # executor. `jq` is the precise extractor; `grep` is a coarser fallback.
+    if command -v jq >/dev/null 2>&1; then
+        agent_reply="$(printf '%s' "${show_body}" \
+            | jq -r '[.events[]? | select(.source|tostring|startswith("agent://"))][-1].summary // ""' \
+            2>/dev/null || true)"
+    else
+        agent_reply="$(printf '%s' "${show_body}" \
+            | grep -oE '"summary":[[:space:]]*"[^"]+"' | tail -1 \
+            | sed -E 's/^"summary":[[:space:]]*"//; s/"$//' || true)"
+    fi
+
+    if [[ -n "${agent_reply}" ]]; then
+        break
+    fi
+
+    sleep 2
+done
+
+if [[ -z "${agent_reply}" ]]; then
+    e2e::fail "no agent reply surfaced in conversation ${conv_id} within ${timeout}s (last show body: ${last_show:0:500})"
+else
+    case "${agent_reply}" in
+        *[Ee]rror:*|*TaskState.failed*)
+            e2e::fail "agent reply carries an error (TaskState.failed or Error:…): ${agent_reply:0:500}"
+            ;;
+        *)
+            e2e::ok "agent reply is non-empty and non-error (${#agent_reply} chars)"
+            ;;
+    esac
+fi
+
+e2e::log "agent reply: ${agent_reply:0:500}"
+e2e::summary

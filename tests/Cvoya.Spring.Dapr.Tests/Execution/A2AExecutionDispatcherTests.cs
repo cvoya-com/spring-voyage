@@ -126,6 +126,41 @@ public class A2AExecutionDispatcherTests
     }
 
     [Fact]
+    public async Task DispatchAsync_ForwardsProviderAndModelFromAgentDefinitionToLaunchContext()
+    {
+        // #480 step 5: providers other than Ollama must be reachable via a
+        // YAML-only change on the AgentDefinition. The dispatcher reads
+        // execution.provider / execution.model and forwards them through the
+        // AgentLaunchContext so the launcher can pin the Conversation
+        // component by name. No live provider call needed — we verify the
+        // wiring by inspecting the context the dispatcher hands to the stub
+        // launcher.
+        var message = CreateMessage();
+        _agentProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
+            .Returns(new AgentDefinition(
+                AgentId: AgentId,
+                Name: "My Agent",
+                Instructions: null,
+                Execution: new AgentExecutionConfig(
+                    Tool: "claude-code",
+                    Image: Image,
+                    Provider: "openai",
+                    Model: "gpt-4o-mini")));
+        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns("p");
+        _containerRuntime.RunAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
+            .Returns(new ContainerResult("spring-exec-provider", 0, "", ""));
+
+        await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
+
+        await _launcher.Received(1).PrepareAsync(
+            Arg.Is<AgentLaunchContext>(ctx =>
+                ctx.Provider == "openai" &&
+                ctx.Model == "gpt-4o-mini"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task DispatchAsync_EphemeralAgent_IssuesMcpSessionAndPassesToLauncher()
     {
         var message = CreateMessage();

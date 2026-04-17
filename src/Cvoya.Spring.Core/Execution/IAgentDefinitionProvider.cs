@@ -66,8 +66,23 @@ public enum AgentHostingMode
 /// <param name="Hosting">
 /// The hosting mode for the agent. Defaults to <see cref="AgentHostingMode.Ephemeral"/>.
 /// </param>
+/// <param name="Provider">
+/// Optional LLM provider selector for Dapr-Conversation-backed launchers (e.g.
+/// <c>ollama</c>, <c>openai</c>, <c>anthropic</c>, <c>googleai</c>). When set,
+/// launchers pass this through to the agent runtime so it can pin the Dapr
+/// Conversation component by name. When <c>null</c> the launcher falls back to
+/// its built-in default. Ignored by launchers that don't use Dapr Conversation.
+/// </param>
+/// <param name="Model">
+/// Optional model identifier forwarded to the provider. For Ollama this is the
+/// model tag (e.g. <c>llama3.2:3b</c>); for OpenAI-compatible backends it is
+/// the model name (e.g. <c>gpt-4o-mini</c>). <c>null</c> means "let the
+/// launcher choose its default".
+/// </param>
 public record AgentExecutionConfig(
     string Tool,
     string? Image,
     string? Runtime = null,
-    AgentHostingMode Hosting = AgentHostingMode.Ephemeral);
+    AgentHostingMode Hosting = AgentHostingMode.Ephemeral,
+    string? Provider = null,
+    string? Model = null);
