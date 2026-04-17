@@ -67,7 +67,7 @@ Other shapes (missing `labels`, non-array, nested differently) are treated as "n
 ## Consequences
 
 - **DI registration.** The strategy is a keyed scoped service under `"label-routed"`. Scoped because it depends on `IUnitPolicyRepository`; the per-turn policy read picks up hot edits without actor recycling. The unkeyed default remains `AiOrchestrationStrategy` for backward compatibility; a manifest-driven strategy selector is tracked under #491.
-- **Status-label roundtrip.** `AddOnAssign` / `RemoveOnAssign` are captured on the policy but not applied by the strategy itself — the connector owns the external credentials and is the natural place to apply labels after a successful dispatch. Wiring the GitHub connector to consume these fields is tracked under #492 so this PR stays scoped to routing.
+- **Status-label roundtrip.** `AddOnAssign` / `RemoveOnAssign` are captured on the policy but not applied by the strategy itself — the connector owns the external credentials and is the natural place to apply labels after a successful dispatch. The GitHub connector consumes these fields via an activity-event subscription (#492, ADR-0009).
 - **Enforcer surface is unchanged.** `IUnitPolicyEnforcer` implementations (including private-cloud decorators) continue to walk the first five governance slots; they do not need to know `LabelRouting` exists.
 - **Wire BC.** Every existing `GET /api/v1/units/{id}/policy` caller keeps working — `labelRouting` is a new nullable field. Existing persisted rows round-trip as `LabelRouting: null`.
 
