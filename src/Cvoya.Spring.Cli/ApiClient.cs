@@ -421,6 +421,52 @@ public class SpringApiClient
             $"Server returned an empty policy response for unit '{unitId}'.");
     }
 
+    // Unit boundary (#413). Single unified endpoint returns the declared
+    // opacity / projection / synthesis rules; PUT replaces; DELETE clears.
+
+    /// <summary>
+    /// Gets the unit's <see cref="UnitBoundaryResponse"/>. Returns the
+    /// canonical empty shape when the unit has never had a boundary
+    /// persisted — matches the server contract so callers never need to
+    /// branch on 404 vs empty-boundary.
+    /// </summary>
+    public async Task<UnitBoundaryResponse> GetUnitBoundaryAsync(
+        string unitId,
+        CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Units[unitId].Boundary.GetAsync(cancellationToken: ct);
+        return result ?? new UnitBoundaryResponse();
+    }
+
+    /// <summary>
+    /// Upserts the unit's <see cref="UnitBoundaryResponse"/>. Sends the
+    /// entire boundary body verbatim; the CLI merges the single target slot
+    /// before calling this method for per-verb operations.
+    /// </summary>
+    public async Task<UnitBoundaryResponse> SetUnitBoundaryAsync(
+        string unitId,
+        UnitBoundaryResponse boundary,
+        CancellationToken ct = default)
+    {
+        // Kiota emitted a composed oneOf body here (same shape it does for
+        // /policy). Wrap the typed response into the Member1 discriminator
+        // so the command layer never has to spell it out.
+        var body = new Cvoya.Spring.Cli.Generated.Api.V1.Units.Item.Boundary.BoundaryRequestBuilder.BoundaryPutRequestBody
+        {
+            UnitBoundaryResponse = boundary,
+        };
+        var result = await _client.Api.V1.Units[unitId].Boundary.PutAsync(body, cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty boundary response for unit '{unitId}'.");
+    }
+
+    /// <summary>
+    /// Clears every boundary rule on the unit. Idempotent — calling on a
+    /// unit that never had a boundary is a no-op and returns cleanly.
+    /// </summary>
+    public Task ClearUnitBoundaryAsync(string unitId, CancellationToken ct = default)
+        => _client.Api.V1.Units[unitId].Boundary.DeleteAsync(cancellationToken: ct);
+
     // Humans (#454). Three verbs — add, remove, list — all target the
     // server's /humans surface. `add` maps to PATCH
     // /humans/{humanId}/permissions; `remove` maps to DELETE on the same

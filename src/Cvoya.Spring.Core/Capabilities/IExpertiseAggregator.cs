@@ -46,6 +46,14 @@ public interface IExpertiseAggregator
     /// <see cref="InvalidateAsync(Address, CancellationToken)"/> for the
     /// propagation contract.
     /// </summary>
+    /// <remarks>
+    /// Equivalent to calling the overload that accepts a
+    /// <see cref="BoundaryViewContext"/> with
+    /// <see cref="BoundaryViewContext.InsideUnit"/> — i.e. the <em>raw</em>
+    /// aggregation with no boundary rules applied. Callers that need the
+    /// outside-the-unit view must use that overload with an external caller
+    /// context.
+    /// </remarks>
     /// <param name="unit">The unit whose effective expertise to compute.</param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     /// <returns>
@@ -59,6 +67,34 @@ public interface IExpertiseAggregator
     /// depth. The exception carries the path walked so far.
     /// </exception>
     Task<AggregatedExpertise> GetAsync(Address unit, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the effective expertise for <paramref name="unit"/> as seen by
+    /// the caller described in <paramref name="context"/>. Implementations
+    /// that layer a boundary (#413) use the context to decide whether to
+    /// apply opacity / projection / synthesis rules. Implementations that do
+    /// not wrap the raw aggregator may ignore the context entirely.
+    /// </summary>
+    /// <param name="unit">The unit whose effective expertise to compute.</param>
+    /// <param name="context">
+    /// The caller context. Pass <see cref="BoundaryViewContext.External"/>
+    /// for an outside-the-unit read; pass <see cref="BoundaryViewContext.InsideUnit"/>
+    /// when the caller is the unit itself or a known member and the raw
+    /// aggregate is desired.
+    /// </param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    /// <remarks>
+    /// The default interface implementation preserves the legacy behaviour —
+    /// it delegates to <see cref="GetAsync(Address, CancellationToken)"/> so
+    /// any existing implementation (including substitute mocks in tests)
+    /// keeps compiling without modification. Implementations that want
+    /// boundary-aware behaviour override this method.
+    /// </remarks>
+    Task<AggregatedExpertise> GetAsync(
+        Address unit,
+        BoundaryViewContext context,
+        CancellationToken cancellationToken = default)
+        => GetAsync(unit, cancellationToken);
 
     /// <summary>
     /// Invalidates the cached aggregation for <paramref name="origin"/> and

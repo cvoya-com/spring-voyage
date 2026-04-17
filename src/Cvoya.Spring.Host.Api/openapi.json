@@ -2125,6 +2125,144 @@
         }
       }
     },
+    "/api/v1/units/{id}/boundary": {
+      "get": {
+        "tags": [
+          "UnitBoundary"
+        ],
+        "summary": "Get the unit's boundary configuration",
+        "operationId": "GetUnitBoundary",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnitBoundaryResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "UnitBoundary"
+        ],
+        "summary": "Upsert the unit's boundary configuration",
+        "operationId": "SetUnitBoundary",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/UnitBoundaryResponse"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnitBoundaryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "UnitBoundary"
+        ],
+        "summary": "Clear every boundary rule on the unit",
+        "operationId": "ClearUnitBoundary",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/agents/{agentId}/clones": {
       "post": {
         "tags": [
@@ -5307,6 +5445,108 @@
           "attached"
         ]
       },
+      "BoundaryOpacityRuleDto": {
+        "required": [
+          "domainPattern",
+          "originPattern"
+        ],
+        "type": "object",
+        "properties": {
+          "domainPattern": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "originPattern": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "BoundaryProjectionRuleDto": {
+        "required": [
+          "domainPattern",
+          "originPattern",
+          "renameTo",
+          "retag",
+          "overrideLevel"
+        ],
+        "type": "object",
+        "properties": {
+          "domainPattern": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "originPattern": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "renameTo": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "retag": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "overrideLevel": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "BoundarySynthesisRuleDto": {
+        "required": [
+          "name",
+          "domainPattern",
+          "originPattern",
+          "description",
+          "level"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "domainPattern": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "originPattern": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "level": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "BudgetResponse": {
         "required": [
           "dailyBudget"
@@ -7184,6 +7424,38 @@
           }
         }
       },
+      "UnitBoundaryResponse": {
+        "type": "object",
+        "properties": {
+          "opacities": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/BoundaryOpacityRuleDto"
+            }
+          },
+          "projections": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/BoundaryProjectionRuleDto"
+            }
+          },
+          "syntheses": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/BoundarySynthesisRuleDto"
+            }
+          }
+        }
+      },
       "UnitConnectorBindingRequest": {
         "required": [
           "typeId",
@@ -7931,6 +8203,9 @@
     },
     {
       "name": "Expertise"
+    },
+    {
+      "name": "UnitBoundary"
     },
     {
       "name": "Clones"

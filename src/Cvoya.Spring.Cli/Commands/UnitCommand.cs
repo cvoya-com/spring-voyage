@@ -84,6 +84,8 @@ public static class UnitCommand
         unitCommand.Subcommands.Add(UnitPolicyCommand.Create(outputOption));
         // #412 — expertise get/set/aggregated.
         unitCommand.Subcommands.Add(ExpertiseCommand.CreateUnitSubcommand(outputOption));
+        // #413 — boundary get/set/clear (opacity, projection, synthesis).
+        unitCommand.Subcommands.Add(UnitBoundaryCommand.Create(outputOption));
 
         return unitCommand;
     }

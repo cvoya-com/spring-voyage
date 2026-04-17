@@ -201,7 +201,29 @@ public static class ServiceCollectionExtensions
         // without forking the OSS default. The store reads from the
         // existing agent / unit actor state keys — no new persistence.
         services.TryAddSingleton<IExpertiseStore, ActorBackedExpertiseStore>();
-        services.TryAddSingleton<IExpertiseAggregator, ExpertiseAggregator>();
+
+        // Boundary store (#413) — backed by the unit actor's own state.
+        services.TryAddSingleton<IUnitBoundaryStore, ActorBackedUnitBoundaryStore>();
+
+        // Register the base aggregator as a concrete singleton so the
+        // boundary decorator can take a typed inner reference. Tests that
+        // want the raw (unfiltered) aggregator can resolve the concrete
+        // type directly.
+        services.TryAddSingleton<ExpertiseAggregator>();
+
+        // Boundary-filtering decorator wraps the base aggregator by default
+        // (#413). Registered with TryAdd so the private cloud repo can pre-
+        // register its own IExpertiseAggregator (e.g. a tenant-scoped
+        // decorator) and keep it — this registration is skipped. Call sites
+        // that resolve IExpertiseAggregator get the boundary-aware view for
+        // free; call sites that want the raw aggregator resolve the concrete
+        // ExpertiseAggregator instead.
+        services.TryAddSingleton<IExpertiseAggregator>(sp =>
+            new BoundaryFilteringExpertiseAggregator(
+                sp.GetRequiredService<ExpertiseAggregator>(),
+                sp.GetRequiredService<IUnitBoundaryStore>(),
+                sp.GetRequiredService<TimeProvider>(),
+                sp.GetRequiredService<ILoggerFactory>()));
 
         // Seed expertise from persisted AgentDefinition / UnitDefinition YAML
         // on actor activation (#488). TryAdd so a tenant-scoped host can swap

@@ -209,4 +209,27 @@ public interface IUnitActor : IAgent
     /// <param name="domains">The replacement expertise set.</param>
     /// <param name="ct">A token to cancel the operation.</param>
     Task SetOwnExpertiseAsync(ExpertiseDomain[] domains, CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns the unit's boundary configuration (#413) — the opacity /
+    /// projection / synthesis rules that control what outside callers see
+    /// when they read the unit's aggregated expertise. A unit that has
+    /// never had a boundary persisted returns
+    /// <see cref="Core.Capabilities.UnitBoundary.Empty"/> — callers never
+    /// have to branch on "has a boundary".
+    /// </summary>
+    /// <param name="ct">A token to cancel the operation.</param>
+    /// <returns>The persisted boundary, or an empty boundary when none.</returns>
+    Task<UnitBoundary> GetBoundaryAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Upserts the unit's boundary configuration (#413). Passing an empty
+    /// boundary (no rules in any slot) is a valid "clear all rules"
+    /// operation — the actor represents that as a row deletion. Emits a
+    /// <c>StateChanged</c> activity event on every write so the activity
+    /// stream reflects boundary changes.
+    /// </summary>
+    /// <param name="boundary">The boundary configuration to persist.</param>
+    /// <param name="ct">A token to cancel the operation.</param>
+    Task SetBoundaryAsync(UnitBoundary boundary, CancellationToken ct = default);
 }
