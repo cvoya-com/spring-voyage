@@ -1,16 +1,18 @@
 # Web Portal UX Exploration
 
-> **Status:** Proposed — design direction for discussion. This is intentionally a direction doc, not a final spec. Expect iteration before individual workflows are implemented.
+> **Status:** Plan of record.
+> **Umbrella:** [#434](https://github.com/cvoya-com/spring-voyage/issues/434) — tracks all sub-issues.
+> **Source:** PR [#429](https://github.com/cvoya-com/spring-voyage/pull/429).
 >
-> **Closes:** [#406](https://github.com/savasp/spring-voyage/issues/406)
+> **Closes:** [#406](https://github.com/cvoya-com/spring-voyage/issues/406)
 >
-> **Unblocks (implementation issues that should cite this doc):** [#392](https://github.com/savasp/spring-voyage/issues/392) drill-down views, [#393](https://github.com/savasp/spring-voyage/issues/393) RBAC management UI, [#394](https://github.com/savasp/spring-voyage/issues/394) cost rollup.
->
-> **Related:** [ADR 0001 — Web portal rendering strategy](../decisions/0001-web-portal-rendering-strategy.md), [Architecture: CLI & Web](../architecture/cli-and-web.md), [Guide: Observing](../guide/observing.md).
+> **Related:** [ADR 0001 — Web portal rendering strategy](../decisions/0001-web-portal-rendering-strategy.md) (superseded — see [#436](https://github.com/cvoya-com/spring-voyage/issues/436)), [Architecture: CLI & Web](../architecture/cli-and-web.md), [Guide: Observing](../guide/observing.md).
 
 ---
 
 ## 1. Scope & non-goals
+
+This document is the plan of record for the portal redesign. Sub-issues under umbrella [#434](https://github.com/cvoya-com/spring-voyage/issues/434) drive execution. Amendments happen via new ADRs or design-doc updates, not ad-hoc proposals.
 
 **In scope.**
 
@@ -19,7 +21,7 @@
 - Standalone-vs-hosted divergences.
 - Responsive / accessibility posture.
 - Technology-stack decision.
-- CLI-UI parity analysis — every proposed portal action mapped to an existing or gap CLI command.
+- CLI-UI parity analysis — every portal action mapped to an existing or newly-tracked CLI command.
 
 **Not in scope.**
 
@@ -28,13 +30,13 @@
 - Features not yet shipped on the platform (marked clearly as "future" where referenced for context).
 - Branding, marketing site, public documentation site.
 
-Every workflow in Section 5 includes a **Before** subsection (what exists today) and a **Proposed direction** subsection. The aim is to show the smallest coherent set of portal shifts that unlocks the blocked implementation issues without reshuffling the tech stack.
+Every workflow in Section 5 includes a **Before** subsection (what exists today) and a **Direction** subsection. The aim is to show the smallest coherent set of portal shifts that unlocks the blocked implementation issues without reshuffling the tech stack.
 
 ---
 
 ## 2. Baseline: what the portal is today
 
-The portal lives in `src/Cvoya.Spring.Web/`. It is a Next.js App Router project (`next@16`, `react@19`) configured for static export (`output: "export"`, see ADR 0001). Styling is Tailwind 4. Icons come from `lucide-react`. The API contract is consumed via `openapi-typescript` generated from `src/Cvoya.Spring.Host.Api/openapi.json`; the client is `openapi-fetch`.
+The portal lives in `src/Cvoya.Spring.Web/`. It is a Next.js App Router project (`next@16`, `react@19`) configured with `output: "standalone"` (ADR 0001 once recommended static export; the runtime flipped to standalone and ADR 0001 is superseded per [#436](https://github.com/cvoya-com/spring-voyage/issues/436) — see §8.1). Styling is Tailwind 4. Icons come from `lucide-react`. The API contract is consumed via `openapi-typescript` generated from `src/Cvoya.Spring.Host.Api/openapi.json`; the client is `openapi-fetch`.
 
 ### Routes that exist today
 
@@ -69,11 +71,11 @@ Walked `src/Cvoya.Spring.Web/src/app/`:
 - No global search, no command palette, no tenant switcher, no notifications inbox.
 - No breadcrumbs — deep links rely on `ArrowLeft` "Back" affordances hard-coded per page.
 
-These gaps are the raw material the proposal below operates on.
+These gaps are the raw material the plan below operates on.
 
 ---
 
-## 3. Information architecture (proposed)
+## 3. Information architecture
 
 ### 3.1 Core entity graph
 
@@ -114,7 +116,7 @@ Two facts shape the IA:
 
 The portal should therefore privilege **two navigation lenses**: *by unit* (organizational view) and *by agent* (operational view), with conversations cutting across both and costs rolled up to either axis.
 
-### 3.2 Proposed top-level navigation
+### 3.2 Top-level navigation
 
 ```
 +------------------+----------------------------------------+
@@ -141,28 +143,32 @@ The portal should therefore privilege **two navigation lenses**: *by unit* (orga
 +------------------+----------------------------------------+
 ```
 
-Proposed changes from current sidebar (Dashboard / Units / Activity / Initiative / Budgets):
+Changes from current sidebar (Dashboard / Units / Activity / Initiative / Budgets):
 
-- Add **Inbox** — a dedicated "things waiting on me (a human)" surface. See §3.4 below for the rationale and how it relates to Conversations.
-- Add **Agents** as a first-class lens (today agents are only reachable by drilling from unit or dashboard).
-- Add **Conversations** as a top-level surface — conversations are the artefact users most frequently want to inspect (unblocks #392's "conversation detail").
-- Add **Analytics** as a new top-level surface (§3.5). **Costs** moves under it as a subsection and gains peers: throughput, wait times, interaction counts, utilization. The current sidebar's standalone "Budgets" entry folds into `Analytics → Costs` (budgets are a control within cost management).
-- Replace **Initiative** with a broader **Policies** surface covering all five `UnitPolicy` dimensions (Skill / Model / Cost / ExecutionMode / Initiative) plus the per-agent initiative policy that exists today. Initiative becomes a sub-view.
-- Add **Connectors** and **Packages** as top-level browsers (catalogue of available connector types and installed packages / templates). Today these exist only inside modals.
-- Add a **Settings** drawer at the bottom: tokens, personal profile, installed packages. In hosted mode this gains Tenant, Billing, Members, Audit.
-- Add a **search / command palette** triggered by `/` or `Cmd-K` so power users can jump to any unit, agent, conversation, or CLI-equivalent action from anywhere.
+- Add **Inbox** — a dedicated "things waiting on me (a human)" surface. See §3.4 below for the rationale and how it relates to Conversations. Tracked by [#447](https://github.com/cvoya-com/spring-voyage/issues/447).
+- Add **Agents** as a first-class lens (today agents are only reachable by drilling from unit or dashboard). Tracked by [#450](https://github.com/cvoya-com/spring-voyage/issues/450).
+- Add **Conversations** as a top-level surface — conversations are the artefact users most frequently want to inspect. Tracked by [#410](https://github.com/cvoya-com/spring-voyage/issues/410).
+- Add **Analytics** as a new top-level surface (§5.7). **Costs** moves under it as a subsection and gains peers: throughput, wait times, interaction counts, utilization. The current sidebar's standalone "Budgets" entry folds into `Analytics → Costs`. Tracked by [#448](https://github.com/cvoya-com/spring-voyage/issues/448).
+- Replace **Initiative** with a broader **Policies** surface covering all five `UnitPolicy` dimensions (Skill / Model / Cost / ExecutionMode / Initiative) plus the per-agent initiative policy that exists today. Initiative becomes a sub-view. Tracked by [#411](https://github.com/cvoya-com/spring-voyage/issues/411).
+- Add **Connectors** and **Packages** as top-level browsers (catalogue of available connector types and installed packages / templates). Tracked by [#449](https://github.com/cvoya-com/spring-voyage/issues/449) and [#395](https://github.com/cvoya-com/spring-voyage/issues/395).
+- Add a **Settings** drawer at the bottom: tokens, personal profile, installed packages. In hosted mode this gains Tenant, Billing, Members, Audit. Tracked by [#451](https://github.com/cvoya-com/spring-voyage/issues/451).
+- Add a **search / command palette** triggered by `/` or `Cmd-K` so power users can jump to any unit, agent, conversation, or CLI-equivalent action from anywhere. Tracked by [#439](https://github.com/cvoya-com/spring-voyage/issues/439).
+
+Sidebar restructure itself is tracked by [#444](https://github.com/cvoya-com/spring-voyage/issues/444).
 
 ### 3.3 Context rules
 
 - **Breadcrumbs are mandatory** on any page two levels or deeper: `Units / engineering-team / backend / ada`. Today each page hard-codes an "← Back" chevron with inconsistent targets.
-- **Cross-links are required, not optional.** Every unit card links to its conversations, costs, activity, policies. Every agent card links to its parent units and its conversations. Activity rows link to the agent / conversation that produced them (gap flagged in #392).
-- **Object cards are the primary unit of IA.** A unit card, agent card, and conversation card should be reusable primitives (title, status, badge, quick actions, cost mini-sparkline, "open" affordance) — not bespoke layouts per page.
+- **Cross-links are required, not optional.** Every unit card links to its conversations, costs, activity, policies. Every agent card links to its parent units and its conversations. Activity rows link to the agent / conversation that produced them.
+- **Object cards are the primary unit of IA.** A unit card, agent card, and conversation card are reusable primitives (title, status, badge, quick actions, cost mini-sparkline, "open" affordance) — not bespoke layouts per page.
+
+Tracked by [#443](https://github.com/cvoya-com/spring-voyage/issues/443).
 
 ### 3.4 Inbox: the human-facing "awaiting me" surface
 
 Humans participate in Spring Voyage as first-class actors (`human://<unit>/<identity>`). They send work, they receive work, and — critically — agents frequently **wait on them**: approvals, clarifications, go/no-go decisions, escalations. Today the portal has no surface for "things pointed at me that I have not responded to". An operator opening the app has to know which unit / agent / conversation to drill into. That is a gap for the hosted story especially (many tenants, many concurrent asks) but it applies to standalone too.
 
-**Proposal: add an Inbox as its own top-level surface, distinct from Conversations.**
+**The Inbox is its own top-level surface, distinct from Conversations** (tracked by [#447](https://github.com/cvoya-com/spring-voyage/issues/447)).
 
 - **Inbox** answers *"What is waiting on me?"* It is scoped to the current user and ordered by age / priority. Each row names the requesting unit/agent, the conversation, the ask, and the action (approve, reject, reply, open). Items drop off as soon as the user acts or the agent retracts.
 - **Conversations** answers *"What threads have I been part of?"* It is the full-history lens, ordered by recency, filterable by unit/agent/participant. No action affordance is required for a row to appear.
@@ -185,7 +191,7 @@ Cost is one lens on operational health. It is not the only one worth answering. 
 
 Today only cost exists as a sibling to everything else (portal `/budgets`, CLI `spring cost summary`). Treating cost as the whole of analytics limits the portal's ability to answer operational questions.
 
-**Proposal: Analytics becomes a top-level surface with Costs as one subsection. The other subsections are deliberately thin at v1 and can grow over time.**
+**Analytics is a top-level surface with Costs as one subsection. The other subsections are deliberately thin at v1 and grow over time** (tracked by [#448](https://github.com/cvoya-com/spring-voyage/issues/448)).
 
 Initial subsections:
 
@@ -235,7 +241,7 @@ This mirrors the backend's DI pattern: OSS defines contracts and a single-tenant
 
 ## 5. Key workflows
 
-Each workflow is presented as **Before → Proposed**, with ASCII wireframes and, where useful, a mermaid diagram of the flow.
+Each workflow is presented as **Before → Direction**, with ASCII wireframes and, where useful, a mermaid diagram of the flow.
 
 ### 5.1 Unit creation
 
@@ -243,7 +249,7 @@ Each workflow is presented as **Before → Proposed**, with ASCII wireframes and
 
 **Shortcomings.** All five steps treat every field as equally important. Most users arrive wanting one of two things: (a) "run a pre-built team", (b) "apply a YAML manifest the CLI also accepts". The current wizard front-loads unit-level metadata before asking *what kind of unit* the user is creating, so a template mode's manifest-supplied name ends up being entered twice.
 
-**Proposed direction.** Invert the flow. Ask *what* first:
+**Direction.** Invert the flow. Ask *what* first:
 
 ```
 +------------------------------------------------------------+
@@ -290,7 +296,7 @@ Key changes:
 
 **Before.** `/` dashboard has agent cards with role + last-activity snippet. `/agents/[id]` shows info, cost card, clones, budget, activity filtered to the agent via SSE, plus an initiative panel. There's no "agents list" page — the only way to reach an agent is by dashboard card or a deep link.
 
-**Proposed direction.** Add an `/agents` list page as peer of `/units`. The agent detail becomes the monitoring hub:
+**Direction.** Add an `/agents` list page as peer of `/units`. The agent detail becomes the monitoring hub:
 
 ```
 +-------------------------------------------------------------+
@@ -344,7 +350,7 @@ Key changes:
 
 **Before.** *There is no conversation surface in the portal today.* The architecture already defines conversations (messages between agents, with role attribution and outcomes — see `docs/architecture/messaging.md`) and the API exposes them, but the UI has no route. The CLI ships `spring message send` — there is no CLI conversation-read command either (shared gap).
 
-**Proposed direction.** Add `/conversations` (list) and `/conversations/[id]` (detail). Two personas:
+**Direction.** Add `/conversations` (list) and `/conversations/[id]` (detail). Two personas:
 
 1. **Observer.** A human who wants to read what agents said to each other — the most common case.
 2. **Participant.** A human who wants to send a message into the conversation (available once the human has send-permission on the target agent or unit).
@@ -401,7 +407,7 @@ Key changes:
 
 **How this relates to the Activity log.** Reviewer question: should Conversations and Activity share a surface?
 
-*Recommendation: no — keep them as separate surfaces, but share the underlying event stream and link each Activity row to its conversation.*
+*Decision: keep them as separate surfaces, but share the underlying event stream and link each Activity row to its conversation.*
 
 - **Activity** is the raw, chronologically-ordered stream of every event the platform emits (`MessageReceived`, `StateChanged`, `ToolCall`, `CostRecorded`, `ErrorOccurred`, …). It is a log — comprehensive, filterable, optimised for debugging and auditing. It spans agents, units, connectors, and cost events.
 - **Conversations** is the narrative view of one specific event type — the message thread — rendered with role attribution, tool-call summaries, outcome, and reply affordance. It is a message log, not an event log, and is optimised for reading and responding.
@@ -422,7 +428,7 @@ These are parity gaps to file (see §9).
 
 **Before.** `/budgets` page sets tenant budget + per-agent budgets. The dashboard stats header shows total cost as a single number. Cost breakdown per unit / per agent / per model is not visualised anywhere.
 
-**Proposed direction.** Replace `/budgets` with `/costs`. The page becomes the cost rollup that #394 asks for:
+**Direction.** Replace `/budgets` with `/analytics/costs`. The page becomes the cost rollup that [#394](https://github.com/cvoya-com/spring-voyage/issues/394) asks for:
 
 ```
 +--------------------------------------------------------------+
@@ -466,7 +472,7 @@ These are parity gaps to file (see §9).
 
 **Before.** The RBAC primitives exist in core (`IPermissionService`, unit-scoped owner / operator / viewer roles, `humans:` block in unit YAML). The *standalone* portal has no RBAC UI. This is stated explicitly in #393 and is consistent with walking the tree: no `people/`, no `members/`, no per-unit "humans" tab.
 
-**Proposed direction.** Add the Members surface **in the hosted extension**, not in OSS. OSS continues to rely on `spring apply -f unit.yaml` with a `humans:` block; the hosted portal exposes it via a Members tab on `/units/[id]` plus a tenant-scoped People directory.
+**Direction.** Add the Members surface **in the hosted extension**, not in OSS. OSS continues to rely on `spring apply -f unit.yaml` with a `humans:` block; the hosted portal exposes it via a Members tab on `/units/[id]` plus a tenant-scoped People directory.
 
 Members tab on unit detail (hosted build):
 
@@ -513,7 +519,7 @@ Policy:
 
 **Before.** Only per-agent initiative is surfaced (`/initiative`). Four of the five `UnitPolicy` dimensions (Skill / Model / Cost / ExecutionMode) are not exposed in the UI at all, even though the core enforces them.
 
-**Proposed direction.** A unified Policies surface at `/policies` with per-unit drill-down, and a **Policies tab on `/units/[id]`** that lets the owner edit the unit's `UnitPolicy` in-place.
+**Direction.** A unified Policies surface at `/policies` with per-unit drill-down, and a **Policies tab on `/units/[id]`** that lets the owner edit the unit's `UnitPolicy` in-place.
 
 Policies tab on unit detail:
 
@@ -578,7 +584,7 @@ Key changes:
 
 **Before.** Costs are the only operational metric visualised today (dashboard stats header and `/budgets` page). No lens on throughput, utilization, wait times, or interaction counts exists in the portal. The CLI is similarly thin: `spring cost summary` exists; nothing else does.
 
-**Proposed direction.** `/analytics` is a new top-level surface with tabbed subsections. v1 ships three tabs; the rest are placeholders for future waves.
+**Direction.** `/analytics` is a new top-level surface with tabbed subsections. v1 ships three tabs; the rest are placeholders for future waves.
 
 ```
 +----------------------------------------------------------------+
@@ -661,9 +667,9 @@ An accessibility audit should be commissioned after the next major visual change
 
 ---
 
-## 8. Technology approach — recommendation
+## 8. Technology approach
 
-**Recommendation: stay on Next.js (App Router) + Tailwind, `output: "standalone"` (the portal's *current* mode — keep it, don't revert to static export).**
+**Decision: stay on Next.js (App Router) + Tailwind, `output: "standalone"` (the portal's *current* mode — keep it, don't revert to static export).**
 
 ### 8.1 Reality check on ADR 0001
 
@@ -673,7 +679,7 @@ ADR 0001 (2026-04-13) recommended `output: "export"` (pure static), but the port
 - **Still present from the export era:** `generateStaticParams` + `__placeholder__` guards in `/units/[id]/page.tsx`, `/agents/[id]/page.tsx`, and the matching `*-client.tsx` files. These are dead code in standalone mode (the source comment in `units/[id]/page.tsx` still says "The dashboard is exported as a static site").
 - **ADR 0001 revisit criteria** (streaming, per-request personalization, server-held credentials) are exactly the capabilities the reviewer flagged as likely-wanted (activity feed streaming, conversation tailing, per-tenant shell personalization in hosted). The migration has effectively happened; only the documentation hasn't caught up.
 
-**Proposed:** supersede ADR 0001 with a new ADR that records "standalone is the decision; static-export workarounds to be removed", and clean up the dead `__placeholder__` pattern in a follow-up PR. Filed as a tracked follow-up at the end of this section.
+ADR 0001 is superseded by a new ADR that records "standalone is the decision; static-export workarounds to be removed", and the dead `__placeholder__` pattern is removed. Tracked by [#436](https://github.com/cvoya-com/spring-voyage/issues/436).
 
 ### 8.2 Reasoning for staying on standalone
 
@@ -703,17 +709,18 @@ The server side already emits the events we want to stream: `ActivityEventPersis
 
 This is a targeted change (one route handler, one hook, three consumers) and does not require a framework switch. It sits cleanly on top of what we already have.
 
-### 8.4 Small adjustments to propose, not a rewrite
+### 8.4 Small adjustments, not a rewrite
 
-- Introduce a lightweight **data-fetching layer** (TanStack Query) to replace the ad-hoc `useEffect` + `setInterval` polling we see in `page.tsx` and `/units/[id]` pages. Gives us cache invalidation, retries, deduplication, and pairs naturally with the streaming hook above.
-- Introduce a **command palette** (e.g. `cmdk` package) to host the CLI-equivalent actions from §3.2.
-- Adopt **Vitest browser mode** (we already use Vitest) or Playwright for accessibility smoke tests. The current `vitest` config is JSDOM only — not sufficient for keyboard / screen-reader regression.
+- Introduce a lightweight **data-fetching layer** (TanStack Query) to replace the ad-hoc `useEffect` + `setInterval` polling we see in `page.tsx` and `/units/[id]` pages. Gives us cache invalidation, retries, deduplication, and pairs naturally with the streaming hook above. Tracked by [#438](https://github.com/cvoya-com/spring-voyage/issues/438).
+- Introduce a **command palette** (e.g. `cmdk` package) to host the CLI-equivalent actions from §3.2. Tracked by [#439](https://github.com/cvoya-com/spring-voyage/issues/439).
+- Adopt **Vitest browser mode** (we already use Vitest) or Playwright for accessibility smoke tests. The current `vitest` config is JSDOM only — not sufficient for keyboard / screen-reader regression. Tracked alongside the accessibility audit in [#446](https://github.com/cvoya-com/spring-voyage/issues/446).
 
-### 8.5 Cleanup follow-ups (to file as issues once this direction is accepted)
+### 8.5 Cleanup follow-ups
 
-- **Supersede ADR 0001** with an ADR that records "portal is on `output: 'standalone'`; static-export workarounds to be removed; streaming enabled for activity + conversation views".
-- **Remove dead static-export scaffolding** in `units/[id]/page.tsx`, `agents/[id]/page.tsx`, and the matching `*-client.tsx` files: delete the `generateStaticParams` functions, the `__placeholder__` literal, the guards in the clients, and the now-stale source comments.
-- **Wire the activity stream route handler** described above and migrate the three known polling sites off `setInterval`.
+Tracked by:
+
+- [#436](https://github.com/cvoya-com/spring-voyage/issues/436) — **Supersede ADR 0001** with an ADR that records "portal is on `output: 'standalone'`; static-export workarounds to be removed; streaming enabled for activity + conversation views". Includes removal of dead static-export scaffolding in `units/[id]/page.tsx`, `agents/[id]/page.tsx`, and the matching `*-client.tsx` files (`generateStaticParams`, `__placeholder__`, guards in the clients, stale source comments).
+- [#437](https://github.com/cvoya-com/spring-voyage/issues/437) — **Wire the activity stream route handler** and migrate the three known polling sites off `setInterval`.
 
 ### 8.6 Design tool and the agent-facing design system
 
@@ -722,43 +729,42 @@ We will use **Google Stitch** ([stitch.withgoogle.com](https://stitch.withgoogle
 **How it fits this project.**
 
 - **Single source of visual truth.** `DESIGN.md` is a plain, human-readable, version-controllable markdown file that codifies the portal's color palette, typography, spacing, component patterns, and visual language. It is paired with every Stitch prompt so later iterations stay on-brand, and it is read by coding agents when they write or refactor UI — so agent-generated components pick up the system without the engineer spelling out tokens each time.
-- **Committed to the repo.** We plan to commit `DESIGN.md` at the root of `src/Cvoya.Spring.Web/` (proposed location — adjust when the file lands). `CLAUDE.md` and the relevant agent definitions under `.claude/agents/` will reference it as mandatory reading for any portal change, same pattern as `AGENTS.md` / `CONVENTIONS.md`.
+- **Committed to the repo.** `DESIGN.md` lives at the root of `src/Cvoya.Spring.Web/`. `CLAUDE.md` and the relevant agent definitions under `.claude/agents/` reference it as mandatory reading for any portal change, same pattern as `AGENTS.md` / `CONVENTIONS.md`.
 - **Round-tripping.** Stitch generates the screens from prompts + `DESIGN.md`. Engineers export the relevant screens and, where the agent integration allows, use the Stitch MCP server so a coding agent can fetch screen metadata directly. The generated React + Tailwind code is a starting point, not a drop-in — the agent still maps everything through our `components/ui/*` primitives and keeps our conventions (`openapi-fetch`, TanStack Query, path aliases, etc.).
 - **Accessibility and responsive.** Stitch does not replace the accessibility checklist in §7 or the responsive rules in §6. It seeds the visual direction; we still test against screen readers and keyboard navigation, and we still verify mobile layouts on real devices.
 
-**Follow-ups to file once this direction is accepted.**
+**Follow-up issues.**
 
-- **Author the initial `DESIGN.md`** from the portal's current look and the directions in this document. Treat as a checkpoint — iterate as the design evolves.
-- **Wire Stitch's MCP server into the coding agent workflow** if available in our environment, so `.claude/agents/dotnet-engineer.md` (and any web-specific agents we add) can fetch design context the same way they fetch docs.
-- **Update `AGENTS.md` / `.claude/agents/*.md` DoD bullets** (added in #424) to include a check for `DESIGN.md` adherence whenever a change touches `src/Cvoya.Spring.Web/`.
+Tracked by:
+
+- [#441](https://github.com/cvoya-com/spring-voyage/issues/441) — **Author the initial `DESIGN.md`** from the portal's current look and the directions in this document. Treat as a checkpoint — iterate as the design evolves.
+- [#442](https://github.com/cvoya-com/spring-voyage/issues/442) — **Wire Stitch's MCP server into the coding agent workflow** (if feasible in our environment) and **update `AGENTS.md` / `.claude/agents/*.md` DoD bullets** (added in [#424](https://github.com/cvoya-com/spring-voyage/issues/424)) to include a check for `DESIGN.md` adherence whenever a change touches `src/Cvoya.Spring.Web/`.
 
 ---
 
 ## 9. CLI-UI parity: gaps surfaced
 
-Every workflow above was matched against `src/Cvoya.Spring.Cli/Commands/*.cs`. Gaps to file as follow-up issues:
+Every workflow above was matched against `src/Cvoya.Spring.Cli/Commands/*.cs`. Every gap has a tracking issue; the hard rule (UI and CLI stay in parity) means these ship together with the corresponding portal surfaces, not before / after.
 
-| # | Gap                                                                                   | Surface it blocks               | Severity |
-|---|---------------------------------------------------------------------------------------|---------------------------------|----------|
-| 1 | No `spring conversation list` / `spring conversation show <id>` commands.             | §5.3 Conversation UI            | High     |
-| 2 | No CLI way to send a message into an *existing* conversation thread (only to address).| §5.3 participant flow           | High     |
-| 3 | No `spring agent clone create` CLI (portal has it).                                   | §5.2 agent detail Clone action  | Medium   |
-| 4 | No `spring cost set-budget` CLI (portal has Edit budget).                             | §5.4 budgets                    | Medium   |
-| 5 | No `spring unit humans add|remove|list` CLI despite docs referencing it.              | §5.5 Members (hosted)           | High     |
-| 6 | No `spring unit policy ...` CLI — none of Skill/Model/Cost/ExecMode/Initiative exist. | §5.6 Policies                   | High     |
-| 7 | No `spring unit create-from-template` first-class CLI (API exists).                   | §5.1 Unit creation              | Low      |
-| 8 | No `spring connector ...` catalog / bind CLI surface.                                 | §3.2 Connectors top-level       | Medium   |
-| 9 | No `spring package ...` list / install CLI despite `spring images list` hint in docs. | §3.2 Packages top-level         | Low      |
-| 10 | No `spring inbox list` / `spring inbox show` / `spring inbox respond` CLI.            | §3.4 Inbox                      | High     |
-| 11 | No `spring analytics costs --window ...` / `throughput` / `waits` CLI.                | §5.7 Analytics tabs             | Medium   |
-
-These are implementation gaps, not design gaps. They should be filed as individual issues once this direction is accepted. The hard rule from the repo's memory (UI and CLI stay in parity) means these must ship together with the corresponding portal surfaces, not before / after.
+| # | Gap                                                                                   | Surface it blocks               | Severity | Tracking |
+|---|---------------------------------------------------------------------------------------|---------------------------------|----------|----------|
+| 1 | No `spring conversation list` / `spring conversation show <id>` commands.             | §5.3 Conversation UI            | High     | [#452](https://github.com/cvoya-com/spring-voyage/issues/452) |
+| 2 | No CLI way to send a message into an *existing* conversation thread (only to address).| §5.3 participant flow           | High     | [#452](https://github.com/cvoya-com/spring-voyage/issues/452) |
+| 3 | No `spring agent clone create` CLI (portal has it).                                   | §5.2 agent detail Clone action  | Medium   | [#458](https://github.com/cvoya-com/spring-voyage/issues/458) |
+| 4 | No `spring cost set-budget` CLI (portal has Edit budget).                             | §5.4 budgets                    | Medium   | [#459](https://github.com/cvoya-com/spring-voyage/issues/459) |
+| 5 | No `spring unit humans add\|remove\|list` CLI despite docs referencing it.             | §5.5 Members (hosted)           | High     | [#454](https://github.com/cvoya-com/spring-voyage/issues/454) |
+| 6 | No `spring unit policy ...` CLI — none of Skill/Model/Cost/ExecMode/Initiative exist. | §5.6 Policies                   | High     | [#453](https://github.com/cvoya-com/spring-voyage/issues/453) |
+| 7 | No `spring unit create-from-template` first-class CLI (API exists).                   | §5.1 Unit creation              | Low      | [#460](https://github.com/cvoya-com/spring-voyage/issues/460) |
+| 8 | No `spring connector ...` catalog / bind CLI surface.                                 | §3.2 Connectors top-level       | Medium   | [#455](https://github.com/cvoya-com/spring-voyage/issues/455) |
+| 9 | No `spring package ...` list / install CLI despite `spring images list` hint in docs. | §3.2 Packages top-level         | Low      | [#395](https://github.com/cvoya-com/spring-voyage/issues/395) |
+| 10 | No `spring inbox list` / `spring inbox show` / `spring inbox respond` CLI.           | §3.4 Inbox                      | High     | [#456](https://github.com/cvoya-com/spring-voyage/issues/456) |
+| 11 | No `spring analytics costs --window ...` / `throughput` / `waits` CLI.               | §5.7 Analytics tabs             | Medium   | [#457](https://github.com/cvoya-com/spring-voyage/issues/457) |
 
 ---
 
 ## 10. What this doc explicitly defers
 
-- **Final visual design.** No colour system, typography scale, or component-level spec. Those are produced in Google Stitch and captured in `DESIGN.md` (§8.6) once this direction is accepted.
+- **Final visual design.** No colour system, typography scale, or component-level spec. Those are produced in Google Stitch and captured in `DESIGN.md` (§8.6), tracked by [#441](https://github.com/cvoya-com/spring-voyage/issues/441).
 - **Onboarding copy.** Empty-state text and first-run walkthrough are placeholder; real copy is a content-design pass.
 - **Pricing-gated features.** Hosted plan tiers are not designed here — §4 only identifies where the "upgrade" affordance sits.
 - **Offline / degraded modes.** The portal assumes the API is reachable. A fuller offline story (e.g. local CLI-driven mode with IndexedDB cache) is worth considering but out of scope.
@@ -768,15 +774,14 @@ These are implementation gaps, not design gaps. They should be filed as individu
 
 ---
 
-## 11. Proposed next steps
+## 11. Next steps
 
-1. Review + revise this direction. Iteration is expected; this document is a branch point, not a decision.
-2. File the CLI parity follow-up issues (§9) — one issue per gap, each referencing the workflow it blocks.
-3. File the §8 cleanup follow-ups — supersede ADR 0001, remove static-export scaffolding, wire the streaming route handler.
-4. Author the initial `DESIGN.md` (§8.6) from Google Stitch and commit under `src/Cvoya.Spring.Web/`. Update `AGENTS.md` and agent DoDs to treat it as mandatory reading for portal changes.
-5. Re-scope #392 / #393 / #394 against this direction:
-   - #392 absorbs the conversation detail page (§5.3), the Inbox surface (§3.4), and IA breadcrumb rules (§3.3).
-   - #393 scopes to the *hosted* Members extension (§5.5) and stays out of OSS routes.
-   - #394 aligns with the `/costs` redesign and the broader `/analytics` surface (§5.4, §5.7).
-6. Split a small "plumbing PR" to introduce the extension slots (§4) so the hosted portal can start consuming them in parallel with OSS feature work.
-7. Decide on TanStack Query adoption as a follow-up RFC; non-blocking.
+This document is the plan. Sub-issues under umbrella [#434](https://github.com/cvoya-com/spring-voyage/issues/434) drive execution. The concrete action items below map directly to tracked issues:
+
+1. **Foundation lands first** (Track A): supersede ADR 0001 and clean up static-export scaffolding ([#436](https://github.com/cvoya-com/spring-voyage/issues/436)); wire the activity-stream route handler and client hook ([#437](https://github.com/cvoya-com/spring-voyage/issues/437)); adopt TanStack Query across the portal ([#438](https://github.com/cvoya-com/spring-voyage/issues/438)); ship the command palette ([#439](https://github.com/cvoya-com/spring-voyage/issues/439)); introduce extension slots for standalone-vs-hosted ([#440](https://github.com/cvoya-com/spring-voyage/issues/440)); author `DESIGN.md` ([#441](https://github.com/cvoya-com/spring-voyage/issues/441)); update agent DoDs to cite it ([#442](https://github.com/cvoya-com/spring-voyage/issues/442)).
+2. **IA + cross-cutting rules** (Track B): breadcrumbs and object-card primitives ([#443](https://github.com/cvoya-com/spring-voyage/issues/443)); nav restructure ([#444](https://github.com/cvoya-com/spring-voyage/issues/444)); responsive pass ([#445](https://github.com/cvoya-com/spring-voyage/issues/445)); accessibility audit ([#446](https://github.com/cvoya-com/spring-voyage/issues/446)).
+3. **New surfaces** (Track C): Inbox ([#447](https://github.com/cvoya-com/spring-voyage/issues/447)); Analytics ([#448](https://github.com/cvoya-com/spring-voyage/issues/448)); Connectors ([#449](https://github.com/cvoya-com/spring-voyage/issues/449)); Agents lens ([#450](https://github.com/cvoya-com/spring-voyage/issues/450)); Settings drawer ([#451](https://github.com/cvoya-com/spring-voyage/issues/451)).
+4. **Existing portal surfaces refit** (Track D): [#392](https://github.com/cvoya-com/spring-voyage/issues/392), [#393](https://github.com/cvoya-com/spring-voyage/issues/393), [#394](https://github.com/cvoya-com/spring-voyage/issues/394), [#395](https://github.com/cvoya-com/spring-voyage/issues/395), [#410](https://github.com/cvoya-com/spring-voyage/issues/410), [#411](https://github.com/cvoya-com/spring-voyage/issues/411) — each rescoped against this plan; see the "Aligned with #434" section on each issue.
+5. **CLI parity** (Track E): every surface blocks its matching CLI verb per the hard UI/CLI parity rule — [#452](https://github.com/cvoya-com/spring-voyage/issues/452), [#453](https://github.com/cvoya-com/spring-voyage/issues/453), [#454](https://github.com/cvoya-com/spring-voyage/issues/454), [#455](https://github.com/cvoya-com/spring-voyage/issues/455), [#456](https://github.com/cvoya-com/spring-voyage/issues/456), [#457](https://github.com/cvoya-com/spring-voyage/issues/457), [#458](https://github.com/cvoya-com/spring-voyage/issues/458), [#459](https://github.com/cvoya-com/spring-voyage/issues/459), [#460](https://github.com/cvoya-com/spring-voyage/issues/460).
+
+Dependency edges are recorded on GitHub's issue-dependency graph (`addSubIssue` and `addBlockedBy` mutations). Amendments to the plan happen via new ADRs or a follow-up design-doc update, not ad-hoc proposals.
