@@ -1,5 +1,7 @@
 # Managing Secrets
 
+> **Heads up — this guide will be rewritten.** There is no `spring secret` CLI verb today, so every lifecycle example below uses the HTTP API via `curl`. Issue [#432](https://github.com/cvoya-com/spring-voyage/issues/432) tracks adding the `spring secret` CLI family and refactoring this guide so the CLI is the primary surface (with at most one or two `curl` examples retained for advanced cases). If you are reading this after #432 has shipped, the CLI version of the guide supersedes the HTTP snippets here.
+
 This guide covers day-to-day secret management for operators: storing API tokens and other credentials, rotating them safely, pruning old versions, and deciding which scope a secret belongs to. It does not cover envelope encryption internals or the decorator-based audit pattern — those live in [OSS Secret Store](../developer/secret-store.md) and [Secret Audit Logging](../developer/secret-audit.md) respectively.
 
 For the full architectural picture — how the registry, store, resolver, and access policy compose — see [Security architecture — Secrets Stack](../architecture/security.md#secrets-stack).
@@ -22,7 +24,7 @@ Two operator surfaces ship today:
 - **HTTP API.** Scope-keyed endpoints under `/api/v1/units/{id}/secrets`, `/api/v1/tenant/secrets`, and `/api/v1/platform/secrets`. Every lifecycle operation — create, list, rotate, list versions, prune, delete — is available here.
 - **Web portal.** The unit detail page has a **Secrets** tab that supports listing, creating, and deleting unit-scoped secrets. Rotation, version listing, and pruning are not yet wired into the portal; drive those through the API.
 
-A first-class `spring secret` CLI verb is not yet implemented. Until it lands, use `curl` (or your HTTP client of choice) against the endpoints below. When the CLI catches up, the web portal, CLI, and API will all cover the same surface per the platform's UI/CLI parity rule. Authenticate either surface with an API token issued by `spring auth token create --name "<label>"`.
+A first-class `spring secret` CLI verb is not yet implemented ([#432](https://github.com/cvoya-com/spring-voyage/issues/432) tracks the work). Until it lands, use `curl` (or your HTTP client of choice) against the endpoints below. When the CLI catches up, the web portal, CLI, and API will all cover the same surface per the platform's UI/CLI parity rule. Authenticate either surface with an API token issued by `spring auth token create --name "<label>"`.
 
 Throughout this guide, commands assume `$SPRING_API_URL` points at the platform endpoint and `$SPRING_TOKEN` holds a current API token; adjust to match your environment.
 
