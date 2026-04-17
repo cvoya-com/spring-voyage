@@ -508,6 +508,27 @@ The origin chain lets peer-lookup callers tell **where** a capability came from 
 - `GET /api/v1/units/{id}/expertise` — effective / recursive-aggregated expertise.
 - CLI: `spring agent expertise get|set <id>` and `spring unit expertise get|set|aggregated <id>` — same shape on both surfaces for UI/CLI parity.
 
+#### Seeding from YAML
+
+`AgentDefinition` and `UnitDefinition` YAML can declare an `expertise:` block that the platform auto-applies to actor state on first activation. This closes the gap where declared intent — visible on the definition — was not observable through `GET .../expertise` until the operator pushed the same entries back through `PUT .../expertise` (or the `spring ... expertise set` CLI).
+
+```yaml
+# agents/tech-lead.yaml
+agent:
+  id: tech-lead
+  expertise:
+    - domain: architecture
+      level: expert
+    - domain: code-review
+      level: expert
+```
+
+**Precedence: actor state wins.** The seed is applied only when actor state for the expertise key (`Agent:Expertise` or `Unit:OwnExpertise`) is _unset_. Once an operator has written a value — even an empty list via `PUT .../expertise` with `[]` — the actor is authoritative and subsequent activations do not re-seed from YAML. This preserves runtime edits across process restarts and lets an operator clear seeded expertise without the YAML silently re-adding it on the next reactivation. The alternative ("seed always overwrites on activation") was rejected: it would force operators to re-declare every runtime tweak back into the manifest to survive a restart, turning a one-off configuration touch into a recurring bookkeeping tax.
+
+**Implementation.** `IExpertiseSeedProvider` reads the persisted definition JSON (`AgentDefinitions.Definition` / `UnitDefinitions.Definition`). `AgentActor.OnActivateAsync` and `UnitActor.OnActivateAsync` check the state key with `TryGetStateAsync`; when `HasValue == false` they pass the seed through the same `SetExpertiseAsync` / `SetOwnExpertiseAsync` path an HTTP PUT would take, so a seeded actor is wire-indistinguishable from one that received a PUT with the same payload. Failures in seeding are logged and non-fatal — activation proceeds with empty expertise and the operator can push it manually.
+
+**Key spelling.** The YAML authoring key is `domain:` (matches every shipped package manifest). The seed provider also accepts `name:` so a dump from `GET /api/v1/agents/{id}/expertise` (which emits `name`) can be round-tripped back into a definition file without renaming.
+
 ---
 
 ## Unit Lifecycle: From Definition to Operation

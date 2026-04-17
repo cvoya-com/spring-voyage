@@ -40,7 +40,8 @@ public class AgentActor(
     IUnitMembershipRepository membershipRepository,
     IReflectionActionHandlerRegistry reflectionActionHandlers,
     IUnitPolicyEnforcer unitPolicyEnforcer,
-    ILoggerFactory loggerFactory) : Actor(host), IAgentActor, IRemindable
+    ILoggerFactory loggerFactory,
+    IExpertiseSeedProvider? expertiseSeedProvider = null) : Actor(host), IAgentActor, IRemindable
 {
     /// <summary>
     /// Name of the Dapr reminder that drives periodic initiative checks.
@@ -67,6 +68,67 @@ public class AgentActor(
     /// Gets the address of this agent actor.
     /// </summary>
     public Address Address => new("agent", Id.GetId());
+
+    /// <summary>
+    /// Seeds the agent's expertise from its <c>AgentDefinition</c> YAML on
+    /// first activation (#488). Precedence rule: actor state is authoritative
+    /// — the seed only applies when no expertise has been persisted to actor
+    /// state yet (<see cref="StateKeys.AgentExpertise"/> unset). Once an
+    /// operator has PUT an expertise list (even an empty one), the actor
+    /// never re-seeds from YAML so runtime edits survive process restarts.
+    /// See <c>docs/architecture/units.md § Seeding from YAML</c>.
+    /// </summary>
+    /// <remarks>
+    /// Failures in seeding are non-fatal: the actor still activates and the
+    /// operator can push the seed later via
+    /// <c>PUT /api/v1/agents/{id}/expertise</c>. The warning is logged so
+    /// persistent seeding failures are visible in the observability pipeline.
+    /// </remarks>
+    protected override async Task OnActivateAsync()
+    {
+        await SeedExpertiseFromDefinitionAsync(CancellationToken.None);
+        await base.OnActivateAsync();
+    }
+
+    private async Task SeedExpertiseFromDefinitionAsync(CancellationToken cancellationToken)
+    {
+        if (expertiseSeedProvider is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var existing = await StateManager
+                .TryGetStateAsync<List<ExpertiseDomain>>(StateKeys.AgentExpertise, cancellationToken);
+
+            // Actor state wins — if ANY value (including an empty list) was
+            // persisted through SetExpertiseAsync, the operator's runtime
+            // edit is preserved across activations.
+            if (existing.HasValue)
+            {
+                return;
+            }
+
+            var seed = await expertiseSeedProvider.GetAgentSeedAsync(Id.GetId(), cancellationToken);
+            if (seed is null || seed.Count == 0)
+            {
+                return;
+            }
+
+            await SetExpertiseAsync(seed.ToArray(), cancellationToken);
+
+            _logger.LogInformation(
+                "Agent {ActorId} seeded expertise from AgentDefinition YAML. Domain count: {Count}",
+                Id.GetId(), seed.Count);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex,
+                "Agent {ActorId} failed to seed expertise from AgentDefinition; activation proceeding with empty expertise.",
+                Id.GetId());
+        }
+    }
 
     /// <inheritdoc />
     public async Task<Message?> ReceiveAsync(Message message, CancellationToken cancellationToken = default)

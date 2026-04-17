@@ -51,6 +51,50 @@ public class UnitManifest
     /// <summary>Humans associated with the unit. Parsed but not yet applied.</summary>
     [YamlMember(Alias = "humans")]
     public List<HumanManifest>? Humans { get; set; }
+
+    /// <summary>
+    /// Optional seed own-expertise entries for the unit (#488). Each entry
+    /// declares a domain the unit advertises in its own right, independent of
+    /// its members. Auto-applied to actor state on first activation; runtime
+    /// edits through the HTTP / CLI surface remain authoritative thereafter
+    /// (see <c>docs/architecture/units.md § Seeding from YAML</c>).
+    /// </summary>
+    [YamlMember(Alias = "expertise")]
+    public List<ExpertiseManifestEntry>? Expertise { get; set; }
+}
+
+/// <summary>
+/// One entry in a unit / agent manifest <c>expertise:</c> list. The user-
+/// facing YAML authoring key is <c>domain:</c> but <c>name:</c> is also
+/// accepted so a dump from <c>GET /api/v1/agents/{id}/expertise</c> can be
+/// round-tripped back into a definition file.
+/// </summary>
+public class ExpertiseManifestEntry
+{
+    /// <summary>The expertise domain name (preferred authoring key).</summary>
+    [YamlMember(Alias = "domain")]
+    public string? Domain { get; set; }
+
+    /// <summary>
+    /// Alias for <see cref="Domain"/>. Accepted so wire-shaped JSON (where
+    /// the field is spelled <c>name</c>) can round-trip through a manifest
+    /// file without renaming.
+    /// </summary>
+    [YamlMember(Alias = "name")]
+    public string? Name { get; set; }
+
+    /// <summary>Optional human-readable description of the capability.</summary>
+    [YamlMember(Alias = "description")]
+    public string? Description { get; set; }
+
+    /// <summary>
+    /// Optional proficiency level. Expected values (case-insensitive):
+    /// <c>beginner</c>, <c>intermediate</c>, <c>advanced</c>, <c>expert</c>.
+    /// Unrecognised values are persisted as-is on the JSON definition and
+    /// silently ignored by the seed provider at activation time.
+    /// </summary>
+    [YamlMember(Alias = "level")]
+    public string? Level { get; set; }
 }
 
 /// <summary>AI configuration for a unit (parsed; not yet applied).</summary>
