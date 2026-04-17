@@ -110,6 +110,37 @@ export type SetBudgetRequest = Schemas["SetBudgetRequest"];
 /** GET /api/v1/activity query response. */
 export type ActivityQueryResult = Schemas["ActivityQueryResult"];
 
+// ---------------------------------------------------------------------------
+// Conversations & inbox (#410, #452, #456)
+// ---------------------------------------------------------------------------
+
+/** Row in the conversation list (`GET /api/v1/conversations`). */
+export type ConversationSummary = Schemas["ConversationSummary"];
+
+/** Conversation thread payload (`GET /api/v1/conversations/{id}`). */
+export type ConversationDetail = Schemas["ConversationDetail"];
+
+/** One event on a conversation thread. */
+export type ConversationEvent = Schemas["ConversationEvent"];
+
+/** Request body for `POST /api/v1/conversations/{id}/messages`. */
+export type ConversationMessageRequest = Schemas["ConversationMessageRequest"];
+
+/** Response body for `POST /api/v1/conversations/{id}/messages`. */
+export type ConversationMessageResponse = Schemas["ConversationMessageResponse"];
+
+/** Row in the awaiting-me queue (`GET /api/v1/inbox`). */
+export type InboxItem = Schemas["InboxItem"];
+
+/** Query-string filters accepted by `GET /api/v1/conversations`. */
+export interface ConversationListFilters {
+  unit?: string;
+  agent?: string;
+  status?: "active" | "completed";
+  participant?: string;
+  limit?: number;
+}
+
 /** Matches Cvoya.Spring.Core.Initiative.InitiativeLevel enum. */
 export type InitiativeLevel = Schemas["InitiativeLevel"];
 

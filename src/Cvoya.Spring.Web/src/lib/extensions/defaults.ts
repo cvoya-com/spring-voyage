@@ -6,6 +6,7 @@
 import {
   Activity,
   LayoutDashboard,
+  MessagesSquare,
   Network,
   Package,
   Plus,
@@ -65,6 +66,15 @@ export const defaultRoutes: readonly RouteEntry[] = [
     orderHint: 30,
     keywords: ["events", "log", "stream", "audit"],
     description: "Raw activity event stream with filters.",
+  },
+  {
+    path: "/conversations",
+    label: "Conversations",
+    icon: MessagesSquare,
+    navSection: "primary",
+    orderHint: 35,
+    keywords: ["chat", "thread", "message", "spring conversation list"],
+    description: "Message threads between humans, agents, and units.",
   },
   {
     path: "/initiative",
@@ -150,6 +160,16 @@ export const defaultActions: readonly PaletteAction[] = [
     orderHint: 50,
     keywords: ["spring activity stream", "tail", "logs"],
     href: "/activity",
+  },
+  {
+    id: "conversation.list",
+    label: "List conversations",
+    icon: MessagesSquare,
+    section: "actions",
+    orderHint: 55,
+    keywords: ["spring conversation list", "threads", "chat"],
+    description: "Browse message threads between humans, agents, and units.",
+    href: "/conversations",
   },
   {
     id: "budget.view",
