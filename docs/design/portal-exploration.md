@@ -25,7 +25,7 @@ This document is the plan of record for the portal redesign. Sub-issues under um
 
 **Not in scope.**
 
-- Pixel-perfect visual design or high-fidelity prototypes. Those are produced in Google Stitch ([stitch.withgoogle.com](https://stitch.withgoogle.com)) — the replacement for a traditional Figma round — and exported to an agent-friendly [`DESIGN.md`](https://stitch.withgoogle.com/docs/design-md/overview/) that codifies the visual system. See §8.6 for how the tool and the file fit the implementation pipeline.
+- Pixel-perfect visual design or high-fidelity prototypes. Those are produced by a designer in whatever tool they prefer (Stitch, Figma, Penpot, plain markdown — see [`docs/design/README.md`](README.md)) and captured in [`src/Cvoya.Spring.Web/DESIGN.md`](../../src/Cvoya.Spring.Web/DESIGN.md). `DESIGN.md` is the agent-readable contract between design and code; see § 8.6.
 - Code changes to the actual portal.
 - Features not yet shipped on the platform (marked clearly as "future" where referenced for context).
 - Branding, marketing site, public documentation site.
@@ -722,23 +722,26 @@ Tracked by:
 - [#436](https://github.com/cvoya-com/spring-voyage/issues/436) — **Supersede ADR 0001** with an ADR that records "portal is on `output: 'standalone'`; static-export workarounds to be removed; streaming enabled for activity + conversation views". Includes removal of dead static-export scaffolding in `units/[id]/page.tsx`, `agents/[id]/page.tsx`, and the matching `*-client.tsx` files (`generateStaticParams`, `__placeholder__`, guards in the clients, stale source comments).
 - [#437](https://github.com/cvoya-com/spring-voyage/issues/437) — **Wire the activity stream route handler** and migrate the three known polling sites off `setInterval`.
 
-### 8.6 Design tool and the agent-facing design system
+### 8.6 Design system and the design → code contract
 
-We will use **Google Stitch** ([stitch.withgoogle.com](https://stitch.withgoogle.com)) as the visual design tool for the directions proposed in this document — not Figma. Stitch is Google Labs' AI-native design canvas (Vibe Design, Voice Canvas, multi-screen generation) and ships a companion file format, [`DESIGN.md`](https://stitch.withgoogle.com/docs/design-md/overview/), that we will treat as the contract between design and code.
+**`src/Cvoya.Spring.Web/DESIGN.md` is the contract between design and code.** It is plain, agent-readable markdown that codifies the portal's colour palette, typography, spacing, component patterns, and voice & tone. Coding agents consume it. Designers produce it.
+
+**The design tool is the designer's concern, not the repo's.** A designer may use Google Stitch ([stitch.withgoogle.com](https://stitch.withgoogle.com) — which also defines the [`DESIGN.md`](https://stitch.withgoogle.com/docs/design-md/overview/) schema we follow), Figma, Penpot, or plain markdown. Whichever tool they use, the **commit** is `DESIGN.md` in the form described by the Stitch schema. The tool choice is not version-controlled in this repo; see [`docs/design/README.md`](README.md) for the designer workflow in full.
+
+We explicitly **do not** register a design-tool MCP server in this repo's `.mcp.json`. Wiring Stitch MCP (or any other design-tool MCP) at the repo level was considered and reverted (see [#471](https://github.com/cvoya-com/spring-voyage/issues/471) and [PR #478](https://github.com/cvoya-com/spring-voyage/pull/478)) because it imposes setup friction on every contributor, softly locks the repo to a specific tool, and would mask `DESIGN.md` drift rather than prevent it. Designers who want Stitch (or any MCP-capable tool) in their own Claude Code configure it at user-global scope.
 
 **How it fits this project.**
 
-- **Single source of visual truth.** `DESIGN.md` is a plain, human-readable, version-controllable markdown file that codifies the portal's color palette, typography, spacing, component patterns, and visual language. It is paired with every Stitch prompt so later iterations stay on-brand, and it is read by coding agents when they write or refactor UI — so agent-generated components pick up the system without the engineer spelling out tokens each time.
-- **Committed to the repo.** `DESIGN.md` lives at the root of `src/Cvoya.Spring.Web/`. `CLAUDE.md` and the relevant agent definitions under `.claude/agents/` reference it as mandatory reading for any portal change, same pattern as `AGENTS.md` / `CONVENTIONS.md`.
-- **Round-tripping.** Stitch generates the screens from prompts + `DESIGN.md`. Engineers export the relevant screens and, where the agent integration allows, use the Stitch MCP server so a coding agent can fetch screen metadata directly. The generated React + Tailwind code is a starting point, not a drop-in — the agent still maps everything through our `components/ui/*` primitives and keeps our conventions (`openapi-fetch`, TanStack Query, path aliases, etc.).
-- **Accessibility and responsive.** Stitch does not replace the accessibility checklist in §7 or the responsive rules in §6. It seeds the visual direction; we still test against screen readers and keyboard navigation, and we still verify mobile layouts on real devices.
+- **Single source of visual truth.** `DESIGN.md` is the file every coding agent reads. No other design artefact needs to live in the repo.
+- **Committed at `src/Cvoya.Spring.Web/DESIGN.md`.** `AGENTS.md` § "Documentation Updates" and the DoD bullets in `.claude/agents/dotnet-engineer.md`, `connector-engineer.md`, `devops-engineer.md` require agents to check `DESIGN.md` when touching portal code and update it when a change alters the visual system — same pattern as [#424](https://github.com/cvoya-com/spring-voyage/issues/424) for architecture docs.
+- **Drift prevention is process, not tooling.** When a designer ships a change, they update `DESIGN.md` as part of the PR. An MCP server that bypasses `DESIGN.md` to read the design source directly would mask drift rather than prevent it.
+- **Accessibility and responsive.** Design-tool output is a starting point, not a spec. The accessibility checklist in § 7 and the responsive rules in § 6 apply regardless.
 
-**Follow-up issues.**
+**Tracking.**
 
-Tracked by:
-
-- [#441](https://github.com/cvoya-com/spring-voyage/issues/441) — **Author the initial `DESIGN.md`** from the portal's current look and the directions in this document. Treat as a checkpoint — iterate as the design evolves.
-- [#442](https://github.com/cvoya-com/spring-voyage/issues/442) — **Wire Stitch's MCP server into the coding agent workflow** (if feasible in our environment) and **update `AGENTS.md` / `.claude/agents/*.md` DoD bullets** (added in [#424](https://github.com/cvoya-com/spring-voyage/issues/424)) to include a check for `DESIGN.md` adherence whenever a change touches `src/Cvoya.Spring.Web/`.
+- [#441](https://github.com/cvoya-com/spring-voyage/issues/441) — author the initial `DESIGN.md` (complete; landed via [PR #464](https://github.com/cvoya-com/spring-voyage/pull/464)).
+- [#442](https://github.com/cvoya-com/spring-voyage/issues/442) — update `AGENTS.md` and agent DoDs to cite `DESIGN.md` (complete; landed via [PR #464](https://github.com/cvoya-com/spring-voyage/pull/464)).
+- [#471](https://github.com/cvoya-com/spring-voyage/issues/471) — repo-level Stitch MCP wiring: **closed not-doing** per the reasoning above; see [`docs/design/README.md`](README.md).
 
 ---
 
