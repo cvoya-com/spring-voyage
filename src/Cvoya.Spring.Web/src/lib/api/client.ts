@@ -3,6 +3,8 @@ import createClient from "openapi-fetch";
 import type { paths } from "./schema";
 import type {
   AgentDetailResponse,
+  ConversationListFilters,
+  ConversationMessageRequest,
   CreateCloneRequest,
   CreateSecretRequest,
   CreateUnitFromTemplateRequest,
@@ -432,6 +434,49 @@ export const api = {
         params: { query: params as never },
       }),
     ),
+
+  // Conversations (#410)
+  //
+  // Conversations are a projection over the activity event stream;
+  // these endpoints are the typed surface the CLI's `spring conversation
+  // {list,show,send}` commands use, and the portal mirrors that 1:1 per
+  // CONVENTIONS.md § ui-cli-parity.
+  listConversations: async (filters?: ConversationListFilters) => {
+    // The OpenAPI binder uses TitleCase property names (Unit, Agent,
+    // Status, Participant, Limit) for [AsParameters] queries. Translate
+    // the camelCase shape we expose to call sites.
+    const query: Record<string, string | number> = {};
+    if (filters?.unit) query.Unit = filters.unit;
+    if (filters?.agent) query.Agent = filters.agent;
+    if (filters?.status) query.Status = filters.status;
+    if (filters?.participant) query.Participant = filters.participant;
+    if (filters?.limit !== undefined) query.Limit = filters.limit;
+    return unwrap(
+      await fetchClient.GET("/api/v1/conversations", {
+        params: { query: query as never },
+      }),
+    );
+  },
+  getConversation: async (id: string) => {
+    const result = await fetchClient.GET("/api/v1/conversations/{id}", {
+      params: { path: { id } },
+    });
+    if (result.response.status === 404) {
+      return null;
+    }
+    return unwrap(result);
+  },
+  sendConversationMessage: async (
+    id: string,
+    body: ConversationMessageRequest,
+  ) =>
+    unwrap(
+      await fetchClient.POST("/api/v1/conversations/{id}/messages", {
+        params: { path: { id } },
+        body,
+      }),
+    ),
+  listInbox: async () => unwrap(await fetchClient.GET("/api/v1/inbox")),
 
   // Initiative
   getAgentInitiativePolicy: async (id: string) =>

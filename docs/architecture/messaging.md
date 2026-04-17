@@ -265,3 +265,22 @@ All actors have **flat, globally-unique Dapr actor IDs** derived from their UUID
 Topics are namespaced by unit: `engineering-team/pr-reviews`, `research-team/papers/new-arxiv`.
 
 Dapr pub/sub is broker-agnostic — Redis for development, Kafka or Azure Event Hubs for production, swapped via YAML.
+
+---
+
+## Conversation Surfaces
+
+A conversation is **not a stored entity** — it is a projection over the activity event stream. Every message envelope persists its `ConversationId` as the `CorrelationId` on the resulting observability event; `IConversationQueryService` materialises summaries, threads, and inbox rows by grouping events on that id. See `src/Cvoya.Spring.Core/Observability/ConversationQueryModels.cs` for the projection contract and `src/Cvoya.Spring.Host.Api/Endpoints/ConversationEndpoints.cs` for the HTTP surface.
+
+The same projection feeds two equivalent surfaces:
+
+| Surface       | CLI                                                              | Portal                                                                                            |
+| ------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| List          | `spring conversation list [--unit] [--agent] [--status] [--participant]` | `/conversations` (with the same query-string filter shape; see `src/Cvoya.Spring.Web/src/app/conversations/page.tsx`). |
+| Show          | `spring conversation show <id>`                                  | `/conversations/<id>` — full role-attributed thread (#410).                                       |
+| Send          | `spring conversation send --conversation <id> <addr> <text>`     | Composer at the bottom of `/conversations/<id>`.                                                  |
+| Inbox         | `spring inbox list`                                              | "Awaiting you" panel on `/conversations`.                                                         |
+
+The portal is **not** a separate event source. It consumes the activity SSE stream (`/api/stream/activity`, see [Streaming](#streaming-real-time-output-from-execution-environments)) and uses the same conversation endpoints the CLI consumes — there is no portal-only data path. UI/CLI parity is enforced by `CONVENTIONS.md § ui-cli-parity` and validated by `npm test` and `dotnet test`.
+
+The conversation thread view cross-links each event back to the activity surface (`/activity?source=…`) and the activity surface deep-links any event with a non-null `correlationId` into `/conversations/<id>`. The two surfaces stay separate by design — activity is the raw timeline, conversations is the chat-shaped projection — but they share the underlying stream and are always one click apart. See `docs/design/portal-exploration.md` § 5.3 for the wireframes.

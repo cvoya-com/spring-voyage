@@ -260,13 +260,25 @@ The portal's primitive library lives in `src/components/ui/`. Shared composites 
 - Nav item: `flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors`. Active: `bg-primary/10 text-primary font-medium`. Inactive: `text-muted-foreground hover:bg-accent hover:text-accent-foreground`.
 - Brand wordmark is `text-lg font-bold` ("Spring Voyage"). Version chip is `text-xs text-muted-foreground` in the footer, paired with the theme toggle (`Sun` / `Moon` at `h-3.5 w-3.5`).
 
-### 7.11 Cards for domain entities — `stat-card.tsx`, `unit-card.tsx`, `agent-card.tsx`, `activity-feed.tsx`
+### 7.11 Cards for domain entities — `stat-card.tsx`, `unit-card.tsx`, `agent-card.tsx`, `activity-feed.tsx`, `conversation-card.tsx`
 
 - Stat card: label (`text-xs text-muted-foreground`) + value (`text-2xl font-bold`) + trailing icon (`text-muted-foreground`).
 - Unit / agent cards compose the base `Card` with a status dot + name + registered-at row.
 - Activity feed row: `flex items-start gap-2 text-sm` with a 2×2 severity dot at `mt-1.5`, message on top, meta (`text-xs text-muted-foreground`) below.
+- Conversation card (`components/cards/conversation-card.tsx`): MessagesSquare icon + title + status badge on the top row; truncated participants (max 3, `+N more` overflow) and `timeAgo(lastActivityAt)` on the meta row; trailing "Open" link to `/conversations/[id]`.
 
-### 7.12 Icons
+### 7.12 Conversation thread — `app/conversations/[id]/`, `components/conversation/`
+
+The conversation surface (#410) renders a chat-style thread with role-attributed bubbles and a CLI-shaped composer. Layout primitives:
+
+- **Role bubbles** (`components/conversation/conversation-event-row.tsx`): `human://` is right-aligned in `bg-primary text-primary-foreground`; `agent://` left-aligned in `bg-muted`; `unit://` left-aligned in `bg-muted/60`; `tool` (events of type `DecisionMade`) left-aligned with an amber outline (`bg-amber-50 text-amber-900 border border-amber-200`); `system` left-aligned in `bg-muted/40 italic`.
+- **Tool calls and lifecycle events** (`StateChanged`, `WorkflowStepCompleted`, `ReflectionCompleted`) collapse by default with a chevron toggle; messages stay expanded so the thread reads like a chat. The collapsed call-out shows the event type and its summary on a single truncated line.
+- **Bubble meta**: role pill (`Badge variant="outline"` at `h-5 px-1.5 text-[10px]`) + monospace source + relative time, mirrored to the same alignment as the bubble.
+- **Composer** (`components/conversation/conversation-composer.tsx`): recipient input (monospace, `scheme://path` placeholder) above a textarea. Quick-pick participant pills sit above the input so users can re-target without typing. Submit on click or `⌘/Ctrl+Enter`. Mirrors the two CLI arguments `spring conversation send` takes.
+- **Thread shell** (`app/conversations/[id]/conversation-detail-client.tsx`): scrollable thread (`max-h-[60vh] overflow-y-auto`) with `aria-live="polite"` so screen readers announce new events as the SSE stream lands them. Auto-scrolls to the bottom on new event.
+- **Cross-links**: the conversation header's `Origin` is a link to `/activity?source=…`, and the activity row's correlation id renders an "Open thread" pill that deep-links to `/conversations/[id]`.
+
+### 7.13 Icons
 
 - [`lucide-react`](https://lucide.dev). Sizes: `h-3 w-3` (inline meta), `h-3.5 w-3.5` (theme toggle), `h-4 w-4` (button icon, card section icon, severity dot wrapper), `h-5 w-5` (sidebar mobile menu, page H1 icon), `h-10 w-10` (empty-state icon).
 - Icons in CTAs never carry colour — they inherit `currentColor` from the surrounding text.
