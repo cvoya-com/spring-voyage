@@ -286,6 +286,25 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
             services.AddSingleton(Substitute.For<DaprClient>());
             services.AddDaprWorkflow(options => { });
 
+            // Strip the Dapr WorkflowWorker IHostedService: the tests have no
+            // sidecar and never exercise workflow execution, so the worker's
+            // background gRPC stream only contributes flake on host teardown
+            // (see #568 — Dapr.Workflow.Worker's GrpcProtocolHandler.DisposeAsync
+            // throws ObjectDisposedException during StopAsync, bubbling up as
+            // "Test Class Cleanup Failure" from WebApplicationFactory.DisposeAsync).
+            // The DaprWorkflowClient and supporting DI registrations stay so
+            // endpoint code that depends on them still resolves. Mirrors the
+            // build-time OpenAPI-generation strip in AddCvoyaSpringDapr (#370).
+            var workflowWorkerDescriptors = services
+                .Where(d => d.ServiceType == typeof(Microsoft.Extensions.Hosting.IHostedService)
+                    && d.ImplementationType?.FullName?.Contains(
+                        "Dapr.Workflow", StringComparison.Ordinal) == true)
+                .ToList();
+            foreach (var descriptor in workflowWorkerDescriptors)
+            {
+                services.Remove(descriptor);
+            }
+
             services.AddSingleton(sp =>
             {
                 var loggerFactory = sp.GetRequiredService<ILoggerFactory>();

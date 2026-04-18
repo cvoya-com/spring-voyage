@@ -48,6 +48,23 @@ using Cvoya.Spring.Core.Messaging;
 /// <c>"aggregated coverage"</c>). Surfaced so CLI operators and planners
 /// can debug why a result was or wasn't returned.
 /// </param>
+/// <param name="AncestorChain">
+/// Ordered chain of aggregating units from the direct owner up to the
+/// highest projecting ancestor (#553). Empty for direct hits — populated
+/// only when the entry surfaced via an aggregated-coverage projection,
+/// in which case the list is the aggregator's walk minus the origin
+/// itself. Callers can render the chain as a breadcrumb so an operator
+/// can see the full projection lineage rather than only the immediate
+/// <see cref="AggregatingUnit"/>.
+/// </param>
+/// <param name="ProjectionPaths">
+/// Set of <c>projection/{slug}</c> paths through which this entry
+/// surfaces in the caller's boundary (#553). Today we emit one path per
+/// aggregating ancestor (shape <c>projection/{slug}</c> rooted at the
+/// slug — the per-ancestor projection identity — so downstream
+/// renderers can count "this capability is reachable via N projections"
+/// without re-walking the chain). Empty for direct hits.
+/// </param>
 public record ExpertiseSearchHit(
     string Slug,
     ExpertiseDomain Domain,
@@ -56,7 +73,9 @@ public record ExpertiseSearchHit(
     Address? AggregatingUnit,
     bool TypedContract,
     double Score,
-    string MatchReason);
+    string MatchReason,
+    IReadOnlyList<Address>? AncestorChain = null,
+    IReadOnlyList<string>? ProjectionPaths = null);
 
 /// <summary>
 /// Result page from <see cref="IExpertiseSearch.SearchAsync"/>. Carries

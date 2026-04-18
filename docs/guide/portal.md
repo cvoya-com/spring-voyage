@@ -34,7 +34,7 @@ The left sidebar ([src/Cvoya.Spring.Web/src/components/sidebar.tsx](../../src/Cv
 | `/analytics/throughput` — **Analytics → Throughput** | Messages / turns / tool calls per source over 24h/7d/30d | `spring analytics throughput` |
 | `/analytics/waits` — **Analytics → Wait times** | Idle / busy / waiting-for-human durations per source | `spring analytics waits` |
 | `/packages` — **Packages** | Browse installed packages and their templates | `spring package list` / `spring package show` |
-| `/directory` — **Directory** | Tenant-wide expertise directory — searchable domains declared by every agent and unit | `spring agent expertise get` / `spring unit expertise get` (per-entity; no tenant-wide verb today — parity gap) |
+| `/directory` — **Directory** | Tenant-wide expertise directory — searchable domains declared by every agent and unit | `spring directory list` / `spring directory show <slug>` / `spring directory search "<query>"` |
 
 Detail pages (`/units/{id}`, `/agents/{id}`, `/conversations/{id}`) are reached by clicking entity cards on the dashboard, list pages, or by following deep-links from activity rows. Every detail page renders a breadcrumb trail (`Dashboard › Units › {id}` and so on) so navigation depth is always visible.
 
@@ -377,8 +377,10 @@ Each row shows the domain name, its level badge (when set), the description (whe
 
 | Action | Portal | CLI |
 |--------|--------|-----|
-| Browse every declared domain across the tenant | `/directory` | no single CLI verb — compose `spring agent expertise get` and `spring unit expertise get` per entity. **This is a CLI/UI parity gap** — follow-up in #528. |
-| Filter by domain / level / owner | filters above the list | filter CLI output in your shell |
+| Browse every declared domain across the tenant | `/directory` | `spring directory list` (parity with the portal landed in PR #555 / closes #528) |
+| Open a single directory entry by slug | click the row's slug | `spring directory show <slug>` — includes the ancestor-chain breadcrumb + `projection/{slug}` paths (#553) |
+| Free-text search + ranked results | search box above the list | `spring directory search "<query>"` |
+| Filter by domain / level / owner | filters above the list | `spring directory list --domain <name> --owner <scheme://path>` (plus `--typed-only` / `--inside`) |
 | Open owning agent / unit | click the owner link | `spring agent status <id>` / `spring unit show <id>` |
 
 ## Activity (`/activity`)
@@ -559,7 +561,7 @@ Today's portal has capabilities not mirrored in the CLI, and vice versa. These a
 | Activity streaming (live follow) | polling refresh | not implemented | neither surface has a real-time `activity stream` today |
 | Cost summary / budget CLI | — | not implemented | the older `docs/guide/observing.md` references `spring cost summary`/`spring cost budget`/`spring activity stream` which are not on the shipped CLI surface |
 | Messaging UI (one-shot send to an arbitrary address) | not implemented | `spring message send` | use the conversation composer for in-thread replies; new-conversation send is still CLI-only |
-| Tenant-wide expertise directory | `/directory` | `spring agent expertise get <id>` + `spring unit expertise get <id>` (per-entity only) | portal fans out over the per-entity endpoints; a first-class `spring directory expertise` verb is follow-up #528 |
+| Tenant-wide expertise directory | `/directory` | `spring directory list` / `spring directory show` / `spring directory search` | at parity since PR #555 (closes #528, #553) — both surfaces ride `POST /api/v1/directory/search` and carry the full owner chain + `projection/{slug}` paths |
 
 Parity is a project norm (see the top-level `AGENTS.md`): any time you find yourself building a feature on one surface, file a follow-up to bring the other in line.
 

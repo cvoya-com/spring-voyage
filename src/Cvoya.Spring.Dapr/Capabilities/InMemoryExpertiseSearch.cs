@@ -203,12 +203,29 @@ public class InMemoryExpertiseSearch(
                 if (!candidates.ContainsKey(key))
                 {
                     displayNames.TryGetValue(AddressKey(agg.Origin), out var ownerName);
+
+                    // Build the ancestor chain from the aggregator's walk
+                    // path (#553). Path shape is
+                    // [aggregating_unit, ..., origin] — the ancestor chain
+                    // the caller sees is every unit between (and including)
+                    // the aggregating unit and the origin's direct parent,
+                    // ordered bottom-up (closest to the owner first). We
+                    // drop the origin itself because it's already surfaced
+                    // as `Owner`. Each ancestor contributes one
+                    // `projection/{slug}` path so downstream callers can
+                    // count the reachable surfaces without re-walking the
+                    // chain.
+                    var chain = BuildAncestorChain(agg.Path, agg.Origin);
+                    var projectionPaths = BuildProjectionPaths(slug, chain);
+
                     candidates[key] = new Candidate(
                         slug,
                         agg.Domain,
                         agg.Origin,
                         ownerName ?? string.Empty,
-                        AggregatingUnit: entry.Address);
+                        AggregatingUnit: entry.Address,
+                        AncestorChain: chain,
+                        ProjectionPaths: projectionPaths);
                 }
             }
         }
@@ -350,7 +367,12 @@ public class InMemoryExpertiseSearch(
                 AggregatingUnit: candidate.AggregatingUnit,
                 TypedContract: candidate.Domain.InputSchemaJson is not null,
                 Score: score,
-                MatchReason: string.Join(" + ", reasons)));
+                MatchReason: string.Join(" + ", reasons),
+                // Direct hits surface as empty collections rather than
+                // null so callers can treat "no chain" and "empty chain"
+                // identically (#553).
+                AncestorChain: candidate.AncestorChain ?? Array.Empty<Address>(),
+                ProjectionPaths: candidate.ProjectionPaths ?? Array.Empty<string>()));
         }
 
         // Deterministic tiebreak: score DESC, then slug ASC, then owner ASC
@@ -391,10 +413,70 @@ public class InMemoryExpertiseSearch(
     private static string SlugKey(string slug, Address owner, Address? aggregating) =>
         slug + "|" + AddressKey(owner) + "|" + (aggregating is null ? string.Empty : AddressKey(aggregating));
 
+    /// <summary>
+    /// Builds the bottom-up ancestor chain for a hit surfaced through an
+    /// aggregating unit (#553). Walks the aggregator's path (shape
+    /// <c>[aggregating_unit, ..., origin]</c>), drops the origin itself
+    /// because it's already surfaced as <c>Owner</c>, and reverses the
+    /// remainder so the caller sees the closest projecting ancestor first
+    /// and the highest projecting ancestor last. When <paramref name="path"/>
+    /// is null or collapses to only the origin, returns an empty list so
+    /// the caller can treat "direct hit" and "flat path" identically.
+    /// </summary>
+    private static IReadOnlyList<Address> BuildAncestorChain(
+        IReadOnlyList<Address> path,
+        Address origin)
+    {
+        if (path is null || path.Count == 0)
+        {
+            return Array.Empty<Address>();
+        }
+
+        var chain = new List<Address>(path.Count);
+        for (var i = path.Count - 1; i >= 0; i--)
+        {
+            var hop = path[i];
+            if (AddressEquals(hop, origin))
+            {
+                continue;
+            }
+            chain.Add(hop);
+        }
+        return chain;
+    }
+
+    /// <summary>
+    /// Emits one <c>projection/{slug}</c> path per ancestor that surfaces
+    /// this capability to the caller (#553). Empty for direct hits. The
+    /// per-ancestor cardinality lets a caller count "this capability is
+    /// reachable via N projections" without re-walking the ancestor chain;
+    /// the <em>paths</em> themselves share the same slug because the
+    /// projection identity is per-capability, not per-ancestor.
+    /// </summary>
+    private static IReadOnlyList<string> BuildProjectionPaths(
+        string slug,
+        IReadOnlyList<Address> ancestorChain)
+    {
+        if (ancestorChain.Count == 0 || string.IsNullOrEmpty(slug))
+        {
+            return Array.Empty<string>();
+        }
+
+        var path = "projection/" + slug;
+        var paths = new string[ancestorChain.Count];
+        for (var i = 0; i < ancestorChain.Count; i++)
+        {
+            paths[i] = path;
+        }
+        return paths;
+    }
+
     private sealed record Candidate(
         string Slug,
         ExpertiseDomain Domain,
         Address Owner,
         string OwnerDisplayName,
-        Address? AggregatingUnit);
+        Address? AggregatingUnit,
+        IReadOnlyList<Address>? AncestorChain = null,
+        IReadOnlyList<string>? ProjectionPaths = null);
 }

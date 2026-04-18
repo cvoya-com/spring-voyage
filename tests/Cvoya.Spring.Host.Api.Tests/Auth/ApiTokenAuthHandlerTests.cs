@@ -106,6 +106,20 @@ public class ApiTokenAuthHandlerTests : IDisposable
                     services.AddSingleton(Substitute.For<DaprClient>());
                     services.AddDaprWorkflow(options => { });
 
+                    // Strip the Dapr WorkflowWorker IHostedService to avoid the
+                    // ObjectDisposedException race on host teardown (#568). The
+                    // tests don't drive workflow execution, so the worker's
+                    // background gRPC stream is dead weight.
+                    var workflowWorkerDescriptors = services
+                        .Where(d => d.ServiceType == typeof(Microsoft.Extensions.Hosting.IHostedService)
+                            && d.ImplementationType?.FullName?.Contains(
+                                "Dapr.Workflow", StringComparison.Ordinal) == true)
+                        .ToList();
+                    foreach (var d in workflowWorkerDescriptors)
+                    {
+                        services.Remove(d);
+                    }
+
                     // Remove and re-register ICostTracker.
                     var costDescriptors = services
                         .Where(d => d.ServiceType == typeof(Cvoya.Spring.Core.Costs.ICostTracker))

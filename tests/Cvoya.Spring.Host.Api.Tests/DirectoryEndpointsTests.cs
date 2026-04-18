@@ -107,6 +107,99 @@ public class DirectoryEndpointsTests : IClassFixture<CustomWebApplicationFactory
     }
 
     [Fact]
+    public async Task Search_CarriesAncestorChainAndProjectionPaths()
+    {
+        // #553: widened response surface. The host must forward the
+        // ancestor chain + projection paths from the core search result
+        // rather than dropping them.
+        var ct = TestContext.Current.CancellationToken;
+        _factory.ExpertiseSearch
+            .SearchAsync(Arg.Any<ExpertiseSearchQuery>(), Arg.Any<CancellationToken>())
+            .Returns(new ExpertiseSearchResult(
+                new[]
+                {
+                    new ExpertiseSearchHit(
+                        Slug: "translation",
+                        Domain: new ExpertiseDomain("translation", "Translation expertise", ExpertiseLevel.Advanced, null),
+                        Owner: new Address("unit", "origin"),
+                        OwnerDisplayName: "Origin",
+                        AggregatingUnit: new Address("unit", "root"),
+                        TypedContract: false,
+                        Score: 20,
+                        MatchReason: "aggregated coverage",
+                        AncestorChain: new[]
+                        {
+                            new Address("unit", "mid"),
+                            new Address("unit", "root"),
+                        },
+                        ProjectionPaths: new[]
+                        {
+                            "projection/translation",
+                            "projection/translation",
+                        }),
+                },
+                TotalCount: 1,
+                Limit: 50,
+                Offset: 0));
+
+        var response = await _client.PostAsJsonAsync(
+            "/api/v1/directory/search",
+            new DirectorySearchRequest(Text: "translation"),
+            ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var result = await response.Content.ReadFromJsonAsync<DirectorySearchResponse>(ct);
+        result.ShouldNotBeNull();
+        var hit = result.Hits.ShouldHaveSingleItem();
+        hit.AncestorChain.Count.ShouldBe(2);
+        hit.AncestorChain[0].Scheme.ShouldBe("unit");
+        hit.AncestorChain[0].Path.ShouldBe("mid");
+        hit.AncestorChain[1].Path.ShouldBe("root");
+        hit.ProjectionPaths.Count.ShouldBe(2);
+        hit.ProjectionPaths.ShouldAllBe(p => p == "projection/translation");
+    }
+
+    [Fact]
+    public async Task Search_DirectHit_EmitsEmptyChainAndProjectionPaths()
+    {
+        // #553: direct hits must surface empty collections (not null) so
+        // generated clients don't have to null-check.
+        var ct = TestContext.Current.CancellationToken;
+        _factory.ExpertiseSearch
+            .SearchAsync(Arg.Any<ExpertiseSearchQuery>(), Arg.Any<CancellationToken>())
+            .Returns(new ExpertiseSearchResult(
+                new[]
+                {
+                    new ExpertiseSearchHit(
+                        Slug: "python",
+                        Domain: new ExpertiseDomain("python", "Python expertise", ExpertiseLevel.Advanced, null),
+                        Owner: new Address("unit", "eng"),
+                        OwnerDisplayName: "Engineering",
+                        AggregatingUnit: null,
+                        TypedContract: false,
+                        Score: 100,
+                        MatchReason: "exact slug"),
+                },
+                TotalCount: 1,
+                Limit: 50,
+                Offset: 0));
+
+        var response = await _client.PostAsJsonAsync(
+            "/api/v1/directory/search",
+            new DirectorySearchRequest(Text: "python"),
+            ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var result = await response.Content.ReadFromJsonAsync<DirectorySearchResponse>(ct);
+        result.ShouldNotBeNull();
+        var hit = result.Hits.ShouldHaveSingleItem();
+        hit.AncestorChain.ShouldNotBeNull();
+        hit.AncestorChain.Count.ShouldBe(0);
+        hit.ProjectionPaths.ShouldNotBeNull();
+        hit.ProjectionPaths.Count.ShouldBe(0);
+    }
+
+    [Fact]
     public async Task Search_NullBody_TreatedAsEmptyQuery()
     {
         var ct = TestContext.Current.CancellationToken;
