@@ -15,6 +15,7 @@ import { useActivityStream } from "@/lib/stream/use-activity-stream";
 import type { DashboardSummary } from "@/lib/api/types";
 import { formatCost, timeAgo } from "@/lib/utils";
 import { AgentCard } from "@/components/cards/agent-card";
+import { CostSummaryCard } from "@/components/cards/cost-summary-card";
 import { UnitCard } from "@/components/cards/unit-card";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -470,6 +471,12 @@ export default function DashboardPage() {
 
       {/* Stats header */}
       <StatsHeader summary={summary} />
+
+      {/* Spend summary (PR-R4 / #394). Sits near the top so tenants
+          see today / 7d / 30d totals without drilling into
+          /analytics/costs. The card is read-only — budget editing
+          lives on /analytics/costs per the PR-R4 scope note. */}
+      <CostSummaryCard />
 
       {/* Main content: 3-column on large screens */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">

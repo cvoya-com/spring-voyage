@@ -112,6 +112,29 @@ export function useDashboardCosts(
   });
 }
 
+/**
+ * Tenant-wide cost rollup for an explicit `(from, to)` window. Powers
+ * the dashboard summary card's today / 7d / 30d totals (PR-R4, #394).
+ * Surfaces `null` on error so the card renders the empty slot instead
+ * of trapping the dashboard error boundary.
+ */
+export function useTenantCost(
+  range: { from: string; to: string },
+  opts?: SliceOptions<CostSummaryResponse | null>,
+): UseQueryResult<CostSummaryResponse | null, Error> {
+  return useQuery({
+    queryKey: queryKeys.tenant.cost(range.from, range.to),
+    queryFn: async () => {
+      try {
+        return await api.getTenantCost(range);
+      } catch {
+        return null;
+      }
+    },
+    ...opts,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Units
 // ---------------------------------------------------------------------------
@@ -225,6 +248,32 @@ export function useUnitCost(
   });
 }
 
+/**
+ * Windowed wrapper around `api.getUnitCost`. Keyed on `(id, from, to)`
+ * so the Costs tab on `/units/[id]` (PR-R4, #394) can fan out one call
+ * per window (24h / 7d / 30d) without colliding with the default-window
+ * `useUnitCost` above.
+ */
+export function useUnitCostWindowed(
+  id: string,
+  range: { from: string; to: string },
+  opts?: SliceOptions<CostSummaryResponse | null>,
+): UseQueryResult<CostSummaryResponse | null, Error> {
+  return useQuery({
+    queryKey: [...queryKeys.units.cost(id), range.from, range.to] as const,
+    queryFn: async () => {
+      try {
+        return await api.getUnitCost(id, range);
+      } catch {
+        return null;
+      }
+    },
+    enabled: opts?.enabled ?? Boolean(id),
+    refetchInterval: opts?.refetchInterval,
+    staleTime: opts?.staleTime,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Agents
 // ---------------------------------------------------------------------------
@@ -251,6 +300,33 @@ export function useAgentCost(
     queryFn: async () => {
       try {
         return await api.getAgentCost(id);
+      } catch {
+        return null;
+      }
+    },
+    enabled: opts?.enabled ?? Boolean(id),
+    refetchInterval: opts?.refetchInterval,
+    staleTime: opts?.staleTime,
+  });
+}
+
+/**
+ * Windowed wrapper around `api.getAgentCost`. Keyed on `(id, from, to)`
+ * so the cost-over-time card on `/agents/[id]` (PR-R4, #394) can fan
+ * out one call per window (24h / 7d / 30d). The API does not expose a
+ * time-series today (#569) — the card stacks per-window totals as a
+ * best-available placeholder until that endpoint lands.
+ */
+export function useAgentCostWindowed(
+  id: string,
+  range: { from: string; to: string },
+  opts?: SliceOptions<CostSummaryResponse | null>,
+): UseQueryResult<CostSummaryResponse | null, Error> {
+  return useQuery({
+    queryKey: [...queryKeys.agents.cost(id), range.from, range.to] as const,
+    queryFn: async () => {
+      try {
+        return await api.getAgentCost(id, range);
       } catch {
         return null;
       }
