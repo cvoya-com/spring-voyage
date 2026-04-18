@@ -97,7 +97,7 @@ function StatsHeader({ summary }: { summary: DashboardSummary }) {
                 )}
               </div>
             </div>
-            <Network className="h-5 w-5 text-muted-foreground" />
+            <Network className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
           </div>
         </CardContent>
       </Card>
@@ -110,7 +110,7 @@ function StatsHeader({ summary }: { summary: DashboardSummary }) {
               <p className="text-xs text-muted-foreground">Agents</p>
               <p className="text-2xl font-bold">{summary.agentCount}</p>
             </div>
-            <Bot className="h-5 w-5 text-muted-foreground" />
+            <Bot className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
           </div>
         </CardContent>
       </Card>
@@ -125,7 +125,7 @@ function StatsHeader({ summary }: { summary: DashboardSummary }) {
                 {formatCost(summary.totalCost)}
               </p>
             </div>
-            <DollarSign className="h-5 w-5 text-muted-foreground" />
+            <DollarSign className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
           </div>
         </CardContent>
       </Card>
@@ -140,6 +140,7 @@ function StatsHeader({ summary }: { summary: DashboardSummary }) {
                 {health === "healthy" && (
                   <>
                     <CheckCircle2
+                      aria-hidden="true"
                       className="h-5 w-5 text-green-500"
                       data-testid="health-icon"
                     />
@@ -154,6 +155,7 @@ function StatsHeader({ summary }: { summary: DashboardSummary }) {
                 {health === "degraded" && (
                   <>
                     <AlertCircle
+                      aria-hidden="true"
                       className="h-5 w-5 text-amber-500"
                       data-testid="health-icon"
                     />
@@ -175,7 +177,7 @@ function StatsHeader({ summary }: { summary: DashboardSummary }) {
                 )}
               </div>
             </div>
-            <Activity className="h-5 w-5 text-muted-foreground" />
+            <Activity className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
           </div>
         </CardContent>
       </Card>
@@ -191,7 +193,7 @@ function UnitCards({ summary }: { summary: DashboardSummary }) {
   if (summary.units.length === 0) {
     return (
       <Card className="flex flex-col items-center justify-center p-8 text-center">
-        <Plus className="mb-3 h-10 w-10 text-muted-foreground" />
+        <Plus className="mb-3 h-10 w-10 text-muted-foreground" aria-hidden="true" />
         <p className="mb-2 font-medium">Create your first unit</p>
         <p className="mb-4 text-sm text-muted-foreground">
           Units organize agents and define how they collaborate.
@@ -224,7 +226,7 @@ function AgentCards({ summary }: { summary: DashboardSummary }) {
   if (summary.agents.length === 0) {
     return (
       <Card className="p-6 text-center">
-        <Bot className="mx-auto mb-3 h-10 w-10 text-muted-foreground" />
+        <Bot className="mx-auto mb-3 h-10 w-10 text-muted-foreground" aria-hidden="true" />
         <p className="text-sm text-muted-foreground">
           Agents appear when you create a unit from a template.
         </p>
@@ -305,7 +307,7 @@ function ActivityTimeline({
   if (items.length === 0) {
     return (
       <Card className="p-6 text-center">
-        <Activity className="mx-auto mb-3 h-10 w-10 text-muted-foreground" />
+        <Activity className="mx-auto mb-3 h-10 w-10 text-muted-foreground" aria-hidden="true" />
         <p className="text-sm text-muted-foreground">
           Start a unit to see activity here.
         </p>
@@ -338,8 +340,10 @@ function ActivityTimeline({
               <>
                 <span className="mt-1.5 shrink-0">
                   <span
+                    aria-hidden="true"
                     className={`inline-block h-2 w-2 rounded-full ${severityDot[item.severity] ?? "bg-muted-foreground"}`}
                   />
+                  <span className="sr-only">{item.severity}: </span>
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className="text-sm">{item.summary}</p>
@@ -349,9 +353,9 @@ function ActivityTimeline({
                       className="text-[10px] px-1.5 py-0"
                     >
                       {isAgent ? (
-                        <Bot className="mr-0.5 inline h-2.5 w-2.5" />
+                        <Bot className="mr-0.5 inline h-2.5 w-2.5" aria-hidden="true" />
                       ) : (
-                        <Network className="mr-0.5 inline h-2.5 w-2.5" />
+                        <Network className="mr-0.5 inline h-2.5 w-2.5" aria-hidden="true" />
                       )}
                       {sourceName}
                     </Badge>
@@ -484,7 +488,7 @@ export default function DashboardPage() {
         <section>
           <div className="mb-3 flex items-center justify-between">
             <h2 className="flex items-center gap-2 text-lg font-semibold">
-              <Network className="h-5 w-5" />
+              <Network className="h-5 w-5" aria-hidden="true" />
               Units
             </h2>
             {summary.unitCount > 0 && (
@@ -503,7 +507,7 @@ export default function DashboardPage() {
         <section>
           <div className="mb-3 flex items-center justify-between">
             <h2 className="flex items-center gap-2 text-lg font-semibold">
-              <Bot className="h-5 w-5" />
+              <Bot className="h-5 w-5" aria-hidden="true" />
               Agents
             </h2>
           </div>
@@ -514,7 +518,7 @@ export default function DashboardPage() {
         <section>
           <div className="mb-3 flex items-center justify-between">
             <h2 className="flex items-center gap-2 text-lg font-semibold">
-              <Activity className="h-5 w-5" />
+              <Activity className="h-5 w-5" aria-hidden="true" />
               Recent Activity
             </h2>
             {summary.recentActivity.length > 0 && (

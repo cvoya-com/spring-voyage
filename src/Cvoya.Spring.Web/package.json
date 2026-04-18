@@ -38,12 +38,14 @@
     "@types/node": "^22.15.0",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
+    "axe-core": "^4.11.3",
     "eslint": "^9.36.0",
     "eslint-config-next": "^16.2.1",
     "jsdom": "^25.0.0",
     "openapi-typescript": "^7.6.0",
     "tailwindcss": "^4.1.0",
     "typescript": "^5.8.0",
-    "vitest": "^3.0.0"
+    "vitest": "^3.0.0",
+    "vitest-axe": "^0.1.0"
   }
 }

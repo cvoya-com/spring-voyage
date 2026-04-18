@@ -99,14 +99,14 @@ export function CostSummaryCard() {
     <Card data-testid="cost-summary-card">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <CardTitle className="flex items-center gap-2 text-base">
-          <DollarSign className="h-4 w-4" /> Spend
+          <DollarSign className="h-4 w-4" aria-hidden="true" /> Spend
         </CardTitle>
         <Link
           href="/analytics/costs"
           className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
           data-testid="cost-summary-link"
         >
-          Details <ArrowRight className="h-3 w-3" />
+          Details <ArrowRight className="h-3 w-3" aria-hidden="true" />
         </Link>
       </CardHeader>
       <CardContent className="grid grid-cols-3 gap-3">

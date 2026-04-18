@@ -21,7 +21,11 @@ export function AppShell({ children }: { children: ReactNode }) {
             pixel width — without it, flexbox pins main to the widest
             child and the sidebar + page overflow horizontally on
             narrow viewports. */}
-        <main className="flex-1 min-w-0 overflow-y-auto p-4 md:p-6 pt-14 md:pt-6">
+        <main
+          id="main-content"
+          tabIndex={-1}
+          className="flex-1 min-w-0 overflow-y-auto p-4 md:p-6 pt-14 md:pt-6 focus:outline-none"
+        >
           {children}
         </main>
         <SettingsDrawer

@@ -33,7 +33,7 @@ export default function ConnectorsListPage() {
     <div className="space-y-6">
       <div>
         <h1 className="flex items-center gap-2 text-2xl font-bold">
-          <Plug className="h-5 w-5" /> Connectors
+          <Plug className="h-5 w-5" aria-hidden="true" /> Connectors
         </h1>
         <p className="text-sm text-muted-foreground">
           Every connector type registered on this server. Mirrors{" "}
@@ -61,7 +61,7 @@ export default function ConnectorsListPage() {
       ) : connectors.length === 0 ? (
         <Card>
           <CardContent className="space-y-2 p-6 text-center">
-            <Plug className="mx-auto h-10 w-10 text-muted-foreground" />
+            <Plug className="mx-auto h-10 w-10 text-muted-foreground" aria-hidden="true" />
             <p className="text-sm text-muted-foreground">
               No connector types registered. Install a connector
               package and restart the host to make it appear here. See{" "}
