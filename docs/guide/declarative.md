@@ -102,6 +102,21 @@ unit:
     - identity: reviewer2
       permission: operator
       notifications: [github]
+
+  # Optional boundary — controls what members expose to callers outside
+  # the unit. Wire-equivalent to `spring unit boundary set -f`; see
+  # docs/architecture/units.md § Unit Boundary for the rule semantics.
+  boundary:
+    opacities:
+      - domain_pattern: internal-*
+    projections:
+      - domain_pattern: backend-*
+        rename_to: engineering
+        override_level: advanced
+    syntheses:
+      - name: full-stack
+        description: team-level full-stack coverage
+        level: expert
 ```
 
 Members can reference agent/unit definition files (relative paths) or existing agents/units by ID.

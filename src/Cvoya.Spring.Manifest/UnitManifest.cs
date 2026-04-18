@@ -75,6 +75,19 @@ public class UnitManifest
     /// </summary>
     [YamlMember(Alias = "expertise")]
     public List<ExpertiseManifestEntry>? Expertise { get; set; }
+
+    /// <summary>
+    /// Optional boundary configuration for the unit (#494 / PR-PLAT-BOUND-2b).
+    /// Mirrors the CLI <c>-f</c> YAML shape consumed by
+    /// <c>spring unit boundary set</c> and the HTTP
+    /// <c>PUT /api/v1/units/{id}/boundary</c> body, so a <c>boundary:</c>
+    /// block in a <c>spring apply</c> manifest is wire-equivalent to a
+    /// subsequent API call. An absent or empty block leaves the unit with no
+    /// boundary rules — the default "transparent" view. See
+    /// <c>docs/architecture/units.md § Unit Boundary</c>.
+    /// </summary>
+    [YamlMember(Alias = "boundary")]
+    public BoundaryManifest? Boundary { get; set; }
 }
 
 /// <summary>
@@ -203,6 +216,142 @@ public class ConnectorManifest
     /// <summary>Free-form connector configuration.</summary>
     [YamlMember(Alias = "config")]
     public Dictionary<string, object>? Config { get; set; }
+}
+
+/// <summary>
+/// Boundary configuration for a unit (#494). Matches the three-list YAML
+/// grammar consumed by <c>spring unit boundary set -f</c> and the HTTP
+/// <c>PUT /api/v1/units/{id}/boundary</c> body, so the same fragment can be
+/// authored once and persisted through either path without loss. Each slot
+/// is optional; an all-null or all-empty block is equivalent to "no
+/// boundary" (the transparent view). Shipped as its own class rather than a
+/// bare dictionary so a schema validator / portal form can bind directly to
+/// the typed shape.
+/// </summary>
+public class BoundaryManifest
+{
+    /// <summary>
+    /// Opacity rules — every matching <c>ExpertiseEntry</c> is stripped from
+    /// the outside view. Rules OR together.
+    /// </summary>
+    [YamlMember(Alias = "opacities")]
+    public List<BoundaryOpacityManifestEntry>? Opacities { get; set; }
+
+    /// <summary>
+    /// Projection rules — every matching entry is rewritten (new name /
+    /// description / level). First matching rule wins.
+    /// </summary>
+    [YamlMember(Alias = "projections")]
+    public List<BoundaryProjectionManifestEntry>? Projections { get; set; }
+
+    /// <summary>
+    /// Synthesis rules — every matching set of entries is collapsed into a
+    /// single synthesised entry attributed to the unit.
+    /// </summary>
+    [YamlMember(Alias = "syntheses")]
+    public List<BoundarySynthesisManifestEntry>? Syntheses { get; set; }
+
+    /// <summary>
+    /// True when every slot is absent or empty. Consumers use this to decide
+    /// whether a boundary write needs to fire at all — a unit with an empty
+    /// manifest block is indistinguishable from one that declared no boundary.
+    /// </summary>
+    [YamlIgnore]
+    public bool IsEmpty =>
+        (Opacities is null || Opacities.Count == 0)
+        && (Projections is null || Projections.Count == 0)
+        && (Syntheses is null || Syntheses.Count == 0);
+}
+
+/// <summary>
+/// One opacity rule inside a <see cref="BoundaryManifest.Opacities"/> list.
+/// A matched entry is removed from the outside view.
+/// </summary>
+public class BoundaryOpacityManifestEntry
+{
+    /// <summary>
+    /// Case-insensitive exact-match or <c>*</c>-suffix pattern on the
+    /// aggregated entry's domain name. <c>null</c> matches any domain.
+    /// </summary>
+    [YamlMember(Alias = "domain_pattern")]
+    public string? DomainPattern { get; set; }
+
+    /// <summary>
+    /// Optional <c>scheme://path</c> pattern matched against the entry's
+    /// origin. <c>null</c> matches any origin.
+    /// </summary>
+    [YamlMember(Alias = "origin_pattern")]
+    public string? OriginPattern { get; set; }
+}
+
+/// <summary>
+/// One projection rule inside a <see cref="BoundaryManifest.Projections"/>
+/// list. A matched entry is rewritten — rename / retag / relevel — and still
+/// emitted to outside callers.
+/// </summary>
+public class BoundaryProjectionManifestEntry
+{
+    /// <summary>Same semantics as <see cref="BoundaryOpacityManifestEntry.DomainPattern"/>.</summary>
+    [YamlMember(Alias = "domain_pattern")]
+    public string? DomainPattern { get; set; }
+
+    /// <summary>Same semantics as <see cref="BoundaryOpacityManifestEntry.OriginPattern"/>.</summary>
+    [YamlMember(Alias = "origin_pattern")]
+    public string? OriginPattern { get; set; }
+
+    /// <summary>Optional replacement for the domain name. <c>null</c> leaves it unchanged.</summary>
+    [YamlMember(Alias = "rename_to")]
+    public string? RenameTo { get; set; }
+
+    /// <summary>Optional replacement for the domain description. <c>null</c> leaves it unchanged.</summary>
+    [YamlMember(Alias = "retag")]
+    public string? Retag { get; set; }
+
+    /// <summary>
+    /// Optional replacement for the domain level — one of
+    /// <c>beginner | intermediate | advanced | expert</c> (case-insensitive).
+    /// Unrecognised values are persisted as-is but resolved to <c>null</c>
+    /// at read time, matching the HTTP DTO's tolerance.
+    /// </summary>
+    [YamlMember(Alias = "override_level")]
+    public string? OverrideLevel { get; set; }
+}
+
+/// <summary>
+/// One synthesis rule inside a <see cref="BoundaryManifest.Syntheses"/>
+/// list. Matching entries are removed and replaced with a single synthesised
+/// entry attributed to the unit.
+/// </summary>
+public class BoundarySynthesisManifestEntry
+{
+    /// <summary>
+    /// Name of the synthesised domain. Required — a synthesis rule with no
+    /// name is silently skipped by the persistence layer so a malformed
+    /// entry never fabricates an empty team capability.
+    /// </summary>
+    [YamlMember(Alias = "name")]
+    public string? Name { get; set; }
+
+    /// <summary>Same semantics as <see cref="BoundaryOpacityManifestEntry.DomainPattern"/>.</summary>
+    [YamlMember(Alias = "domain_pattern")]
+    public string? DomainPattern { get; set; }
+
+    /// <summary>Same semantics as <see cref="BoundaryOpacityManifestEntry.OriginPattern"/>.</summary>
+    [YamlMember(Alias = "origin_pattern")]
+    public string? OriginPattern { get; set; }
+
+    /// <summary>Optional description attached to the synthesised domain.</summary>
+    [YamlMember(Alias = "description")]
+    public string? Description { get; set; }
+
+    /// <summary>
+    /// Optional explicit level for the synthesised capability. When
+    /// <c>null</c> the server uses the strongest level observed across
+    /// matched entries. Same tolerance rule as
+    /// <see cref="BoundaryProjectionManifestEntry.OverrideLevel"/>.
+    /// </summary>
+    [YamlMember(Alias = "level")]
+    public string? Level { get; set; }
 }
 
 /// <summary>Human participant declaration.</summary>

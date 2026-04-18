@@ -11,6 +11,7 @@ using System.Threading;
 using System.Threading.Tasks;
 
 using Cvoya.Spring.Connectors;
+using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Skills;
@@ -58,10 +59,15 @@ public class UnitCreationService : IUnitCreationService
     private readonly IUnitSkillBundleStore _bundleStore;
     private readonly IUnitMembershipRepository _membershipRepository;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IUnitBoundaryStore? _boundaryStore;
     private readonly ILogger<UnitCreationService> _logger;
 
     /// <summary>
-    /// Creates a new <see cref="UnitCreationService"/>.
+    /// Creates a new <see cref="UnitCreationService"/>. The
+    /// <paramref name="boundaryStore"/> parameter is optional so existing test
+    /// fixtures constructed before #494 landed keep compiling; when it is
+    /// <c>null</c> manifest-declared boundaries are ignored with a warning.
+    /// Production DI always supplies it via <see cref="IUnitBoundaryStore"/>.
     /// </summary>
     public UnitCreationService(
         IDirectoryService directoryService,
@@ -74,7 +80,8 @@ public class UnitCreationService : IUnitCreationService
         IUnitSkillBundleStore bundleStore,
         IUnitMembershipRepository membershipRepository,
         IServiceScopeFactory scopeFactory,
-        ILoggerFactory loggerFactory)
+        ILoggerFactory loggerFactory,
+        IUnitBoundaryStore? boundaryStore = null)
     {
         _directoryService = directoryService;
         _actorProxyFactory = actorProxyFactory;
@@ -86,6 +93,7 @@ public class UnitCreationService : IUnitCreationService
         _bundleStore = bundleStore;
         _membershipRepository = membershipRepository;
         _scopeFactory = scopeFactory;
+        _boundaryStore = boundaryStore;
         _logger = loggerFactory.CreateLogger<UnitCreationService>();
     }
 
@@ -189,6 +197,20 @@ public class UnitCreationService : IUnitCreationService
         {
             await PersistUnitDefinitionOrchestrationAsync(
                 name, manifest.Orchestration!.Strategy!, cancellationToken);
+        }
+
+        // #494: persist the manifest's `boundary:` block through
+        // IUnitBoundaryStore so the unit actor's boundary state matches what
+        // a `PUT /api/v1/units/{id}/boundary` call would have produced. We
+        // call the store directly (rather than writing to the Definition
+        // JSON like expertise / orchestration) because boundary already has
+        // a live persistence seam that the HTTP surface consumes — this
+        // keeps YAML-applied and API-applied boundaries wire-identical. An
+        // absent or all-empty block is a no-op so the unit's default
+        // "transparent" view is preserved.
+        if (manifest.Boundary is { IsEmpty: false })
+        {
+            await PersistUnitBoundaryAsync(name, manifest.Boundary, cancellationToken);
         }
 
         return result;
@@ -323,6 +345,54 @@ public class UnitCreationService : IUnitCreationService
             _logger.LogWarning(ex,
                 "Unit '{UnitName}': failed to persist orchestration.strategy on UnitDefinition; actor will resolve the default strategy.",
                 unitId);
+        }
+    }
+
+    /// <summary>
+    /// Projects the manifest's <c>boundary:</c> block to a core
+    /// <see cref="UnitBoundary"/> and writes it through
+    /// <see cref="IUnitBoundaryStore.SetAsync"/>. Idempotent: a subsequent
+    /// manifest re-apply replaces every slot in place with the new shape.
+    /// Failures are non-fatal — the unit is already live; the operator can
+    /// push the boundary via <c>PUT /api/v1/units/{id}/boundary</c> if the
+    /// store write hiccups.
+    /// </summary>
+    private async Task PersistUnitBoundaryAsync(
+        string unitName,
+        BoundaryManifest boundary,
+        CancellationToken cancellationToken)
+    {
+        if (_boundaryStore is null)
+        {
+            _logger.LogWarning(
+                "Unit '{UnitName}': manifest declared a boundary block but no IUnitBoundaryStore is registered; skipping boundary persistence.",
+                unitName);
+            return;
+        }
+
+        try
+        {
+            var core = ManifestBoundaryMapper.ToCore(boundary);
+            if (core.IsEmpty)
+            {
+                // Every rule in the manifest was malformed (e.g. synthesis
+                // entries with no name). Skip the write so we don't replace
+                // an existing empty boundary with another one.
+                return;
+            }
+
+            var address = new Address("unit", unitName);
+            await _boundaryStore.SetAsync(address, core, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Unit '{UnitName}': failed to persist boundary from manifest; unit remains with whatever boundary (if any) was previously configured.",
+                unitName);
         }
     }
 

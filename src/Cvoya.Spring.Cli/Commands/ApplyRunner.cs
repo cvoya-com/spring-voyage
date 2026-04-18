@@ -5,9 +5,11 @@ namespace Cvoya.Spring.Cli.Commands;
 
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
+using Cvoya.Spring.Cli.Generated.Models;
 using Cvoya.Spring.Manifest;
 
 /// <summary>
@@ -88,6 +90,28 @@ public static class ApplyRunner
             }
         }
 
+        // #494: if the manifest declared a non-empty boundary, PUT it now so
+        // the unit actor ends up with the same state a subsequent
+        // `spring unit boundary set` would produce. We call the unified
+        // `/api/v1/units/{id}/boundary` endpoint — the same one the CLI's
+        // boundary verbs hit — so YAML-applied and CLI-applied boundaries
+        // are wire-identical.
+        if (manifest.Boundary is { IsEmpty: false })
+        {
+            var body = ProjectBoundaryToResponse(manifest.Boundary);
+            try
+            {
+                await client.SetUnitBoundaryAsync(unitName, body, ct);
+                stdout.WriteLine($"[apply] applied boundary rules for unit '{unitName}'.");
+            }
+            catch (System.Exception ex)
+            {
+                stderr.WriteLine(
+                    $"[error] failed to apply boundary for unit '{unitName}': {ex.Message}");
+                return 1;
+            }
+        }
+
         WarnUnsupportedSections(manifest, stdout);
 
         stdout.WriteLine($"[apply] done: unit '{unitName}', {createdMembers} member(s) added.");
@@ -121,8 +145,72 @@ public static class ApplyRunner
             stdout.WriteLine("[dry-run]   (no members declared)");
         }
 
+        if (manifest.Boundary is { IsEmpty: false } boundary)
+        {
+            var opacityCount = boundary.Opacities?.Count ?? 0;
+            var projectionCount = boundary.Projections?.Count ?? 0;
+            var synthesisCount = boundary.Syntheses?.Count ?? 0;
+            stdout.WriteLine(
+                $"[dry-run]   apply boundary (opacities: {opacityCount}, projections: {projectionCount}, syntheses: {synthesisCount})");
+        }
+
         WarnUnsupportedSections(manifest, stdout);
         stdout.WriteLine("[dry-run] no API calls were made.");
+    }
+
+    /// <summary>
+    /// Projects a manifest-layer <see cref="BoundaryManifest"/> onto the
+    /// Kiota-generated <see cref="UnitBoundaryResponse"/> accepted by
+    /// <see cref="SpringApiClient.SetUnitBoundaryAsync"/>. Kept here rather
+    /// than in <c>Cvoya.Spring.Manifest</c> so the manifest library stays
+    /// free of a client dependency, and kept parallel to
+    /// <c>ManifestBoundaryMapper</c> on the server side so both code paths
+    /// apply the same tolerance rules (blank synthesis names dropped,
+    /// nothing fabricated for malformed entries).
+    /// </summary>
+    internal static UnitBoundaryResponse ProjectBoundaryToResponse(BoundaryManifest boundary)
+    {
+        System.ArgumentNullException.ThrowIfNull(boundary);
+
+        var opacities = boundary.Opacities?
+            .Where(r => r is not null)
+            .Select(r => new BoundaryOpacityRuleDto
+            {
+                DomainPattern = r!.DomainPattern,
+                OriginPattern = r.OriginPattern,
+            })
+            .ToList();
+
+        var projections = boundary.Projections?
+            .Where(r => r is not null)
+            .Select(r => new BoundaryProjectionRuleDto
+            {
+                DomainPattern = r!.DomainPattern,
+                OriginPattern = r.OriginPattern,
+                RenameTo = r.RenameTo,
+                Retag = r.Retag,
+                OverrideLevel = r.OverrideLevel,
+            })
+            .ToList();
+
+        var syntheses = boundary.Syntheses?
+            .Where(r => r is not null && !string.IsNullOrWhiteSpace(r!.Name))
+            .Select(r => new BoundarySynthesisRuleDto
+            {
+                Name = r!.Name!,
+                DomainPattern = r.DomainPattern,
+                OriginPattern = r.OriginPattern,
+                Description = r.Description,
+                Level = r.Level,
+            })
+            .ToList();
+
+        return new UnitBoundaryResponse
+        {
+            Opacities = opacities is { Count: > 0 } ? opacities : null,
+            Projections = projections is { Count: > 0 } ? projections : null,
+            Syntheses = syntheses is { Count: > 0 } ? syntheses : null,
+        };
     }
 
     private static (string Scheme, string Path)? ResolveMemberAddress(MemberManifest member)

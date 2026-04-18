@@ -489,7 +489,27 @@ PR-PLAT-BOUND-3 (#414) consumes this seam to decide the caller's identity from t
 
 - **HTTP** — `GET / PUT / DELETE /api/v1/units/{id}/boundary`. The empty shape is always returned for units that have never had a boundary persisted, so callers never need to branch on 404 vs empty-boundary.
 - **CLI** — `spring unit boundary get|set|clear`. `set` accepts `--opaque`, `--project`, `--synthesise` repeatable flags (comma-separated key=value pairs) or a YAML fragment via `-f`. `clear` removes every rule.
-- **YAML manifest** — `unit.boundary` follows the same three-list shape so an operator can check the config in alongside `members` / `policies`.
+- **YAML manifest (#494)** — `unit.boundary` follows the same three-list shape (`opacities` / `projections` / `syntheses`), so an operator can check the config in alongside `members` / `policies` and a single `spring apply -f unit.yaml` is wire-equivalent to a subsequent `spring unit boundary set -f`. `ApplyRunner` PUTs the boundary after create; the `/units/from-yaml` HTTP endpoint writes it through `IUnitBoundaryStore` in `UnitCreationService.CreateFromManifestAsync`. An absent or all-empty `boundary:` block is a no-op — the unit keeps the default "transparent" view.
+
+```yaml
+unit:
+  name: triage-cell
+  boundary:
+    opacities:
+      - domain_pattern: internal-*
+      - origin_pattern: agent://secret-*
+    projections:
+      - domain_pattern: backend-*
+        rename_to: engineering
+        override_level: advanced
+    syntheses:
+      - name: full-stack
+        domain_pattern: frontend
+        level: expert
+        description: team-level full-stack coverage
+```
+
+Synthesis entries with a blank / missing `name:` are silently dropped so a misspelled manifest never fabricates an empty team capability. Unknown `override_level` / `level` strings resolve to `null` rather than failing deserialisation — matches the HTTP DTO so operators can copy values verbatim between the two surfaces.
 
 ### Organizational Patterns
 

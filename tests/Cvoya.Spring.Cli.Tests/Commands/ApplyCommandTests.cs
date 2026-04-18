@@ -234,6 +234,219 @@ public class ApplyCommandTests
         handler.Calls.Count().ShouldBe(2);
     }
 
+    // ---- #494: boundary manifest support -------------------------------
+
+    private const string BoundaryUnitYaml = """
+        unit:
+          name: triage-cell
+          description: cell with a configured boundary
+          members:
+            - agent: triager
+          boundary:
+            opacities:
+              - domain_pattern: internal-*
+              - origin_pattern: agent://secret-*
+            projections:
+              - domain_pattern: backend-*
+                rename_to: engineering
+                override_level: advanced
+            syntheses:
+              - name: full-stack
+                domain_pattern: frontend
+                level: expert
+                description: team-level full-stack coverage
+        """;
+
+    [Fact]
+    public void Parse_BoundaryBlock_MapsEveryRuleShape()
+    {
+        var manifest = ApplyRunner.Parse(BoundaryUnitYaml);
+
+        manifest.Boundary.ShouldNotBeNull();
+        manifest.Boundary!.IsEmpty.ShouldBeFalse();
+
+        manifest.Boundary.Opacities.ShouldNotBeNull();
+        manifest.Boundary.Opacities!.Count.ShouldBe(2);
+        manifest.Boundary.Opacities![0].DomainPattern.ShouldBe("internal-*");
+        manifest.Boundary.Opacities![1].OriginPattern.ShouldBe("agent://secret-*");
+
+        manifest.Boundary.Projections.ShouldNotBeNull();
+        manifest.Boundary.Projections!.Count.ShouldBe(1);
+        manifest.Boundary.Projections![0].DomainPattern.ShouldBe("backend-*");
+        manifest.Boundary.Projections![0].RenameTo.ShouldBe("engineering");
+        manifest.Boundary.Projections![0].OverrideLevel.ShouldBe("advanced");
+
+        manifest.Boundary.Syntheses.ShouldNotBeNull();
+        manifest.Boundary.Syntheses!.Count.ShouldBe(1);
+        manifest.Boundary.Syntheses![0].Name.ShouldBe("full-stack");
+        manifest.Boundary.Syntheses![0].Level.ShouldBe("expert");
+        manifest.Boundary.Syntheses![0].Description.ShouldBe("team-level full-stack coverage");
+    }
+
+    [Fact]
+    public void Parse_NoBoundaryBlock_BoundaryIsNull()
+    {
+        var manifest = ApplyRunner.Parse("unit:\n  name: plain\n");
+        manifest.Boundary.ShouldBeNull();
+    }
+
+    [Fact]
+    public void Parse_EmptyBoundaryBlock_IsEmptyTrue()
+    {
+        var yaml = """
+            unit:
+              name: empty-boundary
+              boundary:
+                opacities: []
+                projections: []
+                syntheses: []
+            """;
+
+        var manifest = ApplyRunner.Parse(yaml);
+        manifest.Boundary.ShouldNotBeNull();
+        manifest.Boundary!.IsEmpty.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task ApplyAsync_WithBoundary_PutsBoundaryAfterMembers()
+    {
+        var handler = new RecordingHandler(
+            (req, _) => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{}", System.Text.Encoding.UTF8, "application/json"),
+            });
+        var http = new HttpClient(handler);
+        var client = new SpringApiClient(http, "http://localhost:5000");
+
+        var manifest = ApplyRunner.Parse(BoundaryUnitYaml);
+        using var stdout = new StringWriter();
+        using var stderr = new StringWriter();
+
+        var exitCode = await ApplyRunner.ApplyAsync(
+            manifest, client, stdout, stderr, TestContext.Current.CancellationToken);
+
+        exitCode.ShouldBe(0);
+        stderr.ToString().ShouldBeEmpty();
+
+        // Expected: POST unit, POST member, PUT boundary — exactly three
+        // calls in that order.
+        handler.Calls.Count().ShouldBe(3);
+        handler.Calls[0].Path.ShouldBe("/api/v1/units");
+        handler.Calls[1].Path.ShouldBe("/api/v1/units/triage-cell/members");
+        handler.Calls[2].Method.ShouldBe(HttpMethod.Put);
+        handler.Calls[2].Path.ShouldBe("/api/v1/units/triage-cell/boundary");
+
+        using var boundaryBody = System.Text.Json.JsonDocument.Parse(handler.Calls[2].Body);
+        var root = boundaryBody.RootElement;
+        root.GetProperty("opacities").GetArrayLength().ShouldBe(2);
+        root.GetProperty("projections").GetArrayLength().ShouldBe(1);
+        root.GetProperty("syntheses").GetArrayLength().ShouldBe(1);
+        root.GetProperty("syntheses")[0].GetProperty("name").GetString().ShouldBe("full-stack");
+
+        stdout.ToString().ShouldContain("applied boundary rules for unit 'triage-cell'");
+    }
+
+    [Fact]
+    public async Task ApplyAsync_NoBoundaryBlock_DoesNotPutBoundary()
+    {
+        var handler = new RecordingHandler(
+            (req, _) => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{}", System.Text.Encoding.UTF8, "application/json"),
+            });
+        var http = new HttpClient(handler);
+        var client = new SpringApiClient(http, "http://localhost:5000");
+
+        var manifest = ApplyRunner.Parse(EngineeringTeamYaml);
+        using var stdout = new StringWriter();
+        using var stderr = new StringWriter();
+
+        var exitCode = await ApplyRunner.ApplyAsync(
+            manifest, client, stdout, stderr, TestContext.Current.CancellationToken);
+
+        exitCode.ShouldBe(0);
+        handler.Calls.ShouldAllBe(c => !c.Path.Contains("/boundary"));
+    }
+
+    [Fact]
+    public async Task ApplyAsync_EmptyBoundaryBlock_DoesNotPutBoundary()
+    {
+        // An empty boundary block is semantically equivalent to "no
+        // boundary" — don't waste a round-trip replacing whatever the unit
+        // already has with the same empty shape, and don't log a misleading
+        // "applied boundary rules" line.
+        var yaml = """
+            unit:
+              name: empty-b
+              boundary:
+                opacities: []
+            """;
+        var handler = new RecordingHandler(
+            (req, _) => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{}", System.Text.Encoding.UTF8, "application/json"),
+            });
+        var http = new HttpClient(handler);
+        var client = new SpringApiClient(http, "http://localhost:5000");
+
+        var manifest = ApplyRunner.Parse(yaml);
+        using var stdout = new StringWriter();
+        using var stderr = new StringWriter();
+
+        var exitCode = await ApplyRunner.ApplyAsync(
+            manifest, client, stdout, stderr, TestContext.Current.CancellationToken);
+
+        exitCode.ShouldBe(0);
+        handler.Calls.ShouldAllBe(c => !c.Path.Contains("/boundary"));
+    }
+
+    [Fact]
+    public async Task ApplyAsync_BoundaryPutFails_ReturnsNonZeroAndWritesToStderr()
+    {
+        var call = 0;
+        var handler = new RecordingHandler((req, _) =>
+        {
+            call++;
+            // Create + member succeed. PUT boundary blows up.
+            if (call < 3)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("{}", System.Text.Encoding.UTF8, "application/json"),
+                };
+            }
+            return new HttpResponseMessage(HttpStatusCode.InternalServerError)
+            {
+                Content = new StringContent("boom", System.Text.Encoding.UTF8, "text/plain"),
+            };
+        });
+        var http = new HttpClient(handler);
+        var client = new SpringApiClient(http, "http://localhost:5000");
+
+        var manifest = ApplyRunner.Parse(BoundaryUnitYaml);
+        using var stdout = new StringWriter();
+        using var stderr = new StringWriter();
+
+        var exitCode = await ApplyRunner.ApplyAsync(
+            manifest, client, stdout, stderr, TestContext.Current.CancellationToken);
+
+        exitCode.ShouldNotBe(0);
+        stderr.ToString().ShouldContain("failed to apply boundary for unit 'triage-cell'");
+    }
+
+    [Fact]
+    public void PrintPlan_WithBoundary_LogsBoundaryStep()
+    {
+        var manifest = ApplyRunner.Parse(BoundaryUnitYaml);
+        using var writer = new StringWriter();
+        ApplyRunner.PrintPlan(manifest, writer);
+        var output = writer.ToString();
+        output.ShouldContain("apply boundary");
+        output.ShouldContain("opacities: 2");
+        output.ShouldContain("projections: 1");
+        output.ShouldContain("syntheses: 1");
+    }
+
     /// <summary>
     /// Test <see cref="HttpMessageHandler"/> that records every request it sees and
     /// delegates response construction to a caller-supplied factory.
