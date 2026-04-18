@@ -31,6 +31,17 @@
         reverse_proxy spring-api:8080
     }
 
+    # Next.js SSE route handlers. These live in the portal process
+    # (src/Cvoya.Spring.Web/src/app/api/stream/**/route.ts) because
+    # EventSource is same-origin and cookie-bound; the route handler
+    # proxies the platform's SSE stream to the browser while keeping
+    # auth cookies intact. Must precede the generic `/api/*` rule so
+    # Caddy doesn't send stream requests to spring-api (which only
+    # exposes `/api/v1/activity/stream`, not `/api/stream/activity`).
+    handle /api/stream/* {
+        reverse_proxy spring-web:3000
+    }
+
     # REST API, OpenAPI docs, and health probe.
     handle /api/* {
         reverse_proxy spring-api:8080
