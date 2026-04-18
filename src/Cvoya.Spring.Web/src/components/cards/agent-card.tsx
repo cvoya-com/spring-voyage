@@ -87,21 +87,31 @@ export function AgentCard({
     <Card
       data-testid={`agent-card-${agent.name}`}
       className={cn(
-        "h-full transition-colors hover:border-primary/50 hover:bg-muted/30",
+        "relative h-full transition-colors hover:border-primary/50 hover:bg-muted/30 focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2",
         className,
       )}
     >
       <CardContent className="p-4">
+        {/*
+          Full-card overlay link (#593). The primary card link expands to
+          cover the whole card via the `::after` pseudo-element so every
+          unused surface area navigates to the agent detail page on click.
+          All other interactive descendants are promoted to `relative z-[1]`
+          so they sit above the overlay and keep their own click targets.
+          Tab focus still lands on this link first; Enter activates it,
+          matching `role="link"` keyboard semantics.
+        */}
         <Link
           href={href}
           aria-label={`Open agent ${agent.displayName}`}
-          className="flex items-start justify-between gap-2"
+          data-testid={`agent-card-link-${agent.name}`}
+          className="flex items-start justify-between gap-2 rounded-sm focus-visible:outline-none after:absolute after:inset-0 after:content-['']"
         >
           <div className="min-w-0 flex-1">
             <h3 className="truncate font-semibold">{agent.displayName}</h3>
             <p className="mt-0.5 text-xs text-muted-foreground">{agent.name}</p>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="relative z-[1] flex shrink-0 items-center gap-2">
             {agent.role && (
               <Badge variant="secondary" data-testid="agent-role-badge">
                 {agent.role}
@@ -129,7 +139,7 @@ export function AgentCard({
               href={`/units/${encodeURIComponent(parent)}`}
               data-testid="agent-parent-unit"
               aria-label={`Open parent unit ${parent}`}
-              className="flex items-center gap-1 rounded-sm transition-colors hover:text-foreground"
+              className="relative z-[1] flex items-center gap-1 rounded-sm transition-colors hover:text-foreground"
             >
               <Layers className="h-3 w-3" aria-hidden="true" />
               {parent}
@@ -150,7 +160,7 @@ export function AgentCard({
           </p>
         )}
 
-        <div className="mt-3 flex items-center justify-between">
+        <div className="relative z-[1] mt-3 flex items-center justify-between">
           <div className="flex items-center gap-1">
             <CrossLinkButton
               href={conversationsHref}

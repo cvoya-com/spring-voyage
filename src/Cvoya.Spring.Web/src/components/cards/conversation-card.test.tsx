@@ -66,6 +66,25 @@ describe("ConversationCard", () => {
     expect(screen.queryByTestId("conversation-last-activity")).toBeNull();
   });
 
+  it("exposes a full-card primary link that navigates to the conversation (#593)", () => {
+    render(
+      <ConversationCard
+        conversation={{
+          id: "conv-1",
+          title: "PR review thread",
+        }}
+      />,
+    );
+    const link = screen.getByTestId("conversation-card-link-conv-1");
+    expect(link).toHaveAttribute("href", "/conversations/conv-1");
+    expect(link).toHaveAttribute(
+      "aria-label",
+      "Open conversation PR review thread",
+    );
+    expect(link.className).toMatch(/after:absolute/);
+    expect(link.className).toMatch(/after:inset-0/);
+  });
+
   it("truncates participants over 3 with a '+N more' marker", () => {
     render(
       <ConversationCard

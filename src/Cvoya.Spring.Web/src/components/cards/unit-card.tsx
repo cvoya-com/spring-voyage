@@ -113,15 +113,25 @@ export function UnitCard({ unit, onDelete, className }: UnitCardProps) {
     <Card
       data-testid={`unit-card-${unit.name}`}
       className={cn(
-        "h-full transition-colors hover:border-primary/50 hover:bg-muted/30",
+        "relative h-full transition-colors hover:border-primary/50 hover:bg-muted/30 focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2",
         className,
       )}
     >
       <CardContent className="p-4">
+        {/*
+          Full-card overlay link (#593). The primary card link expands to
+          cover the whole card via the `::after` pseudo-element so every
+          unused surface area navigates to the unit detail page on click.
+          Interactive descendants (cross-link buttons, the delete button,
+          the footer "Open" link) are promoted to `relative z-[1]` so they
+          sit above the overlay and keep their own click targets. Tab
+          focus lands on this link first; Enter activates it.
+        */}
         <Link
           href={href}
           aria-label={`Open unit ${unit.displayName}`}
-          className="flex items-start justify-between gap-2"
+          data-testid={`unit-card-link-${unit.name}`}
+          className="flex items-start justify-between gap-2 rounded-sm focus-visible:outline-none after:absolute after:inset-0 after:content-['']"
         >
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
@@ -161,7 +171,7 @@ export function UnitCard({ unit, onDelete, className }: UnitCardProps) {
           <UnitSparkline series={activitySeries} />
         </div>
 
-        <div className="mt-3 flex items-center justify-between">
+        <div className="relative z-[1] mt-3 flex items-center justify-between">
           {/* Cross-links: activity, costs, policies (see § 3.3) */}
           <div className="flex items-center gap-1">
             <CrossLinkButton

@@ -123,6 +123,26 @@ describe("AgentCard", () => {
     expect(screen.queryByTestId("agent-actions-ada")).toBeNull();
   });
 
+  it("exposes a full-card primary link that navigates to the agent detail (#593)", () => {
+    render(
+      <AgentCard
+        agent={{
+          name: "ada",
+          displayName: "Ada",
+          role: null,
+          registeredAt: "2026-04-01T00:00:00Z",
+        }}
+      />,
+    );
+    const link = screen.getByTestId("agent-card-link-ada");
+    expect(link).toHaveAttribute("href", "/agents/ada");
+    expect(link).toHaveAttribute("aria-label", "Open agent Ada");
+    // The full-card overlay is delivered via the ::after pseudo; the
+    // stylesheet-level assertion is covered by the axe smoke tests.
+    expect(link.className).toMatch(/after:absolute/);
+    expect(link.className).toMatch(/after:inset-0/);
+  });
+
   it("accepts explicit parentUnit and lastActivity props as overrides", () => {
     render(
       <AgentCard

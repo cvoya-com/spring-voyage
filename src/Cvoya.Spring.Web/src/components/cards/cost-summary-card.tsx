@@ -96,14 +96,25 @@ export function CostSummaryCard() {
   const thirtyDay = useTenantCost(windows.thirtyDay);
 
   return (
-    <Card data-testid="cost-summary-card">
+    <Card
+      data-testid="cost-summary-card"
+      className="relative transition-colors hover:border-primary/50 hover:bg-muted/30 focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2"
+    >
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <CardTitle className="flex items-center gap-2 text-base">
           <DollarSign className="h-4 w-4" aria-hidden="true" /> Spend
         </CardTitle>
+        {/*
+          Full-card overlay link (#593). The `Details` link expands via an
+          `::after` pseudo-element so every surface area of the summary
+          card navigates to `/analytics/costs` on click. There are no
+          other interactive descendants to promote — the three cost tiles
+          are pure display.
+        */}
         <Link
           href="/analytics/costs"
-          className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+          aria-label="Open spend details"
+          className="inline-flex items-center gap-1 text-xs text-primary focus-visible:outline-none hover:underline after:absolute after:inset-0 after:content-['']"
           data-testid="cost-summary-link"
         >
           Details <ArrowRight className="h-3 w-3" aria-hidden="true" />

@@ -80,6 +80,18 @@ describe("InboxCard", () => {
     expect(screen.getAllByText("conv-42").length).toBeGreaterThan(0);
   });
 
+  it("exposes a full-card primary link that navigates to the conversation (#593)", () => {
+    render(<InboxCard item={baseItem} />);
+    const link = screen.getByTestId("inbox-card-link-conv-42");
+    expect(link).toHaveAttribute("href", "/conversations/conv-42");
+    expect(link).toHaveAttribute(
+      "aria-label",
+      "Open conversation Need your call on the migration plan",
+    );
+    expect(link.className).toMatch(/after:absolute/);
+    expect(link.className).toMatch(/after:inset-0/);
+  });
+
   it("renders the 'Awaiting you' status badge", () => {
     render(<InboxCard item={baseItem} />);
     expect(screen.getByTestId("inbox-status-badge")).toHaveTextContent(

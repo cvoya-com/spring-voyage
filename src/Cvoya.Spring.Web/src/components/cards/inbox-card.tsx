@@ -53,15 +53,23 @@ export function InboxCard({ item, className }: InboxCardProps) {
     <Card
       data-testid={`inbox-card-${item.conversationId}`}
       className={cn(
-        "h-full transition-colors hover:border-primary/50 hover:bg-muted/30",
+        "relative h-full transition-colors hover:border-primary/50 hover:bg-muted/30 focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2",
         className,
       )}
     >
       <CardContent className="p-4">
+        {/*
+          Full-card overlay link (#593). See the agent/unit cards for the
+          overlay pattern — the primary link's `::after` pseudo covers the
+          whole card, and descendant interactive controls (`From` sender
+          link, the footer "Open thread" link) are promoted to
+          `relative z-[1]` so they stay clickable and focusable.
+        */}
         <Link
           href={href}
           aria-label={`Open conversation ${title}`}
-          className="flex items-start justify-between gap-2"
+          data-testid={`inbox-card-link-${item.conversationId}`}
+          className="flex items-start justify-between gap-2 rounded-sm focus-visible:outline-none after:absolute after:inset-0 after:content-['']"
         >
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
@@ -95,7 +103,7 @@ export function InboxCard({ item, className }: InboxCardProps) {
               {fromLink ? (
                 <Link
                   href={fromLink}
-                  className="font-mono hover:text-foreground hover:underline"
+                  className="relative z-[1] font-mono hover:text-foreground hover:underline"
                   data-testid={`inbox-from-link-${item.conversationId}`}
                 >
                   {item.from}
@@ -114,7 +122,7 @@ export function InboxCard({ item, className }: InboxCardProps) {
           </span>
         </div>
 
-        <div className="mt-3 flex items-center justify-end">
+        <div className="relative z-[1] mt-3 flex items-center justify-end">
           <Link
             href={href}
             className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-primary hover:underline"

@@ -96,6 +96,24 @@ describe("UnitCard", () => {
     expect(screen.getByTestId("unit-sparkline")).toBeInTheDocument();
   });
 
+  it("exposes a full-card primary link that navigates to the unit detail (#593)", () => {
+    render(
+      <UnitCard
+        unit={{
+          name: "engineering",
+          displayName: "Engineering",
+          registeredAt: "2026-04-01T00:00:00Z",
+          status: "Running",
+        }}
+      />,
+    );
+    const link = screen.getByTestId("unit-card-link-engineering");
+    expect(link).toHaveAttribute("href", "/units/engineering");
+    expect(link).toHaveAttribute("aria-label", "Open unit Engineering");
+    expect(link.className).toMatch(/after:absolute/);
+    expect(link.className).toMatch(/after:inset-0/);
+  });
+
   it("invokes onDelete without navigating when the delete button is clicked", () => {
     const onDelete = vi.fn();
     render(
