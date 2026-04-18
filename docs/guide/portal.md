@@ -315,6 +315,31 @@ The Connector tab on the unit detail page also carries a **Details** deep-link b
 
 **CLI equivalent:** `spring connector show --unit <name>` shows the connector + typed config for a single unit binding. `spring connector bindings <slugOrId>` prints the full bound-units list for a given connector type, matching the portal's Bound units section (#520).
 
+## Agents lens (`/agents`)
+
+The Agents list ([src/Cvoya.Spring.Web/src/app/agents/page.tsx](../../src/Cvoya.Spring.Web/src/app/agents/page.tsx)) is the tenant-wide roster view — a first-class peer to `/units` and `/conversations` (#450 / PR-S1 Sub-PR C). It reads the existing `GET /api/v1/agents` roster and filters client-side; the expertise filter runs through the shared `POST /api/v1/directory/search` endpoint so results ride the same ranking the CLI's `spring directory search` does.
+
+The filter bar carries five controls. Each maps to an existing CLI verb so the two surfaces never drift:
+
+| Filter | Portal | CLI |
+|--------|--------|-----|
+| Free-text search (name / display name / role) | Search input | `spring agent list \| grep` |
+| Owning unit (substring match on `parentUnit`) | Unit input | `spring unit members list <unit>` |
+| Enabled status | Status dropdown (`Enabled` / `Disabled` / any) | `spring agent list` (the `enabled` column) |
+| Expertise | Expertise input (free text) | `spring directory search <text>` |
+| Grouping | Group-by dropdown (`Flat` / `By unit`) | — (presentation-only) |
+
+Filter state is serialised into the URL query string (`?q=…&unit=…&status=…&expertise=…&group=…`) so any filtered view is sharable. Each card reuses the shared `<AgentCard>` primitive and carries two lens-specific quick actions in the `actions` slot:
+
+- **Conversation** — deep-links to `/conversations?participant=agent://<name>`, mirroring `spring conversation list --participant agent://<name>`.
+- **Deployment** — deep-links to the per-agent detail page's lifecycle anchor (`/agents/<name>#deployment`). For ephemeral agents the lifecycle panel surfaces the server's `400` verbatim, matching the CLI.
+
+The empty state depends on whether any agents exist at all: when the fleet is empty, the page shows a CTA pointing at `/units`, `/directory`, and `/packages`; when filters narrow the list to zero matches, the page shows a "widen the filters" hint plus a cross-link to `/directory`.
+
+### Out of scope (today)
+
+Hosting-mode (`ephemeral` / `persistent`) and initiative-level filters need the API list response to grow those fields — and the CLI `spring agent list` to grow matching flags — before they can land without breaking parity. Tracked as parity follow-ups (#572 hosting mode, #573 initiative level); the lens's filter bar deliberately stays at "every filter maps to a CLI verb".
+
 ## Agent detail (`/agents/{id}`)
 
 The agent detail page ([src/Cvoya.Spring.Web/src/app/agents/[id]/page.tsx](../../src/Cvoya.Spring.Web/src/app/agents/%5Bid%5D/page.tsx)) renders a client view configured via `<AgentDetailClient>`. It is linked from the dashboard's Agents column and from the **Analytics → Costs** page (`/analytics/costs`). Use it to review an agent's metadata, budget, expertise, clones, and recent activity.

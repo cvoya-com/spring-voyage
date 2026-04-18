@@ -187,7 +187,10 @@ export function LifecyclePanel({
   const busy = pendingVerb !== null;
 
   return (
-    <Card data-testid="agent-lifecycle-panel">
+    // The `id` anchor is the deep-link target used by the Agents lens
+    // (#450) — the "Deployment" quick action on each card resolves to
+    // `/agents/{id}#deployment` and scrolls straight to this panel.
+    <Card id="deployment" data-testid="agent-lifecycle-panel">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Activity className="h-4 w-4" /> Persistent deployment

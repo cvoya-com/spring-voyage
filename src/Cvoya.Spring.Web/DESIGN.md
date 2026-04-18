@@ -311,6 +311,16 @@ The expertise panels on `/agents/[id]`, `/units/[id]` (Expertise tab) and the te
 - Conversation participant pills are clickable and resolve to the matching `/agents/{id}` or `/units/{id}` page. Schemes without a portal page (`human://`) render as plain badges.
 - See `docs/design/portal-exploration.md` § 3.3 for the full cross-link contract.
 
+### 7.17b Agents lens — `app/agents/page.tsx`
+
+The `/agents` lens (PR-S1 Sub-PR C / #450) is the tenant-wide roster view for agents; a peer surface to `/units` and `/conversations`. It wraps the `GET /api/v1/agents` roster in a filter bar and grouping toggle — there is no new endpoint and the per-agent detail chrome lives on `/agents/[id]` as before.
+
+- **Layout.** Three stacked cards: page header (H1 + Refresh), filter bar, results. The results card renders either a single flat grid of `<AgentCard>` (grouping = flat) or one `section` per owning unit (grouping = unit), each with a `Network` icon, link to `/units/<unit>`, and a count pill.
+- **Filter bar.** Free-text search, owning-unit substring, status (`enabled` / `disabled` / any), expertise free-text (runs `POST /api/v1/directory/search` server-side), and grouping toggle. Every control is keyboard-accessible and writes to `?q=…&unit=…&status=…&expertise=…&group=…` via `router.replace`; the CLI round-trips the same view through `spring agent list`, `spring unit members list <unit>`, and `spring directory search <text>`.
+- **Quick actions on each card.** The shared `<AgentCard>` (§ 7.11) stays the visual primitive — the lens only passes `actions` to append two cross-links: **Conversation** (`/conversations?participant=agent://<name>`, mirrors `spring conversation list --participant`) and **Deployment** (`/agents/<name>#deployment` anchor on the lifecycle panel, mirrors `spring agent deploy|scale|undeploy|logs`). Both render every card and surface the server's verdict on empty/ephemeral state rather than hiding the affordance.
+- **Empty states.** Two variants per § 7.3: a compact "No agents match these filters" text block with a cross-link to `/directory` when the fleet exists, and the full-card "No agents yet" CTA with Units / Directory / Packages buttons plus a `spring agent list · spring unit members add` monospace footer when the fleet is empty.
+- **Dropped filters.** Hosting-mode (`ephemeral` / `persistent`) and initiative-level filters are deliberately out of scope until the API surfaces those on the list response and the CLI grows matching flags. Tracked as parity follow-ups (#572 hosting mode, #573 initiative level) — the lens's bar stays "every filter maps to a CLI verb".
+
 ### 7.18 Settings drawer — `components/settings-drawer.tsx`, `components/settings/*`
 
 Settings live in a right-aligned modal drawer triggered from the sidebar footer (#451 — PR-S1 Sub-PR D). The drawer itself makes no assumptions about which or how many panels render — every panel comes from the extension registry, so the hosted build can add tenant secrets, members / RBAC, SSO, etc. without patching OSS files.

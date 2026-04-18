@@ -17,6 +17,7 @@ import {
   Play,
   Square,
   UserCircle,
+  Users,
   Wallet,
   Zap,
 } from "lucide-react";
@@ -82,6 +83,21 @@ export const defaultRoutes: readonly RouteEntry[] = [
     orderHint: 20,
     keywords: ["teams", "groups"],
     description: "Composite agents, policies, and connector bindings.",
+  },
+  {
+    path: "/agents",
+    label: "Agents",
+    icon: Users,
+    navSection: "primary",
+    orderHint: 22,
+    keywords: [
+      "agent",
+      "roster",
+      "directory",
+      "spring agent list",
+    ],
+    description:
+      "Every agent across every unit, filter by status, unit, or expertise.",
   },
   {
     path: "/activity",
@@ -182,6 +198,16 @@ export const defaultActions: readonly PaletteAction[] = [
     orderHint: 20,
     keywords: ["spring unit list"],
     href: "/units",
+  },
+  {
+    id: "agent.list",
+    label: "List agents",
+    icon: Users,
+    section: "actions",
+    orderHint: 22,
+    keywords: ["spring agent list", "roster", "directory"],
+    description: "Browse every agent across every unit.",
+    href: "/agents",
   },
   {
     id: "unit.start",
