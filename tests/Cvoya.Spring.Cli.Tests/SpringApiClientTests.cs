@@ -807,6 +807,237 @@ public class SpringApiClientTests
 
         handler.WasCalled.ShouldBeTrue();
     }
+
+    // --- #432: secret wrappers (unit + tenant + platform scopes) ---
+
+    [Fact]
+    public async Task ListUnitSecretsAsync_CallsCorrectEndpoint()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/units/eng-team/secrets",
+            expectedMethod: HttpMethod.Get,
+            responseBody:
+                """{"secrets":[{"name":"openai-api-key","scope":"Unit","createdAt":"2026-04-01T00:00:00Z"}]}""");
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var result = await client.ListUnitSecretsAsync("eng-team", TestContext.Current.CancellationToken);
+
+        result.Count.ShouldBe(1);
+        result[0].Name.ShouldBe("openai-api-key");
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task ListTenantSecretsAsync_CallsCorrectEndpoint()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/tenant/secrets",
+            expectedMethod: HttpMethod.Get,
+            responseBody: """{"secrets":[]}""");
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var result = await client.ListTenantSecretsAsync(TestContext.Current.CancellationToken);
+
+        result.ShouldBeEmpty();
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task ListPlatformSecretsAsync_CallsCorrectEndpoint()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/platform/secrets",
+            expectedMethod: HttpMethod.Get,
+            responseBody:
+                """{"secrets":[{"name":"system-webhook-signing-key","scope":"Platform","createdAt":"2026-04-01T00:00:00Z"}]}""");
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var result = await client.ListPlatformSecretsAsync(TestContext.Current.CancellationToken);
+
+        result.Count.ShouldBe(1);
+        result[0].Name.ShouldBe("system-webhook-signing-key");
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task CreateUnitSecretAsync_SendsPlaintextBody()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/units/eng-team/secrets",
+            expectedMethod: HttpMethod.Post,
+            responseBody:
+                """{"name":"openai-api-key","scope":"Unit","createdAt":"2026-04-01T00:00:00Z"}""",
+            validateRequestBody: body =>
+            {
+                // Kiota's JSON writer omits null properties entirely (drops
+                // them rather than emitting `"field":null`), so the presence
+                // check is "externalStoreKey must NOT be in the body" when
+                // we're doing a pass-through write.
+                var json = JsonSerializer.Deserialize<JsonElement>(body);
+                json.GetProperty("name").GetString().ShouldBe("openai-api-key");
+                json.GetProperty("value").GetString().ShouldBe("sk-live-...");
+                json.TryGetProperty("externalStoreKey", out _).ShouldBeFalse();
+            });
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var result = await client.CreateUnitSecretAsync(
+            "eng-team",
+            "openai-api-key",
+            value: "sk-live-...",
+            externalStoreKey: null,
+            TestContext.Current.CancellationToken);
+
+        result.Name.ShouldBe("openai-api-key");
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task CreateTenantSecretAsync_SendsExternalReferenceBody()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/tenant/secrets",
+            expectedMethod: HttpMethod.Post,
+            responseBody:
+                """{"name":"observability-token","scope":"Tenant","createdAt":"2026-04-01T00:00:00Z"}""",
+            validateRequestBody: body =>
+            {
+                // Null props are omitted by Kiota — verifying `value` is
+                // absent is the correct assertion for an external-ref write.
+                var json = JsonSerializer.Deserialize<JsonElement>(body);
+                json.GetProperty("name").GetString().ShouldBe("observability-token");
+                json.GetProperty("externalStoreKey").GetString().ShouldBe("kv://prod/obs");
+                json.TryGetProperty("value", out _).ShouldBeFalse();
+            });
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var result = await client.CreateTenantSecretAsync(
+            "observability-token",
+            value: null,
+            externalStoreKey: "kv://prod/obs",
+            TestContext.Current.CancellationToken);
+
+        result.Name.ShouldBe("observability-token");
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task RotateUnitSecretAsync_PutsPlaintextAndReturnsNewVersion()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/units/eng-team/secrets/openai-api-key",
+            expectedMethod: HttpMethod.Put,
+            responseBody: """{"name":"openai-api-key","scope":"Unit","version":2}""",
+            validateRequestBody: body =>
+            {
+                var json = JsonSerializer.Deserialize<JsonElement>(body);
+                json.GetProperty("value").GetString().ShouldBe("sk-live-NEW...");
+            });
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var result = await client.RotateUnitSecretAsync(
+            "eng-team",
+            "openai-api-key",
+            value: "sk-live-NEW...",
+            externalStoreKey: null,
+            TestContext.Current.CancellationToken);
+
+        result.Name.ShouldBe("openai-api-key");
+        // Version is modelled as UntypedNode because Kiota drops int32 format
+        // for integer/string unions — unpack via the shared helper.
+        Cvoya.Spring.Cli.KiotaConversions.ToInt(result.Version).ShouldBe(2);
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task ListUnitSecretVersionsAsync_CallsCorrectEndpoint()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/units/eng-team/secrets/openai-api-key/versions",
+            expectedMethod: HttpMethod.Get,
+            responseBody:
+                """{"name":"openai-api-key","scope":"Unit","versions":[{"version":1,"origin":"PlatformOwned","createdAt":"2026-04-01T00:00:00Z","isCurrent":false},{"version":2,"origin":"PlatformOwned","createdAt":"2026-04-02T00:00:00Z","isCurrent":true}]}""");
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var result = await client.ListUnitSecretVersionsAsync(
+            "eng-team", "openai-api-key", TestContext.Current.CancellationToken);
+
+        result.Name.ShouldBe("openai-api-key");
+        result.Versions!.Count.ShouldBe(2);
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task PruneUnitSecretAsync_SendsKeepQueryParam()
+    {
+        string? capturedQuery = null;
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/units/eng-team/secrets/openai-api-key/prune",
+            expectedMethod: HttpMethod.Post,
+            responseBody: """{"name":"openai-api-key","scope":"Unit","keep":2,"pruned":3}""",
+            validateQuery: q => capturedQuery = q);
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var result = await client.PruneUnitSecretAsync(
+            "eng-team", "openai-api-key", 2, TestContext.Current.CancellationToken);
+
+        capturedQuery.ShouldNotBeNull();
+        capturedQuery!.ShouldContain("keep=2");
+        Cvoya.Spring.Cli.KiotaConversions.ToInt(result.Keep).ShouldBe(2);
+        Cvoya.Spring.Cli.KiotaConversions.ToInt(result.Pruned).ShouldBe(3);
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task DeleteUnitSecretAsync_CallsCorrectEndpoint()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/units/eng-team/secrets/openai-api-key",
+            expectedMethod: HttpMethod.Delete,
+            responseBody: "",
+            returnStatusCode: HttpStatusCode.NoContent);
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        await client.DeleteUnitSecretAsync(
+            "eng-team", "openai-api-key", TestContext.Current.CancellationToken);
+
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task DeletePlatformSecretAsync_CallsCorrectEndpoint()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/platform/secrets/system-webhook-signing-key",
+            expectedMethod: HttpMethod.Delete,
+            responseBody: "",
+            returnStatusCode: HttpStatusCode.NoContent);
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        await client.DeletePlatformSecretAsync(
+            "system-webhook-signing-key", TestContext.Current.CancellationToken);
+
+        handler.WasCalled.ShouldBeTrue();
+    }
 }
 
 /// <summary>
