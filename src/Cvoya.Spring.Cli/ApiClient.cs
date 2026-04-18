@@ -1072,6 +1072,69 @@ public class SpringApiClient
         return result ?? new List<CloneResponse>();
     }
 
+    // Persistent cloning policy (#416). Back the `spring agent clone policy`
+    // verbs and (internally) the tenant-wide surface. Kiota emits composed
+    // oneOf bodies for the PUT operations so the wrappers pick the typed
+    // member and hide the discriminator from the command layer — same
+    // pattern used for /policy and /boundary.
+
+    /// <summary>
+    /// Gets the persistent cloning policy stored on an agent. Returns the
+    /// canonical empty shape when no policy has been persisted so callers
+    /// never need to branch on 404 vs empty-policy.
+    /// </summary>
+    public async Task<AgentCloningPolicyResponse> GetAgentCloningPolicyAsync(
+        string agentId,
+        CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Agents[agentId].CloningPolicy.GetAsync(cancellationToken: ct);
+        return result ?? new AgentCloningPolicyResponse();
+    }
+
+    /// <summary>Upserts the persistent cloning policy for an agent.</summary>
+    public async Task<AgentCloningPolicyResponse> SetAgentCloningPolicyAsync(
+        string agentId,
+        AgentCloningPolicyResponse policy,
+        CancellationToken ct = default)
+    {
+        var body = new Cvoya.Spring.Cli.Generated.Api.V1.Agents.Item.CloningPolicy.CloningPolicyRequestBuilder.CloningPolicyPutRequestBody
+        {
+            AgentCloningPolicyResponse = policy,
+        };
+        var result = await _client.Api.V1.Agents[agentId].CloningPolicy.PutAsync(body, cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty cloning-policy response for agent '{agentId}'.");
+    }
+
+    /// <summary>Clears the persistent cloning policy for an agent.</summary>
+    public Task ClearAgentCloningPolicyAsync(string agentId, CancellationToken ct = default)
+        => _client.Api.V1.Agents[agentId].CloningPolicy.DeleteAsync(cancellationToken: ct);
+
+    /// <summary>Gets the tenant-wide persistent cloning policy.</summary>
+    public async Task<AgentCloningPolicyResponse> GetTenantCloningPolicyAsync(CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Tenant.CloningPolicy.GetAsync(cancellationToken: ct);
+        return result ?? new AgentCloningPolicyResponse();
+    }
+
+    /// <summary>Upserts the tenant-wide persistent cloning policy.</summary>
+    public async Task<AgentCloningPolicyResponse> SetTenantCloningPolicyAsync(
+        AgentCloningPolicyResponse policy,
+        CancellationToken ct = default)
+    {
+        var body = new Cvoya.Spring.Cli.Generated.Api.V1.Tenant.CloningPolicy.CloningPolicyRequestBuilder.CloningPolicyPutRequestBody
+        {
+            AgentCloningPolicyResponse = policy,
+        };
+        var result = await _client.Api.V1.Tenant.CloningPolicy.PutAsync(body, cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            "Server returned an empty cloning-policy response for the tenant scope.");
+    }
+
+    /// <summary>Clears the tenant-wide persistent cloning policy.</summary>
+    public Task ClearTenantCloningPolicyAsync(CancellationToken ct = default)
+        => _client.Api.V1.Tenant.CloningPolicy.DeleteAsync(cancellationToken: ct);
+
     // Auth tokens
 
     /// <summary>Creates a new API token.</summary>

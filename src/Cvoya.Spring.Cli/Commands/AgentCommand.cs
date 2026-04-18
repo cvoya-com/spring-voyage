@@ -284,6 +284,10 @@ public static class AgentCommand
         var cloneCommand = new Command("clone", "Manage agent clones");
         cloneCommand.Subcommands.Add(CreateCloneCreateCommand(outputOption));
         cloneCommand.Subcommands.Add(CreateCloneListCommand(outputOption));
+        // Persistent cloning-policy surface (#416). Stays under `agent clone`
+        // so the mental grouping matches the enforcer's scope — every verb
+        // under this tree speaks to the cloning lifecycle.
+        cloneCommand.Subcommands.Add(AgentCloningPolicyCommand.Create(outputOption));
         return cloneCommand;
     }
 

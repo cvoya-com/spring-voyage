@@ -113,6 +113,30 @@ In v1, handling concurrent work of the same type required manually defining mult
 - `detached` — Simple scaling within an existing unit. The unit's orchestration strategy manages routing.
 - `attached` — Encapsulated scaling. The parent hides its clones behind a unit boundary. Clean abstraction for the enclosing unit.
 
+#### Persistent Cloning Policy (#416)
+
+The enum above tells the lifecycle workflow which memory shape to use for a single clone. A **persistent cloning policy** (`AgentCloningPolicy`) is the governance record attached to the agent — or tenant-wide as the default — that constrains every clone request an operator makes. It is consulted by `IAgentCloningPolicyEnforcer` before the clone endpoint schedules the lifecycle workflow.
+
+| Slot | Type | What it constrains |
+| ---- | ---- | ------------------ |
+| `AllowedPolicies` | `IReadOnlyList<CloningPolicy>?` | Allow-list over the memory-shape enum. `null` = any. |
+| `AllowedAttachmentModes` | `IReadOnlyList<AttachmentMode>?` | Allow-list over `detached` / `attached`. `null` = any. |
+| `MaxClones` | `int?` | Concurrent-clone cap. The lifecycle workflow's `ValidateCloneRequestActivity` enforces this; the enforcer forwards the resolved value. |
+| `MaxDepth` | `int?` | Recursive-cloning cap. `0` disables cloning entirely at this scope; `null` defers to the platform default. |
+| `Budget` | `decimal?` | Per-clone cost budget forwarded to the validation activity. |
+
+**Resolution order.** The enforcer walks agent-scoped policy first and tenant-scoped second. Numeric caps (`MaxClones`, `MaxDepth`, `Budget`) collapse to the **tightest non-null value** across the two scopes so a tenant ceiling cannot be relaxed by an agent-scoped override. Allow-list slots intersect — a request is accepted only if every scope that set the list contains the requested value.
+
+**Unit-boundary honouring (PR #497).** A detached clone is registered as a peer in the parent's unit. When the parent's unit has opaque boundary rules (`UnitBoundary.Opacities` non-empty), creating a detached clone would surface a new addressable entity through that wall. The enforcer refuses detached clone requests whose source agent is a member of such a unit and returns a `boundary` deny with an actionable message: switch to `--attachment-mode attached`, or widen the boundary.
+
+**Operator surface.**
+
+- **HTTP** — `GET / PUT / DELETE /api/v1/agents/{id}/cloning-policy` and `/api/v1/tenant/cloning-policy`. The empty shape is always returned for scopes that have never had a policy persisted so callers never need to branch on 404 vs empty-policy.
+- **CLI** — `spring agent clone policy get|set|clear` with `--scope agent|tenant`. `set` accepts per-flag edits (`--allowed-policy`, `--allowed-attachment`, `--max-clones`, `--max-depth`, `--budget`) or a YAML fragment via `-f`. `clear` removes the policy row.
+- **Portal** — tracked as [#534](https://github.com/cvoya-com/spring-voyage/issues/534) (backend + CLI ship here; the portal tab lands as a follow-up).
+
+**Storage.** Policies persist via `IAgentCloningPolicyRepository`, backed in the OSS default by the shared `IStateStore` under `Agent:CloningPolicy:{id}` / `Tenant:CloningPolicy:{tenantId}`. An all-null policy (`AgentCloningPolicy.Empty`) is represented as a deleted row so the store reflects scopes that actually have a policy. A private-cloud host can layer a tenant-scoped wrapper via `TryAdd*` without reshaping persistence.
+
 ### Role
 
 Role serves two purposes:

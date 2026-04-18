@@ -59,6 +59,7 @@ public static class CloneEndpoints
         string agentId,
         CreateCloneRequest request,
         IDirectoryService directoryService,
+        IAgentCloningPolicyEnforcer policyEnforcer,
         DaprWorkflowClient workflowClient,
         CancellationToken cancellationToken)
     {
@@ -70,11 +71,44 @@ public static class CloneEndpoints
             return Results.Problem(detail: $"Agent '{agentId}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
+        // Persistent cloning policy (#416). The enforcer walks agent-scoped
+        // then tenant-scoped policies and also cross-references the source
+        // agent's unit boundaries (PR #497) so an Opaque wall can't be
+        // bypassed by spawning a detached peer. When denied, we surface a
+        // 403 with the dimension name and reason so CLI/portal callers can
+        // explain exactly which rule fired. Resolved caps are forwarded
+        // into the workflow so ValidateCloneRequestActivity enforces them
+        // alongside the existing per-request knobs.
+        var decision = await policyEnforcer.EvaluateAsync(
+            agentId, request.CloneType, request.AttachmentMode, cancellationToken);
+
+        if (!decision.Allowed)
+        {
+            return Results.Problem(
+                title: "Cloning policy denied the request",
+                detail: decision.Reason,
+                statusCode: StatusCodes.Status403Forbidden,
+                extensions: new Dictionary<string, object?>
+                {
+                    ["deniedDimension"] = decision.DeniedDimension,
+                });
+        }
+
         var cloneId = Guid.NewGuid().ToString();
 
         // Request DTO now carries the enums directly; no string → enum
-        // mapping needed. See #183.
-        var input = new CloningInput(agentId, cloneId, request.CloneType, request.AttachmentMode);
+        // mapping needed. See #183. MaxClones / Budget resolved by the
+        // policy enforcer flow into the workflow so the existing
+        // ValidateCloneRequestActivity machinery enforces them without a
+        // second code path. Request-inline knobs are absent from
+        // CreateCloneRequest today, so the policy values win outright.
+        var input = new CloningInput(
+            agentId,
+            cloneId,
+            request.CloneType,
+            request.AttachmentMode,
+            Budget: decision.ResolvedBudget,
+            MaxClones: decision.ResolvedMaxClones);
 
         await workflowClient.ScheduleNewWorkflowAsync(
             nameof(CloningLifecycleWorkflow),
