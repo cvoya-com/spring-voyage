@@ -24,6 +24,8 @@ import type {
   ActivityQueryResult,
   AgentDashboardSummary,
   AgentDetailResponse,
+  AgentResponse,
+  AggregatedExpertiseResponse,
   BudgetResponse,
   CloneResponse,
   ConnectorTypeResponse,
@@ -33,6 +35,7 @@ import type {
   CostDashboardSummary,
   CostSummaryResponse,
   DashboardSummary,
+  ExpertiseDomainDto,
   InboxItem,
   InitiativeLevelResponse,
   InitiativePolicy,
@@ -651,6 +654,78 @@ export function useConnectorBindings(
       return rows.filter((r): r is UnitConnectorBindingRow => r !== null);
     },
     enabled: opts?.enabled ?? Boolean(slugOrId),
+    refetchInterval: opts?.refetchInterval,
+    staleTime: opts?.staleTime,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Lightweight list queries (used by the expertise directory surface, which
+// fans out reads over every agent/unit the tenant can see).
+// ---------------------------------------------------------------------------
+
+export function useAgents(
+  opts?: SliceOptions<AgentResponse[]>,
+): UseQueryResult<AgentResponse[], Error> {
+  return useQuery({
+    queryKey: queryKeys.agents.list(),
+    queryFn: () => api.listAgents(),
+    ...opts,
+  });
+}
+
+export function useUnits(
+  opts?: SliceOptions<UnitResponse[]>,
+): UseQueryResult<UnitResponse[], Error> {
+  return useQuery({
+    queryKey: queryKeys.units.list(),
+    queryFn: () => api.listUnits(),
+    ...opts,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Expertise directory (#412 / #486)
+// ---------------------------------------------------------------------------
+//
+// Read hooks only; writes flow through `api.setAgentExpertise` /
+// `api.setUnitOwnExpertise` and hand-seed + invalidate the cache from
+// the component so the aggregated view on every ancestor also refetches.
+
+export function useAgentExpertise(
+  id: string,
+  opts?: SliceOptions<ExpertiseDomainDto[]>,
+): UseQueryResult<ExpertiseDomainDto[], Error> {
+  return useQuery({
+    queryKey: queryKeys.agents.expertise(id),
+    queryFn: () => api.getAgentExpertise(id),
+    enabled: opts?.enabled ?? Boolean(id),
+    refetchInterval: opts?.refetchInterval,
+    staleTime: opts?.staleTime,
+  });
+}
+
+export function useUnitOwnExpertise(
+  id: string,
+  opts?: SliceOptions<ExpertiseDomainDto[]>,
+): UseQueryResult<ExpertiseDomainDto[], Error> {
+  return useQuery({
+    queryKey: queryKeys.units.ownExpertise(id),
+    queryFn: () => api.getUnitOwnExpertise(id),
+    enabled: opts?.enabled ?? Boolean(id),
+    refetchInterval: opts?.refetchInterval,
+    staleTime: opts?.staleTime,
+  });
+}
+
+export function useUnitAggregatedExpertise(
+  id: string,
+  opts?: SliceOptions<AggregatedExpertiseResponse>,
+): UseQueryResult<AggregatedExpertiseResponse, Error> {
+  return useQuery({
+    queryKey: queryKeys.units.aggregatedExpertise(id),
+    queryFn: () => api.getUnitAggregatedExpertise(id),
+    enabled: opts?.enabled ?? Boolean(id),
     refetchInterval: opts?.refetchInterval,
     staleTime: opts?.staleTime,
   });

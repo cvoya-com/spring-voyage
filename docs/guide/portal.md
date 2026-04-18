@@ -32,6 +32,7 @@ The left sidebar ([src/Cvoya.Spring.Web/src/components/sidebar.tsx](../../src/Cv
 | `/initiative` — **Initiative** | Per-agent initiative policy editor + recent initiative events | (no CLI equivalent today — parity gap) |
 | `/budgets` — **Budgets** | Tenant daily budget + per-agent budget rows | (no CLI equivalent today — parity gap) |
 | `/packages` — **Packages** | Browse installed packages and their templates | `spring package list` / `spring package show` |
+| `/directory` — **Directory** | Tenant-wide expertise directory — searchable domains declared by every agent and unit | `spring agent expertise get` / `spring unit expertise get` (per-entity; no tenant-wide verb today — parity gap) |
 
 Detail pages (`/units/{id}`, `/agents/{id}`, `/conversations/{id}`) are reached by clicking entity cards on the dashboard, list pages, or by following deep-links from activity rows. Every detail page renders a breadcrumb trail (`Dashboard › Units › {id}` and so on) so navigation depth is always visible.
 
@@ -190,6 +191,21 @@ Edits route through `PUT /api/v1/units/{id}/policy`, the same surface the CLI's 
 
 The Cost panel links out to `/budgets` so you can compare the caps against current spend. The Effective policy block shows a single-hop chain today; parent-unit overlay is tracked under [#414](https://github.com/cvoya-com/spring-voyage/issues/414) and will extend the chain without a UI reshape.
 
+### Expertise
+
+The Expertise tab ([components/expertise/unit-expertise-panel.tsx](../../src/Cvoya.Spring.Web/src/components/expertise/unit-expertise-panel.tsx)) renders two cards side-by-side:
+
+- **Own expertise** — editable list of the unit's declared capabilities. Reads/writes `/api/v1/units/{id}/expertise/own`. The list is auto-seeded from the unit YAML's `expertise:` block on first activation (#488 / PR #498); operator edits are authoritative from that point forward. Matches `spring unit expertise set`.
+- **Effective (aggregated) expertise** — read-only view of the unit's recursively-composed expertise directory (#412 / PR #487). Each row shows the originating `agent://` or `unit://` address (click to open its detail page) and the depth from this unit to the origin. Matches `spring unit expertise aggregated`.
+
+Saving the own-expertise list invalidates every aggregated view in the cache so every ancestor unit's view refetches in place.
+
+| Action | Portal | CLI |
+|--------|--------|-----|
+| Show unit's own expertise | Expertise tab → **Own expertise** card | `spring unit expertise get <unit>` |
+| Replace unit's own expertise | Expertise tab → edit rows + **Save** | `spring unit expertise set <unit> --domain name[:level[:description]]` |
+| Show aggregated (recursive) expertise | Expertise tab → **Effective expertise** card | `spring unit expertise aggregated <unit>` |
+
 ### Connector
 
 Generic connector host ([connector-tab.tsx](../../src/Cvoya.Spring.Web/src/app/units/%5Bid%5D/connector-tab.tsx)) that delegates to a connector-specific component registered under a `typeSlug`. Currently the GitHub connector ships a UI:
@@ -285,7 +301,14 @@ The Connector tab on the unit detail page also carries a **Details** deep-link b
 
 ## Agent detail (`/agents/{id}`)
 
-The agent detail page ([src/Cvoya.Spring.Web/src/app/agents/[id]/page.tsx](../../src/Cvoya.Spring.Web/src/app/agents/%5Bid%5D/page.tsx)) renders a client view configured via `<AgentDetailClient>`. It is linked from the dashboard's Agents column and from the Budgets page. Use it to review an agent's metadata, budget, and recent activity.
+The agent detail page ([src/Cvoya.Spring.Web/src/app/agents/[id]/page.tsx](../../src/Cvoya.Spring.Web/src/app/agents/%5Bid%5D/page.tsx)) renders a client view configured via `<AgentDetailClient>`. It is linked from the dashboard's Agents column and from the Budgets page. Use it to review an agent's metadata, budget, expertise, clones, and recent activity.
+
+The page embeds an **Expertise** card ([components/expertise/agent-expertise-panel.tsx](../../src/Cvoya.Spring.Web/src/components/expertise/agent-expertise-panel.tsx)) that reads/writes `/api/v1/agents/{id}/expertise`. The domain list is auto-seeded from the agent YAML on first activation (#488 / PR #498); operator edits made in the panel become authoritative. Saving a new list also invalidates every unit's aggregated directory in the cache so ancestor unit pages pick up the change without a manual refresh.
+
+| Action | Portal | CLI |
+|--------|--------|-----|
+| Show agent expertise | Agent detail → **Expertise** card | `spring agent expertise get <id>` |
+| Replace agent expertise | Agent detail → edit rows + **Save** | `spring agent expertise set <id> --domain name[:level[:description]]` |
 
 **CLI equivalents:**
 
@@ -326,6 +349,22 @@ Clicking a card opens the conversation detail page ([src/Cvoya.Spring.Web/src/ap
 Activity rows on the dashboard timeline and on `/activity` deep-link straight into a conversation when an event carries a `correlationId`; otherwise they fall back to the source agent or unit detail page. The chat-style send-message UI is tracked separately under #410.
 
 **CLI equivalent:** none today — conversations are portal-only. **This is a CLI/UI parity gap.**
+
+## Directory (`/directory`)
+
+The directory page ([src/Cvoya.Spring.Web/src/app/directory/page.tsx](../../src/Cvoya.Spring.Web/src/app/directory/page.tsx)) is the tenant-wide expertise index. It fans out per-agent `GET /api/v1/agents/{id}/expertise` and per-unit `GET /api/v1/units/{id}/expertise/own` reads, flattens them into a single list, and exposes three filters:
+
+- **Search** — free-text match against domain, description, and owner display name / id.
+- **Level** — `beginner` / `intermediate` / `advanced` / `expert`, or `Any`.
+- **Owner** — `Agents`, `Units`, or `Any`.
+
+Each row shows the domain name, its level badge (when set), the description (when set), the owner scheme badge (`agent` / `unit`), and a deep link to the owning detail page. Because the list is the union of per-entity reads, entries auto-seeded from YAML (#488 / PR #498) appear alongside operator-edited entries without any visual distinction — the API does not expose provenance once the actor's expertise state has been written, so the UI cannot either. The per-unit aggregated (recursive) view remains on the unit detail page's Expertise tab.
+
+| Action | Portal | CLI |
+|--------|--------|-----|
+| Browse every declared domain across the tenant | `/directory` | no single CLI verb — compose `spring agent expertise get` and `spring unit expertise get` per entity. **This is a CLI/UI parity gap** — follow-up in #528. |
+| Filter by domain / level / owner | filters above the list | filter CLI output in your shell |
+| Open owning agent / unit | click the owner link | `spring agent status <id>` / `spring unit show <id>` |
 
 ## Activity (`/activity`)
 
@@ -486,6 +525,7 @@ Today's portal has capabilities not mirrored in the CLI, and vice versa. These a
 | Activity streaming (live follow) | polling refresh | not implemented | neither surface has a real-time `activity stream` today |
 | Cost summary / budget CLI | — | not implemented | the older `docs/guide/observing.md` references `spring cost summary`/`spring cost budget`/`spring activity stream` which are not on the shipped CLI surface |
 | Messaging UI (one-shot send to an arbitrary address) | not implemented | `spring message send` | use the conversation composer for in-thread replies; new-conversation send is still CLI-only |
+| Tenant-wide expertise directory | `/directory` | `spring agent expertise get <id>` + `spring unit expertise get <id>` (per-entity only) | portal fans out over the per-entity endpoints; a first-class `spring directory expertise` verb is follow-up #528 |
 
 Parity is a project norm (see the top-level `AGENTS.md`): any time you find yourself building a feature on one surface, file a follow-up to bring the other in line.
 

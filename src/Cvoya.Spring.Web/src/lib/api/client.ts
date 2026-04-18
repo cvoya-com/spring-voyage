@@ -11,6 +11,7 @@ import type {
   CreateUnitFromYamlRequest,
   DashboardSummary,
   DeployPersistentAgentRequest,
+  ExpertiseDomainDto,
   InitiativePolicy,
   PersistentAgentDeploymentResponse,
   PersistentAgentLogsResponse,
@@ -760,6 +761,58 @@ export const api = {
       }),
     );
   },
+
+  // Expertise directory (#412 / #486). Agents and units expose the
+  // same get/set shape for their "own" expertise list; units also
+  // expose a read-only aggregated view that recursively composes every
+  // descendant's expertise (PR #487). The CLI mirror is
+  // `spring {agent|unit} expertise {get|set[|aggregated]}`.
+  getAgentExpertise: async (id: string): Promise<ExpertiseDomainDto[]> => {
+    const res = unwrap(
+      await fetchClient.GET("/api/v1/agents/{id}/expertise", {
+        params: { path: { id } },
+      }),
+    );
+    return res.domains ?? [];
+  },
+  setAgentExpertise: async (
+    id: string,
+    domains: ExpertiseDomainDto[],
+  ): Promise<ExpertiseDomainDto[]> => {
+    const res = unwrap(
+      await fetchClient.PUT("/api/v1/agents/{id}/expertise", {
+        params: { path: { id } },
+        body: { domains },
+      }),
+    );
+    return res.domains ?? [];
+  },
+  getUnitOwnExpertise: async (id: string): Promise<ExpertiseDomainDto[]> => {
+    const res = unwrap(
+      await fetchClient.GET("/api/v1/units/{id}/expertise/own", {
+        params: { path: { id } },
+      }),
+    );
+    return res.domains ?? [];
+  },
+  setUnitOwnExpertise: async (
+    id: string,
+    domains: ExpertiseDomainDto[],
+  ): Promise<ExpertiseDomainDto[]> => {
+    const res = unwrap(
+      await fetchClient.PUT("/api/v1/units/{id}/expertise/own", {
+        params: { path: { id } },
+        body: { domains },
+      }),
+    );
+    return res.domains ?? [];
+  },
+  getUnitAggregatedExpertise: async (id: string) =>
+    unwrap(
+      await fetchClient.GET("/api/v1/units/{id}/expertise", {
+        params: { path: { id } },
+      }),
+    ),
 
   // Ollama model discovery (#350) — uses a manual fetch because the
   // endpoint is new and may not be present in the generated schema yet.

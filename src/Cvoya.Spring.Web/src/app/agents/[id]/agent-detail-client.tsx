@@ -14,6 +14,7 @@ import {
   Zap,
 } from "lucide-react";
 
+import { AgentExpertisePanel } from "@/components/expertise/agent-expertise-panel";
 import { Badge } from "@/components/ui/badge";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { Button } from "@/components/ui/button";
@@ -420,6 +421,10 @@ export default function AgentDetailClient({ id }: ClientProps) {
           </CardContent>
         </Card>
       </div>
+
+      {/* Expertise panel (#486). Reads/writes /api/v1/agents/{id}/expertise —
+          the same surface `spring agent expertise get|set` uses on the CLI. */}
+      <AgentExpertisePanel agentId={agent.name} />
 
       {/* Cost breakdown by activity (client-side heuristic; see #75) */}
       <Card>

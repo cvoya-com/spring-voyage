@@ -5,6 +5,7 @@
 
 import {
   Activity,
+  GraduationCap,
   LayoutDashboard,
   MessagesSquare,
   Network,
@@ -122,6 +123,23 @@ export const defaultRoutes: readonly RouteEntry[] = [
     keywords: ["templates", "skills", "domain", "catalog"],
     description: "Browse installed packages and their unit/agent templates.",
   },
+  {
+    path: "/directory",
+    label: "Directory",
+    icon: GraduationCap,
+    navSection: "primary",
+    orderHint: 65,
+    keywords: [
+      "expertise",
+      "domains",
+      "search",
+      "capabilities",
+      "spring agent expertise",
+      "spring unit expertise",
+    ],
+    description:
+      "Browse and search expertise declared by every agent and unit.",
+  },
 ];
 
 /**
@@ -227,5 +245,22 @@ export const defaultActions: readonly PaletteAction[] = [
     keywords: ["spring connector catalog", "integrations"],
     description: "List every connector type the server knows about.",
     href: "/connectors",
+  },
+  {
+    id: "directory.expertise",
+    label: "Browse expertise",
+    icon: GraduationCap,
+    section: "actions",
+    orderHint: 100,
+    keywords: [
+      "spring agent expertise",
+      "spring unit expertise",
+      "domains",
+      "capabilities",
+      "search",
+    ],
+    description:
+      "Search the tenant's expertise directory across every agent and unit.",
+    href: "/directory",
   },
 ];
