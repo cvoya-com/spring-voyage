@@ -378,9 +378,33 @@ public static class ServiceCollectionExtensions
         // UnitDefinition JSON; the resolver combines that with `UnitPolicy.LabelRouting`
         // inference (ADR-0007) and the unkeyed default into a single
         // per-message resolution path that UnitActor consults through
-        // IOrchestrationStrategyResolver. Both are TryAdd'd so the private
-        // cloud host can swap in tenant-scoped readers without forking.
-        services.TryAddSingleton<IOrchestrationStrategyProvider, DbOrchestrationStrategyProvider>();
+        // IOrchestrationStrategyResolver.
+        //
+        // The inner DB provider is registered as a concrete singleton; the
+        // public IOrchestrationStrategyProvider is a caching decorator (#518)
+        // wrapping it. Keying off the strategy slot is hot path — every
+        // domain message to a unit asks for it — but the slot only changes
+        // when a manifest is re-applied. Without the decorator each message
+        // opens an AsyncServiceScope and issues a FirstOrDefaultAsync against
+        // Postgres; with it, steady-state traffic for a single unit
+        // resolves from memory. The decorator combines a short TTL
+        // (self-healing after cross-process writes) with an explicit
+        // invalidation hook (immediate consistency after in-process writes).
+        //
+        // All three registrations are TryAdd'd so the private cloud host can
+        // pre-register a tenant-scoped reader, a different cache shape, or a
+        // no-op invalidator without forking. The concrete DB provider stays
+        // resolvable by its concrete type for cache-off testing.
+        services.TryAddSingleton<DbOrchestrationStrategyProvider>();
+        services.TryAddSingleton<CachingOrchestrationStrategyProvider>(sp =>
+            new CachingOrchestrationStrategyProvider(
+                sp.GetRequiredService<DbOrchestrationStrategyProvider>(),
+                sp.GetRequiredService<TimeProvider>(),
+                sp.GetRequiredService<ILoggerFactory>()));
+        services.TryAddSingleton<IOrchestrationStrategyProvider>(sp =>
+            sp.GetRequiredService<CachingOrchestrationStrategyProvider>());
+        services.TryAddSingleton<IOrchestrationStrategyCacheInvalidator>(sp =>
+            sp.GetRequiredService<CachingOrchestrationStrategyProvider>());
         services.TryAddSingleton<IOrchestrationStrategyResolver, DefaultOrchestrationStrategyResolver>();
 
 

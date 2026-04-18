@@ -14,6 +14,7 @@ using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
@@ -60,6 +61,7 @@ public class UnitCreationService : IUnitCreationService
     private readonly IUnitMembershipRepository _membershipRepository;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IUnitBoundaryStore? _boundaryStore;
+    private readonly IOrchestrationStrategyCacheInvalidator _orchestrationCacheInvalidator;
     private readonly ILogger<UnitCreationService> _logger;
 
     /// <summary>
@@ -68,6 +70,11 @@ public class UnitCreationService : IUnitCreationService
     /// fixtures constructed before #494 landed keep compiling; when it is
     /// <c>null</c> manifest-declared boundaries are ignored with a warning.
     /// Production DI always supplies it via <see cref="IUnitBoundaryStore"/>.
+    /// The <paramref name="orchestrationCacheInvalidator"/> parameter is
+    /// optional so pre-#518 test fixtures keep compiling; production DI
+    /// always supplies either the caching decorator or the no-op
+    /// <see cref="NullOrchestrationStrategyCacheInvalidator"/>. When it is
+    /// <c>null</c> the service falls back to the no-op behaviour.
     /// </summary>
     public UnitCreationService(
         IDirectoryService directoryService,
@@ -81,7 +88,8 @@ public class UnitCreationService : IUnitCreationService
         IUnitMembershipRepository membershipRepository,
         IServiceScopeFactory scopeFactory,
         ILoggerFactory loggerFactory,
-        IUnitBoundaryStore? boundaryStore = null)
+        IUnitBoundaryStore? boundaryStore = null,
+        IOrchestrationStrategyCacheInvalidator? orchestrationCacheInvalidator = null)
     {
         _directoryService = directoryService;
         _actorProxyFactory = actorProxyFactory;
@@ -94,6 +102,8 @@ public class UnitCreationService : IUnitCreationService
         _membershipRepository = membershipRepository;
         _scopeFactory = scopeFactory;
         _boundaryStore = boundaryStore;
+        _orchestrationCacheInvalidator = orchestrationCacheInvalidator
+            ?? NullOrchestrationStrategyCacheInvalidator.Instance;
         _logger = loggerFactory.CreateLogger<UnitCreationService>();
     }
 
@@ -335,6 +345,14 @@ public class UnitCreationService : IUnitCreationService
 
             entity.Definition = System.Text.Json.JsonSerializer.SerializeToElement(payload);
             await db.SaveChangesAsync(cancellationToken);
+
+            // #518: the provider's cache is authoritative within this
+            // process for up to its TTL. Invalidate on successful write so
+            // the next message dispatched to the unit sees the new strategy
+            // immediately instead of waiting for the TTL to expire. Safe to
+            // call unconditionally — the no-op implementation is registered
+            // when no caching decorator is in play.
+            _orchestrationCacheInvalidator.Invalidate(unitId);
         }
         catch (OperationCanceledException)
         {
