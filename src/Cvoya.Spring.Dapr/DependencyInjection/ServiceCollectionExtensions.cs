@@ -81,18 +81,12 @@ public static class ServiceCollectionExtensions
         // During build-time OpenAPI generation (GetDocument.Insider) the Dapr
         // Workflow hosted service starts a gRPC bidirectional stream with the
         // sidecar. There is no sidecar at build time, so it spams "Connection
-        // refused" errors. Remove the hosted-service registration added by
-        // AddDaprWorkflow while keeping the DI registrations (DaprWorkflowClient
-        // etc.) that endpoints depend on. See #370.
+        // refused" errors. Strip the worker (keeping DaprWorkflowClient and
+        // the rest of the workflow DI graph) via the shared helper that also
+        // backs the integration-test workaround for #568. See #370 and #568.
         if (isDocGen)
         {
-            var workflowWorkerDescriptor = services
-                .FirstOrDefault(d => d.ServiceType == typeof(Microsoft.Extensions.Hosting.IHostedService)
-                    && d.ImplementationType?.FullName?.Contains("Dapr.Workflow", StringComparison.Ordinal) == true);
-            if (workflowWorkerDescriptor is not null)
-            {
-                services.Remove(workflowWorkerDescriptor);
-            }
+            services.RemoveDaprWorkflowWorker();
         }
 
         // EF Core / PostgreSQL.
