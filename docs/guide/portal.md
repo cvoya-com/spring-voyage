@@ -257,7 +257,7 @@ The tab reads `GET /api/v1/units/{id}/boundary`, edits each dimension in place, 
 
 The tab is **not** a per-dimension API — saving always PUTs the entire boundary (matching the CLI's "replace in full" semantics). The portal and CLI target the same endpoints, so rules authored in either surface are immediately visible in the other.
 
-**CLI/UI parity gap:** the CLI's `spring unit boundary set -f boundary.yaml` bulk-load path has no portal equivalent yet — tracked in [#524](https://github.com/cvoya-com/spring-voyage/issues/524). Use the per-rule form, or author YAML and `spring apply -f` a whole unit manifest.
+**Bulk YAML upload (#524).** Next to the per-rule editor the tab also accepts a YAML file (drop-zone + paste area), parsed client-side with a live diff against the current boundary before anything hits the server. Both the `spring unit boundary set -f` camelCase shape and the `spring apply -f` manifest snake_case shape are accepted, so a `spring unit boundary get <unit> --output json` dump or an existing unit manifest's `boundary:` block can be round-tripped through the portal. Malformed YAML surfaces an inline error with no server round-trip; applying triggers the same `PUT /api/v1/units/{id}/boundary` path the per-rule form uses.
 
 ### Activity
 

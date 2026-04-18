@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { BoundaryTab } from "./boundary-tab";
@@ -135,6 +135,136 @@ describe("BoundaryTab", () => {
         syntheses: null,
       });
     });
+  });
+
+  it("parses a pasted YAML, renders the diff, and applies via setUnitBoundary (#524)", async () => {
+    mockGetUnitBoundary.mockResolvedValue({
+      opacities: [{ domainPattern: "existing", originPattern: null }],
+      projections: null,
+      syntheses: null,
+    });
+    mockSetUnitBoundary.mockResolvedValue({
+      opacities: [
+        { domainPattern: "secret-*", originPattern: "agent://internal-*" },
+      ],
+      projections: null,
+      syntheses: null,
+    });
+
+    render(
+      <Wrapper>
+        <BoundaryTab unitId="eng-team" />
+      </Wrapper>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("boundary-yaml-upload")).toBeInTheDocument();
+    });
+
+    const textarea = screen.getByLabelText(
+      /yaml contents/i,
+    ) as HTMLTextAreaElement;
+    fireEvent.change(textarea, {
+      target: {
+        value:
+          "opacities:\n  - domainPattern: secret-*\n    originPattern: agent://internal-*\n",
+      },
+    });
+
+    // Diff preview renders with +1 added and -1 removed (current opacity
+    // is gone, incoming opacity is new).
+    await waitFor(() => {
+      expect(screen.getByTestId("boundary-yaml-diff")).toBeInTheDocument();
+    });
+    expect(screen.getByText(/\+1 added/)).toBeInTheDocument();
+    expect(screen.getByText(/−1 removed/)).toBeInTheDocument();
+
+    // Apply -> confirm -> setUnitBoundary called with parsed body.
+    fireEvent.click(screen.getByTestId("boundary-yaml-apply"));
+    // Wait for the confirm dialog to mount (role=dialog) and click its
+    // "Apply YAML" confirm. The trigger and the dialog confirm share a
+    // label, so we scope the query to the dialog to disambiguate.
+    const dialog = await screen.findByRole("dialog", {
+      name: /apply uploaded boundary/i,
+    });
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: /apply yaml/i }),
+    );
+
+    await waitFor(() => {
+      expect(mockSetUnitBoundary).toHaveBeenCalledWith("eng-team", {
+        opacities: [
+          { domainPattern: "secret-*", originPattern: "agent://internal-*" },
+        ],
+        projections: null,
+        syntheses: null,
+      });
+    });
+  });
+
+  it("shows an inline error on malformed YAML without calling setUnitBoundary (#524)", async () => {
+    mockGetUnitBoundary.mockResolvedValue({
+      opacities: null,
+      projections: null,
+      syntheses: null,
+    });
+
+    render(
+      <Wrapper>
+        <BoundaryTab unitId="eng-team" />
+      </Wrapper>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("boundary-yaml-upload")).toBeInTheDocument();
+    });
+
+    const textarea = screen.getByLabelText(
+      /yaml contents/i,
+    ) as HTMLTextAreaElement;
+    // Scalar at root; parser rejects because a mapping is expected.
+    fireEvent.change(textarea, { target: { value: "- just: a list" } });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("boundary-yaml-error")).toBeInTheDocument();
+    });
+
+    // Apply button is disabled while the parse error stands.
+    const applyBtn = screen.getByTestId("boundary-yaml-apply");
+    expect(applyBtn).toBeDisabled();
+    expect(mockSetUnitBoundary).not.toHaveBeenCalled();
+  });
+
+  it("shows a no-change preview when the YAML matches the current boundary (#524)", async () => {
+    mockGetUnitBoundary.mockResolvedValue({
+      opacities: [{ domainPattern: "foo", originPattern: null }],
+      projections: null,
+      syntheses: null,
+    });
+
+    render(
+      <Wrapper>
+        <BoundaryTab unitId="eng-team" />
+      </Wrapper>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("boundary-yaml-upload")).toBeInTheDocument();
+    });
+
+    const textarea = screen.getByLabelText(
+      /yaml contents/i,
+    ) as HTMLTextAreaElement;
+    fireEvent.change(textarea, {
+      target: { value: "opacities:\n  - domainPattern: foo\n" },
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("boundary-yaml-diff-noop"),
+      ).toBeInTheDocument();
+    });
+    expect(mockSetUnitBoundary).not.toHaveBeenCalled();
   });
 
   it("DELETEs the boundary when the user confirms Clear", async () => {

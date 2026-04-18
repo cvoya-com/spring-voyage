@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Eraser, EyeOff, Filter, Plus, Shield, Sparkles, Trash2 } from "lucide-react";
 
@@ -26,6 +26,8 @@ import type {
   UnitBoundaryResponse,
 } from "@/lib/api/types";
 
+import { BoundaryYamlUpload } from "./boundary-yaml-upload";
+
 interface BoundaryTabProps {
   unitId: string;
 }
@@ -46,9 +48,10 @@ interface BoundaryTabProps {
  * DELETE, which the server represents as an empty persisted boundary.
  *
  * The portal targets the same HTTP surface as `spring unit boundary
- * get|set|clear`, so every knob here maps 1:1 to a CLI flag. The only
- * CLI affordance the portal does not yet mirror is `set -f boundary.yaml`
- * bulk upload — tracked in #524.
+ * get|set|clear`, so every knob here maps 1:1 to a CLI flag. The YAML
+ * upload mode mirrors `spring unit boundary set -f boundary.yaml` —
+ * parsed client-side, diffed against the live boundary, then PUT through
+ * the same `setUnitBoundary` path the per-rule form uses (#524).
  */
 export function BoundaryTab({ unitId }: BoundaryTabProps) {
   const { toast } = useToast();
@@ -66,6 +69,11 @@ export function BoundaryTab({ unitId }: BoundaryTabProps) {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [clearOpen, setClearOpen] = useState(false);
   const [clearing, setClearing] = useState(false);
+  const [yamlApplying, setYamlApplying] = useState(false);
+  const [pendingYamlBody, setPendingYamlBody] = useState<
+    UnitBoundaryResponse | null
+  >(null);
+  const yamlConfirmResolver = useRef<((value: boolean) => void) | null>(null);
 
   const data = boundaryQuery.data;
 
@@ -108,6 +116,50 @@ export function BoundaryTab({ unitId }: BoundaryTabProps) {
     } finally {
       setSaving(false);
     }
+  };
+
+  // YAML upload flow (#524). Parsing + diff preview happen inside
+  // BoundaryYamlUpload; when the operator hits "Apply YAML" we open a
+  // confirm dialog, then PUT through the same `setUnitBoundary` path
+  // used by the per-rule form so the two editors converge.
+  const handleYamlApply = async (body: UnitBoundaryResponse) => {
+    // Open the confirm dialog and wait for the operator's answer. We
+    // resolve via a ref-held resolver so the dialog's async confirm can
+    // block this call until the user commits or cancels.
+    const confirmed = await new Promise<boolean>((resolve) => {
+      yamlConfirmResolver.current = resolve;
+      setPendingYamlBody(body);
+    });
+    if (!confirmed) return;
+
+    setYamlApplying(true);
+    try {
+      const stored = await api.setUnitBoundary(unitId, body);
+      queryClient.setQueryData(queryKeys.units.boundary(unitId), stored);
+      setOpacities(stored.opacities ? [...stored.opacities] : []);
+      setProjections(stored.projections ? [...stored.projections] : []);
+      setSyntheses(stored.syntheses ? [...stored.syntheses] : []);
+      setDirty(false);
+      toast({ title: "Boundary updated from YAML" });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      toast({
+        title: "Apply failed",
+        description: message,
+        variant: "destructive",
+      });
+      // Re-throw so BoundaryYamlUpload can render an inline error.
+      throw err;
+    } finally {
+      setYamlApplying(false);
+    }
+  };
+
+  const resolveYamlConfirm = (confirmed: boolean) => {
+    const resolver = yamlConfirmResolver.current;
+    yamlConfirmResolver.current = null;
+    setPendingYamlBody(null);
+    resolver?.(confirmed);
   };
 
   const handleClear = async () => {
@@ -216,6 +268,12 @@ export function BoundaryTab({ unitId }: BoundaryTabProps) {
         </CardContent>
       </Card>
 
+      <BoundaryYamlUpload
+        current={data ?? null}
+        onApply={handleYamlApply}
+        applying={yamlApplying}
+      />
+
       <OpacitiesCard
         rules={opacities}
         onChange={(next) => {
@@ -249,6 +307,18 @@ export function BoundaryTab({ unitId }: BoundaryTabProps) {
           if (!clearing) setClearOpen(false);
         }}
         pending={clearing}
+      />
+
+      <ConfirmDialog
+        open={pendingYamlBody !== null}
+        title="Apply uploaded boundary"
+        description="This replaces the unit's boundary with the rules in the uploaded YAML. Any rules not present in the upload will be removed."
+        confirmLabel="Apply YAML"
+        cancelLabel="Cancel"
+        confirmVariant="default"
+        onConfirm={() => resolveYamlConfirm(true)}
+        onCancel={() => resolveYamlConfirm(false)}
+        pending={yamlApplying}
       />
     </div>
   );
