@@ -120,6 +120,7 @@ app.MapDirectoryEndpoints().RequireAuthorization();
 app.MapExpertiseEndpoints();
 app.MapBoundaryEndpoints();
 app.MapCloneEndpoints().RequireAuthorization();
+app.MapCloningPolicyEndpoints();
 app.MapCostEndpoints().RequireAuthorization();
 app.MapBudgetEndpoints().RequireAuthorization();
 app.MapInitiativeEndpoints().RequireAuthorization();

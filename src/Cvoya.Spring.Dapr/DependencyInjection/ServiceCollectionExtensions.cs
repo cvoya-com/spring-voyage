@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Dapr.DependencyInjection;
 
 using Cvoya.Spring.Core.Capabilities;
+using Cvoya.Spring.Core.Cloning;
 using Cvoya.Spring.Core.Costs;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Execution;
@@ -19,6 +20,7 @@ using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Capabilities;
+using Cvoya.Spring.Dapr.Cloning;
 using Cvoya.Spring.Dapr.Costs;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
@@ -289,6 +291,18 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IInitiativeBudgetTracker, DaprStateInitiativeBudgetTracker>();
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<IInitiativeEngine, InitiativeEngine>();
+
+        // Persistent cloning policy (#416). The repository rides the shared
+        // IStateStore seam so no new component wiring is needed and the
+        // rows flow through the same tenant-scoped durability story the
+        // cloud host layers on every other agent-scoped setting. The
+        // default enforcer is scoped because it composes the scoped
+        // unit-membership repository — the private cloud repo can layer
+        // a tenant-aware decorator via TryAdd without reshaping
+        // persistence. The endpoint resolves IAgentCloningPolicyEnforcer
+        // from the scoped request container per call.
+        services.TryAddSingleton<IAgentCloningPolicyRepository, StateStoreAgentCloningPolicyRepository>();
+        services.TryAddScoped<IAgentCloningPolicyEnforcer, DefaultAgentCloningPolicyEnforcer>();
 
         services.TryAddKeyedSingleton<ICognitionProvider, Tier1CognitionProvider>("tier1");
         services.TryAddKeyedSingleton<ICognitionProvider, Tier2CognitionProvider>("tier2");

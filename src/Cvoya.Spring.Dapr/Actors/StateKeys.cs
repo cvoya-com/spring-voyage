@@ -277,4 +277,25 @@ public static class StateKeys
     /// (#414).
     /// </summary>
     public const string UnitPermissionInheritance = "Unit:PermissionInheritance";
+
+    /// <summary>
+    /// State-key prefix for the persistent cloning policy recorded against
+    /// a specific agent — the
+    /// <see cref="Cvoya.Spring.Core.Cloning.AgentCloningPolicy"/> value
+    /// <c>IAgentCloningPolicyEnforcer</c> evaluates on every clone request.
+    /// Full key format: <c>Agent:CloningPolicy:{agentId}</c>. Empty /
+    /// never-set means "no agent-scoped constraint" — the enforcer falls
+    /// through to <see cref="TenantCloningPolicy"/>. See #416.
+    /// </summary>
+    public const string AgentCloningPolicy = "Agent:CloningPolicy";
+
+    /// <summary>
+    /// State-key prefix for the tenant-wide persistent cloning policy —
+    /// the default <see cref="Cvoya.Spring.Core.Cloning.AgentCloningPolicy"/>
+    /// applied to every agent that has no agent-scoped policy. Full key
+    /// format: <c>Tenant:CloningPolicy:{tenantId}</c>. Numeric caps
+    /// collapse to the tightest non-null value across scopes so a tenant
+    /// ceiling cannot be relaxed by an agent-scoped override. See #416.
+    /// </summary>
+    public const string TenantCloningPolicy = "Tenant:CloningPolicy";
 }

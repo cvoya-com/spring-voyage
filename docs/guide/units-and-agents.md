@@ -207,6 +207,38 @@ spring agent clone create --agent ada \
 spring agent clone list --agent ada
 ```
 
+### Persistent Cloning Policy
+
+The enum in the agent definition tells the workflow *how* to build a single clone. A **persistent cloning policy** (#416) is a separate governance record the platform enforces on *every* clone request — per-agent or tenant-wide. It controls:
+
+- which memory-shape policies the caller may request (`allowed-policy`),
+- which attachment modes are permitted (`allowed-attachment`),
+- how many concurrent clones are allowed (`max-clones`),
+- how deeply a clone may be cloned (`max-depth` — `0` disables recursive cloning at this scope),
+- a per-clone cost budget.
+
+Numeric caps collapse to the tightest non-null value across agent + tenant scope, so a tenant ceiling cannot be relaxed by an agent-scoped override. The enforcer also refuses detached clones for agents sitting behind an opaque unit boundary so the boundary is never silently crossed.
+
+```
+# Look up the effective agent-scoped policy (empty shape when none is set).
+spring agent clone policy get ada
+
+# Pin the policy: only ephemeral-with-memory clones, attached, max 3, depth 1.
+spring agent clone policy set ada \
+  --allowed-policy ephemeral-with-memory \
+  --allowed-attachment attached \
+  --max-clones 3 \
+  --max-depth 1
+
+# Remove the record (reverts to tenant-scoped / unconstrained).
+spring agent clone policy clear ada
+
+# Tenant-wide defaults — applied when an agent has no agent-scoped row.
+spring agent clone policy set --scope tenant --max-clones 20 --max-depth 2
+```
+
+HTTP operators can PUT the same shape against `/api/v1/agents/{id}/cloning-policy` or `/api/v1/tenant/cloning-policy`. A denied request returns HTTP 403 with an `deniedDimension` extension field so tooling can surface exactly which rule fired (`policy`, `attachment`, `max-clones`, `max-depth`, `budget`, or `boundary`).
+
 ## Persistent Agents
 
 Agents configured with `execution.hosting: persistent` run as long-lived
