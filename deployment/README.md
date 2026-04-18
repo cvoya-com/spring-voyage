@@ -13,6 +13,7 @@ open-source single-host scenario.
 | `deploy-remote.sh`      | SSH + rsync wrapper that runs `deploy.sh` on a remote VPS.        |
 | `Dockerfile`            | Multi-stage platform image (.NET 10 API/Worker + Web + Dapr CLI). |
 | `Dockerfile.agent`      | Slim image for delegated agent execution containers.              |
+| `Dockerfile.dispatcher` | `spring-dispatcher` service image. Owns the host podman socket.    |
 | `Caddyfile`             | Single-host path-routed Caddy config (default).                   |
 | `Caddyfile.multi-host`  | Per-service hostnames variant (web / API / webhook each FQDN).    |
 | `relay.sh`              | Local-dev SSH reverse tunnel for webhook delivery to a laptop.    |
@@ -41,6 +42,7 @@ All platform containers attach to a shared Podman network called `spring-net`:
 | `spring-scheduler`   | `daprio/dapr:<tag>`       | Dapr actor reminder/scheduler service.     |
 | `spring-api-dapr`    | `daprio/dapr:<tag>`       | daprd sidecar paired with `spring-api`.    |
 | `spring-worker-dapr` | `daprio/dapr:<tag>`       | daprd sidecar paired with `spring-worker`. |
+| `spring-dispatcher`  | `spring-dispatcher:<tag>` | HTTP service that owns the host podman socket. Workers reach it over HTTP for every container op (#513). |
 | `spring-worker`      | `spring-voyage:<tag>`     | Dapr actor runtime (agents, units).        |
 | `spring-api`         | `spring-voyage:<tag>`     | ASP.NET Core REST API.                     |
 | `spring-web`         | `spring-voyage:<tag>`     | Next.js dashboard.                         |

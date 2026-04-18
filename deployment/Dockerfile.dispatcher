@@ -1,0 +1,63 @@
+# syntax=docker/dockerfile:1.7
+#
+# Spring Voyage — spring-dispatcher service.
+#
+# The dispatcher is the only process that holds the host's container-runtime
+# credentials. Workers reach it over HTTP (see
+# `DispatcherClientContainerRuntime`) and never hold the `podman` binary or
+# its socket themselves — that's the architectural shift landed by #513.
+#
+# The image ships only the .NET publish output of Cvoya.Spring.Dispatcher plus
+# the `podman-remote` client. In the OSS standalone deployment the dispatcher
+# runs inside a container and talks to the rootless podman socket mounted
+# from the host at `/run/user/${UID}/podman/podman.sock`.
+#
+# Kubernetes-native backends are NOT in scope for this repository; the HTTP
+# contract on `/v1/containers` is backend-plural so downstream deployments
+# can plug in alternative IContainerRuntime implementations without changing
+# the worker.
+
+# ------------------------------------------------------------------
+# Stage 1: build the dispatcher publish output
+# ------------------------------------------------------------------
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS dotnet-build
+WORKDIR /src
+
+COPY SpringVoyage.slnx global.json Directory.Build.props Directory.Packages.props ./
+COPY .config/ .config/
+COPY src/ src/
+
+RUN dotnet restore src/Cvoya.Spring.Dispatcher/Cvoya.Spring.Dispatcher.csproj \
+ && dotnet publish src/Cvoya.Spring.Dispatcher/Cvoya.Spring.Dispatcher.csproj \
+        --configuration Release --no-restore \
+        --output /publish/dispatcher
+
+# ------------------------------------------------------------------
+# Stage 2: runtime image
+# ------------------------------------------------------------------
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
+
+# The dispatcher needs the `podman` CLI on PATH. Installing `podman-remote`
+# is enough — it speaks to a socket over the filesystem and does not need the
+# full podman machinery inside the container image. The operator bind-mounts
+# the rootless podman socket from the host at deploy time.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        podman-remote \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY --from=dotnet-build /publish/dispatcher/ /app/
+
+EXPOSE 8080
+ENV ASPNETCORE_URLS=http://0.0.0.0:8080
+ENV DOTNET_RUNNING_IN_CONTAINER=true
+
+# The `app` user pre-exists in the base aspnet image (uid 1654). We keep
+# running as root by default because the bind-mounted podman socket is
+# typically owned by the invoking host uid — operators override USER at
+# deploy time if they run a rootless topology.
+
+CMD ["dotnet", "/app/Cvoya.Spring.Dispatcher.dll"]

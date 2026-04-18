@@ -186,6 +186,7 @@ public static class ServiceCollectionExtensions
         // Options
         services.AddOptions<AiProviderOptions>().BindConfiguration(AiProviderOptions.SectionName);
         services.AddOptions<ContainerRuntimeOptions>().BindConfiguration("ContainerRuntime");
+        services.AddOptions<DispatcherClientOptions>().BindConfiguration(DispatcherClientOptions.SectionName);
         services.AddOptions<UnitRuntimeOptions>().BindConfiguration(UnitRuntimeOptions.SectionName);
         services.AddOptions<WorkflowOrchestrationOptions>().BindConfiguration("WorkflowOrchestration");
 
@@ -236,7 +237,16 @@ public static class ServiceCollectionExtensions
         services.AddHttpClient<IAiProvider, AnthropicProvider>();
         services.AddSingleton<IPromptAssembler, PromptAssembler>();
         services.AddSingleton<IPlatformPromptProvider, PlatformPromptProvider>();
-        services.AddSingleton<IContainerRuntime, PodmanRuntime>();
+
+        // Container runtime. The worker no longer holds the local container
+        // binary; the spring-dispatcher service does. The worker binds a
+        // single DispatcherClientContainerRuntime that forwards every call to
+        // the dispatcher over HTTP. See docs/architecture/deployment.md
+        // ("Dispatcher service") and issue #513. TryAdd so downstream
+        // deployments that run the dispatcher in-process (test harnesses,
+        // alternative topologies) can pre-register their own IContainerRuntime.
+        services.AddHttpClient(DispatcherClientContainerRuntime.HttpClientName);
+        services.TryAddSingleton<IContainerRuntime, DispatcherClientContainerRuntime>();
         services.AddSingleton<IDaprSidecarManager, DaprSidecarManager>();
         services.AddSingleton<ContainerLifecycleManager>();
         services.TryAddSingleton<IUnitContainerLifecycle, UnitContainerLifecycle>();

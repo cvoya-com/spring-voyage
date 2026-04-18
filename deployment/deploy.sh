@@ -40,6 +40,7 @@ SERVICES=(
     spring-scheduler
     spring-worker-dapr
     spring-api-dapr
+    spring-dispatcher
     spring-worker
     spring-api
     spring-web
@@ -240,14 +241,47 @@ start_worker() {
     # Keeps the key ring stable across `./deploy.sh restart` and image
     # rebuilds so anything protected by IDataProtector (auth cookies,
     # OAuth session tokens, anti-forgery tokens) survives deploys. See #337.
+    #
+    # Dispatcher wiring: the worker never holds the podman binary. It reaches
+    # spring-dispatcher over HTTP for every container op (#513). The bearer
+    # token is an opaque shared secret — see spring.env.example.
     run_container spring-worker \
         --env-file "${RESOLVED_ENV_FILE}" \
         -e "DAPR_APP_ID=spring-worker" \
         -e "DAPR_HTTP_ENDPOINT=http://spring-worker-dapr:3500" \
         -e "DAPR_GRPC_ENDPOINT=http://spring-worker-dapr:50001" \
+        -e "Dispatcher__BaseUrl=http://spring-dispatcher:8080/" \
+        -e "Dispatcher__BearerToken=${SPRING_DISPATCHER_WORKER_TOKEN:-worker-token}" \
         -v spring-dataprotection-keys:/home/app/.aspnet/DataProtection-Keys \
         "${SPRING_PLATFORM_IMAGE:-localhost/spring-voyage:latest}" \
         dotnet /app/Cvoya.Spring.Host.Worker.dll
+}
+
+# ---- spring-dispatcher ---------------------------------------------------
+#
+# The dispatcher is the only process that holds the host container-runtime
+# (podman) credentials. Workers reach it over HTTP for every container op
+# — no worker ships podman on its own PATH. See
+# docs/architecture/deployment.md and #513.
+#
+# SPRING_DISPATCHER_PODMAN_SOCKET: host path to the rootless podman socket.
+#   Linux: `/run/user/$(id -u)/podman/podman.sock` (default on systemd hosts).
+#   macOS: the podman machine forwards to a host path — operators typically
+#   override this variable explicitly.
+# SPRING_DISPATCHER_WORKER_TOKEN: opaque bearer token the worker presents
+#   on every request. Generate per deployment; never commit.
+# SPRING_DEFAULT_TENANT_ID: tenant the worker token is scoped to.
+start_dispatcher() {
+    local socket="${SPRING_DISPATCHER_PODMAN_SOCKET:-/run/podman/podman.sock}"
+    local token="${SPRING_DISPATCHER_WORKER_TOKEN:-worker-token}"
+    local tenant="${SPRING_DEFAULT_TENANT_ID:-default}"
+
+    run_container spring-dispatcher \
+        --env-file "${RESOLVED_ENV_FILE}" \
+        -e "Dispatcher__Tokens__${token}__TenantId=${tenant}" \
+        -v "${socket}:/run/podman/podman.sock" \
+        "${SPRING_DISPATCHER_IMAGE:-localhost/spring-dispatcher:latest}" \
+        dotnet /app/Cvoya.Spring.Dispatcher.dll
 }
 
 start_api() {
@@ -437,6 +471,11 @@ cmd_up() {
     wait_sidecar_ready spring-worker-dapr 30
     wait_sidecar_ready spring-api-dapr 30
 
+    # Dispatcher must be up before the worker — the worker's only
+    # IContainerRuntime binding is a DispatcherClientContainerRuntime that
+    # HTTP-calls spring-dispatcher on first use (#513).
+    start_dispatcher
+
     start_worker
     start_api
     start_web
@@ -486,6 +525,12 @@ cmd_build() {
     podman build \
         -f "${SCRIPT_DIR}/Dockerfile.agent" \
         -t "${SPRING_AGENT_IMAGE:-localhost/spring-voyage-agent:latest}" \
+        "${REPO_ROOT}"
+
+    log "building dispatcher image: ${SPRING_DISPATCHER_IMAGE:-localhost/spring-dispatcher:latest}"
+    podman build \
+        -f "${SCRIPT_DIR}/Dockerfile.dispatcher" \
+        -t "${SPRING_DISPATCHER_IMAGE:-localhost/spring-dispatcher:latest}" \
         "${REPO_ROOT}"
 
     log "building dapr-agent image: ${SPRING_DAPR_AGENT_IMAGE:-localhost/spring-dapr-agent:latest}"

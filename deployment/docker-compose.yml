@@ -183,6 +183,32 @@ services:
         condition: service_healthy
 
   # -----------------------------------------------------------------
+  # spring-dispatcher — owns the host's container runtime. Workers reach it
+  # over HTTP for every container operation; no worker holds the podman
+  # binary or its socket. See docs/architecture/deployment.md (#513).
+  # -----------------------------------------------------------------
+  spring-dispatcher:
+    image: ${SPRING_DISPATCHER_IMAGE:-localhost/spring-dispatcher:latest}
+    container_name: spring-dispatcher
+    restart: unless-stopped
+    env_file: spring.env
+    environment:
+      # Per-worker bearer tokens and their tenant scopes. In the single-host
+      # OSS deployment a single shared token is enough; multi-tenant K8s
+      # deployments belong in a downstream repo.
+      Dispatcher__Tokens__${SPRING_DISPATCHER_WORKER_TOKEN:-worker-token}__TenantId: ${SPRING_DEFAULT_TENANT_ID:-default}
+    command: ["dotnet", "/app/Cvoya.Spring.Dispatcher.dll"]
+    # The dispatcher needs a reachable podman socket. On Linux this is the
+    # rootless user-socket; on macOS the podman machine forwards the socket
+    # to the host. Operators override the mount source as needed.
+    volumes:
+      - ${SPRING_DISPATCHER_PODMAN_SOCKET:-/run/podman/podman.sock}:/run/podman/podman.sock
+    networks: [spring-net]
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.dispatcher
+
+  # -----------------------------------------------------------------
   # .NET hosts — one image, three commands.
   # -----------------------------------------------------------------
   spring-worker:
@@ -195,12 +221,17 @@ services:
       DAPR_APP_ID: spring-worker
       DAPR_HTTP_ENDPOINT: http://spring-worker-dapr:3500
       DAPR_GRPC_ENDPOINT: http://spring-worker-dapr:50001
+      # Worker reaches the dispatcher over HTTP for every container op.
+      Dispatcher__BaseUrl: http://spring-dispatcher:8080/
+      Dispatcher__BearerToken: ${SPRING_DISPATCHER_WORKER_TOKEN:-worker-token}
     command: ["dotnet", "/app/Cvoya.Spring.Host.Worker.dll"]
     volumes:
       - spring-dataprotection-keys:/home/app/.aspnet/DataProtection-Keys
     networks: [spring-net]
     depends_on:
       spring-worker-dapr:
+        condition: service_started
+      spring-dispatcher:
         condition: service_started
     build:
       context: ..

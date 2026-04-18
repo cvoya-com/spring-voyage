@@ -4,14 +4,6 @@
 
 ---
 
-## Deployment scope
-
-This open-source platform targets **standalone / single-host deployments** (Docker Compose / Podman Compose on a developer machine or a single server). Hosted or Kubernetes deployments are **not in scope for this repository**.
-
-The runtime abstractions (`IContainerRuntime`, `IExecutionDispatcher`) are deliberately backend-plural so a Kubernetes-native implementation can live in a separate downstream deployment repository, but this repository ships only the standalone runtime. Bug reports and feature requests against this repo should be for functionality that runs on the standalone target; multi-tenant hosted or K8s concerns belong in the downstream repo that consumes this codebase as a submodule.
-
----
-
 ## Agent Hosting Modes
 
 Every agent is hosted in one of two modes, controlled by `AgentExecutionConfig.Hosting` (`Cvoya.Spring.Core.Execution.AgentHostingMode`):
@@ -115,19 +107,58 @@ A restart needs the agent definition to be available on the entry; an entry with
 
 ## Container Runtime Requirements
 
-Persistent and ephemeral containers are launched through the same `IContainerRuntime` abstraction. Two runtimes ship in-tree:
+Persistent and ephemeral containers are launched through the same `IContainerRuntime` abstraction. The **worker process never holds the host container binary**: its only `IContainerRuntime` binding is `DispatcherClientContainerRuntime`, which forwards every call to the `spring-dispatcher` service over HTTP. See [Dispatcher service](#dispatcher-service) below.
 
-- **`PodmanRuntime`** (default) — uses `podman` on the host.
-- **`DockerRuntime`** — uses `docker` on the host.
+The dispatcher's backend is `PodmanRuntime` (OSS default) — a thin wrapper around `ProcessContainerRuntime` that shells out to `podman`. `DockerRuntime` ships in-tree alongside `PodmanRuntime` for operators who prefer Docker, and downstream deployment repositories targeting Kubernetes plug in their own backend behind the same HTTP contract.
 
-Selection is driven by `ContainerRuntime:RuntimeType` in configuration (values: `"podman"` or `"docker"`, defaulting to `podman`).
+Selection of the dispatcher's own backend is driven by `ContainerRuntime:RuntimeType` in the dispatcher host's configuration (values: `"podman"` or `"docker"`, defaulting to `podman`).
 
 ### Host requirements
 
-- **Podman or Docker installed** on the host running the Spring Voyage Worker / API. The runtime binary must be on `PATH`.
+- **Podman on the dispatcher host only.** The worker, API, and web hosts do NOT need `podman` on PATH — they speak to the dispatcher over HTTP.
+- **The dispatcher needs a reachable container socket.** In the OSS standalone deployment the dispatcher container bind-mounts the host's rootless podman socket (`/run/user/${UID}/podman/podman.sock`) at `/run/podman/podman.sock` and uses `podman-remote` against it.
 - **Network reachability** for `host.docker.internal` — Linux hosts need Podman 4.1+ or an explicit `--add-host=host.docker.internal:host-gateway` (which the dispatcher adds automatically). This is how the in-container agent tool reaches the host's MCP server.
 - **TCP port 8999 free on `localhost`** — persistent agent containers publish their A2A endpoint on this port. (Future work will introduce per-agent port allocation; see `A2AExecutionDispatcher.SidecarPort`.)
-- **Writable temp directory** — each launcher materialises a per-invocation working directory under `Path.GetTempPath()` before the container starts.
+- **Writable temp directory** on the dispatcher host — each launcher materialises a per-invocation working directory under `Path.GetTempPath()` before the container starts.
+
+---
+
+## Dispatcher service
+
+`spring-dispatcher` (project: `src/Cvoya.Spring.Dispatcher/`) owns the host container runtime in OSS deployments. The worker's `IContainerRuntime` binding is `DispatcherClientContainerRuntime` (project: `src/Cvoya.Spring.Dapr/Execution/DispatcherClientContainerRuntime.cs`) and nothing else — the worker cannot launch a sibling container without the dispatcher's cooperation.
+
+```text
+spring-worker
+└── IContainerRuntime = DispatcherClientContainerRuntime    (only binding)
+    └── HTTP → spring-dispatcher
+        └── IContainerRuntime = PodmanRuntime               (OSS backend)
+            └── podman-remote → host podman socket
+```
+
+### HTTP contract
+
+| Method | Path                        | Purpose |
+| ------ | --------------------------- | ------- |
+| POST   | `/v1/containers`            | Run (blocking) or start (detached) a container. `detached=true` returns as soon as the container is up; `detached=false` waits for exit and returns stdout/stderr/exitCode. |
+| DELETE | `/v1/containers/{id}`       | Stop and remove a running container. 404 is treated as a no-op (already gone) to keep parity with the in-process runtime. |
+| GET    | `/health`                   | Unauthenticated liveness. |
+
+Request and response bodies are JSON. The request shape is close to `Cvoya.Spring.Core.Execution.ContainerConfig` — `image`, `command`, `env`, `mounts`, `workdir`, `timeoutSeconds`, `network`, `labels`, `extraHosts`, `detached`. The response is `{ id, exitCode?, stdout?, stderr? }`.
+
+### Authentication and tenant scoping
+
+Every request must carry an `Authorization: Bearer <token>` header. Tokens are opaque strings configured at deploy time via `Dispatcher__Tokens__<token>__TenantId=<tenant>` — the token maps to the tenant scope the request can assert. Unauthenticated requests are rejected 401; tokens that do not match the configured map are rejected 401; cross-tenant calls (once tenant-aware scoping is wired into the dispatcher's authorisation layer) are rejected 403.
+
+The OSS single-host deployment typically ships one token scoped to the `default` tenant. Multi-tenant Kubernetes deployments — where each worker/tenant pair needs its own token and the dispatcher enforces cross-tenant isolation — are out of scope for this repository and belong in a downstream deployment repo.
+
+### Why a service seam
+
+The prior attempt (PR #506) mounted the host's podman socket into every worker so the worker could shell out to `podman run`. Two problems ended that approach:
+
+- Mounting a container-runtime socket into every worker breaks tenant isolation in any shared-host deployment.
+- The worker is the wrong process to hold runtime credentials: it runs agent-submitted state through the dispatch path and is the process least-deserving of sibling-container launch rights.
+
+Extracting the runtime to a separate service means the worker's container-launch surface is an HTTP-level contract the dispatcher fully mediates. Credentials stay on one host process; the worker simply asks "please run this image". The HTTP contract is intentionally backend-plural so a K8s-native backend (for example, one that calls the Kubernetes API to spin up a Pod) can be implemented in a downstream deployment repository without changing the worker's binding.
 
 ### Dapr sidecar bootstrap
 
@@ -190,6 +221,7 @@ The solution follows a layered architecture with clean separation between domain
 - **`Cvoya.Spring.Connector.GitHub`** — GitHub connector with webhook handling and skills.
 - **`Cvoya.Spring.Host.Api`** — ASP.NET Core API host (REST, WebSocket, SSE, auth, local dev mode).
 - **`Cvoya.Spring.Host.Worker`** — Headless worker host for Dapr actors and workflows. Owns EF migrations in the default deployment.
+- **`Cvoya.Spring.Dispatcher`** — ASP.NET service that owns the host container runtime (podman). Workers talk to it over HTTP via `DispatcherClientContainerRuntime`; see the [Dispatcher service](#dispatcher-service) section above. OSS ships the podman backend only.
 - **`Cvoya.Spring.Cli`** — The `spring` command-line tool.
 - **`Cvoya.Spring.Web`** — Next.js/React web dashboard.
 - **`agents/a2a-sidecar/`** — Language-agnostic Python adapter that wraps any stdin/stdout CLI behind an A2A endpoint; bundled into CLI agent container images.
