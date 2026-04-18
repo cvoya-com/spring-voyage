@@ -75,6 +75,7 @@ public class AgentActorEffectiveMetadataTests
         var reflectionRegistry = Substitute.For<IReflectionActionHandlerRegistry>();
         reflectionRegistry.Find(Arg.Any<string?>()).Returns((IReflectionActionHandler?)null);
         var unitPolicyEnforcer = Substitute.For<IUnitPolicyEnforcer>().WithAllowByDefault();
+        var initiativeEvaluator = Substitute.For<IAgentInitiativeEvaluator>().WithActAutonomouslyByDefault();
 
         _actor = new AgentActor(
             host,
@@ -88,6 +89,7 @@ public class AgentActorEffectiveMetadataTests
             _membershipRepository,
             reflectionRegistry,
             unitPolicyEnforcer,
+            initiativeEvaluator,
             loggerFactory);
 
         SetStateManager(_actor, _stateManager);

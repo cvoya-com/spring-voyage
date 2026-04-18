@@ -40,6 +40,7 @@ public class AgentActor(
     IUnitMembershipRepository membershipRepository,
     IReflectionActionHandlerRegistry reflectionActionHandlers,
     IUnitPolicyEnforcer unitPolicyEnforcer,
+    IAgentInitiativeEvaluator initiativeEvaluator,
     ILoggerFactory loggerFactory,
     IExpertiseSeedProvider? expertiseSeedProvider = null) : Actor(host), IAgentActor, IRemindable
 {
@@ -1500,29 +1501,51 @@ public class AgentActor(
             ct,
             details: details);
 
-        await DispatchReflectionActionAsync(outcome, ct);
+        await DispatchReflectionActionAsync(outcome, observations, ct);
     }
 
     /// <summary>
-    /// Translates a <see cref="ReflectionOutcome"/> into a concrete message
-    /// and routes it via <see cref="MessageRouter"/>. Enforces two policy
-    /// gates before dispatch: the agent's own <see cref="InitiativePolicy.BlockedActions"/>
-    /// / <see cref="InitiativePolicy.AllowedActions"/> list (so the agent
-    /// cannot emit an action its own config forbids), and — when the action
-    /// corresponds to a named skill or tool — the unit-level
-    /// <see cref="SkillPolicy"/> via <see cref="IUnitPolicyEnforcer"/>
-    /// (see #163 / C3). Every outcome (dispatched / skipped) surfaces through
-    /// an <c>Activity</c> event so operators can trace denials without
-    /// scraping logs.
+    /// Translates a <see cref="ReflectionOutcome"/> into a concrete message,
+    /// gates it through the initiative-evaluator seam
+    /// (<see cref="IAgentInitiativeEvaluator"/>, #415 / PR #550 / #552), and
+    /// routes it via <see cref="MessageRouter"/>. The evaluator is the single
+    /// source of truth for initiative-specific composed enforcement (unit
+    /// initiative-action allow / block list per #250, cost caps per #474,
+    /// boundary / hierarchy permissions / cloning as they come online) — this
+    /// caller must not re-run those gates.
     /// </summary>
     /// <remarks>
-    /// The <see cref="InitiativeEngine"/> already filters the outcome against
-    /// the agent's allow/block list (see <c>ApplyPolicyToOutcome</c>), so by
-    /// the time we get here a <c>ShouldAct = true</c> outcome should already
-    /// be compatible with the agent's config. We re-check defensively in
-    /// case a bespoke engine overrides that behaviour.
+    /// <para>
+    /// Decision mapping from the evaluator:
+    /// <list type="bullet">
+    ///   <item><description><c>Defer</c> — no dispatch, no activity emission (the
+    ///     observation has already been drained; the log line covers the
+    ///     internal record).</description></item>
+    ///   <item><description><c>ActWithConfirmation</c> — the translated message is
+    ///     <em>not</em> routed inline; a <c>ReflectionActionProposed</c>
+    ///     activity event surfaces the proposal for the parent unit / human
+    ///     member to approve. The <c>failedClosed</c> flag is propagated so
+    ///     operator dashboards can distinguish "operator asked for confirmation"
+    ///     from "a gate could not be evaluated."</description></item>
+    ///   <item><description><c>ActAutonomously</c> — the translated message is routed
+    ///     and a <c>ReflectionActionDispatched</c> activity event is emitted
+    ///     (unchanged from the pre-evaluator Reactive baseline).</description></item>
+    /// </list>
+    /// </para>
+    /// <para>
+    /// Upstream, the <see cref="InitiativeEngine"/> has already scrubbed the
+    /// outcome against the agent's own <see cref="InitiativePolicy.AllowedActions"/>
+    /// / <see cref="InitiativePolicy.BlockedActions"/> slots via
+    /// <c>ApplyPolicyToOutcome</c>; the evaluator owns the unit-scoped
+    /// initiative-action + cost overlays. The unit-level skill-invocation gate
+    /// (#163 / C3) is orthogonal — it governs any skill call, not just
+    /// initiative-driven ones — so it stays on the dispatch path.
+    /// </para>
     /// </remarks>
-    private async Task DispatchReflectionActionAsync(ReflectionOutcome outcome, CancellationToken ct)
+    private async Task DispatchReflectionActionAsync(
+        ReflectionOutcome outcome,
+        IReadOnlyList<JsonElement> signals,
+        CancellationToken ct)
     {
         var agentId = Id.GetId();
         var actionType = outcome.ActionType;
@@ -1537,32 +1560,10 @@ public class AgentActor(
             return;
         }
 
-        // Defensive re-check of the agent's own policy. InitiativeEngine
-        // normally enforces this, but subclasses / cloud overrides may skip.
-        var policy = await TryGetPolicyAsync(agentId, ct);
-        if (policy is { BlockedActions.Count: > 0 } && policy.BlockedActions.Contains(actionType))
-        {
-            await EmitReflectionSkippedAsync(
-                outcome,
-                reason: "BlockedByAgentPolicy",
-                detail: $"Action '{actionType}' is in BlockedActions.",
-                ct);
-            return;
-        }
-
-        if (policy is { AllowedActions.Count: > 0 } && !policy.AllowedActions.Contains(actionType))
-        {
-            await EmitReflectionSkippedAsync(
-                outcome,
-                reason: "NotInAllowedActions",
-                detail: $"Action '{actionType}' is not in AllowedActions.",
-                ct);
-            return;
-        }
-
-        // Unit skill policy (#163 / C3) — respected when the action type is
-        // treated as a skill/tool name. If any unit the agent belongs to
-        // blocks the action, we deny and emit the denying unit id.
+        // Unit skill policy (#163 / C3) — a cross-cutting skill-allowlist
+        // gate that applies to any skill invocation, not just initiative-driven
+        // ones. Kept on the dispatch path because the initiative evaluator
+        // does not own this concern.
         PolicyDecision unitDecision;
         try
         {
@@ -1585,36 +1586,6 @@ public class AgentActor(
                 detail: unitDecision.Reason ?? $"Action '{actionType}' blocked by unit policy.",
                 ct,
                 unitId: unitDecision.DenyingUnitId);
-            return;
-        }
-
-        // Unit initiative policy (#250) — DENY overlay on the agent-level
-        // allow/block list. Unit block wins over agent allow; unit whitelist
-        // further narrows the agent's allowed set. The agent's own policy
-        // has already been checked above, so reaching here means the agent
-        // permits the action and the unit gets the final word.
-        PolicyDecision initiativeDecision;
-        try
-        {
-            initiativeDecision = await unitPolicyEnforcer
-                .EvaluateInitiativeActionAsync(agentId, actionType, ct);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex,
-                "Unit policy enforcer threw evaluating initiative action {ActionType} for agent {AgentId}; allowing to avoid losing the action.",
-                actionType, agentId);
-            initiativeDecision = PolicyDecision.Allowed;
-        }
-
-        if (!initiativeDecision.IsAllowed)
-        {
-            await EmitReflectionSkippedAsync(
-                outcome,
-                reason: "BlockedByUnitInitiativePolicy",
-                detail: initiativeDecision.Reason ?? $"Action '{actionType}' blocked by unit initiative policy.",
-                ct,
-                unitId: initiativeDecision.DenyingUnitId);
             return;
         }
 
@@ -1661,6 +1632,77 @@ public class AgentActor(
             return;
         }
 
+        // Initiative evaluator (#415 / PR #550). Composes the unit-scoped
+        // initiative-action policy (#250), cost caps (#474), boundary /
+        // hierarchy / cloning gates, and projects the result onto the
+        // three-valued decision that drives Reactive / Proactive / Autonomous
+        // semantics at runtime. The evaluator re-reads policy on every call,
+        // so runtime policy edits propagate here on the next drain.
+        var action = new InitiativeAction(
+            ActionType: actionType,
+            EstimatedCost: 0m,
+            IsReversible: true,
+            TargetAddress: $"{translated.To.Scheme}://{translated.To.Path}");
+
+        InitiativeEvaluationResult evaluation;
+        try
+        {
+            evaluation = await initiativeEvaluator.EvaluateAsync(
+                new InitiativeEvaluationContext(agentId, action, signals),
+                ct);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // Evaluator infrastructure failure — fail closed to confirmation.
+            _logger.LogWarning(ex,
+                "Initiative evaluator threw for agent {AgentId}, action {ActionType}; surfacing as confirmation-required proposal.",
+                agentId, actionType);
+
+            await EmitProposalAsync(
+                outcome,
+                translated,
+                reason: $"initiative evaluator threw: {ex.Message}",
+                effectiveLevel: null,
+                failedClosed: true,
+                ct);
+            return;
+        }
+
+        switch (evaluation.Decision)
+        {
+            case InitiativeEvaluationDecision.Defer:
+                // Issue #552: Defer takes no action and emits no activity
+                // event. The internal log line keeps the decision traceable.
+                _logger.LogInformation(
+                    "Reflection action '{ActionType}' deferred for agent {AgentId}: {Reason}",
+                    actionType, agentId, evaluation.Reason ?? "(no reason)");
+                return;
+
+            case InitiativeEvaluationDecision.ActWithConfirmation:
+                await EmitProposalAsync(
+                    outcome,
+                    translated,
+                    reason: evaluation.Reason,
+                    effectiveLevel: evaluation.EffectiveLevel,
+                    failedClosed: evaluation.FailedClosed,
+                    ct);
+                return;
+
+            case InitiativeEvaluationDecision.ActAutonomously:
+                // Fall through to inline routing.
+                break;
+
+            default:
+                _logger.LogWarning(
+                    "Initiative evaluator returned unknown decision {Decision} for agent {AgentId}; treating as Defer.",
+                    evaluation.Decision, agentId);
+                return;
+        }
+
         var routing = await messageRouter.RouteAsync(translated, ct);
         if (!routing.IsSuccess)
         {
@@ -1681,6 +1723,7 @@ public class AgentActor(
             messageId = translated.Id,
             target = new { scheme = translated.To.Scheme, path = translated.To.Path },
             conversationId = translated.ConversationId,
+            effectiveLevel = evaluation.EffectiveLevel.ToString(),
         });
 
         await EmitActivityEventAsync(
@@ -1691,19 +1734,43 @@ public class AgentActor(
             correlationId: translated.ConversationId);
     }
 
-    private async Task<InitiativePolicy?> TryGetPolicyAsync(string agentId, CancellationToken ct)
+    /// <summary>
+    /// Emits a <see cref="ActivityEventType.ReflectionActionProposed"/>
+    /// activity event for a reflection action the evaluator flagged as
+    /// requiring confirmation. The proposal is surfaced to downstream
+    /// observers (dashboards, audit, the private-cloud approval UI) via the
+    /// activity bus; the translated message is intentionally <em>not</em>
+    /// routed inline so a human / unit owner can approve it first.
+    /// </summary>
+    private Task EmitProposalAsync(
+        ReflectionOutcome outcome,
+        Message translated,
+        string? reason,
+        InitiativeLevel? effectiveLevel,
+        bool failedClosed,
+        CancellationToken ct)
     {
-        try
+        var details = JsonSerializer.SerializeToElement(new
         {
-            return await policyStore.GetPolicyAsync($"agent:{agentId}", ct);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex,
-                "Could not read initiative policy for {AgentId} during reflection dispatch; proceeding without agent-level gate.",
-                agentId);
-            return null;
-        }
+            actionType = outcome.ActionType,
+            messageId = translated.Id,
+            target = new { scheme = translated.To.Scheme, path = translated.To.Path },
+            conversationId = translated.ConversationId,
+            reason,
+            effectiveLevel = effectiveLevel?.ToString(),
+            failedClosed,
+        });
+
+        var summary = failedClosed
+            ? $"Reflection action '{outcome.ActionType}' proposal (fail-closed): {reason ?? "(no reason)"}"
+            : $"Reflection action '{outcome.ActionType}' proposal pending confirmation: {reason ?? "(no reason)"}";
+
+        return EmitActivityEventAsync(
+            ActivityEventType.ReflectionActionProposed,
+            summary,
+            ct,
+            details: details,
+            correlationId: translated.ConversationId);
     }
 
     private Task EmitReflectionSkippedAsync(

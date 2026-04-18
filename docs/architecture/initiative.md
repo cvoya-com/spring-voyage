@@ -121,3 +121,18 @@ A throw in any of those layers downgrades the result by one step (`ActAutonomous
 **No snapshot.** The evaluator re-reads policy on every call. Bumping a unit's `MaxLevel` from `Proactive` to `Autonomous` at runtime takes effect on the next evaluation — the caller does not need to invalidate a cache.
 
 **Reversibility.** `InitiativeAction.IsReversible = false` always forces confirmation, regardless of initiative level. The action model intentionally uses a boolean rather than a severity scale so the evaluator stays simple and the call site carries the reversibility judgement (the caller knows whether it is drafting an internal note or triggering an external side-effect).
+
+### Runtime wiring (PR #552)
+
+`AgentActor.DispatchReflectionActionAsync` is the single call site that consults the evaluator. The flow is:
+
+1. `RunInitiativeCheckAsync` drains the `ObservationChannel` and hands the batch to `IInitiativeEngine.ProcessObservationsAsync`. The engine still owns Tier-1 screening, Tier-2 reflection, and the agent-scoped allow / block list via `ApplyPolicyToOutcome`.
+2. When the engine returns `ShouldAct = true`, the actor runs the cross-cutting unit skill-invocation gate (`IUnitPolicyEnforcer.EvaluateSkillInvocationAsync`) — a gate orthogonal to the initiative layer because it governs any skill call, not just initiative-driven ones.
+3. The actor translates the outcome via the registered `IReflectionActionHandler`, producing a concrete `Message` with a real target address.
+4. The actor calls `IAgentInitiativeEvaluator.EvaluateAsync` with the translated action, the agent id, and the drained observation batch as signals. The evaluator owns every initiative-specific enforcement layer (unit initiative-action allow / block list, cost caps, boundary / hierarchy / cloning as they come online). The caller does **not** re-run any of those gates.
+5. The three-valued decision drives dispatch:
+   - `Defer` — no routing, no activity event (per the "Defer is silent" contract); a single info log line keeps the decision traceable internally.
+   - `ActWithConfirmation` — the translated message is **not** routed inline. A `ActivityEventType.ReflectionActionProposed` event surfaces the proposal (with the translated target, conversation id, reason, effective level, and `FailedClosed` flag) so a human / parent-unit owner can approve it through the observability surface. If the evaluator itself throws, the actor surfaces the same proposal event with `FailedClosed = true`.
+   - `ActAutonomously` — the translated message is routed through `MessageRouter` and a `ActivityEventType.ReflectionActionDispatched` event is emitted (the pre-evaluator Reactive baseline path, unchanged for Passive / Attentive agents because they never reach this branch).
+
+This wiring makes the acceptance criteria from PR #552 observable end-to-end: a Proactive unit emits a proposal from an Rx signal without an inbound message, an Autonomous unit skips confirmation for in-budget reversible actions, and a Reactive unit is indistinguishable from the pre-evaluator baseline because the evaluator short-circuits to `Defer` for every Passive / Attentive call.

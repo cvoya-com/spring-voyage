@@ -50,6 +50,7 @@ public class AgentActorAmendmentTests
     private readonly IUnitMembershipRepository _membershipRepository = Substitute.For<IUnitMembershipRepository>();
     private readonly IReflectionActionHandlerRegistry _registry = Substitute.For<IReflectionActionHandlerRegistry>();
     private readonly IUnitPolicyEnforcer _unitPolicyEnforcer = Substitute.For<IUnitPolicyEnforcer>();
+    private readonly IAgentInitiativeEvaluator _initiativeEvaluator = Substitute.For<IAgentInitiativeEvaluator>();
     private readonly AgentActor _actor;
 
     public AgentActorAmendmentTests()
@@ -73,6 +74,7 @@ public class AgentActorAmendmentTests
             .Returns((UnitMembership?)null);
 
         _unitPolicyEnforcer.WithAllowByDefault();
+        _initiativeEvaluator.WithActAutonomouslyByDefault();
 
         _actor = new AgentActor(
             host,
@@ -86,6 +88,7 @@ public class AgentActorAmendmentTests
             _membershipRepository,
             _registry,
             _unitPolicyEnforcer,
+            _initiativeEvaluator,
             loggerFactory);
 
         SetStateManager(_actor, _stateManager);

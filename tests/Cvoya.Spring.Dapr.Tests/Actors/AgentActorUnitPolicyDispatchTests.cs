@@ -82,6 +82,7 @@ public class AgentActorUnitPolicyDispatchTests
         reflectionRegistry.Find(Arg.Any<string?>()).Returns((IReflectionActionHandler?)null);
 
         _enforcer.WithAllowByDefault();
+        var initiativeEvaluator = Substitute.For<IAgentInitiativeEvaluator>().WithActAutonomouslyByDefault();
 
         _actor = new AgentActor(
             host,
@@ -95,6 +96,7 @@ public class AgentActorUnitPolicyDispatchTests
             _membershipRepository,
             reflectionRegistry,
             _enforcer,
+            initiativeEvaluator,
             loggerFactory);
 
         SetStateManager(_actor, _stateManager);
