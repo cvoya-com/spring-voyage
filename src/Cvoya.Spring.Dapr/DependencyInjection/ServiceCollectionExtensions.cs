@@ -19,6 +19,7 @@ using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.State;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Core.Units;
+using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Capabilities;
 using Cvoya.Spring.Dapr.Cloning;
@@ -76,7 +77,21 @@ public static class ServiceCollectionExtensions
 
         // Dapr client, actor proxy factory, and workflow client
         services.AddDaprClient();
-        services.TryAddSingleton<IActorProxyFactory>(_ => new ActorProxyFactory());
+
+        // Configure the actor proxy factory to use JSON serialization with
+        // shared options that include a JsonElement converter which detaches
+        // each parsed element from the transient JsonDocument owned by the
+        // deserialization scope. Dapr's default DataContract serializer
+        // cannot round-trip Message.Payload (a JsonElement) and leaves it as
+        // default(JsonElement), which then crashes ASP.NET Core's response
+        // writer with "Operation is not valid due to the current state of
+        // the object" — the bug behind the GET /api/v1/agents/{id} 500.
+        services.TryAddSingleton<IActorProxyFactory>(_ => new ActorProxyFactory(
+            new ActorProxyOptions
+            {
+                UseJsonSerialization = true,
+                JsonSerializerOptions = ActorRemotingJsonOptions.Instance,
+            }));
 
         services.AddDaprWorkflow(options => { });
 

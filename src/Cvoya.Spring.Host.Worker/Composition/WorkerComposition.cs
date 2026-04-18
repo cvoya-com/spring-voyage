@@ -112,6 +112,18 @@ public static class WorkerComposition
             options.ActorIdleTimeout = TimeSpan.FromHours(1);
             options.ActorScanInterval = TimeSpan.FromSeconds(30);
             options.ReentrancyConfig = new ActorReentrancyConfig { Enabled = false };
+
+            // Match the caller-side actor-proxy configuration: JSON
+            // serialization with a JsonElement converter that clones into a
+            // self-contained document. Dapr's default DataContract
+            // serializer cannot round-trip Message.Payload (a JsonElement)
+            // losslessly — it deserialises into default(JsonElement), whose
+            // _parent is null, and every subsequent read throws "Operation
+            // is not valid due to the current state of the object". Both
+            // ends of the remoting pipe must agree on JSON for the wire
+            // format to be honoured; see ActorRemotingJsonOptions.
+            options.UseJsonSerialization = true;
+            options.JsonSerializerOptions = ActorRemotingJsonOptions.Instance;
         });
 
         return services;
