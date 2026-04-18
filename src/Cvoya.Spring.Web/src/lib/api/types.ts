@@ -249,6 +249,14 @@ export type ConnectorTypeResponse = Schemas["ConnectorTypeResponse"];
 export type UnitConnectorPointerResponse = Schemas["UnitConnectorPointerResponse"];
 
 /**
+ * GET /api/v1/connectors/{slugOrId}/bindings response item (#520). One entry
+ * per unit currently bound to the requested connector type. Collapses the
+ * per-unit fan-out that `useConnectorBindings` used to issue into a single
+ * round-trip.
+ */
+export type ConnectorUnitBindingResponse = Schemas["ConnectorUnitBindingResponse"];
+
+/**
  * Optional connector binding bundled into a unit-creation request (#199).
  * Allows the wizard to create the unit AND bind a connector in one
  * transactional call. Either `typeId` or `typeSlug` identifies the target

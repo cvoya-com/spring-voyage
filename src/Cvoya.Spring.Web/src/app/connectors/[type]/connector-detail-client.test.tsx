@@ -5,24 +5,21 @@ import type { ReactNode } from "react";
 
 import type {
   ConnectorTypeResponse,
-  UnitConnectorPointerResponse,
-  UnitResponse,
+  ConnectorUnitBindingResponse,
 } from "@/lib/api/types";
 
 const getConnector =
   vi.fn<(slug: string) => Promise<ConnectorTypeResponse | null>>();
 const getConnectorConfigSchema =
   vi.fn<(slug: string) => Promise<unknown | null>>();
-const listUnits = vi.fn<() => Promise<UnitResponse[]>>();
-const getUnitConnector =
-  vi.fn<(id: string) => Promise<UnitConnectorPointerResponse | null>>();
+const listConnectorBindings =
+  vi.fn<(slugOrId: string) => Promise<ConnectorUnitBindingResponse[]>>();
 
 vi.mock("@/lib/api/client", () => ({
   api: {
     getConnector: (slug: string) => getConnector(slug),
     getConnectorConfigSchema: (slug: string) => getConnectorConfigSchema(slug),
-    listUnits: () => listUnits(),
-    getUnitConnector: (id: string) => getUnitConnector(id),
+    listConnectorBindings: (slug: string) => listConnectorBindings(slug),
   },
 }));
 
@@ -60,8 +57,7 @@ describe("ConnectorDetailClient", () => {
   beforeEach(() => {
     getConnector.mockReset();
     getConnectorConfigSchema.mockReset();
-    listUnits.mockReset();
-    getUnitConnector.mockReset();
+    listConnectorBindings.mockReset();
   });
 
   it("renders breadcrumbs, identity, schema, and bound units", async () => {
@@ -78,18 +74,19 @@ describe("ConnectorDetailClient", () => {
       type: "object",
       properties: { owner: { type: "string" } },
     });
-    listUnits.mockResolvedValue([
-      { id: "u1", name: "alpha", displayName: "Alpha" } as UnitResponse,
-      { id: "u2", name: "beta", displayName: "Beta" } as UnitResponse,
+    // Bulk endpoint (#520) returns only the units bound to this connector
+    // type, so the client no longer post-filters a full unit list.
+    listConnectorBindings.mockResolvedValue([
+      {
+        unitId: "u1",
+        unitName: "alpha",
+        unitDisplayName: "Alpha",
+        typeId: "github-id",
+        typeSlug: "github",
+        configUrl: "/api/v1/connectors/github/units/u1/config",
+        actionsBaseUrl: "/api/v1/connectors/github/actions",
+      } as ConnectorUnitBindingResponse,
     ]);
-    getUnitConnector.mockImplementation(async (id) =>
-      id === "u1"
-        ? ({
-            typeId: "github-id",
-            typeSlug: "github",
-          } as UnitConnectorPointerResponse)
-        : null,
-    );
 
     renderClient("github");
 
@@ -140,7 +137,7 @@ describe("ConnectorDetailClient", () => {
       configSchemaUrl: "/api/v1/connectors/raw/config-schema",
     } as ConnectorTypeResponse);
     getConnectorConfigSchema.mockResolvedValue(null);
-    listUnits.mockResolvedValue([]);
+    listConnectorBindings.mockResolvedValue([]);
 
     renderClient("raw");
 

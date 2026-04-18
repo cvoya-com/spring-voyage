@@ -4149,6 +4149,50 @@
         }
       }
     },
+    "/api/v1/connectors/{slugOrId}/bindings": {
+      "get": {
+        "tags": [
+          "Connectors"
+        ],
+        "summary": "List every unit bound to the given connector type (#520)",
+        "operationId": "ListConnectorBindings",
+        "parameters": [
+          {
+            "name": "slugOrId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ConnectorUnitBindingResponse"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/connectors/github/units/{unitId}/config": {
       "get": {
         "tags": [
@@ -6231,6 +6275,42 @@
             "type": "string"
           },
           "configSchemaUrl": {
+            "type": "string"
+          }
+        }
+      },
+      "ConnectorUnitBindingResponse": {
+        "required": [
+          "unitId",
+          "unitName",
+          "unitDisplayName",
+          "typeId",
+          "typeSlug",
+          "configUrl",
+          "actionsBaseUrl"
+        ],
+        "type": "object",
+        "properties": {
+          "unitId": {
+            "type": "string"
+          },
+          "unitName": {
+            "type": "string"
+          },
+          "unitDisplayName": {
+            "type": "string"
+          },
+          "typeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "typeSlug": {
+            "type": "string"
+          },
+          "configUrl": {
+            "type": "string"
+          },
+          "actionsBaseUrl": {
             "type": "string"
           }
         }

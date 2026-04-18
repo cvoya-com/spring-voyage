@@ -68,8 +68,8 @@ Connector types are first-class browseable resources on every operator surface:
 
 | Surface | Entry point | Notes |
 | ------- | ----------- | ----- |
-| **HTTP API** | `GET /api/v1/connectors` (catalog), `GET /api/v1/connectors/{slugOrId}` (single type), `GET /api/v1/connectors/{slug}/config-schema` (JSON Schema) | Authoritative — the CLI and portal both consume these. |
-| **CLI** | `spring connector catalog` (catalog), `spring connector show --unit <name>` (typed config for a unit binding) | See [src/Cvoya.Spring.Cli/Commands/ConnectorCommand.cs](../../src/Cvoya.Spring.Cli/Commands/ConnectorCommand.cs). |
-| **Portal** | `/connectors` (catalog), `/connectors/{slug}` (per-type detail with schema + bound units) | Sidebar entry under "Connectors". The unit detail page's Connector tab deep-links into the per-type detail page. See the [portal walkthrough](../guide/portal.md#connectors-browser-connectors). |
+| **HTTP API** | `GET /api/v1/connectors` (catalog), `GET /api/v1/connectors/{slugOrId}` (single type), `GET /api/v1/connectors/{slug}/config-schema` (JSON Schema), `GET /api/v1/connectors/{slugOrId}/bindings` (every unit bound to a type — single round-trip, #520) | Authoritative — the CLI and portal both consume these. |
+| **CLI** | `spring connector catalog` (catalog), `spring connector show --unit <name>` (typed config for a unit binding), `spring connector bindings <slugOrId>` (every unit bound to a type) | See [src/Cvoya.Spring.Cli/Commands/ConnectorCommand.cs](../../src/Cvoya.Spring.Cli/Commands/ConnectorCommand.cs). |
+| **Portal** | `/connectors` (catalog), `/connectors/{slug}` (per-type detail with schema + bound units — rendered from the bulk bindings endpoint) | Sidebar entry under "Connectors". The unit detail page's Connector tab deep-links into the per-type detail page. See the [portal walkthrough](../guide/portal.md#connectors-browser-connectors). |
 
 The catalog is hydrated from the open-source registration API: every package that calls `services.AddSpringConnector<TConnector>()` becomes visible across all three surfaces with no further wiring. Connector authors only need to implement `IConnectorType.GetConfigSchemaAsync` to get a typed configuration form on the portal automatically.

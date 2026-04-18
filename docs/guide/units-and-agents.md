@@ -335,6 +335,15 @@ spring connector bind --unit engineering-team --type github \
 
 Bind writes the per-unit config and the connector binding atomically through the connector-owned PUT endpoint. GitHub is the only typed bind surface today; other connector types are surfaced in `catalog` but return a clear `not supported by 'spring connector bind' yet` message until their typed PUT lands. Removing a binding is still handled by the unit lifecycle (stop / delete); a dedicated `unbind` command will follow in a later PR.
 
+### Listing Every Unit Bound to a Connector Type
+
+```
+spring connector bindings <slugOrId>
+spring connector bindings <slugOrId> --output json
+```
+
+Prints the full list of units bound to a connector type — one row per unit, with the unit name, display name, and the connector's slug / type id. Mirrors the **Bound units** section of the portal's `/connectors/{slug}` page and rides the same single round-trip `GET /api/v1/connectors/{slugOrId}/bindings` endpoint (#520). An empty list prints `No units are currently bound to connector '<slugOrId>'.`; an unknown connector exits non-zero with a `not registered` message.
+
 ### Authenticating a Connector
 
 Authentication is handled per-connector. For GitHub, operators install the GitHub App and supply the installation id on `bind`. Interactive auth flows will be added alongside the connectors that need them.

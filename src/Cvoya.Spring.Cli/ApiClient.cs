@@ -832,6 +832,20 @@ public class SpringApiClient
     }
 
     /// <summary>
+    /// Returns every unit bound to the given connector type (#520). Mirrors
+    /// the portal's <c>useConnectorBindings</c> hook — both surfaces ride the
+    /// same bulk endpoint so the CLI table and the portal's "Bound units"
+    /// list are produced from the same data in one round-trip.
+    /// </summary>
+    public async Task<IReadOnlyList<ConnectorUnitBindingResponse>> ListConnectorBindingsAsync(
+        string slugOrId,
+        CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Connectors[slugOrId].Bindings.GetAsync(cancellationToken: ct);
+        return result ?? new List<ConnectorUnitBindingResponse>();
+    }
+
+    /// <summary>
     /// Returns the active connector binding pointer for a unit, or
     /// <c>null</c> when the unit is not bound to any connector. Mirrors the
     /// portal's handling of the 404 the server returns for an unbound unit.

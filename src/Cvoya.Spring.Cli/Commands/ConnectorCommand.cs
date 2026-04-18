@@ -15,6 +15,7 @@ using Cvoya.Spring.Cli.Output;
 ///   <item><description><c>spring connector catalog</c> — list every registered connector type, matching the portal's connector list.</description></item>
 ///   <item><description><c>spring connector show --unit &lt;name&gt;</c> — show the unit's active binding plus connector-specific config (GitHub today).</description></item>
 ///   <item><description><c>spring connector bind --unit &lt;name&gt; --type &lt;type&gt;</c> — bind the unit to a connector and upsert its per-unit config.</description></item>
+///   <item><description><c>spring connector bindings &lt;slugOrId&gt;</c> — list every unit bound to a connector type, mirroring the portal's <c>/connectors/{slug}</c> "Bound units" list (#520).</description></item>
 /// </list>
 /// </summary>
 /// <remarks>
@@ -58,6 +59,14 @@ public static class ConnectorCommand
         new("typeId", r => r.TypeId),
     };
 
+    private static readonly OutputFormatter.Column<ConnectorUnitBindingResponse>[] BindingsColumns =
+    {
+        new("unit", b => b.UnitName),
+        new("displayName", b => b.UnitDisplayName),
+        new("typeSlug", b => b.TypeSlug),
+        new("typeId", b => b.TypeId?.ToString()),
+    };
+
     /// <summary>
     /// Creates the <c>connector</c> command root with the catalog / show /
     /// bind subcommands.
@@ -69,8 +78,66 @@ public static class ConnectorCommand
         connectorCommand.Subcommands.Add(CreateCatalogCommand(outputOption));
         connectorCommand.Subcommands.Add(CreateShowCommand(outputOption));
         connectorCommand.Subcommands.Add(CreateBindCommand(outputOption));
+        connectorCommand.Subcommands.Add(CreateBindingsCommand(outputOption));
 
         return connectorCommand;
+    }
+
+    private static Command CreateBindingsCommand(Option<string> outputOption)
+    {
+        // Positional <slugOrId> keeps the verb ergonomic at the shell
+        // (`spring connector bindings github`) and mirrors how the portal's
+        // /connectors/{slug} detail page addresses the endpoint.
+        var slugOrIdArg = new Argument<string>("slugOrId")
+        {
+            Description = "Connector type slug (e.g. 'github') or stable GUID type id. Matches the identifier 'spring connector catalog' prints.",
+        };
+
+        var command = new Command(
+            "bindings",
+            "List every unit bound to a connector type. Mirrors the portal's /connectors/{slug} 'Bound units' section so both surfaces round-trip the same data in one call (#520).");
+        command.Arguments.Add(slugOrIdArg);
+
+        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var slugOrId = parseResult.GetValue(slugOrIdArg)!;
+            var output = parseResult.GetValue(outputOption) ?? "table";
+            var client = ClientFactory.Create();
+
+            try
+            {
+                var result = await client.ListConnectorBindingsAsync(slugOrId, ct);
+
+                if (output == "json")
+                {
+                    Console.WriteLine(OutputFormatter.FormatJson(result));
+                }
+                else if (result.Count == 0)
+                {
+                    // Empty state mirrors the portal's "No units are
+                    // currently bound to this connector" copy so the two
+                    // surfaces converge on the same operator-facing
+                    // guidance.
+                    Console.WriteLine(
+                        $"No units are currently bound to connector '{slugOrId}'.");
+                }
+                else
+                {
+                    Console.WriteLine(OutputFormatter.FormatTable(result, BindingsColumns));
+                }
+            }
+            catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode == 404)
+            {
+                // The server returns 404 only when the slug/id resolves to no
+                // registered connector; a connector that exists but has no
+                // bindings returns an empty array, handled above.
+                await Console.Error.WriteLineAsync(
+                    $"Connector '{slugOrId}' is not registered. Run 'spring connector catalog' to see available types.");
+                Environment.Exit(1);
+            }
+        });
+
+        return command;
     }
 
     private static Command CreateCatalogCommand(Option<string> outputOption)

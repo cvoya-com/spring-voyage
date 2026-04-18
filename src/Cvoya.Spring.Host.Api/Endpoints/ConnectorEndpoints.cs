@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Host.Api.Endpoints;
 
 using Cvoya.Spring.Connectors;
+using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Host.Api.Models;
 
 using Microsoft.AspNetCore.Mvc;
@@ -36,6 +37,12 @@ public static class ConnectorEndpoints
             .WithName("GetConnector")
             .WithSummary("Get a single connector type by slug or id")
             .Produces<ConnectorTypeResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        connectors.MapGet("/{slugOrId}/bindings", ListConnectorBindingsAsync)
+            .WithName("ListConnectorBindings")
+            .WithSummary("List every unit bound to the given connector type (#520)")
+            .Produces<ConnectorUnitBindingResponse[]>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
         // Each connector owns its typed routes under /api/v1/connectors/{slug}/...
@@ -90,6 +97,60 @@ public static class ConnectorEndpoints
                 statusCode: StatusCodes.Status404NotFound));
         }
         return Task.FromResult(Results.Ok(ToConnectorResponse(connector)));
+    }
+
+    /// <summary>
+    /// Handler for <c>GET /api/v1/connectors/{slugOrId}/bindings</c> (#520). Walks
+    /// the unit directory the same way <c>UnitEndpoints.ListUnitsAsync</c> does
+    /// (so any boundary/visibility filter that applies to the canonical unit
+    /// list applies here too) and returns a binding row for every unit whose
+    /// current connector binding matches the requested type. Replaces the
+    /// portal's N+1 fan-out from #516.
+    /// </summary>
+    private static async Task<IResult> ListConnectorBindingsAsync(
+        string slugOrId,
+        [FromServices] IDirectoryService directoryService,
+        [FromServices] IUnitConnectorConfigStore store,
+        [FromServices] IEnumerable<IConnectorType> connectorTypes,
+        CancellationToken cancellationToken)
+    {
+        var target = ResolveConnector(slugOrId, connectorTypes);
+        if (target is null)
+        {
+            return Results.Problem(
+                detail: $"Connector '{slugOrId}' is not registered.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        // Mirrors UnitEndpoints.ListUnitsAsync: whatever visibility filter
+        // wraps the directory surface (today: none in OSS; tenant-scoped in
+        // the cloud extension) applies transparently to this endpoint too,
+        // so bindings never leak outside the caller's visible unit boundary.
+        var entries = await directoryService.ListAllAsync(cancellationToken);
+        var units = entries
+            .Where(e => string.Equals(e.Address.Scheme, "unit", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        var rows = new List<ConnectorUnitBindingResponse>();
+        foreach (var entry in units)
+        {
+            var unitId = entry.Address.Path;
+            var binding = await store.GetAsync(unitId, cancellationToken);
+            if (binding is null || binding.TypeId != target.TypeId)
+            {
+                continue;
+            }
+            rows.Add(new ConnectorUnitBindingResponse(
+                UnitId: unitId,
+                UnitName: unitId,
+                UnitDisplayName: string.IsNullOrEmpty(entry.DisplayName) ? unitId : entry.DisplayName,
+                TypeId: target.TypeId,
+                TypeSlug: target.Slug,
+                ConfigUrl: $"/api/v1/connectors/{target.Slug}/units/{unitId}/config",
+                ActionsBaseUrl: $"/api/v1/connectors/{target.Slug}/actions"));
+        }
+
+        return Results.Ok(rows.ToArray());
     }
 
     private static async Task<IResult> GetUnitConnectorAsync(

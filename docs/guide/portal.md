@@ -285,6 +285,7 @@ When no connector packages are installed (i.e. the catalog is empty), the page s
 |--------|--------|-----|
 | List every registered connector type | `/connectors` | `spring connector catalog` |
 | Show a single connector type's metadata, schema, and bindings | `/connectors/{slug}` | `spring connector show --unit <name>` (per-unit view of the same connector) |
+| List every unit bound to a connector type | `/connectors/{slug}` (Bound units section) | `spring connector bindings <slugOrId>` |
 
 ### Connector detail (`/connectors/{slug}`)
 
@@ -293,11 +294,11 @@ The detail page ([src/Cvoya.Spring.Web/src/app/connectors/[type]/connector-detai
 1. **Identity** — display name, slug, and stable `typeId` (the same id persisted with every binding).
 2. **Binds to** — the URL templates a unit binding writes to (`configUrl`) and the connector's actions base URL (`actionsBaseUrl`).
 3. **Configuration schema** — the JSON Schema fetched from `GET /api/v1/connectors/{slug}/config-schema`, pretty-printed. Connectors that do not advertise a schema show a hint pointing at the raw endpoint.
-4. **Bound units** — every unit currently bound to this connector type. Each row links back to `/units/{id}` so you can open the unit's Connector tab.
+4. **Bound units** — every unit currently bound to this connector type. Each row links back to `/units/{id}` so you can open the unit's Connector tab. Rendered from a single round-trip to `GET /api/v1/connectors/{slugOrId}/bindings` (#520), so the list stays responsive on tenants with many units.
 
 The Connector tab on the unit detail page also carries a **Details** deep-link back into `/connectors/{slug}` so navigation is bidirectional.
 
-**CLI equivalent:** `spring connector show --unit <name>` shows the connector + typed config for a single unit binding. There is no single CLI command that prints the full bound-units list for a given connector type today — file a follow-up if you need it.
+**CLI equivalent:** `spring connector show --unit <name>` shows the connector + typed config for a single unit binding. `spring connector bindings <slugOrId>` prints the full bound-units list for a given connector type, matching the portal's Bound units section (#520).
 
 ## Agent detail (`/agents/{id}`)
 

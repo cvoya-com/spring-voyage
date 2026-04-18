@@ -13,16 +13,27 @@ import type { ReactNode } from "react";
 
 const getDashboardSummary = vi.fn();
 const getUnitCost = vi.fn();
+const listConnectorBindings = vi.fn();
+const listUnits = vi.fn();
+const getUnitConnector = vi.fn();
 
 vi.mock("./client", () => ({
   api: {
     getDashboardSummary: (...args: unknown[]) =>
       getDashboardSummary(...args),
     getUnitCost: (...args: unknown[]) => getUnitCost(...args),
+    listConnectorBindings: (...args: unknown[]) =>
+      listConnectorBindings(...args),
+    listUnits: (...args: unknown[]) => listUnits(...args),
+    getUnitConnector: (...args: unknown[]) => getUnitConnector(...args),
   },
 }));
 
-import { useDashboardSummary, useUnitCost } from "./queries";
+import {
+  useConnectorBindings,
+  useDashboardSummary,
+  useUnitCost,
+} from "./queries";
 import { queryKeys } from "./query-keys";
 
 function wrap(client: QueryClient) {
@@ -37,6 +48,9 @@ describe("queries", () => {
   beforeEach(() => {
     getDashboardSummary.mockReset();
     getUnitCost.mockReset();
+    listConnectorBindings.mockReset();
+    listUnits.mockReset();
+    getUnitConnector.mockReset();
   });
 
   it("useDashboardSummary routes through api.getDashboardSummary and uses the dashboard query key", async () => {
@@ -65,6 +79,47 @@ describe("queries", () => {
     // activity-stream hook will invalidate.
     const cached = client.getQueryData(queryKeys.dashboard.summary());
     expect(cached).toEqual(payload);
+  });
+
+  it("useConnectorBindings rides the bulk endpoint and never fans out per-unit (#520)", async () => {
+    // Regression guard: pre-#520 the hook called api.listUnits() + N
+    // api.getUnitConnector() calls. The bulk endpoint replaces the walk,
+    // so both of those methods must stay untouched while
+    // api.listConnectorBindings is invoked exactly once per mount.
+    listConnectorBindings.mockResolvedValue([
+      {
+        unitId: "u1",
+        unitName: "alpha",
+        unitDisplayName: "Alpha",
+        typeId: "github-id",
+        typeSlug: "github",
+        configUrl: "/api/v1/connectors/github/units/u1/config",
+        actionsBaseUrl: "/api/v1/connectors/github/actions",
+      },
+    ]);
+
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 } },
+    });
+    const { result } = renderHook(() => useConnectorBindings("github"), {
+      wrapper: wrap(client),
+    });
+
+    await waitFor(() =>
+      expect(result.current.data).toEqual([
+        {
+          unitId: "u1",
+          unitName: "alpha",
+          unitDisplayName: "Alpha",
+          typeId: "github-id",
+          typeSlug: "github",
+        },
+      ]),
+    );
+    expect(listConnectorBindings).toHaveBeenCalledTimes(1);
+    expect(listConnectorBindings).toHaveBeenCalledWith("github");
+    expect(listUnits).not.toHaveBeenCalled();
+    expect(getUnitConnector).not.toHaveBeenCalled();
   });
 
   it("useUnitCost surfaces null instead of throwing when the endpoint errors", async () => {

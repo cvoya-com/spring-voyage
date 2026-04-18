@@ -657,6 +657,22 @@ export const api = {
     return JSON.parse(text) as unknown;
   },
   /**
+   * Returns every unit bound to the given connector type (#520). Replaces
+   * the per-unit fan-out that `useConnectorBindings` used to issue after
+   * #516 landed — the server now walks the unit directory once and
+   * returns one array in a single round-trip. The response carries the
+   * unit identity and pointer together so the portal's "Bound units"
+   * list, and `spring connector bindings <slug>`, render without a
+   * second lookup. 404 is reserved for "unknown connector type"; a
+   * registered connector with no bindings returns `[]`.
+   */
+  listConnectorBindings: async (slugOrId: string) =>
+    unwrap(
+      await fetchClient.GET("/api/v1/connectors/{slugOrId}/bindings", {
+        params: { path: { slugOrId } },
+      }),
+    ),
+  /**
    * Returns the unit's active connector binding pointer, or `null` when
    * the unit isn't bound. Normalizing 404 → null here keeps call sites
    * from needing a try/catch just to distinguish "no binding" from a real

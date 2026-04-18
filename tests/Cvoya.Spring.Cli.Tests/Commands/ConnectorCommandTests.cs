@@ -124,6 +124,36 @@ public class ConnectorCommandTests
         parseResult.Errors.ShouldNotBeEmpty();
     }
 
+    [Fact]
+    public void ConnectorBindings_ParsesPositionalSlug()
+    {
+        // `bindings <slugOrId>` is the portal-parity verb for #520 — the
+        // slug is positional so the shell form stays ergonomic and matches
+        // how the portal deep-links into /connectors/{slug}.
+        var outputOption = CreateOutputOption();
+        var connectorCommand = ConnectorCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(connectorCommand);
+
+        var parseResult = rootCommand.Parse("connector bindings github");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<string>("slugOrId").ShouldBe("github");
+    }
+
+    [Fact]
+    public void ConnectorBindings_WithoutSlug_ReportsMissingRequired()
+    {
+        var outputOption = CreateOutputOption();
+        var connectorCommand = ConnectorCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(connectorCommand);
+
+        var parseResult = rootCommand.Parse("connector bindings");
+
+        parseResult.Errors.ShouldNotBeEmpty();
+    }
+
     // --- wire-level wrappers ------------------------------------------------
 
     [Fact]
@@ -225,6 +255,53 @@ public class ConnectorCommandTests
 
         result.Owner.ShouldBe("acme");
         result.Repo.ShouldBe("platform");
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task ListConnectorBindingsAsync_CallsBulkEndpoint()
+    {
+        // Single round-trip: the typed wrapper must hit the new bulk
+        // endpoint so the portal's N+1 fan-out (per-unit connector lookups
+        // introduced in #516) can be retired.
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/connectors/github/bindings",
+            expectedMethod: HttpMethod.Get,
+            responseBody:
+                """[{"unitId":"alpha","unitName":"alpha","unitDisplayName":"Alpha","typeId":"6a1e0c1a-3a7b-4a12-8a2f-0a71e1b2fb01","typeSlug":"github","configUrl":"/api/v1/connectors/github/units/alpha/config","actionsBaseUrl":"/api/v1/connectors/github/actions"},{"unitId":"beta","unitName":"beta","unitDisplayName":"Beta","typeId":"6a1e0c1a-3a7b-4a12-8a2f-0a71e1b2fb01","typeSlug":"github","configUrl":"/api/v1/connectors/github/units/beta/config","actionsBaseUrl":"/api/v1/connectors/github/actions"}]""");
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var result = await client.ListConnectorBindingsAsync("github", TestContext.Current.CancellationToken);
+
+        result.Count.ShouldBe(2);
+        result[0].UnitId.ShouldBe("alpha");
+        result[0].UnitDisplayName.ShouldBe("Alpha");
+        result[0].TypeSlug.ShouldBe("github");
+        result[0].ConfigUrl.ShouldBe("/api/v1/connectors/github/units/alpha/config");
+        result[1].UnitId.ShouldBe("beta");
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task ListConnectorBindingsAsync_ReturnsEmptyArrayWhenNoBindings()
+    {
+        // Empty-state contract: the server returns [] for a registered
+        // connector with no bound units. The CLI must surface an empty list
+        // (not null) so `spring connector bindings` prints the parity
+        // empty-state message instead of throwing.
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/connectors/github/bindings",
+            expectedMethod: HttpMethod.Get,
+            responseBody: "[]");
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var result = await client.ListConnectorBindingsAsync("github", TestContext.Current.CancellationToken);
+
+        result.ShouldBeEmpty();
         handler.WasCalled.ShouldBeTrue();
     }
 

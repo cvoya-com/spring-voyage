@@ -61,3 +61,31 @@ public record UnitConnectorPointerResponse(
     string TypeSlug,
     string ConfigUrl,
     string ActionsBaseUrl);
+
+/// <summary>
+/// Response row for <c>GET /api/v1/connectors/{slugOrId}/bindings</c> (#520).
+/// One entry per unit that is currently bound to the requested connector type.
+/// Bundles the unit identity with the same pointer fields that
+/// <see cref="UnitConnectorPointerResponse"/> carries so the portal and CLI
+/// can render a "units bound to this connector" list in a single round-trip
+/// instead of fanning out a <c>GET /api/v1/units/{id}/connector</c> per unit.
+/// </summary>
+/// <param name="UnitId">Canonical unit id (directory path segment).</param>
+/// <param name="UnitName">The unit's name (unique identifier on the wire).</param>
+/// <param name="UnitDisplayName">Human-facing unit display name.</param>
+/// <param name="TypeId">The connector type id persisted for this binding.</param>
+/// <param name="TypeSlug">
+/// The connector type slug, or <c>unknown</c> when the binding references a
+/// connector type that is no longer registered (parity with
+/// <see cref="UnitConnectorPointerResponse"/>).
+/// </param>
+/// <param name="ConfigUrl">URL of the unit's typed config document.</param>
+/// <param name="ActionsBaseUrl">Base URL for the owning connector's actions.</param>
+public record ConnectorUnitBindingResponse(
+    string UnitId,
+    string UnitName,
+    string UnitDisplayName,
+    Guid TypeId,
+    string TypeSlug,
+    string ConfigUrl,
+    string ActionsBaseUrl);
