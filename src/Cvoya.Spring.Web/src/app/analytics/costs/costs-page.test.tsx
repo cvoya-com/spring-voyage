@@ -30,6 +30,14 @@ vi.mock("@/components/ui/toast", () => ({
   useToast: () => ({ toast: toastMock }),
 }));
 
+// The page now reads scope + window from the URL via next/navigation.
+// Stub both so the test runs in a jsdom environment that has no
+// App Router mounted.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(""),
+}));
+
 vi.mock("next/link", () => ({
   default: ({
     href,

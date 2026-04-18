@@ -503,6 +503,41 @@ export const api = {
       }),
     ),
 
+  // Analytics (#448 / #457).
+  //
+  // Three verbs live on two endpoints: costs reuse the per-entity + tenant
+  // cost endpoints that already shipped (GetAgentCost / GetUnitCost /
+  // GetTenantCost), and the two new /analytics endpoints serve throughput
+  // and wait-time rollups. The portal + CLI share the same wire shape so
+  // `spring analytics {costs,throughput,waits}` round-trips the exact JSON
+  // the portal renders.
+  getAnalyticsThroughput: async (
+    params?: { source?: string; from?: string; to?: string },
+  ) => {
+    const query: Record<string, string> = {};
+    if (params?.source) query.source = params.source;
+    if (params?.from) query.from = params.from;
+    if (params?.to) query.to = params.to;
+    return unwrap(
+      await fetchClient.GET("/api/v1/analytics/throughput", {
+        params: { query: query as never },
+      }),
+    );
+  },
+  getAnalyticsWaits: async (
+    params?: { source?: string; from?: string; to?: string },
+  ) => {
+    const query: Record<string, string> = {};
+    if (params?.source) query.source = params.source;
+    if (params?.from) query.from = params.from;
+    if (params?.to) query.to = params.to;
+    return unwrap(
+      await fetchClient.GET("/api/v1/analytics/waits", {
+        params: { query: query as never },
+      }),
+    );
+  },
+
   // Conversations (#410)
   //
   // Conversations are a projection over the activity event stream;

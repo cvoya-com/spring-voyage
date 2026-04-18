@@ -30,7 +30,9 @@ The left sidebar ([src/Cvoya.Spring.Web/src/components/sidebar.tsx](../../src/Cv
 | `/conversations` — **Conversations** | Filtered conversation list, "Awaiting you" inbox, deep links to threads | `spring conversation list` / `spring inbox list` |
 | `/connectors` — **Connectors** | Catalog of connector types and which units bind them | `spring connector catalog` / `spring connector show` |
 | `/initiative` — **Initiative** | Per-agent initiative policy editor + recent initiative events | (no CLI equivalent today — parity gap) |
-| `/budgets` — **Budgets** | Tenant daily budget + per-agent budget rows | (no CLI equivalent today — parity gap) |
+| `/analytics/costs` — **Analytics → Costs** | Tenant-wide spend, per-source breakdown, tenant + per-agent budget editors | `spring analytics costs`, `spring cost set-budget` |
+| `/analytics/throughput` — **Analytics → Throughput** | Messages / turns / tool calls per source over 24h/7d/30d | `spring analytics throughput` |
+| `/analytics/waits` — **Analytics → Wait times** | Idle / busy / waiting-for-human durations per source | `spring analytics waits` |
 | `/packages` — **Packages** | Browse installed packages and their templates | `spring package list` / `spring package show` |
 | `/directory` — **Directory** | Tenant-wide expertise directory — searchable domains declared by every agent and unit | `spring agent expertise get` / `spring unit expertise get` (per-entity; no tenant-wide verb today — parity gap) |
 
@@ -189,7 +191,7 @@ Edits route through `PUT /api/v1/units/{id}/policy`, the same surface the CLI's 
 | Initiative (max level, unit-approval flag, action allow/block list) | **Edit** on Initiative panel | `spring unit policy initiative set <unit> --max-level Proactive --require-unit-approval true --allowed … --blocked …` / `spring unit policy initiative clear <unit>` |
 | Read current policy | (tab body) | `spring unit policy <dim> get <unit>` |
 
-The Cost panel links out to `/budgets` so you can compare the caps against current spend. The Effective policy block shows a single-hop chain today; parent-unit overlay is tracked under [#414](https://github.com/cvoya-com/spring-voyage/issues/414) and will extend the chain without a UI reshape.
+The Cost panel links out to `/analytics/costs` so you can compare the caps against current spend. The Effective policy block shows a single-hop chain today; parent-unit overlay is tracked under [#414](https://github.com/cvoya-com/spring-voyage/issues/414) and will extend the chain without a UI reshape.
 
 ### Expertise
 
@@ -302,7 +304,7 @@ The Connector tab on the unit detail page also carries a **Details** deep-link b
 
 ## Agent detail (`/agents/{id}`)
 
-The agent detail page ([src/Cvoya.Spring.Web/src/app/agents/[id]/page.tsx](../../src/Cvoya.Spring.Web/src/app/agents/%5Bid%5D/page.tsx)) renders a client view configured via `<AgentDetailClient>`. It is linked from the dashboard's Agents column and from the Budgets page. Use it to review an agent's metadata, budget, expertise, clones, and recent activity.
+The agent detail page ([src/Cvoya.Spring.Web/src/app/agents/[id]/page.tsx](../../src/Cvoya.Spring.Web/src/app/agents/%5Bid%5D/page.tsx)) renders a client view configured via `<AgentDetailClient>`. It is linked from the dashboard's Agents column and from the **Analytics → Costs** page (`/analytics/costs`). Use it to review an agent's metadata, budget, expertise, clones, and recent activity.
 
 The page embeds an **Expertise** card ([components/expertise/agent-expertise-panel.tsx](../../src/Cvoya.Spring.Web/src/components/expertise/agent-expertise-panel.tsx)) that reads/writes `/api/v1/agents/{id}/expertise`. The domain list is auto-seeded from the agent YAML on first activation (#488 / PR #498); operator edits made in the panel become authoritative. Saving a new list also invalidates every unit's aggregated directory in the cache so ancestor unit pages pick up the change without a manual refresh.
 
@@ -444,14 +446,32 @@ The bottom of the page streams recent `InitiativeTriggered` / `ReflectionComplet
 
 **CLI equivalent:** none today. The CLI does not expose initiative policy editing. **This is a CLI/UI parity gap.**
 
-## Budgets (`/budgets`)
+## Analytics (`/analytics`)
 
-The budgets page ([src/Cvoya.Spring.Web/src/app/budgets/page.tsx](../../src/Cvoya.Spring.Web/src/app/budgets/page.tsx)) configures spend caps:
+The Analytics surface ([src/Cvoya.Spring.Web/src/app/analytics/](../../src/Cvoya.Spring.Web/src/app/analytics/)) is the portal's operational-health lens. It has three tabs that share a window picker (24h / 7d / 30d) and a unit/agent scope filter. All three map 1:1 to `spring analytics` CLI subcommands.
 
-- **Tenant daily budget** — single USD input applied across every agent and unit. A period-to-date utilization bar shows current spend against the limit.
-- **Per-agent budgets** — one row per agent. Each row has a **Configure** button that deep-links to the agent's detail page to set or update the per-agent cap.
+### Costs (`/analytics/costs`)
 
-**CLI equivalent:** none today. Budgets are portal-only. **This is a CLI/UI parity gap.**
+Replaces the legacy `/budgets` page (old deep links 308-redirect here). Surfaces:
+
+- **Scoped total** — when filtered to a unit or agent, shows the windowed total / work / initiative split.
+- **Breakdown by source** — bars ranked by total spend, with deep links to the matching `/units/[id]` or `/agents/[id]` page. The CLI doesn't expose this breakdown today; tracked by [#554](https://github.com/cvoya-com/spring-voyage/issues/554).
+- **Tenant daily budget** — USD editor with a period-to-date utilization bar.
+- **Per-agent budgets** — one row per agent with a **Configure** button that deep-links to the agent's detail page.
+
+**CLI equivalents:** `spring analytics costs --window <w> [--unit|--agent]` for the scoped total; `spring cost set-budget tenant|agent <target> --daily <usd>` for budget configuration.
+
+### Throughput (`/analytics/throughput`)
+
+Per-source counters over the selected window: messages received, messages sent, conversation turns, tool-call decisions. Rows are ranked by total event volume and sources are deep-linked to the matching detail page.
+
+**CLI equivalent:** `spring analytics throughput --window <w> [--unit|--agent]`.
+
+### Wait times (`/analytics/waits`)
+
+Time-in-state rollups derived from paired `StateChanged` activity events: idle, busy, waiting-for-human. The bar on each row composes the three durations so "agent stuck waiting for humans" versus "agent idle" is visible at a glance. A transitions counter alongside tells quiet (no activity) apart from never-transitioned.
+
+**CLI equivalent:** `spring analytics waits --window <w> [--unit|--agent]`.
 
 ## Common workflows
 
@@ -520,7 +540,8 @@ Today's portal has capabilities not mirrored in the CLI, and vice versa. These a
 | Per-agent skills toggles | Skills tab | not implemented | declare in agent YAML |
 | Initiative policy editor (per-agent) | `/initiative` | not implemented | |
 | Unit policy editor (all five dimensions) | Policies tab on `/units/{id}` | `spring unit policy <dim> get/set/clear` | portal + CLI at parity since PR #473 / PR-R5 |
-| Budget configuration | `/budgets` | not implemented | |
+| Budget configuration | `/analytics/costs` | `spring cost set-budget` | full parity since PR #474 |
+| Per-source cost breakdown | `/analytics/costs` (bars by agent/unit) | not implemented | tracked in [#554](https://github.com/cvoya-com/spring-voyage/issues/554) |
 | Cost breakdown views | dashboard + unit detail | not implemented | |
 | `spring apply` for YAML manifests | not implemented | `spring apply -f` | |
 | Activity streaming (live follow) | polling refresh | not implemented | neither surface has a real-time `activity stream` today |

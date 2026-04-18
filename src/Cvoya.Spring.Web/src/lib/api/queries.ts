@@ -43,6 +43,7 @@ import type {
   PackageSummary,
   PersistentAgentDeploymentResponse,
   PersistentAgentLogsResponse,
+  ThroughputRollupResponse,
   UnitBoundaryResponse,
   UnitDashboardSummary,
   UnitDetailResponse,
@@ -51,6 +52,7 @@ import type {
   UnitResponse,
   UnitTemplateDetail,
   UnitTemplateSummary,
+  WaitTimeRollupResponse,
 } from "./types";
 
 /**
@@ -410,6 +412,65 @@ export function useActivityQuery(
     queryKey: queryKeys.activity.query(params),
     queryFn: async () =>
       (await api.queryActivity(params)) as ActivityQueryResult,
+    ...opts,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Analytics (#448 / #457)
+// ---------------------------------------------------------------------------
+//
+// Each hook takes the resolved `(from, to)` window plus an optional source
+// filter. The hooks are the TanStack Query surface the three
+// `/analytics/*` pages ride on; CLI parity is kept by mirroring the
+// `spring analytics {throughput,waits}` flags 1:1 (--window, --unit,
+// --agent) → the same wire contract.
+
+export interface AnalyticsRangeArgs {
+  /** Optional `scheme://name` substring filter; matches the CLI `--unit` / `--agent` flags. */
+  source?: string;
+  /** ISO start of the rollup window. */
+  from: string;
+  /** ISO end of the rollup window. */
+  to: string;
+}
+
+export function useAnalyticsThroughput(
+  args: AnalyticsRangeArgs,
+  opts?: SliceOptions<ThroughputRollupResponse>,
+): UseQueryResult<ThroughputRollupResponse, Error> {
+  return useQuery({
+    queryKey: queryKeys.analytics.throughput({
+      source: args.source,
+      from: args.from,
+      to: args.to,
+    }),
+    queryFn: () =>
+      api.getAnalyticsThroughput({
+        source: args.source,
+        from: args.from,
+        to: args.to,
+      }) as Promise<ThroughputRollupResponse>,
+    ...opts,
+  });
+}
+
+export function useAnalyticsWaits(
+  args: AnalyticsRangeArgs,
+  opts?: SliceOptions<WaitTimeRollupResponse>,
+): UseQueryResult<WaitTimeRollupResponse, Error> {
+  return useQuery({
+    queryKey: queryKeys.analytics.waits({
+      source: args.source,
+      from: args.from,
+      to: args.to,
+    }),
+    queryFn: () =>
+      api.getAnalyticsWaits({
+        source: args.source,
+        from: args.from,
+        to: args.to,
+      }) as Promise<WaitTimeRollupResponse>,
     ...opts,
   });
 }

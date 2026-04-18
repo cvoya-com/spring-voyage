@@ -30,6 +30,20 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: monorepoRoot,
   },
+
+  // Legacy path redirects. `/budgets` used to be the budgets editor;
+  // PR-S1 Sub-PR A (#544) / PR-S2 (#448) promote it under the new
+  // Analytics surface as `/analytics/costs`. A permanent 308 keeps
+  // bookmarks and old docs honest.
+  async redirects() {
+    return [
+      {
+        source: "/budgets",
+        destination: "/analytics/costs",
+        permanent: true,
+      },
+    ];
+  },
 };
 
 export default nextConfig;

@@ -136,6 +136,42 @@ export type SetBudgetRequest = Schemas["SetBudgetRequest"];
 export type ActivityQueryResult = Schemas["ActivityQueryResult"];
 
 // ---------------------------------------------------------------------------
+// Analytics (#448, #457) — Throughput / Wait-time rollups
+// ---------------------------------------------------------------------------
+//
+// Every shape below mirrors the `spring analytics {throughput,waits}` CLI
+// surface (PR #474) 1:1 so UI and CLI can never drift on the wire contract.
+// Costs round-trip the existing `CostSummaryResponse` and
+// `CostDashboardSummary` shapes.
+
+/** One row in `GET /api/v1/analytics/throughput`. */
+export type ThroughputEntryResponse = Schemas["ThroughputEntryResponse"];
+
+/** Response body of `GET /api/v1/analytics/throughput`. */
+export type ThroughputRollupResponse = Schemas["ThroughputRollupResponse"];
+
+/** One row in `GET /api/v1/analytics/waits`. */
+export type WaitTimeEntryResponse = Schemas["WaitTimeEntryResponse"];
+
+/** Response body of `GET /api/v1/analytics/waits`. */
+export type WaitTimeRollupResponse = Schemas["WaitTimeRollupResponse"];
+
+/**
+ * Window labels shared by the three Analytics pages. Matches the CLI's
+ * `--window 24h|7d|30d` surface on `spring analytics costs|throughput|waits`
+ * (PR #474). A portal picker that chooses one of these values resolves to
+ * the same `(from, to)` pair the CLI would.
+ */
+export const ANALYTICS_WINDOWS = ["24h", "7d", "30d"] as const;
+export type AnalyticsWindow = (typeof ANALYTICS_WINDOWS)[number];
+
+/** The tri-state scope filter exposed by each Analytics page. */
+export type AnalyticsScope =
+  | { kind: "all" }
+  | { kind: "unit"; name: string }
+  | { kind: "agent"; name: string };
+
+// ---------------------------------------------------------------------------
 // Conversations & inbox (#410, #452, #456)
 // ---------------------------------------------------------------------------
 
