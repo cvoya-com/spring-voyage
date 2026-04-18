@@ -348,14 +348,19 @@ chmod 600 /opt/spring-voyage/deployment/spring.env
 Uncomment in `spring.env` as you need them:
 
 ```ini
-GITHUB_APP_ID=123456
-GITHUB_APP_PRIVATE_KEY=<paste the PEM here, or reference a file via a future binding>
-GITHUB_WEBHOOK_SECRET=<shared secret you configured on the GitHub App>
+# GitHub App — consumed by the GitHub connector.
+GitHub__AppId=123456
+GitHub__PrivateKeyPem=<paste the PEM contents here — NOT a path to a file>
+GitHub__WebhookSecret=<shared secret you configured on the GitHub App>
+
+# LLM providers (consumed as they are wired in).
 ANTHROPIC_API_KEY=sk-ant-...
 OPENAI_API_KEY=sk-...
 ```
 
-These are consumed by connectors and LLM providers as they are wired in. The variable names match the configuration keys the platform reads — no additional mapping is required.
+The GitHub variables follow the .NET `Section__Key` convention and bind to the `GitHub:*` configuration section at startup. The short-form aliases `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY` / `GITHUB_WEBHOOK_SECRET` are recognised in platform log output and CLI diagnostics but are not themselves consumed — use the `GitHub__*` form in `spring.env`.
+
+> **GitHub App private key — PEM contents, not a path.** `GitHub__PrivateKeyPem` must be the **contents** of the `.pem` file (`-----BEGIN PRIVATE KEY-----` … `-----END PRIVATE KEY-----`), not a filesystem path to it. The platform also accepts a path to a readable file whose contents are valid PEM (helpful for Docker secrets / Kubernetes volume mounts), but passing a path that does **not** resolve to a valid PEM fails the host at startup with a targeted error rather than waiting to return a 502 from the first `list-installations` call. See [Architecture — Connectors § disabled-with-reason](../architecture/connectors.md#disabled-with-reason-pattern) for the validation model. If either variable is missing, the GitHub connector boots in a disabled state and `GET /api/v1/connectors/github/actions/list-installations` returns a structured `404` the portal and CLI render as "GitHub App not configured" instead of attempting the JWT sign.
 
 ### GitHub App — webhook delivery
 

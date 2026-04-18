@@ -83,3 +83,56 @@ The open-source host ships three connector types out of the box:
 | `github` | `src/Cvoya.Spring.Connector.GitHub/` | Rich: OAuth / App auth, webhooks, issue + PR CRUD, rate limiting, response cache. |
 | `arxiv` | `src/Cvoya.Spring.Connector.Arxiv/` | Read-only: `searchLiterature` and `fetchAbstract` skills; no auth, no webhooks. |
 | `web-search` | `src/Cvoya.Spring.Connector.WebSearch/` | Generic façade over a pluggable `IWebSearchProvider`. Default provider is Brave Search; Bing, Google Custom Search, or SearxNG can be slotted in by registering an additional `IWebSearchProvider` before the host resolves the DI graph. API keys are referenced by unit-scoped secret name and resolved through `ISecretResolver` at skill-invoke time — plaintext never lands in the stored binding. |
+
+## Disabled-with-reason pattern
+
+A connector's credentials are environmental configuration (env vars bound
+to an `Options` class) — they aren't available at compile time, and they
+aren't first-class platform secrets. The platform still has to decide what
+to do when they are missing or malformed at startup. The GitHub connector
+establishes the pattern other connectors should follow; a platform-wide
+validation framework is tracked as #616.
+
+### Three outcomes at connector-init time
+
+| State | Example | What happens |
+| ----- | ------- | ------------ |
+| **Valid** | `GitHub__AppId` + a parseable PEM in `GitHub__PrivateKeyPem`. | The hot path runs normally. If the PEM value is a readable filesystem path whose contents parse as PEM, the connector adopts the file contents (ergonomic for Docker secret mounts). |
+| **Missing** | Both `GitHub__AppId` and `GitHub__PrivateKeyPem` unset. | The connector registers a singleton `IGitHubConnectorAvailability` reporting `IsEnabled=false` with a human-readable reason. Connector-scoped endpoints (`list-installations`, `install-url`) short-circuit to a structured `404` with `{ "disabled": true, "reason": "…" }` that the portal and CLI render cleanly. The platform still boots; every other surface is unaffected. |
+| **Malformed** | Garbage in `GitHub__PrivateKeyPem`, or a filesystem path that does not resolve to a readable PEM file. | The DI registration throws with a targeted error message at startup. The host fails fast so the operator sees the problem on launch, not on the first `list-installations` call. |
+
+The classifier lives in
+`Cvoya.Spring.Connector.GitHub.Auth.GitHubAppCredentialsValidator` and the
+availability marker in `IGitHubConnectorAvailability`. Both are public and
+`TryAdd*`-registered so the private cloud repo can substitute tenant-scoped
+implementations (e.g. "App installed for tenant X, missing for tenant Y")
+without forking.
+
+### Why structured disabled bodies, not 502s
+
+The original bug (#609) let a missing PEM surface as a `502 Bad Gateway`
+on the first `list-installations` call, carrying the raw
+`System.Security.Cryptography` exception message. That is hostile to both
+the portal (which can't render a configuration banner off a generic 502)
+and operators (who get no guidance on which env var to fix). Returning a
+`404` with an explicit `{ "disabled": true, "reason": "…" }` shape keeps
+the portal simple — it already knows how to render "install the app" —
+and keeps the CLI deterministic.
+
+Connectors adopting this pattern should:
+
+1. **Validate at DI-registration time.** Throw on malformed credentials,
+   register a disabled-with-reason singleton on missing credentials, and
+   normalise the options (e.g. path → contents) on the happy path.
+2. **Gate connector-scoped actions** on the availability marker so hot-
+   path calls short-circuit with a structured `404` when the connector
+   is disabled. Unit-bound actions fail per-unit when the unit is
+   configured against a disabled connector.
+3. **Keep the structured body stable.** The portal and CLI consume
+   `disabled` (boolean) and `reason` (string); other fields are
+   advisory.
+
+The generic framework in #616 will fold this behaviour into a
+`IConnectorTypeAvailability` the platform can resolve without connector-
+specific plumbing; until that lands, each connector carries its own typed
+marker.

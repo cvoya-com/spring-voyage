@@ -50,6 +50,7 @@ public class GitHubConnectorType : IConnectorType
     private readonly IUnitConnectorRuntimeStore _runtimeStore;
     private readonly IOptions<GitHubConnectorOptions> _options;
     private readonly IGitHubInstallationsClient _installationsClient;
+    private readonly IGitHubConnectorAvailability _availability;
     private readonly ILogger<GitHubConnectorType> _logger;
 
     /// <summary>
@@ -61,6 +62,7 @@ public class GitHubConnectorType : IConnectorType
         IGitHubWebhookRegistrar webhookRegistrar,
         IGitHubInstallationsClient installationsClient,
         IOptions<GitHubConnectorOptions> options,
+        IGitHubConnectorAvailability availability,
         ILoggerFactory loggerFactory)
     {
         _configStore = configStore;
@@ -68,6 +70,7 @@ public class GitHubConnectorType : IConnectorType
         _webhookRegistrar = webhookRegistrar;
         _installationsClient = installationsClient;
         _options = options;
+        _availability = availability;
         _logger = loggerFactory.CreateLogger<GitHubConnectorType>();
     }
 
@@ -112,6 +115,7 @@ public class GitHubConnectorType : IConnectorType
             .WithSummary("List GitHub App installations visible to the configured App")
             .WithTags("Connectors.GitHub")
             .Produces<GitHubInstallationResponse[]>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status502BadGateway);
 
         group.MapGet("/actions/install-url", GetInstallUrlAsync)
@@ -119,6 +123,7 @@ public class GitHubConnectorType : IConnectorType
             .WithSummary("Get the GitHub App install URL the wizard should redirect the user through")
             .WithTags("Connectors.GitHub")
             .Produces<GitHubInstallUrlResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status502BadGateway);
 
         // Config-schema: returns a hand-authored JSON Schema matching the
@@ -285,6 +290,24 @@ public class GitHubConnectorType : IConnectorType
 
     private async Task<IResult> ListInstallationsAsync(CancellationToken cancellationToken)
     {
+        // Short-circuit when the connector never received usable App
+        // credentials at startup (#609). Returns a structured 404 the
+        // portal (PR #610) and CLI render cleanly as "GitHub App not
+        // configured" instead of a 502 from a downstream JWT sign that
+        // is guaranteed to fail.
+        if (!_availability.IsEnabled)
+        {
+            return Results.Problem(
+                title: "GitHub connector is not configured",
+                detail: _availability.DisabledReason,
+                statusCode: StatusCodes.Status404NotFound,
+                extensions: new Dictionary<string, object?>
+                {
+                    ["disabled"] = true,
+                    ["reason"] = _availability.DisabledReason,
+                });
+        }
+
         try
         {
             var installations = await _installationsClient.ListInstallationsAsync(cancellationToken);
@@ -306,6 +329,24 @@ public class GitHubConnectorType : IConnectorType
 
     private IResult GetInstallUrlAsync()
     {
+        // Same disabled short-circuit as list-installations — the install
+        // URL only makes sense when there is a configured App slug; if the
+        // credentials aren't configured the slug usually isn't either, and
+        // surfacing the disabled state uniformly keeps both surfaces
+        // (portal + CLI) happy (#609).
+        if (!_availability.IsEnabled)
+        {
+            return Results.Problem(
+                title: "GitHub connector is not configured",
+                detail: _availability.DisabledReason,
+                statusCode: StatusCodes.Status404NotFound,
+                extensions: new Dictionary<string, object?>
+                {
+                    ["disabled"] = true,
+                    ["reason"] = _availability.DisabledReason,
+                });
+        }
+
         var slug = _options.Value.AppSlug;
         if (string.IsNullOrWhiteSpace(slug))
         {

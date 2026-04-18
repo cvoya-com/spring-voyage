@@ -64,6 +64,18 @@ dotnet test SpringVoyage.slnx
 
 For the full local-dev loop (API + Worker + dashboard), see [`docs/developer/setup.md`](docs/developer/setup.md).
 
+### Connector credentials are optional for startup
+
+The platform starts cleanly without any connector secrets. Connector-specific
+credentials — including the GitHub App id and private key
+(`GitHub__AppId` / `GitHub__PrivateKeyPem`) — are **connector-gated**: if
+unset, the GitHub connector registers in a *disabled with reason* state and
+`GET /api/v1/connectors/github/actions/list-installations` returns a
+structured `404` the portal and CLI render as "GitHub App not configured"
+(issue #609). Set them when you are ready to use the GitHub connector; see
+[`docs/guide/deployment.md § Optional — connector credentials`](docs/guide/deployment.md#optional--connector-credentials)
+for the expected shape (PEM contents, not a path).
+
 ## Running Locally
 
 There are two hosts that run side-by-side with Dapr sidecars:

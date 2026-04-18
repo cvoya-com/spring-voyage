@@ -237,7 +237,7 @@ public class WebhookEndpointsTests : IClassFixture<WebhookEndpointsTests.Factory
                 config.AddInMemoryCollection(new Dictionary<string, string?>
                 {
                     ["GitHub:AppId"] = "12345",
-                    ["GitHub:PrivateKeyPem"] = "test-key",
+                    ["GitHub:PrivateKeyPem"] = TestPemKey.Value,
                     ["GitHub:WebhookSecret"] = WebhookSecret,
                     ["GitHub:DefaultTargetUnitPath"] = TargetUnitPath,
                 });
