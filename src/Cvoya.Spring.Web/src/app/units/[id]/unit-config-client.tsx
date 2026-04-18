@@ -22,6 +22,8 @@ import { SecretsTab } from "./secrets-tab";
 import { SkillsTab } from "./skills-tab";
 import { SubUnitsTab } from "./sub-units-tab";
 
+import { UnitExpertisePanel } from "@/components/expertise/unit-expertise-panel";
+
 import { Badge } from "@/components/ui/badge";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { Button } from "@/components/ui/button";
@@ -358,6 +360,7 @@ export default function UnitConfigClient({ id }: ClientProps) {
           <TabsTrigger value="connector">Connector</TabsTrigger>
           <TabsTrigger value="secrets">Secrets</TabsTrigger>
           <TabsTrigger value="boundary">Boundary</TabsTrigger>
+          <TabsTrigger value="expertise">Expertise</TabsTrigger>
           <TabsTrigger value="activity">Activity</TabsTrigger>
           <TabsTrigger value="costs">Costs</TabsTrigger>
         </TabsList>
@@ -506,6 +509,10 @@ export default function UnitConfigClient({ id }: ClientProps) {
 
         <TabsContent value="boundary">
           <BoundaryTab unitId={id} />
+        </TabsContent>
+
+        <TabsContent value="expertise">
+          <UnitExpertisePanel unitId={id} />
         </TabsContent>
       </Tabs>
 

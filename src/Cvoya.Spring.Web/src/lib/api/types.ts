@@ -291,6 +291,39 @@ export type BoundaryProjectionRuleDto = Schemas["BoundaryProjectionRuleDto"];
 export type BoundarySynthesisRuleDto = Schemas["BoundarySynthesisRuleDto"];
 
 // ---------------------------------------------------------------------------
+// Expertise directory (#412, #486, #488)
+// ---------------------------------------------------------------------------
+
+/** A single expertise domain on an agent or unit. */
+export type ExpertiseDomainDto = Schemas["ExpertiseDomainDto"];
+
+/** GET/PUT response for agent and unit "own" expertise. */
+export type ExpertiseResponse = Schemas["ExpertiseResponse"];
+
+/** PUT request body for agent/unit own expertise. */
+export type SetExpertiseRequest = Schemas["SetExpertiseRequest"];
+
+/** One entry in the unit's recursively-aggregated expertise list. */
+export type AggregatedExpertiseEntryDto =
+  Schemas["AggregatedExpertiseEntryDto"];
+
+/** GET /api/v1/units/{id}/expertise response body. */
+export type AggregatedExpertiseResponse = Schemas["AggregatedExpertiseResponse"];
+
+/**
+ * Whitelist of expertise levels accepted by the server (see
+ * `ExpertiseCommand.ParseDomainSpec` in the CLI). A `null` level is allowed
+ * and means "level unspecified"; the UI renders the level chip as blank.
+ */
+export const EXPERTISE_LEVELS = [
+  "beginner",
+  "intermediate",
+  "advanced",
+  "expert",
+] as const;
+export type ExpertiseLevel = (typeof EXPERTISE_LEVELS)[number];
+
+// ---------------------------------------------------------------------------
 // Dashboard summary (hand-written until next OpenAPI regeneration)
 // ---------------------------------------------------------------------------
 

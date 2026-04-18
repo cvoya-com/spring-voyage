@@ -289,6 +289,15 @@ The conversation surface (#410) renders a chat-style thread with role-attributed
 - **Thread shell** (`app/conversations/[id]/conversation-detail-client.tsx`): scrollable thread (`max-h-[60vh] overflow-y-auto`) with `aria-live="polite"` so screen readers announce new events as the SSE stream lands them. Auto-scrolls to the bottom on new event.
 - **Cross-links**: the conversation header's `Origin` is a link to `/activity?source=…`, and the activity row's correlation id renders an "Open thread" pill that deep-links to `/conversations/[id]`.
 
+### 7.13a Expertise editor — `src/components/expertise/`
+
+The expertise panels on `/agents/[id]`, `/units/[id]` (Expertise tab) and the tenant-wide `/directory` page share the same list-shaped editor (#486):
+
+- **Editor rows** (`expertise-editor.tsx`) are `rounded-md border border-border p-3` blocks with a four-column grid on `sm+`: name `Input`, level `<select>` (values: `beginner` / `intermediate` / `advanced` / `expert`, or blank for "unspecified"), description `Input`, and a trash `Button variant="ghost" size="icon"`. The level whitelist is defined once in `lib/api/types.ts` (`EXPERTISE_LEVELS`) so the CLI and portal can't drift.
+- **Save / Revert** sit at the bottom right, always-visible; they are disabled until the draft differs from the persisted list. Save issues a single full-replacement `PUT` — the server is the source of truth for the new list and we re-seed the cache from its response.
+- **Aggregated list** (`unit-expertise-panel.tsx` / `AggregatedExpertiseList`) renders the read-only composition as the same bordered row shape, but each row carries a `depth` outline badge and a `from agent://…` / `from unit://…` link-back in the meta row.
+- **Deep-links** follow the cross-link rules in §7.14: `agent://` and `unit://` origins resolve to the matching detail page; other schemes render as plain monospace text.
+
 ### 7.13 Breadcrumbs — `src/components/breadcrumbs.tsx`
 
 - Mandatory on any page that is two or more levels deep (`/units/[id]`, `/agents/[id]`, `/conversations/[id]`, `/packages/[name]/templates/[name]`). The crumb trail starts at `Dashboard` (`/`) and ends with the current entity (no `href`, rendered as `aria-current="page"`).
