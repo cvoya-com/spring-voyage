@@ -125,6 +125,42 @@ Token management:
 
 ---
 
+## Config tiers
+
+Spring Voyage distinguishes three tiers of configuration so every piece of sensitive material lives where it can be rotated, audited, and scoped independently. The **Secrets Stack** below is the tier-2 / tier-3 machinery; **tier-1** (platform-deploy config) stays in `IConfiguration` and exists outside the database.
+
+| Tier | Surface | Examples | Owner |
+|------|---------|----------|-------|
+| **Tier 1 — platform-deploy** | `IConfiguration` / env / `spring.env` / `appsettings.json` | `ConnectionStrings__SpringDb`, Dapr component wiring, `DataProtection__KeysPath`, `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY` / `GITHUB_WEBHOOK_SECRET` (identity of the Spring Voyage instance itself) | Ops team at deploy time |
+| **Tier 2 — tenant-default** | `SecretScope.Tenant` rows in the registry | LLM provider API keys (`anthropic-api-key`, `openai-api-key`, `google-api-key`), tenant-wide observability tokens | Tenant admin post-deploy via `spring secret --scope tenant` / Tenant defaults panel |
+| **Tier 3 — unit-override** | `SecretScope.Unit` rows in the registry | Per-unit variants of any tier-2 credential | Unit operator via `spring secret --scope unit` / unit Secrets tab |
+
+### Why the split matters
+
+- **LLM API keys are tier-2, not tier-1.** They describe a workload (this tenant's preferred Claude / OpenAI account), not the deployment (this server, bound to this GitHub App). Treating them as environment variables is structurally wrong — they cannot vary per-tenant (needed for hosted multi-tenant), cannot be scoped per-unit (needed for "this team uses a different key"), and cannot be rotated without a container restart. Tier-2 / tier-3 storage carries versioning, inheritance, and audit hooks for free. See issue #615 for the full migration rationale.
+- **GitHub App credentials are tier-1.** They identify the Spring Voyage *instance itself* as a GitHub App — the keypair and webhook secret are issued by GitHub against this platform identity, not against a tenant's workload. They stay in env/startup config. Narrower validation work for tier-1 is tracked separately (see #609 / #616).
+
+### Tier-2 resolution chain
+
+[`ILlmCredentialResolver`](../../src/Cvoya.Spring.Core/Execution/ILlmCredentialResolver.cs) is the canonical interface every LLM-credential consumer reads through (`ModelCatalog` for the wizard, the agent runtime at turn-dispatch time, and any future provider wrapper). Its default implementation delegates to [`ISecretResolver`](../../src/Cvoya.Spring.Core/Secrets/ISecretResolver.cs), which already encodes the Unit → Tenant inheritance from [ADR 0003](../decisions/0003-secret-inheritance-unit-to-tenant.md):
+
+```mermaid
+flowchart TD
+    caller["Caller<br/>(ModelCatalog, agent runtime)"]
+    resolver["ILlmCredentialResolver"]
+    secret["ISecretResolver<br/>(Unit → Tenant inheritance)"]
+    fail["Fail clean<br/>'no LLM credentials configured'"]
+
+    caller --> resolver
+    resolver -->|tier 3<br/>unit-scope| secret
+    resolver -->|tier 2<br/>tenant-scope on unit miss<br/>OR direct when no unit| secret
+    secret -->|no match| fail
+```
+
+There is **no environment-variable fallback**. Credentials must be set at tenant scope (default) or unit scope (override) — the platform fails cleanly when neither is configured. The private cloud host swaps in its own tenant-scoped `ILlmCredentialResolver` via DI (per-tenant Key Vault, BYOK).
+
+The resolver **never throws** on a missing credential. Consumers that require a value surface a fail-clean operator error whose text names the exact secret the resolver looked for and points at both the unit and tenant surfaces — e.g. *"no LLM credentials configured for this unit; set via `spring secret --scope unit` or configure tenant defaults at `spring secret --scope tenant create anthropic-api-key …` / the portal's Tenant defaults panel."*
+
 ## Secrets Stack
 
 Spring Voyage ships a three-layer secrets stack — **registry**, **store**, and **resolver** — plus an access-policy seam. All three layers are defined in `Cvoya.Spring.Core/Secrets/` so a private-cloud host can substitute any layer (e.g. routing writes to Azure Key Vault) without touching call sites.

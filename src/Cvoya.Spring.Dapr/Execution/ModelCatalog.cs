@@ -11,6 +11,7 @@ using System.Text.Json.Serialization;
 
 using Cvoya.Spring.Core.Execution;
 
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -56,6 +57,8 @@ public class ModelCatalog : IModelCatalog
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IOptions<AiProviderOptions> _anthropicOptions;
     private readonly IOptions<OllamaOptions> _ollamaOptions;
+    private readonly Func<CancellationToken, Task<LlmCredentialResolution>> _resolveAnthropicCredential;
+    private readonly Func<CancellationToken, Task<LlmCredentialResolution>> _resolveOpenAiCredential;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<ModelCatalog> _logger;
     private readonly ConcurrentDictionary<string, CacheEntry> _cache = new(StringComparer.OrdinalIgnoreCase);
@@ -93,22 +96,68 @@ public class ModelCatalog : IModelCatalog
     /// Constructs the catalog.
     /// </summary>
     /// <param name="httpClientFactory">Factory for the outbound HTTP clients used to talk to provider endpoints.</param>
-    /// <param name="anthropicOptions">Provides the Anthropic API key (shared with <see cref="AnthropicProvider"/>).</param>
+    /// <param name="anthropicOptions">Anthropic base-URL options (shared with <see cref="AnthropicProvider"/>). The API key field is no longer read — credentials come from <see cref="ILlmCredentialResolver"/>.</param>
     /// <param name="ollamaOptions">Provides the Ollama base URL (shared with <see cref="OllamaProvider"/>).</param>
+    /// <param name="scopeFactory">Service-scope factory used to resolve the scoped <see cref="ILlmCredentialResolver"/> per fetch (#615). The resolver depends on the scoped <see cref="Cvoya.Spring.Core.Secrets.ISecretResolver"/> which in turn wraps the scoped <see cref="Cvoya.Spring.Dapr.Secrets.EfSecretRegistry"/> — so the catalog (registered as a singleton for its TTL cache) opens a short-lived scope on each dynamic fetch rather than capturing one.</param>
     /// <param name="timeProvider">Clock abstraction for cache expiry — injected so tests can advance time.</param>
     /// <param name="logger">Logger for fall-back warnings.</param>
     public ModelCatalog(
         IHttpClientFactory httpClientFactory,
         IOptions<AiProviderOptions> anthropicOptions,
         IOptions<OllamaOptions> ollamaOptions,
+        IServiceScopeFactory scopeFactory,
+        TimeProvider timeProvider,
+        ILogger<ModelCatalog> logger)
+        : this(
+            httpClientFactory,
+            anthropicOptions,
+            ollamaOptions,
+            ResolveCredentialUsingScopeFactory(scopeFactory, "claude"),
+            ResolveCredentialUsingScopeFactory(scopeFactory, "openai"),
+            timeProvider,
+            logger)
+    {
+    }
+
+    /// <summary>
+    /// Test / advanced-composition constructor. Accepts direct delegates
+    /// for credential resolution so tests can stub the tier-2 chain
+    /// without spinning up a DI container.
+    /// </summary>
+    internal ModelCatalog(
+        IHttpClientFactory httpClientFactory,
+        IOptions<AiProviderOptions> anthropicOptions,
+        IOptions<OllamaOptions> ollamaOptions,
+        Func<CancellationToken, Task<LlmCredentialResolution>> resolveAnthropicCredential,
+        Func<CancellationToken, Task<LlmCredentialResolution>> resolveOpenAiCredential,
         TimeProvider timeProvider,
         ILogger<ModelCatalog> logger)
     {
         _httpClientFactory = httpClientFactory;
         _anthropicOptions = anthropicOptions;
         _ollamaOptions = ollamaOptions;
+        _resolveAnthropicCredential = resolveAnthropicCredential;
+        _resolveOpenAiCredential = resolveOpenAiCredential;
         _timeProvider = timeProvider;
         _logger = logger;
+    }
+
+    private static Func<CancellationToken, Task<LlmCredentialResolution>> ResolveCredentialUsingScopeFactory(
+        IServiceScopeFactory scopeFactory, string providerId)
+    {
+        return async ct =>
+        {
+            // Open a short-lived scope so the scoped ISecretResolver
+            // (which wraps the scoped EfSecretRegistry → SpringDbContext)
+            // is disposed immediately after the credential read. The
+            // wizard-facing endpoint itself runs in a request scope, but
+            // we cannot assume the ambient scope here because ModelCatalog
+            // is a singleton — relying on DI's RootProvider to resolve a
+            // scoped service would throw at runtime.
+            await using var scope = scopeFactory.CreateAsyncScope();
+            var resolver = scope.ServiceProvider.GetRequiredService<ILlmCredentialResolver>();
+            return await resolver.ResolveAsync(providerId, unitName: null, ct).ConfigureAwait(false);
+        };
     }
 
     /// <summary>The HTTP client name used for provider model-catalog fetches.</summary>
@@ -168,14 +217,24 @@ public class ModelCatalog : IModelCatalog
         IReadOnlyList<string> fallback,
         CancellationToken cancellationToken)
     {
-        var apiKey = _anthropicOptions.Value.ApiKey;
-        if (string.IsNullOrWhiteSpace(apiKey))
+        // #615: credentials resolve through the tier-2 chain (unit secret
+        // → tenant default). The wizard has no "unit context" when it
+        // calls this endpoint, so the delegate passes null and relies on
+        // the tenant-scoped default. Unit-specific overrides are consumed
+        // by the agent runtime, not the wizard.
+        var credential = await _resolveAnthropicCredential(cancellationToken).ConfigureAwait(false);
+
+        if (string.IsNullOrWhiteSpace(credential.Value))
         {
             _logger.LogInformation(
-                "Anthropic API key is not configured; using static model list for the wizard.");
+                "No Anthropic credential resolved (tenant default '{SecretName}' not set); " +
+                "using static model list for the wizard. Set a tenant default via " +
+                "`spring secret --scope tenant create {SecretName} --value <...>` or the Tenant defaults panel in the portal.",
+                credential.SecretName, credential.SecretName);
             return fallback;
         }
 
+        var apiKey = credential.Value;
         var client = _httpClientFactory.CreateClient(HttpClientName);
         var baseUrl = string.IsNullOrWhiteSpace(_anthropicOptions.Value.BaseUrl)
             ? AnthropicBaseUrl
@@ -215,16 +274,23 @@ public class ModelCatalog : IModelCatalog
         IReadOnlyList<string> fallback,
         CancellationToken cancellationToken)
     {
-        // No first-class OpenAI options in the OSS host yet, so honour the
-        // OPENAI_API_KEY environment variable. The private cloud host can
-        // replace this implementation entirely to use tenant-scoped secrets.
-        var apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
-        if (string.IsNullOrWhiteSpace(apiKey))
+        // #615: resolve through the tier-2 chain. The wizard runs
+        // without unit context, so the delegate checks the tenant
+        // default. The private cloud host plugs its own tenant-scoped
+        // implementation into ILlmCredentialResolver.
+        var credential = await _resolveOpenAiCredential(cancellationToken).ConfigureAwait(false);
+
+        if (string.IsNullOrWhiteSpace(credential.Value))
         {
             _logger.LogInformation(
-                "OPENAI_API_KEY is not set; using static model list for the wizard.");
+                "No OpenAI credential resolved (tenant default '{SecretName}' not set); " +
+                "using static model list for the wizard. Set a tenant default via " +
+                "`spring secret --scope tenant create {SecretName} --value <...>` or the Tenant defaults panel in the portal.",
+                credential.SecretName, credential.SecretName);
             return fallback;
         }
+
+        var apiKey = credential.Value;
 
         var client = _httpClientFactory.CreateClient(HttpClientName);
         using var request = new HttpRequestMessage(HttpMethod.Get, $"{OpenAiBaseUrl}/v1/models");

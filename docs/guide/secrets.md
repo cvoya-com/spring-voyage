@@ -2,7 +2,24 @@
 
 This guide covers day-to-day secret management for operators: storing API tokens and other credentials, rotating them safely, pruning old versions, and deciding which scope a secret belongs to. It does not cover envelope encryption internals or the decorator-based audit pattern — those live in [OSS Secret Store](../developer/secret-store.md) and [Secret Audit Logging](../developer/secret-audit.md) respectively.
 
-For the full architectural picture — how the registry, store, resolver, and access policy compose — see [Security architecture — Secrets Stack](../architecture/security.md#secrets-stack).
+For the full architectural picture — how the registry, store, resolver, and access policy compose — see [Security architecture — Secrets Stack](../architecture/security.md#secrets-stack), and [Security architecture — Config tiers](../architecture/security.md#config-tiers) for the companion model that describes which layer of the platform owns which kind of credential.
+
+## The three config tiers (#615)
+
+Spring Voyage distinguishes three tiers of configuration so credentials live where they can be rotated, scoped, and audited independently:
+
+| Tier | Location | Examples | Who sets it |
+|------|----------|----------|-------------|
+| **Tier 1 — platform-deploy** | Env / `spring.env` / startup config | DB connection, Dapr wiring, `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY` / `GITHUB_WEBHOOK_SECRET` (identity of the Spring Voyage instance itself as a GitHub App) | Ops team at deploy time |
+| **Tier 2 — tenant-default** | Database (`SecretScope.Tenant`) | LLM provider API keys (`anthropic-api-key`, `openai-api-key`, `google-api-key`), tenant-wide observability / monitoring tokens | Tenant admin post-deploy |
+| **Tier 3 — unit-override** | Database (`SecretScope.Unit`) | Per-unit variants of any tier-2 credential (a unit that calls a different Anthropic account than the tenant default) | Unit operator |
+
+LLM provider credentials explicitly belong to **tier 2**, not tier 1 — they are workload credentials, not deployment identity. The platform's tier-2 resolver ([`ILlmCredentialResolver`](../../src/Cvoya.Spring.Core/Execution/ILlmCredentialResolver.cs)) reads them through the chain:
+
+1. **Unit-scoped secret** (if the caller has a unit in context)
+2. **Tenant-scoped secret** (the inheritance fall-through from unit scope, or the direct read when there is no unit context — e.g. the unit-create wizard fetching the model catalog)
+
+When nothing resolves, the platform fails cleanly — the operator-facing error names the exact secret the resolver looked for ("no LLM credentials configured for this unit; set via `spring secret --scope unit` or configure tenant defaults at `spring secret --scope tenant create <name>` / the portal's Tenant defaults panel"). There is no environment-variable fallback: credentials must be set at tenant or unit scope. The private cloud build layers its own per-tenant resolver on top.
 
 ## Concepts at a glance
 
@@ -23,7 +40,9 @@ Three operator surfaces ship today:
 
 - **CLI — `spring secret` (#432).** Seven verbs: `create`, `list`, `get`, `rotate`, `versions`, `prune`, `delete`. Every scope (`unit` / `tenant` / `platform`) is reachable through the same flag shape (`--scope <scope> [--unit <name>]`), and every verb accepts `--output json` for scripted consumers. This guide uses the CLI as the primary example throughout.
 - **HTTP API.** Scope-keyed endpoints under `/api/v1/units/{id}/secrets`, `/api/v1/tenant/secrets`, and `/api/v1/platform/secrets`. Useful when integrating from a runtime that does not have the CLI (CI runners, foreign services) — one advanced example is retained at the end of this guide.
-- **Web portal.** The unit detail page has a **Secrets** tab that supports listing, creating, and deleting unit-scoped secrets. Rotation, version listing, and pruning live on the CLI and HTTP API; the portal stays narrowly scoped to the most common operator flows.
+- **Web portal.** Two surfaces:
+  - The **Tenant defaults** panel in the Settings drawer (#615) — set / rotate / clear the tier-2 LLM credentials every unit inherits (`anthropic-api-key`, `openai-api-key`, `google-api-key`). This is the recommended first-run step after `./deploy.sh up`.
+  - The unit detail page's **Secrets** tab — list, create, and delete unit-scoped secrets. Rows carry an **inherited from tenant** / **set on unit** badge so the active tier is always visible. Rotation, version listing, and pruning live on the CLI and HTTP API; the portal stays narrowly scoped to the most common operator flows.
 
 Authenticate the CLI with an API token issued by `spring auth token create --name "<label>"`; the token is persisted to `~/.spring/config.json` and reused on every subsequent invocation.
 
@@ -210,6 +229,28 @@ spring secret create \
   observability-token \
   --value "research-team-override-..."
 ```
+
+### Worked pattern: LLM credentials (tier-2 defaults + per-unit overrides)
+
+The tier-2 resolver ([`ILlmCredentialResolver`](../../src/Cvoya.Spring.Core/Execution/ILlmCredentialResolver.cs)) looks up canonical secret names per provider — `anthropic-api-key` for Claude, `openai-api-key` for OpenAI, `google-api-key` for Google / Gemini. Match those names when you set the secrets so the resolver finds them.
+
+```bash
+# Tenant default: one Anthropic key for every unit in the tenant.
+spring secret create \
+  --scope tenant \
+  anthropic-api-key \
+  --value "sk-ant-..."
+
+# One unit (e.g. the research team) bills against a different Anthropic account.
+# The override is read-only from the rest of the tenant.
+spring secret create \
+  --scope unit \
+  --unit research-team \
+  anthropic-api-key \
+  --value "sk-ant-research-..."
+```
+
+The same flow is available from the portal: open the Settings drawer and use the **Tenant defaults** panel to set the tenant-wide key, then use the unit's **Secrets** tab to register a same-name override. The **Secrets** tab renders an "inherited from tenant" badge for every name the unit picks up transitively so operators can see at a glance which tier is active.
 
 ## Per-agent secrets
 

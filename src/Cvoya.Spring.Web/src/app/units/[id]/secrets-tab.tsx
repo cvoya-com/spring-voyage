@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { KeyRound, Plus, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -27,6 +27,13 @@ type AddMode = "value" | "externalStoreKey";
  * names for this unit (server-supplied metadata only — no values or
  * store keys) and provides a form to add or delete secrets.
  *
+ * Inheritance indicator (#615). Alongside the unit-scoped entries the
+ * tab now fetches the tenant-scoped defaults and surfaces every name
+ * that is visible to the unit only through inheritance, badged
+ * "inherited from tenant". A unit-scoped entry with the same name
+ * overrides the tenant default and is badged "set on unit" so
+ * operators can see at a glance which tier is active.
+ *
  * Security model:
  *  - Plaintext is held in local component state ONLY for the lifetime
  *    of the add form. It is cleared on successful submit and on tab
@@ -40,6 +47,7 @@ export function SecretsTab({ unitId }: SecretsTabProps) {
   const { toast } = useToast();
 
   const [secrets, setSecrets] = useState<SecretMetadata[] | null>(null);
+  const [tenantDefaults, setTenantDefaults] = useState<SecretMetadata[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -61,6 +69,19 @@ export function SecretsTab({ unitId }: SecretsTabProps) {
       const message = err instanceof Error ? err.message : String(err);
       setLoadError(message);
       setSecrets([]);
+    }
+    try {
+      // Tenant defaults feed the inheritance indicator (#615). A
+      // listing failure here is non-fatal — we simply render the
+      // unit-scoped list without badges rather than surfacing an
+      // error on the main card. The RBAC contract on the tenant
+      // endpoint is independent of unit read access; OSS's
+      // AllowAllSecretAccessPolicy allows both, the cloud host can
+      // deny tenant reads to a unit operator.
+      const tenantList = await api.listTenantSecrets();
+      setTenantDefaults(tenantList.secrets ?? []);
+    } catch {
+      setTenantDefaults([]);
     }
   }, [unitId]);
 
@@ -145,6 +166,38 @@ export function SecretsTab({ unitId }: SecretsTabProps) {
     }
   };
 
+  // Merge unit-scoped + tenant-inherited entries for the display list.
+  // Unit-scoped wins for the same name (override); tenant-only names
+  // render read-only with an "inherited" badge.
+  const displayRows = useMemo(() => {
+    type Row = {
+      name: string;
+      origin: "unit" | "tenant";
+      scope: SecretMetadata["scope"];
+      createdAt: string;
+      canDelete: boolean;
+    };
+    const unitNames = new Set((secrets ?? []).map((s) => s.name));
+    const rows: Row[] = (secrets ?? []).map((s) => ({
+      name: s.name,
+      origin: "unit",
+      scope: s.scope,
+      createdAt: s.createdAt,
+      canDelete: true,
+    }));
+    for (const td of tenantDefaults) {
+      if (unitNames.has(td.name)) continue;
+      rows.push({
+        name: td.name,
+        origin: "tenant",
+        scope: td.scope,
+        createdAt: td.createdAt,
+        canDelete: false,
+      });
+    }
+    return rows.sort((a, b) => a.name.localeCompare(b.name));
+  }, [secrets, tenantDefaults]);
+
   return (
     <div className="space-y-4">
       <Card>
@@ -157,6 +210,10 @@ export function SecretsTab({ unitId }: SecretsTabProps) {
           <p className="text-muted-foreground">
             Secrets are scoped to this unit. Values are stored server-side and
             never returned to the browser — this list shows metadata only.
+            Entries marked{" "}
+            <span className="font-medium">inherited from tenant</span>{" "}
+            come from tenant defaults; add a same-name unit secret below to
+            override for this unit only.
           </p>
 
           {loadError && (
@@ -167,19 +224,34 @@ export function SecretsTab({ unitId }: SecretsTabProps) {
 
           {loading ? (
             <p className="text-muted-foreground">Loading…</p>
-          ) : secrets && secrets.length === 0 ? (
+          ) : displayRows.length === 0 ? (
             <p className="text-muted-foreground">No secrets registered.</p>
           ) : (
             <ul className="divide-y divide-border rounded-md border border-border">
-              {secrets?.map((s) => (
+              {displayRows.map((s) => (
                 <li
-                  key={s.name}
+                  key={`${s.origin}:${s.name}`}
                   className="flex items-center gap-3 px-3 py-2"
+                  data-testid={`unit-secret-row-${s.name}`}
                 >
                   <span className="font-mono text-sm">{s.name}</span>
-                  <Badge variant="outline" className="text-xs">
-                    {s.scope}
-                  </Badge>
+                  {s.origin === "unit" ? (
+                    <Badge
+                      variant="outline"
+                      className="text-xs"
+                      data-testid={`unit-secret-badge-${s.name}`}
+                    >
+                      set on unit
+                    </Badge>
+                  ) : (
+                    <Badge
+                      variant="outline"
+                      className="text-xs text-muted-foreground"
+                      data-testid={`unit-secret-badge-${s.name}`}
+                    >
+                      inherited from tenant
+                    </Badge>
+                  )}
                   <span className="ml-auto text-xs text-muted-foreground">
                     {new Date(s.createdAt).toLocaleString()}
                   </span>
@@ -187,8 +259,13 @@ export function SecretsTab({ unitId }: SecretsTabProps) {
                     size="sm"
                     variant="outline"
                     onClick={() => handleDelete(s.name)}
-                    disabled={deletingName === s.name}
+                    disabled={!s.canDelete || deletingName === s.name}
                     aria-label={`Delete ${s.name}`}
+                    title={
+                      s.canDelete
+                        ? undefined
+                        : "Inherited from tenant — clear via the Tenant defaults panel in Settings."
+                    }
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>

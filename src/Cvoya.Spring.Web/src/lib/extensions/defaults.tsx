@@ -8,6 +8,7 @@ import {
   GraduationCap,
   Inbox,
   Info,
+  KeyRound,
   LayoutDashboard,
   MessagesSquare,
   Network,
@@ -25,6 +26,7 @@ import {
 import { AboutPanel } from "@/components/settings/about-panel";
 import { AuthPanel } from "@/components/settings/auth-panel";
 import { BudgetPanel } from "@/components/settings/budget-panel";
+import { TenantDefaultsPanel } from "@/components/settings/tenant-defaults-panel";
 
 import type {
   DrawerPanel,
@@ -342,6 +344,17 @@ export const defaultDrawerPanels: readonly DrawerPanel[] = [
       "Daily cost ceiling across every agent and unit in this tenant.",
     orderHint: 10,
     component: <BudgetPanel />,
+  },
+  {
+    // #615: tenant-default LLM credentials. Units inherit these unless
+    // they override with a same-name unit-scoped secret (Secrets tab).
+    // Matches the `spring secret --scope tenant` CLI primitive.
+    id: "tenant-defaults",
+    label: "Tenant defaults",
+    icon: KeyRound,
+    description: "LLM credentials inherited by every unit in the tenant.",
+    orderHint: 15,
+    component: <TenantDefaultsPanel />,
   },
   {
     id: "auth",

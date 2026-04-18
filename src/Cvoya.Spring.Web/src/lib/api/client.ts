@@ -823,6 +823,31 @@ export const api = {
       }),
     );
   },
+  // Tenant-scoped secrets (#615). Tenant-default credentials — LLM API
+  // keys and anything else a tenant wants to share across its units —
+  // live here. Units inherit from this scope automatically unless they
+  // register the same-name secret at unit scope (Secrets tab on a
+  // unit). Powers the Tenant defaults panel in the Settings drawer.
+  listTenantSecrets: async () =>
+    unwrap(await fetchClient.GET("/api/v1/tenant/secrets", {})),
+  createTenantSecret: async (body: CreateSecretRequest) =>
+    unwrap(
+      await fetchClient.POST("/api/v1/tenant/secrets", { body }),
+    ),
+  rotateTenantSecret: async (name: string, body: CreateSecretRequest) =>
+    unwrap(
+      await fetchClient.PUT("/api/v1/tenant/secrets/{name}", {
+        params: { path: { name } },
+        body,
+      }),
+    ),
+  deleteTenantSecret: async (name: string): Promise<void> => {
+    assertOk(
+      await fetchClient.DELETE("/api/v1/tenant/secrets/{name}", {
+        params: { path: { name } },
+      }),
+    );
+  },
 
   // Unit boundary (#413). The GET endpoint always returns the empty
   // shape (no 404) when a unit has never had a boundary persisted, so

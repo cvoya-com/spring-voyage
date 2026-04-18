@@ -304,6 +304,9 @@ export type SecretMetadata = Schemas["SecretMetadata"];
 /** GET /api/v1/units/{id}/secrets response body. */
 export type UnitSecretsListResponse = Schemas["UnitSecretsListResponse"];
 
+/** GET /api/v1/tenant/secrets and /api/v1/platform/secrets response body. */
+export type SecretsListResponse = Schemas["SecretsListResponse"];
+
 /** POST /api/v1/units/{id}/secrets request body. */
 export type CreateSecretRequest = Schemas["CreateSecretRequest"];
 

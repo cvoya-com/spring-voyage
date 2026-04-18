@@ -101,7 +101,7 @@ user network with:
 ```bash
 cd deployment/
 cp spring.env.example spring.env
-$EDITOR spring.env             # fill in secrets, hostname, image tags
+$EDITOR spring.env             # deploy-time config: hostname, DB password, image tags
 
 ./deploy.sh build              # build platform + agent images from source
 ./deploy.sh up                 # create network, start the full stack
@@ -113,6 +113,35 @@ $EDITOR spring.env             # fill in secrets, hostname, image tags
 Volumes (`spring-postgres-data`, `spring-redis-data`, `spring-caddy-data`,
 `spring-caddy-config`) persist across `down`/`up` cycles. Remove them with
 `podman volume rm` when you need a clean slate.
+
+### Post-deploy: LLM provider credentials (tier-2, #615)
+
+LLM provider API keys (Anthropic, OpenAI, Google) are **tier-2 tenant-default
+credentials** — per-tenant secrets that units inherit — and live in the
+database, not in `spring.env`. After `./deploy.sh up` completes, set them
+from the CLI or the portal:
+
+```bash
+# CLI — one row per provider in use
+spring secret create --scope tenant anthropic-api-key --value "sk-ant-..."
+spring secret create --scope tenant openai-api-key    --value "sk-..."
+spring secret create --scope tenant google-api-key    --value "AIza..."
+
+# Or open the portal, click Settings, and set the keys in the
+# "Tenant defaults" panel. Values are encrypted at rest (AES-GCM envelope)
+# and never returned to the browser.
+```
+
+Individual units can override the tenant default by registering a
+same-name secret at unit scope (Secrets tab on the unit detail page, or
+`spring secret create --scope unit --unit <name> <key> --value "..."`).
+
+If you are upgrading a deployment that had `ANTHROPIC_API_KEY` /
+`OPENAI_API_KEY` in `spring.env`, move the keys to tenant defaults with
+the CLI or portal above and remove them from `spring.env`. The platform
+no longer reads those environment variables — credentials must be set at
+tenant or unit scope. See [`docs/guide/secrets.md`](../docs/guide/secrets.md)
+for the full resolution chain.
 
 ## Remote (VPS) deployment
 

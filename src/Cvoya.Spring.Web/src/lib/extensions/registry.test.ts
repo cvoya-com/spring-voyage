@@ -134,10 +134,12 @@ describe("extension registry", () => {
     ).toThrow(/already owns/);
   });
 
-  it("ships Budget / Auth / About as the default drawer panels", () => {
+  it("ships Budget / Tenant defaults / Auth / About as the default drawer panels", () => {
     const merged = computeMergedExtensions();
     const ids = merged.drawerPanels.map((p) => p.id);
-    expect(ids).toEqual(["budget", "auth", "about"]);
+    // #615 added "tenant-defaults" (orderHint 15, between Budget at 10
+    // and Auth at 20). Sorting by orderHint lands it in second place.
+    expect(ids).toEqual(["budget", "tenant-defaults", "auth", "about"]);
     expect(merged.drawerPanels).toEqual(defaultDrawerPanels);
   });
 
@@ -157,7 +159,13 @@ describe("extension registry", () => {
 
     const merged = computeMergedExtensions();
     const ids = merged.drawerPanels.map((p) => p.id);
-    expect(ids).toEqual(["budget", "auth", "about", "tenants"]);
+    expect(ids).toEqual([
+      "budget",
+      "tenant-defaults",
+      "auth",
+      "about",
+      "tenants",
+    ]);
   });
 
   it("replaces a default drawer panel when an extension re-uses its id", () => {
@@ -177,9 +185,9 @@ describe("extension registry", () => {
     const merged = computeMergedExtensions();
     const about = merged.drawerPanels.find((p) => p.id === "about");
     expect(about?.label).toBe("About (hosted)");
-    // Total panel count stays at 3 — the override replaces, it doesn't
-    // duplicate.
-    expect(merged.drawerPanels.length).toBe(3);
+    // Total panel count matches the OSS default count — the override
+    // replaces, it doesn't duplicate.
+    expect(merged.drawerPanels.length).toBe(defaultDrawerPanels.length);
   });
 
   it("collects decorators in registration order", async () => {

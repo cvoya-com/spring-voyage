@@ -41,17 +41,20 @@ Detail pages (`/units/{id}`, `/agents/{id}`, `/conversations/{id}`) are reached 
 
 A theme toggle (light/dark) sits at the bottom of the sidebar. On mobile the sidebar collapses behind a hamburger button.
 
-A **Settings** trigger ([src/Cvoya.Spring.Web/src/components/sidebar.tsx](../../src/Cvoya.Spring.Web/src/components/sidebar.tsx)) opens a right-aligned drawer that collects the portal's cross-cutting configuration in one place. The drawer is focus-trapped, ESC-dismissable, and keyboard-reachable from any page. Panels are added via the portal extension registry — OSS ships three:
+A **Settings** trigger ([src/Cvoya.Spring.Web/src/components/sidebar.tsx](../../src/Cvoya.Spring.Web/src/components/sidebar.tsx)) opens a right-aligned drawer that collects the portal's cross-cutting configuration in one place. The drawer is focus-trapped, ESC-dismissable, and keyboard-reachable from any page. Panels are added via the portal extension registry — OSS ships four:
 
 | Panel | What it does | Primary CLI equivalent |
 |-------|--------------|------------------------|
 | **Tenant budget** | Read and edit the tenant-wide daily cost ceiling. | `spring cost set-budget --scope tenant --amount <n> --period daily` |
+| **Tenant defaults** | Manage tenant-scoped LLM credentials (`anthropic-api-key`, `openai-api-key`, `google-api-key`). Units inherit these unless they override with a same-name unit-scoped secret. | `spring secret --scope tenant {create,rotate,delete} <name>` |
 | **Account** | Show the current signed-in user and list active API tokens. Sign-out button lives here. | `spring auth token list` |
 | **About** | Read-only platform metadata: version, build hash, license reference. | `spring platform info` |
 
 Token create and revoke from inside the drawer are tracked as a separate follow-up (#557) so the "reveal once" primitive can be designed alongside the flow; use `spring auth token create <name>` / `spring auth token revoke <name>` until that lands.
 
-Hosted deployments add more panels (tenant secrets, members / RBAC, SSO, etc.) through the same registration surface — see `src/Cvoya.Spring.Web/src/lib/extensions/README.md`.
+The **Tenant defaults** panel is the recommended post-deploy place to set LLM provider credentials. After the first `./deploy.sh up`, open the drawer, paste the Anthropic / OpenAI / Google key into the matching row, click **Set**, and every unit in the tenant immediately inherits the default — no container restart needed. Rotating re-posts via `PUT /api/v1/tenant/secrets/{name}`; clearing calls `DELETE`. See [Managing Secrets](secrets.md) for the full three-tier model and resolution order.
+
+Hosted deployments extend the drawer with additional panels (members / RBAC, SSO, etc.) through the same registration surface — see `src/Cvoya.Spring.Web/src/lib/extensions/README.md`.
 
 ## Dashboard (`/`)
 
@@ -260,6 +263,11 @@ Unit-scoped secrets tab ([secrets-tab.tsx](../../src/Cvoya.Spring.Web/src/app/un
 
 - **Pass-through value** — plaintext is POSTed once and stored server-side. The portal never re-reads it. Only the secret name, scope, and creation timestamp are returned by the list endpoint.
 - **External reference** — store a pointer like `kv://vault/secret-id`; the server-side `ISecretResolver` dereferences it at use time.
+
+**Inheritance indicator (#615).** The list merges unit-scoped entries with the tenant defaults visible to this unit. Each row carries a badge:
+
+- **set on unit** — a unit-scoped entry with that name exists. It overrides the tenant default (if any) for this unit. Deletable from the row.
+- **inherited from tenant** — no unit-scoped entry exists; the unit picks up the tenant default. The row is read-only; clear or rotate the default from the **Tenant defaults** panel in the Settings drawer, or override by creating a unit-scoped entry with the same name.
 
 | Action | Portal | CLI |
 |--------|--------|-----|

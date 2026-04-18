@@ -7,6 +7,7 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 
+using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Dapr.Execution;
 
 using Microsoft.Extensions.Logging.Abstractions;
@@ -25,15 +26,25 @@ using Xunit;
 /// </summary>
 public class ModelCatalogTests
 {
+    // After #615 ModelCatalog reads credentials through the tier-2 resolver
+    // rather than AiProviderOptions.ApiKey. The ApiKey property remains on
+    // AiProviderOptions for backward compatibility with in-process
+    // AnthropicProvider callers that have not yet migrated, but the
+    // catalog ignores it.
     private static readonly IOptions<AiProviderOptions> AnthropicOptionsWithKey = Options.Create(
         new AiProviderOptions
         {
-            ApiKey = "test-api-key",
             BaseUrl = "https://api.anthropic.example",
         });
 
     private static readonly IOptions<AiProviderOptions> AnthropicOptionsWithoutKey = Options.Create(
         new AiProviderOptions());
+
+    private static Func<CancellationToken, Task<LlmCredentialResolution>> Credential(string? value, string name = "anthropic-api-key") =>
+        _ => Task.FromResult(new LlmCredentialResolution(
+            value,
+            value is null ? LlmCredentialSource.NotFound : LlmCredentialSource.Tenant,
+            name));
 
     private static readonly IOptions<OllamaOptions> OllamaOpts = Options.Create(new OllamaOptions
     {
@@ -54,7 +65,7 @@ public class ModelCatalogTests
             },
         }));
 
-        var catalog = CreateCatalog(handler, AnthropicOptionsWithKey);
+        var catalog = CreateCatalog(handler, AnthropicOptionsWithKey, anthropicCredential: "test-api-key");
 
         var models = await catalog.GetAvailableModelsAsync("claude", TestContext.Current.CancellationToken);
 
@@ -82,7 +93,7 @@ public class ModelCatalogTests
         var handler = new RouterHandler();
         handler.Add("api.anthropic.example", HttpStatusCode.Unauthorized, "{}");
 
-        var catalog = CreateCatalog(handler, AnthropicOptionsWithKey);
+        var catalog = CreateCatalog(handler, AnthropicOptionsWithKey, anthropicCredential: "test-api-key");
 
         var models = await catalog.GetAvailableModelsAsync("claude", TestContext.Current.CancellationToken);
 
@@ -93,7 +104,7 @@ public class ModelCatalogTests
     public async Task GetAvailableModelsAsync_Claude_OnNetworkError_FallsBackToStatic()
     {
         var handler = new ThrowingHandler(new HttpRequestException("boom"));
-        var catalog = CreateCatalog(handler, AnthropicOptionsWithKey);
+        var catalog = CreateCatalog(handler, AnthropicOptionsWithKey, anthropicCredential: "test-api-key");
 
         var models = await catalog.GetAvailableModelsAsync("claude", TestContext.Current.CancellationToken);
 
@@ -155,7 +166,7 @@ public class ModelCatalogTests
         }));
 
         var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
-        var catalog = CreateCatalog(handler, AnthropicOptionsWithKey, time);
+        var catalog = CreateCatalog(handler, AnthropicOptionsWithKey, time, anthropicCredential: "test-api-key");
 
         await catalog.GetAvailableModelsAsync("claude", TestContext.Current.CancellationToken);
         await catalog.GetAvailableModelsAsync("claude", TestContext.Current.CancellationToken);
@@ -178,7 +189,7 @@ public class ModelCatalogTests
             data = new[] { new { id = "claude-x" } },
         }));
 
-        var catalog = CreateCatalog(handler, AnthropicOptionsWithKey);
+        var catalog = CreateCatalog(handler, AnthropicOptionsWithKey, anthropicCredential: "test-api-key");
 
         var claude = await catalog.GetAvailableModelsAsync("claude", TestContext.Current.CancellationToken);
         var google = await catalog.GetAvailableModelsAsync("google", TestContext.Current.CancellationToken);
@@ -196,7 +207,7 @@ public class ModelCatalogTests
             data = Array.Empty<object>(),
         }));
 
-        var catalog = CreateCatalog(handler, AnthropicOptionsWithKey);
+        var catalog = CreateCatalog(handler, AnthropicOptionsWithKey, anthropicCredential: "test-api-key");
 
         var models = await catalog.GetAvailableModelsAsync("claude", TestContext.Current.CancellationToken);
 
@@ -206,7 +217,9 @@ public class ModelCatalogTests
     private static ModelCatalog CreateCatalog(
         HttpMessageHandler handler,
         IOptions<AiProviderOptions> anthropic,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        string? anthropicCredential = null,
+        string? openAiCredential = null)
     {
         var factory = Substitute.For<IHttpClientFactory>();
         factory.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient(handler, disposeHandler: false));
@@ -214,6 +227,8 @@ public class ModelCatalogTests
             factory,
             anthropic,
             OllamaOpts,
+            Credential(anthropicCredential, "anthropic-api-key"),
+            Credential(openAiCredential, "openai-api-key"),
             timeProvider ?? TimeProvider.System,
             NullLogger<ModelCatalog>.Instance);
     }

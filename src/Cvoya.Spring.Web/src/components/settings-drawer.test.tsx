@@ -58,6 +58,14 @@ function stubFetch() {
         headers: { "Content-Type": "application/json" },
       });
     }
+    if (url.includes("/api/v1/tenant/secrets")) {
+      // Tenant defaults panel (#615). Default empty list so the panel
+      // renders the "unset" state for each known credential.
+      return new Response(JSON.stringify({ secrets: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
     return new Response("{}", { status: 200 });
   });
 }
@@ -95,8 +103,11 @@ describe("SettingsDrawer", () => {
     render(wrap(<SettingsDrawer open={true} onClose={() => {}} />));
 
     expect(screen.getByRole("dialog")).toBeInTheDocument();
-    // Budget (orderHint 10) → Auth (20) → About (90).
+    // Budget (orderHint 10) → Tenant defaults (15, #615) → Auth (20) → About (90).
     expect(screen.getByTestId("settings-panel-budget")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("settings-panel-tenant-defaults"),
+    ).toBeInTheDocument();
     expect(screen.getByTestId("settings-panel-auth")).toBeInTheDocument();
     expect(screen.getByTestId("settings-panel-about")).toBeInTheDocument();
 
@@ -105,6 +116,7 @@ describe("SettingsDrawer", () => {
       .map((el) => el.getAttribute("data-testid"));
     expect(panels).toEqual([
       "settings-panel-budget",
+      "settings-panel-tenant-defaults",
       "settings-panel-auth",
       "settings-panel-about",
     ]);
@@ -146,6 +158,7 @@ describe("SettingsDrawer", () => {
       .map((el) => el.getAttribute("data-testid"));
     expect(panels).toEqual([
       "settings-panel-budget",
+      "settings-panel-tenant-defaults",
       "settings-panel-auth",
       "settings-panel-about",
       "settings-panel-tenants",

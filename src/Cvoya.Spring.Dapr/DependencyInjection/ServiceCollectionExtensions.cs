@@ -305,6 +305,18 @@ public static class ServiceCollectionExtensions
         services.AddHttpClient(ModelCatalog.HttpClientName);
         services.TryAddSingleton<IModelCatalog, ModelCatalog>();
 
+        // Tier-2 LLM credential resolver (#615). Delegates to the
+        // existing ISecretResolver (Unit → Tenant inheritance, ADR 0003).
+        // Credentials must be set at tenant or unit scope — there is no
+        // env-variable fallback. TryAdd so the private cloud host can
+        // substitute a tenant-scoped implementation (per-tenant Key
+        // Vault, BYOK) without forking the registration.
+        //
+        // ISecretResolver is registered as Scoped (ComposedSecretResolver
+        // uses the scoped SpringDbContext via EfSecretRegistry), so the
+        // credential resolver inherits that scope.
+        services.TryAddScoped<ILlmCredentialResolver, LlmCredentialResolver>();
+
         // Container runtime. The worker no longer holds the local container
         // binary; the spring-dispatcher service does. The worker binds a
         // single DispatcherClientContainerRuntime that forwards every call to
