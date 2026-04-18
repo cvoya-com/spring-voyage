@@ -1235,6 +1235,256 @@ public class SpringApiClient
         return result ?? throw new InvalidOperationException("Server returned an empty platform info response.");
     }
 
+    // Secrets (#432). Unit / tenant / platform scope — each scope hangs off
+    // its own top-level path on the server so the wrappers fan out to three
+    // Kiota request-builder trees under the hood. The CLI `spring secret`
+    // verbs pick the right scope and call through these wrappers so the
+    // command layer stays free of Kiota discriminator ceremony. Plaintext
+    // flows in only on the POST/PUT body; responses are metadata-only.
+
+    /// <summary>
+    /// Lists unit-scoped secret metadata. Never returns plaintext or store
+    /// keys — the portal's Secrets tab and the CLI's <c>spring secret list
+    /// --scope unit --unit &lt;id&gt;</c> share this single call so both
+    /// surfaces render the same list.
+    /// </summary>
+    public async Task<IReadOnlyList<SecretMetadata>> ListUnitSecretsAsync(
+        string unitId, CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Units[unitId].Secrets.GetAsync(cancellationToken: ct);
+        return result?.Secrets ?? new List<SecretMetadata>();
+    }
+
+    /// <summary>Lists tenant-scoped secret metadata for the caller's tenant.</summary>
+    public async Task<IReadOnlyList<SecretMetadata>> ListTenantSecretsAsync(
+        CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Tenant.Secrets.GetAsync(cancellationToken: ct);
+        return result?.Secrets ?? new List<SecretMetadata>();
+    }
+
+    /// <summary>Lists platform-scoped secret metadata (admin-gated).</summary>
+    public async Task<IReadOnlyList<SecretMetadata>> ListPlatformSecretsAsync(
+        CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Platform.Secrets.GetAsync(cancellationToken: ct);
+        return result?.Secrets ?? new List<SecretMetadata>();
+    }
+
+    /// <summary>
+    /// Creates a unit-scoped secret. Exactly one of <paramref name="value"/>
+    /// (pass-through write) or <paramref name="externalStoreKey"/> (bind
+    /// existing reference) must be supplied; the server rejects the other
+    /// combinations with 400.
+    /// </summary>
+    public async Task<CreateSecretResponse> CreateUnitSecretAsync(
+        string unitId,
+        string name,
+        string? value,
+        string? externalStoreKey,
+        CancellationToken ct = default)
+    {
+        var request = new CreateSecretRequest
+        {
+            Name = name,
+            Value = string.IsNullOrEmpty(value) ? null : value,
+            ExternalStoreKey = string.IsNullOrWhiteSpace(externalStoreKey) ? null : externalStoreKey,
+        };
+        var result = await _client.Api.V1.Units[unitId].Secrets.PostAsync(request, cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty CreateSecret response for unit '{unitId}' / '{name}'.");
+    }
+
+    /// <summary>Creates a tenant-scoped secret. Same value/external-key semantics as the unit variant.</summary>
+    public async Task<CreateSecretResponse> CreateTenantSecretAsync(
+        string name,
+        string? value,
+        string? externalStoreKey,
+        CancellationToken ct = default)
+    {
+        var request = new CreateSecretRequest
+        {
+            Name = name,
+            Value = string.IsNullOrEmpty(value) ? null : value,
+            ExternalStoreKey = string.IsNullOrWhiteSpace(externalStoreKey) ? null : externalStoreKey,
+        };
+        var result = await _client.Api.V1.Tenant.Secrets.PostAsync(request, cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty CreateSecret response for tenant-scoped '{name}'.");
+    }
+
+    /// <summary>Creates a platform-scoped secret (admin-gated).</summary>
+    public async Task<CreateSecretResponse> CreatePlatformSecretAsync(
+        string name,
+        string? value,
+        string? externalStoreKey,
+        CancellationToken ct = default)
+    {
+        var request = new CreateSecretRequest
+        {
+            Name = name,
+            Value = string.IsNullOrEmpty(value) ? null : value,
+            ExternalStoreKey = string.IsNullOrWhiteSpace(externalStoreKey) ? null : externalStoreKey,
+        };
+        var result = await _client.Api.V1.Platform.Secrets.PostAsync(request, cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty CreateSecret response for platform-scoped '{name}'.");
+    }
+
+    /// <summary>
+    /// Rotates a unit-scoped secret by appending a new version. Exactly one
+    /// of <paramref name="value"/> / <paramref name="externalStoreKey"/>
+    /// must be supplied; origin can flip (pass-through ↔ external-ref) on
+    /// rotation — see <c>docs/guide/secrets.md</c>.
+    /// </summary>
+    public async Task<RotateSecretResponse> RotateUnitSecretAsync(
+        string unitId,
+        string name,
+        string? value,
+        string? externalStoreKey,
+        CancellationToken ct = default)
+    {
+        var request = new RotateSecretRequest
+        {
+            Value = string.IsNullOrEmpty(value) ? null : value,
+            ExternalStoreKey = string.IsNullOrWhiteSpace(externalStoreKey) ? null : externalStoreKey,
+        };
+        var result = await _client.Api.V1.Units[unitId].Secrets[name].PutAsync(request, cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty RotateSecret response for unit '{unitId}' / '{name}'.");
+    }
+
+    /// <summary>Rotates a tenant-scoped secret by appending a new version.</summary>
+    public async Task<RotateSecretResponse> RotateTenantSecretAsync(
+        string name,
+        string? value,
+        string? externalStoreKey,
+        CancellationToken ct = default)
+    {
+        var request = new RotateSecretRequest
+        {
+            Value = string.IsNullOrEmpty(value) ? null : value,
+            ExternalStoreKey = string.IsNullOrWhiteSpace(externalStoreKey) ? null : externalStoreKey,
+        };
+        var result = await _client.Api.V1.Tenant.Secrets[name].PutAsync(request, cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty RotateSecret response for tenant-scoped '{name}'.");
+    }
+
+    /// <summary>Rotates a platform-scoped secret by appending a new version.</summary>
+    public async Task<RotateSecretResponse> RotatePlatformSecretAsync(
+        string name,
+        string? value,
+        string? externalStoreKey,
+        CancellationToken ct = default)
+    {
+        var request = new RotateSecretRequest
+        {
+            Value = string.IsNullOrEmpty(value) ? null : value,
+            ExternalStoreKey = string.IsNullOrWhiteSpace(externalStoreKey) ? null : externalStoreKey,
+        };
+        var result = await _client.Api.V1.Platform.Secrets[name].PutAsync(request, cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty RotateSecret response for platform-scoped '{name}'.");
+    }
+
+    /// <summary>
+    /// Lists retained versions for a unit-scoped secret. The server marks
+    /// the current version with <c>isCurrent=true</c>. Returns an empty
+    /// shape when the secret does not exist (server sends 404, which Kiota
+    /// surfaces as an <see cref="Microsoft.Kiota.Abstractions.ApiException"/>).
+    /// </summary>
+    public async Task<SecretVersionsListResponse> ListUnitSecretVersionsAsync(
+        string unitId, string name, CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Units[unitId].Secrets[name].Versions.GetAsync(cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty versions response for unit '{unitId}' / '{name}'.");
+    }
+
+    /// <summary>Lists retained versions for a tenant-scoped secret.</summary>
+    public async Task<SecretVersionsListResponse> ListTenantSecretVersionsAsync(
+        string name, CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Tenant.Secrets[name].Versions.GetAsync(cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty versions response for tenant-scoped '{name}'.");
+    }
+
+    /// <summary>Lists retained versions for a platform-scoped secret.</summary>
+    public async Task<SecretVersionsListResponse> ListPlatformSecretVersionsAsync(
+        string name, CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Platform.Secrets[name].Versions.GetAsync(cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty versions response for platform-scoped '{name}'.");
+    }
+
+    /// <summary>
+    /// Prunes older versions of a unit-scoped secret, retaining the
+    /// <paramref name="keep"/> most-recent. The current version is always
+    /// retained regardless of <paramref name="keep"/>; the server returns
+    /// 400 when <c>keep &lt; 1</c>.
+    /// </summary>
+    public async Task<PruneSecretResponse> PruneUnitSecretAsync(
+        string unitId, string name, int keep, CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Units[unitId].Secrets[name].Prune.PostAsync(
+            config =>
+            {
+                // Kiota emits this as a string query parameter because the
+                // OpenAPI `format: int32` hint is dropped during generation.
+                config.QueryParameters.Keep = keep.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            },
+            cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty prune response for unit '{unitId}' / '{name}'.");
+    }
+
+    /// <summary>Prunes older versions of a tenant-scoped secret.</summary>
+    public async Task<PruneSecretResponse> PruneTenantSecretAsync(
+        string name, int keep, CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Tenant.Secrets[name].Prune.PostAsync(
+            config =>
+            {
+                config.QueryParameters.Keep = keep.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            },
+            cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty prune response for tenant-scoped '{name}'.");
+    }
+
+    /// <summary>Prunes older versions of a platform-scoped secret.</summary>
+    public async Task<PruneSecretResponse> PrunePlatformSecretAsync(
+        string name, int keep, CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Platform.Secrets[name].Prune.PostAsync(
+            config =>
+            {
+                config.QueryParameters.Keep = keep.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            },
+            cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty prune response for platform-scoped '{name}'.");
+    }
+
+    /// <summary>
+    /// Deletes a unit-scoped secret (every version). Platform-owned store
+    /// slots are reclaimed; external-reference versions leave the upstream
+    /// store untouched.
+    /// </summary>
+    public Task DeleteUnitSecretAsync(string unitId, string name, CancellationToken ct = default)
+        => _client.Api.V1.Units[unitId].Secrets[name].DeleteAsync(cancellationToken: ct);
+
+    /// <summary>Deletes a tenant-scoped secret (every version).</summary>
+    public Task DeleteTenantSecretAsync(string name, CancellationToken ct = default)
+        => _client.Api.V1.Tenant.Secrets[name].DeleteAsync(cancellationToken: ct);
+
+    /// <summary>Deletes a platform-scoped secret (every version).</summary>
+    public Task DeletePlatformSecretAsync(string name, CancellationToken ct = default)
+        => _client.Api.V1.Platform.Secrets[name].DeleteAsync(cancellationToken: ct);
+
     // Packages (#395). Backs `spring package list / show` and
     // `spring template show <package>/<template>`. The portal's
     // /packages route consumes the same endpoints, so the CLI stays at

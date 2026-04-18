@@ -42,6 +42,7 @@ public class Program
                 DirectoryCommand.Create(outputOption),
                 PackageCommand.Create(outputOption),
                 PlatformCommand.Create(outputOption),
+                SecretCommand.Create(outputOption),
                 TemplateCommand.Create(outputOption),
                 ApplyCommand.Create()
             }
