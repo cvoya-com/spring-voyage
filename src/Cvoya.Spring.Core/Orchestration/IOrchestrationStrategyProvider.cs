@@ -38,11 +38,12 @@ public interface IOrchestrationStrategyProvider
     /// key) when one was declared.
     /// </summary>
     /// <param name="unitId">
-    /// The unit identifier. Implementations should accept either the
-    /// user-facing unit name (<c>UnitDefinitionEntity.UnitId</c>) or the
-    /// Dapr actor id (<c>UnitDefinitionEntity.ActorId</c>) — actor
-    /// activation passes <c>Id.GetId()</c> (the actor GUID) but tests and
-    /// CLI callers pass the user-facing name.
+    /// The Dapr actor id for the unit. The production caller is
+    /// <c>UnitActor.HandleDomainMessageAsync</c> (via
+    /// <see cref="IOrchestrationStrategyResolver"/>), which passes
+    /// <c>Id.GetId()</c>. Callers that need a user-facing-name lookup
+    /// should translate to the actor id before calling (or a new overload
+    /// should be added); see #519.
     /// </param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     Task<string?> GetStrategyKeyAsync(

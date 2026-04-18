@@ -57,10 +57,17 @@ public class DbOrchestrationStrategyProvider(
             await using var scope = scopeFactory.CreateAsyncScope();
             var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
 
+            // Match on ActorId alone. The sole production caller is
+            // `DefaultOrchestrationStrategyResolver`, which is invoked by
+            // `UnitActor.HandleDomainMessageAsync` passing `Id.GetId()` (the
+            // Dapr actor id). ORing `UnitId == unitId` here would let a row
+            // whose ActorId (a GUID string) collides with another unit's
+            // user-facing UnitId mis-match — unlikely today, latent if a
+            // future host allows GUID-shaped unit names (#519).
             var entity = await db.UnitDefinitions
                 .AsNoTracking()
                 .FirstOrDefaultAsync(
-                    u => (u.UnitId == unitId || u.ActorId == unitId) && u.DeletedAt == null,
+                    u => u.ActorId == unitId && u.DeletedAt == null,
                     cancellationToken);
 
             return entity is null ? null : ExtractStrategyKey(entity.Definition);
