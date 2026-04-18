@@ -35,6 +35,8 @@ Represents a human participant. Routes messages to notification channels. Enforc
 
 ### Hierarchy-aware permission resolution (#414)
 
+See [ADR 0013](../decisions/0013-hierarchy-aware-permission-resolution.md) for the decision record (inheritance-by-default, nearest-grant-wins, fail-closed, relationship to boundary opacity).
+
 Permission resolution for a `(humanId, unitId)` pair is **hierarchy-aware by default**: grants on an ancestor unit cascade down to descendant units, subject to a per-unit inheritance flag that plays the role of an opaque boundary for the permission layer. `IPermissionService` exposes two resolvers:
 
 | API                                    | Scope                                                                                                                                           |

@@ -25,6 +25,9 @@ For the high-level architectural "why" behind the platform as a whole, see [`../
 | [0009](0009-github-label-roundtrip-via-activity-event.md) | GitHub label roundtrip wired via activity-event subscription | Accepted — `LabelRouted` DecisionMade event; hosted-service subscriber |
 | [0010](0010-manifest-orchestration-strategy-selector.md) | Manifest-driven orchestration-strategy selection resolves per message | Accepted — manifest key > policy inference > unkeyed default; per-message scope |
 | [0011](0011-persistent-agent-lifecycle-http-surface.md) | Persistent-agent lifecycle HTTP surface (deploy/scale/logs/undeploy) | Accepted — dedicated `PersistentAgentLifecycle` service, CLI verbs on top |
+| [0012](0012-spring-dispatcher-service-extraction.md) | Extract container-runtime ownership into `spring-dispatcher` | Accepted — HTTP-fronted service; worker binds `DispatcherClientContainerRuntime` |
+| [0013](0013-hierarchy-aware-permission-resolution.md) | Hierarchy-aware permission resolution (inherit-by-default, nearest-grant-wins, fail-closed) | Accepted — `UnitPermissionInheritance` flag, `Isolated` opt-out |
+| [0014](0014-skill-invoker-seam.md) | `ISkillInvoker` seam between skill callers and the router | Accepted — protocol-agnostic seam; default routes via `IMessageRouter` |
 
 ## Format
 

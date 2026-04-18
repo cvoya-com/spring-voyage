@@ -175,6 +175,8 @@ See [Workflows](workflows.md) for the sidecar-protocol layer diagram.
 
 ## 4a. Skill registries
 
+See [ADR 0014](../decisions/0014-skill-invoker-seam.md) for the decision record behind the `ISkillInvoker` seam and the expertise-directory-driven skill surface.
+
 Tools exposed over MCP are surfaced by any number of `ISkillRegistry`
 implementations registered in DI. The MCP server enumerates every registry at
 `tools/list` time and routes every `tools/call` to the registry that declared

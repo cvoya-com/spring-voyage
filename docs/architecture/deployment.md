@@ -125,6 +125,8 @@ Selection of the dispatcher's own backend is driven by `ContainerRuntime:Runtime
 
 ## Dispatcher service
 
+See [ADR 0012](../decisions/0012-spring-dispatcher-service-extraction.md) for the decision record behind extracting container-runtime ownership into the dispatcher.
+
 `spring-dispatcher` (project: `src/Cvoya.Spring.Dispatcher/`) owns the host container runtime in OSS deployments. The worker's `IContainerRuntime` binding is `DispatcherClientContainerRuntime` (project: `src/Cvoya.Spring.Dapr/Execution/DispatcherClientContainerRuntime.cs`) and nothing else — the worker cannot launch a sibling container without the dispatcher's cooperation.
 
 ```text
