@@ -152,7 +152,7 @@ The unit detail page ([src/Cvoya.Spring.Web/src/app/units/[id]/unit-config-clien
 
 Transitional states (`Starting`, `Stopping`) are polled every two seconds until they settle. The status badge colours: green = Running, amber = Starting/Stopping, red = Error, outline = Stopped, default = Draft.
 
-The page has nine tabs:
+The page has eleven tabs:
 
 ### General
 
@@ -205,6 +205,22 @@ Edits route through `PUT /api/v1/units/{id}/policy`, the same surface the CLI's 
 | Read current policy | (tab body) | `spring unit policy <dim> get <unit>` |
 
 The Cost panel links out to `/analytics/costs` so you can compare the caps against current spend. The Effective policy block shows a single-hop chain today; parent-unit overlay is tracked under [#414](https://github.com/cvoya-com/spring-voyage/issues/414) and will extend the chain without a UI reshape.
+
+### Orchestration
+
+Unit orchestration configuration tab ([orchestration-tab.tsx](../../src/Cvoya.Spring.Web/src/app/units/%5Bid%5D/orchestration-tab.tsx)) — #602. Surfaces the two slices that make up a unit's orchestration contract:
+
+- **Strategy** — dropdown of the three platform-offered strategies (`ai`, `workflow`, `label-routed`). The selector renders read-only today because editing the manifest-persisted `orchestration.strategy` key via HTTP requires the dedicated `/api/v1/units/{id}/orchestration` endpoint tracked as a parity follow-up ([#606](https://github.com/cvoya-com/spring-voyage/issues/606)). Set the key through a unit YAML manifest and reapply with `spring apply -f unit.yaml` today. Setting a label-routing policy below also flips the effective strategy through the resolver's inference ladder.
+- **Effective strategy** — read-only status line summarising the resolver's current answer per [ADR-0010](../decisions/0010-manifest-orchestration-strategy-selector.md): manifest key → `UnitPolicy.LabelRouting` inference → unkeyed platform default. Only the policy-inference and default hops are observable from the portal today (manifest visibility lands with #606).
+- **Label routing** — editable rules that the `label-routed` strategy consumes ([#389](https://github.com/cvoya-com/spring-voyage/issues/389)). Each rule is a `trigger label → target member path` pair; the add-rule form, inline row edits, `AddOnAssign` / `RemoveOnAssign` roundtrip inputs, and **Save** / **Clear** ride the existing `PUT /api/v1/units/{id}/policy` endpoint so the portal and CLI round-trip the same shape.
+
+| Slice | Portal | CLI |
+|-------|--------|-----|
+| Inspect effective strategy | Orchestration tab → **Effective strategy** card | `spring unit show <unit>` (strategy block once #606 lands) |
+| Select strategy | Manifest `orchestration.strategy` + `spring apply -f unit.yaml` today; portal selector activates with #606 | `spring apply -f unit.yaml`; dedicated verb lands with #606 |
+| Add / edit / remove label routing rule | Orchestration tab → **Label routing** card | `spring unit policy label-routing set <unit> --label frontend=frontend-engineer` |
+| Set `AddOnAssign` / `RemoveOnAssign` labels | Orchestration tab → **Label routing** inputs | `spring unit policy label-routing set <unit> --add-on-assign … --remove-on-assign …` |
+| Clear label routing | Orchestration tab → **Clear** | `spring unit policy label-routing clear <unit>` |
 
 ### Expertise
 
@@ -582,6 +598,8 @@ Today's portal has capabilities not mirrored in the CLI, and vice versa. These a
 | Per-agent skills toggles | Skills tab | not implemented | declare in agent YAML |
 | Initiative policy editor (per-agent) | `/initiative` | not implemented | |
 | Unit policy editor (all five dimensions) | Policies tab on `/units/{id}` | `spring unit policy <dim> get/set/clear` | portal + CLI at parity since PR #473 / PR-R5 |
+| Unit orchestration strategy selector | Orchestration tab on `/units/{id}` (read-only; selector activates with #606) | not implemented | manifest-apply today; `/api/v1/units/{id}/orchestration` + CLI verb tracked in [#606](https://github.com/cvoya-com/spring-voyage/issues/606) |
+| Unit label-routing policy editor | Orchestration tab on `/units/{id}` → Label routing card | `spring unit policy label-routing set/clear` | portal + CLI at parity since #602 / PR #493 |
 | Budget configuration | `/analytics/costs` | `spring cost set-budget` | full parity since PR #474 |
 | Per-source cost breakdown | `/analytics/costs` (bars by agent/unit) | not implemented | tracked in [#554](https://github.com/cvoya-com/spring-voyage/issues/554) |
 | Cost breakdown views | dashboard + unit detail | not implemented | |

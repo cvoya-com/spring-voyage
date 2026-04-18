@@ -280,6 +280,14 @@ Unit boundary configuration (#495) is the canonical **multi-rule editor** layout
 - **Add-rule form inside each sub-card.** A nested `rounded-md border border-border p-3` block carries the per-dimension input grid (`grid-cols-1 sm:grid-cols-2`) and a trailing **Add** button that appends to local state and clears the inputs. Required fields are marked with a `text-destructive` asterisk (Synthesis' `name`).
 - **Local edits, one PUT.** The entire set is held in local `useState` so the user can stage multiple changes before pressing **Save boundary**; that PUT replaces the whole boundary (matches the CLI's `set` semantics). **Clear all rules** opens the shared `ConfirmDialog` and DELETEs.
 
+### 7.11c Orchestration tab — `app/units/[id]/orchestration-tab.tsx`
+
+Unit orchestration configuration (#602) follows the multi-card tab pattern from §7.11b but renders two slices rather than N peer dimensions — a read-only strategy selector and an editable label-routing card.
+
+- **Strategy card (read-only today).** Lucide `Workflow` icon + title + `manifest`/`inferred` badge indicating the resolver source. The select renders every key from `ORCHESTRATION_STRATEGIES` (`ai`, `workflow`, `label-routed`) but stays `disabled` until the `/api/v1/units/{id}/orchestration` endpoint lands (#606); a bordered `bg-muted/40` footnote names the manifest-apply workaround and cross-links the follow-up issue.
+- **Effective-strategy card.** Single monospace chip for the resolved key followed by a `text-xs text-muted-foreground` explanation of how the resolver got there (manifest key / policy inference / platform default) — mirrors the CLI's one-line "effective policy" output. A second muted line restates the ADR-0010 precedence ladder so operators always know why a given key is active.
+- **Label-routing card.** Same row primitives as the boundary tab: `divide-y` `ul` with inline-editable `Input` pairs per rule, per-row trash `Button` (`variant="outline"`, `size="sm"`), and an add-rule grid inside a nested `rounded-md border border-border p-3` block. Two comma-separated inputs below the rule list cover the `AddOnAssign` / `RemoveOnAssign` status-label roundtrip hooks. **Save label routing** and **Clear** ride the existing `/api/v1/units/{id}/policy` endpoint so the CLI (`spring unit policy label-routing set|clear`) and portal round-trip identical payloads.
+
 ### 7.12 Conversation thread — `app/conversations/[id]/`, `components/conversation/`
 
 The conversation surface (#410) renders a chat-style thread with role-attributed bubbles and a CLI-shaped composer. Layout primitives:
