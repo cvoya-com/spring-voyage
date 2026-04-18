@@ -1,4 +1,14 @@
 import "@testing-library/jest-dom/vitest";
+import "vitest-axe/extend-expect";
+import * as axeMatchers from "vitest-axe/matchers";
+import { expect } from "vitest";
+
+// Register the `toHaveNoViolations()` matcher used by the a11y smoke
+// tests in `src/test/a11y.ts`. Added once at setup so individual specs
+// don't need to wire it up themselves. See #446 — the portal now treats
+// axe-core violations on the smoke routes as regressions, so every new
+// route should add a matching spec via `expectNoAxeViolations()`.
+expect.extend(axeMatchers);
 
 // `cmdk` observes its list container to animate height, and Radix
 // primitives used elsewhere inspect it too — JSDOM doesn't ship

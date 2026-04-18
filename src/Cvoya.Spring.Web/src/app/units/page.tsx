@@ -348,8 +348,9 @@ function UnitDetailContent() {
                   size="icon"
                   onClick={() => removeMember.mutate(m.id!)}
                   title="Remove member"
+                  aria-label={`Remove ${m.scheme}://${m.path}`}
                 >
-                  <X className="h-3.5 w-3.5" />
+                  <X className="h-3.5 w-3.5" aria-hidden="true" />
                 </Button>
               )}
             </div>

@@ -336,6 +336,23 @@ Settings live in a right-aligned modal drawer triggered from the sidebar footer 
 
 - [`lucide-react`](https://lucide.dev). Sizes: `h-3 w-3` (inline meta), `h-3.5 w-3.5` (theme toggle), `h-4 w-4` (button icon, card section icon, severity dot wrapper), `h-5 w-5` (sidebar mobile menu, page H1 icon), `h-10 w-10` (empty-state icon).
 - Icons in CTAs never carry colour — they inherit `currentColor` from the surrounding text.
+- **Decorative icons carry `aria-hidden="true"`.** Any `lucide-react` glyph that sits next to its own text label (card title icons, severity dots, H1 icons, button leading/trailing icons) should be hidden from the accessibility tree so screen readers don't announce "graphic + label". Icon-only buttons still need a visible-but-hidden `aria-label` on the `<button>` / `<Link>`.
+
+### 7.16 Accessibility — `src/app/globals.css`, `src/components/sidebar.tsx`, `src/test/a11y.ts`
+
+The portal targets **WCAG 2.1 AA** (§ 7 of `docs/design/portal-exploration.md`). Add new surfaces with these constraints already satisfied:
+
+- **Skip link.** Every page starts with a visually-hidden "Skip to main content" anchor that targets `#main-content` — the `<main>` landmark in `AppShell`. The link pops back on-screen on focus (see `src/components/sidebar.tsx`); don't remove or re-parent it.
+- **Landmarks.** `AppShell` renders `<main id="main-content" tabIndex={-1}>`. Page roots should not introduce a second `<main>`; they use `<section>` / `<nav>` as appropriate.
+- **One `<h1>` per page.** The H1 matches the sidebar label. Section titles are `<h2>`; card titles use `<h3>` via `CardTitle`. Do not re-use `<h1>` for sub-sections.
+- **Icon-only buttons need `aria-label`.** The sidebar theme toggle, the sidebar open / close buttons, every `<Button size="icon">`, and the breadcrumb close / remove affordances all carry a concise label describing the action (`"Switch to dark mode"`, `"Remove agent://alpha/one"`). The icon glyph itself is `aria-hidden="true"`.
+- **`aria-expanded` / `aria-controls` on disclosures.** The mobile sidebar trigger uses `aria-expanded` against its drawer; settings opener uses `aria-haspopup="dialog"`. Mirror this on any new toggle.
+- **Tab primitives.** `src/components/ui/tabs.tsx` exposes WAI-ARIA roles (`tablist` / `tab` / `tabpanel`) with `aria-selected`, `aria-controls`, roving `tabindex`, and arrow-key / Home / End navigation. Callers get this for free by composing `<Tabs>` / `<TabsList>` / `<TabsTrigger>` / `<TabsContent>`.
+- **Live regions.** The shared `<ActivityFeed>` renders with `role="log" aria-live="polite" aria-relevant="additions"` so screen readers announce new SSE entries without re-announcing the whole feed. Conversation threads use the same pattern (`aria-live="polite"` on the scroll container).
+- **Focus management.** `Dialog` and `SettingsDrawer` move focus into the panel on open, trap `Tab` / `Shift+Tab` inside, and return focus to the opener on close. New overlays must preserve this contract.
+- **Forms.** Every `<input>` / `<select>` / `<textarea>` has either a wrapping `<label>` or an explicit `aria-label`. Placeholders are never the only label. The create-unit wizard and the activity page are the canonical examples.
+- **Reduced motion.** `src/app/globals.css` ships a `@media (prefers-reduced-motion: reduce)` block that drops animation / transition durations to ≈0. Never override `animate-*` classes on critical-path elements with inline styles that bypass this guard.
+- **Regression harness.** Smoke specs in `src/test/a11y-routes.test.tsx` run axe-core (via `vitest-axe`) against every top-level route and the shared shell primitives. Any new sidebar entry needs a matching `it(…)` that calls `expectNoAxeViolations(container)`. Contrast + rendered-geometry rules (`color-contrast`, `scrollable-region-focusable`) are disabled because JSDOM cannot compute styles — the DESIGN.md § 2 token locks plus the responsive pass cover those manually.
 
 ---
 

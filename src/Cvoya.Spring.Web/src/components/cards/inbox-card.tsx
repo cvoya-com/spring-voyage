@@ -89,7 +89,7 @@ export function InboxCard({ item, className }: InboxCardProps) {
             className="flex items-center gap-1 min-w-0"
             data-testid="inbox-from"
           >
-            <User className="h-3 w-3 shrink-0" />
+            <User className="h-3 w-3 shrink-0" aria-hidden="true" />
             <span className="truncate">
               From{" "}
               {fromLink ? (
@@ -109,7 +109,7 @@ export function InboxCard({ item, className }: InboxCardProps) {
             className="flex items-center gap-1"
             data-testid="inbox-pending-since"
           >
-            <Clock className="h-3 w-3" />
+            <Clock className="h-3 w-3" aria-hidden="true" />
             {timeAgo(item.pendingSince)}
           </span>
         </div>
@@ -121,7 +121,7 @@ export function InboxCard({ item, className }: InboxCardProps) {
             data-testid={`inbox-open-${item.conversationId}`}
           >
             Open thread
-            <ExternalLink className="h-3 w-3" />
+            <ExternalLink className="h-3 w-3" aria-hidden="true" />
           </Link>
         </div>
       </CardContent>

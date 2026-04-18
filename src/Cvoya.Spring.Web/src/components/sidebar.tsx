@@ -49,14 +49,17 @@ export function Sidebar({ onOpenSettings }: SidebarProps = {}) {
         <span className="text-lg font-bold">Spring Voyage</span>
         <button
           onClick={() => setMobileOpen(false)}
-          className="md:hidden rounded-md p-1 text-muted-foreground hover:text-foreground"
+          className="md:hidden rounded-md p-1 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           aria-label="Close sidebar"
         >
-          <X className="h-5 w-5" />
+          <X className="h-5 w-5" aria-hidden="true" />
         </button>
       </div>
 
-      <nav className="flex-1 space-y-4 px-2 py-2 overflow-y-auto">
+      <nav
+        aria-label="Primary"
+        className="flex-1 space-y-4 px-2 py-2 overflow-y-auto"
+      >
         {sections.map((section) => (
           <SidebarSection
             key={section.id}
@@ -80,7 +83,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps = {}) {
             data-testid="sidebar-settings-trigger"
             aria-haspopup="dialog"
           >
-            <Settings className="h-4 w-4" />
+            <Settings className="h-4 w-4" aria-hidden="true" />
             Settings
           </button>
         ) : null}
@@ -88,13 +91,14 @@ export function Sidebar({ onOpenSettings }: SidebarProps = {}) {
           <span className="text-xs text-muted-foreground">Spring Voyage v2</span>
           <button
             onClick={toggleTheme}
-            className="rounded-md p-1 text-muted-foreground hover:text-foreground"
+            className="rounded-md p-1 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+            aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
           >
             {theme === "dark" ? (
-              <Sun className="h-3.5 w-3.5" />
+              <Sun className="h-3.5 w-3.5" aria-hidden="true" />
             ) : (
-              <Moon className="h-3.5 w-3.5" />
+              <Moon className="h-3.5 w-3.5" aria-hidden="true" />
             )}
           </button>
         </div>
@@ -104,22 +108,39 @@ export function Sidebar({ onOpenSettings }: SidebarProps = {}) {
 
   return (
     <>
+      {/* Skip-to-content shortcut for keyboard users. Hidden visually
+          until focused; target is the `<main id="main-content">` landmark
+          rendered by `AppShell`. Matches the WCAG 2.1 "Bypass Blocks"
+          criterion (2.4.1). */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[100] focus:rounded-md focus:border focus:border-border focus:bg-card focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-foreground focus:shadow-lg focus:outline-none focus:ring-2 focus:ring-ring"
+        data-testid="skip-to-main"
+      >
+        Skip to main content
+      </a>
+
       <button
         onClick={() => setMobileOpen(true)}
-        className="fixed top-3 left-3 z-40 rounded-md border border-border bg-card p-2 text-muted-foreground hover:text-foreground md:hidden"
+        className="fixed top-3 left-3 z-40 rounded-md border border-border bg-card p-2 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:hidden"
         aria-label="Open sidebar"
+        aria-expanded={mobileOpen}
+        aria-controls="mobile-sidebar"
       >
-        <Menu className="h-5 w-5" />
+        <Menu className="h-5 w-5" aria-hidden="true" />
       </button>
 
       {mobileOpen && (
         <div
           className="fixed inset-0 z-40 bg-black/50 md:hidden"
           onClick={() => setMobileOpen(false)}
+          aria-hidden="true"
         />
       )}
 
       <aside
+        id="mobile-sidebar"
+        aria-label="Sidebar navigation"
         className={cn(
           "fixed inset-y-0 left-0 z-50 flex w-56 flex-col border-r border-border bg-card transition-transform duration-200 md:hidden",
           mobileOpen ? "translate-x-0" : "-translate-x-full"
@@ -128,7 +149,10 @@ export function Sidebar({ onOpenSettings }: SidebarProps = {}) {
         {sidebarContent}
       </aside>
 
-      <aside className="hidden md:flex h-screen w-56 flex-col border-r border-border bg-card">
+      <aside
+        aria-label="Sidebar navigation"
+        className="hidden md:flex h-screen w-56 flex-col border-r border-border bg-card"
+      >
         {sidebarContent}
       </aside>
     </>
@@ -196,14 +220,15 @@ function NavLink({ item, pathname }: { item: RouteEntry; pathname: string }) {
   return (
     <Link
       href={item.path}
+      aria-current={active ? "page" : undefined}
       className={cn(
-        "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
+        "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         active
           ? "bg-primary/10 text-primary font-medium"
           : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
       )}
     >
-      <Icon className="h-4 w-4" />
+      <Icon className="h-4 w-4" aria-hidden="true" />
       {item.label}
     </Link>
   );

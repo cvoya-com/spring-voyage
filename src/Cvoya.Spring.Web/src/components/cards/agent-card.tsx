@@ -131,12 +131,12 @@ export function AgentCard({
               aria-label={`Open parent unit ${parent}`}
               className="flex items-center gap-1 rounded-sm transition-colors hover:text-foreground"
             >
-              <Layers className="h-3 w-3" />
+              <Layers className="h-3 w-3" aria-hidden="true" />
               {parent}
             </Link>
           )}
           <span className="flex items-center gap-1">
-            <Clock className="h-3 w-3" />
+            <Clock className="h-3 w-3" aria-hidden="true" />
             {timeAgo(agent.registeredAt)}
           </span>
         </div>
@@ -180,7 +180,7 @@ export function AgentCard({
               data-testid={`agent-open-${agent.name}`}
             >
               Open
-              <ExternalLink className="h-3 w-3" />
+              <ExternalLink className="h-3 w-3" aria-hidden="true" />
             </Link>
           </div>
         </div>

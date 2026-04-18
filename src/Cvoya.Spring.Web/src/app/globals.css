@@ -69,3 +69,26 @@ body {
   background: var(--color-border);
   border-radius: 3px;
 }
+
+/* Respect `prefers-reduced-motion` for every in-portal animation
+ * (§ 7 of `docs/design/portal-exploration.md`). Includes Tailwind's
+ * `animate-spin` (refresh buttons) and `animate-in slide-in-from-*`
+ * (toasts / drawers / dialogs) utilities plus our own `transition-*`
+ * classes. Setting the duration to a hair under 1ms instead of 0 keeps
+ * `transitionend` listeners firing so React state machines that wait
+ * for a transition don't hang. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Visually-hidden utility. Tailwind's built-in `sr-only` already ships,
+ * but we also want a paired `not-sr-only` reveal used by the skip-link
+ * in `<Sidebar>` — `focus:not-sr-only` pulls the link back on-screen
+ * the moment it receives focus. */

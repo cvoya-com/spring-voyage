@@ -146,7 +146,7 @@ export function UnitCard({ unit, onDelete, className }: UnitCardProps) {
                 data-testid="unit-cost-badge"
                 title="Cost to date"
               >
-                <DollarSign className="h-3 w-3" />
+                <DollarSign className="h-3 w-3" aria-hidden="true" />
                 {formatCost(cost)}
               </Badge>
             )}
@@ -155,7 +155,7 @@ export function UnitCard({ unit, onDelete, className }: UnitCardProps) {
 
         <div className="mt-3 flex items-center gap-3 text-xs text-muted-foreground">
           <span className="flex items-center gap-1">
-            <Clock className="h-3 w-3" />
+            <Clock className="h-3 w-3" aria-hidden="true" />
             {timeAgo(unit.registeredAt)}
           </span>
           <UnitSparkline series={activitySeries} />
@@ -190,7 +190,7 @@ export function UnitCard({ unit, onDelete, className }: UnitCardProps) {
               data-testid={`unit-open-${unit.name}`}
             >
               Open
-              <ExternalLink className="h-3 w-3" />
+              <ExternalLink className="h-3 w-3" aria-hidden="true" />
             </Link>
             {onDelete && (
               <Button
@@ -201,7 +201,7 @@ export function UnitCard({ unit, onDelete, className }: UnitCardProps) {
                 data-testid={`unit-delete-${unit.name}`}
                 className="h-7 w-7"
               >
-                <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                <Trash2 className="h-3.5 w-3.5 text-destructive" aria-hidden="true" />
               </Button>
             )}
           </div>
