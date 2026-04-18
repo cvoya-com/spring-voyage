@@ -8,11 +8,11 @@
 //   operators see the local shell identity.
 // - Read-only token list from `GET /api/v1/auth/tokens` — CLI parity
 //   with `spring auth token list`.
-// - A "Sign out" button that clears any in-memory API token decorator
-//   state and reloads. OSS's default auth adapter has no state to
-//   clear; hosted extensions will replace the adapter and attach their
-//   own sign-out handler on the auth adapter itself (tracked by the
-//   auth-adapter seam in #440).
+//
+// OSS has no logged-in user concept, so no sign-out control is
+// rendered here (#589). Hosted extensions that introduce real
+// sessions can attach their own sign-out affordance via the auth
+// adapter seam (#440).
 //
 // Token **create** and **revoke** controls are deferred to #557 so a
 // shared "reveal once" primitive can land first — the CLI exposes
@@ -20,8 +20,6 @@
 
 import { useAuthContext } from "@/lib/extensions";
 import { useAuthTokens, useCurrentUser } from "@/lib/api/queries";
-
-import { Button } from "@/components/ui/button";
 
 export function AuthPanel() {
   const auth = useAuthContext();
@@ -40,17 +38,6 @@ export function AuthPanel() {
   const userId = serverUser?.userId ?? localUser?.id ?? null;
 
   const tokens = tokensQuery.data ?? [];
-
-  const handleSignOut = () => {
-    // The OSS auth adapter is stateless (daemon mode). A hosted auth
-    // adapter would attach its own sign-out side effect on the adapter
-    // itself via the extension seam (#440); this button hits that code
-    // path and then reloads so the shell re-renders with the
-    // default-adapter view.
-    if (typeof window !== "undefined") {
-      window.location.assign("/");
-    }
-  };
 
   return (
     <div className="space-y-4">
@@ -105,15 +92,6 @@ export function AuthPanel() {
           . Token create and revoke land in a follow-up (#557).
         </p>
       </div>
-
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={handleSignOut}
-        data-testid="settings-auth-signout"
-      >
-        Sign out
-      </Button>
     </div>
   );
 }
