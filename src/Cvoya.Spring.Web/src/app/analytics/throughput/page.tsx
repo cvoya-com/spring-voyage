@@ -122,8 +122,16 @@ function AnalyticsThroughputContent() {
               No throughput in this window.
             </p>
           ) : (
-            <ul className="divide-y divide-border">
-              <li className="grid grid-cols-[1fr_repeat(5,auto)] items-center gap-3 pb-2 text-xs font-medium text-muted-foreground">
+            // Narrow viewports collapse the 6-column grid into a
+            // stacked row: each row renders the source + bar on top and
+            // a 2×2 (plus total) metrics grid below. On sm+ we restore
+            // the original grid so the wide layout reads as a compact
+            // table.
+            <ul className="divide-y divide-border" data-testid="throughput-list">
+              <li
+                className="hidden items-center gap-3 pb-2 text-xs font-medium text-muted-foreground sm:grid sm:grid-cols-[1fr_repeat(5,auto)]"
+                aria-hidden="true"
+              >
                 <span>Source</span>
                 <span className="w-16 text-right">Received</span>
                 <span className="w-16 text-right">Sent</span>
@@ -145,7 +153,7 @@ function AnalyticsThroughputContent() {
                 return (
                   <li
                     key={entry.source}
-                    className="grid grid-cols-[1fr_repeat(5,auto)] items-center gap-3 py-2 text-sm"
+                    className="flex flex-col gap-2 py-2 text-sm sm:grid sm:grid-cols-[1fr_repeat(5,auto)] sm:items-center sm:gap-3"
                   >
                     <div className="min-w-0">
                       <div className="truncate font-mono text-xs">
@@ -170,19 +178,53 @@ function AnalyticsThroughputContent() {
                         />
                       </div>
                     </div>
-                    <span className="w-16 text-right tabular-nums">
+                    {/* Mobile: 2×2 stat grid under the bar.
+                        sm+: restore the legacy per-column cells. */}
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs sm:hidden">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Received</span>
+                        <span className="tabular-nums">
+                          {n(entry.messagesReceived).toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Sent</span>
+                        <span className="tabular-nums">
+                          {n(entry.messagesSent).toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Turns</span>
+                        <span className="tabular-nums">
+                          {n(entry.turns).toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Tool calls</span>
+                        <span className="tabular-nums">
+                          {n(entry.toolCalls).toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="col-span-2 flex justify-between border-t border-border pt-1">
+                        <span className="text-muted-foreground">Total</span>
+                        <span className="font-medium tabular-nums">
+                          {total.toLocaleString()}
+                        </span>
+                      </div>
+                    </div>
+                    <span className="hidden w-16 text-right tabular-nums sm:inline">
                       {n(entry.messagesReceived).toLocaleString()}
                     </span>
-                    <span className="w-16 text-right tabular-nums">
+                    <span className="hidden w-16 text-right tabular-nums sm:inline">
                       {n(entry.messagesSent).toLocaleString()}
                     </span>
-                    <span className="w-16 text-right tabular-nums">
+                    <span className="hidden w-16 text-right tabular-nums sm:inline">
                       {n(entry.turns).toLocaleString()}
                     </span>
-                    <span className="w-20 text-right tabular-nums">
+                    <span className="hidden w-20 text-right tabular-nums sm:inline">
                       {n(entry.toolCalls).toLocaleString()}
                     </span>
-                    <span className="w-14 text-right font-medium tabular-nums">
+                    <span className="hidden w-14 text-right font-medium tabular-nums sm:inline">
                       {total.toLocaleString()}
                     </span>
                   </li>

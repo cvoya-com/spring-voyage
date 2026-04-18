@@ -230,7 +230,9 @@ export function AnalyticsFiltersBar({
                 onScopeChange({ kind: scope.kind, name: e.target.value })
               }
               placeholder={scope.kind === "unit" ? "eng-team" : "ada"}
-              className="h-8 w-40 rounded-md border border-input bg-background px-2 font-mono text-xs"
+              // Fluid width on mobile so the input never overflows the
+              // 375px card, fixed 10rem (w-40) strip on sm+.
+              className="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2 font-mono text-xs sm:w-40 sm:flex-none"
             />
           )}
         </div>

@@ -77,7 +77,7 @@ function UnitListContent() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Network className="h-5 w-5" /> Units
@@ -86,7 +86,7 @@ function UnitListContent() {
             Registered units in this environment.
           </p>
         </div>
-        <Link href="/units/create">
+        <Link href="/units/create" className="self-start sm:self-auto">
           <Button>
             <Plus className="h-4 w-4 mr-1" /> New unit
           </Button>
@@ -268,16 +268,17 @@ function UnitDetailContent() {
           { label: unit.displayName || unit.name },
         ]}
       />
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">{unit.displayName}</h1>
-          <p className="text-sm text-muted-foreground">{unit.name}</p>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="truncate text-2xl font-bold">{unit.displayName}</h1>
+          <p className="truncate text-sm text-muted-foreground">{unit.name}</p>
         </div>
         <Button
           variant="destructive"
           size="sm"
           onClick={() => deleteUnit.mutate()}
           disabled={deleteUnit.isPending}
+          className="self-start sm:self-auto"
         >
           <X className="h-4 w-4 mr-1" /> Delete
         </Button>
@@ -354,23 +355,27 @@ function UnitDetailContent() {
             </div>
           ))}
 
-          {/* Add member form */}
-          <div className="flex gap-2 pt-2">
-            <select
-              value={memberScheme}
-              onChange={(e) => setMemberScheme(e.target.value)}
-              className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-            >
-              <option value="agent">agent</option>
-              <option value="unit">unit</option>
-            </select>
-            <Input
-              placeholder="Member path (e.g., my-agent)"
-              value={memberPath}
-              onChange={(e) => setMemberPath(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleAddMember()}
-            />
-            <Button size="sm" onClick={handleAddMember}>
+          {/* Add member form — scheme + path wrap side-by-side, and the
+              button drops onto its own row at narrow widths. */}
+          <div className="flex flex-col gap-2 pt-2 sm:flex-row">
+            <div className="flex gap-2">
+              <select
+                value={memberScheme}
+                onChange={(e) => setMemberScheme(e.target.value)}
+                className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                aria-label="Member scheme"
+              >
+                <option value="agent">agent</option>
+                <option value="unit">unit</option>
+              </select>
+              <Input
+                placeholder="Member path (e.g., my-agent)"
+                value={memberPath}
+                onChange={(e) => setMemberPath(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleAddMember()}
+              />
+            </div>
+            <Button size="sm" onClick={handleAddMember} className="self-start sm:self-auto">
               <Plus className="h-4 w-4 mr-1" /> Add
             </Button>
           </div>

@@ -106,6 +106,9 @@ export default function DirectoryPage() {
       </div>
 
       <Card>
+        {/* Directory filters stack on mobile (each input occupies the full
+            card width) and fan out to a 1fr + two 160px + button grid on
+            sm+. Keeps the "one line per field" rhythm on a 375px pane. */}
         <CardContent className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-[1fr_160px_160px_auto]">
           <label className="block space-y-1">
             <span className="text-xs text-muted-foreground">Search</span>
@@ -214,7 +217,7 @@ export default function DirectoryPage() {
         </Card>
       )}
 
-      <div className="flex items-center justify-between text-xs text-muted-foreground">
+      <div className="flex flex-col gap-2 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
         <span>
           Showing {filteredHits.length} of {totalCount} entries
           {ownerFilter && " (owner filter applied client-side)"}

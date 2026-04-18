@@ -86,11 +86,16 @@ describe("AnalyticsWaitsPage", () => {
       expect(screen.getByText("agent://ada")).toBeInTheDocument();
     });
     // formatDuration: 120s → "2m 0s", 60s → "1m 0s", 30s → "30s".
-    expect(screen.getByText("2m 0s")).toBeInTheDocument();
-    expect(screen.getByText("1m 0s")).toBeInTheDocument();
-    expect(screen.getByText("30s")).toBeInTheDocument();
+    // The row layout renders each value twice (once in the mobile 2×2
+    // grid, once in the desktop table row — the responsive pass in
+    // #445 stacks rows on narrow viewports and the desktop cells are
+    // just hidden, not unmounted), so use `getAllByText` and assert
+    // at least one match.
+    expect(screen.getAllByText("2m 0s").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("1m 0s").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("30s").length).toBeGreaterThan(0);
     // StateTransitions counter is rendered.
-    expect(screen.getByText("12")).toBeInTheDocument();
+    expect(screen.getAllByText("12").length).toBeGreaterThan(0);
   });
 
   it("renders the empty state when no transitions occurred", async () => {

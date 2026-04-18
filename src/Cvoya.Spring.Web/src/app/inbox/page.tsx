@@ -35,7 +35,7 @@ export default function InboxPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <InboxIcon className="h-5 w-5" /> Inbox
@@ -59,6 +59,7 @@ export default function InboxPage() {
           onClick={() => inboxQuery.refetch()}
           disabled={inboxQuery.isFetching}
           data-testid="inbox-refresh"
+          className="self-start sm:self-auto"
         >
           <RefreshCw
             className={`h-4 w-4 mr-1 ${

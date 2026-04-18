@@ -284,17 +284,22 @@ export default function UnitConfigClient({ id }: ClientProps) {
         ]}
       />
 
-      <div className="flex items-center gap-3">
-        <span
-          aria-label="Unit color"
-          className="inline-block h-6 w-6 rounded-full border border-border"
-          style={{ backgroundColor: colorSwatch }}
-        />
-        <div>
-          <h1 className="text-2xl font-bold">{unit.displayName || unit.name}</h1>
-          <p className="text-sm text-muted-foreground">{unit.name}</p>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="flex items-center gap-3">
+          <span
+            aria-label="Unit color"
+            className="inline-block h-6 w-6 shrink-0 rounded-full border border-border"
+            style={{ backgroundColor: colorSwatch }}
+          />
+          <div className="min-w-0">
+            <h1 className="truncate text-2xl font-bold">{unit.displayName || unit.name}</h1>
+            <p className="truncate text-sm text-muted-foreground">{unit.name}</p>
+          </div>
         </div>
-        <div className="ml-auto flex items-center gap-2">
+        {/* Action row: wraps to a second line on narrow viewports so
+            Start / Stop / Delete stay reachable at 375px, and sits to
+            the right on sm+ so the header reads as a single strip. */}
+        <div className="flex flex-wrap items-center gap-2 sm:ml-auto sm:flex-nowrap">
           <Badge variant={statusBadgeVariant(status)}>{status}</Badge>
           <Button
             size="sm"

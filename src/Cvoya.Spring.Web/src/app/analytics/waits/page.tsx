@@ -140,8 +140,15 @@ function AnalyticsWaitsContent() {
               No state transitions in this window.
             </p>
           ) : (
-            <ul className="space-y-3">
-              <li className="grid grid-cols-[1fr_repeat(4,auto)] items-center gap-3 text-xs font-medium text-muted-foreground">
+            // See the throughput page for the parallel pattern: the
+            // grid header disappears on mobile, the row turns into a
+            // stacked block with a 2×2 metrics grid, and sm+ restores
+            // the compact table.
+            <ul className="space-y-3" data-testid="waits-list">
+              <li
+                className="hidden items-center gap-3 text-xs font-medium text-muted-foreground sm:grid sm:grid-cols-[1fr_repeat(4,auto)]"
+                aria-hidden="true"
+              >
                 <span>Source</span>
                 <span className="w-16 text-right">Idle</span>
                 <span className="w-16 text-right">Busy</span>
@@ -170,7 +177,7 @@ function AnalyticsWaitsContent() {
                 return (
                   <li
                     key={entry.source}
-                    className="grid grid-cols-[1fr_repeat(4,auto)] items-center gap-3 text-sm"
+                    className="flex flex-col gap-2 text-sm sm:grid sm:grid-cols-[1fr_repeat(4,auto)] sm:items-center sm:gap-3"
                   >
                     <div className="min-w-0">
                       <div className="truncate font-mono text-xs">
@@ -211,16 +218,42 @@ function AnalyticsWaitsContent() {
                         </div>
                       </div>
                     </div>
-                    <span className="w-16 text-right tabular-nums">
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs sm:hidden">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Idle</span>
+                        <span className="tabular-nums">
+                          {formatDuration(idle)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Busy</span>
+                        <span className="tabular-nums">
+                          {formatDuration(busy)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Waiting</span>
+                        <span className="tabular-nums">
+                          {formatDuration(waiting)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Transitions</span>
+                        <span className="tabular-nums">
+                          {n(entry.stateTransitions).toLocaleString()}
+                        </span>
+                      </div>
+                    </div>
+                    <span className="hidden w-16 text-right tabular-nums sm:inline">
                       {formatDuration(idle)}
                     </span>
-                    <span className="w-16 text-right tabular-nums">
+                    <span className="hidden w-16 text-right tabular-nums sm:inline">
                       {formatDuration(busy)}
                     </span>
-                    <span className="w-20 text-right tabular-nums">
+                    <span className="hidden w-20 text-right tabular-nums sm:inline">
                       {formatDuration(waiting)}
                     </span>
-                    <span className="w-20 text-right tabular-nums text-muted-foreground">
+                    <span className="hidden w-20 text-right tabular-nums text-muted-foreground sm:inline">
                       {n(entry.stateTransitions).toLocaleString()}
                     </span>
                   </li>

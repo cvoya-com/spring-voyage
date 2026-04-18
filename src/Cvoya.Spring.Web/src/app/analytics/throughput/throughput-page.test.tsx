@@ -93,8 +93,12 @@ describe("AnalyticsThroughputPage", () => {
       expect(screen.getByText("unit://eng-team")).toBeInTheDocument();
     });
     expect(screen.getByText("agent://ada")).toBeInTheDocument();
-    // Total = 30+20+10+5 = 65 for eng-team (highest).
-    expect(screen.getByText("65")).toBeInTheDocument();
+    // Total = 30+20+10+5 = 65 for eng-team (highest). The row is
+    // rendered twice per the responsive pass (#445): once as the
+    // mobile 2×2 grid, once as the hidden-on-mobile table cells. Use
+    // `getAllByText` so the test is agnostic to which layout is
+    // currently visible.
+    expect(screen.getAllByText("65").length).toBeGreaterThan(0);
     // Sort: eng-team's row renders before ada's.
     const rowTexts = screen.getAllByRole("link").map((el) => el.textContent);
     const engIdx = rowTexts.findIndex((t) => t === "unit://eng-team");

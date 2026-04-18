@@ -212,7 +212,7 @@ function AgentsLensContent() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold">
             <Users className="h-5 w-5" /> Agents
@@ -231,6 +231,7 @@ function AgentsLensContent() {
           onClick={() => agentsQuery.refetch()}
           disabled={agentsQuery.isFetching}
           data-testid="agents-refresh"
+          className="self-start sm:self-auto"
         >
           <RefreshCw
             className={`h-4 w-4 mr-1 ${
@@ -241,11 +242,13 @@ function AgentsLensContent() {
         </Button>
       </div>
 
-      {/* Filter bar */}
+      {/* Filter bar — each label stretches full-width on mobile so the
+          text inputs don't clip under 375px, and snaps back to its
+          intrinsic width on sm+. */}
       <Card>
         <CardContent className="p-4">
           <div className="flex flex-wrap gap-3">
-            <label className="space-y-1">
+            <label className="block w-full space-y-1 sm:w-auto">
               <span className="text-xs text-muted-foreground">Search</span>
               <Input
                 type="search"
@@ -258,12 +261,12 @@ function AgentsLensContent() {
                     updateParam("q", e.currentTarget.value.trim());
                   }
                 }}
-                className="w-56"
+                className="w-full sm:w-56"
                 aria-label="Search agents"
                 data-testid="agents-filter-q"
               />
             </label>
-            <label className="space-y-1">
+            <label className="block w-full space-y-1 sm:w-auto">
               <span className="text-xs text-muted-foreground">Unit</span>
               <Input
                 placeholder="e.g. engineering"
@@ -275,17 +278,17 @@ function AgentsLensContent() {
                     updateParam("unit", e.currentTarget.value.trim());
                   }
                 }}
-                className="w-44"
+                className="w-full sm:w-44"
                 aria-label="Filter by owning unit"
                 data-testid="agents-filter-unit"
               />
             </label>
-            <label className="space-y-1">
+            <label className="block w-full space-y-1 sm:w-auto">
               <span className="text-xs text-muted-foreground">Status</span>
               <select
                 value={statusFilter}
                 onChange={(e) => updateParam("status", e.target.value)}
-                className="flex h-9 w-36 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring sm:w-36"
                 aria-label="Filter by status"
                 data-testid="agents-filter-status"
               >
@@ -296,7 +299,7 @@ function AgentsLensContent() {
                 ))}
               </select>
             </label>
-            <label className="space-y-1">
+            <label className="block w-full space-y-1 sm:w-auto">
               <span className="flex items-center gap-1 text-xs text-muted-foreground">
                 <GraduationCap className="h-3 w-3" />
                 Expertise
@@ -315,17 +318,17 @@ function AgentsLensContent() {
                     );
                   }
                 }}
-                className="w-56"
+                className="w-full sm:w-56"
                 aria-label="Filter by expertise"
                 data-testid="agents-filter-expertise"
               />
             </label>
-            <label className="space-y-1">
+            <label className="block w-full space-y-1 sm:w-auto">
               <span className="text-xs text-muted-foreground">Group by</span>
               <select
                 value={grouping}
                 onChange={(e) => updateParam("group", e.target.value)}
-                className="flex h-9 w-36 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring sm:w-36"
                 aria-label="Grouping"
                 data-testid="agents-filter-group"
               >

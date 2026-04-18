@@ -90,31 +90,35 @@ function EventRow({
       <button
         type="button"
         onClick={onToggle}
-        className="flex w-full items-start gap-3 py-3 text-left hover:bg-accent/50 px-2 rounded-md transition-colors"
+        className="flex w-full items-start gap-2 py-3 text-left hover:bg-accent/50 px-2 rounded-md transition-colors"
       >
         {expanded ? (
           <ChevronDown className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
         ) : (
           <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
         )}
-        <span className="text-xs text-muted-foreground mt-0.5 shrink-0 w-16">
-          {timeAgo(event.timestamp)}
-        </span>
-        <Badge variant="outline" className="shrink-0 text-xs">
-          {event.source}
-        </Badge>
-        <span className="text-xs text-muted-foreground shrink-0">
-          {event.eventType}
-        </span>
-        <Badge
-          variant={
-            severityVariant[event.severity as ActivitySeverity] ?? "default"
-          }
-          className="shrink-0"
-        >
-          {event.severity}
-        </Badge>
-        <span className="min-w-0 flex-1 truncate text-sm">{event.summary}</span>
+        {/* Row reflow at narrow widths: summary on top, metadata
+            (time, source, event type, severity) wraps beneath. sm+
+            restores the single-row inline layout. */}
+        <div className="min-w-0 flex-1 space-y-1">
+          <p className="truncate text-sm">{event.summary}</p>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <span className="tabular-nums">
+              {timeAgo(event.timestamp)}
+            </span>
+            <Badge variant="outline" className="max-w-full truncate text-xs">
+              {event.source}
+            </Badge>
+            <span>{event.eventType}</span>
+            <Badge
+              variant={
+                severityVariant[event.severity as ActivitySeverity] ?? "default"
+              }
+            >
+              {event.severity}
+            </Badge>
+          </div>
+        </div>
       </button>
       {expanded && (
         <div className="ml-10 mb-3 rounded-md border border-border bg-muted/30 p-3 text-sm space-y-1">
@@ -226,13 +230,14 @@ export default function ActivityPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-2xl font-bold">Activity</h1>
         <Button
           variant="outline"
           size="sm"
           onClick={() => refetch()}
           disabled={loading}
+          className="self-start sm:self-auto"
         >
           <RefreshCw
             className={`h-4 w-4 mr-1 ${loading ? "animate-spin" : ""}`}
@@ -241,27 +246,29 @@ export default function ActivityPage() {
         </Button>
       </div>
 
-      {/* Filters */}
+      {/* Filters — each input spans the full card width on mobile so
+          the inputs never clip at 375px. sm+ snaps back to the
+          intrinsic widths so the bar reads as a compact strip. */}
       <Card>
         <CardContent className="pt-4">
           <div className="flex flex-wrap gap-3">
-            <label className="space-y-1">
+            <label className="block w-full space-y-1 sm:w-auto">
               <span className="text-xs text-muted-foreground">Source</span>
               <Input
                 placeholder="e.g. unit:my-unit"
                 value={filters.source}
                 onChange={(e) => handleFilterChange("source", e.target.value)}
-                className="w-48"
+                className="w-full sm:w-48"
               />
             </label>
-            <label className="space-y-1">
+            <label className="block w-full space-y-1 sm:w-auto">
               <span className="text-xs text-muted-foreground">Event Type</span>
               <select
                 value={filters.eventType}
                 onChange={(e) =>
                   handleFilterChange("eventType", e.target.value)
                 }
-                className="flex h-9 w-48 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring sm:w-48"
               >
                 <option value="">All types</option>
                 {eventTypes.map((t) => (
@@ -271,14 +278,14 @@ export default function ActivityPage() {
                 ))}
               </select>
             </label>
-            <label className="space-y-1">
+            <label className="block w-full space-y-1 sm:w-auto">
               <span className="text-xs text-muted-foreground">Severity</span>
               <select
                 value={filters.severity}
                 onChange={(e) =>
                   handleFilterChange("severity", e.target.value)
                 }
-                className="flex h-9 w-36 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring sm:w-36"
               >
                 <option value="">All</option>
                 {severities.map((s) => (
