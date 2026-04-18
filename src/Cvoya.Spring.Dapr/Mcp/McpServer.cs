@@ -48,6 +48,16 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
     private Task? _acceptLoop;
     private int _boundPort;
 
+    // HttpListener maintains a process-wide HttpEndPointManager keyed by (host, port).
+    // When multiple McpServer instances concurrently probe for a free loopback port,
+    // they can race each other into the same slot — one wins Start(), the other loses
+    // with "Address already in use", and on .NET the loser's internal prefix state can
+    // even resurface as an EADDRINUSE during a later Close()/Dispose(). Serializing the
+    // "pick free port + Start()" atom within the process eliminates the in-process race;
+    // the retry loop still covers cross-process collisions (other test binaries, leftover
+    // listeners). See #595.
+    private static readonly object s_bindLock = new();
+
     /// <summary>
     /// Initializes the server with the set of registries to expose. The server
     /// does not start until <see cref="StartAsync"/> is invoked by the host.
@@ -106,16 +116,14 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
     /// <inheritdoc />
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        var port = _options.Port;
-        if (port == 0)
-        {
-            port = PickFreePort();
-        }
-
+        // Binding can race with other loopback listeners (notably parallel xUnit
+        // assemblies or a leftover process grabbing the same ephemeral port between
+        // PickFreePort() and HttpListener.Start()). When the port is 0 (OS-picked)
+        // we retry with a fresh port on Address-In-Use; for a caller-specified port
+        // we surface the error immediately because retrying wouldn't help. See #595.
+        var (listener, port) = BindListenerWithRetry(cancellationToken);
         _boundPort = port;
-        _listener = new HttpListener();
-        _listener.Prefixes.Add($"http://127.0.0.1:{port}/mcp/");
-        _listener.Start();
+        _listener = listener;
 
         Endpoint = $"http://{_options.ContainerHost}:{port}/mcp/";
 
@@ -127,6 +135,66 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
             port, Endpoint);
 
         return Task.CompletedTask;
+    }
+
+    private (HttpListener Listener, int Port) BindListenerWithRetry(CancellationToken cancellationToken)
+    {
+        const int maxAttempts = 8;
+        var allowPortRoll = _options.Port == 0;
+
+        HttpListenerException? lastException = null;
+        for (var attempt = 0; attempt < maxAttempts; attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            HttpListener? listener = null;
+            int port;
+            lock (s_bindLock)
+            {
+                port = _options.Port == 0 ? PickFreePort() : _options.Port;
+                listener = new HttpListener();
+                listener.Prefixes.Add($"http://127.0.0.1:{port}/mcp/");
+                try
+                {
+                    listener.Start();
+                    return (listener, port);
+                }
+                catch (HttpListenerException ex)
+                {
+                    lastException = ex;
+                    SafeAbort(listener);
+
+                    if (!allowPortRoll)
+                    {
+                        throw;
+                    }
+                }
+            }
+
+            _logger.LogDebug(
+                lastException,
+                "MCP server bind attempt {Attempt} on port {Port} failed with HttpListenerException (ErrorCode={ErrorCode}); retrying.",
+                attempt + 1, port, lastException?.ErrorCode);
+
+            // Tiny exponential backoff — losing the race once is common under load;
+            // losing it 8 times in a row is essentially impossible on a healthy host.
+            var delayMs = Math.Min(25 * (1 << attempt), 250);
+            Thread.Sleep(delayMs);
+        }
+
+        throw new HttpListenerException(
+            lastException?.ErrorCode ?? 0,
+            $"Failed to bind MCP server on 127.0.0.1 after {maxAttempts} attempts.");
+    }
+
+    private static void SafeAbort(HttpListener listener)
+    {
+        // HttpListener.Close/Dispose on a listener that failed to Start can itself
+        // throw HttpListenerException while the endpoint manager re-examines its
+        // internal state. Swallow — the listener never took ownership of anything
+        // we care about.
+        try { listener.Abort(); } catch { /* best-effort */ }
+        try { (listener as IDisposable)?.Dispose(); } catch { /* best-effort */ }
     }
 
     /// <inheritdoc />
@@ -151,6 +219,11 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
         {
             // Listener already disposed; nothing to do.
         }
+        catch (HttpListenerException)
+        {
+            // Endpoint manager state collision on shutdown — same class of race as
+            // documented on Dispose(). Safe to swallow: we're tearing down anyway.
+        }
 
         if (_acceptLoop is not null)
         {
@@ -171,7 +244,24 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
     public void Dispose()
     {
         _acceptCts?.Dispose();
-        (_listener as IDisposable)?.Dispose();
+        // HttpListener.Dispose() internally calls RemoveListener → RemovePrefixInternal →
+        // GetEPListener against its process-wide endpoint manager. Under parallel test
+        // load the manager's (host, port) entry can be held by another listener that
+        // won the race for the same ephemeral port, and Dispose() surfaces that state
+        // as HttpListenerException("Address already in use"). Nothing useful happens
+        // after teardown — swallow to keep test fixtures clean. See #595.
+        try
+        {
+            (_listener as IDisposable)?.Dispose();
+        }
+        catch (HttpListenerException)
+        {
+            // Endpoint manager state collision — port is already being reclaimed.
+        }
+        catch (ObjectDisposedException)
+        {
+            // Idempotent Dispose.
+        }
         GC.SuppressFinalize(this);
     }
 
