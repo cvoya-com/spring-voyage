@@ -37,7 +37,12 @@ public interface IExpertiseSeedProvider
     /// Returns <c>null</c> when no seed was declared (no definition or no
     /// <c>expertise:</c> block); an empty array means "declared empty".
     /// </summary>
-    /// <param name="agentId">The agent identifier (the YAML <c>agent.id</c>).</param>
+    /// <param name="agentId">
+    /// The Dapr actor id for the agent. The production caller is
+    /// <c>AgentActor.OnActivateAsync</c>, which passes <c>Id.GetId()</c>.
+    /// Implementations match on the actor id alone; a user-facing-name
+    /// lookup would need a dedicated overload (#519).
+    /// </param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     Task<IReadOnlyList<ExpertiseDomain>?> GetAgentSeedAsync(
         string agentId,
@@ -48,7 +53,12 @@ public interface IExpertiseSeedProvider
     /// Returns <c>null</c> when no seed was declared; an empty array means
     /// "declared empty".
     /// </summary>
-    /// <param name="unitId">The unit identifier (the YAML <c>unit.name</c>).</param>
+    /// <param name="unitId">
+    /// The Dapr actor id for the unit. The production caller is
+    /// <c>UnitActor.OnActivateAsync</c>, which passes <c>Id.GetId()</c>.
+    /// Implementations match on the actor id alone; a user-facing-name
+    /// lookup would need a dedicated overload (#519).
+    /// </param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     Task<IReadOnlyList<ExpertiseDomain>?> GetUnitSeedAsync(
         string unitId,

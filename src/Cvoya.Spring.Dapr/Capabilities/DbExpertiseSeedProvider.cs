@@ -41,12 +41,12 @@ public class DbExpertiseSeedProvider(
 
     /// <inheritdoc />
     /// <remarks>
-    /// <paramref name="agentId"/> may be either the user-facing agent name
-    /// (<c>AgentDefinitionEntity.AgentId</c>) or the Dapr actor id
-    /// (<c>AgentDefinitionEntity.ActorId</c>) — actor activation passes
-    /// <c>Id.GetId()</c> which is the actor GUID, but CLI tests pass the
-    /// user-facing name. Both are accepted so callers in either position
-    /// resolve to the same row.
+    /// <paramref name="agentId"/> is the Dapr actor id
+    /// (<c>AgentDefinitionEntity.ActorId</c>). The sole production caller is
+    /// <c>AgentActor.OnActivateAsync</c>, which passes <c>Id.GetId()</c> —
+    /// always the actor GUID. Matching on <c>ActorId</c> alone avoids a
+    /// latent collision where a row's <c>ActorId</c> (a GUID string) happens
+    /// to equal another agent's user-facing <c>AgentId</c> (#519).
     /// </remarks>
     public async Task<IReadOnlyList<ExpertiseDomain>?> GetAgentSeedAsync(
         string agentId,
@@ -65,7 +65,7 @@ public class DbExpertiseSeedProvider(
             var entity = await db.AgentDefinitions
                 .AsNoTracking()
                 .FirstOrDefaultAsync(
-                    a => (a.AgentId == agentId || a.ActorId == agentId) && a.DeletedAt == null,
+                    a => a.ActorId == agentId && a.DeletedAt == null,
                     cancellationToken);
 
             return entity is null ? null : ExtractExpertise(entity.Definition);
@@ -84,12 +84,12 @@ public class DbExpertiseSeedProvider(
 
     /// <inheritdoc />
     /// <remarks>
-    /// <paramref name="unitId"/> may be either the user-facing unit name
-    /// (<c>UnitDefinitionEntity.UnitId</c>) or the Dapr actor id
-    /// (<c>UnitDefinitionEntity.ActorId</c>) — actor activation passes
-    /// <c>Id.GetId()</c> which is the actor GUID, but CLI tests pass the
-    /// user-facing name. Both are accepted so callers in either position
-    /// resolve to the same row.
+    /// <paramref name="unitId"/> is the Dapr actor id
+    /// (<c>UnitDefinitionEntity.ActorId</c>). The sole production caller is
+    /// <c>UnitActor.OnActivateAsync</c>, which passes <c>Id.GetId()</c> —
+    /// always the actor GUID. Matching on <c>ActorId</c> alone avoids a
+    /// latent collision where a row's <c>ActorId</c> (a GUID string) happens
+    /// to equal another unit's user-facing <c>UnitId</c> (#519).
     /// </remarks>
     public async Task<IReadOnlyList<ExpertiseDomain>?> GetUnitSeedAsync(
         string unitId,
@@ -108,7 +108,7 @@ public class DbExpertiseSeedProvider(
             var entity = await db.UnitDefinitions
                 .AsNoTracking()
                 .FirstOrDefaultAsync(
-                    u => (u.UnitId == unitId || u.ActorId == unitId) && u.DeletedAt == null,
+                    u => u.ActorId == unitId && u.DeletedAt == null,
                     cancellationToken);
 
             return entity is null ? null : ExtractExpertise(entity.Definition);
