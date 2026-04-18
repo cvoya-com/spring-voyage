@@ -3,7 +3,6 @@
 
 namespace Cvoya.Spring.Host.Api.Services;
 
-using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Dapr.Skills;
 using Cvoya.Spring.Host.Api.Auth;
 
@@ -30,13 +29,6 @@ public static class ServiceCollectionExtensions
     {
         services.TryAddScoped<IUnitCreationService, UnitCreationService>();
         services.TryAddScoped<IAuthenticatedCallerAccessor, AuthenticatedCallerAccessor>();
-
-        // Connector persistence ports. Connector packages consume these
-        // abstractions, the API project provides the concrete actor-backed
-        // implementations. TryAdd so the cloud repo can substitute tenant-
-        // scoped implementations.
-        services.TryAddSingleton<IUnitConnectorConfigStore, UnitActorConnectorConfigStore>();
-        services.TryAddSingleton<IUnitConnectorRuntimeStore, UnitActorConnectorRuntimeStore>();
 
         var configuredRoot = configuration["Packages:Root"]
             ?? System.Environment.GetEnvironmentVariable("SPRING_PACKAGES_ROOT");

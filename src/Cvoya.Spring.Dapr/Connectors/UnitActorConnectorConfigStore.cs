@@ -1,7 +1,7 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-namespace Cvoya.Spring.Host.Api.Services;
+namespace Cvoya.Spring.Dapr.Connectors;
 
 using System.Text.Json;
 

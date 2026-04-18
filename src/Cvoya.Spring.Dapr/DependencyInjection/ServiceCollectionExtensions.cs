@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Dapr.DependencyInjection;
 
+using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Cloning;
 using Cvoya.Spring.Core.Costs;
@@ -21,6 +22,7 @@ using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Capabilities;
 using Cvoya.Spring.Dapr.Cloning;
+using Cvoya.Spring.Dapr.Connectors;
 using Cvoya.Spring.Dapr.Costs;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
@@ -229,6 +231,16 @@ public static class ServiceCollectionExtensions
 
         // Boundary store (#413) — backed by the unit actor's own state.
         services.TryAddSingleton<IUnitBoundaryStore, ActorBackedUnitBoundaryStore>();
+
+        // Connector persistence ports. Connector packages (GitHub, Arxiv,
+        // WebSearch, …) consume these abstractions via constructor
+        // injection — including from skills that both the API and the
+        // Worker host register — so the defaults must live in the shared
+        // Dapr module rather than in a host-specific composition root.
+        // TryAdd so the private cloud repo can substitute tenant-scoped
+        // implementations.
+        services.TryAddSingleton<IUnitConnectorConfigStore, UnitActorConnectorConfigStore>();
+        services.TryAddSingleton<IUnitConnectorRuntimeStore, UnitActorConnectorRuntimeStore>();
 
         // Register the base aggregator as a concrete singleton so the
         // boundary decorator can take a typed inner reference. Tests that
