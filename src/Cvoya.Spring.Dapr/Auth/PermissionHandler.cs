@@ -42,11 +42,15 @@ public class PermissionHandler(
             return;
         }
 
-        var permission = await permissionService.ResolvePermissionAsync(userId, unitId);
+        // Hierarchy-aware check (#414): ancestor grants cascade down to
+        // descendant units by default. An explicit direct grant on the
+        // target unit still wins; units marked Isolated stop the ancestor
+        // walk. See IPermissionService.ResolveEffectivePermissionAsync.
+        var permission = await permissionService.ResolveEffectivePermissionAsync(userId, unitId);
         if (permission is null)
         {
             _logger.LogWarning(
-                "Permission check failed: user {UserId} has no permission in unit {UnitId}",
+                "Permission check failed: user {UserId} has no effective permission in unit {UnitId}",
                 userId, unitId);
             return;
         }

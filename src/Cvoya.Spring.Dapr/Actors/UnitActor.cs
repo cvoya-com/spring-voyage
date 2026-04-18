@@ -437,6 +437,42 @@ public class UnitActor : Actor, IUnitActor
     }
 
     /// <inheritdoc />
+    public async Task<UnitPermissionInheritance> GetPermissionInheritanceAsync(CancellationToken ct = default)
+    {
+        var result = await StateManager
+            .TryGetStateAsync<UnitPermissionInheritance>(StateKeys.UnitPermissionInheritance, ct);
+        return result.HasValue ? result.Value : UnitPermissionInheritance.Inherit;
+    }
+
+    /// <inheritdoc />
+    public async Task SetPermissionInheritanceAsync(UnitPermissionInheritance inheritance, CancellationToken ct = default)
+    {
+        if (inheritance == UnitPermissionInheritance.Inherit)
+        {
+            // Represent the default as an absent row so clearing the flag
+            // returns to the default without leaving a no-op state entry.
+            await StateManager.RemoveStateAsync(StateKeys.UnitPermissionInheritance, ct);
+        }
+        else
+        {
+            await StateManager.SetStateAsync(StateKeys.UnitPermissionInheritance, inheritance, ct);
+        }
+
+        _logger.LogInformation(
+            "Unit {ActorId} permission inheritance set to {Inheritance}",
+            Id.GetId(), inheritance);
+
+        await EmitActivityEventAsync(ActivityEventType.StateChanged,
+            $"Unit permission inheritance updated to {inheritance}",
+            ct,
+            details: JsonSerializer.SerializeToElement(new
+            {
+                action = "UnitPermissionInheritanceUpdated",
+                inheritance = inheritance.ToString(),
+            }));
+    }
+
+    /// <inheritdoc />
     public async Task<UnitMetadata> GetMetadataAsync(CancellationToken ct = default)
     {
         var modelResult = await StateManager.TryGetStateAsync<string>(StateKeys.UnitModel, ct);

@@ -101,8 +101,11 @@ public static class ActivityEndpoints
         IObservable<ActivityEvent> stream;
         if (!string.IsNullOrEmpty(unitId))
         {
+            // Hierarchy-aware (#414): a Viewer on an ancestor can observe
+            // the activity of any descendant unit unless the descendant is
+            // marked UnitPermissionInheritance.Isolated.
             var permission = await permissionService
-                .ResolvePermissionAsync(humanId, unitId, cancellationToken);
+                .ResolveEffectivePermissionAsync(humanId, unitId, cancellationToken);
 
             if (permission is null || permission.Value < PermissionLevel.Viewer)
             {
@@ -216,8 +219,11 @@ public static class ActivityEndpoints
             {
                 try
                 {
+                    // Hierarchy-aware (#414): resolve the effective permission
+                    // so a Viewer on an ancestor unit can observe events from
+                    // descendant units without a direct grant on each one.
                     var permission = permissionService
-                        .ResolvePermissionAsync(humanId, unitPath, CancellationToken.None)
+                        .ResolveEffectivePermissionAsync(humanId, unitPath, CancellationToken.None)
                         .GetAwaiter().GetResult();
                     return permission.HasValue && permission.Value >= PermissionLevel.Viewer;
                 }

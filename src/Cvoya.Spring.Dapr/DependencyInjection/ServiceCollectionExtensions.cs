@@ -378,8 +378,16 @@ public static class ServiceCollectionExtensions
         // touching the endpoint.
         services.TryAddSingleton<IUnitActivityObservable, UnitActivityObservable>();
 
-        // Auth
-        services.AddSingleton<IPermissionService, PermissionService>();
+        // Auth.
+        //
+        // Permission resolution (#414) is hierarchy-aware — ancestor grants
+        // cascade down to descendant units by default, subject to the
+        // per-unit UnitPermissionInheritance flag that plays the role of an
+        // opaque boundary for the permission layer. The hierarchy resolver
+        // is a DI seam so the private cloud repo can swap in a materialized
+        // parent index without touching the permission service.
+        services.TryAddSingleton<IUnitHierarchyResolver, DirectoryUnitHierarchyResolver>();
+        services.TryAddSingleton<IPermissionService, PermissionService>();
 
         // Costs — scoped query/tracking services always registered for endpoint DI.
         services.AddScoped<ICostQueryService, CostAggregation>();
