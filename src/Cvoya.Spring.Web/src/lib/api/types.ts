@@ -310,6 +310,15 @@ export type AggregatedExpertiseEntryDto =
 /** GET /api/v1/units/{id}/expertise response body. */
 export type AggregatedExpertiseResponse = Schemas["AggregatedExpertiseResponse"];
 
+/** POST /api/v1/directory/search request body (#542). */
+export type DirectorySearchRequest = Schemas["DirectorySearchRequest"];
+
+/** One hit in a POST /api/v1/directory/search response (#542). */
+export type DirectorySearchHitResponse = Schemas["DirectorySearchHitResponse"];
+
+/** POST /api/v1/directory/search response body (#542). */
+export type DirectorySearchResponse = Schemas["DirectorySearchResponse"];
+
 /**
  * Whitelist of expertise levels accepted by the server (see
  * `ExpertiseCommand.ParseDomainSpec` in the CLI). A `null` level is allowed

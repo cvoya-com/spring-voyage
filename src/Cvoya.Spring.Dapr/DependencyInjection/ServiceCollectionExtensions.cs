@@ -193,6 +193,16 @@ public static class ServiceCollectionExtensions
         services.TryAddEnumerable(ServiceDescriptor.Singleton<ISkillRegistry, ExpertiseSkillRegistry>(
             sp => sp.GetRequiredService<ExpertiseSkillRegistry>()));
 
+        // Directory-search meta-skill registry (#542). Advertises
+        // `directory/search` alongside the `expertise/*` surface so planners
+        // can call it BEFORE any other skill to resolve "I need something
+        // that does X" into a concrete slug. Registered via
+        // TryAddEnumerable so the cloud host can add its own search registry
+        // (e.g. a tenant-scoped variant) without displacing this one.
+        services.TryAddSingleton<DirectorySearchSkillRegistry>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<ISkillRegistry, DirectorySearchSkillRegistry>(
+            sp => sp.GetRequiredService<DirectorySearchSkillRegistry>()));
+
         // Unit-membership backfill hosted service (#160 / C2b-1).
         // Gated by Database:BackfillMemberships; idempotent; short-lived.
         // Also gated by doc-gen mode — the service depends on SpringDbContext
@@ -245,6 +255,12 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<IUnitBoundaryStore>(),
                 sp.GetRequiredService<TimeProvider>(),
                 sp.GetRequiredService<ILoggerFactory>()));
+
+        // Expertise directory search (#542). Lexical / full-text default; a
+        // private-cloud host or a future OSS follow-up can swap in a
+        // Postgres-FTS or embedding-backed implementation by pre-registering
+        // an alternative IExpertiseSearch before calling AddCvoyaSpringDapr.
+        services.TryAddSingleton<IExpertiseSearch, InMemoryExpertiseSearch>();
 
         // Seed expertise from persisted AgentDefinition / UnitDefinition YAML
         // on actor activation (#488). TryAdd so a tenant-scoped host can swap

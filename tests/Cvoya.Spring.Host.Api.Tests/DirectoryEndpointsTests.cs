@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Host.Api.Tests;
 using System.Net;
 using System.Net.Http.Json;
 
+using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Host.Api.Models;
@@ -65,5 +66,62 @@ public class DirectoryEndpointsTests : IClassFixture<CustomWebApplicationFactory
         var result = await response.Content.ReadFromJsonAsync<List<DirectoryEntryResponse>>(ct);
         result!.Count().ShouldBe(1);
         result![0].Role.ShouldBe("backend");
+    }
+
+    [Fact]
+    public async Task Search_ForwardsQueryAndMapsHits()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        _factory.ExpertiseSearch
+            .SearchAsync(Arg.Any<ExpertiseSearchQuery>(), Arg.Any<CancellationToken>())
+            .Returns(new ExpertiseSearchResult(
+                new[]
+                {
+                    new ExpertiseSearchHit(
+                        Slug: "python",
+                        Domain: new ExpertiseDomain("python", "Python expertise", ExpertiseLevel.Advanced, "{\"type\":\"object\"}"),
+                        Owner: new Address("unit", "eng"),
+                        OwnerDisplayName: "Engineering",
+                        AggregatingUnit: null,
+                        TypedContract: true,
+                        Score: 100,
+                        MatchReason: "exact slug"),
+                },
+                TotalCount: 1,
+                Limit: 50,
+                Offset: 0));
+
+        var request = new DirectorySearchRequest(
+            Text: "python",
+            TypedOnly: true);
+
+        var response = await _client.PostAsJsonAsync("/api/v1/directory/search", request, ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var result = await response.Content.ReadFromJsonAsync<DirectorySearchResponse>(ct);
+        result.ShouldNotBeNull();
+        result.TotalCount.ShouldBe(1);
+        result.Hits.Count.ShouldBe(1);
+        result.Hits[0].Slug.ShouldBe("python");
+        result.Hits[0].TypedContract.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Search_NullBody_TreatedAsEmptyQuery()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        _factory.ExpertiseSearch
+            .SearchAsync(Arg.Any<ExpertiseSearchQuery>(), Arg.Any<CancellationToken>())
+            .Returns(new ExpertiseSearchResult(
+                Array.Empty<ExpertiseSearchHit>(),
+                TotalCount: 0,
+                Limit: 50,
+                Offset: 0));
+
+        // Explicit null body to exercise the route's "null → empty query" path.
+        var response = await _client.PostAsync("/api/v1/directory/search",
+            new StringContent("null", System.Text.Encoding.UTF8, "application/json"), ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
     }
 }

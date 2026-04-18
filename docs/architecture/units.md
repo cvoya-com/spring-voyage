@@ -612,7 +612,24 @@ The origin chain lets peer-lookup callers tell **where** a capability came from 
 - `GET /api/v1/agents/{id}/expertise` · `PUT /api/v1/agents/{id}/expertise` — per-agent profile.
 - `GET /api/v1/units/{id}/expertise/own` · `PUT /api/v1/units/{id}/expertise/own` — unit-level own expertise (no aggregation).
 - `GET /api/v1/units/{id}/expertise` — effective / recursive-aggregated expertise.
-- CLI: `spring agent expertise get|set <id>` and `spring unit expertise get|set|aggregated <id>` — same shape on both surfaces for UI/CLI parity.
+- `POST /api/v1/directory/search` — lexical / full-text search (#542).
+- CLI: `spring agent expertise get|set <id>`, `spring unit expertise get|set|aggregated <id>`, and `spring directory search "<query>"` — same shape on every surface for UI/CLI parity.
+
+#### Directory Search (#542)
+
+Enumerate + exact-lookup leaves the directory unusable when the caller knows only a capability description ("refactor this Python") and not the exact slug. `IExpertiseSearch.SearchAsync` takes an `ExpertiseSearchQuery` (free text + owner / domain / typed-only / pagination filters + boundary view context) and returns a ranked list of `ExpertiseSearchHit` records. Ranking:
+
+1. Exact slug match.
+2. Exact tag / domain match.
+3. Owner filter hit (caller supplied a concrete address).
+4. Text relevance — substring matches on slug, display name, description, owner name.
+5. Aggregated-coverage — the entry surfaced via a descendant unit's projection (ranked just below direct matches).
+
+**Boundary.** Outside-the-unit callers see only unit-projected entries; inside callers see the full scope. The default `InMemoryExpertiseSearch` also drops agent-origin hits for external callers as defence in depth, so a misconfigured boundary cannot leak through a search result. Performance target: &lt;200ms on a 1000-entry tenant (validated by `InMemoryExpertiseSearchPerformanceTests`).
+
+**Meta-skill.** `directory/search` is exposed through `ISkillRegistry` (as `DirectorySearchSkillRegistry`) so a planner — or any `ISkillInvoker` consumer — can call it BEFORE any `expertise/*` skill to resolve a capability description into concrete slugs. The output schema (`{ totalCount, limit, offset, hits: [...] }`) is published on the tool definition so callers can validate the response shape at the transport layer. `MessageRouterSkillInvoker` routes `directory/search` calls in-process rather than through the message bus — meta-skills do not target an agent / unit and therefore do not need the router's boundary / permission chain.
+
+**Extension points.** `IExpertiseSearch` is a DI seam (`TryAddSingleton<IExpertiseSearch, InMemoryExpertiseSearch>`). The private cloud repo can register a Postgres-FTS (or embedding-backed) implementation without touching any caller. Issue #542 Step 2 (semantic / embedding search) is tracked as a separate follow-up.
 
 #### Seeding from YAML
 

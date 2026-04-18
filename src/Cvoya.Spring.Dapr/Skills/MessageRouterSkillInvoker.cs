@@ -42,7 +42,8 @@ public class MessageRouterSkillInvoker(
     IExpertiseSkillCatalog catalog,
     IMessageRouter router,
     TimeProvider timeProvider,
-    ILoggerFactory loggerFactory) : ISkillInvoker
+    ILoggerFactory loggerFactory,
+    DirectorySearchSkillRegistry directorySearchRegistry) : ISkillInvoker
 {
     private readonly ILogger _logger = loggerFactory.CreateLogger<MessageRouterSkillInvoker>();
 
@@ -52,6 +53,17 @@ public class MessageRouterSkillInvoker(
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(invocation);
+
+        // Meta-skills are handled in-process — they do not target an agent /
+        // unit and therefore do not travel through the message router. Today
+        // the only meta-skill is `directory/search` (#542), which resolves a
+        // capability description to a concrete expertise slug BEFORE the
+        // planner picks the target to call. Future meta-skills (e.g. a
+        // unit-hierarchy inspector) slot in the same way.
+        if (string.Equals(invocation.SkillName, DirectorySearchSkillRegistry.SkillName, StringComparison.Ordinal))
+        {
+            return await InvokeMetaSkillAsync(invocation, cancellationToken);
+        }
 
         // Defence in depth: re-resolve at invocation time with a caller-
         // specific boundary context. If the caller cannot see the skill on
@@ -116,6 +128,36 @@ public class MessageRouterSkillInvoker(
         }
 
         return SkillInvocationResult.Success(response.Payload);
+    }
+
+    private async Task<SkillInvocationResult> InvokeMetaSkillAsync(
+        SkillInvocation invocation,
+        CancellationToken cancellationToken)
+    {
+        // Caller identity flows into the search query so boundary-scoped
+        // results fall out naturally. A missing caller defaults to an
+        // external view — the safest default.
+        var arguments = invocation.Arguments.ValueKind == JsonValueKind.Undefined
+            ? EmptyJsonObject()
+            : invocation.Arguments;
+
+        try
+        {
+            var payload = await directorySearchRegistry.InvokeAsync(
+                invocation.SkillName, arguments, cancellationToken);
+            return SkillInvocationResult.Success(payload);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "directory/search meta-skill invocation failed.");
+            return SkillInvocationResult.Failure("SEARCH_ERROR", ex.Message);
+        }
+    }
+
+    private static JsonElement EmptyJsonObject()
+    {
+        using var doc = JsonDocument.Parse("{}");
+        return doc.RootElement.Clone();
     }
 
     /// <summary>

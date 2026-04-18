@@ -760,6 +760,56 @@ public class SpringApiClient
         return result ?? new List<DirectoryEntryResponse>();
     }
 
+    /// <summary>
+    /// Searches the expertise directory (#542). Mirrors
+    /// <c>POST /api/v1/directory/search</c>: free-text query + structured
+    /// filters returning a ranked, paginated hit list. Both the portal and
+    /// the CLI's <c>spring directory search</c> verb ride this wrapper.
+    /// </summary>
+    public async Task<DirectorySearchResponse> SearchDirectoryAsync(
+        string? text,
+        string? ownerScheme = null,
+        string? ownerPath = null,
+        IReadOnlyList<string>? domains = null,
+        bool typedOnly = false,
+        bool insideUnit = false,
+        int? limit = null,
+        int? offset = null,
+        CancellationToken ct = default)
+    {
+        var req = new DirectorySearchRequest
+        {
+            Text = string.IsNullOrWhiteSpace(text) ? null : text,
+            Domains = domains?.ToList(),
+            TypedOnly = typedOnly,
+            InsideUnit = insideUnit,
+            // The int fields are modelled as UntypedNode because the
+            // server's record defaults push them into an integer-or-null
+            // union at the OpenAPI layer. Wrap concrete values in
+            // UntypedInteger for a plain JSON number on the wire.
+            Limit = limit is int l ? new UntypedInteger(l) : null,
+            Offset = offset is int o ? new UntypedInteger(o) : null,
+        };
+        if (!string.IsNullOrWhiteSpace(ownerScheme) && !string.IsNullOrWhiteSpace(ownerPath))
+        {
+            req.Owner = new DirectorySearchRequest.DirectorySearchRequest_owner
+            {
+                AddressDto = new AddressDto
+                {
+                    Scheme = ownerScheme,
+                    Path = ownerPath,
+                },
+            };
+        }
+
+        var body = new Cvoya.Spring.Cli.Generated.Api.V1.DirectoryNamespace.Search.SearchRequestBuilder.SearchPostRequestBody
+        {
+            DirectorySearchRequest = req,
+        };
+        var result = await _client.Api.V1.Directory.Search.PostAsync(body, cancellationToken: ct);
+        return result ?? throw new InvalidOperationException("Server returned an empty search response.");
+    }
+
     // Connectors
     //
     // The generic surface at /api/v1/connectors is connector-agnostic: it

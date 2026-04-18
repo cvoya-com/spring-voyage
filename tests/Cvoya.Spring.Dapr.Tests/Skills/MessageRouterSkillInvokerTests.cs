@@ -41,14 +41,19 @@ public class MessageRouterSkillInvokerTests
     private readonly IMessageRouter _router = Substitute.For<IMessageRouter>();
     private readonly TimeProvider _time = TimeProvider.System;
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
+    private readonly IExpertiseSearch _search = Substitute.For<IExpertiseSearch>();
 
     public MessageRouterSkillInvokerTests()
     {
         _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
+        _search.SearchAsync(Arg.Any<ExpertiseSearchQuery>(), Arg.Any<CancellationToken>())
+            .Returns(new ExpertiseSearchResult(
+                Array.Empty<ExpertiseSearchHit>(), 0, 50, 0));
     }
 
     private MessageRouterSkillInvoker CreateInvoker() =>
-        new(_catalog, _router, _time, _loggerFactory);
+        new(_catalog, _router, _time, _loggerFactory,
+            new DirectorySearchSkillRegistry(_search, _loggerFactory));
 
     private static ExpertiseSkill MakeSkill(string name, Address target)
     {

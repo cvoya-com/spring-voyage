@@ -126,6 +126,13 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
     /// </summary>
     public ISecretAccessPolicy SecretAccessPolicy { get; } = CreatePermissiveAccessPolicy();
 
+    /// <summary>
+    /// Gets the substitute <see cref="IExpertiseSearch"/> wired into the
+    /// test DI container (#542). Tests that exercise
+    /// <c>POST /api/v1/directory/search</c> arrange responses on this mock.
+    /// </summary>
+    public IExpertiseSearch ExpertiseSearch { get; } = Substitute.For<IExpertiseSearch>();
+
     private static ISecretStore CreateStubSecretStore()
     {
         var stub = Substitute.For<ISecretStore>();
@@ -231,6 +238,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
                 typeof(IConnectorType),
                 typeof(ISecretStore),
                 typeof(ISecretAccessPolicy),
+                typeof(IExpertiseSearch),
             };
 
             var descriptors = services
@@ -259,6 +267,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
             services.AddSingleton(StubConnectorType);
             services.AddSingleton(SecretStore);
             services.AddSingleton(SecretAccessPolicy);
+            services.AddSingleton(ExpertiseSearch);
             services.AddSingleton(new DirectoryCache());
 
             // Remove and re-register permission service.

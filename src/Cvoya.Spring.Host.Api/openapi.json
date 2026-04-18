@@ -2136,6 +2136,54 @@
         }
       }
     },
+    "/api/v1/directory/search": {
+      "post": {
+        "tags": [
+          "Directory"
+        ],
+        "summary": "Search the expertise directory (#542)",
+        "description": "Free-text + structured search over the expertise directory. Outside a unit boundary, only projected entries are returned; inside, callers see the full aggregated scope. Step 1 is lexical / full-text — semantic search is tracked as a follow-up.",
+        "operationId": "SearchDirectory",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/DirectorySearchRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectorySearchResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/agents/{id}/expertise": {
       "get": {
         "tags": [
@@ -6886,6 +6934,164 @@
           "registeredAt": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "DirectorySearchHitResponse": {
+        "required": [
+          "slug",
+          "domain",
+          "owner",
+          "ownerDisplayName",
+          "aggregatingUnit",
+          "typedContract",
+          "score",
+          "matchReason"
+        ],
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string"
+          },
+          "domain": {
+            "$ref": "#/components/schemas/ExpertiseDomainDto"
+          },
+          "owner": {
+            "$ref": "#/components/schemas/AddressDto"
+          },
+          "ownerDisplayName": {
+            "type": "string"
+          },
+          "aggregatingUnit": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AddressDto"
+              }
+            ]
+          },
+          "typedContract": {
+            "type": "boolean"
+          },
+          "score": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "matchReason": {
+            "type": "string"
+          }
+        }
+      },
+      "DirectorySearchRequest": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "owner": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AddressDto"
+              }
+            ]
+          },
+          "domains": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "typedOnly": {
+            "type": "boolean",
+            "default": false
+          },
+          "insideUnit": {
+            "type": "boolean",
+            "default": false
+          },
+          "caller": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AddressDto"
+              }
+            ]
+          },
+          "limit": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32",
+            "default": 50
+          },
+          "offset": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32",
+            "default": 0
+          }
+        }
+      },
+      "DirectorySearchResponse": {
+        "required": [
+          "hits",
+          "totalCount",
+          "limit",
+          "offset"
+        ],
+        "type": "object",
+        "properties": {
+          "hits": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DirectorySearchHitResponse"
+            }
+          },
+          "totalCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "limit": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "offset": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           }
         }
       },

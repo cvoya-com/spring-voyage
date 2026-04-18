@@ -1,26 +1,25 @@
 "use client";
 
 /**
- * /directory — Tenant-wide expertise directory (#486).
+ * /directory — Tenant-wide expertise directory (#486 / #542).
  *
- * Fans out per-agent `GET /api/v1/agents/{id}/expertise` and per-unit
- * `GET /api/v1/units/{id}/expertise/own` reads, then flattens the union
- * into a searchable table. The aggregated (recursive) view is available
- * on each unit's detail page — this tenant-wide surface is the flat
- * "who declares what" index, the portal's counterpart to what a future
- * `spring directory expertise` CLI would produce (CLI parity follow-up
- * #528).
+ * Calls the POST /api/v1/directory/search endpoint with the user's
+ * free-text query + filters so ranking (exact slug > tag/domain > text
+ * relevance > aggregated coverage) and boundary scoping happen
+ * server-side. Each row deep-links to the owning agent or unit so
+ * operators can jump straight to the per-entity editor.
  *
- * Every row deep-links back to the owning agent or unit so operators
- * can jump into the per-entity editor.
+ * The CLI counterpart is `spring directory search` — both surfaces ride
+ * the same endpoint per CONVENTIONS.md § ui-cli-parity.
  */
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { GraduationCap } from "lucide-react";
-import { useQueries } from "@tanstack/react-query";
+import { useQuery, keepPreviousData } from "@tanstack/react-query";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -30,124 +29,68 @@ import {
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api/client";
-import { useAgents, useUnits } from "@/lib/api/queries";
-import { queryKeys } from "@/lib/api/query-keys";
-import { EXPERTISE_LEVELS, type ExpertiseLevel } from "@/lib/api/types";
+import type { DirectorySearchHitResponse } from "@/lib/api/types";
 
-interface DirectoryRow {
-  key: string;
-  ownerScheme: "agent" | "unit";
-  ownerId: string;
-  ownerDisplayName: string;
-  domain: string;
-  level: string | null;
-  description: string;
-}
+const PAGE_SIZE = 50;
 
 export default function DirectoryPage() {
-  const agentsQuery = useAgents();
-  const unitsQuery = useUnits();
-
-  const agents = useMemo(
-    () => agentsQuery.data ?? [],
-    [agentsQuery.data],
-  );
-  const units = useMemo(() => unitsQuery.data ?? [], [unitsQuery.data]);
-
-  // Fan out to each agent's expertise endpoint. React Query dedupes + caches
-  // each fetch by key so toggling between list and detail pages doesn't
-  // re-hit the server when a per-entity panel has already warmed the cache.
-  const agentExpertiseQueries = useQueries({
-    queries: agents.map((agent) => ({
-      queryKey: queryKeys.agents.expertise(agent.name),
-      queryFn: () => api.getAgentExpertise(agent.name),
-      enabled: agentsQuery.isSuccess,
-    })),
-  });
-
-  const unitOwnExpertiseQueries = useQueries({
-    queries: units.map((unit) => ({
-      queryKey: queryKeys.units.ownExpertise(unit.name),
-      queryFn: () => api.getUnitOwnExpertise(unit.name),
-      enabled: unitsQuery.isSuccess,
-    })),
-  });
-
-  const rows = useMemo<DirectoryRow[]>(() => {
-    const out: DirectoryRow[] = [];
-
-    agents.forEach((agent, i) => {
-      const domains = agentExpertiseQueries[i]?.data ?? [];
-      for (const d of domains) {
-        out.push({
-          key: `agent:${agent.name}:${d.name}`,
-          ownerScheme: "agent",
-          ownerId: agent.name,
-          ownerDisplayName: agent.displayName || agent.name,
-          domain: d.name ?? "",
-          level: d.level ?? null,
-          description: d.description ?? "",
-        });
-      }
-    });
-
-    units.forEach((unit, i) => {
-      const domains = unitOwnExpertiseQueries[i]?.data ?? [];
-      for (const d of domains) {
-        out.push({
-          key: `unit:${unit.name}:${d.name}`,
-          ownerScheme: "unit",
-          ownerId: unit.name,
-          ownerDisplayName: unit.displayName || unit.name,
-          domain: d.name ?? "",
-          level: d.level ?? null,
-          description: d.description ?? "",
-        });
-      }
-    });
-
-    return out.sort(
-      (a, b) =>
-        a.domain.localeCompare(b.domain) ||
-        a.ownerDisplayName.localeCompare(b.ownerDisplayName),
-    );
-  }, [agents, units, agentExpertiseQueries, unitOwnExpertiseQueries]);
-
-  const [search, setSearch] = useState("");
-  const [levelFilter, setLevelFilter] = useState<"" | ExpertiseLevel>("");
+  const [searchInput, setSearchInput] = useState("");
+  const [query, setQuery] = useState("");
   const [ownerFilter, setOwnerFilter] = useState<"" | "agent" | "unit">("");
+  const [typedOnly, setTypedOnly] = useState(false);
+  const [offset, setOffset] = useState(0);
 
-  const filtered = useMemo(() => {
-    const needle = search.trim().toLowerCase();
-    return rows.filter((row) => {
-      if (ownerFilter && row.ownerScheme !== ownerFilter) return false;
-      if (levelFilter && row.level !== levelFilter) return false;
-      if (needle) {
-        const hay =
-          row.domain.toLowerCase() +
-          " " +
-          row.description.toLowerCase() +
-          " " +
-          row.ownerDisplayName.toLowerCase() +
-          " " +
-          row.ownerId.toLowerCase();
-        if (!hay.includes(needle)) return false;
-      }
-      return true;
-    });
-  }, [rows, search, levelFilter, ownerFilter]);
+  const searchQuery = useQuery({
+    queryKey: [
+      "directory-search",
+      query,
+      ownerFilter,
+      typedOnly,
+      offset,
+    ],
+    queryFn: () =>
+      api.searchDirectory({
+        text: query || null,
+        typedOnly,
+        insideUnit: false,
+        limit: PAGE_SIZE,
+        offset,
+      }),
+    placeholderData: keepPreviousData,
+  });
 
-  const baseLoading = agentsQuery.isPending || unitsQuery.isPending;
-  const fanoutPending =
-    agentExpertiseQueries.some((q) => q.isPending) ||
-    unitOwnExpertiseQueries.some((q) => q.isPending);
-  const loading = baseLoading || fanoutPending;
+  const allHits: DirectorySearchHitResponse[] = useMemo(
+    () => searchQuery.data?.hits ?? [],
+    [searchQuery.data],
+  );
+
+  // Owner scheme is a client-side narrow — the server endpoint filters
+  // on an exact address, not on a scheme prefix. Rather than add a
+  // dedicated server filter for the two-choice radio we post-filter here;
+  // the per-entity result set is already bounded by the server's page
+  // size so this is cheap.
+  const filteredHits = useMemo(() => {
+    if (!ownerFilter) {
+      return allHits;
+    }
+    return allHits.filter((hit) => hit.owner?.scheme === ownerFilter);
+  }, [allHits, ownerFilter]);
+
+  // The OpenAPI generator exposes int32 fields as `number | string` to
+  // accommodate JS-BigInt clients. Normalise through Number() so UI math
+  // can treat them as plain numbers.
+  const totalCount = Number(searchQuery.data?.totalCount ?? 0);
+  const effectiveLimit = Number(searchQuery.data?.limit ?? PAGE_SIZE);
+  const effectiveOffset = Number(searchQuery.data?.offset ?? 0);
+  const hasMore = effectiveOffset + effectiveLimit < totalCount;
 
   const loadError =
-    (agentsQuery.error instanceof Error
-      ? agentsQuery.error.message
-      : null) ??
-    (unitsQuery.error instanceof Error ? unitsQuery.error.message : null);
+    searchQuery.error instanceof Error ? searchQuery.error.message : null;
+
+  const applySearch = () => {
+    setOffset(0);
+    setQuery(searchInput);
+  };
 
   return (
     <div className="space-y-6">
@@ -157,55 +100,40 @@ export default function DirectoryPage() {
         </h1>
         <p className="text-sm text-muted-foreground">
           Expertise domains declared by every agent and unit in the tenant.
-          Auto-seeded from YAML definitions; operator edits on the agent
-          or unit detail page are authoritative from that point forward.
+          Ranked by relevance; outside a unit boundary only projected
+          entries appear.
         </p>
       </div>
 
       <Card>
-        <CardContent className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-[1fr_160px_160px]">
+        <CardContent className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-[1fr_160px_160px_auto]">
           <label className="block space-y-1">
             <span className="text-xs text-muted-foreground">Search</span>
             <Input
               type="search"
-              placeholder="Domain, description, owner…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Capability, description, domain…"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  applySearch();
+                }
+              }}
               aria-label="Search expertise"
             />
-          </label>
-          <label className="block space-y-1">
-            <span className="text-xs text-muted-foreground">Level</span>
-            <select
-              value={levelFilter}
-              onChange={(e) =>
-                setLevelFilter(
-                  e.target.value === ""
-                    ? ""
-                    : (e.target.value as ExpertiseLevel),
-                )
-              }
-              className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            >
-              <option value="">Any</option>
-              {EXPERTISE_LEVELS.map((lvl) => (
-                <option key={lvl} value={lvl}>
-                  {lvl}
-                </option>
-              ))}
-            </select>
           </label>
           <label className="block space-y-1">
             <span className="text-xs text-muted-foreground">Owner</span>
             <select
               value={ownerFilter}
-              onChange={(e) =>
+              onChange={(e) => {
+                setOffset(0);
                 setOwnerFilter(
                   e.target.value === ""
                     ? ""
                     : (e.target.value as "agent" | "unit"),
-                )
-              }
+                );
+              }}
               className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             >
               <option value="">Any</option>
@@ -213,6 +141,27 @@ export default function DirectoryPage() {
               <option value="unit">Units</option>
             </select>
           </label>
+          <label className="flex items-end gap-2 text-xs">
+            <input
+              type="checkbox"
+              checked={typedOnly}
+              onChange={(e) => {
+                setOffset(0);
+                setTypedOnly(e.target.checked);
+              }}
+              aria-label="Typed contract only"
+              className="h-4 w-4"
+            />
+            <span className="text-muted-foreground">Typed only</span>
+          </label>
+          <Button
+            onClick={applySearch}
+            variant="default"
+            className="self-end"
+            disabled={searchQuery.isFetching}
+          >
+            Search
+          </Button>
         </CardContent>
       </Card>
 
@@ -230,30 +179,24 @@ export default function DirectoryPage() {
         </Card>
       )}
 
-      {baseLoading ? (
+      {searchQuery.isPending ? (
         <Skeleton className="h-40" />
-      ) : rows.length === 0 ? (
+      ) : filteredHits.length === 0 ? (
         <Card>
           <CardHeader>
-            <CardTitle>No expertise declared</CardTitle>
+            <CardTitle>No results</CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            Declare capabilities with{" "}
+            No expertise entries match the current filters. Declare
+            capabilities with{" "}
             <code className="rounded bg-muted px-1 py-0.5 text-xs">
               spring agent expertise set
             </code>{" "}
             or{" "}
             <code className="rounded bg-muted px-1 py-0.5 text-xs">
               spring unit expertise set
-            </code>{" "}
-            — or seed them via an <code>expertise:</code> block in the
-            agent/unit YAML.
-          </CardContent>
-        </Card>
-      ) : filtered.length === 0 ? (
-        <Card>
-          <CardContent className="p-6 text-sm text-muted-foreground">
-            No domains match the current filters.
+            </code>
+            .
           </CardContent>
         </Card>
       ) : (
@@ -263,55 +206,93 @@ export default function DirectoryPage() {
               className="divide-y divide-border"
               aria-label="Expertise directory"
             >
-              {filtered.map((row) => (
-                <li
-                  key={row.key}
-                  className="flex flex-col gap-1 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between"
-                  data-testid={`directory-row-${row.ownerScheme}-${row.ownerId}-${row.domain}`}
-                >
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-mono text-xs">{row.domain}</span>
-                      {row.level && (
-                        <Badge variant="secondary">{row.level}</Badge>
-                      )}
-                    </div>
-                    {row.description && (
-                      <p className="text-xs text-muted-foreground">
-                        {row.description}
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground sm:justify-end">
-                    <Badge variant="outline">{row.ownerScheme}</Badge>
-                    <Link
-                      href={
-                        row.ownerScheme === "agent"
-                          ? `/agents/${encodeURIComponent(row.ownerId)}`
-                          : `/units/${encodeURIComponent(row.ownerId)}`
-                      }
-                      className="font-mono text-primary hover:underline"
-                    >
-                      {row.ownerScheme}://{row.ownerId}
-                    </Link>
-                  </div>
-                </li>
+              {filteredHits.map((hit) => (
+                <DirectoryRow key={hitKey(hit)} hit={hit} />
               ))}
             </ul>
           </CardContent>
         </Card>
       )}
 
-      {loading && !baseLoading && (
-        <p className="text-xs text-muted-foreground">
-          Loading expertise entries…
-        </p>
-      )}
-
-      <p className="text-xs text-muted-foreground">
-        Showing {filtered.length} of {rows.length} entries. The aggregated
-        (recursive) view is available on each unit&apos;s detail page.
-      </p>
+      <div className="flex items-center justify-between text-xs text-muted-foreground">
+        <span>
+          Showing {filteredHits.length} of {totalCount} entries
+          {ownerFilter && " (owner filter applied client-side)"}
+        </span>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={offset === 0 || searchQuery.isFetching}
+            onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+          >
+            Previous
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!hasMore || searchQuery.isFetching}
+            onClick={() => setOffset(offset + PAGE_SIZE)}
+          >
+            Next
+          </Button>
+        </div>
+      </div>
     </div>
   );
+}
+
+function DirectoryRow({ hit }: { hit: DirectorySearchHitResponse }) {
+  const slug = hit.slug ?? "";
+  const name = hit.domain?.name ?? "";
+  const description = hit.domain?.description ?? "";
+  const level = hit.domain?.level ?? null;
+  const owner = hit.owner;
+  const ownerScheme = owner?.scheme ?? "";
+  const ownerPath = owner?.path ?? "";
+  const href =
+    ownerScheme === "agent"
+      ? `/agents/${encodeURIComponent(ownerPath)}`
+      : ownerScheme === "unit"
+        ? `/units/${encodeURIComponent(ownerPath)}`
+        : "#";
+
+  return (
+    <li
+      className="flex flex-col gap-1 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between"
+      data-testid={`directory-row-${ownerScheme}-${ownerPath}-${name}`}
+    >
+      <div className="min-w-0 flex-1 space-y-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">
+            {slug}
+          </code>
+          <span className="text-sm font-medium">{name}</span>
+          {level && <Badge variant="secondary">{level}</Badge>}
+          {hit.typedContract && (
+            <Badge variant="default" className="text-[10px]">
+              typed
+            </Badge>
+          )}
+        </div>
+        {description && (
+          <p className="text-xs text-muted-foreground">{description}</p>
+        )}
+      </div>
+      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground sm:justify-end">
+        <Badge variant="outline">{ownerScheme}</Badge>
+        <Link href={href} className="font-mono text-primary hover:underline">
+          {ownerScheme}://{ownerPath}
+        </Link>
+      </div>
+    </li>
+  );
+}
+
+function hitKey(hit: DirectorySearchHitResponse): string {
+  const owner = hit.owner;
+  const ownerKey = owner ? `${owner.scheme}:${owner.path}` : "";
+  const agg = hit.aggregatingUnit;
+  const aggKey = agg ? `${agg.scheme}:${agg.path}` : "";
+  return `${hit.slug ?? ""}|${ownerKey}|${aggKey}`;
 }

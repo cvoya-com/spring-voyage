@@ -11,6 +11,8 @@ import type {
   CreateUnitFromYamlRequest,
   DashboardSummary,
   DeployPersistentAgentRequest,
+  DirectorySearchRequest,
+  DirectorySearchResponse,
   ExpertiseDomainDto,
   InitiativePolicy,
   PersistentAgentDeploymentResponse,
@@ -813,6 +815,17 @@ export const api = {
         params: { path: { id } },
       }),
     ),
+
+  // Expertise directory search (#542). Lexical / full-text ranked search
+  // over every per-entity expertise declaration, plus aggregated-coverage
+  // hits through unit projections. Shared between the portal's /directory
+  // search box and the CLI's `spring directory search` verb.
+  searchDirectory: async (
+    body: DirectorySearchRequest,
+  ): Promise<DirectorySearchResponse> =>
+    unwrap(
+      await fetchClient.POST("/api/v1/directory/search", { body }),
+    ) as DirectorySearchResponse,
 
   // Ollama model discovery (#350) — uses a manual fetch because the
   // endpoint is new and may not be present in the generated schema yet.
