@@ -68,6 +68,19 @@ export type PersistentAgentLogsResponse =
 /** PATCH /api/v1/agents/{id} request body. */
 export type UpdateAgentMetadataRequest = Schemas["UpdateAgentMetadataRequest"];
 
+// ---------------------------------------------------------------------------
+// Platform metadata + Auth surface — consumed by the Settings drawer (#451).
+// ---------------------------------------------------------------------------
+
+/** GET /api/v1/platform/info response — version / build hash / license. */
+export type PlatformInfoResponse = Schemas["PlatformInfoResponse"];
+
+/** GET /api/v1/auth/me response — current authenticated user. */
+export type UserProfileResponse = Schemas["UserProfileResponse"];
+
+/** One item in the GET /api/v1/auth/tokens response. */
+export type TokenResponse = Schemas["TokenResponse"];
+
 /** Entry in the platform-wide skill catalog (GET /api/v1/skills). */
 export type SkillCatalogEntry = Schemas["SkillCatalogEntry"];
 

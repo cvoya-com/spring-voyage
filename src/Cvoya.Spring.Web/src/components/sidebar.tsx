@@ -4,12 +4,21 @@ import { cn } from "@/lib/utils";
 import { useTheme } from "@/lib/theme";
 import { NAV_SECTION_ORDER, useExtensions } from "@/lib/extensions";
 import type { NavSection, RouteEntry } from "@/lib/extensions";
-import { Menu, Moon, Sun, X } from "lucide-react";
+import { Menu, Moon, Settings, Sun, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useMemo, useState, type ReactNode } from "react";
 
-export function Sidebar() {
+interface SidebarProps {
+  /**
+   * Called when the user activates the sidebar-footer Settings trigger.
+   * Hoisted up to `AppShell` so the drawer's focus trap and scroll lock
+   * live at the shell level rather than inside the sidebar.
+   */
+  onOpenSettings?: () => void;
+}
+
+export function Sidebar({ onOpenSettings }: SidebarProps = {}) {
   const pathname = usePathname();
   const { theme, toggleTheme } = useTheme();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -63,6 +72,17 @@ export function Sidebar() {
           <div data-testid="sidebar-footer-slot">
             {slots.sidebarFooter as ReactNode}
           </div>
+        ) : null}
+        {onOpenSettings ? (
+          <button
+            onClick={onOpenSettings}
+            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            data-testid="sidebar-settings-trigger"
+            aria-haspopup="dialog"
+          >
+            <Settings className="h-4 w-4" />
+            Settings
+          </button>
         ) : null}
         <div className="flex items-center justify-between">
           <span className="text-xs text-muted-foreground">Spring Voyage v2</span>

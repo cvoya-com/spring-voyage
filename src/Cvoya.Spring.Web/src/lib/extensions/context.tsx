@@ -20,6 +20,7 @@ import {
   type MergedExtensions,
 } from "./registry";
 import type {
+  DrawerPanel,
   IAuthContext,
   PaletteAction,
   RouteEntry,
@@ -73,4 +74,14 @@ export function usePaletteActions(): readonly PaletteAction[] {
 
 export function useAuthContext(): IAuthContext {
   return useExtensions().auth;
+}
+
+/**
+ * Merged drawer panels (OSS defaults + hosted extensions), already
+ * sorted by `orderHint`. The Settings drawer is the only consumer
+ * today; exporting it keeps the consumer surface symmetrical with the
+ * routes/actions hooks.
+ */
+export function useDrawerPanels(): readonly DrawerPanel[] {
+  return useExtensions().drawerPanels;
 }

@@ -126,6 +126,27 @@
         }
       }
     },
+    "/api/v1/platform/info": {
+      "get": {
+        "tags": [
+          "Platform"
+        ],
+        "summary": "Get platform version, build hash, and license metadata",
+        "operationId": "GetPlatformInfo",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformInfoResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/agents": {
       "get": {
         "tags": [
@@ -7842,6 +7863,28 @@
           }
         }
       },
+      "PlatformInfoResponse": {
+        "required": [
+          "version",
+          "buildHash",
+          "license"
+        ],
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string"
+          },
+          "buildHash": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "license": {
+            "type": "string"
+          }
+        }
+      },
       "ProblemDetails": {
         "type": "object",
         "properties": {
@@ -9132,6 +9175,9 @@
   "tags": [
     {
       "name": "Auth"
+    },
+    {
+      "name": "Platform"
     },
     {
       "name": "Agents"

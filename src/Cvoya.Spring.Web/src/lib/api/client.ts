@@ -878,6 +878,21 @@ export const api = {
       await fetchClient.POST("/api/v1/directory/search", { body }),
     ) as DirectorySearchResponse,
 
+  // Platform metadata (#451). Anonymous read — the About panel and
+  // `spring platform info` both point here so version reporting can't
+  // drift between UI and CLI.
+  getPlatformInfo: async () =>
+    unwrap(await fetchClient.GET("/api/v1/platform/info")),
+
+  // Auth — the portal's Settings → Auth panel ships a read-only view of
+  // the current session plus the token list the CLI already exposes via
+  // `spring auth token {list,create,revoke}`. The create/revoke wiring
+  // is tracked as a follow-up (needs a "reveal once" primitive).
+  getCurrentUser: async () =>
+    unwrap(await fetchClient.GET("/api/v1/auth/me")),
+  listAuthTokens: async () =>
+    unwrap(await fetchClient.GET("/api/v1/auth/tokens")),
+
   // Ollama model discovery (#350) — uses a manual fetch because the
   // endpoint is new and may not be present in the generated schema yet.
   listOllamaModels: async (): Promise<

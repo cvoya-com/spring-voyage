@@ -41,6 +41,7 @@ public class Program
                 CostCommand.Create(outputOption),
                 DirectoryCommand.Create(outputOption),
                 PackageCommand.Create(outputOption),
+                PlatformCommand.Create(outputOption),
                 TemplateCommand.Create(outputOption),
                 ApplyCommand.Create()
             }

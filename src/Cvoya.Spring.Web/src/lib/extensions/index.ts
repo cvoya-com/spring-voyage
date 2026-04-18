@@ -4,6 +4,7 @@
 export type {
   AuthUser,
   ClientDecorator,
+  DrawerPanel,
   FetchFn,
   IAuthContext,
   NavSection,
@@ -26,8 +27,14 @@ export {
   useRoutes,
   usePaletteActions,
   useAuthContext,
+  useDrawerPanels,
 } from "./context";
 
 export { withDecorators, authHeadersDecorator } from "./api";
 
-export { defaultAuthContext, defaultRoutes, defaultActions } from "./defaults";
+export {
+  defaultAuthContext,
+  defaultRoutes,
+  defaultActions,
+  defaultDrawerPanels,
+} from "./defaults";

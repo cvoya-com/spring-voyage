@@ -110,6 +110,10 @@ app.MapGet("/health", () => Results.Ok(new { Status = "Healthy" }))
     .ExcludeFromDescription();
 
 app.MapAuthEndpoints();
+// Platform info is deliberately anonymous — the About panel / CLI verb
+// needs to work before a caller has negotiated an auth token. The
+// payload is static version + license metadata; nothing tenant-scoped.
+app.MapPlatformEndpoints();
 app.MapAgentEndpoints().RequireAuthorization();
 app.MapUnitEndpoints().RequireAuthorization();
 app.MapUnitPolicyEndpoints().RequireAuthorization();

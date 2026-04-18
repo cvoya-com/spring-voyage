@@ -310,6 +310,17 @@ The expertise panels on `/agents/[id]`, `/units/[id]` (Expertise tab) and the te
 - Conversation participant pills are clickable and resolve to the matching `/agents/{id}` or `/units/{id}` page. Schemes without a portal page (`human://`) render as plain badges.
 - See `docs/design/portal-exploration.md` § 3.3 for the full cross-link contract.
 
+### 7.18 Settings drawer — `components/settings-drawer.tsx`, `components/settings/*`
+
+Settings live in a right-aligned modal drawer triggered from the sidebar footer (#451 — PR-S1 Sub-PR D). The drawer itself makes no assumptions about which or how many panels render — every panel comes from the extension registry, so the hosted build can add tenant secrets, members / RBAC, SSO, etc. without patching OSS files.
+
+- **Trigger.** A sidebar-footer button (`<Settings />` icon + `Settings` label) opens the drawer. `aria-haspopup="dialog"` so assistive tech announces the popover. The trigger lives in `components/sidebar.tsx` and the drawer state is hoisted to `components/app-shell.tsx` so the focus trap + body scroll lock compose with the rest of the shell (command palette, dialog).
+- **Drawer chrome.** Right-aligned panel (`w-full max-w-md`, `border-l`, `bg-card`, `shadow-xl`) over a `bg-black/50` backdrop at `z-50`. `role="dialog"` + `aria-modal="true"` + `aria-labelledby="Settings"`. ESC closes; backdrop mousedown closes; click inside does not bubble. Focus traps inside the drawer and returns to the opener on close — same contract as `components/ui/dialog.tsx` (§ 7.5), implemented inline because the drawer is wider, slides in from the right, and fills the full viewport height.
+- **Panel card.** Each panel renders as a `rounded-lg border border-border bg-background p-4` section with a `text-sm font-semibold` title (icon + label), optional `text-xs text-muted-foreground` description, and the panel's own body below. Panels stack vertically with `space-y-4`.
+- **Extension contract.** Panels register via `registerExtension({ drawerPanels: [...] })` (see `src/lib/extensions/README.md`). Each panel declares `id`, `label`, `icon`, `orderHint`, optional `permission`, optional `description`, and a `component: ReactNode`. OSS ships Budget / Auth / About as defaults in `src/lib/extensions/defaults.tsx`. Panels with a `permission` that the active auth adapter rejects disappear silently — OSS's default adapter grants every permission. A hosted extension can replace a default panel by re-using its `id`.
+- **CLI parity rule.** Every interactive control in any panel MUST have a matching CLI verb. Budget panel ↔ `spring cost set-budget`; About panel ↔ `spring platform info`; Auth panel's token list ↔ `spring auth token list`. Panels whose interactive controls lack a CLI are dropped and a CLI follow-up is filed first.
+- **Follow-up ADR.** The drawer-panel extension slot pattern (contract, ordering, CLI-parity rule) will be recorded in a forthcoming ADR (#556).
+
 ### 7.15 Icons
 
 - [`lucide-react`](https://lucide.dev). Sizes: `h-3 w-3` (inline meta), `h-3.5 w-3.5` (theme toggle), `h-4 w-4` (button icon, card section icon, severity dot wrapper), `h-5 w-5` (sidebar mobile menu, page H1 icon), `h-10 w-10` (empty-state icon).

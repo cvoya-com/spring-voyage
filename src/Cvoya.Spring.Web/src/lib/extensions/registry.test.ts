@@ -1,12 +1,13 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { Building2, UserPlus } from "lucide-react";
+import { Building2, Package2, UserPlus } from "lucide-react";
+import { createElement } from "react";
 
 import {
   computeMergedExtensions,
   registerExtension,
   __resetExtensionsForTesting,
 } from "./registry";
-import { defaultActions, defaultRoutes } from "./defaults";
+import { defaultActions, defaultDrawerPanels, defaultRoutes } from "./defaults";
 import { authHeadersDecorator, withDecorators } from "./api";
 import type { IAuthContext, FetchFn } from "./types";
 
@@ -131,6 +132,54 @@ describe("extension registry", () => {
         },
       }),
     ).toThrow(/already owns/);
+  });
+
+  it("ships Budget / Auth / About as the default drawer panels", () => {
+    const merged = computeMergedExtensions();
+    const ids = merged.drawerPanels.map((p) => p.id);
+    expect(ids).toEqual(["budget", "auth", "about"]);
+    expect(merged.drawerPanels).toEqual(defaultDrawerPanels);
+  });
+
+  it("appends extension drawer panels and sorts by orderHint", () => {
+    registerExtension({
+      id: "hosted-panels",
+      drawerPanels: [
+        {
+          id: "tenants",
+          label: "Tenants",
+          icon: Building2,
+          orderHint: 100,
+          component: createElement("div"),
+        },
+      ],
+    });
+
+    const merged = computeMergedExtensions();
+    const ids = merged.drawerPanels.map((p) => p.id);
+    expect(ids).toEqual(["budget", "auth", "about", "tenants"]);
+  });
+
+  it("replaces a default drawer panel when an extension re-uses its id", () => {
+    registerExtension({
+      id: "hosted-override",
+      drawerPanels: [
+        {
+          id: "about",
+          label: "About (hosted)",
+          icon: Package2,
+          orderHint: 90,
+          component: createElement("div"),
+        },
+      ],
+    });
+
+    const merged = computeMergedExtensions();
+    const about = merged.drawerPanels.find((p) => p.id === "about");
+    expect(about?.label).toBe("About (hosted)");
+    // Total panel count stays at 3 — the override replaces, it doesn't
+    // duplicate.
+    expect(merged.drawerPanels.length).toBe(3);
   });
 
   it("collects decorators in registration order", async () => {

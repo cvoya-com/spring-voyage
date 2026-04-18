@@ -144,6 +144,18 @@ export const queryKeys = {
   ollama: {
     models: () => ["ollama", "models"] as const,
   },
+
+  // Settings drawer (#451) — drawer panels fetch a small amount of
+  // per-panel metadata (version/build hash; signed-in user; token
+  // list). Single-tuple keys because each slice is global.
+  platform: {
+    info: () => ["platform", "info"] as const,
+  },
+
+  auth: {
+    me: () => ["auth", "me"] as const,
+    tokens: () => ["auth", "tokens"] as const,
+  },
 } as const;
 
 /**

@@ -4,9 +4,15 @@
 // `./context.tsx` so no component ever needs to know whether it is
 // running in OSS or hosted mode.
 
-import { defaultActions, defaultAuthContext, defaultRoutes } from "./defaults";
+import {
+  defaultActions,
+  defaultAuthContext,
+  defaultDrawerPanels,
+  defaultRoutes,
+} from "./defaults";
 import type {
   ClientDecorator,
+  DrawerPanel,
   IAuthContext,
   PaletteAction,
   PortalExtension,
@@ -22,6 +28,8 @@ import type { ReactNode } from "react";
 export interface MergedExtensions {
   routes: readonly RouteEntry[];
   actions: readonly PaletteAction[];
+  /** Settings drawer panels, sorted by `orderHint`. */
+  drawerPanels: readonly DrawerPanel[];
   auth: IAuthContext;
   decorators: readonly ClientDecorator[];
   slots: Readonly<Partial<Record<ShellSlot, ReactNode>>>;
@@ -91,6 +99,10 @@ export function __resetExtensionsForTesting(): void {
 export function computeMergedExtensions(): MergedExtensions {
   const routes: RouteEntry[] = [...defaultRoutes];
   const actions: PaletteAction[] = [...defaultActions];
+  // Drawer panels share the same "append, sort by orderHint, last
+  // registration wins on id collision" rules as routes/actions. Defaults
+  // (Budget / About / Auth) seed the list; extensions append.
+  const drawerPanels: DrawerPanel[] = [...defaultDrawerPanels];
   const decorators: ClientDecorator[] = [];
   const slots: Partial<Record<ShellSlot, ReactNode>> = {};
   let auth: IAuthContext = defaultAuthContext;
@@ -98,6 +110,7 @@ export function computeMergedExtensions(): MergedExtensions {
   for (const ext of state.extensions) {
     if (ext.routes) routes.push(...ext.routes);
     if (ext.actions) actions.push(...ext.actions);
+    if (ext.drawerPanels) drawerPanels.push(...ext.drawerPanels);
     if (ext.decorators) decorators.push(...ext.decorators);
     if (ext.auth) auth = ext.auth;
     if (ext.slots) {
@@ -110,6 +123,7 @@ export function computeMergedExtensions(): MergedExtensions {
   return {
     routes: sortRoutes(routes),
     actions: sortActions(actions),
+    drawerPanels: sortDrawerPanels(drawerPanels),
     auth,
     decorators,
     slots,
@@ -127,6 +141,29 @@ function sortRoutes(entries: RouteEntry[]): RouteEntry[] {
 
 function sortActions(entries: PaletteAction[]): PaletteAction[] {
   return [...entries].sort(compareByOrderHint);
+}
+
+/**
+ * Sort drawer panels and drop earlier entries whose `id` was shadowed
+ * by a later registration. The last-wins rule matches `registerExtension`
+ * which already replaces a prior registration by extension `id`; this
+ * extends it to per-panel identity so a hosted extension can override a
+ * single default panel without re-registering the whole extension.
+ */
+function sortDrawerPanels(entries: DrawerPanel[]): DrawerPanel[] {
+  const seen = new Set<string>();
+  const deduped: DrawerPanel[] = [];
+  // Walk right-to-left so the last registration for a given id wins;
+  // flip the accumulator back at the end so the natural registration
+  // order is preserved for the stable-sort tiebreaker.
+  for (let i = entries.length - 1; i >= 0; i -= 1) {
+    const p = entries[i];
+    if (seen.has(p.id)) continue;
+    seen.add(p.id);
+    deduped.push(p);
+  }
+  deduped.reverse();
+  return deduped.sort(compareByOrderHint);
 }
 
 function compareByOrderHint<T extends { orderHint?: number }>(

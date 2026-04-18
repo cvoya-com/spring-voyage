@@ -149,6 +149,47 @@ export type FetchFn = (
 export type ClientDecorator = (inner: FetchFn) => FetchFn;
 
 /**
+ * A panel shown inside the Settings drawer (#451). Each panel is a
+ * self-contained React component that the drawer renders alongside
+ * every other registered panel, ordered by `orderHint`.
+ *
+ * OSS registers Budget / About / Auth as defaults; the hosted build
+ * plugs in additional panels (tenant secrets, members / RBAC, SSO)
+ * through the same registration surface.
+ *
+ * Contract rules (follow-up ADR tracked in #556):
+ *
+ * - `id` is globally unique. Re-registering the same `id` replaces the
+ *   prior panel — matches how `registerExtension` already replaces by
+ *   extension id.
+ * - `orderHint` — lower numbers render first. Entries without
+ *   `orderHint` sort after ordered entries, in registration order.
+ * - `permission` — optional capability gate. When set, the panel is
+ *   only rendered if the active auth adapter grants it. OSS's default
+ *   adapter grants every permission, so OSS panels omit this.
+ * - **CLI parity.** Every interactive control inside a panel MUST have
+ *   a CLI equivalent. Panels that surface controls without parity are
+ *   dropped from the drawer until the CLI lands (see the PR body of
+ *   Sub-PR D for the audit notes).
+ */
+export interface DrawerPanel {
+  /** Unique panel id — used for React keys and test harness lookups. */
+  id: string;
+  /** Short human-readable heading, rendered as the panel card title. */
+  label: string;
+  /** Icon rendered at 16×16 next to the label. */
+  icon: ComponentType<{ className?: string }>;
+  /** Optional one-liner shown under the label. */
+  description?: string;
+  /** Lower numbers sort first. */
+  orderHint?: number;
+  /** Capability required to render the panel. Omit for OSS-always-on. */
+  permission?: string;
+  /** The panel body — the drawer renders this inside a `<Card>`. */
+  component: ReactNode;
+}
+
+/**
  * A single extension bundle — the shape the hosted build passes to
  * `registerExtension(...)`. Every field is optional; extensions opt
  * into only the surfaces they care about.
@@ -160,6 +201,8 @@ export interface PortalExtension {
   routes?: readonly RouteEntry[];
   /** Palette-only actions (no sidebar presence). */
   actions?: readonly PaletteAction[];
+  /** Panels this extension adds to the Settings drawer (#451). */
+  drawerPanels?: readonly DrawerPanel[];
   /**
    * Replaces the default auth adapter. Only one extension may set
    * `auth`; the registration call throws if a second registers one.

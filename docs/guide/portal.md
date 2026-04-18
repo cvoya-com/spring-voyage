@@ -40,6 +40,18 @@ Detail pages (`/units/{id}`, `/agents/{id}`, `/conversations/{id}`) are reached 
 
 A theme toggle (light/dark) sits at the bottom of the sidebar. On mobile the sidebar collapses behind a hamburger button.
 
+A **Settings** trigger ([src/Cvoya.Spring.Web/src/components/sidebar.tsx](../../src/Cvoya.Spring.Web/src/components/sidebar.tsx)) opens a right-aligned drawer that collects the portal's cross-cutting configuration in one place. The drawer is focus-trapped, ESC-dismissable, and keyboard-reachable from any page. Panels are added via the portal extension registry — OSS ships three:
+
+| Panel | What it does | Primary CLI equivalent |
+|-------|--------------|------------------------|
+| **Tenant budget** | Read and edit the tenant-wide daily cost ceiling. | `spring cost set-budget --scope tenant --amount <n> --period daily` |
+| **Account** | Show the current signed-in user and list active API tokens. Sign-out button lives here. | `spring auth token list` |
+| **About** | Read-only platform metadata: version, build hash, license reference. | `spring platform info` |
+
+Token create and revoke from inside the drawer are tracked as a separate follow-up (#557) so the "reveal once" primitive can be designed alongside the flow; use `spring auth token create <name>` / `spring auth token revoke <name>` until that lands.
+
+Hosted deployments add more panels (tenant secrets, members / RBAC, SSO, etc.) through the same registration surface — see `src/Cvoya.Spring.Web/src/lib/extensions/README.md`.
+
 ## Dashboard (`/`)
 
 The root page ([src/Cvoya.Spring.Web/src/app/page.tsx](../../src/Cvoya.Spring.Web/src/app/page.tsx)) is a three-column overview:

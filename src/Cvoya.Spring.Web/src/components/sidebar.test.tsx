@@ -85,6 +85,30 @@ describe("Sidebar", () => {
     ).toBeGreaterThan(0);
   });
 
+  it("renders a Settings trigger when onOpenSettings is provided", () => {
+    const onOpenSettings = vi.fn();
+    render(
+      <ExtensionProvider>
+        <Sidebar onOpenSettings={onOpenSettings} />
+      </ExtensionProvider>,
+    );
+
+    const triggers = screen.getAllByTestId("sidebar-settings-trigger");
+    expect(triggers.length).toBeGreaterThan(0);
+    triggers[0].click();
+    expect(onOpenSettings).toHaveBeenCalled();
+  });
+
+  it("does not render a Settings trigger when onOpenSettings is not provided", () => {
+    render(
+      <ExtensionProvider>
+        <Sidebar />
+      </ExtensionProvider>,
+    );
+
+    expect(screen.queryByTestId("sidebar-settings-trigger")).toBeNull();
+  });
+
   it("respects the permission gate on a registered route", () => {
     registerExtension({
       id: "hosted-rbac",

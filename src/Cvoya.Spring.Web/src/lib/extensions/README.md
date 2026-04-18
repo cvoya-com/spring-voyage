@@ -73,6 +73,52 @@ Command-palette-only entries. Use these for verbs that don't deserve
 a sidebar slot ("Rotate secret", "Send message"). Each action either
 navigates via `href` or invokes `onSelect()`.
 
+### Settings-drawer panels (`DrawerPanel[]`)
+
+Panels shown inside the Settings drawer (#451). Every OSS panel ships
+as a default in `defaults.tsx` (Budget, Auth, About); hosted
+extensions plug in additional panels — tenant secrets, members / RBAC,
+SSO — without forking OSS.
+
+```ts
+registerExtension({
+  id: "spring-voyage-cloud",
+  drawerPanels: [
+    {
+      id: "tenant-secrets",
+      label: "Secrets",
+      icon: Lock,
+      orderHint: 100,
+      permission: "secrets.manage",
+      description: "Tenant-scoped secret management.",
+      component: <TenantSecretsPanel />,
+    },
+  ],
+});
+```
+
+Fields:
+
+- `id` — unique panel identifier (used for React keys and test lookups).
+  Re-using a default's `id` replaces it; the drawer keeps a single
+  panel per id regardless of registration count.
+- `label` — short heading rendered next to the panel icon.
+- `icon` — `ComponentType<{ className?: string }>` rendered at 16×16.
+- `description` — optional single-line sub-heading.
+- `orderHint` — lower numbers render first. OSS defaults live in the
+  10–90 range so hosted panels can sit after by picking `>= 100`.
+- `permission` — optional capability gate. Panels whose key the auth
+  adapter rejects disappear silently.
+- `component` — the panel body. Rendered inside a `rounded-lg border`
+  card by the drawer chrome, so panels shouldn't ship their own card
+  frame.
+
+**CLI parity rule.** Every interactive control inside a panel MUST
+have a matching CLI verb. If a control lacks parity, drop it and file
+a CLI follow-up first. The `spring cost set-budget`,
+`spring platform info`, and `spring auth token list` verbs are the
+OSS defaults' parity anchors.
+
 ### Auth adapter (`IAuthContext`)
 
 OSS's default reports

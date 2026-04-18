@@ -1220,6 +1220,21 @@ public class SpringApiClient
     public Task RevokeTokenAsync(string name, CancellationToken ct = default)
         => _client.Api.V1.Auth.Tokens[name].DeleteAsync(cancellationToken: ct);
 
+    // Platform info (#451). The About panel on the portal and the
+    // `spring platform info` CLI verb read the same endpoint so version
+    // reporting can't drift between surfaces.
+
+    /// <summary>
+    /// Reads platform version, build hash, and license metadata. Mirrors
+    /// the portal's Settings → About panel; the endpoint is anonymous so
+    /// the client works before a caller has negotiated a token.
+    /// </summary>
+    public async Task<PlatformInfoResponse> GetPlatformInfoAsync(CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Platform.Info.GetAsync(cancellationToken: ct);
+        return result ?? throw new InvalidOperationException("Server returned an empty platform info response.");
+    }
+
     // Packages (#395). Backs `spring package list / show` and
     // `spring template show <package>/<template>`. The portal's
     // /packages route consumes the same endpoints, so the CLI stays at

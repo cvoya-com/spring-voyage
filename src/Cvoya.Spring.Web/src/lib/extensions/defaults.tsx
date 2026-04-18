@@ -6,6 +6,7 @@
 import {
   Activity,
   GraduationCap,
+  Info,
   LayoutDashboard,
   MessagesSquare,
   Network,
@@ -14,11 +15,17 @@ import {
   Plus,
   Play,
   Square,
+  UserCircle,
   Wallet,
   Zap,
 } from "lucide-react";
 
+import { AboutPanel } from "@/components/settings/about-panel";
+import { AuthPanel } from "@/components/settings/auth-panel";
+import { BudgetPanel } from "@/components/settings/budget-panel";
+
 import type {
+  DrawerPanel,
   IAuthContext,
   PaletteAction,
   RouteEntry,
@@ -262,5 +269,46 @@ export const defaultActions: readonly PaletteAction[] = [
     description:
       "Search the tenant's expertise directory across every agent and unit.",
     href: "/directory",
+  },
+];
+
+/**
+ * Settings-drawer panels shipped with the OSS build (#451 — PR-S1
+ * Sub-PR D). Every interactive control inside a default panel has a
+ * matching CLI verb (`spring cost set-budget`, `spring platform info`,
+ * `spring auth token list`); the hosted build plugs in additional
+ * panels (tenant secrets, members / RBAC, SSO) by returning them from
+ * `registerExtension({ drawerPanels: [...] })` — no OSS fork required.
+ *
+ * Panel ordering is driven by `orderHint` alone; callers never assume
+ * a fixed panel count. Extension authors pick their own `orderHint`
+ * values (hosted panels tend to use `orderHint >= 100` to sit after
+ * the OSS defaults).
+ */
+export const defaultDrawerPanels: readonly DrawerPanel[] = [
+  {
+    id: "budget",
+    label: "Tenant budget",
+    icon: Wallet,
+    description:
+      "Daily cost ceiling across every agent and unit in this tenant.",
+    orderHint: 10,
+    component: <BudgetPanel />,
+  },
+  {
+    id: "auth",
+    label: "Account",
+    icon: UserCircle,
+    description: "Current session and API tokens.",
+    orderHint: 20,
+    component: <AuthPanel />,
+  },
+  {
+    id: "about",
+    label: "About",
+    icon: Info,
+    description: "Platform version and license reference.",
+    orderHint: 90,
+    component: <AboutPanel />,
   },
 ];
