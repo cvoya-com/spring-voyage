@@ -15,6 +15,8 @@ A secret on Spring Voyage is a named, scoped, versioned reference to a piece of 
 
 Plaintext enters the system exactly once — on a `POST` or `PUT` to a secret endpoint, or on `spring secret create`/`rotate` with `--value`/`--from-file` — and is never returned on any response, list entry, or log line. The only path that surfaces a plaintext value is `ISecretResolver.ResolveAsync`, which runs server-side and is consumed by agents, connectors, and tool launchers.
 
+> **Startup-time configuration credentials live outside this registry.** A small set of credentials has to be available *before* the platform can talk to its secret registry — notably the GitHub App `GitHub__AppId` / `GitHub__PrivateKeyPem` pair that powers the GitHub connector itself. Those are sourced from environment variables at host startup (or a file mount the platform dereferences transparently — see [Deployment guide § Optional — connector credentials](deployment.md#optional--connector-credentials)), validated at connector-init time, and never enter the registry. If they are missing the GitHub connector boots in a disabled-with-reason state; if they are malformed the host refuses to start with a targeted error (#609). Everything on this page covers **runtime** secrets the platform manages on the operator's behalf — the startup-time bootstrap pair is deliberately out of scope.
+
 ## Surfaces
 
 Three operator surfaces ship today:

@@ -250,6 +250,76 @@ components reference the store by name (`secretstore`) so they require no
 changes. See [Infrastructure](../docs/architecture/infrastructure.md#data-persistence--configuration)
 and [`dapr/README.md`](../dapr/README.md) for profile details.
 
+### GitHub App credentials — PEM, not a path
+
+The GitHub connector reads its credentials through the .NET
+`Section__Key` env-var convention:
+
+| Variable | Maps to | Expected shape |
+| -------- | ------- | -------------- |
+| `GitHub__AppId` | `GitHub:AppId` | Numeric GitHub App id. |
+| `GitHub__PrivateKeyPem` | `GitHub:PrivateKeyPem` | PEM **contents** (or a path to a readable PEM file — see below). |
+| `GitHub__WebhookSecret` | `GitHub:WebhookSecret` | Shared secret configured on the GitHub App. |
+
+`GitHub__PrivateKeyPem` must hold the full PEM block
+(`-----BEGIN ... PRIVATE KEY-----` through `-----END ... PRIVATE KEY-----`),
+not a filesystem path. The connector's startup validator accepts three
+shapes and rejects everything else:
+
+1. **Inline PEM contents** — the common case when pasting the key into
+   `spring.env`.
+2. **A readable file path whose contents are valid PEM** — ergonomic for
+   Docker secret mounts / Kubernetes volumes. The contents are read
+   once at startup and used in place of the path.
+3. **Both variables unset** — the connector registers in a *disabled
+   with reason* state; `GET /api/v1/connectors/github/actions/list-installations`
+   returns a structured `404` the portal and CLI render as "GitHub App
+   not configured" instead of attempting the JWT sign.
+
+A path that does **not** point at a readable PEM file, or inline text that
+isn't a PEM block, fails the host at startup with a targeted error — the
+platform refuses to boot so the misconfiguration is visible immediately
+rather than surfacing as an HTTP 502 from the first feature-use call
+(#609).
+
+#### Docker Compose / Podman example
+
+Mount the PEM as a secret and point `GitHub__PrivateKeyPem` at the mount
+path:
+
+```yaml
+# compose.yml
+services:
+  spring-api:
+    environment:
+      GitHub__AppId: "123456"
+      GitHub__PrivateKeyPem: "/run/secrets/github-app-key"
+      GitHub__WebhookSecret: "<shared>"
+    secrets:
+      - github-app-key
+
+secrets:
+  github-app-key:
+    file: ./secrets/github-app-key.pem
+```
+
+The startup validator notices the value is a filesystem path, reads the
+mounted file, verifies the contents are valid PEM, and adopts them. No
+extra shell script or `entrypoint.sh` transformation is required.
+
+Alternative — inline the contents in `spring.env`:
+
+```ini
+GitHub__AppId=123456
+GitHub__PrivateKeyPem=-----BEGIN PRIVATE KEY-----
+MIIEvwIBADAN... (full key) ...
+-----END PRIVATE KEY-----
+GitHub__WebhookSecret=<shared>
+```
+
+`spring.env.example` ships with the three variables commented out for
+this reason; uncomment the set you intend to use.
+
 ## Local AI (Ollama)
 
 Spring Voyage supports [Ollama](https://ollama.com) as a first-class LLM backend

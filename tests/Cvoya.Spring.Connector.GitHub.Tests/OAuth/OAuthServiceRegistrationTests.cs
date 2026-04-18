@@ -24,7 +24,7 @@ public class OAuthServiceRegistrationTests
         var config = new Dictionary<string, string?>
         {
             ["GitHub:AppId"] = "12345",
-            ["GitHub:PrivateKeyPem"] = "test-key",
+            ["GitHub:PrivateKeyPem"] = TestPemKey.Value,
             ["GitHub:WebhookSecret"] = "test-secret",
             ["GitHub:InstallationId"] = "67890",
             ["GitHub:OAuth:ClientId"] = "oauth-client",

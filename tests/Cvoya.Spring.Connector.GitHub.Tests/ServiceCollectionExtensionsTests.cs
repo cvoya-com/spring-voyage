@@ -26,7 +26,7 @@ public class ServiceCollectionExtensionsTests
             .AddInMemoryCollection(configValues ?? new Dictionary<string, string?>
             {
                 ["GitHub:AppId"] = "12345",
-                ["GitHub:PrivateKeyPem"] = "test-key",
+                ["GitHub:PrivateKeyPem"] = TestPemKey.Value,
                 ["GitHub:WebhookSecret"] = "test-secret",
                 ["GitHub:InstallationId"] = "67890"
             })
@@ -107,7 +107,7 @@ public class ServiceCollectionExtensionsTests
         using var provider = BuildProvider(new Dictionary<string, string?>
         {
             ["GitHub:AppId"] = "12345",
-            ["GitHub:PrivateKeyPem"] = "test-key",
+            ["GitHub:PrivateKeyPem"] = TestPemKey.Value,
             ["GitHub:WebhookSecret"] = "test-secret",
             ["GitHub:Retry:MaxRetries"] = "7",
             ["GitHub:Retry:PreflightSafetyThreshold"] = "42"
@@ -125,7 +125,7 @@ public class ServiceCollectionExtensionsTests
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["GitHub:AppId"] = "12345",
-                ["GitHub:PrivateKeyPem"] = "test-key",
+                ["GitHub:PrivateKeyPem"] = TestPemKey.Value,
                 ["GitHub:WebhookSecret"] = "test-secret"
             })
             .Build();
@@ -179,7 +179,7 @@ public class ServiceCollectionExtensionsTests
         using var provider = BuildProvider(new Dictionary<string, string?>
         {
             ["GitHub:AppId"] = "12345",
-            ["GitHub:PrivateKeyPem"] = "test-key",
+            ["GitHub:PrivateKeyPem"] = TestPemKey.Value,
             ["GitHub:WebhookSecret"] = "test-secret",
             ["GitHub:InstallationId"] = "67890",
             ["GitHub:RateLimit:StateStore:Backend"] = "dapr",
@@ -201,7 +201,7 @@ public class ServiceCollectionExtensionsTests
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["GitHub:AppId"] = "12345",
-                ["GitHub:PrivateKeyPem"] = "test-key",
+                ["GitHub:PrivateKeyPem"] = TestPemKey.Value,
                 ["GitHub:WebhookSecret"] = "test-secret",
                 ["GitHub:InstallationId"] = "67890",
                 ["GitHub:RateLimit:StateStore:Backend"] = "dapr",
@@ -228,5 +228,100 @@ public class ServiceCollectionExtensionsTests
 
         var tracker = provider.GetRequiredService<IGitHubRateLimitTracker>();
         tracker.ShouldBeOfType<GitHubRateLimitTracker>();
+    }
+
+    [Fact]
+    public void AddCvoyaSpringConnectorGitHub_ValidCredentials_RegistersEnabledAvailability()
+    {
+        // Regression for #609. Happy path: valid PEM + AppId → connector
+        // reports as enabled so the hot path runs normally.
+        using var provider = BuildProvider();
+
+        var availability = provider.GetRequiredService<IGitHubConnectorAvailability>();
+
+        availability.IsEnabled.ShouldBeTrue();
+        availability.DisabledReason.ShouldBeNull();
+    }
+
+    [Fact]
+    public void AddCvoyaSpringConnectorGitHub_MissingCredentials_RegistersDisabledAvailability()
+    {
+        // Regression for #609. Neither env var set — the connector should
+        // register in a "disabled with reason" state rather than throwing,
+        // so the rest of the platform boots and list-installations can
+        // return a structured 404 instead of a 502.
+        using var provider = BuildProvider(new Dictionary<string, string?>());
+
+        var availability = provider.GetRequiredService<IGitHubConnectorAvailability>();
+
+        availability.IsEnabled.ShouldBeFalse();
+        availability.DisabledReason.ShouldNotBeNullOrWhiteSpace();
+        availability.DisabledReason!.ShouldContain("GitHub App not configured");
+    }
+
+    [Fact]
+    public void AddCvoyaSpringConnectorGitHub_MalformedPem_ThrowsAtResolve()
+    {
+        // Regression for #609. Garbage in GITHUB_APP_PRIVATE_KEY — the
+        // validator fails fast with a targeted message when the options
+        // singleton is resolved, so the host refuses to boot instead of
+        // waiting for the first list-installations call to 502.
+        using var provider = BuildProvider(new Dictionary<string, string?>
+        {
+            ["GitHub:AppId"] = "12345",
+            ["GitHub:PrivateKeyPem"] = "this is not a pem and not a path",
+        });
+
+        var ex = Should.Throw<InvalidOperationException>(() =>
+            provider.GetRequiredService<GitHubConnectorOptions>());
+        ex.Message.ShouldContain("PEM-encoded", Case.Insensitive);
+    }
+
+    [Fact]
+    public void AddCvoyaSpringConnectorGitHub_PathAsKey_ThrowsWithTargetedMessage()
+    {
+        // Regression for #609. Path handed where PEM contents were
+        // expected. The error message MUST name the env var and explain
+        // the fix so operators aren't left staring at "No supported key
+        // formats were found" like the original bug report.
+        using var provider = BuildProvider(new Dictionary<string, string?>
+        {
+            ["GitHub:AppId"] = "12345",
+            ["GitHub:PrivateKeyPem"] = "/etc/secrets/missing-" + Guid.NewGuid().ToString("N"),
+        });
+
+        var ex = Should.Throw<InvalidOperationException>(() =>
+            provider.GetRequiredService<GitHubConnectorOptions>());
+        ex.Message.ShouldContain("filesystem path", Case.Insensitive);
+        ex.Message.ShouldContain("GITHUB_APP_PRIVATE_KEY");
+    }
+
+    [Fact]
+    public void AddCvoyaSpringConnectorGitHub_PathToValidPemFile_DereferencesAndAdoptsContents()
+    {
+        // The path-dereference ergonomics test: mount the PEM as a file
+        // (Docker secret / k8s volume), point the env var at the path,
+        // and the connector should adopt the contents transparently.
+        var pemPath = Path.Combine(Path.GetTempPath(), $"spring-gh-{Guid.NewGuid():N}.pem");
+        File.WriteAllText(pemPath, TestPemKey.Value);
+        try
+        {
+            using var provider = BuildProvider(new Dictionary<string, string?>
+            {
+                ["GitHub:AppId"] = "12345",
+                ["GitHub:PrivateKeyPem"] = pemPath,
+            });
+
+            var options = provider.GetRequiredService<GitHubConnectorOptions>();
+            options.PrivateKeyPem.ShouldContain("-----BEGIN");
+            options.PrivateKeyPem.ShouldNotBe(pemPath);
+
+            var availability = provider.GetRequiredService<IGitHubConnectorAvailability>();
+            availability.IsEnabled.ShouldBeTrue();
+        }
+        finally
+        {
+            File.Delete(pemPath);
+        }
     }
 }

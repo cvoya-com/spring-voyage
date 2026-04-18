@@ -41,10 +41,57 @@ public static class ServiceCollectionExtensions
         var section = configuration.GetSection(ConfigurationSectionName);
         services.AddOptions<GitHubConnectorOptions>().Bind(section);
 
+        // Validate the GitHub App credentials at connector-init time rather
+        // than on the first hot-path call (#609). Three outcomes:
+        //   * Missing  → register a "disabled with reason" availability
+        //                marker; list-installations short-circuits to 404.
+        //   * Valid    → adopt the resolved PEM (dereferenced from a file
+        //                when the operator mounted it as a secret).
+        //   * LooksLikePath / Malformed → throw so the host refuses to boot.
+        // The PostConfigure runs every time the singleton options are
+        // materialised — once, because AddOptions<T>.Bind caches the value.
+        services.AddOptions<GitHubConnectorOptions>()
+            .PostConfigure(static options =>
+            {
+                var result = GitHubAppCredentialsValidator.Classify(options);
+                switch (result.Classification)
+                {
+                    case GitHubAppCredentialsValidator.Kind.Valid:
+                        // Adopt the (possibly path-dereferenced) PEM so the
+                        // rest of the connector sees contents, never a path.
+                        options.PrivateKeyPem = result.ResolvedPrivateKeyPem!;
+                        break;
+                    case GitHubAppCredentialsValidator.Kind.Missing:
+                        // Leave options as-is; availability below reports
+                        // disabled.
+                        break;
+                    case GitHubAppCredentialsValidator.Kind.LooksLikePath:
+                    case GitHubAppCredentialsValidator.Kind.Malformed:
+                        throw new InvalidOperationException(result.ErrorMessage);
+                }
+            });
+
         services.TryAddSingleton(sp =>
         {
             var options = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<GitHubConnectorOptions>>();
             return options.Value;
+        });
+
+        // Availability singleton — wired off the PostConfigure outcome.
+        // Resolving GitHubConnectorOptions above triggers the validator, so
+        // by the time this factory runs the options have either been
+        // normalised (Valid/Missing) or the throw has already aborted
+        // startup (LooksLikePath/Malformed).
+        services.TryAddSingleton<IGitHubConnectorAvailability>(sp =>
+        {
+            var opts = sp.GetRequiredService<GitHubConnectorOptions>();
+            var result = GitHubAppCredentialsValidator.Classify(opts);
+            return result.Classification switch
+            {
+                GitHubAppCredentialsValidator.Kind.Missing =>
+                    GitHubConnectorAvailability.Disabled(result.DisabledReason!),
+                _ => GitHubConnectorAvailability.Enabled,
+            };
         });
 
         // Retry / rate-limit machinery. Registered ahead of the connector
