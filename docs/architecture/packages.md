@@ -17,7 +17,7 @@ Each domain package follows a standard directory convention:
 - **`execution/`** — Agent execution environment sources (Dockerfile)
 - **`connectors/`** — Connector implementations (compiled into host)
 
-The `software-engineering` package ships with Phase 1. Additional packages (`product-management`, `research`) are planned for later phases.
+The `software-engineering` package ships with Phase 1. The `product-management` and `research` packages ship as additional in-tree domain packages — the browse surface (`spring package list` / `/packages`) picks them up automatically because the file-system catalog walks every directory under `packages/`.
 
 **Dockerfiles are source; images are runtime.** Packages include Dockerfiles for workflows and agent execution environments — they are the source of truth for how images are built. Agent and unit definitions reference pre-built images at runtime (e.g., `image: spring-workflows/software-dev-cycle:latest`). The `spring build` command bridges the gap:
 

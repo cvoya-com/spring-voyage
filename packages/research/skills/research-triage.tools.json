@@ -1,0 +1,33 @@
+[
+  {
+    "name": "assignToAgent",
+    "description": "Assign a research item to a specific member of the unit",
+    "parameters": {
+      "type": "object",
+      "required": ["agentId", "description"],
+      "properties": {
+        "agentId": {
+          "type": "string",
+          "description": "Agent ID or role to assign to"
+        },
+        "description": {
+          "type": "string",
+          "description": "Clear scope statement for the assigned work"
+        },
+        "shape": {
+          "type": "string",
+          "enum": ["question", "literature-review", "data-analysis", "definition"],
+          "description": "Classification of the research ask, used to route follow-ups"
+        },
+        "deadline": {
+          "type": "string",
+          "description": "Optional ISO-8601 deadline for the assigned work"
+        },
+        "conversationId": {
+          "type": "string",
+          "description": "Optional — attach to an existing conversation"
+        }
+      }
+    }
+  }
+]

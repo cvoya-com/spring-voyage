@@ -77,6 +77,10 @@ No versions have been tagged yet. The entries below capture the repository's his
 - Unified `IAgent` interface across agents and units ([#213](https://github.com/cvoya-com/spring-voyage/pull/213)).
 - Unit-scheme members surfaced in portal UI and CLI ([#353](https://github.com/cvoya-com/spring-voyage/pull/353)).
 
+#### Phase 6 — Platform maturity (in progress)
+
+- Research domain package (agent templates, research-team unit, and skill bundles; additional research connectors deferred to follow-ups) ([#417](https://github.com/cvoya-com/spring-voyage/issues/417)).
+
 #### Work beyond original phasing
 
 - **Policy framework.** Unit-level policies for skill, model, cost, execution mode, and initiative ([#251](https://github.com/cvoya-com/spring-voyage/pull/251), [#279](https://github.com/cvoya-com/spring-voyage/pull/279)).

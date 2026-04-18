@@ -1,0 +1,65 @@
+[
+  {
+    "name": "recordExperiment",
+    "description": "Record an analysis run so it can be reproduced or audited later",
+    "parameters": {
+      "type": "object",
+      "required": ["name", "datasetId"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Short human-readable name for the run"
+        },
+        "datasetId": {
+          "type": "string",
+          "description": "Identifier of the dataset the analysis ran over"
+        },
+        "parameters": {
+          "type": "object",
+          "description": "Parameter map — keys are parameter names, values are strings, numbers, or booleans",
+          "additionalProperties": {
+            "type": ["string", "number", "boolean"]
+          }
+        },
+        "metrics": {
+          "type": "object",
+          "description": "Result metrics — keys are metric names, values are numeric",
+          "additionalProperties": { "type": "number" }
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-form notes — caveats, deviations from the plan, or follow-ups"
+        }
+      }
+    }
+  },
+  {
+    "name": "reportFindings",
+    "description": "Report the outcome of a completed analysis back to the requesting agent or unit",
+    "parameters": {
+      "type": "object",
+      "required": ["summary", "confidence"],
+      "properties": {
+        "summary": {
+          "type": "string",
+          "description": "Plain-language summary of the findings, including effect size and practical significance"
+        },
+        "confidence": {
+          "type": "string",
+          "enum": ["low", "medium", "high"],
+          "description": "Analyst's confidence in the finding"
+        },
+        "caveats": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Caveats and open questions that the consumer needs to know about before acting"
+        },
+        "followUps": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Suggested follow-up analyses that would tighten the conclusion"
+        }
+      }
+    }
+  }
+]

@@ -1,0 +1,72 @@
+[
+  {
+    "name": "searchLiterature",
+    "description": "Search the configured literature connector (arxiv, Semantic Scholar, web search, ...) for candidate sources",
+    "parameters": {
+      "type": "object",
+      "required": ["query"],
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "Search query — plain text or connector-specific operators"
+        },
+        "sourceTypes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["paper", "preprint", "article", "book", "dataset", "report"]
+          },
+          "description": "Optional filter on the source types to return"
+        },
+        "yearFrom": {
+          "type": "integer",
+          "description": "Optional inclusive lower bound on publication year"
+        },
+        "yearTo": {
+          "type": "integer",
+          "description": "Optional inclusive upper bound on publication year"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Maximum number of results to return (default: 20)"
+        }
+      }
+    }
+  },
+  {
+    "name": "classifyPaper",
+    "description": "Record structured metadata for a paper or article encountered during a literature review",
+    "parameters": {
+      "type": "object",
+      "required": ["sourceId", "topics", "methodology"],
+      "properties": {
+        "sourceId": {
+          "type": "string",
+          "description": "Identifier or URL of the source"
+        },
+        "topics": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Topic tags (free-form but preferably drawn from the review's theme map)"
+        },
+        "methodology": {
+          "type": "string",
+          "enum": ["experimental", "theoretical", "survey", "mixed", "unknown"],
+          "description": "Methodology used by the paper"
+        },
+        "qualityScore": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 5,
+          "description": "Reviewer's confidence in the paper's evidence (1 = weak, 5 = strong)"
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-form notes — limitations, caveats, or questions for follow-up"
+        }
+      }
+    }
+  }
+]

@@ -1,0 +1,38 @@
+unit:
+  name: research-team
+  description: A research team that combines a generalist researcher, a literature reviewer, and a data analyst to investigate open questions end-to-end.
+  structure: hierarchical
+  ai:
+    agent: claude
+    model: claude-sonnet-4-20250514
+    prompt: |
+      You coordinate a research team made up of a researcher, a literature
+      reviewer, and a data analyst. Route incoming research asks to the
+      member whose expertise best matches the work, keep the team focused
+      on the current question, and make sure the final deliverable cites
+      its sources and acknowledges gaps.
+    skills:
+      - package: spring-voyage/research
+        skill: research-triage
+      - package: spring-voyage/research
+        skill: literature-review
+      - package: spring-voyage/research
+        skill: data-analysis
+  members:
+    - agent: researcher
+    - agent: literature-reviewer
+    - agent: data-analyst
+  execution:
+    image: spring-agent:latest
+    runtime: docker
+  policies:
+    communication: through-unit
+    work_assignment: capability-match
+    expertise_sharing: advertise
+    initiative:
+      max_level: attentive
+      max_actions_per_hour: 10
+  humans:
+    - identity: owner
+      permission: owner
+      notifications: ["escalation", "completion"]
