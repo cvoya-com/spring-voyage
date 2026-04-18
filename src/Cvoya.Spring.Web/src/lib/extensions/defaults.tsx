@@ -6,6 +6,7 @@
 import {
   Activity,
   GraduationCap,
+  Inbox,
   Info,
   LayoutDashboard,
   MessagesSquare,
@@ -59,6 +60,21 @@ export const defaultRoutes: readonly RouteEntry[] = [
     description: "Units, agents, and recent activity at a glance.",
   },
   {
+    path: "/inbox",
+    label: "Inbox",
+    icon: Inbox,
+    navSection: "primary",
+    orderHint: 15,
+    keywords: [
+      "awaiting",
+      "pending",
+      "human",
+      "spring inbox list",
+    ],
+    description:
+      "Conversations awaiting a response from you.",
+  },
+  {
     path: "/units",
     label: "Units",
     icon: Network,
@@ -66,15 +82,6 @@ export const defaultRoutes: readonly RouteEntry[] = [
     orderHint: 20,
     keywords: ["teams", "groups"],
     description: "Composite agents, policies, and connector bindings.",
-  },
-  {
-    path: "/conversations",
-    label: "Conversations",
-    icon: MessagesSquare,
-    navSection: "primary",
-    orderHint: 25,
-    keywords: ["chat", "threads", "messages"],
-    description: "Active conversation threads, derived from the event stream.",
   },
   {
     path: "/activity",
@@ -214,6 +221,21 @@ export const defaultActions: readonly PaletteAction[] = [
     keywords: ["spring conversation list", "threads", "chat"],
     description: "Browse message threads between humans, agents, and units.",
     href: "/conversations",
+  },
+  {
+    id: "inbox.list",
+    label: "Open inbox",
+    icon: Inbox,
+    section: "actions",
+    orderHint: 56,
+    keywords: [
+      "spring inbox list",
+      "awaiting",
+      "pending",
+      "human",
+    ],
+    description: "Conversations awaiting a response from you.",
+    href: "/inbox",
   },
   {
     id: "budget.view",

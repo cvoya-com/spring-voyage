@@ -260,13 +260,14 @@ The portal's primitive library lives in `src/components/ui/`. Shared composites 
 - Nav item: `flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors`. Active: `bg-primary/10 text-primary font-medium`. Inactive: `text-muted-foreground hover:bg-accent hover:text-accent-foreground`.
 - Brand wordmark is `text-lg font-bold` ("Spring Voyage"). Version chip is `text-xs text-muted-foreground` in the footer, paired with the theme toggle (`Sun` / `Moon` at `h-3.5 w-3.5`).
 
-### 7.11 Cards for domain entities — `stat-card.tsx`, `unit-card.tsx`, `agent-card.tsx`, `conversation-card.tsx`, `activity-feed.tsx`
+### 7.11 Cards for domain entities — `stat-card.tsx`, `unit-card.tsx`, `agent-card.tsx`, `conversation-card.tsx`, `inbox-card.tsx`, `activity-feed.tsx`
 
 - Stat card: label (`text-xs text-muted-foreground`) + value (`text-2xl font-bold`) + trailing icon (`text-muted-foreground`).
-- Unit / agent / conversation cards compose the base `Card` with a status dot + name + registered-at row. They are the **only** card layouts allowed for these entity types — pages must not invent bespoke unit/agent/conversation layouts. Every detail page (`/units/[id]`, `/agents/[id]`, `/conversations/[id]`) must reuse the matching primitive at the top of its summary block (PR-R2 / #392).
+- Unit / agent / conversation / inbox cards compose the base `Card` with a status dot + name + registered-at row. They are the **only** card layouts allowed for these entity types — pages must not invent bespoke unit/agent/conversation/inbox layouts. Every detail page (`/units/[id]`, `/agents/[id]`, `/conversations/[id]`) must reuse the matching primitive at the top of its summary block (PR-R2 / #392).
 - `<AgentCard>` accepts an `actions` prop — a React node rendered next to the card's "Open" link. Use it to surface row-scoped quick actions (edit, remove, mute) without duplicating the card chrome. Membership editor in `app/units/[id]/agents-tab.tsx` is the canonical example (#472).
 - Activity feed row: `flex items-start gap-2 text-sm` with a 2×2 severity dot at `mt-1.5`, message on top, meta (`text-xs text-muted-foreground`) below.
 - Conversation card (`components/cards/conversation-card.tsx`): MessagesSquare icon + title + status badge on the top row; truncated participants (max 3, `+N more` overflow) and `timeAgo(lastActivityAt)` on the meta row; trailing "Open" link to `/conversations/[id]`.
+- Inbox card (`components/cards/inbox-card.tsx`): Inbox icon + summary + `Awaiting you` warning badge on the top row; `From <address>` (cross-linked to `/agents/[id]` or `/units/[id]` when the scheme is `agent://` or `unit://`; `human://` renders as plain monospace) and `timeAgo(pendingSince)` on the meta row; trailing "Open thread" link to `/conversations/[id]`. Drives `/inbox` (#447), which is the portal counterpart of `spring inbox list`.
 
 ### 7.11b Multi-rule config tab — `app/units/[id]/boundary-tab.tsx`
 

@@ -25,6 +25,7 @@ The left sidebar ([src/Cvoya.Spring.Web/src/components/sidebar.tsx](../../src/Cv
 | Portal route | What it shows | Primary CLI equivalent |
 |--------------|---------------|------------------------|
 | `/` — **Dashboard** | Stats header, unit cards, agent cards, recent activity | (no single CLI equivalent — see individual pages) |
+| `/inbox` — **Inbox** | Conversations awaiting a response from you; cross-links to each thread | `spring inbox list` |
 | `/units` — **Units** | List of all units with status + delete action | `spring unit list` |
 | `/activity` — **Activity** | Paginated activity feed with filters | `spring activity list` |
 | `/conversations` — **Conversations** | Filtered conversation list, "Awaiting you" inbox, deep links to threads | `spring conversation list` / `spring inbox list` |
@@ -402,6 +403,22 @@ spring activity list --type MessageSent
 spring activity list --severity Warning
 spring activity list --limit 50
 ```
+
+## Inbox (`/inbox`)
+
+The inbox page ([src/Cvoya.Spring.Web/src/app/inbox/page.tsx](../../src/Cvoya.Spring.Web/src/app/inbox/page.tsx)) is the one-to-one portal counterpart of `spring inbox list`. It lists conversations where the latest event is a `MessageReceived` targeting the current `human://` address and the human has not yet replied — a task queue, not an archive (see `docs/design/portal-exploration.md` § 3.4).
+
+- **Card grid** — one `<InboxCard>` per row. Each card shows the summary, an `Awaiting you` warning badge, the `from` address (cross-linked to `/agents/{id}` or `/units/{id}` when applicable — `human://` senders render as plain monospace), the `timeAgo(pendingSince)` meta, and an "Open thread" deep-link to `/conversations/{id}`.
+- **No filters** — `spring inbox list` ships without filter flags today, so the portal surface exposes none either. Any future CLI filter grows the same knob on this page in the same PR (CONVENTIONS.md § 14 UI / CLI parity).
+- **Empty state** — "Nothing waiting on you." when the list is empty.
+- **Error state** — the page surfaces the server error verbatim in a `border-destructive` card and leaves the refresh button reachable.
+- **Live updates** — the page subscribes to the activity SSE stream; `human://`-scoped events invalidate the inbox cache through `queryKeysAffectedBySource`, so new asks appear (and resolved ones disappear) without polling.
+
+| Action | Portal | CLI |
+|--------|--------|-----|
+| List inbox rows | `/inbox` | `spring inbox list` |
+| Open thread from a row | "Open thread" link on any card | `spring inbox show <conversation-id>` |
+| Reply to a row | composer at the bottom of `/conversations/{id}` | `spring inbox respond <conversation-id> <text>` |
 
 ## Conversations (`/conversations`, `/conversations/{id}`)
 
