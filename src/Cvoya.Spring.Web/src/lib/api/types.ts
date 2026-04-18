@@ -254,6 +254,27 @@ export type ExecutionModePolicy = Schemas["ExecutionModePolicy"];
  */
 export type UnitPolicyResponse = Schemas["UnitPolicyResponse"];
 
+/**
+ * Sixth `UnitPolicy` dimension — label-routing rules consumed by the
+ * `label-routed` `IOrchestrationStrategy` (#389). Edited alongside the
+ * other five dimensions through `PUT /api/v1/units/{id}/policy`.
+ */
+export type LabelRoutingPolicy = Schemas["LabelRoutingPolicy"];
+
+/**
+ * Platform-offered orchestration strategy keys (#491). The resolver
+ * looks up the manifest's declared key against this set (with hosts
+ * free to register additional keys); the portal surfaces exactly these
+ * three in its Orchestration tab dropdown because they are the only
+ * ones guaranteed to be registered by the OSS platform.
+ */
+export const ORCHESTRATION_STRATEGIES = [
+  "ai",
+  "workflow",
+  "label-routed",
+] as const;
+export type OrchestrationStrategyKey = (typeof ORCHESTRATION_STRATEGIES)[number];
+
 /** Tier 1 (screening) model configuration. */
 export type Tier1Config = Schemas["Tier1Config"];
 
