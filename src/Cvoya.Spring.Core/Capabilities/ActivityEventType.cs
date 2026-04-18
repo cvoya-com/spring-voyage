@@ -63,4 +63,16 @@ public enum ActivityEventType
     /// and <c>result</c>. See <see cref="Execution.StreamEvent.ToolResult"/>.
     /// </summary>
     ToolResult,
+
+    /// <summary>
+    /// Emitted when a Tier-2 reflection action is surfaced as a proposal
+    /// requiring human / unit confirmation rather than dispatched inline —
+    /// the <see cref="Initiative.IAgentInitiativeEvaluator"/> returned
+    /// <see cref="Initiative.InitiativeEvaluationDecision.ActWithConfirmation"/>.
+    /// Details carry the translated target, the conversation id, the
+    /// reason string, and whether the downgrade was fail-closed so
+    /// operators can distinguish "operator asked for confirmation" from
+    /// "a gate could not be evaluated." See #552.
+    /// </summary>
+    ReflectionActionProposed,
 }

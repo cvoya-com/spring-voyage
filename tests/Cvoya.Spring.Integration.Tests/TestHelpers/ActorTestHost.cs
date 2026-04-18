@@ -98,6 +98,10 @@ public static class ActorTestHost
         unitPolicyEnforcer
             .EvaluateInitiativeActionAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(PolicyDecision.Allowed);
+        var initiativeEvaluator = Substitute.For<IAgentInitiativeEvaluator>();
+        initiativeEvaluator
+            .EvaluateAsync(Arg.Any<InitiativeEvaluationContext>(), Arg.Any<CancellationToken>())
+            .Returns(InitiativeEvaluationResult.Autonomously(InitiativeLevel.Autonomous));
         var actor = new AgentActor(
             host,
             activityEventBus,
@@ -110,6 +114,7 @@ public static class ActorTestHost
             membershipRepository,
             reflectionRegistry,
             unitPolicyEnforcer,
+            initiativeEvaluator,
             loggerFactory);
         SetStateManager(actor, stateManager);
 

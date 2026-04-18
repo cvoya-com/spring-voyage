@@ -32,13 +32,20 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Tests for the Tier-2 reflection-action dispatch path introduced by #100.
-/// Verifies that <see cref="AgentActor.ReceiveReminderAsync"/> translates a
-/// <see cref="ReflectionOutcome"/> into a <see cref="Message"/> via the
-/// <see cref="IReflectionActionHandlerRegistry"/>, gates it through the
-/// agent's <see cref="InitiativePolicy"/> and the unit-level
-/// <see cref="IUnitPolicyEnforcer"/>, and routes it through
-/// <see cref="MessageRouter"/>.
+/// Tests for the Tier-2 reflection-action dispatch path introduced by #100
+/// and extended by #552 (evaluator wiring). Verifies that
+/// <see cref="AgentActor.ReceiveReminderAsync"/>:
+/// <list type="bullet">
+///   <item><description>translates the outcome through the
+///     <see cref="IReflectionActionHandlerRegistry"/>;</description></item>
+///   <item><description>applies the cross-cutting
+///     <see cref="IUnitPolicyEnforcer.EvaluateSkillInvocationAsync"/> gate;</description></item>
+///   <item><description>consults the <see cref="IAgentInitiativeEvaluator"/>
+///     seam (the #552 decision point) and maps its three-valued decision
+///     onto dispatch / proposal / defer semantics;</description></item>
+///   <item><description>routes through <see cref="MessageRouter"/> only when
+///     the evaluator returned <c>ActAutonomously</c>.</description></item>
+/// </list>
 /// </summary>
 public class AgentActorReflectionDispatchTests
 {
@@ -54,6 +61,7 @@ public class AgentActorReflectionDispatchTests
     private readonly IUnitMembershipRepository _membershipRepository = Substitute.For<IUnitMembershipRepository>();
     private readonly IReflectionActionHandlerRegistry _registry = Substitute.For<IReflectionActionHandlerRegistry>();
     private readonly IUnitPolicyEnforcer _unitPolicyEnforcer = Substitute.For<IUnitPolicyEnforcer>();
+    private readonly IAgentInitiativeEvaluator _initiativeEvaluator = Substitute.For<IAgentInitiativeEvaluator>();
     private readonly AgentActor _actor;
 
     public AgentActorReflectionDispatchTests()
@@ -83,6 +91,12 @@ public class AgentActorReflectionDispatchTests
         _policyStore.GetPolicyAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new InitiativePolicy(MaxLevel: InitiativeLevel.Autonomous));
 
+        // Default: evaluator green-lights the action autonomously so tests
+        // that don't care about the initiative seam can progress straight
+        // through dispatch. Individual tests override this to exercise
+        // Defer / ActWithConfirmation.
+        _initiativeEvaluator.WithActAutonomouslyByDefault();
+
         _actor = new AgentActor(
             host,
             _activityEventBus,
@@ -95,6 +109,7 @@ public class AgentActorReflectionDispatchTests
             _membershipRepository,
             _registry,
             _unitPolicyEnforcer,
+            _initiativeEvaluator,
             loggerFactory);
 
         SetStateManager(_actor, _stateManager);
@@ -151,7 +166,7 @@ public class AgentActorReflectionDispatchTests
     }
 
     [Fact]
-    public async Task Reflection_ShouldActValidAction_RoutesTranslatedMessage()
+    public async Task Reflection_EvaluatorActsAutonomously_RoutesTranslatedMessage()
     {
         var outcome = new ReflectionOutcome(true, "send-message", "because",
             JsonSerializer.SerializeToElement(new { }));
@@ -166,6 +181,132 @@ public class AgentActorReflectionDispatchTests
             Arg.Any<CancellationToken>());
         await _activityEventBus.Received().PublishAsync(
             Arg.Is<ActivityEvent>(e => e.EventType == ActivityEventType.ReflectionActionDispatched),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Reflection_EvaluatorConsultedWithObservationSignals()
+    {
+        // The #552 wiring passes the drained observation batch as Signals on
+        // the evaluator's context so a Proactive / Autonomous evaluator can
+        // use them to decide. Verify the signal batch reaches the seam.
+        var outcome = new ReflectionOutcome(true, "send-message", "because",
+            JsonSerializer.SerializeToElement(new { }));
+        ArrangeOutcome(outcome);
+        ArrangeHandler("send-message", TranslatedMessage());
+
+        await _actor.ReceiveReminderAsync(AgentActor.InitiativeReminderName, Array.Empty<byte>(), TimeSpan.Zero, TimeSpan.FromHours(1));
+
+        await _initiativeEvaluator.Received(1).EvaluateAsync(
+            Arg.Is<InitiativeEvaluationContext>(c =>
+                c.AgentId == AgentId &&
+                c.Action.ActionType == "send-message" &&
+                c.Signals.Count == 1),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Reflection_EvaluatorReturnsDefer_NoDispatchNoActivityEvent()
+    {
+        // #552 acceptance: Defer takes no action and emits no activity event.
+        _initiativeEvaluator
+            .EvaluateAsync(Arg.Any<InitiativeEvaluationContext>(), Arg.Any<CancellationToken>())
+            .Returns(InitiativeEvaluationResult.Defer(
+                InitiativeLevel.Passive,
+                "agent initiative level is below Proactive"));
+
+        var outcome = new ReflectionOutcome(true, "send-message", "because",
+            JsonSerializer.SerializeToElement(new { }));
+        ArrangeOutcome(outcome);
+        ArrangeHandler("send-message", TranslatedMessage());
+
+        await _actor.ReceiveReminderAsync(AgentActor.InitiativeReminderName, Array.Empty<byte>(), TimeSpan.Zero, TimeSpan.FromHours(1));
+
+        await _router.DidNotReceive().RouteAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>());
+        await _activityEventBus.DidNotReceive().PublishAsync(
+            Arg.Is<ActivityEvent>(e =>
+                e.EventType == ActivityEventType.ReflectionActionDispatched ||
+                e.EventType == ActivityEventType.ReflectionActionProposed ||
+                e.EventType == ActivityEventType.ReflectionActionSkipped),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Reflection_EvaluatorReturnsActWithConfirmation_EmitsProposalDoesNotRoute()
+    {
+        // #552 acceptance: Proactive surfaces a proposal for the appropriate
+        // owner and emits an activity entry — but does not dispatch inline.
+        _initiativeEvaluator
+            .EvaluateAsync(Arg.Any<InitiativeEvaluationContext>(), Arg.Any<CancellationToken>())
+            .Returns(InitiativeEvaluationResult.WithConfirmation(
+                InitiativeLevel.Proactive,
+                "proactive level always requires confirmation"));
+
+        var outcome = new ReflectionOutcome(true, "send-message", "because",
+            JsonSerializer.SerializeToElement(new { }));
+        ArrangeOutcome(outcome);
+        ArrangeHandler("send-message", TranslatedMessage());
+
+        await _actor.ReceiveReminderAsync(AgentActor.InitiativeReminderName, Array.Empty<byte>(), TimeSpan.Zero, TimeSpan.FromHours(1));
+
+        await _router.DidNotReceive().RouteAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>());
+        await _activityEventBus.Received().PublishAsync(
+            Arg.Is<ActivityEvent>(e =>
+                e.EventType == ActivityEventType.ReflectionActionProposed &&
+                e.Summary.Contains("proactive level always requires confirmation")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Reflection_EvaluatorFailClosedDowngrade_ProposalDetailsCarryFlag()
+    {
+        // #552: a fail-closed downgrade is a distinct operator signal — the
+        // proposal activity entry must carry the flag so dashboards can
+        // surface the degraded posture separately from "operator asked for
+        // confirmation."
+        _initiativeEvaluator
+            .EvaluateAsync(Arg.Any<InitiativeEvaluationContext>(), Arg.Any<CancellationToken>())
+            .Returns(InitiativeEvaluationResult.WithConfirmation(
+                InitiativeLevel.Autonomous,
+                "cost gate unresolved",
+                failedClosed: true));
+
+        var outcome = new ReflectionOutcome(true, "send-message", "because",
+            JsonSerializer.SerializeToElement(new { }));
+        ArrangeOutcome(outcome);
+        ArrangeHandler("send-message", TranslatedMessage());
+
+        await _actor.ReceiveReminderAsync(AgentActor.InitiativeReminderName, Array.Empty<byte>(), TimeSpan.Zero, TimeSpan.FromHours(1));
+
+        await _activityEventBus.Received().PublishAsync(
+            Arg.Is<ActivityEvent>(e =>
+                e.EventType == ActivityEventType.ReflectionActionProposed &&
+                e.Summary.Contains("fail-closed")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Reflection_EvaluatorThrows_EmitsFailClosedProposal()
+    {
+        // #552: an infrastructure failure in the evaluator itself must not
+        // escape the actor turn AND must not silently authorise dispatch —
+        // surface a fail-closed proposal so an operator can triage.
+        _initiativeEvaluator
+            .EvaluateAsync(Arg.Any<InitiativeEvaluationContext>(), Arg.Any<CancellationToken>())
+            .Returns<InitiativeEvaluationResult>(_ => throw new InvalidOperationException("boom"));
+
+        var outcome = new ReflectionOutcome(true, "send-message", "because",
+            JsonSerializer.SerializeToElement(new { }));
+        ArrangeOutcome(outcome);
+        ArrangeHandler("send-message", TranslatedMessage());
+
+        await _actor.ReceiveReminderAsync(AgentActor.InitiativeReminderName, Array.Empty<byte>(), TimeSpan.Zero, TimeSpan.FromHours(1));
+
+        await _router.DidNotReceive().RouteAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>());
+        await _activityEventBus.Received().PublishAsync(
+            Arg.Is<ActivityEvent>(e =>
+                e.EventType == ActivityEventType.ReflectionActionProposed &&
+                e.Summary.Contains("fail-closed")),
             Arg.Any<CancellationToken>());
     }
 
@@ -186,29 +327,12 @@ public class AgentActorReflectionDispatchTests
     }
 
     [Fact]
-    public async Task Reflection_ActionBlockedByAgentPolicy_EmitsSkipped()
-    {
-        _policyStore.GetPolicyAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(new InitiativePolicy(
-                MaxLevel: InitiativeLevel.Autonomous,
-                BlockedActions: new[] { "send-message" }));
-
-        var outcome = new ReflectionOutcome(true, "send-message", "because",
-            JsonSerializer.SerializeToElement(new { }));
-        ArrangeOutcome(outcome);
-        ArrangeHandler("send-message", TranslatedMessage());
-
-        await _actor.ReceiveReminderAsync(AgentActor.InitiativeReminderName, Array.Empty<byte>(), TimeSpan.Zero, TimeSpan.FromHours(1));
-
-        await _router.DidNotReceive().RouteAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>());
-        await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e => e.EventType == ActivityEventType.ReflectionActionSkipped),
-            Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
     public async Task Reflection_ActionBlockedByUnitSkillPolicy_EmitsSkipped()
     {
+        // Skill-policy is cross-cutting (not initiative-specific) — the
+        // #552 evaluator wiring intentionally leaves this gate on the
+        // dispatch path, so a blocked skill is still reported as
+        // ReflectionActionSkipped (not a proposal).
         _unitPolicyEnforcer
             .EvaluateSkillInvocationAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(PolicyDecision.Deny("Tool 'send-message' blocked", "engineering"));
@@ -227,16 +351,15 @@ public class AgentActorReflectionDispatchTests
     }
 
     [Fact]
-    public async Task Reflection_ActionBlockedByUnitInitiativePolicy_EmitsSkipped()
+    public async Task Reflection_UnitSkillPolicyBlocks_EvaluatorNotConsulted()
     {
-        // #250 — even when the agent's own InitiativePolicy permits the action
-        // (default Allowed=Autonomous, no BlockedActions) and the unit's
-        // skill-policy is silent, the unit's initiative-policy DENY overlay
-        // wins. The dispatch is suppressed and a ReflectionActionSkipped
-        // event surfaces the denying unit so operators can audit.
+        // The cross-cutting skill gate runs before the evaluator — the
+        // evaluator should not be invoked at all for a skill denial so the
+        // cost of composing the initiative gates is skipped on the hot
+        // path.
         _unitPolicyEnforcer
-            .EvaluateInitiativeActionAsync(Arg.Any<string>(), "send-message", Arg.Any<CancellationToken>())
-            .Returns(PolicyDecision.Deny("send-message blocked by unit initiative policy", "engineering"));
+            .EvaluateSkillInvocationAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(PolicyDecision.Deny("Tool 'send-message' blocked", "engineering"));
 
         var outcome = new ReflectionOutcome(true, "send-message", "because",
             JsonSerializer.SerializeToElement(new { }));
@@ -245,37 +368,8 @@ public class AgentActorReflectionDispatchTests
 
         await _actor.ReceiveReminderAsync(AgentActor.InitiativeReminderName, Array.Empty<byte>(), TimeSpan.Zero, TimeSpan.FromHours(1));
 
-        await _router.DidNotReceive().RouteAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>());
-        await _activityEventBus.Received().PublishAsync(
-            Arg.Is<ActivityEvent>(e =>
-                e.EventType == ActivityEventType.ReflectionActionSkipped &&
-                e.Summary.Contains("BlockedByUnitInitiativePolicy")),
-            Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task Reflection_AgentInitiativeAllows_UnitInitiativeBlocks_DenyWins()
-    {
-        // Agent-level policy explicitly allows "send-message". Unit-level
-        // policy blocks it. The DENY-overlay rule (#250) means the action
-        // must NOT dispatch.
-        _policyStore.GetPolicyAsync($"agent:{AgentId}", Arg.Any<CancellationToken>())
-            .Returns(new InitiativePolicy(
-                MaxLevel: InitiativeLevel.Autonomous,
-                AllowedActions: new[] { "send-message" }));
-
-        _unitPolicyEnforcer
-            .EvaluateInitiativeActionAsync(AgentId, "send-message", Arg.Any<CancellationToken>())
-            .Returns(PolicyDecision.Deny("blocked by unit", "engineering"));
-
-        var outcome = new ReflectionOutcome(true, "send-message", "because",
-            JsonSerializer.SerializeToElement(new { }));
-        ArrangeOutcome(outcome);
-        ArrangeHandler("send-message", TranslatedMessage());
-
-        await _actor.ReceiveReminderAsync(AgentActor.InitiativeReminderName, Array.Empty<byte>(), TimeSpan.Zero, TimeSpan.FromHours(1));
-
-        await _router.DidNotReceive().RouteAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>());
+        await _initiativeEvaluator.DidNotReceive().EvaluateAsync(
+            Arg.Any<InitiativeEvaluationContext>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
