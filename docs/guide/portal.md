@@ -221,6 +221,28 @@ Unit-scoped secrets tab ([secrets-tab.tsx](../../src/Cvoya.Spring.Web/src/app/un
 
 **CLI equivalent:** none. Secrets are portal-only or declared inside a YAML manifest applied with `spring apply -f`. **This is a CLI/UI parity gap.**
 
+### Boundary
+
+Unit-boundary configuration tab ([boundary-tab.tsx](../../src/Cvoya.Spring.Web/src/app/units/%5Bid%5D/boundary-tab.tsx)) — the portal half of PR-PLAT-BOUND-2 (#413). Surfaces the three dimensions of a unit's outside-facing view so an operator can pick which aggregated expertise entries are hidden, rewritten, or collapsed into a unit-level capability.
+
+The tab reads `GET /api/v1/units/{id}/boundary`, edits each dimension in place, and PUTs the full boundary on **Save boundary**. **Clear all rules** issues `DELETE` and returns the unit to the transparent default. An empty boundary renders a `Transparent` badge; any configured rule flips the badge to `Configured`.
+
+| Dimension | Fields | CLI flag |
+|-----------|--------|----------|
+| **Opacities** (hide) | `domainPattern`, `originPattern` | `--opaque 'domain=…,origin=…'` |
+| **Projections** (rewrite) | `domainPattern`, `originPattern`, `renameTo`, `retag`, `overrideLevel` | `--project 'domain=…,origin=…,rename=…,retag=…,level=…'` |
+| **Syntheses** (collapse) | `name` (required), `domainPattern`, `originPattern`, `description`, `level` | `--synthesise 'name=…,domain=…,origin=…,description=…,level=…'` |
+
+| Action | Portal | CLI |
+|--------|--------|-----|
+| Inspect boundary | (tab body) | `spring unit boundary get <unit>` |
+| Save full boundary | **Save boundary** | `spring unit boundary set <unit> [--opaque …] [--project …] [--synthesise …]` or `-f boundary.yaml` |
+| Clear every rule | **Clear all rules** + confirm | `spring unit boundary clear <unit>` |
+
+The tab is **not** a per-dimension API — saving always PUTs the entire boundary (matching the CLI's "replace in full" semantics). The portal and CLI target the same endpoints, so rules authored in either surface are immediately visible in the other.
+
+**CLI/UI parity gap:** the CLI's `spring unit boundary set -f boundary.yaml` bulk-load path has no portal equivalent yet — tracked in [#524](https://github.com/cvoya-com/spring-voyage/issues/524). Use the per-rule form, or author YAML and `spring apply -f` a whole unit manifest.
+
 ### Activity
 
 Unit-scoped activity feed ([activity-tab.tsx](../../src/Cvoya.Spring.Web/src/app/units/%5Bid%5D/activity-tab.tsx)) — pulls `/api/v1/activity?source=unit:{id}&pageSize=20`.

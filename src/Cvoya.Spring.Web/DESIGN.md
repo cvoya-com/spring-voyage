@@ -268,6 +268,16 @@ The portal's primitive library lives in `src/components/ui/`. Shared composites 
 - Activity feed row: `flex items-start gap-2 text-sm` with a 2×2 severity dot at `mt-1.5`, message on top, meta (`text-xs text-muted-foreground`) below.
 - Conversation card (`components/cards/conversation-card.tsx`): MessagesSquare icon + title + status badge on the top row; truncated participants (max 3, `+N more` overflow) and `timeAgo(lastActivityAt)` on the meta row; trailing "Open" link to `/conversations/[id]`.
 
+### 7.11b Multi-rule config tab — `app/units/[id]/boundary-tab.tsx`
+
+Unit boundary configuration (#495) is the canonical **multi-rule editor** layout for tabs that wrap a set of declarative rules. Every new config surface that has the same "N rules across M dimensions" shape should copy this chrome before inventing its own.
+
+- **Summary card on top.** A single card holds the dimension's status (`Transparent` vs `Configured` outline/solid badge), a one-line description, the primary **Save** button, a **Clear all rules** destructive-outline button, and an inline "Unsaved changes" hint.
+- **One sub-card per dimension.** Each sub-card carries a lucide icon, the dimension name (`text-sm` title), and a `text-xs text-muted-foreground` pill describing the effect ("hide matching entries", "rewrite matching entries", "collapse matches into a unit-level entry").
+- **Rule list as `divide-y` `ul` with monospace rows.** Existing rules render as `font-mono text-xs` single-line summaries so the relevant shape — "domain: X · origin: Y" — is glanceable. Per-row **Trash** icon button (`variant="outline"`, `size="sm"`) removes locally; nothing is persisted until the outer **Save** fires.
+- **Add-rule form inside each sub-card.** A nested `rounded-md border border-border p-3` block carries the per-dimension input grid (`grid-cols-1 sm:grid-cols-2`) and a trailing **Add** button that appends to local state and clears the inputs. Required fields are marked with a `text-destructive` asterisk (Synthesis' `name`).
+- **Local edits, one PUT.** The entire set is held in local `useState` so the user can stage multiple changes before pressing **Save boundary**; that PUT replaces the whole boundary (matches the CLI's `set` semantics). **Clear all rules** opens the shared `ConfirmDialog` and DELETEs.
+
 ### 7.12 Conversation thread — `app/conversations/[id]/`, `components/conversation/`
 
 The conversation surface (#410) renders a chat-style thread with role-attributed bubbles and a CLI-shaped composer. Layout primitives:

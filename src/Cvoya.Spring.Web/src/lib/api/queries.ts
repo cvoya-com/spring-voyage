@@ -40,6 +40,7 @@ import type {
   PackageSummary,
   PersistentAgentDeploymentResponse,
   PersistentAgentLogsResponse,
+  UnitBoundaryResponse,
   UnitDashboardSummary,
   UnitDetailResponse,
   UnitPolicyResponse,
@@ -170,6 +171,24 @@ export function useUnitPolicy(
         return {} as UnitPolicyResponse;
       }
     },
+    enabled: opts?.enabled ?? Boolean(id),
+    refetchInterval: opts?.refetchInterval,
+    staleTime: opts?.staleTime,
+  });
+}
+
+/**
+ * Read a unit's boundary configuration (#413). The endpoint always
+ * returns the empty shape on unset, so the hook never needs to branch
+ * on "no boundary yet".
+ */
+export function useUnitBoundary(
+  id: string,
+  opts?: SliceOptions<UnitBoundaryResponse>,
+): UseQueryResult<UnitBoundaryResponse, Error> {
+  return useQuery({
+    queryKey: queryKeys.units.boundary(id),
+    queryFn: () => api.getUnitBoundary(id),
     enabled: opts?.enabled ?? Boolean(id),
     refetchInterval: opts?.refetchInterval,
     staleTime: opts?.staleTime,

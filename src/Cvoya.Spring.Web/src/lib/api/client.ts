@@ -16,6 +16,7 @@ import type {
   PersistentAgentLogsResponse,
   ScalePersistentAgentRequest,
   SetBudgetRequest,
+  UnitBoundaryResponse,
   UnitConnectorBindingRequest,
   UnitGitHubConfigRequest,
   UnitPolicyResponse,
@@ -728,6 +729,34 @@ export const api = {
     assertOk(
       await fetchClient.DELETE("/api/v1/units/{id}/secrets/{name}", {
         params: { path: { id: unitId, name } },
+      }),
+    );
+  },
+
+  // Unit boundary (#413). The GET endpoint always returns the empty
+  // shape (no 404) when a unit has never had a boundary persisted, so
+  // there's no 404-normalisation to do here — the caller either gets
+  // the current boundary or an ApiError.
+  getUnitBoundary: async (unitId: string): Promise<UnitBoundaryResponse> =>
+    unwrap(
+      await fetchClient.GET("/api/v1/units/{id}/boundary", {
+        params: { path: { id: unitId } },
+      }),
+    ),
+  setUnitBoundary: async (
+    unitId: string,
+    body: UnitBoundaryResponse,
+  ): Promise<UnitBoundaryResponse> =>
+    unwrap(
+      await fetchClient.PUT("/api/v1/units/{id}/boundary", {
+        params: { path: { id: unitId } },
+        body,
+      }),
+    ),
+  clearUnitBoundary: async (unitId: string): Promise<void> => {
+    assertOk(
+      await fetchClient.DELETE("/api/v1/units/{id}/boundary", {
+        params: { path: { id: unitId } },
       }),
     );
   },

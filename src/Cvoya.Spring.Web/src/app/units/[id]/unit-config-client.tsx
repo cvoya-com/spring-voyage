@@ -15,6 +15,7 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { ActivityTab } from "./activity-tab";
 import { AgentsTab } from "./agents-tab";
+import { BoundaryTab } from "./boundary-tab";
 import { ConnectorTab } from "./connector-tab";
 import { PoliciesTab } from "./policies-tab";
 import { SecretsTab } from "./secrets-tab";
@@ -356,6 +357,7 @@ export default function UnitConfigClient({ id }: ClientProps) {
           <TabsTrigger value="policies">Policies</TabsTrigger>
           <TabsTrigger value="connector">Connector</TabsTrigger>
           <TabsTrigger value="secrets">Secrets</TabsTrigger>
+          <TabsTrigger value="boundary">Boundary</TabsTrigger>
           <TabsTrigger value="activity">Activity</TabsTrigger>
           <TabsTrigger value="costs">Costs</TabsTrigger>
         </TabsList>
@@ -500,6 +502,10 @@ export default function UnitConfigClient({ id }: ClientProps) {
 
         <TabsContent value="policies">
           <PoliciesTab unitId={id} />
+        </TabsContent>
+
+        <TabsContent value="boundary">
+          <BoundaryTab unitId={id} />
         </TabsContent>
       </Tabs>
 

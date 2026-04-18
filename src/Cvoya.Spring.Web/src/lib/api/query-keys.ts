@@ -59,6 +59,7 @@ export const queryKeys = {
     initiativePolicy: (id: string) =>
       ["units", "initiativePolicy", id] as const,
     policy: (id: string) => ["units", "policy", id] as const,
+    boundary: (id: string) => ["units", "boundary", id] as const,
   },
 
   activity: {

@@ -275,6 +275,22 @@ export type GitHubInstallUrlResponse = Schemas["GitHubInstallUrlResponse"];
 export type UnitReadinessResponse = Schemas["UnitReadinessResponse"];
 
 // ---------------------------------------------------------------------------
+// Unit boundary (#413 — opacity / projection / synthesis)
+// ---------------------------------------------------------------------------
+
+/** GET / PUT response body for `/api/v1/units/{id}/boundary`. */
+export type UnitBoundaryResponse = Schemas["UnitBoundaryResponse"];
+
+/** One opacity rule — matched entries are hidden from outside callers. */
+export type BoundaryOpacityRuleDto = Schemas["BoundaryOpacityRuleDto"];
+
+/** One projection rule — matched entries are rewritten for outside callers. */
+export type BoundaryProjectionRuleDto = Schemas["BoundaryProjectionRuleDto"];
+
+/** One synthesis rule — matched entries collapse into a single unit-level entry. */
+export type BoundarySynthesisRuleDto = Schemas["BoundarySynthesisRuleDto"];
+
+// ---------------------------------------------------------------------------
 // Dashboard summary (hand-written until next OpenAPI regeneration)
 // ---------------------------------------------------------------------------
 
