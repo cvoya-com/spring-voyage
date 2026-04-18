@@ -93,14 +93,20 @@ export function GitHubConnectorTab({ unitId }: GitHubConnectorTabProps) {
   }, [unitId, applyConfig]);
 
   const loadInstallations = useCallback(async () => {
+    let list: GitHubInstallationResponse[] = [];
     try {
-      const list = await api.listGitHubInstallations();
+      list = await api.listGitHubInstallations();
       setInstallations(list);
       setInstallationsError(null);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setInstallationsError(message);
       setInstallations([]);
+    }
+    // Fetch the install URL whenever the empty-state banner will show
+    // (either the list came back empty, or the call errored). Keeps the
+    // post-bind surface in parity with the create-unit wizard (#599).
+    if (list.length === 0) {
       try {
         const { url } = await api.getGitHubInstallUrl();
         setInstallUrl(url);
@@ -186,9 +192,12 @@ export function GitHubConnectorTab({ unitId }: GitHubConnectorTabProps) {
         )}
 
         {installations && installations.length === 0 && (
-          <div className="rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-200">
+          <div
+            role="alert"
+            className="rounded-md border border-warning/50 bg-warning/15 px-3 py-2 text-sm text-warning"
+          >
             <p className="font-medium">No GitHub App installations found.</p>
-            <p className="mt-1">
+            <p className="mt-1 text-foreground">
               Install the app on your account or organisation before configuring
               this unit.
             </p>
@@ -197,13 +206,16 @@ export function GitHubConnectorTab({ unitId }: GitHubConnectorTabProps) {
                 href={installUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="mt-2 inline-block font-medium underline"
+                className="mt-2 inline-flex h-8 items-center gap-1 rounded-md border border-warning/60 bg-warning/10 px-3 text-sm font-medium text-warning transition-colors hover:bg-warning/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
               >
-                Install App
+                <Github className="h-4 w-4" aria-hidden="true" />
+                Install GitHub App
               </a>
             )}
             {installationsError && (
-              <p className="mt-1 text-xs opacity-80">({installationsError})</p>
+              <p className="mt-2 text-xs text-muted-foreground">
+                ({installationsError})
+              </p>
             )}
           </div>
         )}

@@ -12,6 +12,7 @@ vi.mock("@/lib/api/client", () => ({
 }));
 
 import { api } from "@/lib/api/client";
+import { expectNoAxeViolations } from "@/test/a11y";
 import { GitHubConnectorWizardStep } from "@connector-github/connector-wizard-step";
 
 const mocked = vi.mocked(api);
@@ -87,6 +88,76 @@ describe("GitHubConnectorWizardStep", () => {
         screen.getByText(/No GitHub App installations found\./),
       ).toBeInTheDocument(),
     );
+  });
+
+  it("renders the install-app link when the list comes back empty (#599)", async () => {
+    // The previous implementation only fetched the install URL on the
+    // catch branch, so a platform with the App configured but no
+    // installations surfaced a banner with no call-to-action link.
+    mocked.listGitHubInstallations.mockResolvedValue([]);
+    mocked.getGitHubInstallUrl.mockResolvedValue({
+      url: "https://github.com/apps/spring-voyage/installations/new",
+    });
+    const onChange = vi.fn();
+
+    await act(async () => {
+      render(<GitHubConnectorWizardStep onChange={onChange} />);
+    });
+
+    await waitFor(() => {
+      const link = screen.getByRole("link", { name: /install github app/i });
+      expect(link).toHaveAttribute(
+        "href",
+        "https://github.com/apps/spring-voyage/installations/new",
+      );
+      expect(link).toHaveAttribute("target", "_blank");
+      expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    });
+    expect(mocked.getGitHubInstallUrl).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders the install-app link when listing installations throws", async () => {
+    mocked.listGitHubInstallations.mockRejectedValue(
+      new Error("502 Bad Gateway"),
+    );
+    mocked.getGitHubInstallUrl.mockResolvedValue({
+      url: "https://github.com/apps/spring-voyage/installations/new",
+    });
+    const onChange = vi.fn();
+
+    await act(async () => {
+      render(<GitHubConnectorWizardStep onChange={onChange} />);
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("link", { name: /install github app/i }),
+      ).toBeInTheDocument();
+    });
+    expect(
+      screen.getByText(/502 Bad Gateway/, { exact: false }),
+    ).toBeInTheDocument();
+  });
+
+  it("passes axe smoke with the install-app banner visible (#599)", async () => {
+    mocked.listGitHubInstallations.mockResolvedValue([]);
+    mocked.getGitHubInstallUrl.mockResolvedValue({
+      url: "https://github.com/apps/spring-voyage/installations/new",
+    });
+    const onChange = vi.fn();
+
+    let container!: HTMLElement;
+    await act(async () => {
+      const result = render(<GitHubConnectorWizardStep onChange={onChange} />);
+      container = result.container;
+    });
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("link", { name: /install github app/i }),
+      ).toBeInTheDocument(),
+    );
+    await expectNoAxeViolations(container);
   });
 
   it("hydrates from initialValue when provided", async () => {
