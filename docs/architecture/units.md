@@ -446,6 +446,8 @@ When a unit participates as a member of a parent, its **boundary** controls what
 
 **Deep access with permissions:** Despite encapsulation, a human or agent with appropriate permissions can address any agent at arbitrary depth. The boundary is a default, not a wall. Permission-based deep access uses the full address path (e.g., `agent://acme/engineering-team/backend-team/ada`). The boundary checks the requester's permissions before routing.
 
+**Hierarchy-aware permission resolution (#414).** Permission checks walk up the parent chain by default — a human who is `Owner` or `Operator` on a parent unit is treated as having at least that permission on every descendant unit unless something along the path blocks the walk. Each unit carries a `UnitPermissionInheritance` flag (`Inherit` by default, `Isolated` to opt out). An isolated unit is the permission-layer analogue of an opaque boundary: ancestor authority does not flow through it, but direct grants on the unit and its descendants still work normally. Direct grants always override inheritance — a child that explicitly grants `Viewer` is never silently promoted to `Owner` by a higher ancestor grant. See [Security § Hierarchy-aware permission resolution](security.md#hierarchy-aware-permission-resolution-414) for the full rules.
+
 ```yaml
 unit:
   boundary:

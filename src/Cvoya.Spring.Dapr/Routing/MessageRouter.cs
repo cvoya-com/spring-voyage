@@ -140,7 +140,12 @@ public class MessageRouter(
         string humanId, string unitId, PermissionLevel minimumLevel,
         Address targetAddress, CancellationToken cancellationToken)
     {
-        var permission = await permissionService.ResolvePermissionAsync(humanId, unitId, cancellationToken);
+        // Hierarchy-aware check (#414): a human with Operator rights on a
+        // parent unit can address the parent's descendant units without a
+        // direct grant on each one, subject to per-unit
+        // UnitPermissionInheritance. Direct grants on the target unit still
+        // take precedence.
+        var permission = await permissionService.ResolveEffectivePermissionAsync(humanId, unitId, cancellationToken);
 
         if (permission is null || permission.Value < minimumLevel)
         {

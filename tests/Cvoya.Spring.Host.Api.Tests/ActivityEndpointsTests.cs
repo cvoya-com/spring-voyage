@@ -231,7 +231,7 @@ public class ActivityEndpointsTests : IClassFixture<CustomWebApplicationFactory>
 
         var permissionService = (IPermissionService)_factory.Services
             .GetService(typeof(IPermissionService))!;
-        permissionService.ResolvePermissionAsync(
+        permissionService.ResolveEffectivePermissionAsync(
                 Arg.Any<string>(), "locked-unit", Arg.Any<CancellationToken>())
             .Returns((PermissionLevel?)null);
 
@@ -252,7 +252,7 @@ public class ActivityEndpointsTests : IClassFixture<CustomWebApplicationFactory>
 
         var permissionService = (IPermissionService)_factory.Services
             .GetService(typeof(IPermissionService))!;
-        permissionService.ResolvePermissionAsync(
+        permissionService.ResolveEffectivePermissionAsync(
                 Arg.Any<string>(), "open-unit", Arg.Any<CancellationToken>())
             .Returns(PermissionLevel.Viewer);
 

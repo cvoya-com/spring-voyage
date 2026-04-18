@@ -263,4 +263,18 @@ public static class StateKeys
     /// See #413.
     /// </summary>
     public const string UnitBoundary = "Unit:Boundary";
+
+    /// <summary>
+    /// State key for the unit's permission-inheritance mode
+    /// (<see cref="Cvoya.Spring.Dapr.Auth.UnitPermissionInheritance"/>). Unset
+    /// defaults to <see cref="Cvoya.Spring.Dapr.Auth.UnitPermissionInheritance.Inherit"/>
+    /// — ancestor permission grants cascade down to the unit. Setting this
+    /// key to <see cref="Cvoya.Spring.Dapr.Auth.UnitPermissionInheritance.Isolated"/>
+    /// causes the hierarchy-aware permission resolver to stop walking up
+    /// through this unit, so ancestor grants do not apply. This is the
+    /// permission-layer analogue of the boundary's opacity rules (#413) and
+    /// is read by <c>PermissionService.ResolveEffectivePermissionAsync</c>
+    /// (#414).
+    /// </summary>
+    public const string UnitPermissionInheritance = "Unit:PermissionInheritance";
 }

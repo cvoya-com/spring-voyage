@@ -232,4 +232,28 @@ public interface IUnitActor : IAgent
     /// <param name="boundary">The boundary configuration to persist.</param>
     /// <param name="ct">A token to cancel the operation.</param>
     Task SetBoundaryAsync(UnitBoundary boundary, CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns the unit's permission-inheritance mode (#414). A unit that
+    /// has never had the setting explicitly written defaults to
+    /// <see cref="UnitPermissionInheritance.Inherit"/> — ancestor grants
+    /// flow down through this unit. Flipping to
+    /// <see cref="UnitPermissionInheritance.Isolated"/> makes this unit the
+    /// permission-layer analogue of an opaque boundary: ancestor grants are
+    /// ignored for humans whose only rights come from up the chain.
+    /// </summary>
+    /// <param name="ct">A token to cancel the operation.</param>
+    /// <returns>The persisted inheritance mode, or the default when unset.</returns>
+    Task<UnitPermissionInheritance> GetPermissionInheritanceAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Upserts the unit's permission-inheritance mode (#414). Writes
+    /// <see cref="UnitPermissionInheritance.Inherit"/> as a row deletion so
+    /// clearing the flag returns to the default without keeping a no-op
+    /// state row around. Emits a <c>StateChanged</c> activity event on
+    /// every write so the activity stream reflects permission-model changes.
+    /// </summary>
+    /// <param name="inheritance">The inheritance mode to persist.</param>
+    /// <param name="ct">A token to cancel the operation.</param>
+    Task SetPermissionInheritanceAsync(UnitPermissionInheritance inheritance, CancellationToken ct = default);
 }

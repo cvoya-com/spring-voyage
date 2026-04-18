@@ -33,7 +33,29 @@ Represents a human participant. Routes messages to notification channels. Enforc
 | **Viewer**   | Read-only — state, feed, metrics, agent status                     |
 
 
-Permission inheritance in recursive units is **opt-in** — each unit manages its own ACL. `permissions.inherit: parent` enables it.
+### Hierarchy-aware permission resolution (#414)
+
+Permission resolution for a `(humanId, unitId)` pair is **hierarchy-aware by default**: grants on an ancestor unit cascade down to descendant units, subject to a per-unit inheritance flag that plays the role of an opaque boundary for the permission layer. `IPermissionService` exposes two resolvers:
+
+| API                                    | Scope                                                                                                                                           |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ResolvePermissionAsync`               | Direct grant only — returns whatever is recorded on the target unit, ignoring ancestors. Kept for the unit-editor surfaces and audit lookups. |
+| `ResolveEffectivePermissionAsync`      | Walks the parent chain. Used by `PermissionHandler`, `MessageRouter`, and the activity-stream SSE endpoint — anywhere the platform authorizes a real request against a unit.  |
+
+Resolution rules:
+
+1. **Direct grants win.** An explicit grant on the target unit is authoritative — including a deliberate downgrade. A child that grants a human `Viewer` is never silently promoted to `Owner` because the parent happens to grant `Owner`.
+2. **Nearest ancestor grant wins.** If the target unit has no direct grant, the resolver walks nearest ancestor first and returns the first non-`null` grant it finds. Depth does not amplify permissions — a parent granting `Operator` cascades as `Operator`, not as `Owner`.
+3. **Isolation stops inheritance.** Each unit carries a `UnitPermissionInheritance` flag (`Inherit` by default, `Isolated` to opt out). An isolated unit is the permission-layer analogue of an **opaque boundary** (#413): ancestor authority does not flow through it. Direct grants on the isolated unit still apply; direct grants on its own descendants still cascade through it.
+4. **Fail closed.** If the platform cannot read the inheritance flag on a hop (e.g. a state-store outage), the walk treats that hop as `Isolated` and blocks the ancestor grant. A confused-deputy risk is more expensive than an extra unauthorized response.
+5. **Depth bounded.** The walk is capped at `UnitActor.MaxCycleDetectionDepth` (64) so a pathological graph cannot silently promote a caller.
+
+The walk honours the boundary opacity rules landed in PR #497 by following the same "opaque = invisible to the outside" philosophy: a unit that is opaque from the permission perspective (`Isolated`) does not admit ancestor authority, just as an opaque expertise boundary does not admit ancestor-level projection. Explicit grants (both on the unit itself and on its descendants) are what the permission layer considers "private" to the isolated subtree.
+
+Configuration:
+
+- **HTTP** — `GET / PUT /api/v1/units/{id}/humans/{humanId}` for direct grants (unchanged). The inheritance flag is edited through the unit actor's `SetPermissionInheritanceAsync` (CLI/portal surface follow-up).
+- **Default** — newly created units are `Inherit`. An operator explicitly opts out by setting `Isolated`.
 
 ### Agent Permissions
 
