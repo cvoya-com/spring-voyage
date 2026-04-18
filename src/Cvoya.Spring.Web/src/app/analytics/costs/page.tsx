@@ -1,5 +1,12 @@
 "use client";
 
+// Costs tab of the Analytics surface (§ 5.4 / § 5.7 of
+// `docs/design/portal-exploration.md`). Promoted from `/budgets` as part
+// of the nav restructure (#444): cost rollups and budget configuration
+// live together, and the Analytics surface gains Throughput and
+// Wait-time peers. Old `/budgets` deep links 308-redirect here via the
+// framework-level rule in `next.config.ts`.
+
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
@@ -29,7 +36,7 @@ import { queryKeys } from "@/lib/api/query-keys";
 import type { BudgetResponse } from "@/lib/api/types";
 import { formatCost } from "@/lib/utils";
 
-export default function BudgetsPage() {
+export default function AnalyticsCostsPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -44,9 +51,6 @@ export default function BudgetsPage() {
     [agentsQuery.data],
   );
 
-  // Fan out one `useQuery` per agent for budgets. Each slice has its own
-  // key so the per-agent edit page can invalidate without tearing down
-  // every other row.
   const agentBudgetQueries = useQueries({
     queries: agents.map((agent) => ({
       queryKey: queryKeys.agents.budget(agent.name),
@@ -77,9 +81,6 @@ export default function BudgetsPage() {
 
   const [tenantInput, setTenantInput] = useState("");
 
-  // Seed the tenant input once the query resolves so the user sees the
-  // current ceiling on first paint. Subsequent refetches don't clobber
-  // in-progress edits.
   useEffect(() => {
     if (tenantBudget && tenantInput === "") {
       setTenantInput(tenantBudget.dailyBudget.toString());
@@ -91,8 +92,6 @@ export default function BudgetsPage() {
     mutationFn: (dailyBudget: number) =>
       api.setTenantBudget({ dailyBudget }),
     onSuccess: (updated) => {
-      // Hand-seed the cache so the UI reflects the new value without a
-      // round trip; `invalidateQueries` would force a second fetch.
       queryClient.setQueryData(queryKeys.tenant.budget(), updated);
       toast({ title: "Tenant budget saved" });
     },
@@ -139,9 +138,10 @@ export default function BudgetsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Budgets</h1>
+        <h1 className="text-2xl font-bold">Costs</h1>
         <p className="text-sm text-muted-foreground">
-          Configure tenant and per-agent cost ceilings.
+          Tenant and per-agent cost ceilings. Mirrors{" "}
+          <code className="font-mono text-xs">spring cost summary</code>.
         </p>
       </div>
 

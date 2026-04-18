@@ -45,7 +45,7 @@ vi.mock("next/link", () => ({
   ),
 }));
 
-import BudgetsPage from "./page";
+import AnalyticsCostsPage from "./page";
 
 function renderPage() {
   const client = new QueryClient({
@@ -57,10 +57,10 @@ function renderPage() {
   const Wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={client}>{children}</QueryClientProvider>
   );
-  return render(<BudgetsPage />, { wrapper: Wrapper });
+  return render(<AnalyticsCostsPage />, { wrapper: Wrapper });
 }
 
-describe("BudgetsPage", () => {
+describe("AnalyticsCostsPage", () => {
   beforeEach(() => {
     getTenantBudget.mockReset();
     getDashboardCosts.mockReset();
