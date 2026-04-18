@@ -36,21 +36,35 @@ void ForceExitOnSignal()
 using var sigInt = PosixSignalRegistration.Create(PosixSignal.SIGINT, _ => ForceExitOnSignal());
 using var sigTerm = PosixSignalRegistration.Create(PosixSignal.SIGTERM, _ => ForceExitOnSignal());
 
-// Register Spring services, Dapr workflows, and Dapr actors via the shared
-// composition helper. The Worker composition smoke test rides the same helper
-// so any registration gap surfaces at `dotnet test` time rather than at
-// container startup. See #586 and WorkerComposition.cs.
-builder.Services.AddWorkerServices(builder.Configuration);
+// Fail-fast guard: if composition or host start throws, log the exception
+// and Environment.Exit(1) so podman/systemd can restart the container.
+// Without this, the process can remain alive (PID 1) while the host
+// lifetime is broken — podman reports the container as "Up" with
+// ExitCode 0, and `unless-stopped` never fires. See #587.
+try
+{
+    // Register Spring services, Dapr workflows, and Dapr actors via the shared
+    // composition helper. The Worker composition smoke test rides the same helper
+    // so any registration gap surfaces at `dotnet test` time rather than at
+    // container startup. See #586 and WorkerComposition.cs.
+    builder.Services.AddWorkerServices(builder.Configuration);
 
-var app = builder.Build();
+    var app = builder.Build();
 
-// Health check
-app.MapGet("/health", () => Results.Ok(new { Status = "Healthy" }));
+    // Health check
+    app.MapGet("/health", () => Results.Ok(new { Status = "Healthy" }));
 
-// Dapr actor endpoints
-app.MapActorsHandlers();
+    // Dapr actor endpoints
+    app.MapActorsHandlers();
 
-await app.RunAsync();
+    await app.RunAsync();
+}
+catch (Exception ex)
+{
+    Console.Error.WriteLine("FATAL: Host.Worker failed to start. Exiting with code 1 so the container orchestrator can restart the process.");
+    Console.Error.WriteLine(ex.ToString());
+    Environment.Exit(1);
+}
 
 /// <summary>
 /// Partial class to enable WebApplicationFactory-based integration testing.
