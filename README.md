@@ -141,7 +141,7 @@ spring secret create --scope tenant openai-api-key    --value "sk-..."
 # or via the portal: open Settings → "Tenant defaults" panel → paste + Set
 ```
 
-Units inherit these automatically. Override per unit via the Secrets tab on a unit detail page or `spring secret create --scope unit --unit <name> anthropic-api-key --value "..."`. The legacy `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` env-variable path is retained as a one-time bootstrap fall-through only. See [`docs/guide/secrets.md`](docs/guide/secrets.md) for the full three-tier model and resolution order.
+Units inherit these automatically. Override per unit via the Secrets tab on a unit detail page or `spring secret create --scope unit --unit <name> anthropic-api-key --value "..."`. The platform does not read LLM provider keys from environment variables — credentials must be set at tenant or unit scope. See [`docs/guide/secrets.md`](docs/guide/secrets.md) for the full three-tier model and resolution order.
 
 The canonical operator guide is [docs/guide/deployment.md](docs/guide/deployment.md) — it covers the zero-to-running walkthrough, container topology, Dapr components, Postgres/Redis configuration, Caddy + Let's Encrypt, secrets bootstrap, health checks, updates, and troubleshooting. The script-level reference (commands, environment variables, webhook relay, per-user agent networks) lives in [`deployment/README.md`](deployment/README.md).
 

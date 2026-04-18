@@ -305,14 +305,12 @@ public static class ServiceCollectionExtensions
         services.AddHttpClient(ModelCatalog.HttpClientName);
         services.TryAddSingleton<IModelCatalog, ModelCatalog>();
 
-        // Tier-2 LLM credential resolver (#615). Composes the existing
-        // ISecretResolver (Unit → Tenant inheritance, ADR 0003) with a
-        // final environment-variable bootstrap fallback — retained only as
-        // a legacy path for deployments that pre-date #615 and still
-        // export ANTHROPIC_API_KEY / OPENAI_API_KEY. New deployments
-        // should create a tenant-default secret and leave the env empty.
-        // TryAdd so the private cloud host can substitute a tenant-scoped
-        // implementation that omits the env fallback entirely.
+        // Tier-2 LLM credential resolver (#615). Delegates to the
+        // existing ISecretResolver (Unit → Tenant inheritance, ADR 0003).
+        // Credentials must be set at tenant or unit scope — there is no
+        // env-variable fallback. TryAdd so the private cloud host can
+        // substitute a tenant-scoped implementation (per-tenant Key
+        // Vault, BYOK) without forking the registration.
         //
         // ISecretResolver is registered as Scoped (ComposedSecretResolver
         // uses the scoped SpringDbContext via EfSecretRegistry), so the

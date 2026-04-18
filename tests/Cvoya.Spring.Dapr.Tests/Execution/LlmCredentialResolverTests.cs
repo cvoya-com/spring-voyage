@@ -18,9 +18,9 @@ using Xunit;
 
 /// <summary>
 /// Tests for <see cref="LlmCredentialResolver"/> — the tier-2 credential
-/// resolver introduced by #615. Verifies the unit → tenant → env
-/// bootstrap fallback order, the correct provider-to-secret-name
-/// mapping, and the fail-clean behaviour when nothing is configured.
+/// resolver introduced by #615. Verifies the unit → tenant resolution
+/// order, the correct provider-to-secret-name mapping, and the
+/// fail-clean behaviour when nothing is configured.
 /// </summary>
 public class LlmCredentialResolverTests
 {
@@ -109,37 +109,15 @@ public class LlmCredentialResolverTests
     }
 
     [Fact]
-    public async Task ResolveAsync_FallsThroughToEnvironment_WhenSecretsAreUnset()
+    public async Task ResolveAsync_UnitAndTenantUnset_ReturnsNotFoundWithSecretName()
     {
         var ct = TestContext.Current.CancellationToken;
         var resolver = Substitute.For<ISecretResolver>();
         resolver.ResolveWithPathAsync(Arg.Any<SecretRef>(), ct)
             .Returns(new SecretResolution(null, SecretResolvePath.NotFound, null));
         var sut = CreateSut(resolver);
-
-        using var env = new EnvVarScope("ANTHROPIC_API_KEY", "sk-from-env");
 
         var result = await sut.ResolveAsync("claude", unitName: "u1", ct);
-
-        result.Value.ShouldBe("sk-from-env");
-        result.Source.ShouldBe(LlmCredentialSource.EnvironmentBootstrap);
-        result.SecretName.ShouldBe("anthropic-api-key");
-    }
-
-    [Fact]
-    public async Task ResolveAsync_EnvVarEmpty_ReturnsNotFound()
-    {
-        var ct = TestContext.Current.CancellationToken;
-        var resolver = Substitute.For<ISecretResolver>();
-        resolver.ResolveWithPathAsync(Arg.Any<SecretRef>(), ct)
-            .Returns(new SecretResolution(null, SecretResolvePath.NotFound, null));
-        var sut = CreateSut(resolver);
-
-        // Deliberately clear the env var so the test doesn't pick up a
-        // CI-supplied key.
-        using var env = new EnvVarScope("ANTHROPIC_API_KEY", null);
-
-        var result = await sut.ResolveAsync("claude", unitName: null, ct);
 
         result.Value.ShouldBeNull();
         result.Source.ShouldBe(LlmCredentialSource.NotFound);
@@ -149,7 +127,7 @@ public class LlmCredentialResolverTests
     }
 
     [Fact]
-    public async Task ResolveAsync_GoogleProvider_TriesBothGoogleAndGeminiEnvVars()
+    public async Task ResolveAsync_TenantUnset_NoUnit_ReturnsNotFoundWithSecretName()
     {
         var ct = TestContext.Current.CancellationToken;
         var resolver = Substitute.For<ISecretResolver>();
@@ -157,13 +135,10 @@ public class LlmCredentialResolverTests
             .Returns(new SecretResolution(null, SecretResolvePath.NotFound, null));
         var sut = CreateSut(resolver);
 
-        using var google = new EnvVarScope("GOOGLE_API_KEY", null);
-        using var gemini = new EnvVarScope("GEMINI_API_KEY", "gemini-env");
-
         var result = await sut.ResolveAsync("google", unitName: null, ct);
 
-        result.Value.ShouldBe("gemini-env");
-        result.Source.ShouldBe(LlmCredentialSource.EnvironmentBootstrap);
+        result.Value.ShouldBeNull();
+        result.Source.ShouldBe(LlmCredentialSource.NotFound);
         result.SecretName.ShouldBe("google-api-key");
     }
 
@@ -185,21 +160,21 @@ public class LlmCredentialResolverTests
         anthropic.SecretName.ShouldBe("anthropic-api-key");
     }
 
-    private sealed class EnvVarScope : IDisposable
+    [Fact]
+    public async Task ResolveAsync_GoogleAliases_AllMapToGoogleApiKey()
     {
-        private readonly string _name;
-        private readonly string? _previous;
+        var ct = TestContext.Current.CancellationToken;
+        var resolver = Substitute.For<ISecretResolver>();
+        resolver.ResolveWithPathAsync(Arg.Any<SecretRef>(), ct)
+            .Returns(new SecretResolution("gk", SecretResolvePath.Direct, new SecretRef(SecretScope.Tenant, TenantId, "google-api-key")));
+        var sut = CreateSut(resolver);
 
-        public EnvVarScope(string name, string? value)
-        {
-            _name = name;
-            _previous = Environment.GetEnvironmentVariable(name);
-            Environment.SetEnvironmentVariable(name, value);
-        }
+        var google = await sut.ResolveAsync("google", null, ct);
+        var gemini = await sut.ResolveAsync("gemini", null, ct);
+        var googleAi = await sut.ResolveAsync("googleai", null, ct);
 
-        public void Dispose()
-        {
-            Environment.SetEnvironmentVariable(_name, _previous);
-        }
+        google.SecretName.ShouldBe("google-api-key");
+        gemini.SecretName.ShouldBe("google-api-key");
+        googleAi.SecretName.ShouldBe("google-api-key");
     }
 }

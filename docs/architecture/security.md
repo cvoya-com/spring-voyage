@@ -142,24 +142,22 @@ Spring Voyage distinguishes three tiers of configuration so every piece of sensi
 
 ### Tier-2 resolution chain
 
-[`ILlmCredentialResolver`](../../src/Cvoya.Spring.Core/Execution/ILlmCredentialResolver.cs) is the canonical interface every LLM-credential consumer reads through (`ModelCatalog` for the wizard, the agent runtime at turn-dispatch time, and any future provider wrapper). Its default implementation composes [`ISecretResolver`](../../src/Cvoya.Spring.Core/Secrets/ISecretResolver.cs) (which already encodes the Unit → Tenant inheritance from [ADR 0003](../decisions/0003-secret-inheritance-unit-to-tenant.md)) with a final environment-variable bootstrap fallback:
+[`ILlmCredentialResolver`](../../src/Cvoya.Spring.Core/Execution/ILlmCredentialResolver.cs) is the canonical interface every LLM-credential consumer reads through (`ModelCatalog` for the wizard, the agent runtime at turn-dispatch time, and any future provider wrapper). Its default implementation delegates to [`ISecretResolver`](../../src/Cvoya.Spring.Core/Secrets/ISecretResolver.cs), which already encodes the Unit → Tenant inheritance from [ADR 0003](../decisions/0003-secret-inheritance-unit-to-tenant.md):
 
 ```mermaid
 flowchart TD
     caller["Caller<br/>(ModelCatalog, agent runtime)"]
     resolver["ILlmCredentialResolver"]
     secret["ISecretResolver<br/>(Unit → Tenant inheritance)"]
-    env["Environment variables<br/>(ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_API_KEY/GEMINI_API_KEY)"]
     fail["Fail clean<br/>'no LLM credentials configured'"]
 
     caller --> resolver
     resolver -->|tier 3<br/>unit-scope| secret
     resolver -->|tier 2<br/>tenant-scope on unit miss<br/>OR direct when no unit| secret
-    resolver -->|tier 3 only, legacy| env
-    env --> fail
+    secret -->|no match| fail
 ```
 
-The env-variable tier is a **one-time bootstrap escape hatch**. It is retained for operators who upgrade a pre-#615 deployment and still have `ANTHROPIC_API_KEY` exported in their shell or `spring.env`. New deployments set the tenant default (CLI or portal) and leave the env empty; the private cloud host disables the env fallback entirely by swapping in a tenant-scoped `ILlmCredentialResolver` via DI. There is no rotation, no audit trail, and no per-unit override on the env path — it exists solely so the platform does not break on an existing install the minute #615 lands.
+There is **no environment-variable fallback**. Credentials must be set at tenant scope (default) or unit scope (override) — the platform fails cleanly when neither is configured. The private cloud host swaps in its own tenant-scoped `ILlmCredentialResolver` via DI (per-tenant Key Vault, BYOK).
 
 The resolver **never throws** on a missing credential. Consumers that require a value surface a fail-clean operator error whose text names the exact secret the resolver looked for and points at both the unit and tenant surfaces — e.g. *"no LLM credentials configured for this unit; set via `spring secret --scope unit` or configure tenant defaults at `spring secret --scope tenant create anthropic-api-key …` / the portal's Tenant defaults panel."*
 

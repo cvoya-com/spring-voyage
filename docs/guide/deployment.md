@@ -381,8 +381,10 @@ spring secret create --scope tenant google-api-key    --value "AIza..."
 ```
 
 Units inherit these automatically; override per-unit with a same-name
-secret at unit scope. See [Managing Secrets](secrets.md) for the full
-two-tier resolution chain.
+secret at unit scope. The platform does not read LLM provider API keys
+from environment variables — credentials must be set at tenant or unit
+scope, or the feature fails cleanly. See [Managing Secrets](secrets.md)
+for the full two-tier resolution chain.
 
 ### GitHub App — webhook delivery
 

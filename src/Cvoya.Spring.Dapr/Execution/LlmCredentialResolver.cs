@@ -11,12 +11,10 @@ using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// Default <see cref="ILlmCredentialResolver"/> implementation (#615).
-/// Composes the existing <see cref="ISecretResolver"/> (which already
-/// implements the Unit → Tenant inheritance fall-through, ADR 0003) with
-/// a final environment-variable bootstrap fallback. The env fallback is
-/// a legacy escape hatch: new deployments set the credential as a
-/// tenant-scoped secret via <c>spring secret --scope tenant</c> and
-/// leave <c>ANTHROPIC_API_KEY</c> / <c>OPENAI_API_KEY</c> empty.
+/// Delegates to the existing <see cref="ISecretResolver"/> (which already
+/// implements the Unit → Tenant inheritance fall-through, ADR 0003).
+/// Credentials must be set as unit- or tenant-scoped secrets via
+/// <c>spring secret --scope tenant</c> or the Tenant defaults panel.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -31,9 +29,8 @@ using Microsoft.Extensions.Logging;
 /// <para>
 /// <b>Why ID-based lookup.</b> Using a deterministic name keeps the
 /// resolver stateless and the CLI ergonomic: operators do not have to
-/// remember that Anthropic's SDK reads a different env var than the
-/// platform's catalog — the platform always asks the resolver, the
-/// resolver always knows which name to look up.
+/// remember provider-specific names — the platform always asks the
+/// resolver, the resolver always knows which name to look up.
 /// </para>
 /// </remarks>
 public sealed class LlmCredentialResolver : ILlmCredentialResolver
@@ -98,31 +95,16 @@ public sealed class LlmCredentialResolver : ILlmCredentialResolver
             }
         }
 
-        // Tier 3: environment-variable bootstrap. Retained strictly for
-        // continuity with pre-#615 deployments that still export the keys
-        // from their shell or `spring.env`. New deployments should create
-        // a tenant default and leave the env empty.
-        foreach (var envName in descriptor.EnvironmentVariables)
-        {
-            var env = Environment.GetEnvironmentVariable(envName);
-            if (!string.IsNullOrWhiteSpace(env))
-            {
-                _logger.LogInformation(
-                    "LLM credential for provider {Provider} resolved from environment variable {EnvVar}. " +
-                    "Consider moving it to a tenant-default secret via `spring secret --scope tenant create {SecretName} --value <...>` " +
-                    "— env-based resolution is retained only as a legacy bootstrap path (#615).",
-                    providerId, envName, descriptor.SecretName);
-                return new LlmCredentialResolution(env, LlmCredentialSource.EnvironmentBootstrap, descriptor.SecretName);
-            }
-        }
-
+        _logger.LogDebug(
+            "LLM credential for provider {Provider} not configured at unit or tenant scope; returning NotFound.",
+            providerId);
         return new LlmCredentialResolution(null, LlmCredentialSource.NotFound, descriptor.SecretName);
     }
 
     /// <summary>
-    /// The canonical provider → secret-name + env-variable mapping.
-    /// Exposed internally for tests and the portal documentation so the
-    /// Tenant defaults panel can show operators the expected names.
+    /// The canonical provider → secret-name mapping. Exposed internally
+    /// for tests and the portal documentation so the Tenant defaults
+    /// panel can show operators the expected names.
     /// </summary>
     internal static ProviderDescriptor? DescriptorFor(string providerId)
     {
@@ -133,22 +115,15 @@ public sealed class LlmCredentialResolver : ILlmCredentialResolver
 
         return providerId.Trim().ToLowerInvariant() switch
         {
-            "claude" or "anthropic" => new ProviderDescriptor(
-                "anthropic-api-key",
-                new[] { "ANTHROPIC_API_KEY" }),
-            "openai" => new ProviderDescriptor(
-                "openai-api-key",
-                new[] { "OPENAI_API_KEY" }),
-            "google" or "gemini" or "googleai" => new ProviderDescriptor(
-                "google-api-key",
-                new[] { "GOOGLE_API_KEY", "GEMINI_API_KEY" }),
+            "claude" or "anthropic" => new ProviderDescriptor("anthropic-api-key"),
+            "openai" => new ProviderDescriptor("openai-api-key"),
+            "google" or "gemini" or "googleai" => new ProviderDescriptor("google-api-key"),
             _ => null,
         };
     }
 
     /// <summary>
-    /// Describes a provider's canonical secret name and the environment
-    /// variables that serve as the legacy bootstrap fallback.
+    /// Describes a provider's canonical secret name.
     /// </summary>
-    internal sealed record ProviderDescriptor(string SecretName, IReadOnlyList<string> EnvironmentVariables);
+    internal sealed record ProviderDescriptor(string SecretName);
 }

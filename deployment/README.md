@@ -137,12 +137,11 @@ same-name secret at unit scope (Secrets tab on the unit detail page, or
 `spring secret create --scope unit --unit <name> <key> --value "..."`).
 
 If you are upgrading a deployment that had `ANTHROPIC_API_KEY` /
-`OPENAI_API_KEY` in `spring.env`, the platform's `ILlmCredentialResolver`
-will keep honouring those env vars as a legacy bootstrap until you set a
-tenant-scoped row — then the env values are ignored. Move the keys to
-tenant defaults at your convenience and remove them from `spring.env`.
-See [`docs/guide/secrets.md`](../docs/guide/secrets.md) for the full
-resolution chain.
+`OPENAI_API_KEY` in `spring.env`, move the keys to tenant defaults with
+the CLI or portal above and remove them from `spring.env`. The platform
+no longer reads those environment variables — credentials must be set at
+tenant or unit scope. See [`docs/guide/secrets.md`](../docs/guide/secrets.md)
+for the full resolution chain.
 
 ## Remote (VPS) deployment
 

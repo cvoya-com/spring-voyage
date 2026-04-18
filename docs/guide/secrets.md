@@ -18,9 +18,8 @@ LLM provider credentials explicitly belong to **tier 2**, not tier 1 — they ar
 
 1. **Unit-scoped secret** (if the caller has a unit in context)
 2. **Tenant-scoped secret** (the inheritance fall-through from unit scope, or the direct read when there is no unit context — e.g. the unit-create wizard fetching the model catalog)
-3. **Environment-variable bootstrap** — legacy `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GOOGLE_API_KEY` / `GEMINI_API_KEY`, retained only so deployments that predate the three-tier split keep working until the operator populates tier 2. New deployments leave the env vars empty and set the tenant default instead.
 
-When nothing resolves, the platform fails cleanly — the operator-facing error names the exact secret the resolver looked for ("no LLM credentials configured for this unit; set via `spring secret --scope unit` or configure tenant defaults at `spring secret --scope tenant create <name>` / the portal's Tenant defaults panel"). The private cloud build layers its own per-tenant resolver on top and disables the env-variable fallback entirely.
+When nothing resolves, the platform fails cleanly — the operator-facing error names the exact secret the resolver looked for ("no LLM credentials configured for this unit; set via `spring secret --scope unit` or configure tenant defaults at `spring secret --scope tenant create <name>` / the portal's Tenant defaults panel"). There is no environment-variable fallback: credentials must be set at tenant or unit scope. The private cloud build layers its own per-tenant resolver on top.
 
 ## Concepts at a glance
 

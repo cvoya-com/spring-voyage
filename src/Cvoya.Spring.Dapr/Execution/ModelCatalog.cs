@@ -217,18 +217,17 @@ public class ModelCatalog : IModelCatalog
         IReadOnlyList<string> fallback,
         CancellationToken cancellationToken)
     {
-        // #615: credentials now resolve through the tier-2 chain
-        // (unit secret → tenant default → env bootstrap). The wizard has
-        // no "unit context" when it calls this endpoint, so the delegate
-        // passes null and relies on the tenant-scoped default. Unit-
-        // specific overrides are consumed by the agent runtime, not the
-        // wizard.
+        // #615: credentials resolve through the tier-2 chain (unit secret
+        // → tenant default). The wizard has no "unit context" when it
+        // calls this endpoint, so the delegate passes null and relies on
+        // the tenant-scoped default. Unit-specific overrides are consumed
+        // by the agent runtime, not the wizard.
         var credential = await _resolveAnthropicCredential(cancellationToken).ConfigureAwait(false);
 
         if (string.IsNullOrWhiteSpace(credential.Value))
         {
             _logger.LogInformation(
-                "No Anthropic credential resolved (tenant default '{SecretName}' not set and no ANTHROPIC_API_KEY bootstrap); " +
+                "No Anthropic credential resolved (tenant default '{SecretName}' not set); " +
                 "using static model list for the wizard. Set a tenant default via " +
                 "`spring secret --scope tenant create {SecretName} --value <...>` or the Tenant defaults panel in the portal.",
                 credential.SecretName, credential.SecretName);
@@ -275,17 +274,16 @@ public class ModelCatalog : IModelCatalog
         IReadOnlyList<string> fallback,
         CancellationToken cancellationToken)
     {
-        // #615: resolve through the three-tier chain. The wizard runs
+        // #615: resolve through the tier-2 chain. The wizard runs
         // without unit context, so the delegate checks the tenant
-        // default and falls back to OPENAI_API_KEY only as a legacy
-        // bootstrap path. The private cloud host plugs its own tenant-
-        // scoped implementation into ILlmCredentialResolver.
+        // default. The private cloud host plugs its own tenant-scoped
+        // implementation into ILlmCredentialResolver.
         var credential = await _resolveOpenAiCredential(cancellationToken).ConfigureAwait(false);
 
         if (string.IsNullOrWhiteSpace(credential.Value))
         {
             _logger.LogInformation(
-                "No OpenAI credential resolved (tenant default '{SecretName}' not set and no OPENAI_API_KEY bootstrap); " +
+                "No OpenAI credential resolved (tenant default '{SecretName}' not set); " +
                 "using static model list for the wizard. Set a tenant default via " +
                 "`spring secret --scope tenant create {SecretName} --value <...>` or the Tenant defaults panel in the portal.",
                 credential.SecretName, credential.SecretName);
