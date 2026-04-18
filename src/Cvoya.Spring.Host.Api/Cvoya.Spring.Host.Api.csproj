@@ -19,6 +19,7 @@
     <ProjectReference Include="..\Cvoya.Spring.Connectors.Abstractions\Cvoya.Spring.Connectors.Abstractions.csproj" />
     <ProjectReference Include="..\Cvoya.Spring.Core\Cvoya.Spring.Core.csproj" />
     <ProjectReference Include="..\Cvoya.Spring.Dapr\Cvoya.Spring.Dapr.csproj" />
+    <ProjectReference Include="..\Cvoya.Spring.Connector.Arxiv\Cvoya.Spring.Connector.Arxiv.csproj" />
     <ProjectReference Include="..\Cvoya.Spring.Connector.GitHub\Cvoya.Spring.Connector.GitHub.csproj" />
     <ProjectReference Include="..\Cvoya.Spring.Manifest\Cvoya.Spring.Manifest.csproj" />
   </ItemGroup>

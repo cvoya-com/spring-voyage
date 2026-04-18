@@ -3,6 +3,7 @@
 
 using System.Runtime.InteropServices;
 
+using Cvoya.Spring.Connector.Arxiv.DependencyInjection;
 using Cvoya.Spring.Connector.GitHub.DependencyInjection;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.DependencyInjection;
@@ -49,7 +50,8 @@ builder.Services
     .AddCvoyaSpringCore()
     .AddCvoyaSpringDapr(builder.Configuration)
     .AddCvoyaSpringOllamaLlm(builder.Configuration)
-    .AddCvoyaSpringConnectorGitHub(builder.Configuration);
+    .AddCvoyaSpringConnectorGitHub(builder.Configuration)
+    .AddCvoyaSpringConnectorArxiv(builder.Configuration);
 
 // DataProtection registration is gated by design-time tooling to avoid
 // noisy ephemeral-key warnings during build-time OpenAPI generation. The

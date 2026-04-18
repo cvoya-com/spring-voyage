@@ -4518,6 +4518,117 @@
         }
       }
     },
+    "/api/v1/connectors/arxiv/units/{unitId}/config": {
+      "get": {
+        "tags": [
+          "Connectors.Arxiv"
+        ],
+        "summary": "Get the arxiv connector config bound to a unit",
+        "operationId": "GetUnitArxivConnectorConfig",
+        "parameters": [
+          {
+            "name": "unitId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnitArxivConfigResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Connectors.Arxiv"
+        ],
+        "summary": "Bind a unit to arxiv and upsert its per-unit config",
+        "operationId": "PutUnitArxivConnectorConfig",
+        "parameters": [
+          {
+            "name": "unitId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnitArxivConfigRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnitArxivConfigResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/connectors/arxiv/config-schema": {
+      "get": {
+        "tags": [
+          "Connectors.Arxiv"
+        ],
+        "summary": "Get the JSON Schema describing the arxiv connector config body",
+        "operationId": "GetArxivConnectorConfigSchema",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonElement"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/units/{id}/secrets": {
       "get": {
         "tags": [
@@ -8294,6 +8405,56 @@
           }
         }
       },
+      "UnitArxivConfigRequest": {
+        "type": "object",
+        "properties": {
+          "defaultCategories": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "maxResults": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "UnitArxivConfigResponse": {
+        "required": [
+          "unitId",
+          "defaultCategories",
+          "maxResults"
+        ],
+        "type": "object",
+        "properties": {
+          "unitId": {
+            "type": "string"
+          },
+          "defaultCategories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "maxResults": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
       "UnitBoundaryResponse": {
         "type": "object",
         "properties": {
@@ -9118,6 +9279,9 @@
     },
     {
       "name": "Connectors.GitHub.OAuth"
+    },
+    {
+      "name": "Connectors.Arxiv"
     },
     {
       "name": "Secrets"

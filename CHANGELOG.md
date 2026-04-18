@@ -80,6 +80,7 @@ No versions have been tagged yet. The entries below capture the repository's his
 #### Phase 6 — Platform maturity (in progress)
 
 - Research domain package (agent templates, research-team unit, and skill bundles; additional research connectors deferred to follow-ups) ([#417](https://github.com/cvoya-com/spring-voyage/issues/417)).
+- Research-domain arxiv connector (read-only `searchLiterature` + `fetchAbstract` skills, no auth, no webhooks) ([#562](https://github.com/cvoya-com/spring-voyage/issues/562)).
 
 #### Work beyond original phasing
 

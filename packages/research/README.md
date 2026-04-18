@@ -7,7 +7,7 @@ A domain package that ships agents, unit templates, and skills for research work
 - **Agents** (`agents/`): `researcher`, `literature-reviewer`, `data-analyst`.
 - **Units** (`units/`): `research-team` — a hierarchical research cell that routes incoming research requests to the best-fit member.
 - **Skills** (`skills/`): `research-triage` (classify incoming research asks and route by expertise), `literature-review` (scope and summarise a body of literature), `data-analysis` (plan and execute data analyses end-to-end).
-- **Connectors** (`connectors/`): empty for now — research-adjacent connectors (arxiv, web search) are tracked as a follow-up on top of this package (see [#548](https://github.com/cvoya-com/spring-voyage/issues/548)). The connector catalogue surface (`spring connector catalog` / `/connectors`) will pick up each connector automatically once the host registers it via `IConnectorType`.
+- **Connectors** (`connectors/`): empty on disk — the research-adjacent connector *implementation* lives alongside the GitHub connector under `src/Cvoya.Spring.Connector.Arxiv/`. It appears automatically in the connector catalogue (`spring connector catalog` / `/connectors`) and exposes the `searchLiterature` tool the `literature-review` bundle declares, so binding a research unit to arxiv self-resolves that bundle's validation warning. (A web-search connector is tracked separately — see [#563](https://github.com/cvoya-com/spring-voyage/issues/563).)
 
 ## Using the package
 

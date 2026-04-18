@@ -73,3 +73,12 @@ Connector types are first-class browseable resources on every operator surface:
 | **Portal** | `/connectors` (catalog), `/connectors/{slug}` (per-type detail with schema + bound units) | Sidebar entry under "Connectors". The unit detail page's Connector tab deep-links into the per-type detail page. See the [portal walkthrough](../guide/portal.md#connectors-browser-connectors). |
 
 The catalog is hydrated from the open-source registration API: every package that calls `services.AddSpringConnector<TConnector>()` becomes visible across all three surfaces with no further wiring. Connector authors only need to implement `IConnectorType.GetConfigSchemaAsync` to get a typed configuration form on the portal automatically.
+
+### Built-in connectors
+
+The open-source host ships two connector types out of the box:
+
+| Slug | Project | Scope |
+| ---- | ------- | ----- |
+| `github` | `src/Cvoya.Spring.Connector.GitHub/` | Rich: OAuth / App auth, webhooks, issue + PR CRUD, rate limiting, response cache. |
+| `arxiv` | `src/Cvoya.Spring.Connector.Arxiv/` | Read-only: `searchLiterature` and `fetchAbstract` skills; no auth, no webhooks. |
