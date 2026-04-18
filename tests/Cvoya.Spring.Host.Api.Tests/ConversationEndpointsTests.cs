@@ -16,6 +16,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 
 using NSubstitute;
+using NSubstitute.ClearExtensions;
 
 using Shouldly;
 
@@ -123,7 +124,13 @@ public class ConversationEndpointsTests : IClassFixture<ConversationEndpointsTes
     public async Task PostConversationMessage_RoutesThroughMessageRouter()
     {
         var ct = TestContext.Current.CancellationToken;
-        _factory.MessageRouter.ClearReceivedCalls();
+        // #499: Use ClearSubstitute so both received-call history AND any
+        // prior arrangements on RouteAsync are wiped before this test
+        // arranges its own. The two PostConversationMessage_* tests share
+        // the class-fixture MessageRouter mock; ClearReceivedCalls alone
+        // leaves stale Returns/Throws configurations in place, which is the
+        // "shared-mock-state hazard" called out in #499.
+        _factory.MessageRouter.ClearSubstitute();
         _factory.MessageRouter
             .RouteAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
             .Returns(Result<Message?, RoutingError>.Success(null));
@@ -153,7 +160,9 @@ public class ConversationEndpointsTests : IClassFixture<ConversationEndpointsTes
     public async Task PostConversationMessage_PermissionDenied_Returns403()
     {
         var ct = TestContext.Current.CancellationToken;
-        _factory.MessageRouter.ClearReceivedCalls();
+        // #499: See PostConversationMessage_RoutesThroughMessageRouter for
+        // why ClearSubstitute (instead of ClearReceivedCalls) is required.
+        _factory.MessageRouter.ClearSubstitute();
         _factory.MessageRouter
             .RouteAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
             .Returns(Result<Message?, RoutingError>.Failure(
