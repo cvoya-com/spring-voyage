@@ -112,6 +112,14 @@ export const queryKeys = {
 
   tenant: {
     budget: () => ["tenant", "budget"] as const,
+    /**
+     * Per-window tenant cost rollup (PR-R4, #394). Each distinct
+     * `(from, to)` window caches independently so the dashboard
+     * summary card's today / 7d / 30d tiles don't clobber each
+     * other.
+     */
+    cost: (from: string, to: string) =>
+      ["tenant", "cost", from, to] as const,
   },
 
   connectors: {

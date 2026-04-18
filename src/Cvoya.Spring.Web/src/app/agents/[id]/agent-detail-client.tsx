@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { CostOverTimeCard } from "./cost-over-time";
 import { LifecyclePanel } from "./lifecycle-panel";
 import {
   Table,
@@ -421,6 +422,12 @@ export default function AgentDetailClient({ id }: ClientProps) {
           </CardContent>
         </Card>
       </div>
+
+      {/* Cost-over-time card (PR-R4, #394). Renders per-window totals
+          (24h / 7d / 30d) as a proportional bar because the cost API
+          does not expose a time-series today (#569). The tool/model
+          breakdown #394 asks for is deferred to #570. */}
+      <CostOverTimeCard agentId={agent.name} />
 
       {/* Expertise panel (#486). Reads/writes /api/v1/agents/{id}/expertise —
           the same surface `spring agent expertise get|set` uses on the CLI. */}

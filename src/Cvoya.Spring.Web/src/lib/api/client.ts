@@ -435,18 +435,54 @@ export const api = {
   },
 
   // Costs
-  getAgentCost: async (id: string) =>
-    unwrap(
+  //
+  // The three cost endpoints accept optional `from` / `to` query params;
+  // omitting both preserves the server default (last 30 days). The portal
+  // surfaces expose the window so PR-R4 (#394) can render per-window
+  // totals on the dashboard summary card and the detail pages without
+  // duplicating the cost query service.
+  getAgentCost: async (
+    id: string,
+    range?: { from?: string; to?: string },
+  ) => {
+    const query: Record<string, string> = {};
+    if (range?.from) query.from = range.from;
+    if (range?.to) query.to = range.to;
+    return unwrap(
       await fetchClient.GET("/api/v1/costs/agents/{id}", {
-        params: { path: { id } },
+        params: { path: { id }, query: query as never },
       }),
-    ),
-  getUnitCost: async (id: string) =>
-    unwrap(
+    );
+  },
+  getUnitCost: async (
+    id: string,
+    range?: { from?: string; to?: string },
+  ) => {
+    const query: Record<string, string> = {};
+    if (range?.from) query.from = range.from;
+    if (range?.to) query.to = range.to;
+    return unwrap(
       await fetchClient.GET("/api/v1/costs/units/{id}", {
-        params: { path: { id } },
+        params: { path: { id }, query: query as never },
       }),
-    ),
+    );
+  },
+  /**
+   * Tenant-wide cost rollup, optionally windowed. Powers the summary
+   * card on the main dashboard (today / 7d / 30d totals, PR-R4).
+   */
+  getTenantCost: async (
+    range?: { from?: string; to?: string },
+  ) => {
+    const query: Record<string, string> = {};
+    if (range?.from) query.from = range.from;
+    if (range?.to) query.to = range.to;
+    return unwrap(
+      await fetchClient.GET("/api/v1/costs/tenant", {
+        params: { query: query as never },
+      }),
+    );
+  },
 
   // Clones
   getClones: async (agentId: string) =>
