@@ -257,6 +257,16 @@ function DirectoryRow({ hit }: { hit: DirectorySearchHitResponse }) {
         ? `/units/${encodeURIComponent(ownerPath)}`
         : "#";
 
+  // #553: when a hit surfaced via aggregation, render a compact
+  // "Projected via" pill with the ancestor chain as a hover tooltip.
+  // Keeps the main row scannable while still surfacing the lineage for
+  // operators who need it. The chain is bottom-up (closest ancestor
+  // first); join with " -> " so the title reads as a breadcrumb.
+  const ancestorChain = hit.ancestorChain ?? [];
+  const chainText = ancestorChain
+    .map((addr) => `${addr.scheme}://${addr.path}`)
+    .join(" -> ");
+
   return (
     <li
       className="flex flex-col gap-1 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between"
@@ -272,6 +282,16 @@ function DirectoryRow({ hit }: { hit: DirectorySearchHitResponse }) {
           {hit.typedContract && (
             <Badge variant="default" className="text-[10px]">
               typed
+            </Badge>
+          )}
+          {ancestorChain.length > 0 && (
+            <Badge
+              variant="outline"
+              className="text-[10px] font-normal"
+              title={`Projected via: ${chainText}`}
+              data-testid={`directory-row-${ownerScheme}-${ownerPath}-${name}-chain`}
+            >
+              Projected via {ancestorChain.length}
             </Badge>
           )}
         </div>

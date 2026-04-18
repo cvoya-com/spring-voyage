@@ -6946,7 +6946,9 @@
           "aggregatingUnit",
           "typedContract",
           "score",
-          "matchReason"
+          "matchReason",
+          "ancestorChain",
+          "projectionPaths"
         ],
         "type": "object",
         "properties": {
@@ -6985,6 +6987,18 @@
           },
           "matchReason": {
             "type": "string"
+          },
+          "ancestorChain": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AddressDto"
+            }
+          },
+          "projectionPaths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },

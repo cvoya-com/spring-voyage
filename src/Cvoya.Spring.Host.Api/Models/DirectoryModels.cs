@@ -69,6 +69,19 @@ public record DirectorySearchRequest(
 /// <param name="TypedContract"><c>true</c> when the domain advertises an input schema.</param>
 /// <param name="Score">Ranking score — higher is better.</param>
 /// <param name="MatchReason">Short human-readable explanation of the match.</param>
+/// <param name="AncestorChain">
+/// Ordered chain of aggregating units from the direct owner up to the
+/// highest projecting ancestor (#553). Empty for direct hits — populated
+/// only when the entry surfaced through an aggregated-coverage
+/// projection. Ordered bottom-up: the first entry is the ancestor
+/// closest to <see cref="Owner"/>, the last entry is the highest
+/// projecting ancestor.
+/// </param>
+/// <param name="ProjectionPaths">
+/// Set of <c>projection/{slug}</c> paths through which this entry
+/// surfaces in the caller's boundary (#553). One entry per ancestor in
+/// <see cref="AncestorChain"/>; empty for direct hits.
+/// </param>
 public record DirectorySearchHitResponse(
     string Slug,
     ExpertiseDomainDto Domain,
@@ -77,7 +90,9 @@ public record DirectorySearchHitResponse(
     AddressDto? AggregatingUnit,
     bool TypedContract,
     double Score,
-    string MatchReason);
+    string MatchReason,
+    IReadOnlyList<AddressDto> AncestorChain,
+    IReadOnlyList<string> ProjectionPaths);
 
 /// <summary>
 /// Response body for <c>POST /api/v1/directory/search</c> (#542).

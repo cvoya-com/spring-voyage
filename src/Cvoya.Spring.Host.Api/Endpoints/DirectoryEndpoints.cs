@@ -122,8 +122,20 @@ public static class DirectoryEndpoints
             entry.Role,
             entry.RegisteredAt);
 
-    private static DirectorySearchHitResponse ToHitResponse(ExpertiseSearchHit hit) =>
-        new(
+    private static DirectorySearchHitResponse ToHitResponse(ExpertiseSearchHit hit)
+    {
+        // The ancestor chain + projection paths are additive (#553). Both
+        // fields land as empty collections (not null) for direct hits so
+        // generated clients can treat "no chain" and "empty chain"
+        // identically without a null check.
+        var chain = hit.AncestorChain is { Count: > 0 }
+            ? hit.AncestorChain.Select(a => new AddressDto(a.Scheme, a.Path)).ToList()
+            : (IReadOnlyList<AddressDto>)Array.Empty<AddressDto>();
+        var paths = hit.ProjectionPaths is { Count: > 0 }
+            ? hit.ProjectionPaths.ToList()
+            : (IReadOnlyList<string>)Array.Empty<string>();
+
+        return new DirectorySearchHitResponse(
             hit.Slug,
             new ExpertiseDomainDto(
                 hit.Domain.Name,
@@ -136,5 +148,8 @@ public static class DirectoryEndpoints
                 : new AddressDto(hit.AggregatingUnit.Scheme, hit.AggregatingUnit.Path),
             hit.TypedContract,
             hit.Score,
-            hit.MatchReason);
+            hit.MatchReason,
+            chain,
+            paths);
+    }
 }

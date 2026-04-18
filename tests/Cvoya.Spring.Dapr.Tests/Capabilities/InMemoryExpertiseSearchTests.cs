@@ -253,6 +253,125 @@ public class InMemoryExpertiseSearchTests
     }
 
     [Fact]
+    public async Task SearchAsync_DirectHit_ReportsEmptyAncestorChainAndProjectionPaths()
+    {
+        // #553: a direct hit (entry declared on the unit itself) must not
+        // claim any projecting ancestors. We pin the "empty, not null"
+        // shape so API callers can treat "no chain" and "empty chain"
+        // identically.
+        var unit = Entry("unit", "eng", "Engineering");
+        _directory.ListAllAsync(Arg.Any<CancellationToken>())
+            .Returns(new[] { unit });
+        _store.GetDomainsAsync(unit.Address, Arg.Any<CancellationToken>())
+            .Returns(new[] { Domain("python") });
+
+        var search = CreateSearch();
+        var result = await search.SearchAsync(
+            new ExpertiseSearchQuery(Text: "python", Context: BoundaryViewContext.InsideUnit),
+            TestContext.Current.CancellationToken);
+
+        var hit = result.Hits.ShouldHaveSingleItem();
+        hit.AggregatingUnit.ShouldBeNull();
+        hit.AncestorChain.ShouldNotBeNull();
+        hit.AncestorChain!.Count.ShouldBe(0);
+        hit.ProjectionPaths.ShouldNotBeNull();
+        hit.ProjectionPaths!.Count.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task SearchAsync_OneLevelProjection_PopulatesChainAndSingleProjectionPath()
+    {
+        // #553: single-level projection — unit `root` aggregates unit
+        // `child`'s own expertise. Chain should have exactly the
+        // aggregating unit; projection paths should have one
+        // `projection/{slug}` entry.
+        var rootUnit = Entry("unit", "root", "Root");
+        var childUnit = Entry("unit", "child", "Child");
+        _directory.ListAllAsync(Arg.Any<CancellationToken>())
+            .Returns(new[] { rootUnit, childUnit });
+        _store.GetDomainsAsync(rootUnit.Address, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<ExpertiseDomain>());
+        _store.GetDomainsAsync(childUnit.Address, Arg.Any<CancellationToken>())
+            .Returns(new[] { Domain("release-planning") });
+
+        _aggregator
+            .GetAsync(rootUnit.Address, Arg.Any<BoundaryViewContext>(), Arg.Any<CancellationToken>())
+            .Returns(new AggregatedExpertise(
+                rootUnit.Address,
+                new[]
+                {
+                    new ExpertiseEntry(
+                        Domain("release-planning"),
+                        childUnit.Address,
+                        new[] { rootUnit.Address, childUnit.Address }),
+                },
+                1,
+                DateTimeOffset.UtcNow));
+
+        var search = CreateSearch();
+        var result = await search.SearchAsync(
+            new ExpertiseSearchQuery(Text: "release", Context: BoundaryViewContext.External),
+            TestContext.Current.CancellationToken);
+
+        // One direct hit (child's own) plus one aggregated hit (surfaced
+        // through root). We only inspect the aggregated one here.
+        var aggregatedHit = result.Hits.Single(h => h.AggregatingUnit is not null);
+        aggregatedHit.AncestorChain.ShouldNotBeNull();
+        aggregatedHit.AncestorChain!.Count.ShouldBe(1);
+        aggregatedHit.AncestorChain[0].ShouldBe(rootUnit.Address);
+        aggregatedHit.ProjectionPaths.ShouldNotBeNull();
+        aggregatedHit.ProjectionPaths!.ShouldBe(new[] { "projection/release-planning" });
+    }
+
+    [Fact]
+    public async Task SearchAsync_MultiLevelProjection_ChainOrderedBottomUp()
+    {
+        // #553: three-level nesting — root -> mid -> origin. The root's
+        // aggregated view surfaces origin's expertise via the full path
+        // [root, mid, origin]. AncestorChain must list mid (closest to
+        // the origin) first and root (highest) last.
+        var rootUnit = Entry("unit", "root", "Root");
+        var midUnit = Entry("unit", "mid", "Mid");
+        var originUnit = Entry("unit", "origin", "Origin");
+        _directory.ListAllAsync(Arg.Any<CancellationToken>())
+            .Returns(new[] { rootUnit, midUnit, originUnit });
+        _store.GetDomainsAsync(rootUnit.Address, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<ExpertiseDomain>());
+        _store.GetDomainsAsync(midUnit.Address, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<ExpertiseDomain>());
+        _store.GetDomainsAsync(originUnit.Address, Arg.Any<CancellationToken>())
+            .Returns(new[] { Domain("translation") });
+
+        _aggregator
+            .GetAsync(rootUnit.Address, Arg.Any<BoundaryViewContext>(), Arg.Any<CancellationToken>())
+            .Returns(new AggregatedExpertise(
+                rootUnit.Address,
+                new[]
+                {
+                    new ExpertiseEntry(
+                        Domain("translation"),
+                        originUnit.Address,
+                        new[] { rootUnit.Address, midUnit.Address, originUnit.Address }),
+                },
+                2,
+                DateTimeOffset.UtcNow));
+
+        var search = CreateSearch();
+        var result = await search.SearchAsync(
+            new ExpertiseSearchQuery(Text: "translation", Context: BoundaryViewContext.External),
+            TestContext.Current.CancellationToken);
+
+        var hit = result.Hits.Single(h => h.AggregatingUnit is not null);
+        hit.AncestorChain.ShouldNotBeNull();
+        // [mid, root] — bottom-up.
+        hit.AncestorChain!.ShouldBe(new[] { midUnit.Address, rootUnit.Address });
+        // One projection path per ancestor.
+        hit.ProjectionPaths.ShouldNotBeNull();
+        hit.ProjectionPaths!.Count.ShouldBe(2);
+        hit.ProjectionPaths!.ShouldAllBe(p => p == "projection/translation");
+    }
+
+    [Fact]
     public async Task SearchAsync_EmptyQuery_ReturnsDirectoryContents()
     {
         var unit = Entry("unit", "eng", "Engineering");

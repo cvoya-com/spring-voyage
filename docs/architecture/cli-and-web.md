@@ -55,11 +55,26 @@ spring activity stream --unit engineering-team
 spring connector catalog
 spring connector bind --unit engineering-team --type github --owner my-org --repo platform
 spring connector show --unit engineering-team
+spring directory list
+spring directory show python/fastapi
+spring directory search "refactor python"
 spring build packages/software-engineering
 spring apply -f units/engineering-team.yaml
 spring workflow status software-dev-cycle
 spring images list
 ```
+
+### Directory verbs
+
+The `spring directory` family mirrors the portal's `/directory` surface over the shared `POST /api/v1/directory/search` endpoint. Every verb takes `--output table|json`, `--inside` (request the inside-the-unit boundary view), and the usual `--domain`/`--owner`/`--typed-only`/`--limit`/`--offset` filters.
+
+| Verb | Purpose | Portal equivalent |
+|------|---------|-------------------|
+| `spring directory list` | Enumerate every directory entry (subject to filters + boundary). Omits the score column since there's no free-text query to rank against. | `/directory` with the search box empty. |
+| `spring directory show <slug>` | Render a single entry — slug, domain, owner + display name, aggregating unit, ancestor chain breadcrumb, typed-contract flag, match reason, score, and the `projection/{slug}` path set. | Click a row on `/directory`. |
+| `spring directory search "<text>"` | Free-text query matched against slug, display name, description, and tags; ranks exact slug > exact domain > text relevance > aggregated-coverage. | The search box on `/directory`. |
+
+`show` carries the full owner-chain + projection-path detail (#553): the ancestor chain renders as a `unit://mid -> unit://root` breadcrumb reading from the closest projecting ancestor up to the highest, and each `projection/{slug}` path listed under "Projected via" identifies one surfacing ancestor. A direct hit renders both as `(direct)` with no "Projected via" block.
 
 **Distribution modes:**
 

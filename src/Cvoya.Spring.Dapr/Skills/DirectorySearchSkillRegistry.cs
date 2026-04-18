@@ -263,6 +263,31 @@ public class DirectorySearchSkillRegistry : ISkillRegistry
                 writer.WriteBoolean("typedContract", hit.TypedContract);
                 writer.WriteNumber("score", hit.Score);
                 writer.WriteString("matchReason", hit.MatchReason);
+
+                // #553: surface the ancestor chain + projection paths so
+                // planner-style callers see the full lineage and can pick
+                // the right address to route through.
+                writer.WritePropertyName("ancestorChain");
+                writer.WriteStartArray();
+                if (hit.AncestorChain is not null)
+                {
+                    foreach (var ancestor in hit.AncestorChain)
+                    {
+                        writer.WriteStringValue($"{ancestor.Scheme}://{ancestor.Path}");
+                    }
+                }
+                writer.WriteEndArray();
+
+                writer.WritePropertyName("projectionPaths");
+                writer.WriteStartArray();
+                if (hit.ProjectionPaths is not null)
+                {
+                    foreach (var path in hit.ProjectionPaths)
+                    {
+                        writer.WriteStringValue(path);
+                    }
+                }
+                writer.WriteEndArray();
                 writer.WriteEndObject();
             }
             writer.WriteEndArray();

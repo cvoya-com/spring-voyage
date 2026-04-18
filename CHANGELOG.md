@@ -76,6 +76,7 @@ No versions have been tagged yet. The entries below capture the repository's his
 - Agents tab: add-agent dialog, per-membership edit, remove ([#329](https://github.com/cvoya-com/spring-voyage/pull/329)).
 - Unified `IAgent` interface across agents and units ([#213](https://github.com/cvoya-com/spring-voyage/pull/213)).
 - Unit-scheme members surfaced in portal UI and CLI ([#353](https://github.com/cvoya-com/spring-voyage/pull/353)).
+- `spring directory list` + `spring directory show <slug>` CLI verbs mirror the portal's `/directory` surface; hit payload widened with the full owner chain + `projection/{slug}` paths so a multi-level projected entry surfaces every projecting ancestor ([#555](https://github.com/cvoya-com/spring-voyage/pull/555) — closes [#528](https://github.com/cvoya-com/spring-voyage/issues/528), [#553](https://github.com/cvoya-com/spring-voyage/issues/553)).
 
 #### Phase 6 — Platform maturity (in progress)
 

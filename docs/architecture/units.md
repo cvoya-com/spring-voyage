@@ -612,8 +612,8 @@ The origin chain lets peer-lookup callers tell **where** a capability came from 
 - `GET /api/v1/agents/{id}/expertise` · `PUT /api/v1/agents/{id}/expertise` — per-agent profile.
 - `GET /api/v1/units/{id}/expertise/own` · `PUT /api/v1/units/{id}/expertise/own` — unit-level own expertise (no aggregation).
 - `GET /api/v1/units/{id}/expertise` — effective / recursive-aggregated expertise.
-- `POST /api/v1/directory/search` — lexical / full-text search (#542).
-- CLI: `spring agent expertise get|set <id>`, `spring unit expertise get|set|aggregated <id>`, and `spring directory search "<query>"` — same shape on every surface for UI/CLI parity.
+- `POST /api/v1/directory/search` — lexical / full-text search (#542). Hit payload carries the full owner chain + `projection/{slug}` paths as of #553 so callers see every projecting ancestor, not just the immediate aggregating unit.
+- CLI: `spring agent expertise get|set <id>`, `spring unit expertise get|set|aggregated <id>`, plus the tenant-wide browse trio `spring directory list`, `spring directory show <slug>`, and `spring directory search "<query>"` — same shape on every surface for UI/CLI parity (closes #528, #553).
 
 #### Directory Search (#542)
 

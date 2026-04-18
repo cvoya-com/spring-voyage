@@ -301,10 +301,10 @@ public static class DirectoryCommand
     // The search endpoint's ranking (exact slug > tag/domain > text) means
     // passing the slug verbatim as the free-text query reliably pushes the
     // target entry to the top. We then match on slug exactly to avoid
-    // surfacing a near-match as if it were the requested entry. Full
-    // owner-chain + projection-path details are tracked as a follow-up
-    // (#553) — the current hit payload is limited to direct owner +
-    // aggregating unit.
+    // surfacing a near-match as if it were the requested entry. The hit
+    // payload carries the full owner chain + projection paths (#553) so
+    // `show` renders both a breadcrumb ancestor trail and the set of
+    // `projection/{slug}` surfaces the entry is reachable through.
     private static Command CreateShowCommand(Option<string> outputOption)
     {
         var slugArg = new Argument<string>("slug")
@@ -377,7 +377,13 @@ public static class DirectoryCommand
         return command;
     }
 
-    private static void RenderShow(DirectorySearchHitResponse hit)
+    /// <summary>
+    /// Renders a single directory hit as a two-column key/value table
+    /// plus a "Projected via" block for the projection-path list (#553).
+    /// Public so tests can pin the layout without routing through the
+    /// HTTP client.
+    /// </summary>
+    public static void RenderShow(DirectorySearchHitResponse hit)
     {
         // Detail view is two-column key/value — the same shape other
         // "show" commands use (e.g. unit/agent `get`) so operators see a
@@ -390,6 +396,18 @@ public static class DirectoryCommand
             ? "(direct)"
             : $"{aggregating.Scheme}://{aggregating.Path}";
 
+        // #553: AncestorChain is bottom-up (closest ancestor first) so we
+        // render it as a breadcrumb-ish " -> " trail reading from the
+        // direct owner's closest projecting ancestor up to the highest
+        // projecting ancestor. Empty list = direct hit; render "(direct)"
+        // so the operator sees the same affordance as AggregatingUnit.
+        var chain = hit.AncestorChain ?? new List<AddressDto>();
+        var chainText = chain.Count == 0
+            ? "(direct)"
+            : string.Join(
+                " -> ",
+                chain.Select(a => $"{a.Scheme}://{a.Path}"));
+
         var fields = new List<(string Key, string Value)>
         {
             ("Slug", hit.Slug ?? string.Empty),
@@ -399,6 +417,7 @@ public static class DirectoryCommand
             ("Owner", owner),
             ("Owner display", hit.OwnerDisplayName ?? string.Empty),
             ("Aggregating unit", aggregatingText),
+            ("Ancestor chain", chainText),
             ("Typed contract", hit.TypedContract == true ? "yes" : "no"),
             ("Match reason", hit.MatchReason ?? string.Empty),
             ("Score",
@@ -409,6 +428,20 @@ public static class DirectoryCommand
         foreach (var (key, value) in fields)
         {
             Console.WriteLine($"{key.PadRight(keyWidth)}  {value}");
+        }
+
+        // Projection paths get their own block below the key/value table.
+        // One path per line so long `projection/{slug}` strings don't
+        // smash column alignment.
+        var paths = hit.ProjectionPaths ?? new List<string>();
+        if (paths.Count > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine("Projected via:");
+            foreach (var path in paths)
+            {
+                Console.WriteLine($"  {path}");
+            }
         }
     }
 
