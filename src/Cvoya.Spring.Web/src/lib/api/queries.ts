@@ -40,6 +40,7 @@ import type {
   PackageSummary,
   UnitDashboardSummary,
   UnitDetailResponse,
+  UnitPolicyResponse,
   UnitReadinessResponse,
   UnitResponse,
   UnitTemplateDetail,
@@ -137,6 +138,36 @@ export function useUnitReadiness(
   return useQuery({
     queryKey: queryKeys.units.readiness(id),
     queryFn: () => api.getUnitReadiness(id),
+    enabled: opts?.enabled ?? Boolean(id),
+    refetchInterval: opts?.refetchInterval,
+    staleTime: opts?.staleTime,
+  });
+}
+
+/**
+ * Unified unit policy read covering all five dimensions (skill / model
+ * / cost / executionMode / initiative) plus the forthcoming label
+ * routing slot. Mirrors `spring unit policy <dim> get` (#453) so the
+ * CLI and portal round-trip the same shape.
+ *
+ * Surfaces an empty `{}` rather than throwing when the server returns
+ * a 404 (policy never set) so the Policies tab can render the empty
+ * "(none — no constraint on this unit)" state without trapping the
+ * error boundary.
+ */
+export function useUnitPolicy(
+  id: string,
+  opts?: SliceOptions<UnitPolicyResponse>,
+): UseQueryResult<UnitPolicyResponse, Error> {
+  return useQuery({
+    queryKey: queryKeys.units.policy(id),
+    queryFn: async () => {
+      try {
+        return await api.getUnitPolicy(id);
+      } catch {
+        return {} as UnitPolicyResponse;
+      }
+    },
     enabled: opts?.enabled ?? Boolean(id),
     refetchInterval: opts?.refetchInterval,
     staleTime: opts?.staleTime,

@@ -136,7 +136,7 @@ The unit detail page ([src/Cvoya.Spring.Web/src/app/units/[id]/unit-config-clien
 
 Transitional states (`Starting`, `Stopping`) are polled every two seconds until they settle. The status badge colours: green = Running, amber = Starting/Stopping, red = Error, outline = Stopped, default = Draft.
 
-The page has eight tabs:
+The page has nine tabs:
 
 ### General
 
@@ -172,6 +172,23 @@ Lists every unit-scheme member of this unit ([sub-units-tab.tsx](../../src/Cvoya
 Grid of per-agent skill toggles ([skills-tab.tsx](../../src/Cvoya.Spring.Web/src/app/units/%5Bid%5D/skills-tab.tsx)). Each checkbox fires `PUT /api/v1/agents/{id}/skills` with the agent's full skill list — optimistic update, reconciled on server response.
 
 **CLI equivalent:** none today. **This is a CLI/UI parity gap.** You can declare skills in an agent YAML definition and reapply with `spring apply -f agent.yaml`.
+
+### Policies
+
+Unified policy tab ([policies-tab.tsx](../../src/Cvoya.Spring.Web/src/app/units/%5Bid%5D/policies-tab.tsx)) covering all five `UnitPolicy` dimensions — **Skill**, **Model**, **Cost**, **Execution mode**, and **Initiative** — plus an **Effective policy** footer that previews the inheritance chain. Every panel has the same "allow list / block list / caps" shape: once you learn one, the others follow.
+
+Edits route through `PUT /api/v1/units/{id}/policy`, the same surface the CLI's `spring unit policy <dim> set|clear` commands ride (PR #473). Per-dimension edits are merged — changing the Skill panel never wipes the Cost caps, and vice versa. A **Clear** button next to each panel removes just that dimension while leaving the others untouched.
+
+| Dimension | Portal | CLI |
+|-----------|--------|-----|
+| Skill allow/block list | **Edit** on Skill panel | `spring unit policy skill set <unit> --allowed … --blocked …` / `spring unit policy skill clear <unit>` |
+| Model allow/block list | **Edit** on Model panel | `spring unit policy model set <unit> --allowed … --blocked …` / `spring unit policy model clear <unit>` |
+| Cost caps (per-invocation / per-hour / per-day USD) | **Edit** on Cost panel | `spring unit policy cost set <unit> --max-per-invocation … --max-per-hour … --max-per-day …` / `spring unit policy cost clear <unit>` |
+| Execution mode (forced + allowed whitelist) | **Edit** on Execution mode panel | `spring unit policy execution-mode set <unit> --forced Auto --allowed Auto,OnDemand` / `spring unit policy execution-mode clear <unit>` |
+| Initiative (max level, unit-approval flag, action allow/block list) | **Edit** on Initiative panel | `spring unit policy initiative set <unit> --max-level Proactive --require-unit-approval true --allowed … --blocked …` / `spring unit policy initiative clear <unit>` |
+| Read current policy | (tab body) | `spring unit policy <dim> get <unit>` |
+
+The Cost panel links out to `/budgets` so you can compare the caps against current spend. The Effective policy block shows a single-hop chain today; parent-unit overlay is tracked under [#414](https://github.com/cvoya-com/spring-voyage/issues/414) and will extend the chain without a UI reshape.
 
 ### Connector
 
@@ -422,7 +439,8 @@ Today's portal has capabilities not mirrored in the CLI, and vice versa. These a
 | GitHub connector configuration UI | Connector tab | not implemented | use YAML |
 | Unit-scoped secrets CRUD | Secrets tab | not implemented | use YAML or portal |
 | Per-agent skills toggles | Skills tab | not implemented | declare in agent YAML |
-| Initiative policy editor | `/initiative` | not implemented | |
+| Initiative policy editor (per-agent) | `/initiative` | not implemented | |
+| Unit policy editor (all five dimensions) | Policies tab on `/units/{id}` | `spring unit policy <dim> get/set/clear` | portal + CLI at parity since PR #473 / PR-R5 |
 | Budget configuration | `/budgets` | not implemented | |
 | Cost breakdown views | dashboard + unit detail | not implemented | |
 | `spring apply` for YAML manifests | not implemented | `spring apply -f` | |

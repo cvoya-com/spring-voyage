@@ -144,6 +144,42 @@ export interface ConversationListFilters {
 /** Matches Cvoya.Spring.Core.Initiative.InitiativeLevel enum. */
 export type InitiativeLevel = Schemas["InitiativeLevel"];
 
+// ---------------------------------------------------------------------------
+// Unit policy — governance across five dimensions (#411, #462 PR-R5)
+// ---------------------------------------------------------------------------
+
+/**
+ * Skill (tool) allow/block list. Empty `allowed` means "allow all".
+ * Blocked entries always deny. Mirrors the CLI's
+ * `spring unit policy skill` dimension (#453).
+ */
+export type SkillPolicy = Schemas["SkillPolicy"];
+
+/** LLM model allow/block list. Same shape as {@link SkillPolicy}. */
+export type ModelPolicy = Schemas["ModelPolicy"];
+
+/**
+ * Per-invocation / per-hour / per-day cost caps (USD). A null value
+ * means "no cap on that window"; the server treats absent caps as
+ * "inherit from parent" once #414 lands.
+ */
+export type CostPolicy = Schemas["CostPolicy"];
+
+/**
+ * Execution-mode constraint. `forced` pins every member to one mode;
+ * `allowed` is a whitelist the member must fall within. Setting both
+ * is legal — `forced` is a stronger statement than `allowed`.
+ */
+export type ExecutionModePolicy = Schemas["ExecutionModePolicy"];
+
+/**
+ * Unified unit policy — the wire shape returned by
+ * `GET /api/v1/units/{id}/policy` and accepted by `PUT` (with a `null`
+ * body meaning "clear all dimensions"). Every dimension is optional;
+ * absent dimensions are unconstrained on this unit.
+ */
+export type UnitPolicyResponse = Schemas["UnitPolicyResponse"];
+
 /** Tier 1 (screening) model configuration. */
 export type Tier1Config = Schemas["Tier1Config"];
 

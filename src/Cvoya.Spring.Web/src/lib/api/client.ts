@@ -14,6 +14,7 @@ import type {
   SetBudgetRequest,
   UnitConnectorBindingRequest,
   UnitGitHubConfigRequest,
+  UnitPolicyResponse,
   UnitResponse,
   UpdateAgentMetadataRequest,
 } from "./types";
@@ -519,6 +520,32 @@ export const api = {
       }),
     );
   },
+
+  // Unified unit policy — surfaces all five dimensions
+  // (skill / model / cost / executionMode / initiative) at once. This
+  // is the endpoint the portal's Policies tab rides (PR-R5 / #411) and
+  // is also what `spring unit policy <dim> get|set|clear` (PR-C2 / #473)
+  // calls under the hood, so both surfaces round-trip the same shape.
+  //
+  // `PUT` accepts either a fully-populated `UnitPolicyResponse` (the
+  // merged shape where only the target dimension changes and the rest
+  // is carried through verbatim) or `null` (clear every dimension).
+  getUnitPolicy: async (id: string): Promise<UnitPolicyResponse> =>
+    unwrap(
+      await fetchClient.GET("/api/v1/units/{id}/policy", {
+        params: { path: { id } },
+      }),
+    ),
+  setUnitPolicy: async (
+    id: string,
+    policy: UnitPolicyResponse | null,
+  ): Promise<UnitPolicyResponse> =>
+    unwrap(
+      await fetchClient.PUT("/api/v1/units/{id}/policy", {
+        params: { path: { id } },
+        body: policy,
+      }),
+    ),
 
   // Skills catalog
   listSkills: async () => unwrap(await fetchClient.GET("/api/v1/skills")),

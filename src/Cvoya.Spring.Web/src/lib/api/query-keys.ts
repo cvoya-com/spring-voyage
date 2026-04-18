@@ -51,6 +51,7 @@ export const queryKeys = {
     githubConfig: (id: string) => ["units", "githubConfig", id] as const,
     initiativePolicy: (id: string) =>
       ["units", "initiativePolicy", id] as const,
+    policy: (id: string) => ["units", "policy", id] as const,
   },
 
   activity: {

@@ -16,6 +16,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { ActivityTab } from "./activity-tab";
 import { AgentsTab } from "./agents-tab";
 import { ConnectorTab } from "./connector-tab";
+import { PoliciesTab } from "./policies-tab";
 import { SecretsTab } from "./secrets-tab";
 import { SkillsTab } from "./skills-tab";
 import { SubUnitsTab } from "./sub-units-tab";
@@ -352,6 +353,7 @@ export default function UnitConfigClient({ id }: ClientProps) {
           <TabsTrigger value="agents">Agents</TabsTrigger>
           <TabsTrigger value="sub-units">Sub-units</TabsTrigger>
           <TabsTrigger value="skills">Skills</TabsTrigger>
+          <TabsTrigger value="policies">Policies</TabsTrigger>
           <TabsTrigger value="connector">Connector</TabsTrigger>
           <TabsTrigger value="secrets">Secrets</TabsTrigger>
           <TabsTrigger value="activity">Activity</TabsTrigger>
@@ -494,6 +496,10 @@ export default function UnitConfigClient({ id }: ClientProps) {
 
         <TabsContent value="skills">
           <SkillsTab unitId={id} />
+        </TabsContent>
+
+        <TabsContent value="policies">
+          <PoliciesTab unitId={id} />
         </TabsContent>
       </Tabs>
 
