@@ -3,17 +3,7 @@
 
 using System.Runtime.InteropServices;
 
-using Cvoya.Spring.Connector.Arxiv.DependencyInjection;
-using Cvoya.Spring.Connector.GitHub.DependencyInjection;
-using Cvoya.Spring.Connector.WebSearch.DependencyInjection;
-using Cvoya.Spring.Dapr.Actors;
-using Cvoya.Spring.Dapr.DependencyInjection;
-using Cvoya.Spring.Dapr.Workflows;
-using Cvoya.Spring.Dapr.Workflows.Activities;
-
-using Dapr.Actors;
-using Dapr.Actors.Runtime;
-using Dapr.Workflow;
+using Cvoya.Spring.Host.Worker.Composition;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -46,57 +36,11 @@ void ForceExitOnSignal()
 using var sigInt = PosixSignalRegistration.Create(PosixSignal.SIGINT, _ => ForceExitOnSignal());
 using var sigTerm = PosixSignalRegistration.Create(PosixSignal.SIGTERM, _ => ForceExitOnSignal());
 
-// Register Spring services
-builder.Services
-    .AddCvoyaSpringCore()
-    .AddCvoyaSpringDapr(builder.Configuration)
-    .AddCvoyaSpringOllamaLlm(builder.Configuration)
-    .AddCvoyaSpringConnectorGitHub(builder.Configuration)
-    .AddCvoyaSpringConnectorArxiv(builder.Configuration)
-    .AddCvoyaSpringConnectorWebSearch(builder.Configuration);
-
-// DataProtection registration is gated by design-time tooling to avoid
-// noisy ephemeral-key warnings during build-time OpenAPI generation. The
-// Worker does not generate OpenAPI docs itself, but shares the same DI
-// setup path via AddCvoyaSpringDapr — gate defensively. See #370.
-if (!BuildEnvironment.IsDesignTimeTooling)
-{
-    builder.Services.AddCvoyaSpringDataProtection(builder.Configuration);
-}
-
-// Worker owns EF Core migrations. The API host intentionally does NOT
-// register DatabaseMigrator: when both hosts ran it concurrently they
-// raced on DDL and one crashed with `42P07: relation already exists`
-// (issue #305). Registering here keeps automatic schema upgrades on
-// fresh deployments while making the Worker the single owner.
-builder.Services.AddCvoyaSpringDatabaseMigrator();
-
-// Register Dapr workflows
-builder.Services.AddDaprWorkflow(options =>
-{
-    options.RegisterWorkflow<AgentLifecycleWorkflow>();
-    options.RegisterWorkflow<CloningLifecycleWorkflow>();
-    options.RegisterActivity<ValidateAgentDefinitionActivity>();
-    options.RegisterActivity<RegisterAgentActivity>();
-    options.RegisterActivity<UnregisterAgentActivity>();
-    options.RegisterActivity<ValidateCloneRequestActivity>();
-    options.RegisterActivity<CreateCloneActorActivity>();
-    options.RegisterActivity<RegisterCloneActivity>();
-    options.RegisterActivity<DestroyCloneActivity>();
-});
-
-// Register Dapr actors
-builder.Services.AddActors(options =>
-{
-    options.Actors.RegisterActor<AgentActor>();
-    options.Actors.RegisterActor<UnitActor>();
-    options.Actors.RegisterActor<ConnectorActor>();
-    options.Actors.RegisterActor<HumanActor>();
-
-    options.ActorIdleTimeout = TimeSpan.FromHours(1);
-    options.ActorScanInterval = TimeSpan.FromSeconds(30);
-    options.ReentrancyConfig = new ActorReentrancyConfig { Enabled = false };
-});
+// Register Spring services, Dapr workflows, and Dapr actors via the shared
+// composition helper. The Worker composition smoke test rides the same helper
+// so any registration gap surfaces at `dotnet test` time rather than at
+// container startup. See #586 and WorkerComposition.cs.
+builder.Services.AddWorkerServices(builder.Configuration);
 
 var app = builder.Build();
 
@@ -107,3 +51,8 @@ app.MapGet("/health", () => Results.Ok(new { Status = "Healthy" }));
 app.MapActorsHandlers();
 
 await app.RunAsync();
+
+/// <summary>
+/// Partial class to enable WebApplicationFactory-based integration testing.
+/// </summary>
+public partial class Program;
