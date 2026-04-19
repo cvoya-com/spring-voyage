@@ -4,6 +4,12 @@
     "title": "Cvoya.Spring.Host.Api | v1",
     "version": "1.0.0"
   },
+  "servers": [
+    {
+      "url": "http://localhost:5000",
+      "description": "Spring Voyage API (development default; override via adapter BaseUrl)"
+    }
+  ],
   "paths": {
     "/api/v1/auth/tokens": {
       "post": {

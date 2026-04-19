@@ -102,6 +102,26 @@ try
             }
             return Task.CompletedTask;
         });
+
+        // Emit a `servers` entry so Kiota (and other OpenAPI clients) can
+        // embed a default base URL rather than forcing every caller to set
+        // one on the request adapter. Kiota requires an ABSOLUTE URL to
+        // recognise the entry (relative roots like "/" still trigger the
+        // "no servers entry" warning). The URL is a development placeholder;
+        // every real caller overrides BaseUrl on the request adapter. See
+        // #632 for the build-hygiene rationale.
+        options.AddDocumentTransformer((document, _, _) =>
+        {
+            document.Servers =
+            [
+                new Microsoft.OpenApi.OpenApiServer
+                {
+                    Url = "http://localhost:5000",
+                    Description = "Spring Voyage API (development default; override via adapter BaseUrl)",
+                },
+            ];
+            return Task.CompletedTask;
+        });
     });
 
     var app = builder.Build();

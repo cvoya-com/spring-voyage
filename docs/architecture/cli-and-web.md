@@ -164,6 +164,14 @@ spring unit create default-pilot \
 
 The command name is `spring` in both cases.
 
+### Client generation pipeline
+
+`src/Cvoya.Spring.Host.Api` emits `openapi.json` at build time (via `Microsoft.Extensions.ApiDescription.Server`). The document is committed so downstream codegen works without a running API; CI detects drift by checking that the post-build working tree is clean.
+
+The `spring` CLI's strongly-typed HTTP client (`src/Cvoya.Spring.Cli/Generated/`) is generated from that committed `openapi.json` by [Kiota](https://github.com/microsoft/kiota) (pinned in `.config/dotnet-tools.json`, currently `1.31.1`). The `GenerateKiotaClient` MSBuild target regenerates the client before every compile; the `Generated/` tree is gitignored. `Microsoft.Kiota.Bundle` (pinned in `Directory.Packages.props`) is the runtime dependency that the generated code calls into.
+
+The OpenAPI document carries a `servers` entry (absolute URL, development placeholder) so Kiota can embed a default base URL rather than forcing every caller to set one on the request adapter. Real callers override `BaseUrl` on the adapter at runtime; the default is only used if no override is supplied.
+
 ## Deployment Topology
 
 
