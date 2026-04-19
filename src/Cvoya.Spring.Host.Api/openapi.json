@@ -6135,6 +6135,40 @@
         }
       }
     },
+    "/api/v1/system/credentials/{provider}/status": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Report whether an LLM provider's credentials / endpoint are configured",
+        "operationId": "GetProviderCredentialStatus",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderCredentialStatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request"
+          }
+        }
+      }
+    },
     "/api/v1/webhooks/github": {
       "post": {
         "tags": [
@@ -8390,6 +8424,35 @@
           }
         }
       },
+      "ProviderCredentialStatusResponse": {
+        "required": [
+          "provider",
+          "resolvable",
+          "source",
+          "suggestion"
+        ],
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string"
+          },
+          "resolvable": {
+            "type": "boolean"
+          },
+          "source": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "suggestion": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "PruneSecretResponse": {
         "required": [
           "name",
@@ -9872,6 +9935,9 @@
     },
     {
       "name": "Models"
+    },
+    {
+      "name": "System"
     },
     {
       "name": "Webhooks"

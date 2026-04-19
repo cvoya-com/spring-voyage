@@ -200,6 +200,18 @@ public static class UnitCommand
             var hosting = parseResult.GetValue(hostingOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
 
+            // #598: reject --provider / --model on non-dapr-agent tools.
+            // The other launchers (Claude Code, Codex, Gemini) have their
+            // provider baked in; accepting these flags and silently
+            // dropping them at dispatch time confuses operators.
+            var providerModelError = ValidateProviderModelAgainstTool(tool, provider, model);
+            if (providerModelError is not null)
+            {
+                await Console.Error.WriteLineAsync(providerModelError);
+                Environment.Exit(1);
+                return;
+            }
+
             if (!string.IsNullOrWhiteSpace(fromTemplate))
             {
                 // --from-template path: positional 'name' is reinterpreted as
@@ -345,6 +357,15 @@ public static class UnitCommand
             var provider = parseResult.GetValue(providerOption);
             var hosting = parseResult.GetValue(hostingOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
+
+            // #598: same gate applies to the template path.
+            var providerModelError = ValidateProviderModelAgainstTool(tool, provider, model);
+            if (providerModelError is not null)
+            {
+                await Console.Error.WriteLineAsync(providerModelError);
+                Environment.Exit(1);
+                return;
+            }
 
             var exitCode = await ExecuteCreateFromTemplateAsync(
                 target,
@@ -971,4 +992,57 @@ public static class UnitCommand
         string? Specialty,
         bool? Enabled,
         AgentExecutionMode? ExecutionMode);
+
+    /// <summary>
+    /// Shared validator used by <c>spring unit create</c> and
+    /// <c>spring unit create-from-template</c>. Rejects <c>--provider</c>
+    /// and <c>--model</c> when <c>--tool</c> is not <c>dapr-agent</c>
+    /// (#598). The other tools — Claude Code, Codex, Gemini — hard-code
+    /// their provider in the tool's own CLI, so exposing a Provider /
+    /// Model knob on those tools would be misleading. Custom tools have
+    /// no provider contract either (see
+    /// <c>docs/architecture/agent-runtime.md</c>).
+    /// </summary>
+    /// <param name="tool">Value of <c>--tool</c> (null when not supplied).</param>
+    /// <param name="provider">Value of <c>--provider</c> (null when not supplied).</param>
+    /// <param name="model">Value of <c>--model</c> (null when not supplied).</param>
+    /// <returns>
+    /// Null when the combination is valid (including the "tool unset"
+    /// case where the server picks the default). An error message
+    /// suitable for stderr when the combination is rejected.
+    /// </returns>
+    public static string? ValidateProviderModelAgainstTool(
+        string? tool,
+        string? provider,
+        string? model)
+    {
+        // No constraint when neither --provider nor --model was passed —
+        // the server resolves defaults. When --tool is absent we also
+        // skip the check: the server picks the default tool (claude-code
+        // at the time of writing) and the CLI doesn't know the default
+        // authoritatively, so rejecting `--provider` in that case would
+        // be overreach. Operators who want to pin Provider + Model must
+        // also name the tool they're targeting.
+        var hasProviderOrModel =
+            !string.IsNullOrWhiteSpace(provider) || !string.IsNullOrWhiteSpace(model);
+        if (!hasProviderOrModel)
+        {
+            return null;
+        }
+
+        var normalizedTool = (tool ?? string.Empty).Trim().ToLowerInvariant();
+        if (normalizedTool == "dapr-agent")
+        {
+            return null;
+        }
+
+        // Only enforce when the user explicitly named a non-dapr-agent tool.
+        if (string.IsNullOrEmpty(normalizedTool))
+        {
+            return null;
+        }
+
+        return "--provider and --model are only meaningful for --tool=dapr-agent; " +
+            "other tools (claude-code, codex, gemini) have their provider hardcoded in the tool CLI.";
+    }
 }

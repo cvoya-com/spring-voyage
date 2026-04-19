@@ -256,6 +256,48 @@ can pre-register its own and keep it.
 
 ---
 
+## 4b. Provider applies only to Dapr Agent
+
+The `execution.provider` and `execution.model` fields are **only consumed by
+the `dapr-agent` launcher**. The Tier-A CLI launchers (Claude Code, Codex,
+Gemini CLI) hardcode their provider inside the tool binary — that's the
+defining property of a CLI-sidecar launcher. Setting `provider` on an agent
+targeting one of those tools has no runtime effect.
+
+| Execution tool | What provider the tool calls | Honours `AgentExecutionConfig.Provider`? |
+|----------------|------------------------------|------------------------------------------|
+| `claude-code`  | Anthropic (hardcoded in the Claude Code CLI) | No |
+| `codex`        | OpenAI (hardcoded in the Codex CLI) | No |
+| `gemini`       | Google Gemini (hardcoded in the Gemini CLI) | No |
+| `dapr-agent`   | Whichever Dapr Conversation component the `provider` value names (`ollama`, `openai`, `anthropic`, `googleai`) | Yes |
+| `custom`       | Undefined — the custom launcher owns its own contract | Only when the custom launcher declares it |
+
+**Surface-level consequence (#598):**
+
+- The unit-creation wizard and the CLI only accept `--provider` / `--model`
+  when `--tool=dapr-agent`. They are rejected with a targeted error
+  message for the other tools so operators don't discover at dispatch
+  time that the flag had no effect.
+- A custom tool that wants to surface a Provider selector must declare
+  that explicitly — either by shipping its own wizard step that advertises
+  the provider axis (following the connector-wizard pattern) or by
+  documenting the semantic in its launcher's doc-comment. The platform's
+  create-unit UI does not expose a generic Provider dropdown for custom
+  tools because the contract is undefined.
+- Credentials for the `dapr-agent` launcher's provider flow through the
+  tier-2 tenant-default resolver (`ILlmCredentialResolver`, #615). The
+  portal's create wizard shows an inline credential-status banner under
+  the Provider dropdown so operators learn at wizard time whether the
+  selected provider is actually usable — tenant-default inherited, unit
+  override set, or not configured. For Ollama the banner is a reachability
+  probe (the endpoint has no secret concept, only a base URL).
+
+Future changes to this matrix — e.g. a "Claude Code with Vertex AI
+backend" tool that legitimately takes a provider axis — should update
+this table and drop the wizard gate on that specific tool.
+
+---
+
 ## 5. Dapr Conversation wiring (Dapr-Agent only)
 
 The `DaprAgentLauncher` forwards three YAML-driven knobs to the container:

@@ -77,6 +77,16 @@ The `spring directory` family mirrors the portal's `/directory` surface over the
 
 `show` carries the full owner-chain + projection-path detail (#553): the ancestor chain renders as a `unit://mid -> unit://root` breadcrumb reading from the closest projecting ancestor up to the highest, and each `projection/{slug}` path listed under "Projected via" identifies one surfacing ancestor. A direct hit renders both as `(direct)` with no "Projected via" block.
 
+### Provider + Model flag validation (#598)
+
+`spring unit create` and `spring unit create-from-template` accept `--provider` and `--model` **only when `--tool=dapr-agent`**. For any other tool (`claude-code`, `codex`, `gemini`, `custom`) the CLI rejects the combination with:
+
+```
+--provider and --model are only meaningful for --tool=dapr-agent; other tools (claude-code, codex, gemini) have their provider hardcoded in the tool CLI.
+```
+
+This mirrors the portal wizard, which hides the Provider + Model fields entirely for non-Dapr-Agent tools. See the Tool × Provider matrix in [`docs/architecture/agent-runtime.md`](agent-runtime.md) for the full rationale. When `--tool` is not supplied, the CLI does not second-guess the server's deployment default — `--provider` alone is still accepted, and the server enforces the honest contract at dispatch time.
+
 **Distribution modes:**
 
 - **dotnet tool:** `dotnet tool install -g spring-cli`. Requires .NET SDK. Updated via `dotnet tool update -g spring-cli`.

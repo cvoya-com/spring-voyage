@@ -1017,4 +1017,23 @@ export const api = {
     };
     return body.models;
   },
+
+  // Provider credential-status probe (#598). The server answers whether
+  // the currently-selected LLM provider is usable — credentials for
+  // Anthropic/OpenAI/Google, endpoint reachability for Ollama. The
+  // response is a narrow `{ resolvable, source, suggestion }` shape and
+  // NEVER contains the key material itself; see the endpoint doc-comment
+  // for the invariant. Manual fetch because the endpoint is new and not
+  // yet in the generated openapi client.
+  getProviderCredentialStatus: async (
+    provider: string,
+  ): Promise<import("./types").ProviderCredentialStatusResponse> => {
+    const resp = await fetch(
+      `${BASE}/api/v1/system/credentials/${encodeURIComponent(provider)}/status`,
+    );
+    if (!resp.ok) {
+      throw new ApiError(resp.status, resp.statusText, await resp.text());
+    }
+    return (await resp.json()) as import("./types").ProviderCredentialStatusResponse;
+  },
 };

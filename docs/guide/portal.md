@@ -91,7 +91,18 @@ The create flow ([src/Cvoya.Spring.Web/src/app/units/create/page.tsx](../../src/
 
 ### Step 1 — Details
 
-Collects the unit `name` (URL-safe lowercase/digits/hyphens), `display name`, `description`, execution `tool` (claude-code, codex, gemini, dapr-agent, custom), `hosting mode` (ephemeral or persistent), LLM `provider` + `model`, and a UI `color`. When the `dapr-agent` + `ollama` combination is chosen, the model picker auto-populates from the connected Ollama server's `/api/tags` response.
+Collects the unit `name` (URL-safe lowercase/digits/hyphens), `display name`, `description`, execution `tool` (claude-code, codex, gemini, dapr-agent, custom), `hosting mode` (ephemeral or persistent), and a UI `color`.
+
+**Provider + Model are only shown when `tool = dapr-agent`** (#598). Claude Code, Codex, and Gemini hardcode their provider inside the tool CLI, so exposing a Provider dropdown on them would be misleading — the selection would have no runtime effect. Custom tools also hide the fields because the contract is undefined; see [`docs/architecture/agent-runtime.md`](../architecture/agent-runtime.md) for the full tool × provider matrix. When the `dapr-agent` + `ollama` combination is chosen, the model picker auto-populates from the connected Ollama server's `/api/tags` response.
+
+**Credential-status indicator.** Directly below the Provider + Model fields, the wizard renders a small banner showing whether the selected provider's credentials are configured:
+
+- **Tenant default inherited** — `Anthropic credentials: inherited from tenant default` (green).
+- **Unit override set** — `Anthropic credentials: set on unit` (green).
+- **Not configured** — `Anthropic credentials: not configured. Configure in Settings → Tenant defaults` (amber), with a deep-link that opens the Settings drawer's Tenant defaults panel.
+- **Ollama unreachable** — `Ollama not reachable at <BaseUrl>. Check that the Ollama server is running.` (amber). Ollama has no API key; this is a health-probe result against the configured endpoint.
+
+The banner rides `GET /api/v1/system/credentials/{provider}/status`. The endpoint is read-only and **never includes the credential value** in its response — only a boolean resolvable flag, the source tier (`unit` / `tenant` / `null`), and an operator-facing suggestion string. Key material never crosses this boundary.
 
 **CLI equivalent:**
 
@@ -101,9 +112,12 @@ spring unit create <name> \
   --description "..." \
   --tool <claude-code|codex|gemini|dapr-agent|custom> \
   --hosting <ephemeral|persistent> \
-  --provider <ollama|openai|google|anthropic|claude> \
-  --model <model-id> \
   --color "#6366f1"
+
+# --provider and --model are only valid when --tool=dapr-agent (#598):
+spring unit create <name> --tool dapr-agent \
+  --provider <ollama|openai|google|anthropic|claude> \
+  --model <model-id>
 ```
 
 ### Step 2 — Mode

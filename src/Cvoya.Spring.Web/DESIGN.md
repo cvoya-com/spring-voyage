@@ -223,6 +223,16 @@ The portal's primitive library lives in `src/components/ui/`. Shared composites 
 - Semantic badges (`success`, `warning`, `destructive`) use a 15%-opacity tint of the token as the background with the full-strength token as the text — this keeps them legible on the dark canvas.
 - For very tight timelines use `className="text-[10px] px-1.5 py-0"` (see dashboard activity timeline source badge).
 
+### 7.4a Inline alert banners (not a component — a shared pattern)
+
+Used for "this thing needs operator attention" callouts inside wizard steps and tab bodies — e.g. the GitHub install-link banner on `src/Cvoya.Spring.Connector.GitHub/web/connector-wizard-step.tsx` (PR #610) and the LLM provider credential-status indicator on `src/Cvoya.Spring.Web/src/app/units/create/page.tsx` (PR-S2 / #598). Reuse the same token palette so a single axe-clean configuration covers them:
+
+- **Warning** (not-configured, unreachable, deprecated, etc.): `rounded-md border border-warning/50 bg-warning/15 px-3 py-2 text-sm text-warning`, inner text in `text-foreground` for the body copy. `role="alert"`. Include an actionable link or button whenever possible (e.g. a deep-link to the Settings drawer).
+- **Success** (configured, inherited, healthy): `rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-900 dark:text-emerald-200`. `role="status"`.
+- Prefix with the matching lucide icon at `h-4 w-4` (`AlertTriangle` for warning, `CheckCircle2` for success); mark the icon `aria-hidden` since the `role` already conveys the status.
+
+Don't invent new token pairs for these — PR #599 pinned the current tokens as axe AA-clean and the wizard a11y regression tests exercise them directly.
+
 ### 7.5 Dialogs — `src/components/ui/dialog.tsx`, `confirm-dialog.tsx`
 
 - In-house modal (no Radix). `role="dialog"`, `aria-modal="true"`, focus trap, ESC closes, backdrop mousedown closes, body scroll locked.

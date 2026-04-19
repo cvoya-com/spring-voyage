@@ -1013,3 +1013,41 @@ export function useProviderModels(
     enabled: opts?.enabled ?? Boolean(provider),
   });
 }
+
+/**
+ * Provider credential-status hook (#598). Asks the server whether the
+ * currently-selected LLM provider's credentials are configured (or, for
+ * Ollama, whether the configured endpoint is reachable). Drives the
+ * inline banner in the unit-creation wizard's Step 1 so operators don't
+ * discover "not configured" at dispatch time.
+ *
+ * The payload never carries key material — the endpoint returns only
+ * booleans, the source tier ("unit" | "tenant" | null), and an
+ * operator-facing suggestion string. The plaintext stays server-side.
+ *
+ * Stale time is 30 seconds — long enough that cycling through the
+ * provider dropdown while typing a key doesn't hammer the endpoint, but
+ * short enough that a freshly-set tenant default appears on the next
+ * render after the Settings drawer closes.
+ */
+export function useProviderCredentialStatus(
+  provider: string,
+  opts?: SliceOptions<import("./types").ProviderCredentialStatusResponse | null>,
+): UseQueryResult<import("./types").ProviderCredentialStatusResponse | null, Error> {
+  return useQuery({
+    queryKey: ["system", "credentials", provider] as const,
+    queryFn: async () => {
+      try {
+        return await api.getProviderCredentialStatus(provider);
+      } catch {
+        // Anonymous / offline / server-error — surface null so the banner
+        // can render a muted "could not verify" fallback. The query
+        // client still throws loudly in devtools for debugging.
+        return null;
+      }
+    },
+    staleTime: opts?.staleTime ?? 30 * 1000,
+    refetchInterval: opts?.refetchInterval,
+    enabled: opts?.enabled ?? Boolean(provider),
+  });
+}

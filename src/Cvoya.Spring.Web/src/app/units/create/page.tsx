@@ -1,10 +1,13 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
+  AlertTriangle,
   Check,
+  CheckCircle2,
   FileCode,
   FileText,
   KeyRound,
@@ -28,6 +31,7 @@ import { getConnectorWizardStep } from "@/connectors/registry";
 import {
   useConnectorTypes,
   useOllamaModels,
+  useProviderCredentialStatus,
   useProviderModels,
   useUnitTemplates,
 } from "@/lib/api/queries";
@@ -554,18 +558,13 @@ export default function CreateUnitPage() {
                 <select
                   value={form.tool}
                   onChange={(e) => {
-                    const nextTool = e.target.value as ExecutionTool;
-                    setForm((prev) => ({
-                      ...prev,
-                      tool: nextTool,
-                      // Reset provider/model when switching away from dapr-agent
-                      ...(nextTool !== "dapr-agent"
-                        ? {
-                            provider: DEFAULT_PROVIDER_ID,
-                            model: DEFAULT_MODEL,
-                          }
-                        : {}),
-                    }));
+                    // #598: Provider + Model only render when the tool is
+                    // dapr-agent, so switching tools doesn't need a reset
+                    // — the fields simply disappear from the form tree.
+                    // We intentionally do NOT scrub `provider` / `model`
+                    // here: if the operator toggles Dapr Agent off and on
+                    // again their previous selection is preserved.
+                    update("tool", e.target.value as ExecutionTool);
                   }}
                   aria-label="Execution tool"
                   className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
@@ -599,72 +598,82 @@ export default function CreateUnitPage() {
               </label>
             </div>
 
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <label className="block space-y-1">
-                <span className="text-sm text-muted-foreground">
-                  {form.tool === "dapr-agent"
-                    ? "LLM Provider"
-                    : "Provider"}
-                </span>
-                <select
-                  value={form.provider}
-                  onChange={(e) => {
-                    // Bug #258: when the provider changes, snap the model to
-                    // that provider's default so we never submit a model that
-                    // the selected provider doesn't support.
-                    const nextProvider = getProvider(e.target.value);
-                    setForm((prev) => ({
-                      ...prev,
-                      provider: nextProvider.id,
-                      model: nextProvider.models[0],
-                    }));
-                  }}
-                  aria-label="AI provider"
-                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {AI_PROVIDERS.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.displayName}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="block space-y-1">
-                <span className="text-sm text-muted-foreground">Model</span>
-                <select
-                  value={form.model}
-                  onChange={(e) => update("model", e.target.value)}
-                  aria-label="Model"
-                  disabled={
-                    form.tool === "dapr-agent" &&
-                    form.provider === "ollama" &&
-                    ollamaModelsLoading
-                  }
-                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {(form.tool === "dapr-agent" &&
-                  form.provider === "ollama" &&
-                  ollamaModels
-                    ? ollamaModels
-                    : providerModelsEnabled && providerModels
-                      ? providerModels
-                      : getProvider(form.provider).models.slice()
-                  ).map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </select>
-                {form.tool === "dapr-agent" &&
-                  form.provider === "ollama" &&
-                  ollamaModelsLoading && (
-                    <span className="block text-xs text-muted-foreground">
-                      Loading models from Ollama server...
+            {/*
+              #598: Provider + Model only render when the execution tool
+              is `dapr-agent`. Claude Code, Codex, and Gemini hard-code
+              their own provider inside the tool CLI, so exposing a
+              Provider dropdown for them is misleading. Custom tools have
+              no contract for the Provider field either — a hypothetical
+              future custom launcher that wants a provider selector must
+              declare that explicitly (see docs/architecture/agent-runtime.md).
+              When the fields are absent the form simply submits the
+              current (possibly stale) values from state, matching the
+              backend's "provider/model are optional hints" contract.
+            */}
+            {form.tool === "dapr-agent" && (
+              <>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <label className="block space-y-1">
+                    <span className="text-sm text-muted-foreground">
+                      LLM Provider
                     </span>
-                  )}
-              </label>
-            </div>
+                    <select
+                      value={form.provider}
+                      onChange={(e) => {
+                        // Bug #258: when the provider changes, snap the model to
+                        // that provider's default so we never submit a model that
+                        // the selected provider doesn't support.
+                        const nextProvider = getProvider(e.target.value);
+                        setForm((prev) => ({
+                          ...prev,
+                          provider: nextProvider.id,
+                          model: nextProvider.models[0],
+                        }));
+                      }}
+                      aria-label="LLM provider"
+                      className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {AI_PROVIDERS.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.displayName}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="block space-y-1">
+                    <span className="text-sm text-muted-foreground">Model</span>
+                    <select
+                      value={form.model}
+                      onChange={(e) => update("model", e.target.value)}
+                      aria-label="Model"
+                      disabled={
+                        form.provider === "ollama" && ollamaModelsLoading
+                      }
+                      className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {(form.provider === "ollama" && ollamaModels
+                        ? ollamaModels
+                        : providerModelsEnabled && providerModels
+                          ? providerModels
+                          : getProvider(form.provider).models.slice()
+                      ).map((m) => (
+                        <option key={m} value={m}>
+                          {m}
+                        </option>
+                      ))}
+                    </select>
+                    {form.provider === "ollama" && ollamaModelsLoading && (
+                      <span className="block text-xs text-muted-foreground">
+                        Loading models from Ollama server...
+                      </span>
+                    )}
+                  </label>
+                </div>
+
+                <CredentialStatusBadge providerId={form.provider} />
+              </>
+            )}
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <label className="block space-y-1">
@@ -1250,4 +1259,122 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
       <span className="font-mono text-xs text-right">{value}</span>
     </div>
   );
+}
+
+/**
+ * Credential-status indicator rendered below the Provider + Model fields
+ * when Tool = Dapr Agent (#598). Mirrors the GitHub install-link banner
+ * pattern (PR #610 — `warning/50` border, `warning/15` fill) so the page
+ * stays consistent with the wizard's other "needs operator attention"
+ * surfaces and inherits PR #599's axe-clean palette.
+ *
+ * Contract:
+ *   - anthropic / openai / google → reports whether a unit- or tenant-
+ *     scoped secret is configured. When not, links to the Settings
+ *     drawer's Tenant defaults panel via the `?drawer=settings` deep
+ *     link established by PR #567.
+ *   - ollama → reports the health of the configured base URL. There's
+ *     no secret for Ollama; the backend probes `/api/tags` on demand.
+ *
+ * The hook throttles refetches via `useProviderCredentialStatus` (30s
+ * stale time), so cycling through the provider dropdown while a key is
+ * still being typed doesn't hammer the endpoint.
+ */
+function CredentialStatusBadge({ providerId }: { providerId: string }) {
+  const { data, isPending, isError } = useProviderCredentialStatus(providerId);
+
+  // While the probe is in flight we render nothing — the default state is
+  // "no banner" rather than a loading shimmer because the banner sits
+  // below a dropdown that has its own loading behaviour, and a flashing
+  // "checking credentials…" line would just add noise.
+  if (isPending) return null;
+
+  // If the fetch itself collapsed (e.g. session expired, CORS), surface
+  // a single muted line so the operator knows credentials weren't
+  // verified. This mirrors the query hook's null fallback.
+  if (isError || !data) {
+    return (
+      <p className="text-xs text-muted-foreground" role="status">
+        Could not verify {providerLabel(providerId)} credentials.
+      </p>
+    );
+  }
+
+  const displayName = providerLabel(providerId);
+
+  if (data.resolvable) {
+    const originHint =
+      data.source === "unit"
+        ? `${displayName} credentials: set on unit`
+        : data.source === "tenant"
+          ? `${displayName} credentials: inherited from tenant default`
+          : // Ollama returns resolvable:true with source:null
+            `${displayName} reachable`;
+    return (
+      <div
+        role="status"
+        data-testid="credential-status"
+        data-resolvable="true"
+        data-source={data.source ?? ""}
+        className="flex items-start gap-2 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-900 dark:text-emerald-200"
+      >
+        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+        <span>{originHint}</span>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      role="alert"
+      data-testid="credential-status"
+      data-resolvable="false"
+      className="flex items-start gap-2 rounded-md border border-warning/50 bg-warning/15 px-3 py-2 text-sm text-warning"
+    >
+      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+      <div className="flex-1 text-foreground">
+        {providerId === "ollama" ? (
+          <p>
+            {data.suggestion ??
+              `Ollama not reachable. Check that the Ollama server is running.`}
+          </p>
+        ) : (
+          <p>
+            {displayName} credentials: not configured.{" "}
+            {/*
+              Deep-link into the Settings drawer's Tenant defaults panel
+              (landed in PR #567). The server-side "suggestion" string is
+              deliberately NOT surfaced verbatim here — we render a
+              constant phrasing so the actionable link is always visible;
+              the backend string is kept for CLI / API consumers.
+            */}
+            <Link
+              href="/?drawer=settings"
+              className="font-medium underline underline-offset-2"
+            >
+              Configure in Settings → Tenant defaults
+            </Link>
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function providerLabel(providerId: string): string {
+  switch (providerId) {
+    case "claude":
+    case "anthropic":
+      return "Anthropic";
+    case "openai":
+      return "OpenAI";
+    case "google":
+    case "gemini":
+    case "googleai":
+      return "Google";
+    case "ollama":
+      return "Ollama";
+    default:
+      return providerId;
+  }
 }

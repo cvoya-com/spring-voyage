@@ -514,3 +514,31 @@ export type CloneType = Exclude<Schemas["CloningPolicy"], "none">;
 
 /** Clone attachment mode relative to its parent. */
 export type CloneAttachmentMode = Schemas["AttachmentMode"];
+
+/**
+ * Response from `GET /api/v1/system/credentials/{provider}/status`
+ * (#598). Reports whether an LLM provider's credentials (or endpoint,
+ * for Ollama) are configured. The response NEVER contains the key
+ * material itself — only booleans, the source tier, and an
+ * operator-facing suggestion string.
+ */
+export interface ProviderCredentialStatusResponse {
+  /** Canonical provider id (anthropic / openai / google / ollama). */
+  provider: string;
+  /**
+   * True when the platform can obtain the credential at dispatch time.
+   * For Ollama, true when the configured base URL responded to a health
+   * probe.
+   */
+  resolvable: boolean;
+  /**
+   * Which tier produced the credential — `"unit"` or `"tenant"` — when
+   * `resolvable` is true; `null` otherwise (and always null for Ollama).
+   */
+  source: "unit" | "tenant" | null;
+  /**
+   * Operator-facing hint to surface in the "not configured" UI state.
+   * Null when the credential is already resolvable.
+   */
+  suggestion: string | null;
+}
