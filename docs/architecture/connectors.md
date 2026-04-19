@@ -136,3 +136,28 @@ The generic framework in #616 will fold this behaviour into a
 `IConnectorTypeAvailability` the platform can resolve without connector-
 specific plumbing; until that lands, each connector carries its own typed
 marker.
+
+## Tier-1 credential bootstrap (GitHub)
+
+The GitHub connector's tier-1 credentials (`GitHub__AppId`,
+`GitHub__PrivateKeyPem`, `GitHub__WebhookSecret`, and the OAuth client
+id/secret) can be bootstrapped via the `spring github-app register` CLI
+verb (#631). The verb drives GitHub's [App-from-manifest
+flow](https://docs.github.com/en/apps/sharing-github-apps/registering-a-github-app-from-a-manifest):
+it opens a pre-filled "create GitHub App" page, receives the one-time
+conversion code on a loopback listener, exchanges it via
+`POST /app-manifests/{code}/conversions`, and writes the resolved
+credentials to either `deployment/spring.env` (default) or platform-scoped
+secrets (via `spring secret --scope platform create`, #612). The
+permission set embedded in the manifest (read issues/PRs/contents/metadata,
+write issue_comment/statuses/checks; webhook events
+issues/pull_request/issue_comment/installation) is locked to what the
+shipped skill bundles actually use — adding a new scope requires updating
+the manifest builder in `Cvoya.Spring.Cli/GitHubApp/GitHubAppManifest.cs`
+alongside the connector.
+
+See
+[`docs/architecture/cli-and-web.md § GitHub App bootstrap verb (#631)`](cli-and-web.md#github-app-bootstrap-verb-631)
+for the verb's flag list and out-of-scope boundary. The connector's
+disabled-with-reason classifier still fires when credentials are missing
+— the verb just makes "missing" a single-step problem to fix.
