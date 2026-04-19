@@ -429,6 +429,17 @@ Hosting-mode (`ephemeral` / `persistent`) and initiative-level filters need the 
 
 The agent detail page ([src/Cvoya.Spring.Web/src/app/agents/[id]/page.tsx](../../src/Cvoya.Spring.Web/src/app/agents/%5Bid%5D/page.tsx)) renders a client view configured via `<AgentDetailClient>`. It is linked from the dashboard's Agents column and from the **Analytics → Costs** page (`/analytics/costs`). Use it to review an agent's metadata, budget, expertise, clones, and recent activity.
 
+The detail page uses the same tabbed layout as unit detail (#604 / PR `feat-604-agent-detail-tabbed-layout`). Cards are split into four groups; the active tab rides on the `?tab=` query parameter so deep links and browser back/forward preserve the view:
+
+| Tab | What lives there |
+|-----|------------------|
+| **Interaction** | Conversation quick-link card · Clones panel (create form + existing-clones list) |
+| **Runtime** (default) | Persistent-deployment lifecycle panel · Cost summary (totals, tokens, records) · Cost-over-time card (24h / 7d / 30d) · Cost breakdown by activity table |
+| **Settings** | Agent Info (description, role, registered-at — read-only) · Daily Budget editor · Expertise panel · Execution panel |
+| **Advanced** | Status JSON debug card — only rendered when `data.status` is non-null |
+
+The bare URL (`/agents/<id>`) opens the Runtime tab; `/agents/<id>?tab=settings` and the other values deep-link into the matching group. The trigger chrome ships from `src/components/ui/tabs.tsx`, so keyboard navigation (Arrow keys + Home/End), WAI-ARIA roles (`tablist` / `tab` / `tabpanel`), and the mobile `overflow-x-auto` wrap are inherited from the shared primitive.
+
 The page embeds an **Expertise** card ([components/expertise/agent-expertise-panel.tsx](../../src/Cvoya.Spring.Web/src/components/expertise/agent-expertise-panel.tsx)) that reads/writes `/api/v1/agents/{id}/expertise`. The domain list is auto-seeded from the agent YAML on first activation (#488 / PR #498); operator edits made in the panel become authoritative. Saving a new list also invalidates every unit's aggregated directory in the cache so ancestor unit pages pick up the change without a manual refresh.
 
 | Action | Portal | CLI |
