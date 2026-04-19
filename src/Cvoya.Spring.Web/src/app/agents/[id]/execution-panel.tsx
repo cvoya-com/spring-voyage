@@ -273,7 +273,7 @@ export function AgentExecutionPanel({
               )
             </>
           ) : null}
-          ; the dispatcher merges the unit default at runtime (#628).
+          ; the dispatcher merges the unit default at runtime.
         </p>
 
         <FieldRow

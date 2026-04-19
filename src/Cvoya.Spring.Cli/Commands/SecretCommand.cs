@@ -51,7 +51,7 @@ public static class SecretCommand
     {
         var cmd = new Command(
             "secret",
-            "Manage unit / tenant / platform secrets (#432). Plaintext is accepted only on " +
+            "Manage unit / tenant / platform secrets. Plaintext is accepted only on " +
             "create/rotate bodies and never returned by list/get/versions/prune/delete.");
 
         cmd.Subcommands.Add(CreateCreateCommand(outputOption));

@@ -501,16 +501,8 @@ function EffectivePolicyCard({
       <CardContent className="space-y-2 text-sm">
         <p className="text-xs text-muted-foreground">
           Inheritance chain starts at this unit. Parent-unit overlay is
-          tracked under{" "}
-          <a
-            href="https://github.com/cvoya-com/spring-voyage/issues/414"
-            className="text-primary underline-offset-2 hover:underline"
-            target="_blank"
-            rel="noreferrer"
-          >
-            #414
-          </a>
-          ; for now the chain has a single hop.
+          planned for a future release; for now the chain has a single
+          hop.
         </p>
         <ol className="list-decimal space-y-1 pl-5 text-sm">
           <li>

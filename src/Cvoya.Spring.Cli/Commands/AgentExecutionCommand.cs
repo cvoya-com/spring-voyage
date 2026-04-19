@@ -25,7 +25,7 @@ public static class AgentExecutionCommand
     {
         var command = new Command(
             "execution",
-            "Read / write the agent's on-disk execution block (#601 B-wide). Fields: image, " +
+            "Read / write the agent's on-disk execution block. Fields: image, " +
             "runtime, tool, provider, model, hosting. Missing fields fall back to the parent " +
             "unit's execution defaults at dispatch time.");
 

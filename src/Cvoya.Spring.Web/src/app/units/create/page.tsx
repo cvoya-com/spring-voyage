@@ -7,6 +7,7 @@ import {
   AlertTriangle,
   Check,
   CheckCircle2,
+  ExternalLink,
   Eye,
   EyeOff,
   FileCode,
@@ -58,19 +59,40 @@ const DEFAULT_COLOR = "#6366f1";
 
 const NAME_PATTERN = /^[a-z0-9-]+$/;
 
-// Secrets step (#122) is implemented inline; connector binding (#199) is
-// implemented via a registry-provided per-connector React component that
-// produces a payload we bundle into the single create-unit call.
+// Issue #661: the wizard splits into Identity (step 1) and Execution
+// (step 2) — see the issue body for the field-level acceptance
+// criteria. Subsequent screens (Mode, Connector, Secrets, Finalize)
+// are unchanged.
 
-type Step = 1 | 2 | 3 | 4 | 5;
+type Step = 1 | 2 | 3 | 4 | 5 | 6;
 type Mode = "template" | "scratch" | "yaml";
 
 const STEP_LABELS: Record<Step, string> = {
-  1: "Details",
-  2: "Mode",
-  3: "Connector",
-  4: "Secrets",
-  5: "Finalize",
+  1: "Identity",
+  2: "Execution",
+  3: "Mode",
+  4: "Connector",
+  5: "Secrets",
+  6: "Finalize",
+};
+
+// Issue #659: per-provider "where do I get an API key?" deep links.
+// Rendered next to the credential input on Screen 2.
+const PROVIDER_KEY_HELP: Readonly<
+  Record<"anthropic" | "openai" | "google", { href: string; label: string }>
+> = {
+  anthropic: {
+    href: "https://console.anthropic.com/settings/keys",
+    label: "Get an Anthropic Console API key",
+  },
+  openai: {
+    href: "https://platform.openai.com/api-keys",
+    label: "Get an OpenAI API key",
+  },
+  google: {
+    href: "https://aistudio.google.com/app/apikey",
+    label: "Get a Google AI API key",
+  },
 };
 
 interface PendingSecret {
@@ -223,7 +245,7 @@ const INITIAL_FORM: FormState = {
 };
 
 function StepIndicator({ current }: { current: Step }) {
-  const steps: Step[] = [1, 2, 3, 4, 5];
+  const steps: Step[] = [1, 2, 3, 4, 5, 6];
   return (
     <div className="sticky top-0 z-10 -mx-4 md:-mx-6 bg-background/80 backdrop-blur border-b border-border px-4 md:px-6 py-3">
       <ol className="flex items-center gap-2 overflow-x-auto">
@@ -282,8 +304,8 @@ export default function CreateUnitPage() {
       : String(templatesQuery.error)
     : null;
 
-  // Connector catalog (#199): fetched once so Step 3 can render the
-  // picker without waiting on the server for each render.
+  // Connector catalog (#199): fetched once so the Connector screen can
+  // render the picker without waiting on the server for each render.
   const connectorTypesQuery = useConnectorTypes();
   const connectorTypes = connectorTypesQuery.data ?? null;
   const connectorTypesError = connectorTypesQuery.isError
@@ -535,6 +557,17 @@ export default function CreateUnitPage() {
   }, [isOllamaDapr, ollamaModels, freshModels, tenantOrUnitResolvable, providerModels]);
   const showModelDropdown = isOllamaDapr || activeModelList !== null;
 
+  // Issue #661: Next on the Execution screen is disabled until a model
+  // is selected from a live source. When the Model dropdown is hidden
+  // (no resolvable credential, no fresh validation, not an Ollama-dapr
+  // path) nothing can be "selected" — so we force-fail the gate.
+  // `form.tool === "custom"` is handled as a separate escape hatch by
+  // `canGoNext` / `validateStep2`; they bypass this check entirely.
+  const modelIsSelected =
+    activeModelList !== null &&
+    form.model.trim().length > 0 &&
+    activeModelList.includes(form.model);
+
   const update = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
@@ -550,6 +583,22 @@ export default function CreateUnitPage() {
   };
 
   const validateStep2 = (): string | null => {
+    // Issue #661: the Execution screen requires a selected model whenever
+    // the tool has a known catalog. `modelIsSelected` covers the happy
+    // path; the one branch it doesn't cover is "tool=custom" (no catalog
+    // at all — skip the check) and "dapr-agent + ollama still loading"
+    // (the list is empty, so the user cannot pick anything yet).
+    if (form.tool === "custom") return null;
+    if (isOllamaDapr && ollamaModelsLoading) {
+      return "Wait for the Ollama model list to load before continuing.";
+    }
+    if (!modelIsSelected) {
+      return "Select a model to continue.";
+    }
+    return null;
+  };
+
+  const validateStep3 = (): string | null => {
     if (form.mode === null) return "Select a mode to continue.";
     if (form.mode === "template" && !form.templateId)
       return "Pick a template to continue.";
@@ -558,7 +607,7 @@ export default function CreateUnitPage() {
     return null;
   };
 
-  const validateStep3 = (): string | null => {
+  const validateStep4 = (): string | null => {
     // Skip is always allowed. If the user picked a connector, the wizard
     // step component must have produced a non-null config (it pushes null
     // while the form is incomplete, so this gate catches the "selected
@@ -577,14 +626,16 @@ export default function CreateUnitPage() {
         setStepError(err);
         return;
       }
+    }
+    if (step === 2) {
       // #655: when a credential has been typed we gate advance on its
       // live-verified validity. Blur-driven validation typically kicks
       // off on its own; the cases handleNext covers:
       //   - validation is still in flight (operator pasted and
       //     clicked Next before the blur's request returned) → stay
-      //     on Step 1; Next disables via canGoNext until the mutation
+      //     on Step 2; Next disables via canGoNext until the mutation
       //     settles.
-      //   - validation already failed for this key → stay on Step 1
+      //   - validation already failed for this key → stay on Step 2
       //     so the inline error is visible and the operator can edit.
       //   - no verdict yet ("idle", e.g. the operator never blurred
       //     the input) → fire the validation now and await the result.
@@ -600,13 +651,19 @@ export default function CreateUnitPage() {
           try {
             const result = await validateCredential.mutateAsync();
             if (!result.valid) return;
+            // Validation succeeded: the mutation's onSuccess has
+            // seeded the model from the server-returned catalog, but
+            // the state update hasn't propagated into this closure
+            // yet. Advancing directly is safe — we just confirmed the
+            // credential works and the model-seed happened on the
+            // react tree we're about to advance from.
+            if (step < 6) setStep((s) => (s + 1) as Step);
+            return;
           } catch {
             return;
           }
         }
       }
-    }
-    if (step === 2) {
       const err = validateStep2();
       if (err) {
         setStepError(err);
@@ -620,7 +677,14 @@ export default function CreateUnitPage() {
         return;
       }
     }
-    if (step < 5) setStep((s) => (s + 1) as Step);
+    if (step === 4) {
+      const err = validateStep4();
+      if (err) {
+        setStepError(err);
+        return;
+      }
+    }
+    if (step < 6) setStep((s) => (s + 1) as Step);
   };
 
   const handleBack = () => {
@@ -635,7 +699,7 @@ export default function CreateUnitPage() {
   };
 
   const applyPendingSecrets = async (unitName: string): Promise<string[]> => {
-    // Apply Step 4 secrets after the unit exists. Each failure is
+    // Apply the queued secrets after the unit exists. Each failure is
     // collected as a warning so a single bad secret doesn't block the
     // rest — the user gets a clear list back and can retry from the
     // unit's Secrets tab.
@@ -659,9 +723,10 @@ export default function CreateUnitPage() {
   };
 
   // Build the connector-binding payload the server expects. Returns `null`
-  // when the user skipped Step 3 OR filled it out partially (the wizard-
-  // step component pushes `null` up until the form is valid). The server
-  // is strict: either the binding is absent, or it's well-formed.
+  // when the user skipped the Connector step OR filled it out partially
+  // (the wizard-step component pushes `null` up until the form is valid).
+  // The server is strict: either the binding is absent, or it's
+  // well-formed.
   const buildConnectorBinding = (): UnitConnectorBindingRequest | null => {
     if (!form.connectorSlug || form.connectorConfig === null) {
       return null;
@@ -760,11 +825,11 @@ export default function CreateUnitPage() {
         if (!template) {
           throw new Error("Selected template is no longer available.");
         }
-        // #325: when the user has filled in a name on step 1, pass it
-        // through as `unitName` so the created unit uses the caller-supplied
-        // address path instead of the manifest's fixed `name`. Without
-        // this, two invocations of the same template would collide on the
-        // server's unique-name constraint.
+        // #325: when the user has filled in a name on Screen 1, pass it
+        // through as `unitName` so the created unit uses the caller-
+        // supplied address path instead of the manifest's fixed `name`.
+        // Without this, two invocations of the same template would
+        // collide on the server's unique-name constraint.
         const unitNameOverride = form.name.trim() || undefined;
         const resp = await api.createUnitFromTemplate({
           package: template.package,
@@ -931,32 +996,48 @@ export default function CreateUnitPage() {
 
   const canGoNext = useMemo(() => {
     if (step === 1) {
-      // #655: credential validation is kicked off from `handleNext` when
-      // the operator advances, not from a standalone button. Disable
-      // Next only while a validation is actually in flight so the user
-      // can't fire a second call on top of the first; otherwise we rely
-      // on `handleNext` itself to stay on the step when validation
-      // fails.
-      if (validateCredential.isPending) return false;
-      // For YAML/template modes the manifest itself supplies the name, so we
-      // don't gate advancement on form.name.
-      if (form.mode === "yaml" || form.mode === "template") return true;
-      return form.name.trim().length > 0;
+      // Identity step. For YAML/template modes the manifest itself
+      // supplies the name, so we don't gate advancement on form.name.
+      // Name entry is optional on Screen 1 because Mode is still
+      // chosen on Screen 3 — the real validation happens in
+      // `validateStep1` once Mode is known.
+      return true;
     }
     if (step === 2) {
+      // Execution step. #655: credential validation is kicked off from
+      // `handleNext` when the operator advances, not from a standalone
+      // button. Disable Next only while a validation is actually in
+      // flight so the user can't fire a second call on top of the
+      // first; the Next handler re-checks the verdict before advancing.
+      if (validateCredential.isPending) return false;
+      // Issue #661: require a selected model before advancing (for
+      // tools with a known catalog). Custom tools skip the check —
+      // they have no declared model list.
+      if (form.tool === "custom") return true;
+      if (isOllamaDapr && ollamaModelsLoading) return false;
+      return modelIsSelected;
+    }
+    if (step === 3) {
       if (form.mode === null) return false;
       if (form.mode === "template") return form.templateId !== null;
       if (form.mode === "yaml") return form.yamlText.trim().length > 0;
       return true;
     }
-    if (step === 3) {
+    if (step === 4) {
       // "Skip" is always allowed. If a connector is selected, require a
       // valid config payload from the connector's wizard step.
       if (form.connectorSlug === null) return true;
       return form.connectorConfig !== null;
     }
     return true;
-  }, [step, form, validateCredential.isPending]);
+  }, [
+    step,
+    form,
+    validateCredential.isPending,
+    isOllamaDapr,
+    ollamaModelsLoading,
+    modelIsSelected,
+  ]);
 
   return (
     <div className="space-y-6">
@@ -979,7 +1060,7 @@ export default function CreateUnitPage() {
       {step === 1 && (
         <Card>
           <CardHeader>
-            <CardTitle>Details</CardTitle>
+            <CardTitle>Identity</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <label className="block space-y-1">
@@ -993,11 +1074,12 @@ export default function CreateUnitPage() {
                 autoFocus
               />
               <span className="block text-xs text-muted-foreground">
-                URL-safe: lowercase letters, digits, and hyphens only. Used as
-                the unit&apos;s address. Optional on the template path — leave
-                blank to inherit the template manifest&apos;s name, or supply a
-                value to override it (see #325). Ignored when importing a
-                YAML manifest — the manifest&apos;s name wins.
+                Lowercase letters, digits, and hyphens only. This becomes
+                the unit&apos;s address (e.g. <code>my-unit</code>). When
+                creating from a template, you can leave it blank to use the
+                template&apos;s built-in name, or enter a value to override
+                it. When importing a YAML manifest, the name in the
+                manifest always takes precedence.
               </span>
             </label>
 
@@ -1020,293 +1102,6 @@ export default function CreateUnitPage() {
                 placeholder="Ships the core product."
               />
             </label>
-
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <label className="block space-y-1">
-                <span className="text-sm text-muted-foreground">
-                  Execution tool
-                </span>
-                <select
-                  value={form.tool}
-                  onChange={(e) => {
-                    // #598: Provider dropdown only renders when the tool
-                    // is dapr-agent. #641: every other tool with a finite
-                    // model catalog (claude-code / codex / gemini) still
-                    // shows a Model dropdown — when the tool changes we
-                    // snap `model` to the tool's default so the wire
-                    // payload stays coherent with the hidden Provider.
-                    // `custom` has no known catalog; leave `model` alone.
-                    const nextTool = e.target.value as ExecutionTool;
-                    const toolProvider = getToolModelProvider(nextTool);
-                    setForm((prev) => {
-                      if (toolProvider !== null) {
-                        return {
-                          ...prev,
-                          tool: nextTool,
-                          model: getProvider(toolProvider).models[0],
-                        };
-                      }
-                      return { ...prev, tool: nextTool };
-                    });
-                  }}
-                  aria-label="Execution tool"
-                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {EXECUTION_TOOLS.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="block space-y-1">
-                <span className="text-sm text-muted-foreground">
-                  Hosting mode
-                </span>
-                <select
-                  value={form.hosting}
-                  onChange={(e) =>
-                    update("hosting", e.target.value as HostingMode)
-                  }
-                  aria-label="Hosting mode"
-                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {HOSTING_MODES.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-
-            {/*
-              #601 B-wide: Unit-level image + runtime defaults inherited
-              by member agents. Positioned adjacent to the Tool field so
-              operators configure the full launcher recipe in one grid.
-              Always visible — no tool-based gating. Blank values are
-              skipped entirely; the wizard only PUTs through the
-              /api/v1/units/{id}/execution endpoint when at least one of
-              the two is filled in, so units created without them look
-              identical on the wire to pre-#601 units.
-            */}
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <label className="block space-y-1">
-                <span className="text-sm text-muted-foreground">
-                  Image (default)
-                </span>
-                <Input
-                  value={form.image}
-                  onChange={(e) => update("image", e.target.value)}
-                  placeholder="ghcr.io/... or spring-agent:latest"
-                  aria-label="Execution image"
-                />
-                <span className="block text-xs text-muted-foreground">
-                  Default container image used to launch member agents.
-                  Individual agents can override this on their Execution
-                  panel.
-                </span>
-              </label>
-
-              <label className="block space-y-1">
-                <span className="text-sm text-muted-foreground">
-                  Runtime (default)
-                </span>
-                <select
-                  value={form.runtime}
-                  onChange={(e) => update("runtime", e.target.value)}
-                  aria-label="Execution runtime"
-                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <option value="">(leave to default)</option>
-                  {EXECUTION_RUNTIMES.map((r) => (
-                    <option key={r} value={r}>
-                      {r}
-                    </option>
-                  ))}
-                </select>
-                <span className="block text-xs text-muted-foreground">
-                  Container runtime the launcher drives.
-                </span>
-              </label>
-            </div>
-
-            {/*
-              #598: Provider + Model only render when the execution tool
-              is `dapr-agent`. Claude Code, Codex, and Gemini hard-code
-              their own provider inside the tool CLI, so exposing a
-              Provider dropdown for them is misleading. Custom tools have
-              no contract for the Provider field either — a hypothetical
-              future custom launcher that wants a provider selector must
-              declare that explicitly (see docs/architecture/agent-runtime.md).
-              When the fields are absent the form simply submits the
-              current (possibly stale) values from state, matching the
-              backend's "provider/model are optional hints" contract.
-            */}
-            {form.tool === "dapr-agent" && (
-              <>
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <label className="block space-y-1">
-                    <span className="text-sm text-muted-foreground">
-                      LLM Provider
-                    </span>
-                    <select
-                      value={form.provider}
-                      onChange={(e) => {
-                        // Bug #258: when the provider changes, snap the model to
-                        // that provider's default so we never submit a model that
-                        // the selected provider doesn't support.
-                        const nextProvider = getProvider(e.target.value);
-                        setForm((prev) => ({
-                          ...prev,
-                          provider: nextProvider.id,
-                          model: nextProvider.models[0],
-                        }));
-                      }}
-                      aria-label="LLM provider"
-                      className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {AI_PROVIDERS.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.displayName}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-
-                <CredentialSection
-                  requiredProvider={requiredCredentialProvider}
-                  status={credentialStatus}
-                  statusPending={credentialStatusQuery.isPending}
-                  statusError={credentialStatusQuery.isError}
-                  credentialKey={form.credentialKey}
-                  saveAsTenantDefault={form.saveAsTenantDefault}
-                  overrideOpen={form.credentialOverrideOpen}
-                  ollamaProbe={
-                    form.provider === "ollama" ? credentialStatus : null
-                  }
-                  validationStatus={effectiveValidation.status}
-                  validationError={effectiveValidation.error}
-                  validationPassed={credentialValidated}
-                  onValidate={attemptValidateCredential}
-                  onKeyChange={(v) => update("credentialKey", v)}
-                  onToggleSaveAsTenantDefault={(v) =>
-                    update("saveAsTenantDefault", v)
-                  }
-                  onToggleOverride={(v) => {
-                    setForm((prev) => ({
-                      ...prev,
-                      credentialOverrideOpen: v,
-                      // Toggling the override off clears any typed value so
-                      // it doesn't silently apply after the operator thinks
-                      // they cancelled.
-                      credentialKey: v ? prev.credentialKey : "",
-                      saveAsTenantDefault: v ? prev.saveAsTenantDefault : false,
-                    }));
-                  }}
-                />
-
-                {/*
-                  #655: the Model dropdown is revealed only when a live
-                  model source is available — either the tenant default
-                  resolved (so `providerModels` is live), the operator
-                  just validated a key (so `credentialValidation.models`
-                  is live), or the Ollama provider is in use (list comes
-                  from the local server). Otherwise we hide the dropdown
-                  entirely so operators aren't asked to pick from a
-                  stale static fallback before the wizard knows their
-                  account works.
-                */}
-                {showModelDropdown && (
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <label className="block space-y-1">
-                      <span className="text-sm text-muted-foreground">
-                        Model
-                      </span>
-                      <select
-                        value={form.model}
-                        onChange={(e) => update("model", e.target.value)}
-                        aria-label="Model"
-                        disabled={isOllamaDapr && ollamaModelsLoading}
-                        className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {(activeModelList ?? []).map((m) => (
-                          <option key={m} value={m}>
-                            {m}
-                          </option>
-                        ))}
-                      </select>
-                      {isOllamaDapr && ollamaModelsLoading && (
-                        <span className="block text-xs text-muted-foreground">
-                          Loading models from Ollama server...
-                        </span>
-                      )}
-                    </label>
-                  </div>
-                )}
-              </>
-            )}
-            {/*
-              #626 + #641 + #655: tools that hard-code their provider
-              (Claude Code, Codex, Gemini) render the inline credential
-              surface first, then — only when a live model source is
-              available — the Model dropdown below it. `custom` is
-              deliberately excluded from the Model dropdown since we
-              don't know its catalog.
-            */}
-            {form.tool !== "dapr-agent" &&
-              requiredCredentialProvider !== null && (
-                <CredentialSection
-                  requiredProvider={requiredCredentialProvider}
-                  status={credentialStatus}
-                  statusPending={credentialStatusQuery.isPending}
-                  statusError={credentialStatusQuery.isError}
-                  credentialKey={form.credentialKey}
-                  saveAsTenantDefault={form.saveAsTenantDefault}
-                  overrideOpen={form.credentialOverrideOpen}
-                  ollamaProbe={null}
-                  validationStatus={effectiveValidation.status}
-                  validationError={effectiveValidation.error}
-                  validationPassed={credentialValidated}
-                  onValidate={attemptValidateCredential}
-                  onKeyChange={(v) => update("credentialKey", v)}
-                  onToggleSaveAsTenantDefault={(v) =>
-                    update("saveAsTenantDefault", v)
-                  }
-                  onToggleOverride={(v) => {
-                    setForm((prev) => ({
-                      ...prev,
-                      credentialOverrideOpen: v,
-                      credentialKey: v ? prev.credentialKey : "",
-                      saveAsTenantDefault: v ? prev.saveAsTenantDefault : false,
-                    }));
-                  }}
-                />
-              )}
-
-            {form.tool !== "dapr-agent" &&
-              toolModelProvider !== null &&
-              showModelDropdown && (
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <label className="block space-y-1">
-                    <span className="text-sm text-muted-foreground">Model</span>
-                    <select
-                      value={form.model}
-                      onChange={(e) => update("model", e.target.value)}
-                      aria-label="Model"
-                      className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {(activeModelList ?? []).map((m) => (
-                        <option key={m} value={m}>
-                          {m}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-              )}
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <label className="block space-y-1">
@@ -1338,6 +1133,252 @@ export default function CreateUnitPage() {
       )}
 
       {step === 2 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Execution tool &amp; model</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Issue #661 order: Tool → credential input → Model. */}
+            <label className="block space-y-1">
+              <span className="text-sm text-muted-foreground">
+                Execution tool
+              </span>
+              <select
+                value={form.tool}
+                onChange={(e) => {
+                  // #598: Provider dropdown only renders when the tool
+                  // is dapr-agent. #641: every other tool with a finite
+                  // model catalog (claude-code / codex / gemini) still
+                  // shows a Model dropdown — when the tool changes we
+                  // snap `model` to the tool's default so the wire
+                  // payload stays coherent with the hidden Provider.
+                  // `custom` has no known catalog; leave `model` alone.
+                  const nextTool = e.target.value as ExecutionTool;
+                  const toolProvider = getToolModelProvider(nextTool);
+                  setForm((prev) => {
+                    if (toolProvider !== null) {
+                      return {
+                        ...prev,
+                        tool: nextTool,
+                        model: getProvider(toolProvider).models[0],
+                      };
+                    }
+                    return { ...prev, tool: nextTool };
+                  });
+                }}
+                aria-label="Execution tool"
+                className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {EXECUTION_TOOLS.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {/*
+              #598: Provider renders only when the execution tool is
+              `dapr-agent`. Claude Code, Codex, and Gemini hard-code
+              their own provider inside the tool CLI, so exposing a
+              Provider dropdown for them is misleading.
+            */}
+            {form.tool === "dapr-agent" && (
+              <label className="block space-y-1">
+                <span className="text-sm text-muted-foreground">
+                  LLM Provider
+                </span>
+                <select
+                  value={form.provider}
+                  onChange={(e) => {
+                    // Bug #258: when the provider changes, snap the model to
+                    // that provider's default so we never submit a model that
+                    // the selected provider doesn't support.
+                    const nextProvider = getProvider(e.target.value);
+                    setForm((prev) => ({
+                      ...prev,
+                      provider: nextProvider.id,
+                      model: nextProvider.models[0],
+                    }));
+                  }}
+                  aria-label="LLM provider"
+                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {AI_PROVIDERS.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.displayName}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+
+            {/*
+              #626 + #659: credential input with the per-provider
+              "Get an API key" deep link attached.
+            */}
+            {requiredCredentialProvider !== null && (
+              <CredentialSection
+                requiredProvider={requiredCredentialProvider}
+                status={credentialStatus}
+                statusPending={credentialStatusQuery.isPending}
+                statusError={credentialStatusQuery.isError}
+                credentialKey={form.credentialKey}
+                saveAsTenantDefault={form.saveAsTenantDefault}
+                overrideOpen={form.credentialOverrideOpen}
+                ollamaProbe={null}
+                validationStatus={effectiveValidation.status}
+                validationError={effectiveValidation.error}
+                validationPassed={credentialValidated}
+                onValidate={attemptValidateCredential}
+                onKeyChange={(v) => update("credentialKey", v)}
+                onToggleSaveAsTenantDefault={(v) =>
+                  update("saveAsTenantDefault", v)
+                }
+                onToggleOverride={(v) => {
+                  setForm((prev) => ({
+                    ...prev,
+                    credentialOverrideOpen: v,
+                    // Toggling the override off clears any typed value so
+                    // it doesn't silently apply after the operator thinks
+                    // they cancelled.
+                    credentialKey: v ? prev.credentialKey : "",
+                    saveAsTenantDefault: v ? prev.saveAsTenantDefault : false,
+                  }));
+                }}
+              />
+            )}
+
+            {/* Ollama reachability banner (stand-alone when no API key
+                is required). */}
+            {form.tool === "dapr-agent" &&
+              form.provider === "ollama" &&
+              credentialStatus && (
+                <OllamaReachabilityBanner data={credentialStatus} />
+              )}
+
+            {/*
+              #655 + issue #661: the Model dropdown is revealed only
+              when a live model source is available — either the
+              tenant/unit credential resolved, the operator just
+              validated a key, or the Ollama provider is in use.
+              Otherwise we hide the dropdown entirely so operators
+              aren't asked to pick from a stale static fallback before
+              the wizard knows their account works. Next stays disabled
+              until a model is picked.
+            */}
+            {showModelDropdown && (
+              <label className="block space-y-1">
+                <span className="text-sm text-muted-foreground">Model</span>
+                <select
+                  value={form.model}
+                  onChange={(e) => update("model", e.target.value)}
+                  aria-label="Model"
+                  disabled={isOllamaDapr && ollamaModelsLoading}
+                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {(activeModelList ?? []).map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+                {isOllamaDapr && ollamaModelsLoading && (
+                  <span className="block text-xs text-muted-foreground">
+                    Loading models from Ollama server...
+                  </span>
+                )}
+              </label>
+            )}
+
+            {/* Issue #661: execution-environment section. Visually
+                separated from the tool/model block with a heading +
+                border. */}
+            <div className="space-y-3 border-t border-border pt-4">
+              <div>
+                <h3 className="text-sm font-semibold">
+                  Execution environment
+                </h3>
+                <p className="text-xs text-muted-foreground">
+                  Defaults inherited by member agents. Leave blank to use
+                  platform defaults; individual agents can override each
+                  field on their Execution panel.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <label className="block space-y-1">
+                  <span className="text-sm text-muted-foreground">
+                    Image (default)
+                  </span>
+                  <Input
+                    value={form.image}
+                    onChange={(e) => update("image", e.target.value)}
+                    placeholder="ghcr.io/... or spring-agent:latest"
+                    aria-label="Execution image"
+                  />
+                  <span className="block text-xs text-muted-foreground">
+                    Default container image used to launch member agents.
+                  </span>
+                </label>
+
+                <label className="block space-y-1">
+                  <span className="text-sm text-muted-foreground">
+                    Hosting mode
+                  </span>
+                  <select
+                    value={form.hosting}
+                    onChange={(e) =>
+                      update("hosting", e.target.value as HostingMode)
+                    }
+                    aria-label="Hosting mode"
+                    className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {HOSTING_MODES.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.label}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="block text-xs text-muted-foreground">
+                    How long the agent process lives between work items.
+                  </span>
+                </label>
+
+                <label className="block space-y-1">
+                  <span className="text-sm text-muted-foreground">
+                    Runtime (default)
+                  </span>
+                  <select
+                    value={form.runtime}
+                    onChange={(e) => update("runtime", e.target.value)}
+                    aria-label="Execution runtime"
+                    className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <option value="">(leave to default)</option>
+                    {EXECUTION_RUNTIMES.map((r) => (
+                      <option key={r} value={r}>
+                        {r}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="block text-xs text-muted-foreground">
+                    Container runtime the launcher drives.
+                  </span>
+                </label>
+              </div>
+            </div>
+
+            {stepError && (
+              <p className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {stepError}
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {step === 3 && (
         <Card>
           <CardHeader>
             <CardTitle>Choose a mode</CardTitle>
@@ -1473,7 +1514,7 @@ export default function CreateUnitPage() {
         </Card>
       )}
 
-      {step === 3 && (
+      {step === 4 && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -1591,7 +1632,7 @@ export default function CreateUnitPage() {
         </Card>
       )}
 
-      {step === 4 && (
+      {step === 5 && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -1737,7 +1778,7 @@ export default function CreateUnitPage() {
         </Card>
       )}
 
-      {step === 5 && (
+      {step === 6 && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -1839,14 +1880,14 @@ export default function CreateUnitPage() {
         >
           Back
         </Button>
-        {step < 5 && (
+        {step < 6 && (
           <Button
             onClick={() => {
               void handleNext();
             }}
             disabled={!canGoNext}
           >
-            {step === 1 && validateCredential.isPending ? "Validating…" : "Next"}
+            {step === 2 && validateCredential.isPending ? "Validating…" : "Next"}
           </Button>
         )}
       </div>
@@ -2120,6 +2161,13 @@ function CredentialSection(props: CredentialSectionProps) {
  * checkbox used by both the "not configured" and "override" flows.
  * Extracted so the two call sites cannot drift apart on labelling or
  * accessibility attributes.
+ *
+ * Issue #659: we render a small "Get an API key" deep link next to
+ * the input so operators without a key can create one without leaving
+ * the wizard. For Anthropic specifically, the hint clarifies that the
+ * field expects a Console API key — not a Claude Code CLI OAuth token
+ * from `claude setup-token`. OAuth-token support is tracked as a
+ * separate follow-up; this PR only surfaces the distinction in copy.
  */
 function CredentialInputControls({
   provider,
@@ -2149,6 +2197,11 @@ function CredentialInputControls({
   const toggleId = `credential-save-tenant-${provider}`;
   const inputType = show ? "text" : "password";
   const displayName = providerLabel(provider);
+  const helpLink = PROVIDER_KEY_HELP[provider];
+  const anthropicClarification =
+    provider === "anthropic"
+      ? "Accepts a Console API key (sk-ant-api…) or a Claude.ai token from claude setup-token (sk-ant-oat…). Claude.ai tokens require the claude CLI on the host."
+      : null;
 
   // #660: Anthropic accepts two credential formats — a Platform API key
   // (from console.anthropic.com, starts with `sk-ant-api...`) and a
@@ -2168,9 +2221,19 @@ function CredentialInputControls({
   return (
     <div className="space-y-2">
       <label htmlFor={inputId} className="block space-y-1">
-        <span className="text-xs text-muted-foreground">
-          {fieldLabel}
-        </span>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-xs text-muted-foreground">{fieldLabel}</span>
+          <a
+            href={helpLink.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            data-testid="credential-help-link"
+            className="inline-flex items-center gap-1 text-xs font-medium text-primary underline-offset-2 hover:underline"
+          >
+            Get an API key
+            <ExternalLink className="h-3 w-3" aria-hidden />
+          </a>
+        </div>
         <div className="flex items-center gap-2">
           <Input
             id={inputId}
@@ -2209,11 +2272,20 @@ function CredentialInputControls({
         </div>
       </label>
 
+      {anthropicClarification && (
+        <p
+          className="text-[11px] text-muted-foreground"
+          data-testid="credential-help-anthropic"
+        >
+          {anthropicClarification}
+        </p>
+      )}
+
       {/*
-        #655: validation runs automatically when the operator clicks
-        Next — no manual button. We still surface the verdict inline
-        so the wizard explains why Next stayed on this step (failure)
-        or why the Model dropdown suddenly changed (success).
+        #655: validation runs automatically on input blur — no manual
+        button. We still surface the verdict inline so the wizard
+        explains why Next stayed on this step (failure) or why the
+        Model dropdown suddenly changed (success).
       */}
       {validationStatus === "validating" && (
         <p

@@ -30,7 +30,7 @@ public static class UnitBoundaryCommand
     public static Command Create(Option<string> outputOption)
     {
         var cmd = new Command("boundary",
-            "Manage a unit's boundary (opacity, projection, synthesis) — see #413.");
+            "Manage a unit's boundary (opacity, projection, synthesis).");
         cmd.Subcommands.Add(CreateGet(outputOption));
         cmd.Subcommands.Add(CreateSet(outputOption));
         cmd.Subcommands.Add(CreateClear(outputOption));
