@@ -328,13 +328,24 @@ public static class ServiceCollectionExtensions
         services.AddHttpClient(ModelCatalog.HttpClientName);
         services.TryAddSingleton<IModelCatalog, ModelCatalog>();
 
-        // Wizard-time credential validator (#655). Issues a lightweight
-        // GET /v1/models against the provider with a caller-supplied
-        // key so the wizard can catch a typo before the first dispatch.
-        // Shares the ModelCatalog HTTP client pool — same handler
-        // lifecycle, low call volume. TryAdd so the private cloud host
-        // can supply a tenant-scoped validator (e.g. one that proxies
-        // through a tenant egress gateway) without forking.
+        // Wizard-time credential validator (#655 / #660). Primary path
+        // issues a lightweight GET /v1/models against the provider with
+        // a caller-supplied key; for Anthropic the validator delegates
+        // first to the locally-installed claude CLI (#660) so Claude.ai
+        // OAuth tokens — which the Platform REST API rejects — can be
+        // validated transparently. Shares the ModelCatalog HTTP client
+        // pool — same handler lifecycle, low call volume. TryAdd so the
+        // private cloud host can supply a tenant-scoped validator (e.g.
+        // one that proxies through a tenant egress gateway) without
+        // forking.
+        //
+        // CLI invokers are registered as enumerable singletons so
+        // additional providers (codex, gemini) can plug into the same
+        // seam later without touching the validator. Per #660 the
+        // invoker set is intentionally small: Anthropic only. Other
+        // providers still take the REST path.
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IProviderCliInvoker, ClaudeCliInvoker>());
         services.TryAddSingleton<IProviderCredentialValidator, ProviderCredentialValidator>();
 
         // Tier-2 LLM credential resolver (#615). Delegates to the

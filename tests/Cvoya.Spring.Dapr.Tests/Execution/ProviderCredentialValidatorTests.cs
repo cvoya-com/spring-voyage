@@ -181,6 +181,122 @@ public class ProviderCredentialValidatorTests
     }
 
     [Fact]
+    public async Task ValidateAsync_Anthropic_CliAvailable_DelegatesToCli_AndBackfillsModels()
+    {
+        // #660: when the claude CLI is available we delegate both API
+        // keys and OAuth tokens to it. The CLI does not expose a
+        // models subcommand, so success must still produce a non-empty
+        // model list via the static curated fallback.
+        var handler = new StubHandler();
+        var cli = new FakeCliInvoker
+        {
+            Available = true,
+            Result = new ProviderCliValidationResult(
+                ProviderCredentialValidationStatus.Valid,
+                Models: null,
+                ErrorMessage: null),
+        };
+        var validator = CreateValidator(handler, cli);
+
+        var result = await validator.ValidateAsync(
+            "anthropic", "sk-ant-oat01-secret-token", TestContext.Current.CancellationToken);
+
+        result.Status.ShouldBe(ProviderCredentialValidationStatus.Valid);
+        result.Models.ShouldNotBeNull();
+        result.Models.ShouldNotBeEmpty();
+        cli.LastCredential.ShouldBe("sk-ant-oat01-secret-token");
+        handler.CallCount.ShouldBe(0); // REST path skipped when CLI handled it
+    }
+
+    [Fact]
+    public async Task ValidateAsync_Anthropic_CliAvailable_PropagatesUnauthorized()
+    {
+        var handler = new StubHandler();
+        var cli = new FakeCliInvoker
+        {
+            Available = true,
+            Result = new ProviderCliValidationResult(
+                ProviderCredentialValidationStatus.Unauthorized,
+                Models: null,
+                ErrorMessage: "Anthropic rejected the credential."),
+        };
+        var validator = CreateValidator(handler, cli);
+
+        var result = await validator.ValidateAsync(
+            "anthropic", "sk-ant-oat01-stale", TestContext.Current.CancellationToken);
+
+        result.Status.ShouldBe(ProviderCredentialValidationStatus.Unauthorized);
+        result.ErrorMessage.ShouldNotBeNull();
+        result.ErrorMessage!.ShouldContain("Anthropic rejected");
+        handler.CallCount.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task ValidateAsync_Anthropic_CliUnavailable_OAuthToken_ReturnsSpecificError()
+    {
+        // #660 core case: the host has no claude CLI and the operator
+        // pastes a Claude.ai OAuth token. The validator must NOT
+        // fall through to the REST call (which will surface a generic
+        // 401); it must surface the specific error.
+        var handler = new StubHandler();
+        var cli = new FakeCliInvoker { Available = false };
+        var validator = CreateValidator(handler, cli);
+
+        var result = await validator.ValidateAsync(
+            "anthropic", "sk-ant-oat01-secret", TestContext.Current.CancellationToken);
+
+        result.Status.ShouldBe(ProviderCredentialValidationStatus.ProviderError);
+        result.ErrorMessage.ShouldNotBeNull();
+        result.ErrorMessage.ShouldContain("claude CLI");
+        result.ErrorMessage.ShouldContain("Claude.ai");
+        handler.CallCount.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task ValidateAsync_Anthropic_CliUnavailable_ApiKey_FallsBackToRest()
+    {
+        // Non-OAuth keys (the traditional API key) still work through
+        // the Anthropic Platform REST path, so the validator must
+        // fall through to the existing HTTP flow when the CLI is
+        // unavailable rather than block valid API keys.
+        var handler = new StubHandler();
+        handler.Add("api.anthropic.example", HttpStatusCode.OK, JsonSerializer.Serialize(new
+        {
+            data = new[]
+            {
+                new { id = "claude-sonnet-5-20260101" },
+            },
+        }));
+        var cli = new FakeCliInvoker { Available = false };
+        var validator = CreateValidator(handler, cli);
+
+        var result = await validator.ValidateAsync(
+            "anthropic", "sk-ant-api03-live-key", TestContext.Current.CancellationToken);
+
+        result.Status.ShouldBe(ProviderCredentialValidationStatus.Valid);
+        result.Models.ShouldBe(new[] { "claude-sonnet-5-20260101" });
+        handler.CallCount.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task ValidateAsync_Anthropic_NoCliInvokerRegistered_OAuthToken_ReturnsSpecificError()
+    {
+        // Same error path when no CLI invoker is registered at all
+        // (belt-and-suspenders for deployments that disable the
+        // default registration).
+        var handler = new StubHandler();
+        var validator = CreateValidator(handler, cliInvoker: null);
+
+        var result = await validator.ValidateAsync(
+            "anthropic", "sk-ant-oat01-no-cli", TestContext.Current.CancellationToken);
+
+        result.Status.ShouldBe(ProviderCredentialValidationStatus.ProviderError);
+        result.ErrorMessage.ShouldNotBeNull();
+        result.ErrorMessage!.ShouldContain("claude CLI");
+        handler.CallCount.ShouldBe(0);
+    }
+
+    [Fact]
     public async Task ValidateAsync_UnknownProvider_ReturnsUnknownProvider()
     {
         var handler = new StubHandler();
@@ -192,15 +308,22 @@ public class ProviderCredentialValidatorTests
         handler.CallCount.ShouldBe(0);
     }
 
-    private static ProviderCredentialValidator CreateValidator(HttpMessageHandler handler)
+    private static ProviderCredentialValidator CreateValidator(
+        HttpMessageHandler handler,
+        IProviderCliInvoker? cliInvoker = null)
     {
         var factory = Substitute.For<IHttpClientFactory>();
         factory.CreateClient(Arg.Any<string>())
             .Returns(_ => new HttpClient(handler, disposeHandler: false));
 
+        var invokers = cliInvoker is null
+            ? Array.Empty<IProviderCliInvoker>()
+            : new[] { cliInvoker };
+
         return new ProviderCredentialValidator(
             factory,
             AnthropicOptions,
+            invokers,
             NullLogger<ProviderCredentialValidator>.Instance);
     }
 
@@ -247,6 +370,25 @@ public class ProviderCredentialValidatorTests
         {
             CallCount++;
             throw exception;
+        }
+    }
+
+    /// <summary>Test double that pretends to be the claude CLI invoker.</summary>
+    private sealed class FakeCliInvoker : IProviderCliInvoker
+    {
+        public string ProviderId => "anthropic";
+        public bool Available { get; set; }
+        public ProviderCliValidationResult Result { get; set; } =
+            new(ProviderCredentialValidationStatus.Valid, Models: null, ErrorMessage: null);
+        public string? LastCredential { get; private set; }
+
+        public Task<bool> IsAvailableAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(Available);
+
+        public Task<ProviderCliValidationResult> ValidateAsync(string credential, CancellationToken cancellationToken = default)
+        {
+            LastCredential = credential;
+            return Task.FromResult(Result);
         }
     }
 }

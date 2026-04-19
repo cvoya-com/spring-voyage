@@ -748,8 +748,6 @@ describe("CreateUnitPage — provider help links (#659)", () => {
     );
     expect(link.getAttribute("target")).toBe("_blank");
     expect(link.getAttribute("rel")).toMatch(/noopener/);
-    // Anthropic-specific clarification about Console API key vs
-    // Claude Code CLI token.
     expect(
       screen.getByTestId("credential-help-anthropic").textContent,
     ).toMatch(/Console API key/i);

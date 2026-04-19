@@ -26,7 +26,7 @@ using Microsoft.Extensions.Options;
 /// warranted — the validator is a low-frequency call (operator clicks
 /// Validate in the wizard) and the handler lifecycle is identical.
 /// </remarks>
-public sealed class ProviderCredentialValidator : IProviderCredentialValidator
+public class ProviderCredentialValidator : IProviderCredentialValidator
 {
     private const string AnthropicBaseUrl = "https://api.anthropic.com";
     private const string AnthropicVersion = "2023-06-01";
@@ -35,16 +35,24 @@ public sealed class ProviderCredentialValidator : IProviderCredentialValidator
 
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IOptions<AiProviderOptions> _anthropicOptions;
+    private readonly IReadOnlyDictionary<string, IProviderCliInvoker> _cliInvokers;
     private readonly ILogger<ProviderCredentialValidator> _logger;
 
     /// <summary>Creates a new <see cref="ProviderCredentialValidator"/>.</summary>
     public ProviderCredentialValidator(
         IHttpClientFactory httpClientFactory,
         IOptions<AiProviderOptions> anthropicOptions,
+        IEnumerable<IProviderCliInvoker> cliInvokers,
         ILogger<ProviderCredentialValidator> logger)
     {
         _httpClientFactory = httpClientFactory;
         _anthropicOptions = anthropicOptions;
+        // Last registration wins per provider id — lets the private
+        // cloud host replace a default invoker without untangling
+        // registration order.
+        _cliInvokers = cliInvokers
+            .GroupBy(i => i.ProviderId, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.Last(), StringComparer.OrdinalIgnoreCase);
         _logger = logger;
     }
 
@@ -114,6 +122,51 @@ public sealed class ProviderCredentialValidator : IProviderCredentialValidator
         string apiKey,
         CancellationToken cancellationToken)
     {
+        // #660: two credential formats reach this path:
+        //   * Anthropic API keys (sk-ant-api...) — work with api.anthropic.com.
+        //   * Claude.ai OAuth tokens (sk-ant-oat...) — DO NOT work with
+        //     api.anthropic.com but DO work when handed to the claude CLI.
+        // If a registered CLI invoker reports availability, delegate to
+        // it for both formats so the wizard never has to distinguish
+        // them. If the CLI is unavailable and the credential is an
+        // OAuth token, return a clear error rather than silently hitting
+        // REST and surfacing a generic 401.
+        var isOAuthToken = apiKey.StartsWith(
+            ClaudeCliInvoker.OAuthTokenPrefix, StringComparison.Ordinal);
+
+        if (_cliInvokers.TryGetValue("anthropic", out var cliInvoker))
+        {
+            var cliAvailable = await cliInvoker.IsAvailableAsync(cancellationToken).ConfigureAwait(false);
+            if (cliAvailable)
+            {
+                var cliResult = await cliInvoker.ValidateAsync(apiKey, cancellationToken).ConfigureAwait(false);
+                return MapCliResult(cliResult, providerDisplayName: "Anthropic", providerId: "claude");
+            }
+
+            if (isOAuthToken)
+            {
+                // The REST fallback cannot validate an OAuth token — the
+                // Anthropic Platform API rejects it with a 401 that is
+                // indistinguishable from a bad key. Tell the operator
+                // precisely why validation cannot proceed instead.
+                return new ProviderCredentialValidationResult(
+                    ProviderCredentialValidationStatus.ProviderError,
+                    Models: null,
+                    ErrorMessage: "Claude.ai tokens (from `claude setup-token`) require the claude CLI on the host to validate. " +
+                        "Install Claude Code on this host, or supply an Anthropic API key (sk-ant-api…) instead.");
+            }
+        }
+        else if (isOAuthToken)
+        {
+            // No CLI invoker is registered at all — same failure mode as above.
+            return new ProviderCredentialValidationResult(
+                ProviderCredentialValidationStatus.ProviderError,
+                Models: null,
+                ErrorMessage: "Claude.ai tokens (from `claude setup-token`) require the claude CLI on the host to validate. " +
+                    "Install Claude Code on this host, or supply an Anthropic API key (sk-ant-api…) instead.");
+        }
+
+        // REST fallback — for API keys when the CLI is unavailable.
         var baseUrl = string.IsNullOrWhiteSpace(_anthropicOptions.Value.BaseUrl)
             ? AnthropicBaseUrl
             : _anthropicOptions.Value.BaseUrl.TrimEnd('/');
@@ -147,6 +200,39 @@ public sealed class ProviderCredentialValidator : IProviderCredentialValidator
         return new ProviderCredentialValidationResult(
             ProviderCredentialValidationStatus.Valid,
             Models: ids,
+            ErrorMessage: null);
+    }
+
+    /// <summary>
+    /// Projects a <see cref="ProviderCliValidationResult"/> into the
+    /// public <see cref="ProviderCredentialValidationResult"/>. When the
+    /// CLI reports success without a model list (today's reality — the
+    /// <c>claude</c> CLI has no <c>models</c> subcommand) we backfill
+    /// from <see cref="ModelCatalog.StaticFallback"/> so the wizard's
+    /// Model dropdown still has something live-ish to render.
+    /// </summary>
+    private static ProviderCredentialValidationResult MapCliResult(
+        ProviderCliValidationResult cli,
+        string providerDisplayName,
+        string providerId)
+    {
+        if (cli.Status != ProviderCredentialValidationStatus.Valid)
+        {
+            return new ProviderCredentialValidationResult(
+                cli.Status,
+                Models: null,
+                ErrorMessage: cli.ErrorMessage);
+        }
+
+        IReadOnlyList<string> models = cli.Models
+            ?? (ModelCatalog.StaticFallback.TryGetValue(providerId, out var fallback)
+                ? fallback
+                : Array.Empty<string>());
+
+        _ = providerDisplayName; // reserved for future error contextualisation
+        return new ProviderCredentialValidationResult(
+            ProviderCredentialValidationStatus.Valid,
+            Models: models,
             ErrorMessage: null);
     }
 
