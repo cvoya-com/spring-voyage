@@ -112,8 +112,16 @@ describe("ExecutionTab", () => {
     expect(screen.getByTestId("execution-model-input")).toBeInTheDocument();
   });
 
-  it("hides Provider and Model when tool is claude-code (or any non-dapr-agent launcher)", async () => {
+  it("hides Provider but keeps Model visible when tool is claude-code (#641)", async () => {
+    // #641 (PR #645 on wizard/agent; this issue is the unit tab parity):
+    // Provider stays hidden for non-dapr-agent launchers, but the Model
+    // dropdown is now rendered against the tool's catalog so the operator
+    // can still pick a model family (e.g. claude-opus-4 for Claude Code).
     getUnitExecution.mockResolvedValue({ tool: "claude-code" });
+    listProviderModels.mockResolvedValue([
+      "claude-sonnet-4-20250514",
+      "claude-opus-4-20250514",
+    ]);
 
     render(
       <Wrapper>
@@ -125,11 +133,76 @@ describe("ExecutionTab", () => {
     expect(
       screen.queryByTestId("execution-provider-select"),
     ).not.toBeInTheDocument();
+  });
+
+  it("renders a Model dropdown populated from the tool's catalog when tool=codex (#641)", async () => {
+    getUnitExecution.mockResolvedValue({ tool: "codex" });
+    listProviderModels.mockImplementation(async (provider: string) => {
+      if (provider === "openai") return ["gpt-4o", "gpt-4o-mini", "o3-mini"];
+      return [];
+    });
+
+    render(
+      <Wrapper>
+        <ExecutionTab unitId="eng-team" />
+      </Wrapper>,
+    );
+
+    await screen.findByTestId("unit-execution-card");
+    await waitFor(() => {
+      expect(listProviderModels).toHaveBeenCalledWith("openai");
+    });
+
+    const modelSelect = (await screen.findByTestId(
+      "execution-model-select",
+    )) as HTMLSelectElement;
+    const options = Array.from(modelSelect.options).map((o) => o.value);
+    expect(options).toContain("gpt-4o");
+    // Provider stays hidden — the tool implies it.
     expect(
-      screen.queryByTestId("execution-model-input"),
+      screen.queryByTestId("execution-provider-select"),
     ).not.toBeInTheDocument();
+  });
+
+  it("shows both Provider and Model when tool=dapr-agent (#641)", async () => {
+    getUnitExecution.mockResolvedValue({ tool: "dapr-agent" });
+    listProviderModels.mockResolvedValue([]);
+
+    render(
+      <Wrapper>
+        <ExecutionTab unitId="eng-team" />
+      </Wrapper>,
+    );
+
+    await screen.findByTestId("unit-execution-card");
+    expect(
+      screen.getByTestId("execution-provider-select"),
+    ).toBeInTheDocument();
+    // Model renders as a free-text input because no Provider is
+    // selected yet, so there's no catalog to drive a dropdown.
+    expect(screen.getByTestId("execution-model-input")).toBeInTheDocument();
+  });
+
+  it("omits the Model slot when tool=custom (no known catalog) (#641)", async () => {
+    getUnitExecution.mockResolvedValue({ tool: "custom" });
+    listProviderModels.mockResolvedValue([]);
+
+    render(
+      <Wrapper>
+        <ExecutionTab unitId="eng-team" />
+      </Wrapper>,
+    );
+
+    await screen.findByTestId("unit-execution-card");
+    expect(
+      screen.queryByTestId("execution-provider-select"),
+    ).not.toBeInTheDocument();
+    // Neither a Model select nor a free-text Model input is rendered.
     expect(
       screen.queryByTestId("execution-model-select"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("execution-model-input"),
     ).not.toBeInTheDocument();
   });
 

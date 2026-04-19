@@ -352,7 +352,7 @@ The tab reads `GET /api/v1/units/{id}/execution`, edits each field in place, and
 | **Runtime** | Dropdown: `docker` / `podman` (or `(leave to default)`). | `--runtime docker\|podman` |
 | **Tool** | Dropdown: `claude-code` / `codex` / `gemini` / `dapr-agent` / `custom`. | `--tool <key>` |
 | **Provider** | Dropdown: `anthropic` / `openai` / `google` / `ollama`. **Only shown when Tool is `dapr-agent`, or when Tool is unset** (#598 gating, matches PR #627). | `--provider <key>` |
-| **Model** | Text input — promoted to a dropdown when the provider publishes a model catalog (#613). Same gating as Provider. | `--model <id>` |
+| **Model** | Text input — promoted to a dropdown when the provider publishes a model catalog (#613). **Rendered for every tool that has a known catalog** (claude-code / codex / gemini via the tool's implicit provider; dapr-agent via the selected Provider). `custom` collapses the field (#641). | `--model <id>` |
 
 Each field is independently clearable — the editor lets an operator wipe just `image` while leaving `runtime` configured. The matching CLI verb is `spring unit execution clear <unit> --field image`.
 

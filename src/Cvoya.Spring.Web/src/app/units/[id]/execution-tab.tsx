@@ -29,6 +29,7 @@ import {
   EXECUTION_RUNTIMES,
   EXECUTION_TOOL_KEYS,
 } from "@/lib/api/types";
+import { getToolModelProvider, type ExecutionTool } from "@/lib/ai-models";
 
 /**
  * Unit Execution tab (#601 / #603 / #409 B-wide, portal half).
@@ -40,12 +41,16 @@ import {
  * the operator can declare `runtime: podman` only and leave `image`
  * etc. for each agent to provide.
  *
- * Gating mirrors #598 (PR #627): Provider + Model only render when the
- * declared launcher tool is `dapr-agent` or unset — other launchers
- * hard-code their provider/model inside their own CLI, so exposing
- * those slots would be misleading. The credential-status banner from
- * #598 reuses its `useProviderCredentialStatus` hook whenever Provider
- * is shown and has a selected value.
+ * Gating mirrors #598 (PR #627) + #641 (PR #645): Provider only
+ * renders when the declared launcher tool is `dapr-agent` or unset —
+ * other launchers hard-code their provider inside their own CLI so a
+ * Provider dropdown would be misleading. Model is rendered whenever
+ * the effective tool has a known model catalog (dapr-agent via the
+ * selected provider; claude-code / codex / gemini via their implicit
+ * provider). `custom` collapses the Model slot entirely. The
+ * credential-status banner from #598 reuses its
+ * `useProviderCredentialStatus` hook whenever Provider is shown and
+ * has a selected value.
  *
  * Follow-ups the scope deliberately defers:
  *   - Image reference autocomplete → #622 (V2.1).
@@ -99,14 +104,27 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
   }, [form, persisted]);
 
   const effectiveToolForGating = form.tool ?? null;
-  const showProviderAndModel =
+  const showProvider =
     effectiveToolForGating === null || effectiveToolForGating === "dapr-agent";
+
+  // #641: tools that hide Provider (claude-code / codex / gemini) still
+  // expose a Model dropdown populated from that tool's catalog. Derive
+  // the catalog provider from the effective tool; use the explicit
+  // Provider value when dapr-agent is active. `custom` returns null,
+  // which collapses the Model slot entirely.
+  const toolForCatalog = effectiveToolForGating as ExecutionTool | null;
+  const toolModelProvider =
+    toolForCatalog !== null ? getToolModelProvider(toolForCatalog) : null;
+  const providerForModels = showProvider
+    ? (form.provider ?? "")
+    : (toolModelProvider ?? "");
+  const showModel = showProvider || toolModelProvider !== null;
 
   // Provider-dependent model suggestions (#597 / PR #613). The field is
   // a plain text input when no provider is selected, falling back to a
   // dropdown when we have a known set.
-  const providerModelsEnabled = Boolean(form.provider);
-  const providerModelsQuery = useProviderModels(form.provider ?? "", {
+  const providerModelsEnabled = Boolean(providerForModels);
+  const providerModelsQuery = useProviderModels(providerForModels, {
     enabled: providerModelsEnabled,
   });
   const providerModels = providerModelsQuery.data ?? null;
@@ -166,13 +184,15 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
   const handleSave = () => {
     // Null out stale gated fields so the wire shape stays clean — if
     // the operator switched Tool away from dapr-agent we shouldn't keep
-    // the prior provider/model values around.
+    // the prior provider value around. #641: Provider stays gated on
+    // dapr-agent (Option A for #598); Model rides along whenever the
+    // tool has a known catalog.
     const next: UnitExecutionResponse = {
       image: form.image ?? null,
       runtime: form.runtime ?? null,
       tool: form.tool ?? null,
-      provider: showProviderAndModel ? (form.provider ?? null) : null,
-      model: showProviderAndModel ? (form.model ?? null) : null,
+      provider: showProvider ? (form.provider ?? null) : null,
+      model: showModel ? (form.model ?? null) : null,
     };
     setMutation.mutate(next);
   };
@@ -284,79 +304,84 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
             />
           </FieldRow>
 
-          {/* Provider + Model — gated behind tool=dapr-agent (#598). */}
-          {showProviderAndModel && (
-            <>
-              <FieldRow
-                label="Provider"
-                help="LLM provider — only meaningful when Tool is Dapr Agent."
-                onClear={
-                  persisted?.provider
-                    ? () => clearField("provider")
-                    : undefined
-                }
-                busy={setMutation.isPending}
-              >
-                <SelectField
-                  value={form.provider ?? null}
-                  onChange={(next) => setField("provider", next)}
-                  options={EXECUTION_PROVIDERS}
-                  unsetLabel="(leave to default)"
-                  ariaLabel="Execution provider"
-                  testid="execution-provider-select"
+          {/* Provider — gated behind tool=dapr-agent (#598 Option A). */}
+          {showProvider && (
+            <FieldRow
+              label="Provider"
+              help="LLM provider — only meaningful when Tool is Dapr Agent."
+              onClear={
+                persisted?.provider
+                  ? () => clearField("provider")
+                  : undefined
+              }
+              busy={setMutation.isPending}
+            >
+              <SelectField
+                value={form.provider ?? null}
+                onChange={(next) => setField("provider", next)}
+                options={EXECUTION_PROVIDERS}
+                unsetLabel="(leave to default)"
+                ariaLabel="Execution provider"
+                testid="execution-provider-select"
+              />
+            </FieldRow>
+          )}
+
+          {/* Model — #641: rendered whenever the tool has a known
+              catalog, which includes dapr-agent (via selected Provider)
+              and claude-code / codex / gemini (via the tool's implicit
+              provider). `custom` and unset tool without a selected
+              Provider collapse the field. */}
+          {showModel && (
+            <FieldRow
+              label="Model"
+              help="Model identifier. Populated from the provider's live catalog when available (#613)."
+              onClear={
+                persisted?.model ? () => clearField("model") : undefined
+              }
+              busy={setMutation.isPending}
+            >
+              {providerModelsEnabled &&
+              providerModels &&
+              providerModels.length > 0 ? (
+                <select
+                  value={form.model ?? ""}
+                  onChange={(e) =>
+                    setField(
+                      "model",
+                      e.target.value ? e.target.value : null,
+                    )
+                  }
+                  aria-label="Execution model"
+                  data-testid="execution-model-select"
+                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  <option value="">(leave to default)</option>
+                  {providerModels.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <Input
+                  value={form.model ?? ""}
+                  onChange={(e) =>
+                    setField(
+                      "model",
+                      e.target.value ? e.target.value : null,
+                    )
+                  }
+                  placeholder="e.g. claude-sonnet-4-20250514"
+                  aria-label="Execution model"
+                  data-testid="execution-model-input"
                 />
-              </FieldRow>
-
-              <FieldRow
-                label="Model"
-                help="Model identifier. Populated from the provider's live catalog when available (#613)."
-                onClear={
-                  persisted?.model ? () => clearField("model") : undefined
-                }
-                busy={setMutation.isPending}
-              >
-                {providerModelsEnabled &&
-                providerModels &&
-                providerModels.length > 0 ? (
-                  <select
-                    value={form.model ?? ""}
-                    onChange={(e) =>
-                      setField(
-                        "model",
-                        e.target.value ? e.target.value : null,
-                      )
-                    }
-                    aria-label="Execution model"
-                    data-testid="execution-model-select"
-                    className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                  >
-                    <option value="">(leave to default)</option>
-                    {providerModels.map((m) => (
-                      <option key={m} value={m}>
-                        {m}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <Input
-                    value={form.model ?? ""}
-                    onChange={(e) =>
-                      setField(
-                        "model",
-                        e.target.value ? e.target.value : null,
-                      )
-                    }
-                    placeholder="e.g. claude-sonnet-4-20250514"
-                    aria-label="Execution model"
-                    data-testid="execution-model-input"
-                  />
-                )}
-              </FieldRow>
-
-              {form.provider && (
-                <CredentialStatusBanner providerId={form.provider} />
               )}
-            </>
+            </FieldRow>
+          )}
+
+          {showProvider && form.provider && (
+            <CredentialStatusBanner providerId={form.provider} />
           )}
 
           <div className="flex items-center justify-end gap-2 pt-2">
