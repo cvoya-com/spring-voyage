@@ -1103,4 +1103,27 @@ export const api = {
     }
     return (await resp.json()) as import("./types").ProviderCredentialStatusResponse;
   },
+
+  // Wizard-time credential validation (#655). POSTs a caller-supplied
+  // key to the provider via the server-side validator and returns the
+  // verdict + discovered model list. The server NEVER echoes the key
+  // back and does not persist it; the body here is write-only from the
+  // browser's perspective.
+  validateProviderCredential: async (
+    provider: string,
+    apiKey: string,
+  ): Promise<import("./types").ProviderCredentialValidationResponse> => {
+    const resp = await fetch(
+      `${BASE}/api/v1/system/credentials/${encodeURIComponent(provider)}/validate`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apiKey }),
+      },
+    );
+    if (!resp.ok) {
+      throw new ApiError(resp.status, resp.statusText, await resp.text());
+    }
+    return (await resp.json()) as import("./types").ProviderCredentialValidationResponse;
+  },
 };

@@ -614,3 +614,41 @@ export interface ProviderCredentialStatusResponse {
    */
   suggestion: string | null;
 }
+
+/**
+ * Response from `POST /api/v1/system/credentials/{provider}/validate`
+ * (#655). Reports whether a caller-supplied API key is accepted by the
+ * provider, and on success returns the live model ids so the wizard can
+ * seed the Model dropdown from the same call. The response NEVER
+ * contains the key itself.
+ */
+export interface ProviderCredentialValidationResponse {
+  /** Canonical provider id (anthropic / openai / google). */
+  provider: string;
+  /** True when the provider accepted the key. */
+  valid: boolean;
+  /**
+   * Coarse-grained status string. `"valid"` on success; one of
+   * `"unauthorized"`, `"provider-error"`, `"network-error"`,
+   * `"missing-key"` on failure. The wizard renders `error` when this is
+   * not `"valid"`.
+   */
+  status:
+    | "valid"
+    | "unauthorized"
+    | "provider-error"
+    | "network-error"
+    | "missing-key"
+    | "unknown";
+  /**
+   * Model ids returned by the provider when `valid` is true. Allows the
+   * wizard's Model dropdown to be seeded without a second round-trip.
+   * `null` on any failure.
+   */
+  models: string[] | null;
+  /**
+   * Operator-facing failure message. Null on success. NEVER contains
+   * the key.
+   */
+  error: string | null;
+}

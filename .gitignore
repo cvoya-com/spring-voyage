@@ -49,3 +49,8 @@ __pycache__/
 ## root materialises node_modules (and .next/.turbo caches) here.
 node_modules/
 .next/
+
+## ESLint cache — `npm run lint` writes it at the repo root when
+## invoked there. The per-workspace cache is already ignored by the
+## workspace's own .gitignore.
+.eslintcache

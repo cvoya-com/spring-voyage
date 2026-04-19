@@ -354,6 +354,129 @@ export default function CreateUnitPage() {
   );
   const credentialStatus = credentialStatusQuery.data ?? null;
 
+  // #655: wizard-time credential validation. The operator types a key
+  // into the CredentialSection; clicking Validate POSTs it to the
+  // provider via the server-side validator. On success the returned
+  // model ids seed the Model dropdown so the operator picks from
+  // whatever their account actually supports, not a stale static list.
+  // `validatedKey` + `validatedProvider` pin the verdict to the exact
+  // input that produced it — any subsequent edit invalidates the
+  // verdict and re-shows the Validate button.
+  type CredentialValidationState = {
+    status: "idle" | "validating" | "valid" | "invalid";
+    error: string | null;
+    models: string[] | null;
+    validatedKey: string | null;
+    validatedProvider: string | null;
+  };
+  const [credentialValidation, setCredentialValidation] =
+    useState<CredentialValidationState>({
+      status: "idle",
+      error: null,
+      models: null,
+      validatedKey: null,
+      validatedProvider: null,
+    });
+
+  // Any edit to the key (or switching tool/provider so a different
+  // credential is required) invalidates a prior verdict. Rather than
+  // sync it via a setState-in-effect (flagged by
+  // react-hooks/set-state-in-effect as a cascading-render smell), we
+  // derive the effective status/error below: when the stored verdict
+  // does not match the current inputs, treat it as `"idle"` and hide
+  // any stale error. The raw `credentialValidation` state is still the
+  // source of truth for the mutation callbacks.
+  const effectiveValidation = useMemo<{
+    status: "idle" | "validating" | "valid" | "invalid";
+    error: string | null;
+  }>(() => {
+    if (credentialValidation.status === "idle") {
+      return { status: "idle", error: null };
+    }
+    if (credentialValidation.status === "validating") {
+      return { status: "validating", error: null };
+    }
+    const trimmed = form.credentialKey.trim();
+    const matchesCurrent =
+      credentialValidation.validatedKey === trimmed &&
+      credentialValidation.validatedProvider === requiredCredentialProvider;
+    if (!matchesCurrent) {
+      return { status: "idle", error: null };
+    }
+    return {
+      status: credentialValidation.status,
+      error: credentialValidation.error,
+    };
+  }, [credentialValidation, form.credentialKey, requiredCredentialProvider]);
+
+  // Auto-validation is triggered from `handleNext` — there is no
+  // standalone Validate button on the wizard. We use `mutateAsync` so
+  // the Next handler can await the outcome and keep/advance the step
+  // based on the verdict.
+  const validateCredential = useMutation({
+    mutationFn: async () => {
+      if (requiredCredentialProvider === null) {
+        throw new Error("No credential required for this selection.");
+      }
+      const trimmed = form.credentialKey.trim();
+      if (!trimmed) {
+        throw new Error("Enter an API key to validate.");
+      }
+      return await api.validateProviderCredential(
+        requiredCredentialProvider,
+        trimmed,
+      );
+    },
+    onMutate: () => {
+      setCredentialValidation((prev) => ({
+        ...prev,
+        status: "validating",
+        error: null,
+      }));
+    },
+    onSuccess: (result) => {
+      const trimmed = form.credentialKey.trim();
+      setCredentialValidation({
+        status: result.valid ? "valid" : "invalid",
+        error: result.valid ? null : (result.error ?? "Validation failed."),
+        models: result.valid ? (result.models ?? []) : null,
+        validatedKey: trimmed,
+        validatedProvider: requiredCredentialProvider,
+      });
+      // Seed the Model field from the freshly-validated list so the
+      // selection reflects what the operator's account actually
+      // supports. Only overwrite when we got a non-empty list —
+      // providers that return zero entries (rare) would otherwise
+      // blank the dropdown.
+      if (result.valid && result.models && result.models.length > 0) {
+        setForm((prev) =>
+          result.models!.includes(prev.model)
+            ? prev
+            : { ...prev, model: result.models![0] },
+        );
+      }
+    },
+    onError: (err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      setCredentialValidation((prev) => ({
+        ...prev,
+        status: "invalid",
+        error: message,
+      }));
+    },
+  });
+
+  // True when the currently-typed key has a fresh, successful verdict
+  // attached. The Next button gate + the Model dropdown both read this.
+  const credentialValidated = useMemo(() => {
+    if (credentialValidation.status !== "valid") return false;
+    const trimmed = form.credentialKey.trim();
+    return (
+      credentialValidation.validatedKey === trimmed &&
+      credentialValidation.validatedProvider === requiredCredentialProvider
+    );
+  }, [credentialValidation, form.credentialKey, requiredCredentialProvider]);
+
   const update = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
@@ -388,13 +511,38 @@ export default function CreateUnitPage() {
     return null;
   };
 
-  const handleNext = () => {
+  const handleNext = async () => {
     setStepError(null);
     if (step === 1) {
       const err = validateStep1();
       if (err) {
         setStepError(err);
         return;
+      }
+      // #655: if the operator typed a credential that hasn't been
+      // validated yet for this exact key+provider, trigger a live
+      // validation against the provider before advancing. The Model
+      // dropdown on the next render consumes the returned model list,
+      // so the wizard progresses only when the key actually works and
+      // the catalog is already seeded from the operator's account.
+      if (
+        requiredCredentialProvider !== null &&
+        form.credentialKey.trim().length > 0 &&
+        !credentialValidated &&
+        !validateCredential.isPending
+      ) {
+        try {
+          const result = await validateCredential.mutateAsync();
+          if (!result.valid) {
+            // The mutation's onSuccess has already stored the inline
+            // error on the CredentialSection; stay on Step 1 so the
+            // operator sees it without a duplicate step-level banner.
+            return;
+          }
+        } catch {
+          // onError has already populated the inline error. Stay put.
+          return;
+        }
       }
     }
     if (step === 2) {
@@ -722,6 +870,13 @@ export default function CreateUnitPage() {
 
   const canGoNext = useMemo(() => {
     if (step === 1) {
+      // #655: credential validation is kicked off from `handleNext` when
+      // the operator advances, not from a standalone button. Disable
+      // Next only while a validation is actually in flight so the user
+      // can't fire a second call on top of the first; otherwise we rely
+      // on `handleNext` itself to stay on the step when validation
+      // fails.
+      if (validateCredential.isPending) return false;
       // For YAML/template modes the manifest itself supplies the name, so we
       // don't gate advancement on form.name.
       if (form.mode === "yaml" || form.mode === "template") return true;
@@ -740,7 +895,7 @@ export default function CreateUnitPage() {
       return form.connectorConfig !== null;
     }
     return true;
-  }, [step, form]);
+  }, [step, form, validateCredential.isPending]);
 
   return (
     <div className="space-y-6">
@@ -972,9 +1127,13 @@ export default function CreateUnitPage() {
                     >
                       {(form.provider === "ollama" && ollamaModels
                         ? ollamaModels
-                        : providerModelsEnabled && providerModels
-                          ? providerModels
-                          : getProvider(form.provider).models.slice()
+                        : credentialValidated &&
+                            credentialValidation.models &&
+                            credentialValidation.models.length > 0
+                          ? credentialValidation.models
+                          : providerModelsEnabled && providerModels
+                            ? providerModels
+                            : getProvider(form.provider).models.slice()
                       ).map((m) => (
                         <option key={m} value={m}>
                           {m}
@@ -1000,6 +1159,9 @@ export default function CreateUnitPage() {
                   ollamaProbe={
                     form.provider === "ollama" ? credentialStatus : null
                   }
+                  validationStatus={effectiveValidation.status}
+                  validationError={effectiveValidation.error}
+                  validationPassed={credentialValidated}
                   onKeyChange={(v) => update("credentialKey", v)}
                   onToggleSaveAsTenantDefault={(v) =>
                     update("saveAsTenantDefault", v)
@@ -1038,9 +1200,13 @@ export default function CreateUnitPage() {
                     aria-label="Model"
                     className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {(providerModels && providerModels.length > 0
-                      ? providerModels
-                      : getProvider(toolModelProvider).models.slice()
+                    {(credentialValidated &&
+                    credentialValidation.models &&
+                    credentialValidation.models.length > 0
+                      ? credentialValidation.models
+                      : providerModels && providerModels.length > 0
+                        ? providerModels
+                        : getProvider(toolModelProvider).models.slice()
                     ).map((m) => (
                       <option key={m} value={m}>
                         {m}
@@ -1069,6 +1235,9 @@ export default function CreateUnitPage() {
                   saveAsTenantDefault={form.saveAsTenantDefault}
                   overrideOpen={form.credentialOverrideOpen}
                   ollamaProbe={null}
+                  validationStatus={effectiveValidation.status}
+                  validationError={effectiveValidation.error}
+                  validationPassed={credentialValidated}
                   onKeyChange={(v) => update("credentialKey", v)}
                   onToggleSaveAsTenantDefault={(v) =>
                     update("saveAsTenantDefault", v)
@@ -1616,8 +1785,13 @@ export default function CreateUnitPage() {
           Back
         </Button>
         {step < 5 && (
-          <Button onClick={handleNext} disabled={!canGoNext}>
-            Next
+          <Button
+            onClick={() => {
+              void handleNext();
+            }}
+            disabled={!canGoNext}
+          >
+            {step === 1 && validateCredential.isPending ? "Validating…" : "Next"}
           </Button>
         )}
       </div>
@@ -1726,6 +1900,21 @@ interface CredentialSectionProps {
   ollamaProbe:
     | import("@/lib/api/types").ProviderCredentialStatusResponse
     | null;
+  // #655: wizard-time credential validation. Triggered automatically
+  // from `handleNext` when the operator advances past Step 1 — the
+  // component renders the verdict inline but never exposes a manual
+  // Validate button.
+  //   - `validationStatus`: lifecycle of the validate mutation for the
+  //     current key. `"idle"` is the resting state; `"validating"` is
+  //     in flight; `"valid"` / `"invalid"` reflect the provider verdict.
+  //   - `validationError`: operator-facing message from the server on
+  //     failure. Rendered inline under the input.
+  //   - `validationPassed`: convenience flag that pins the "valid"
+  //     verdict to the exact typed key + provider pair; stale passes
+  //     (key edited after a previous validation) do not advance.
+  validationStatus: "idle" | "validating" | "valid" | "invalid";
+  validationError: string | null;
+  validationPassed: boolean;
   onKeyChange: (value: string) => void;
   onToggleSaveAsTenantDefault: (value: boolean) => void;
   onToggleOverride: (value: boolean) => void;
@@ -1741,6 +1930,9 @@ function CredentialSection(props: CredentialSectionProps) {
     saveAsTenantDefault,
     overrideOpen,
     ollamaProbe,
+    validationStatus,
+    validationError,
+    validationPassed,
     onKeyChange,
     onToggleSaveAsTenantDefault,
     onToggleOverride,
@@ -1811,6 +2003,9 @@ function CredentialSection(props: CredentialSectionProps) {
               onKeyChange={onKeyChange}
               onToggleSaveAsTenantDefault={onToggleSaveAsTenantDefault}
               tenantToggleLabel={`Overwrite the tenant default for all future units using ${displayName}.`}
+              validationStatus={validationStatus}
+              validationError={validationError}
+              validationPassed={validationPassed}
             />
             <button
               type="button"
@@ -1851,6 +2046,9 @@ function CredentialSection(props: CredentialSectionProps) {
         onKeyChange={onKeyChange}
         onToggleSaveAsTenantDefault={onToggleSaveAsTenantDefault}
         tenantToggleLabel={`Use this key as the default for all future units using ${displayName}.`}
+        validationStatus={validationStatus}
+        validationError={validationError}
+        validationPassed={validationPassed}
       />
     </div>
   );
@@ -1869,6 +2067,9 @@ function CredentialInputControls({
   onKeyChange,
   onToggleSaveAsTenantDefault,
   tenantToggleLabel,
+  validationStatus,
+  validationError,
+  validationPassed,
 }: {
   provider: "anthropic" | "openai" | "google";
   credentialKey: string;
@@ -1876,6 +2077,9 @@ function CredentialInputControls({
   onKeyChange: (value: string) => void;
   onToggleSaveAsTenantDefault: (value: boolean) => void;
   tenantToggleLabel: string;
+  validationStatus: "idle" | "validating" | "valid" | "invalid";
+  validationError: string | null;
+  validationPassed: boolean;
 }) {
   const [show, setShow] = useState(false);
   const inputId = `credential-key-${provider}`;
@@ -1925,6 +2129,45 @@ function CredentialInputControls({
           </Button>
         </div>
       </label>
+
+      {/*
+        #655: validation runs automatically when the operator clicks
+        Next — no manual button. We still surface the verdict inline
+        so the wizard explains why Next stayed on this step (failure)
+        or why the Model dropdown suddenly changed (success).
+      */}
+      {validationStatus === "validating" && (
+        <p
+          role="status"
+          data-testid="credential-validation-in-flight"
+          className="text-xs text-muted-foreground"
+        >
+          Validating {displayName} API key…
+        </p>
+      )}
+      {validationPassed && (
+        <p
+          role="status"
+          data-testid="credential-validation-success"
+          className="flex items-start gap-1.5 text-xs text-emerald-700 dark:text-emerald-300"
+        >
+          <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+          <span>
+            {displayName} accepted the key. Model list refreshed from your
+            account.
+          </span>
+        </p>
+      )}
+      {validationStatus === "invalid" && validationError && (
+        <p
+          role="alert"
+          data-testid="credential-validation-error"
+          className="flex items-start gap-1.5 text-xs text-destructive"
+        >
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+          <span>{validationError}</span>
+        </p>
+      )}
 
       <label
         htmlFor={toggleId}
