@@ -323,6 +323,57 @@ components reference the store by name (`secretstore`) so they require no
 changes. See [Infrastructure](../docs/architecture/infrastructure.md#data-persistence--configuration)
 and [`dapr/README.md`](../dapr/README.md) for profile details.
 
+### GitHub App setup
+
+There are two ways to bootstrap the GitHub App credentials the connector
+needs. The CLI helper is the recommended path — it drops the ~10 manual
+GitHub-docs steps to one browser click.
+
+#### Option A — one-shot CLI helper (`spring github-app register`)
+
+```bash
+# User-account App
+spring github-app register --name "Spring Voyage (prod)"
+
+# Or register under an org
+spring github-app register \
+  --name "Spring Voyage (prod)" \
+  --org cvoya-com
+
+# Air-gapped / CI inspection — builds manifest + prints URL, no I/O
+spring github-app register --name "Spring Voyage (prod)" --dry-run
+```
+
+The verb drives GitHub's [App-from-manifest flow](https://docs.github.com/en/apps/sharing-github-apps/registering-a-github-app-from-a-manifest):
+
+1. Binds a loopback HTTP listener on `127.0.0.1:<ephemeral-port>` (retries
+   on port collisions up to three times).
+2. Opens your browser at `https://github.com/settings/apps/new?manifest=<base64>`
+   with every permission + webhook event pre-filled.
+3. You click **Create**. GitHub redirects back to the listener with a
+   one-time code.
+4. CLI exchanges the code via `POST /app-manifests/{code}/conversions`
+   and receives the App ID, PEM, webhook secret, and OAuth client id/secret.
+5. Credentials land in `deployment/spring.env` (default — `--write-env`)
+   or in the platform-secrets store (`--write-secrets`; uses
+   `spring secret --scope platform create` from #612).
+6. The install URL is printed — visit it to install the App on the repos
+   you care about.
+
+The listener times out after 5 minutes; if you close the browser without
+confirming, re-run the verb. GitHub's own errors (e.g. "name has already
+been taken") are surfaced verbatim so you can rename with a suffix.
+
+See [`docs/architecture/cli-and-web.md § GitHub App bootstrap verb (#631)`](../docs/architecture/cli-and-web.md#github-app-bootstrap-verb-631)
+for the full flag list.
+
+#### Option B — register manually via the GitHub UI
+
+When you need fine-grained control (custom description, private-repo
+restrictions beyond the manifest default, etc.), follow the GitHub docs
+to register the App by hand. The connector expects the credentials in
+the env vars documented below.
+
 ### GitHub App credentials — PEM, not a path
 
 The GitHub connector reads its credentials through the .NET

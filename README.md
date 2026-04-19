@@ -76,6 +76,23 @@ structured `404` the portal and CLI render as "GitHub App not configured"
 [`docs/guide/deployment.md § Optional — connector credentials`](docs/guide/deployment.md#optional--connector-credentials)
 for the expected shape (PEM contents, not a path).
 
+**First-run GitHub bootstrap — recommended path.** Instead of walking the
+~10 manual GitHub-docs steps to register a new App and copy its secrets
+into `deployment/spring.env`, run one CLI verb:
+
+```bash
+spring github-app register --name "Spring Voyage (<your-deployment>)"
+```
+
+The verb drives GitHub's [App-from-manifest flow](https://docs.github.com/en/apps/sharing-github-apps/registering-a-github-app-from-a-manifest):
+it opens your browser on a pre-filled "create App" page, receives the
+conversion code on a loopback listener, and writes `GitHub__AppId`,
+`GitHub__PrivateKeyPem`, `GitHub__WebhookSecret`, and the OAuth client
+id/secret into `deployment/spring.env`. Pass `--org <slug>` to register
+under an organisation or `--write-secrets` to persist via platform-scoped
+secrets instead. See [`docs/architecture/cli-and-web.md`](docs/architecture/cli-and-web.md#github-app-bootstrap-verb-631)
+for the full flag list.
+
 ## Running Locally
 
 There are two hosts that run side-by-side with Dapr sidecars:

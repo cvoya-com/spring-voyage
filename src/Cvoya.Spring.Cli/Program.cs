@@ -44,6 +44,7 @@ public class Program
                 PlatformCommand.Create(outputOption),
                 SecretCommand.Create(outputOption),
                 TemplateCommand.Create(outputOption),
+                GitHubAppCommand.Create(outputOption),
                 ApplyCommand.Create()
             }
         };
