@@ -173,16 +173,17 @@ public class GitHubConnectorEndpointsTests
         // guaranteed to fail with "No supported key formats were found" on
         // JWT sign) and emit a structured body the portal (PR #610) can
         // render cleanly — not a 502.
-        const string expectedReason =
-            "GitHub App not configured. Set 'GitHub:AppId' and 'GitHub:PrivateKeyPem' to enable the connector.";
-
         var installationsClient = Substitute.For<IGitHubInstallationsClient>();
         installationsClient.ListInstallationsAsync(Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("should not be called"));
 
+        // Disabled is driven by absent options — the credential requirement
+        // reports Disabled, and the connector endpoints short-circuit. No
+        // more IGitHubConnectorAvailability override (the interface was
+        // removed in #616).
         await using var factory = CreateFactory(
             installationsClient: installationsClient,
-            availability: GitHubConnectorAvailability.Disabled(expectedReason));
+            appEnabled: false);
         var client = factory.CreateClient();
         var ct = TestContext.Current.CancellationToken;
 
@@ -197,10 +198,14 @@ public class GitHubConnectorEndpointsTests
         disabled.GetBoolean().ShouldBeTrue();
 
         body.TryGetProperty("reason", out var reason).ShouldBeTrue();
-        reason.GetString().ShouldBe(expectedReason);
+        var reasonString = reason.GetString();
+        reasonString.ShouldNotBeNull();
+        reasonString!.ShouldContain("GitHub App not configured");
 
         body.TryGetProperty("detail", out var detail).ShouldBeTrue();
-        detail.GetString().ShouldBe(expectedReason);
+        var detailString = detail.GetString();
+        detailString.ShouldNotBeNull();
+        detailString!.ShouldContain("GitHub App not configured");
 
         // The installations client must NOT have been invoked — the whole
         // point of the fix is to skip the hot path.
@@ -214,10 +219,7 @@ public class GitHubConnectorEndpointsTests
         // Same short-circuit as list-installations so the portal's install-
         // app link renders a consistent "not configured" state rather than
         // a partial mixed response.
-        const string expectedReason = "GitHub App not configured.";
-
-        await using var factory = CreateFactory(
-            availability: GitHubConnectorAvailability.Disabled(expectedReason));
+        await using var factory = CreateFactory(appEnabled: false);
         var client = factory.CreateClient();
         var ct = TestContext.Current.CancellationToken;
 
@@ -227,7 +229,9 @@ public class GitHubConnectorEndpointsTests
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>(ct);
         body.GetProperty("disabled").GetBoolean().ShouldBeTrue();
-        body.GetProperty("reason").GetString().ShouldBe(expectedReason);
+        var reasonString = body.GetProperty("reason").GetString();
+        reasonString.ShouldNotBeNull();
+        reasonString!.ShouldContain("GitHub App not configured");
     }
 
     [Fact]
@@ -258,38 +262,35 @@ public class GitHubConnectorEndpointsTests
         string? appSlug = null,
         IGitHubInstallationsClient? installationsClient = null,
         IUnitConnectorConfigStore? configStore = null,
-        IGitHubConnectorAvailability? availability = null)
+        bool appEnabled = true)
     {
-        // Default availability for tests that exercise the happy-path
-        // (list-installations returns 200, install-url returns 200): the
-        // shared CustomWebApplicationFactory doesn't set GITHUB_APP_* so
-        // AddCvoyaSpringConnectorGitHub registers the connector in
-        // "disabled" state. Without this override every endpoint would
-        // short-circuit to 404 before the test's own mocks ran (#609).
-        var effectiveAvailability = availability ?? GitHubConnectorAvailability.Enabled;
-
         var baseFactory = new CustomWebApplicationFactory();
         return baseFactory.WithWebHostBuilder(builder =>
         {
             builder.ConfigureServices(services =>
             {
+                // Post-configure the GitHub options so the credential
+                // requirement sees what the test wants to see. Enabled =
+                // inline a valid PEM + numeric AppId (via a fresh RSA key),
+                // disabled = leave the defaults (empty) so the requirement
+                // reports Disabled. This drives the endpoint short-circuit
+                // through the real IConfigurationRequirement path that
+                // replaced the pre-#616 IGitHubConnectorAvailability seam.
+                if (appEnabled)
+                {
+                    var pem = System.Security.Cryptography.RSA.Create(2048).ExportRSAPrivateKeyPem();
+                    services.PostConfigure<GitHubConnectorOptions>(opts =>
+                    {
+                        opts.AppId = 12345;
+                        opts.PrivateKeyPem = pem;
+                        opts.WebhookSecret = "test-secret";
+                    });
+                }
+
                 if (appSlug is not null)
                 {
                     services.PostConfigure<GitHubConnectorOptions>(opts => opts.AppSlug = appSlug);
                 }
-
-                // Replace the availability singleton registered by
-                // AddCvoyaSpringConnectorGitHub with the test's choice so
-                // endpoints dispatch through the real short-circuit path
-                // under test.
-                var availabilityDescriptors = services
-                    .Where(d => d.ServiceType == typeof(IGitHubConnectorAvailability))
-                    .ToList();
-                foreach (var d in availabilityDescriptors)
-                {
-                    services.Remove(d);
-                }
-                services.AddSingleton<IGitHubConnectorAvailability>(effectiveAvailability);
 
                 // Drop the stub IConnectorType registered by the shared factory
                 // so the real GitHubConnectorType owns the /connectors/github

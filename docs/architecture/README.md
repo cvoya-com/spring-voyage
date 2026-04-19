@@ -95,6 +95,7 @@ Each goal directly addresses a v1 limitation:
 | [Connectors](connectors.md) | Connector model, skills, implementation tiers |
 | [Observability](observability.md) | Activity events, Rx.NET streams, cost tracking |
 | [CLI & Web](cli-and-web.md) | Client API surface, hosting modes, CLI, deployment topology |
+| [Configuration](configuration.md) | Startup configuration validation framework (`IConfigurationRequirement`, report shape, fail-fast policy) |
 | [Deployment](deployment.md) | Agent hosting modes (ephemeral vs persistent), persistent agent registry lifecycle, container runtime requirements, Dapr sidecar bootstrap, solution structure |
 | [Security](security.md) | Authentication, permissions, multi-tenancy, secrets stack (registry / store / resolver, at-rest encryption, rotation, unit → tenant inheritance, audit logging) |
 | [Packages](packages.md) | Domain packages, skill format, package system |

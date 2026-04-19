@@ -43,6 +43,7 @@ public class Program
                 PackageCommand.Create(outputOption),
                 PlatformCommand.Create(outputOption),
                 SecretCommand.Create(outputOption),
+                SystemCommand.Create(outputOption),
                 TemplateCommand.Create(outputOption),
                 GitHubAppCommand.Create(outputOption),
                 ApplyCommand.Create()

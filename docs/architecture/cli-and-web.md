@@ -75,7 +75,14 @@ spring agent execution get ada
 spring agent execution set ada --image ghcr.io/my/agent-ada:v1 --hosting ephemeral
 spring agent execution clear ada --field provider
 spring agent create backend-eng --tool claude-code --image ghcr.io/my/agent:v1 --runtime podman
+
+# Startup configuration report (#616)
+spring system configuration                       # all subsystems, table view
+spring system configuration --json                # raw JSON
+spring system configuration "GitHub Connector"    # drill into one subsystem
 ```
+
+The `spring system configuration` verb reads the cached startup configuration report over `GET /api/v1/system/configuration` — the same endpoint the portal's `/system/configuration` page consumes. See [Configuration](configuration.md) for the framework contract and validation policy.
 
 ### Execution verbs (#601 B-wide)
 

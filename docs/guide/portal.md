@@ -36,6 +36,7 @@ The left sidebar ([src/Cvoya.Spring.Web/src/components/sidebar.tsx](../../src/Cv
 | `/analytics/waits` — **Analytics → Wait times** | Idle / busy / waiting-for-human durations per source | `spring analytics waits` |
 | `/packages` — **Packages** | Browse installed packages and their templates | `spring package list` / `spring package show` |
 | `/directory` — **Directory** | Tenant-wide expertise directory — searchable domains declared by every agent and unit | `spring directory list` / `spring directory show <slug>` / `spring directory search "<query>"` |
+| `/system/configuration` — **System configuration** | Cached startup configuration report — per-subsystem status (Healthy / Degraded / Failed), per-requirement rows with reason, suggestion, env-var names, and docs links | `spring system configuration` |
 
 Detail pages (`/units/{id}`, `/agents/{id}`, `/conversations/{id}`) are reached by clicking entity cards on the dashboard, list pages, or by following deep-links from activity rows. Every detail page renders a breadcrumb trail (`Dashboard › Units › {id}` and so on) so navigation depth is always visible.
 
@@ -598,6 +599,27 @@ The initiative page ([src/Cvoya.Spring.Web/src/app/initiative/page.tsx](../../sr
 The bottom of the page streams recent `InitiativeTriggered` / `ReflectionCompleted` events.
 
 **CLI equivalent:** none today. The CLI does not expose initiative policy editing. **This is a CLI/UI parity gap.**
+
+## System configuration (`/system/configuration`)
+
+The system-configuration page ([src/Cvoya.Spring.Web/src/app/system/configuration/page.tsx](../../src/Cvoya.Spring.Web/src/app/system/configuration/page.tsx)) renders the cached startup configuration report produced by the platform's tier-1 validator (issue #616). Operators land on it to answer "is the platform deployed correctly?" without reading container logs.
+
+- **Overall card** — badge (Healthy / Degraded / Failed) plus the `generatedAt` timestamp. The timestamp does not move until the host restarts — the validator caches the report at boot and never re-runs.
+- **Per-subsystem cards** — collapsible sections, one per subsystem (Database, GitHub Connector, Ollama, …). Cards for subsystems that aren't Healthy expand by default so degradation is visible without a click.
+- **Requirement rows** — each requirement shows display name, status (Met / Disabled / Invalid), severity (Information / Warning / Error), mandatory vs optional, a plain-language description, a reason, an actionable suggestion (e.g. "run `spring github-app register`"), the env-var names to set, the `appsettings.json` section path, and a docs link.
+- **Refresh** — button in the header re-fetches the endpoint. The report is still cached server-side; refresh only picks up the freshly-cached value after the host restarts.
+
+The page rides the existing banner primitives (axe-clean per #580) — no new colour tokens. Status badges use the same `success` / `warning` / `destructive` palette the rest of the portal uses.
+
+**CLI equivalent:**
+
+```
+spring system configuration                       # all subsystems, table view
+spring system configuration --json                # raw JSON (jq-friendly)
+spring system configuration "GitHub Connector"    # drill into one subsystem
+```
+
+Both surfaces read `GET /api/v1/system/configuration` — anonymous in the OSS build, the private cloud host layers auth middleware on top.
 
 ## Analytics (`/analytics`)
 

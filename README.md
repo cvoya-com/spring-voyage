@@ -64,6 +64,12 @@ dotnet test SpringVoyage.slnx
 
 For the full local-dev loop (API + Worker + dashboard), see [`docs/developer/setup.md`](docs/developer/setup.md).
 
+### System configuration
+
+The platform validates its tier-1 configuration (environment variables, `appsettings.json`, mounted secrets) at startup. A mandatory requirement that's missing or malformed (e.g. the PostgreSQL connection string) aborts the host with an actionable error; optional requirements (e.g. the GitHub App credentials) report Disabled or Degraded and the host keeps booting.
+
+Inspect the cached report after startup via the portal page `/system/configuration` or the CLI verb `spring system configuration`. Both surfaces read `GET /api/v1/system/configuration` and render per-subsystem status, env-var names, reasons, and suggested fixes. See [`docs/architecture/configuration.md`](docs/architecture/configuration.md) for the framework contract.
+
 ### Connector credentials are optional for startup
 
 The platform starts cleanly without any connector secrets. Connector-specific
