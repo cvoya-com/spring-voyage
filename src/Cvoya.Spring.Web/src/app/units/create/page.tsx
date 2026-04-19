@@ -2150,11 +2150,26 @@ function CredentialInputControls({
   const inputType = show ? "text" : "password";
   const displayName = providerLabel(provider);
 
+  // #660: Anthropic accepts two credential formats — a Platform API key
+  // (from console.anthropic.com, starts with `sk-ant-api...`) and a
+  // Claude.ai OAuth token (from `claude setup-token`, starts with
+  // `sk-ant-oat...`). The label/placeholder reflect both so operators
+  // on a Claude.ai subscription (no Platform plan) know the token
+  // they already have will work.
+  const isAnthropic = provider === "anthropic";
+  const fieldLabel = isAnthropic
+    ? `${displayName} API key or Claude.ai token`
+    : `${displayName} API key`;
+  const fieldPlaceholder = isAnthropic
+    ? "Paste your Anthropic API key or Claude.ai token"
+    : `Paste your ${displayName} API key`;
+  const showHideLabel = isAnthropic ? "credential" : "API key";
+
   return (
     <div className="space-y-2">
       <label htmlFor={inputId} className="block space-y-1">
         <span className="text-xs text-muted-foreground">
-          {displayName} API key
+          {fieldLabel}
         </span>
         <div className="flex items-center gap-2">
           <Input
@@ -2163,7 +2178,7 @@ function CredentialInputControls({
             value={credentialKey}
             onChange={(e) => onKeyChange(e.target.value)}
             onBlur={onValidate}
-            placeholder={`Paste your ${displayName} API key`}
+            placeholder={fieldPlaceholder}
             autoComplete="off"
             spellCheck={false}
             data-testid="credential-input"
@@ -2175,8 +2190,8 @@ function CredentialInputControls({
             onClick={() => setShow((s) => !s)}
             aria-label={
               show
-                ? `Hide ${displayName} API key`
-                : `Show ${displayName} API key`
+                ? `Hide ${displayName} ${showHideLabel}`
+                : `Show ${displayName} ${showHideLabel}`
             }
             aria-pressed={show}
             data-testid="credential-visibility-toggle"
