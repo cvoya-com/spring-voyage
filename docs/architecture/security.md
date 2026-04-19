@@ -173,6 +173,21 @@ The resolver **never throws** on a missing credential. Consumers that require a 
 
 When a deployment needs to read a tenant-default value back (for instance, to port it to a new tenant), operators use the CLI's secret-management verbs against the registry directly — subject to `ISecretAccessPolicy`, which in the cloud host is tenant-admin-gated. The portal never offers a "reveal" button.
 
+### Credential validation endpoint — #655
+
+`POST /api/v1/system/credentials/{provider}/validate` extends the status pattern with a lightweight verification path for a **caller-supplied** API key. The wizard hits it when the operator types a new key, before the key ever touches the registry — a typo is caught at the wizard step, not at the first agent-dispatch attempt.
+
+```
+POST /api/v1/system/credentials/anthropic/validate
+{ "apiKey": "sk-ant-…" }
+→ { "provider": "anthropic", "valid": true, "status": "valid",
+    "models": ["claude-opus-5-…", "claude-sonnet-5-…"], "error": null }
+```
+
+The request body is write-only — the key crosses the wire exactly once and the server never persists it. The response body carries the verdict, a coarse status bucket (`valid` / `unauthorized` / `provider-error` / `network-error` / `missing-key`), the live model list on success, and an operator-facing error string on failure. **The response never echoes the key.**
+
+The implementation ([`ProviderCredentialValidator`](../../src/Cvoya.Spring.Dapr/Execution/ProviderCredentialValidator.cs)) issues a read-only `GET /v1/models` against Anthropic/OpenAI or `GET /v1beta/models` against Google, using the same HTTP client pool as [`ModelCatalog`](../../src/Cvoya.Spring.Dapr/Execution/ModelCatalog.cs). Returning the model list lets the wizard seed its Model dropdown from the same call it used to validate — so validating also refreshes the catalog for this operator without a second round-trip. The interface ([`IProviderCredentialValidator`](../../src/Cvoya.Spring.Core/Execution/IProviderCredentialValidator.cs)) is the DI seam the private cloud host replaces if it wants to route validation through a tenant egress gateway.
+
 ## Secrets Stack
 
 Spring Voyage ships a three-layer secrets stack — **registry**, **store**, and **resolver** — plus an access-policy seam. All three layers are defined in `Cvoya.Spring.Core/Secrets/` so a private-cloud host can substitute any layer (e.g. routing writes to Azure Key Vault) without touching call sites.

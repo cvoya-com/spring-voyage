@@ -328,6 +328,15 @@ public static class ServiceCollectionExtensions
         services.AddHttpClient(ModelCatalog.HttpClientName);
         services.TryAddSingleton<IModelCatalog, ModelCatalog>();
 
+        // Wizard-time credential validator (#655). Issues a lightweight
+        // GET /v1/models against the provider with a caller-supplied
+        // key so the wizard can catch a typo before the first dispatch.
+        // Shares the ModelCatalog HTTP client pool — same handler
+        // lifecycle, low call volume. TryAdd so the private cloud host
+        // can supply a tenant-scoped validator (e.g. one that proxies
+        // through a tenant egress gateway) without forking.
+        services.TryAddSingleton<IProviderCredentialValidator, ProviderCredentialValidator>();
+
         // Tier-2 LLM credential resolver (#615). Delegates to the
         // existing ISecretResolver (Unit → Tenant inheritance, ADR 0003).
         // Credentials must be set at tenant or unit scope — there is no

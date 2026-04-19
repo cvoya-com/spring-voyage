@@ -6451,6 +6451,56 @@
         }
       }
     },
+    "/api/v1/system/credentials/{provider}/validate": {
+      "post": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Validate a caller-supplied LLM provider API key against the provider",
+        "operationId": "ValidateProviderCredential",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ValidateCredentialRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderCredentialValidationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request"
+          }
+        }
+      }
+    },
     "/api/v1/system/configuration": {
       "get": {
         "tags": [
@@ -8834,6 +8884,42 @@
           }
         }
       },
+      "ProviderCredentialValidationResponse": {
+        "required": [
+          "provider",
+          "valid",
+          "status",
+          "models",
+          "error"
+        ],
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string"
+          },
+          "valid": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string"
+          },
+          "models": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "error": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "PruneSecretResponse": {
         "required": [
           "name",
@@ -10245,6 +10331,17 @@
             "type": "string"
           },
           "displayName": {
+            "type": "string"
+          }
+        }
+      },
+      "ValidateCredentialRequest": {
+        "required": [
+          "apiKey"
+        ],
+        "type": "object",
+        "properties": {
+          "apiKey": {
             "type": "string"
           }
         }
