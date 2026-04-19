@@ -89,7 +89,7 @@ export function AuthPanel() {
         <p className="mt-2 text-[11px] text-muted-foreground">
           Mirrors{" "}
           <code className="font-mono text-[11px]">spring auth token list</code>
-          . Token create and revoke land in a follow-up (#557).
+          . Token create and revoke land in a future release.
         </p>
       </div>
     </div>

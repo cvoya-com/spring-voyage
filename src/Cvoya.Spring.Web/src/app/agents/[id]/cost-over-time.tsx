@@ -65,26 +65,8 @@ export function CostOverTimeCard({ agentId }: CostOverTimeCardProps) {
       </CardHeader>
       <CardContent className="space-y-3 text-sm">
         <p className="text-xs text-muted-foreground">
-          Rolling totals for this agent. Per-bucket sparklines arrive
-          with{" "}
-          <Link
-            href="https://github.com/cvoya-com/spring-voyage/issues/569"
-            target="_blank"
-            rel="noreferrer"
-            className="text-primary hover:underline"
-          >
-            #569
-          </Link>
-          ; tool / model breakdown with{" "}
-          <Link
-            href="https://github.com/cvoya-com/spring-voyage/issues/570"
-            target="_blank"
-            rel="noreferrer"
-            className="text-primary hover:underline"
-          >
-            #570
-          </Link>
-          .
+          Rolling totals for this agent. Per-bucket sparklines and a
+          tool / model breakdown arrive in a later release.
         </p>
         <WindowBar
           label="Last 24h"

@@ -61,7 +61,7 @@ public static class UnitPolicyCommand
     {
         var policyCommand = new Command(
             "policy",
-            "Manage a unit's governance policy across the five UnitPolicy dimensions (#453). " +
+            "Manage a unit's governance policy across the five UnitPolicy dimensions. " +
             "Each dimension has its own get/set/clear triple; 'get' also prints the effective / merged policy.");
 
         foreach (var dim in DimensionTokens)
@@ -76,12 +76,12 @@ public static class UnitPolicyCommand
     {
         var help = dimension switch
         {
-            "skill" => "Skill (tool) allow/block list (#163).",
-            "model" => "LLM model allow/block list (#247).",
-            "cost" => "Per-invocation / per-hour / per-day spend caps (#248).",
-            "execution-mode" => "Pinned or whitelisted execution mode (Auto / OnDemand) (#249).",
-            "initiative" => "Unit-level deny overlay on allowed / blocked reflection actions (#250).",
-            "label-routing" => "Label -> member routing map consumed by the label-routed orchestration strategy (#389).",
+            "skill" => "Skill (tool) allow/block list.",
+            "model" => "LLM model allow/block list.",
+            "cost" => "Per-invocation / per-hour / per-day spend caps.",
+            "execution-mode" => "Pinned or whitelisted execution mode (Auto / OnDemand).",
+            "initiative" => "Unit-level deny overlay on allowed / blocked reflection actions.",
+            "label-routing" => "Label -> member routing map consumed by the label-routed orchestration strategy.",
             _ => "Unit policy dimension.",
         };
 
@@ -147,7 +147,7 @@ public static class UnitPolicyCommand
             sb.AppendLine(FormatSlotForHumans(dimension, slot, indent: "     "));
             sb.AppendLine();
             sb.AppendLine(
-                "  note: parent-unit policy inheritance is tracked under #414; " +
+                "  note: parent-unit policy inheritance is planned for a later release; " +
                 "today the chain has a single hop.");
             Console.Write(sb.ToString());
         });

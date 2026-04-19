@@ -276,7 +276,7 @@ public static class UnitCommand
                 // so docs / onboarding mat
                 // erial can move off the flag.
                 await Console.Error.WriteLineAsync(
-                    "warning: `spring unit create --from-template` is deprecated (#460). " +
+                    "warning: `spring unit create --from-template` is deprecated. " +
                     "Use `spring unit create-from-template <package>/<template> [--name ...]` instead.");
 
                 var effectiveUnitName = !string.IsNullOrWhiteSpace(unitNameOverride)
@@ -392,7 +392,7 @@ public static class UnitCommand
         var unitNameOption = new Option<string?>("--name")
         {
             Description =
-                "Override the unit name (#325). Defaults to the manifest-derived name; pass this " +
+                "Override the unit name. Defaults to the manifest-derived name; pass this " +
                 "when instantiating the same template multiple times so the address paths don't collide.",
         };
         var displayNameOption = new Option<string?>("--display-name")
@@ -449,7 +449,7 @@ public static class UnitCommand
 
         var command = new Command(
             "create-from-template",
-            "Instantiate a unit from a packaged template (#460). First-class verb equivalent to the " +
+            "Instantiate a unit from a packaged template. First-class verb equivalent to the " +
             "deprecated `spring unit create --from-template <package>/<template>` flag.");
         command.Arguments.Add(targetArg);
         command.Options.Add(unitNameOption);
@@ -1100,7 +1100,7 @@ public static class UnitCommand
         };
         var unitOption = new Option<string?>("--unit")
         {
-            Description = "The sub-unit identifier to add as a member (mutually exclusive with --agent). See #331.",
+            Description = "The sub-unit identifier to add as a member (mutually exclusive with --agent).",
         };
 
         var (options, bind) = BuildMembershipOptionsInternal(agentOption);

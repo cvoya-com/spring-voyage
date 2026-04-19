@@ -48,7 +48,7 @@ public static class AgentCloningPolicyCommand
     public static Command Create(Option<string> outputOption)
     {
         var command = new Command("policy",
-            "Manage the persistent cloning policy for an agent (or the tenant-wide default) — see #416.");
+            "Manage the persistent cloning policy for an agent (or the tenant-wide default).");
         command.Subcommands.Add(CreateGet(outputOption));
         command.Subcommands.Add(CreateSet(outputOption));
         command.Subcommands.Add(CreateClear());

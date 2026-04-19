@@ -272,7 +272,7 @@ function StrategyCard({
         </label>
         <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
           Edits write through{" "}
-          <code>PUT /api/v1/units/{"{id}"}/orchestration</code> (#606) — the
+          <code>PUT /api/v1/units/{"{id}"}/orchestration</code> — the
           same persistence slot as{" "}
           <code>orchestration.strategy</code> in a{" "}
           <code>spring apply -f unit.yaml</code> manifest. Clearing the slot

@@ -53,7 +53,7 @@ public static class UnitHumansCommand
     {
         var command = new Command(
             "humans",
-            "Manage the humans (owners / operators / viewers) associated with a unit (#454).");
+            "Manage the humans (owners / operators / viewers) associated with a unit.");
 
         command.Subcommands.Add(CreateAddCommand(outputOption));
         command.Subcommands.Add(CreateRemoveCommand());

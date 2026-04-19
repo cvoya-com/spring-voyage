@@ -137,19 +137,9 @@ export function CostsTab({ unitId }: CostsTabProps) {
         </CardHeader>
         <CardContent className="space-y-3 text-sm">
           <p className="text-xs text-muted-foreground">
-            Rolling totals for this unit. The per-bucket sparkline #394
-            asks for lands once the cost API exposes a time-series
-            (tracked in{" "}
-            <Link
-              href="https://github.com/cvoya-com/spring-voyage/issues/569"
-              target="_blank"
-              rel="noreferrer"
-              className="text-primary hover:underline"
-            >
-              #569
-            </Link>
-            ); today the portal renders the windows the CLI already
-            returns.
+            Rolling totals for this unit. Per-bucket sparklines land
+            once the cost API exposes a time-series; today the portal
+            renders the windows the CLI already returns.
           </p>
           <WindowBar
             label="24h"

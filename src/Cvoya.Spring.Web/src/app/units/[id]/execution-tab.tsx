@@ -335,7 +335,7 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
           {showModel && (
             <FieldRow
               label="Model"
-              help="Model identifier. Populated from the provider's live catalog when available (#613)."
+              help="Model identifier. Populated from the provider's live catalog when available."
               onClear={
                 persisted?.model ? () => clearField("model") : undefined
               }

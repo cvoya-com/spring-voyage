@@ -95,7 +95,7 @@ public static class ConnectorCommand
 
         var command = new Command(
             "bindings",
-            "List every unit bound to a connector type. Mirrors the portal's /connectors/{slug} 'Bound units' section so both surfaces round-trip the same data in one call (#520).");
+            "List every unit bound to a connector type. Mirrors the portal's /connectors/{slug} 'Bound units' section so both surfaces round-trip the same data in one call.");
         command.Arguments.Add(slugOrIdArg);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>

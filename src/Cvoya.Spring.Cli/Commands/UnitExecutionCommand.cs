@@ -73,7 +73,7 @@ public static class UnitExecutionCommand
     {
         var command = new Command(
             "execution",
-            "Read / write the unit's manifest-persisted execution defaults (#601 B-wide). " +
+            "Read / write the unit's manifest-persisted execution defaults. " +
             "Fields: image, runtime, tool, provider, model. Inherited by member agents that " +
             "don't declare their own value per the agent → unit → fail resolution chain.");
 

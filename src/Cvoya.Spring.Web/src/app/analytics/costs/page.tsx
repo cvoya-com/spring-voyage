@@ -373,16 +373,7 @@ function AnalyticsCostsContent() {
           <p className="mt-3 text-xs text-muted-foreground">
             The CLI <code className="font-mono">spring analytics costs</code>{" "}
             returns per-scope totals only; the per-source breakdown is
-            portal-only today. CLI parity tracked in{" "}
-            <Link
-              href="https://github.com/cvoya-com/spring-voyage/issues/554"
-              target="_blank"
-              rel="noreferrer"
-              className="text-primary hover:underline"
-            >
-              #554
-            </Link>
-            .
+            portal-only today. CLI parity is planned for a later release.
           </p>
         </CardContent>
       </Card>

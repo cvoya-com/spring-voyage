@@ -59,7 +59,7 @@ public static class UnitOrchestrationCommand
     {
         var command = new Command(
             "orchestration",
-            "Read / write the unit's manifest-persisted orchestration strategy (#606). " +
+            "Read / write the unit's manifest-persisted orchestration strategy. " +
             "Platform-offered keys: ai, workflow, label-routed.");
 
         command.Subcommands.Add(CreateGetCommand(outputOption));
@@ -165,7 +165,7 @@ public static class UnitOrchestrationCommand
                 "Accepts either a bare dimension map (triggerLabels / addOnAssign / removeOnAssign) or a top-level " +
                 "`labelRouting:` / `label-routing:` wrapper. Routed through the existing PUT /api/v1/units/{id}/policy " +
                 "endpoint so this verb keeps label-routing and strategy editable in one invocation — matching the " +
-                "portal's Orchestration tab (#611). When omitted, the unit's existing label-routing policy is left alone.",
+                "portal's Orchestration tab. When omitted, the unit's existing label-routing policy is left alone.",
         };
 
         var command = new Command(
