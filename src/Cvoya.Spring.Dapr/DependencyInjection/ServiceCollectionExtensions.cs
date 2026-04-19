@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Dapr.DependencyInjection;
 using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Cloning;
+using Cvoya.Spring.Core.Configuration;
 using Cvoya.Spring.Core.Costs;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Execution;
@@ -23,6 +24,7 @@ using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Capabilities;
 using Cvoya.Spring.Dapr.Cloning;
+using Cvoya.Spring.Dapr.Configuration;
 using Cvoya.Spring.Dapr.Connectors;
 using Cvoya.Spring.Dapr.Costs;
 using Cvoya.Spring.Dapr.Data;
@@ -108,22 +110,20 @@ public static class ServiceCollectionExtensions
 
         // EF Core / PostgreSQL.
         //
-        // Fail fast when no provider is configured. A test harness (e.g. the
-        // Host.Api integration tests' CustomWebApplicationFactory) registers
-        // its own DbContextOptions<SpringDbContext> — typically backed by
-        // UseInMemoryDatabase — BEFORE calling AddCvoyaSpringDapr; in that
-        // case we respect the pre-registration and skip our default Npgsql
-        // wiring. Otherwise the ConnectionStrings:SpringDb entry is
-        // mandatory: a missing value used to register a DbContext without a
-        // provider and silently explode on the first EF query deep inside a
-        // request (see #261). Throwing here surfaces the misconfiguration at
-        // host startup with a clear, actionable message.
+        // Test harnesses (e.g. CustomWebApplicationFactory) pre-register
+        // DbContextOptions<SpringDbContext> via UseInMemoryDatabase BEFORE
+        // calling AddCvoyaSpringDapr; we respect that and skip our default
+        // Npgsql wiring. Otherwise we bind Npgsql when a connection string
+        // is present, or register the context without a provider when one
+        // is not. The #616 DatabaseConfigurationRequirement owns the
+        // missing / malformed classification and raises a fatal error
+        // through the startup validator — we no longer throw from here.
         //
         // Design-time tooling (dotnet-ef, dotnet-getdocument for the
         // build-time OpenAPI document) loads the host without a database
-        // connection and never actually opens the context. Detect those
-        // callers and skip provider wiring so the build-time OpenAPI emitter
-        // keeps working with no local database configured.
+        // connection and never actually opens the context. The absent
+        // validator at build-time plus the provider-less registration keep
+        // the build-time OpenAPI emitter working with no local database.
         var alreadyRegistered = services.Any(d =>
             d.ServiceType == typeof(DbContextOptions<SpringDbContext>));
         if (!alreadyRegistered)
@@ -131,22 +131,12 @@ public static class ServiceCollectionExtensions
             var connectionString = configuration.GetConnectionString("SpringDb");
             if (string.IsNullOrEmpty(connectionString))
             {
-                if (isDocGen)
-                {
-                    // Leave the context unconfigured; design-time tooling never resolves it.
-                    services.AddDbContext<SpringDbContext>(_ => { });
-                }
-                else
-                {
-                    throw new InvalidOperationException(
-                        "No connection string found for SpringDbContext. Set the " +
-                        "ConnectionStrings:SpringDb configuration value (environment variable " +
-                        "ConnectionStrings__SpringDb=...) to a valid PostgreSQL connection " +
-                        "string, or pre-register DbContextOptions<SpringDbContext> before " +
-                        "calling AddCvoyaSpringDapr (for example via " +
-                        "AddDbContext<SpringDbContext>(options => options.UseInMemoryDatabase(...)) " +
-                        "in a test harness).");
-                }
+                // Register the context without a provider so construction
+                // succeeds. The DatabaseConfigurationRequirement reports
+                // Invalid+Mandatory at StartAsync, aborting boot with a
+                // clear message before any EF query runs. Build-time
+                // tooling (isDocGen) never resolves the context.
+                services.AddDbContext<SpringDbContext>(_ => { });
             }
             else
             {
@@ -154,6 +144,24 @@ public static class ServiceCollectionExtensions
                     options.UseNpgsql(connectionString, npgsql =>
                         npgsql.MigrationsHistoryTable("__EFMigrationsHistory", "spring")));
             }
+        }
+
+        // #616: tier-1 configuration validation framework. Register the
+        // validator + reference requirements first so the validator's
+        // IHostedService enumerates them before any other hosted service
+        // runs. Design-time tooling skips the validator entirely — the
+        // build-time OpenAPI emitter never starts the host lifecycle, and
+        // the validator would otherwise fail on a provider-less context.
+        if (!isDocGen)
+        {
+            services.AddCvoyaSpringConfigurationValidator();
+            // Signal to DatabaseConfigurationRequirement whether the caller
+            // pre-registered a DbContext (test harness path) — captured at
+            // registration time to avoid resolving the scoped
+            // DbContextOptions<SpringDbContext> from the root provider.
+            services.AddSingleton(new DatabaseConfigurationRequirement.TestHarnessSignal(alreadyRegistered));
+            services.TryAddEnumerable(
+                ServiceDescriptor.Singleton<IConfigurationRequirement, DatabaseConfigurationRequirement>());
         }
 
         // Database options. Always bound — both API and Worker hosts (and
@@ -649,23 +657,60 @@ public static class ServiceCollectionExtensions
 
         services.AddHttpClient<IAiProvider, OllamaProvider>();
 
-        // Health-check: hosted service that probes /api/tags on startup. The
-        // HttpClient is resolved from IHttpClientFactory (registered via
-        // AddHttpClient above) rather than typed-client injection so we can keep
-        // the health check a singleton without coupling it to DefaultHttpClientFactory
-        // lifetime quirks.
-        services.AddHttpClient(nameof(OllamaHealthCheck));
-        services.AddHostedService(sp =>
-        {
-            var factory = sp.GetRequiredService<IHttpClientFactory>();
-            var httpClient = factory.CreateClient(nameof(OllamaHealthCheck));
-            return new OllamaHealthCheck(
-                httpClient,
-                sp.GetRequiredService<IOptions<OllamaOptions>>(),
-                sp.GetRequiredService<ILogger<OllamaHealthCheck>>());
-        });
+        // Health-check: #616 migrated the Ollama probe into the configuration
+        // validation framework. The OllamaConfigurationRequirement registers
+        // as an IConfigurationRequirement; the startup validator drives the
+        // probe once (matching the old OllamaHealthCheck semantics) and the
+        // report surfaces the outcome consistently with every other
+        // subsystem. The named HttpClient the requirement uses is registered
+        // below so consumers resolving IHttpClientFactory get a configured
+        // client even without AddCvoyaSpringConfigurationValidator.
+        services.AddHttpClient(nameof(OllamaConfigurationRequirement));
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IConfigurationRequirement, OllamaConfigurationRequirement>());
 
         return services;
     }
 
+    /// <summary>
+    /// Registers the startup configuration validator (<see cref="StartupConfigurationValidator"/>)
+    /// as the first <see cref="Microsoft.Extensions.Hosting.IHostedService"/>. All registered
+    /// <see cref="IConfigurationRequirement"/> implementations are evaluated during
+    /// <c>StartAsync</c>; a mandatory requirement reporting
+    /// <see cref="ConfigurationStatus.Invalid"/> aborts host boot with its
+    /// <see cref="ConfigurationRequirementStatus.FatalError"/>.
+    /// </summary>
+    /// <remarks>
+    /// Called by <see cref="AddCvoyaSpringDapr"/> at the appropriate point
+    /// in the DI graph; exposed publicly so downstream hosts that bypass
+    /// <c>AddCvoyaSpringDapr</c> (for example, a narrow CLI harness) can
+    /// still opt into the validator without duplicating the registration.
+    /// Uses <c>TryAdd</c> so a test harness that wants to bypass startup
+    /// validation can pre-register its own no-op
+    /// <see cref="IStartupConfigurationValidator"/> before this runs.
+    /// </remarks>
+    /// <param name="services">The service collection to configure.</param>
+    /// <returns>The same service collection for chaining.</returns>
+    public static IServiceCollection AddCvoyaSpringConfigurationValidator(
+        this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        // Idempotent: skip on repeat calls. Keying off the concrete
+        // StartupConfigurationValidator registration covers both the
+        // singleton and the hosted-service wrapper.
+        var alreadyRegistered = services.Any(d =>
+            d.ServiceType == typeof(StartupConfigurationValidator));
+        if (alreadyRegistered)
+        {
+            return services;
+        }
+
+        services.AddSingleton<StartupConfigurationValidator>();
+        services.TryAddSingleton<IStartupConfigurationValidator>(
+            sp => sp.GetRequiredService<StartupConfigurationValidator>());
+        services.AddHostedService(sp => sp.GetRequiredService<StartupConfigurationValidator>());
+
+        return services;
+    }
 }

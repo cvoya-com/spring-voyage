@@ -136,23 +136,32 @@ public class ServiceCollectionExtensionsTests
     }
 
     /// <summary>
-    /// Regression test for #261. Configuration without
-    /// <c>ConnectionStrings:SpringDb</c> and without a pre-registered
-    /// <see cref="DbContextOptions{SpringDbContext}"/> must throw an
-    /// <see cref="InvalidOperationException"/> with a clear message at
-    /// <c>AddCvoyaSpringDapr</c> time — NOT defer the failure to the
-    /// first EF query (the original bug: unit creation returning 500
-    /// with "No database provider has been configured for this DbContext").
+    /// Regression test for #261 — updated for the #616 startup configuration
+    /// validator. Configuration without <c>ConnectionStrings:SpringDb</c> and
+    /// without a pre-registered <see cref="DbContextOptions{SpringDbContext}"/>
+    /// must abort host startup with a clear message rather than deferring the
+    /// failure to the first EF query. The throw now happens at
+    /// <c>StartAsync</c> time inside <see cref="Cvoya.Spring.Dapr.Configuration.StartupConfigurationValidator"/>
+    /// instead of at <c>AddCvoyaSpringDapr</c> time.
     /// </summary>
     [Fact]
-    public void AddCvoyaSpringDapr_NoConnectionStringAndNoPreRegisteredDbContext_Throws()
+    public async Task AddCvoyaSpringDapr_NoConnectionStringAndNoPreRegisteredDbContext_ValidatorThrows()
     {
         var services = new ServiceCollection();
+        services.AddLogging();
         var config = new ConfigurationBuilder().Build();
+        // IConfiguration needs to be present in DI for the requirement's
+        // constructor injection; AddCvoyaSpringDapr does not register it
+        // itself (the host's WebApplicationBuilder does).
+        services.AddSingleton<IConfiguration>(config);
 
-        var ex = Should.Throw<InvalidOperationException>(() =>
-            services.AddCvoyaSpringDapr(config));
+        services.AddCvoyaSpringDapr(config);
 
+        using var provider = services.BuildServiceProvider();
+        var validator = provider.GetRequiredService<Cvoya.Spring.Dapr.Configuration.StartupConfigurationValidator>();
+
+        var ex = await Should.ThrowAsync<InvalidOperationException>(
+            () => validator.StartAsync(TestContext.Current.CancellationToken));
         ex.Message.ShouldContain("ConnectionStrings:SpringDb");
     }
 

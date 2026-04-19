@@ -145,6 +145,52 @@ Volumes (`spring-postgres-data`, `spring-redis-data`, `spring-caddy-data`,
 `spring-caddy-config`) persist across `down`/`up` cycles. Remove them with
 `podman volume rm` when you need a clean slate.
 
+### Startup configuration validation (#616)
+
+The API and Worker hosts validate their tier-1 configuration at startup.
+When a **mandatory** requirement is missing or malformed, the host refuses
+to boot and exits non-zero — Podman / systemd restart as normal, but the
+platform stays down until the operator fixes the underlying value. The
+original fail-fast that landed in #261 for `ConnectionStrings:SpringDb`
+remains the headline example: no connection string, no boot, and you'll
+see something like:
+
+```
+System.InvalidOperationException: No connection string found for SpringDbContext.
+Set the ConnectionStrings:SpringDb configuration value (environment
+variable ConnectionStrings__SpringDb=...) to a valid PostgreSQL
+connection string. See deployment/README.md.
+```
+
+PEM-parse failures for `GITHUB_APP_PRIVATE_KEY` fail-fast the same way
+(carried forward from PR #621); a garbage value won't defer the failure
+to the first `list-installations` call.
+
+**Optional** requirements (GitHub App credentials when you haven't run
+`spring github-app register` yet, Ollama when it's still warming up with
+`LanguageModel:Ollama:RequireHealthyAtStartup=false`) do NOT abort boot
+— they register the dependent features as disabled-with-reason and
+surface the reason to operators.
+
+Inspect the result post-deploy:
+
+```bash
+# CLI
+spring system configuration                  # table view
+spring system configuration --json           # JSON (for jq pipelines)
+spring system configuration "GitHub Connector"  # drill into one subsystem
+
+# HTTP
+curl http://localhost:5000/api/v1/system/configuration | jq .
+
+# Portal
+# Visit /system/configuration in your browser.
+```
+
+The report is cached at host startup — it does not move until the host
+restarts. Changing a tier-1 value (new connection string, new GitHub App)
+requires `./deploy.sh restart` or the matching per-container restart.
+
 ### Post-deploy: LLM provider credentials (tier-2, #615)
 
 LLM provider API keys (Anthropic, OpenAI, Google) are **tier-2 tenant-default

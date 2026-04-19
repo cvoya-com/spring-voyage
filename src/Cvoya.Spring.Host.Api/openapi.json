@@ -6445,6 +6445,27 @@
         }
       }
     },
+    "/api/v1/system/configuration": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Return the cached startup configuration validation report",
+        "operationId": "GetSystemConfigurationReport",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigurationReport"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/webhooks/github": {
       "post": {
         "tags": [
@@ -7029,6 +7050,43 @@
           "none",
           "ephemeral-no-memory",
           "ephemeral-with-memory"
+        ]
+      },
+      "ConfigurationReport": {
+        "required": [
+          "status",
+          "generatedAt",
+          "subsystems"
+        ],
+        "type": "object",
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/ConfigurationReportStatus"
+          },
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "subsystems": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SubsystemConfigurationReport"
+            }
+          }
+        }
+      },
+      "ConfigurationReportStatus": {
+        "enum": [
+          "Healthy",
+          "Degraded",
+          "Failed"
+        ]
+      },
+      "ConfigurationStatus": {
+        "enum": [
+          "Met",
+          "Disabled",
+          "Invalid"
         ]
       },
       "ConnectorSummary": {
@@ -8803,6 +8861,72 @@
           }
         }
       },
+      "RequirementStatus": {
+        "required": [
+          "requirementId",
+          "displayName",
+          "description",
+          "isMandatory",
+          "status",
+          "severity",
+          "reason",
+          "suggestion",
+          "environmentVariableNames",
+          "configurationSectionPath",
+          "documentationUrl"
+        ],
+        "type": "object",
+        "properties": {
+          "requirementId": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "isMandatory": {
+            "type": "boolean"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ConfigurationStatus"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/SeverityLevel"
+          },
+          "reason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "suggestion": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "environmentVariableNames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "configurationSectionPath": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "documentationUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "RotateSecretRequest": {
         "type": "object",
         "properties": {
@@ -9062,6 +9186,13 @@
           }
         }
       },
+      "SeverityLevel": {
+        "enum": [
+          "Information",
+          "Warning",
+          "Error"
+        ]
+      },
       "SkillCatalogEntry": {
         "required": [
           "name",
@@ -9124,6 +9255,28 @@
           },
           "path": {
             "type": "string"
+          }
+        }
+      },
+      "SubsystemConfigurationReport": {
+        "required": [
+          "subsystemName",
+          "status",
+          "requirements"
+        ],
+        "type": "object",
+        "properties": {
+          "subsystemName": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ConfigurationReportStatus"
+          },
+          "requirements": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RequirementStatus"
+            }
           }
         }
       },

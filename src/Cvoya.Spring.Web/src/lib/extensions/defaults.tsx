@@ -16,6 +16,7 @@ import {
   Plug,
   Plus,
   Play,
+  ShieldCheck,
   Square,
   UserCircle,
   Users,
@@ -172,6 +173,26 @@ export const defaultRoutes: readonly RouteEntry[] = [
     description:
       "Browse and search expertise declared by every agent and unit.",
   },
+  {
+    // #616 — startup configuration report. Surfaces the same cached
+    // ConfigurationReport the CLI's `spring system configuration` verb
+    // consumes. Anonymous read in the OSS build; the private cloud host
+    // can layer tenant-aware auth on top.
+    path: "/system/configuration",
+    label: "System configuration",
+    icon: ShieldCheck,
+    navSection: "primary",
+    orderHint: 70,
+    keywords: [
+      "config",
+      "startup",
+      "validation",
+      "health",
+      "spring system configuration",
+    ],
+    description:
+      "Tier-1 platform config (env vars, secrets) validated at startup — per-subsystem status + actionable suggestions.",
+  },
 ];
 
 /**
@@ -319,6 +340,23 @@ export const defaultActions: readonly PaletteAction[] = [
     description:
       "Search the tenant's expertise directory across every agent and unit.",
     href: "/directory",
+  },
+  {
+    id: "system.configuration",
+    label: "View system configuration",
+    icon: ShieldCheck,
+    section: "actions",
+    orderHint: 110,
+    keywords: [
+      "spring system configuration",
+      "config",
+      "startup",
+      "validation",
+      "health",
+    ],
+    description:
+      "Inspect the cached startup configuration report — which tier-1 settings are met, degraded, or invalid.",
+    href: "/system/configuration",
   },
 ];
 

@@ -7,8 +7,10 @@ using System.Text.Json;
 
 using Cvoya.Spring.Connector.GitHub.Auth;
 using Cvoya.Spring.Connector.GitHub.Auth.OAuth;
+using Cvoya.Spring.Connector.GitHub.Configuration;
 using Cvoya.Spring.Connector.GitHub.Webhooks;
 using Cvoya.Spring.Connectors;
+using Cvoya.Spring.Core.Configuration;
 
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -50,7 +52,7 @@ public class GitHubConnectorType : IConnectorType
     private readonly IUnitConnectorRuntimeStore _runtimeStore;
     private readonly IOptions<GitHubConnectorOptions> _options;
     private readonly IGitHubInstallationsClient _installationsClient;
-    private readonly IGitHubConnectorAvailability _availability;
+    private readonly GitHubAppConfigurationRequirement _credentialRequirement;
     private readonly ILogger<GitHubConnectorType> _logger;
 
     /// <summary>
@@ -62,7 +64,7 @@ public class GitHubConnectorType : IConnectorType
         IGitHubWebhookRegistrar webhookRegistrar,
         IGitHubInstallationsClient installationsClient,
         IOptions<GitHubConnectorOptions> options,
-        IGitHubConnectorAvailability availability,
+        GitHubAppConfigurationRequirement credentialRequirement,
         ILoggerFactory loggerFactory)
     {
         _configStore = configStore;
@@ -70,9 +72,27 @@ public class GitHubConnectorType : IConnectorType
         _webhookRegistrar = webhookRegistrar;
         _installationsClient = installationsClient;
         _options = options;
-        _availability = availability;
+        _credentialRequirement = credentialRequirement;
         _logger = loggerFactory.CreateLogger<GitHubConnectorType>();
     }
+
+    /// <summary>
+    /// Returns <c>true</c> when the connector has usable App credentials.
+    /// Reads the current <see cref="IConfigurationRequirement"/> status so the
+    /// hot-path short-circuit is driven by the same signal the
+    /// <c>/system/configuration</c> report surfaces.
+    /// </summary>
+    private bool IsConnectorEnabled =>
+        _credentialRequirement.GetCurrentStatus().Status == ConfigurationStatus.Met;
+
+    /// <summary>
+    /// Disabled reason reported to endpoint callers when
+    /// <see cref="IsConnectorEnabled"/> is <c>false</c>. Matches the structure
+    /// the portal and CLI render — a short human sentence the operator can
+    /// act on.
+    /// </summary>
+    private string? ConnectorDisabledReason =>
+        _credentialRequirement.GetCurrentStatus().Reason;
 
     /// <inheritdoc />
     public Guid TypeId => GitHubTypeId;
@@ -295,16 +315,17 @@ public class GitHubConnectorType : IConnectorType
         // portal (PR #610) and CLI render cleanly as "GitHub App not
         // configured" instead of a 502 from a downstream JWT sign that
         // is guaranteed to fail.
-        if (!_availability.IsEnabled)
+        if (!IsConnectorEnabled)
         {
+            var reason = ConnectorDisabledReason;
             return Results.Problem(
                 title: "GitHub connector is not configured",
-                detail: _availability.DisabledReason,
+                detail: reason,
                 statusCode: StatusCodes.Status404NotFound,
                 extensions: new Dictionary<string, object?>
                 {
                     ["disabled"] = true,
-                    ["reason"] = _availability.DisabledReason,
+                    ["reason"] = reason,
                 });
         }
 
@@ -334,16 +355,17 @@ public class GitHubConnectorType : IConnectorType
         // credentials aren't configured the slug usually isn't either, and
         // surfacing the disabled state uniformly keeps both surfaces
         // (portal + CLI) happy (#609).
-        if (!_availability.IsEnabled)
+        if (!IsConnectorEnabled)
         {
+            var reason = ConnectorDisabledReason;
             return Results.Problem(
                 title: "GitHub connector is not configured",
-                detail: _availability.DisabledReason,
+                detail: reason,
                 statusCode: StatusCodes.Status404NotFound,
                 extensions: new Dictionary<string, object?>
                 {
                     ["disabled"] = true,
-                    ["reason"] = _availability.DisabledReason,
+                    ["reason"] = reason,
                 });
         }
 

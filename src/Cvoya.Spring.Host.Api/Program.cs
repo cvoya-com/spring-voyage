@@ -156,6 +156,10 @@ try
     // resolver touches tenant-scoped secrets even though the response
     // never surfaces key material.
     app.MapSystemEndpoints().RequireAuthorization();
+    // #616 startup configuration report. Anonymous in the OSS build — the
+    // report contains env-var names and human-readable reasons but no secret
+    // material. The private cloud host can wrap this with auth middleware.
+    app.MapSystemConfigurationEndpoints();
     app.MapWebhookEndpoints();
 
     await app.RunAsync();
