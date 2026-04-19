@@ -409,6 +409,10 @@ export default function CreateUnitPage() {
     };
   }, [credentialValidation, form.credentialKey, requiredCredentialProvider]);
 
+  // Auto-validation is triggered from `handleNext` — there is no
+  // standalone Validate button on the wizard. We use `mutateAsync` so
+  // the Next handler can await the outcome and keep/advance the step
+  // based on the verdict.
   const validateCredential = useMutation({
     mutationFn: async () => {
       if (requiredCredentialProvider === null) {
@@ -484,23 +488,6 @@ export default function CreateUnitPage() {
       if (!NAME_PATTERN.test(form.name))
         return "Name must be URL-safe (lowercase letters, digits, and hyphens).";
     }
-    // #655: if the operator typed a credential, block advance until it
-    // has been validated against the provider. An untyped field is
-    // fine — the existing `missingCredential` gate already covers the
-    // "must supply something" case via the Create button on step 5.
-    if (
-      requiredCredentialProvider !== null &&
-      form.credentialKey.trim().length > 0 &&
-      !credentialValidated
-    ) {
-      if (effectiveValidation.status === "invalid") {
-        return (
-          effectiveValidation.error ??
-          `Validation failed for the ${providerLabel(requiredCredentialProvider)} API key.`
-        );
-      }
-      return `Validate the ${providerLabel(requiredCredentialProvider)} API key to continue.`;
-    }
     return null;
   };
 
@@ -524,13 +511,38 @@ export default function CreateUnitPage() {
     return null;
   };
 
-  const handleNext = () => {
+  const handleNext = async () => {
     setStepError(null);
     if (step === 1) {
       const err = validateStep1();
       if (err) {
         setStepError(err);
         return;
+      }
+      // #655: if the operator typed a credential that hasn't been
+      // validated yet for this exact key+provider, trigger a live
+      // validation against the provider before advancing. The Model
+      // dropdown on the next render consumes the returned model list,
+      // so the wizard progresses only when the key actually works and
+      // the catalog is already seeded from the operator's account.
+      if (
+        requiredCredentialProvider !== null &&
+        form.credentialKey.trim().length > 0 &&
+        !credentialValidated &&
+        !validateCredential.isPending
+      ) {
+        try {
+          const result = await validateCredential.mutateAsync();
+          if (!result.valid) {
+            // The mutation's onSuccess has already stored the inline
+            // error on the CredentialSection; stay on Step 1 so the
+            // operator sees it without a duplicate step-level banner.
+            return;
+          }
+        } catch {
+          // onError has already populated the inline error. Stay put.
+          return;
+        }
       }
     }
     if (step === 2) {
@@ -858,16 +870,13 @@ export default function CreateUnitPage() {
 
   const canGoNext = useMemo(() => {
     if (step === 1) {
-      // #655: a typed-but-unvalidated credential blocks advance the same
-      // way validateStep1 does. Keep the two checks aligned — the Next
-      // button disables and the inline banner explains why.
-      if (
-        requiredCredentialProvider !== null &&
-        form.credentialKey.trim().length > 0 &&
-        !credentialValidated
-      ) {
-        return false;
-      }
+      // #655: credential validation is kicked off from `handleNext` when
+      // the operator advances, not from a standalone button. Disable
+      // Next only while a validation is actually in flight so the user
+      // can't fire a second call on top of the first; otherwise we rely
+      // on `handleNext` itself to stay on the step when validation
+      // fails.
+      if (validateCredential.isPending) return false;
       // For YAML/template modes the manifest itself supplies the name, so we
       // don't gate advancement on form.name.
       if (form.mode === "yaml" || form.mode === "template") return true;
@@ -886,7 +895,7 @@ export default function CreateUnitPage() {
       return form.connectorConfig !== null;
     }
     return true;
-  }, [step, form, credentialValidated, requiredCredentialProvider]);
+  }, [step, form, validateCredential.isPending]);
 
   return (
     <div className="space-y-6">
@@ -1153,7 +1162,6 @@ export default function CreateUnitPage() {
                   validationStatus={effectiveValidation.status}
                   validationError={effectiveValidation.error}
                   validationPassed={credentialValidated}
-                  onValidate={() => validateCredential.mutate()}
                   onKeyChange={(v) => update("credentialKey", v)}
                   onToggleSaveAsTenantDefault={(v) =>
                     update("saveAsTenantDefault", v)
@@ -1230,7 +1238,6 @@ export default function CreateUnitPage() {
                   validationStatus={effectiveValidation.status}
                   validationError={effectiveValidation.error}
                   validationPassed={credentialValidated}
-                  onValidate={() => validateCredential.mutate()}
                   onKeyChange={(v) => update("credentialKey", v)}
                   onToggleSaveAsTenantDefault={(v) =>
                     update("saveAsTenantDefault", v)
@@ -1778,8 +1785,13 @@ export default function CreateUnitPage() {
           Back
         </Button>
         {step < 5 && (
-          <Button onClick={handleNext} disabled={!canGoNext}>
-            Next
+          <Button
+            onClick={() => {
+              void handleNext();
+            }}
+            disabled={!canGoNext}
+          >
+            {step === 1 && validateCredential.isPending ? "Validating…" : "Next"}
           </Button>
         )}
       </div>
@@ -1888,22 +1900,21 @@ interface CredentialSectionProps {
   ollamaProbe:
     | import("@/lib/api/types").ProviderCredentialStatusResponse
     | null;
-  // #655: wizard-time credential validation.
+  // #655: wizard-time credential validation. Triggered automatically
+  // from `handleNext` when the operator advances past Step 1 — the
+  // component renders the verdict inline but never exposes a manual
+  // Validate button.
   //   - `validationStatus`: lifecycle of the validate mutation for the
-  //     current key. `"idle"` means "needs validation before Next"
-  //     (when a key is typed); `"validating"` disables the button while
+  //     current key. `"idle"` is the resting state; `"validating"` is
   //     in flight; `"valid"` / `"invalid"` reflect the provider verdict.
   //   - `validationError`: operator-facing message from the server on
   //     failure. Rendered inline under the input.
   //   - `validationPassed`: convenience flag that pins the "valid"
   //     verdict to the exact typed key + provider pair; stale passes
   //     (key edited after a previous validation) do not advance.
-  //   - `onValidate`: fires the mutation. Disabled by the component
-  //     when the key is empty.
   validationStatus: "idle" | "validating" | "valid" | "invalid";
   validationError: string | null;
   validationPassed: boolean;
-  onValidate: () => void;
   onKeyChange: (value: string) => void;
   onToggleSaveAsTenantDefault: (value: boolean) => void;
   onToggleOverride: (value: boolean) => void;
@@ -1922,7 +1933,6 @@ function CredentialSection(props: CredentialSectionProps) {
     validationStatus,
     validationError,
     validationPassed,
-    onValidate,
     onKeyChange,
     onToggleSaveAsTenantDefault,
     onToggleOverride,
@@ -1996,7 +2006,6 @@ function CredentialSection(props: CredentialSectionProps) {
               validationStatus={validationStatus}
               validationError={validationError}
               validationPassed={validationPassed}
-              onValidate={onValidate}
             />
             <button
               type="button"
@@ -2040,7 +2049,6 @@ function CredentialSection(props: CredentialSectionProps) {
         validationStatus={validationStatus}
         validationError={validationError}
         validationPassed={validationPassed}
-        onValidate={onValidate}
       />
     </div>
   );
@@ -2062,7 +2070,6 @@ function CredentialInputControls({
   validationStatus,
   validationError,
   validationPassed,
-  onValidate,
 }: {
   provider: "anthropic" | "openai" | "google";
   credentialKey: string;
@@ -2073,16 +2080,12 @@ function CredentialInputControls({
   validationStatus: "idle" | "validating" | "valid" | "invalid";
   validationError: string | null;
   validationPassed: boolean;
-  onValidate: () => void;
 }) {
   const [show, setShow] = useState(false);
   const inputId = `credential-key-${provider}`;
   const toggleId = `credential-save-tenant-${provider}`;
   const inputType = show ? "text" : "password";
   const displayName = providerLabel(provider);
-
-  const trimmed = credentialKey.trim();
-  const canValidate = trimmed.length > 0 && validationStatus !== "validating";
 
   return (
     <div className="space-y-2">
@@ -2124,24 +2127,24 @@ function CredentialInputControls({
               </>
             )}
           </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant={validationPassed ? "outline" : "default"}
-            onClick={onValidate}
-            disabled={!canValidate}
-            data-testid="credential-validate-button"
-            aria-label={`Validate the ${displayName} API key`}
-          >
-            {validationStatus === "validating"
-              ? "Validating…"
-              : validationPassed
-                ? "Re-validate"
-                : "Validate"}
-          </Button>
         </div>
       </label>
 
+      {/*
+        #655: validation runs automatically when the operator clicks
+        Next — no manual button. We still surface the verdict inline
+        so the wizard explains why Next stayed on this step (failure)
+        or why the Model dropdown suddenly changed (success).
+      */}
+      {validationStatus === "validating" && (
+        <p
+          role="status"
+          data-testid="credential-validation-in-flight"
+          className="text-xs text-muted-foreground"
+        >
+          Validating {displayName} API key…
+        </p>
+      )}
       {validationPassed && (
         <p
           role="status"
@@ -2163,11 +2166,6 @@ function CredentialInputControls({
         >
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
           <span>{validationError}</span>
-        </p>
-      )}
-      {validationStatus === "idle" && trimmed.length > 0 && (
-        <p className="text-xs text-muted-foreground">
-          Click Validate to confirm the key works before continuing.
         </p>
       )}
 
