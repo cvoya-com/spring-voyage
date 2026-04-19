@@ -40,10 +40,11 @@ using Microsoft.Extensions.Logging;
 /// <para>
 /// <b>No model enumeration.</b> The <c>claude</c> CLI does not expose
 /// a <c>models</c> subcommand today, so this invoker reports
-/// <c>Models = null</c> on success. The wizard's validator falls back
-/// to <see cref="ModelCatalog"/>'s curated static list for Claude in
-/// that case — live enumeration for CLI-validated credentials is
-/// tracked as a follow-up.
+/// <c>Models = null</c> on success. For API-key credentials the
+/// validator follows up with a best-effort
+/// <c>GET /v1/models</c> against the Anthropic Platform API (#664);
+/// OAuth tokens stay on <see cref="ModelCatalog"/>'s curated static
+/// list because the Platform REST API rejects them.
 /// </para>
 /// </remarks>
 public class ClaudeCliInvoker : IProviderCliInvoker
@@ -56,6 +57,9 @@ public class ClaudeCliInvoker : IProviderCliInvoker
 
     /// <summary>Credential prefix that identifies a Claude.ai OAuth token (<c>claude setup-token</c>).</summary>
     internal const string OAuthTokenPrefix = "sk-ant-oat";
+
+    /// <summary>Credential prefix that identifies an Anthropic Platform API key.</summary>
+    internal const string ApiKeyPrefix = "sk-ant-api";
 
     /// <summary>Hard cap on CLI invocation duration — a hung CLI cannot stall the wizard indefinitely.</summary>
     public static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(30);

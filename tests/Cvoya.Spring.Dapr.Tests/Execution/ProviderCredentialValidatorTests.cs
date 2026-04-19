@@ -209,6 +209,96 @@ public class ProviderCredentialValidatorTests
     }
 
     [Fact]
+    public async Task ValidateAsync_Anthropic_CliAvailable_ApiKey_EnrichesWithLiveModels()
+    {
+        // #664: once the CLI confirms an API-key credential is live, the
+        // validator follows up with a REST enumeration so the wizard's
+        // Model dropdown shows freshly-released families instead of the
+        // curated static list.
+        var handler = new StubHandler();
+        handler.Add("api.anthropic.example", HttpStatusCode.OK, JsonSerializer.Serialize(new
+        {
+            data = new[]
+            {
+                new { id = "claude-opus-5-20260101" },
+                new { id = "claude-sonnet-5-20260101" },
+            },
+        }));
+        var cli = new FakeCliInvoker
+        {
+            Available = true,
+            Result = new ProviderCliValidationResult(
+                ProviderCredentialValidationStatus.Valid,
+                Models: null,
+                ErrorMessage: null),
+        };
+        var validator = CreateValidator(handler, cli);
+
+        var result = await validator.ValidateAsync(
+            "anthropic", "sk-ant-api03-live-key", TestContext.Current.CancellationToken);
+
+        result.Status.ShouldBe(ProviderCredentialValidationStatus.Valid);
+        result.Models.ShouldBe(new[] { "claude-opus-5-20260101", "claude-sonnet-5-20260101" });
+        cli.LastCredential.ShouldBe("sk-ant-api03-live-key");
+        handler.CallCount.ShouldBe(1);
+        handler.LastRequest!.Headers.GetValues("x-api-key").ShouldContain("sk-ant-api03-live-key");
+    }
+
+    [Fact]
+    public async Task ValidateAsync_Anthropic_CliAvailable_ApiKey_RestFailure_FallsBackToStatic()
+    {
+        // #664: the REST enrichment is best-effort. A 5xx (or any
+        // non-success) must not fail the overall validation — the CLI
+        // has already confirmed the credential, so we fall back to the
+        // static curated list rather than surface a provider error.
+        var handler = new StubHandler();
+        handler.Add("api.anthropic.example", HttpStatusCode.ServiceUnavailable, "{}");
+        var cli = new FakeCliInvoker
+        {
+            Available = true,
+            Result = new ProviderCliValidationResult(
+                ProviderCredentialValidationStatus.Valid,
+                Models: null,
+                ErrorMessage: null),
+        };
+        var validator = CreateValidator(handler, cli);
+
+        var result = await validator.ValidateAsync(
+            "anthropic", "sk-ant-api03-live-key", TestContext.Current.CancellationToken);
+
+        result.Status.ShouldBe(ProviderCredentialValidationStatus.Valid);
+        result.Models.ShouldNotBeNull();
+        result.Models.ShouldNotBeEmpty();
+        handler.CallCount.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task ValidateAsync_Anthropic_CliAvailable_OAuthToken_SkipsRestEnrichment()
+    {
+        // #664: OAuth tokens cannot use the Platform REST endpoint —
+        // it rejects them with a 401. Skip the enrichment call entirely
+        // for OAuth tokens; the static fallback stays authoritative.
+        var handler = new StubHandler();
+        var cli = new FakeCliInvoker
+        {
+            Available = true,
+            Result = new ProviderCliValidationResult(
+                ProviderCredentialValidationStatus.Valid,
+                Models: null,
+                ErrorMessage: null),
+        };
+        var validator = CreateValidator(handler, cli);
+
+        var result = await validator.ValidateAsync(
+            "anthropic", "sk-ant-oat01-secret-token", TestContext.Current.CancellationToken);
+
+        result.Status.ShouldBe(ProviderCredentialValidationStatus.Valid);
+        result.Models.ShouldNotBeNull();
+        result.Models.ShouldNotBeEmpty();
+        handler.CallCount.ShouldBe(0);
+    }
+
+    [Fact]
     public async Task ValidateAsync_Anthropic_CliAvailable_PropagatesUnauthorized()
     {
         var handler = new StubHandler();
