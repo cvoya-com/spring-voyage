@@ -112,25 +112,32 @@ describe("CreateUnitPage — Provider + Model gating (#598)", () => {
     );
   });
 
-  it("hides Provider + Model when the tool is Claude Code", async () => {
+  it("hides Provider when the tool is Claude Code (Model stays visible per #641)", async () => {
     renderPage();
 
-    // Default tool is claude-code (see ai-models.ts).
+    // Default tool is claude-code (see ai-models.ts). #641 brings the
+    // Model dropdown back for tools with a known catalog; only the
+    // Provider dropdown remains gated on dapr-agent.
     expect(
       screen.queryByLabelText(/^LLM provider$/i),
     ).not.toBeInTheDocument();
-    expect(screen.queryByLabelText(/^Model$/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/^Model$/i)).toBeInTheDocument();
   });
 
-  it("hides Provider + Model for Codex, Gemini, and Custom", async () => {
+  it("hides Provider for Codex / Gemini / Custom; shows Model where the tool has a catalog (#641)", async () => {
     renderPage();
-    for (const tool of ["codex", "gemini", "custom"]) {
+    // Codex + Gemini carry a known catalog → Provider hidden, Model shown.
+    for (const tool of ["codex", "gemini"]) {
       await selectTool(tool);
       expect(
         screen.queryByLabelText(/^LLM provider$/i),
       ).not.toBeInTheDocument();
-      expect(screen.queryByLabelText(/^Model$/i)).not.toBeInTheDocument();
+      expect(screen.getByLabelText(/^Model$/i)).toBeInTheDocument();
     }
+    // Custom has no known catalog → Provider AND Model both stay hidden.
+    await selectTool("custom");
+    expect(screen.queryByLabelText(/^LLM provider$/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/^Model$/i)).not.toBeInTheDocument();
   });
 
   it("renders Provider + Model only when the tool is Dapr Agent", async () => {
@@ -569,5 +576,137 @@ describe("CreateUnitPage — inline credential flow (#626)", () => {
     expect(input.type).toBe("text");
     expect(toggle.getAttribute("aria-label")).toMatch(/hide/i);
     expect(toggle.getAttribute("aria-pressed")).toBe("true");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #641 — tool-aware Model dropdown (regression: the "Tool ≠ Dapr Agent"
+// branch lost the Model dropdown in PR #627; #641 reinstates it for tools
+// that carry a known model catalog).
+// ---------------------------------------------------------------------------
+
+describe("CreateUnitPage — tool-aware Model dropdown (#641)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    listOllamaModels.mockResolvedValue([]);
+    getProviderCredentialStatus.mockResolvedValue(
+      makeStatus({ provider: "anthropic", resolvable: true, source: "tenant" }),
+    );
+  });
+
+  it("renders a Model dropdown with Claude models when Tool=Claude Code (default)", async () => {
+    // Server returns the live Anthropic catalog — the wizard should
+    // populate the dropdown from that list.
+    listProviderModels.mockResolvedValue([
+      "claude-sonnet-4-20250514",
+      "claude-opus-4-20250514",
+      "claude-haiku-4-20250514",
+    ]);
+
+    renderPage();
+
+    // Default tool is claude-code. Provider is hidden, Model is visible.
+    expect(screen.queryByLabelText(/^LLM provider$/i)).not.toBeInTheDocument();
+    const modelSelect = (await screen.findByLabelText(
+      /^Model$/i,
+    )) as HTMLSelectElement;
+
+    // The dropdown should be populated either from the live list (awaited
+    // below) or the static fallback (which has the same default).
+    await waitFor(() => {
+      expect(listProviderModels).toHaveBeenCalledWith("claude");
+    });
+
+    const options = Array.from(modelSelect.options).map((o) => o.value);
+    expect(options).toContain("claude-sonnet-4-20250514");
+    expect(options).toContain("claude-opus-4-20250514");
+    expect(options).toContain("claude-haiku-4-20250514");
+  });
+
+  it("switches to Codex catalog when Tool=Codex and hides Provider", async () => {
+    listProviderModels.mockImplementation(async (provider: string) => {
+      if (provider === "openai") return ["gpt-4o", "gpt-4o-mini", "o3-mini"];
+      return [];
+    });
+
+    renderPage();
+    await selectTool("codex");
+
+    expect(screen.queryByLabelText(/^LLM provider$/i)).not.toBeInTheDocument();
+    const modelSelect = (await screen.findByLabelText(
+      /^Model$/i,
+    )) as HTMLSelectElement;
+
+    await waitFor(() => {
+      expect(listProviderModels).toHaveBeenCalledWith("openai");
+    });
+
+    const options = Array.from(modelSelect.options).map((o) => o.value);
+    expect(options).toContain("gpt-4o");
+  });
+
+  it("switches to Gemini catalog when Tool=Gemini and hides Provider", async () => {
+    listProviderModels.mockImplementation(async (provider: string) => {
+      if (provider === "google") return ["gemini-2.5-pro", "gemini-2.5-flash"];
+      return [];
+    });
+
+    renderPage();
+    await selectTool("gemini");
+
+    expect(screen.queryByLabelText(/^LLM provider$/i)).not.toBeInTheDocument();
+    const modelSelect = (await screen.findByLabelText(
+      /^Model$/i,
+    )) as HTMLSelectElement;
+
+    await waitFor(() => {
+      expect(listProviderModels).toHaveBeenCalledWith("google");
+    });
+
+    const options = Array.from(modelSelect.options).map((o) => o.value);
+    expect(options).toContain("gemini-2.5-pro");
+  });
+
+  it("still renders Provider + Model when Tool=Dapr Agent", async () => {
+    listProviderModels.mockResolvedValue(["claude-sonnet-4-20250514"]);
+    renderPage();
+    await selectTool("dapr-agent");
+
+    expect(screen.getByLabelText(/^LLM provider$/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Model$/i)).toBeInTheDocument();
+  });
+
+  it("omits the Model dropdown for Tool=Custom (no known catalog)", async () => {
+    listProviderModels.mockResolvedValue([]);
+    renderPage();
+    await selectTool("custom");
+
+    // Neither Provider nor Model appears — custom launchers declare
+    // their own contract.
+    expect(screen.queryByLabelText(/^LLM provider$/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/^Model$/i)).not.toBeInTheDocument();
+  });
+
+  it("snaps model to the new tool's default when the tool changes", async () => {
+    listProviderModels.mockImplementation(async (provider: string) => {
+      if (provider === "claude") return ["claude-sonnet-4-20250514"];
+      if (provider === "openai") return ["gpt-4o", "gpt-4o-mini"];
+      return [];
+    });
+
+    renderPage();
+
+    // Default tool is claude-code → default model claude-sonnet-4-20250514.
+    let modelSelect = (await screen.findByLabelText(
+      /^Model$/i,
+    )) as HTMLSelectElement;
+    expect(modelSelect.value).toBe("claude-sonnet-4-20250514");
+
+    // Switch to codex → model should snap to the first openai entry.
+    await selectTool("codex");
+    modelSelect = (await screen.findByLabelText(
+      /^Model$/i,
+    )) as HTMLSelectElement;
+    expect(modelSelect.value).toBe("gpt-4o");
   });
 });

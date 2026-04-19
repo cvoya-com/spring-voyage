@@ -149,9 +149,13 @@ describe("AgentExecutionPanel", () => {
     }
   });
 
-  it("hides Provider and Model when the effective tool is codex (non-dapr-agent launcher)", async () => {
+  it("hides Provider when the effective tool is codex (non-dapr-agent launcher)", async () => {
+    // #641: Provider stays hidden for non-dapr-agent launchers, but the
+    // Model dropdown is now rendered against the tool's catalog so the
+    // operator can still pick a model family (e.g. gpt-4o for Codex).
     getAgentExecution.mockResolvedValue({ tool: "codex" });
     getUnitExecution.mockResolvedValue({});
+    listProviderModels.mockResolvedValue(["gpt-4o", "gpt-4o-mini"]);
 
     render(
       <Wrapper>
@@ -162,6 +166,77 @@ describe("AgentExecutionPanel", () => {
     await screen.findByTestId("agent-execution-panel");
     expect(
       screen.queryByTestId("agent-execution-provider-select"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("renders a Model dropdown populated from the tool's catalog when tool=codex (#641)", async () => {
+    getAgentExecution.mockResolvedValue({ tool: "codex" });
+    getUnitExecution.mockResolvedValue({});
+    listProviderModels.mockImplementation(async (provider: string) => {
+      if (provider === "openai") return ["gpt-4o", "gpt-4o-mini", "o3-mini"];
+      return [];
+    });
+
+    render(
+      <Wrapper>
+        <AgentExecutionPanel agentId="alpha" parentUnitId="eng-team" />
+      </Wrapper>,
+    );
+
+    await screen.findByTestId("agent-execution-panel");
+    await waitFor(() => {
+      expect(listProviderModels).toHaveBeenCalledWith("openai");
+    });
+
+    const modelSelect = (await screen.findByTestId(
+      "agent-execution-model-select",
+    )) as HTMLSelectElement;
+    const options = Array.from(modelSelect.options).map((o) => o.value);
+    expect(options).toContain("gpt-4o");
+    // Provider stays hidden — the tool implies it.
+    expect(
+      screen.queryByTestId("agent-execution-provider-select"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows both Provider and Model when tool=dapr-agent", async () => {
+    getAgentExecution.mockResolvedValue({ tool: "dapr-agent" });
+    getUnitExecution.mockResolvedValue({});
+    listProviderModels.mockResolvedValue([]);
+
+    render(
+      <Wrapper>
+        <AgentExecutionPanel agentId="alpha" parentUnitId="eng-team" />
+      </Wrapper>,
+    );
+
+    await screen.findByTestId("agent-execution-panel");
+    expect(
+      screen.getByTestId("agent-execution-provider-select"),
+    ).toBeInTheDocument();
+  });
+
+  it("omits the Model dropdown when tool=custom (no known catalog)", async () => {
+    getAgentExecution.mockResolvedValue({ tool: "custom" });
+    getUnitExecution.mockResolvedValue({});
+    listProviderModels.mockResolvedValue([]);
+
+    render(
+      <Wrapper>
+        <AgentExecutionPanel agentId="alpha" parentUnitId="eng-team" />
+      </Wrapper>,
+    );
+
+    await screen.findByTestId("agent-execution-panel");
+    expect(
+      screen.queryByTestId("agent-execution-provider-select"),
+    ).not.toBeInTheDocument();
+    // Neither a Model select nor a free-text Model input is rendered.
+    expect(
+      screen.queryByTestId("agent-execution-model-select"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("agent-execution-model-input"),
     ).not.toBeInTheDocument();
   });
 

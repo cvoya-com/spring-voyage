@@ -48,6 +48,7 @@ import {
   EXECUTION_TOOLS,
   HOSTING_MODES,
   getProvider,
+  getToolModelProvider,
   type ExecutionTool,
   type HostingMode,
 } from "@/lib/ai-models";
@@ -308,8 +309,17 @@ export default function CreateUnitPage() {
   // denied on the portal side); `ai-models.ts` is the client-side safety
   // net in that case. Skipped for ollama — the #350 path is richer
   // (includes pull status) and we don't want two overlapping requests.
-  const providerModelsEnabled = form.provider !== "ollama";
-  const providerModelsQuery = useProviderModels(form.provider, {
+  //
+  // #641: when the tool hides the Provider dropdown (claude-code / codex
+  // / gemini), we still need a Model dropdown populated from that tool's
+  // catalog — derive the provider id from the tool and reuse the same
+  // hook. For `dapr-agent`, fall back to `form.provider`.
+  const toolModelProvider = getToolModelProvider(form.tool);
+  const effectiveProviderForModels =
+    form.tool === "dapr-agent" ? form.provider : (toolModelProvider ?? "");
+  const providerModelsEnabled =
+    effectiveProviderForModels !== "" && effectiveProviderForModels !== "ollama";
+  const providerModelsQuery = useProviderModels(effectiveProviderForModels, {
     enabled: providerModelsEnabled,
   });
   const providerModels = providerModelsQuery.data ?? null;
@@ -803,13 +813,25 @@ export default function CreateUnitPage() {
                 <select
                   value={form.tool}
                   onChange={(e) => {
-                    // #598: Provider + Model only render when the tool is
-                    // dapr-agent, so switching tools doesn't need a reset
-                    // — the fields simply disappear from the form tree.
-                    // We intentionally do NOT scrub `provider` / `model`
-                    // here: if the operator toggles Dapr Agent off and on
-                    // again their previous selection is preserved.
-                    update("tool", e.target.value as ExecutionTool);
+                    // #598: Provider dropdown only renders when the tool
+                    // is dapr-agent. #641: every other tool with a finite
+                    // model catalog (claude-code / codex / gemini) still
+                    // shows a Model dropdown — when the tool changes we
+                    // snap `model` to the tool's default so the wire
+                    // payload stays coherent with the hidden Provider.
+                    // `custom` has no known catalog; leave `model` alone.
+                    const nextTool = e.target.value as ExecutionTool;
+                    const toolProvider = getToolModelProvider(nextTool);
+                    setForm((prev) => {
+                      if (toolProvider !== null) {
+                        return {
+                          ...prev,
+                          tool: nextTool,
+                          model: getProvider(toolProvider).models[0],
+                        };
+                      }
+                      return { ...prev, tool: nextTool };
+                    });
                   }}
                   aria-label="Execution tool"
                   className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
@@ -994,6 +1016,39 @@ export default function CreateUnitPage() {
                 />
               </>
             )}
+            {/*
+              #641: tools that hide the Provider dropdown (claude-code /
+              codex / gemini) still expose a Model dropdown populated from
+              that tool's catalog — operators need to pick opus/sonnet/
+              haiku for Claude Code, the Gemini model family for Gemini,
+              etc. `custom` is deliberately excluded: we don't know its
+              catalog. The dropdown mirrors the dapr-agent Model dropdown
+              shape so the form payload stays uniform downstream (`model`
+              still goes on the create-unit request).
+            */}
+            {form.tool !== "dapr-agent" && toolModelProvider !== null && (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <label className="block space-y-1">
+                  <span className="text-sm text-muted-foreground">Model</span>
+                  <select
+                    value={form.model}
+                    onChange={(e) => update("model", e.target.value)}
+                    aria-label="Model"
+                    className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {(providerModels && providerModels.length > 0
+                      ? providerModels
+                      : getProvider(toolModelProvider).models.slice()
+                    ).map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            )}
+
             {/*
               #626: tools that hard-code their provider (Claude Code, Codex,
               Gemini) still need the inline credential surface even though

@@ -103,3 +103,38 @@ export const DEFAULT_MODEL = AI_PROVIDERS[0].models[0];
 export function getProvider(id: string): AiProvider {
   return AI_PROVIDERS.find((p) => p.id === id) ?? AI_PROVIDERS[0];
 }
+
+/**
+ * Maps a non-dapr-agent execution tool to the provider id whose model
+ * catalog the tool draws from (#641). Non-Dapr-Agent tools hardcode
+ * their provider inside the CLI (Claude Code → Anthropic, Codex →
+ * OpenAI, Gemini → Google), but operators still need to pick which
+ * model inside that family to run — that choice lives in the wizard's
+ * Model dropdown even when the Provider dropdown is hidden.
+ *
+ * Returns:
+ *   - `claude-code` → "claude"
+ *   - `codex`       → "openai"
+ *   - `gemini`      → "google"
+ *   - `custom`      → null (no finite known catalog — see #641 scope)
+ *   - `dapr-agent`  → null (caller branches on the Provider dropdown
+ *     directly; this helper is for tools that hide Provider)
+ *
+ * The returned id is the same key used by <c>getProvider()</c> and the
+ * server's <c>GET /api/v1/models/{provider}</c> endpoint, so the
+ * wizard can reuse <c>useProviderModels</c> without a second mapping.
+ */
+export function getToolModelProvider(tool: ExecutionTool): string | null {
+  switch (tool) {
+    case "claude-code":
+      return "claude";
+    case "codex":
+      return "openai";
+    case "gemini":
+      return "google";
+    case "dapr-agent":
+    case "custom":
+    default:
+      return null;
+  }
+}

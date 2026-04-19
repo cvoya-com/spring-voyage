@@ -34,6 +34,7 @@ import {
   EXECUTION_RUNTIMES,
   EXECUTION_TOOL_KEYS,
 } from "@/lib/api/types";
+import { getToolModelProvider, type ExecutionTool } from "@/lib/ai-models";
 
 /**
  * Agent Execution panel (#601 / #603 / #409 B-wide, portal half).
@@ -123,11 +124,24 @@ export function AgentExecutionPanel({
   // unit default fills in otherwise.
   const effectiveToolForGating =
     form.tool ?? persisted?.tool ?? unitDefaults?.tool ?? null;
-  const showProviderAndModel =
+  const showProvider =
     effectiveToolForGating === null || effectiveToolForGating === "dapr-agent";
 
-  const providerForModels =
-    form.provider ?? persisted?.provider ?? unitDefaults?.provider ?? "";
+  // #641: tools that hide Provider (claude-code / codex / gemini) still
+  // expose a Model dropdown populated from that tool's catalog. Derive
+  // the catalog provider from the effective tool; use the explicit
+  // Provider value when dapr-agent is active. `custom` and unset tool
+  // for a non-dapr-agent effective return null, which collapses the
+  // Model dropdown into the inherited/free-text fallback below.
+  const toolForCatalog = (effectiveToolForGating ?? null) as
+    | ExecutionTool
+    | null;
+  const toolModelProvider =
+    toolForCatalog !== null ? getToolModelProvider(toolForCatalog) : null;
+  const providerForModels = showProvider
+    ? (form.provider ?? persisted?.provider ?? unitDefaults?.provider ?? "")
+    : (toolModelProvider ?? "");
+  const showModel = showProvider || toolModelProvider !== null;
   const providerModelsEnabled = Boolean(providerForModels);
   const providerModelsQuery = useProviderModels(providerForModels, {
     enabled: providerModelsEnabled,
@@ -189,8 +203,10 @@ export function AgentExecutionPanel({
       image: form.image ?? null,
       runtime: form.runtime ?? null,
       tool: form.tool ?? null,
-      provider: showProviderAndModel ? (form.provider ?? null) : null,
-      model: showProviderAndModel ? (form.model ?? null) : null,
+      // #641: Provider stays gated on dapr-agent (Option A for #598);
+      // Model rides along whenever the tool has a known catalog.
+      provider: showProvider ? (form.provider ?? null) : null,
+      model: showModel ? (form.model ?? null) : null,
       hosting: form.hosting ?? null,
     };
     setMutation.mutate(next);
@@ -330,96 +346,97 @@ export function AgentExecutionPanel({
           />
         </FieldRow>
 
-        {showProviderAndModel && (
-          <>
-            <FieldRow
-              label="Provider"
-              help={
-                inherited("provider")
-                  ? `inherited from unit: ${inherited("provider")}`
-                  : "LLM provider — only meaningful when Tool is Dapr Agent."
-              }
-              onClear={
-                persisted?.provider ? () => clearField("provider") : undefined
-              }
-              busy={setMutation.isPending}
-            >
-              <SelectField
-                value={form.provider ?? null}
-                onChange={(next) => setField("provider", next)}
-                options={EXECUTION_PROVIDERS}
-                inheritedLabel={inherited("provider")}
-                ariaLabel="Agent execution provider"
-                testid="agent-execution-provider-select"
-              />
-            </FieldRow>
+        {showProvider && (
+          <FieldRow
+            label="Provider"
+            help={
+              inherited("provider")
+                ? `inherited from unit: ${inherited("provider")}`
+                : "LLM provider — only meaningful when Tool is Dapr Agent."
+            }
+            onClear={
+              persisted?.provider ? () => clearField("provider") : undefined
+            }
+            busy={setMutation.isPending}
+          >
+            <SelectField
+              value={form.provider ?? null}
+              onChange={(next) => setField("provider", next)}
+              options={EXECUTION_PROVIDERS}
+              inheritedLabel={inherited("provider")}
+              ariaLabel="Agent execution provider"
+              testid="agent-execution-provider-select"
+            />
+          </FieldRow>
+        )}
 
-            <FieldRow
-              label="Model"
-              help={
-                inherited("model")
-                  ? `inherited from unit: ${inherited("model")}`
-                  : "Model identifier."
-              }
-              onClear={persisted?.model ? () => clearField("model") : undefined}
-              busy={setMutation.isPending}
-            >
-              {providerModelsEnabled &&
-              providerModels &&
-              providerModels.length > 0 ? (
-                <select
-                  value={form.model ?? ""}
-                  onChange={(e) =>
-                    setField("model", e.target.value ? e.target.value : null)
-                  }
-                  aria-label="Agent execution model"
-                  data-testid="agent-execution-model-select"
-                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                >
-                  <option value="">
-                    {inherited("model")
-                      ? `inherited: ${inherited("model")}`
-                      : "(leave to default)"}
+        {showModel && (
+          <FieldRow
+            label="Model"
+            help={
+              inherited("model")
+                ? `inherited from unit: ${inherited("model")}`
+                : "Model identifier."
+            }
+            onClear={persisted?.model ? () => clearField("model") : undefined}
+            busy={setMutation.isPending}
+          >
+            {providerModelsEnabled &&
+            providerModels &&
+            providerModels.length > 0 ? (
+              <select
+                value={form.model ?? ""}
+                onChange={(e) =>
+                  setField("model", e.target.value ? e.target.value : null)
+                }
+                aria-label="Agent execution model"
+                data-testid="agent-execution-model-select"
+                className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                <option value="">
+                  {inherited("model")
+                    ? `inherited: ${inherited("model")}`
+                    : "(leave to default)"}
+                </option>
+                {providerModels.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
                   </option>
-                  {providerModels.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <Input
-                  value={form.model ?? ""}
-                  onChange={(e) =>
-                    setField("model", e.target.value ? e.target.value : null)
-                  }
-                  placeholder={
-                    inherited("model")
-                      ? `inherited from unit: ${inherited("model")}`
-                      : "e.g. claude-sonnet-4-20250514"
-                  }
-                  aria-label="Agent execution model"
-                  data-testid="agent-execution-model-input"
-                  className={
-                    !form.model && inherited("model")
-                      ? "italic text-muted-foreground placeholder:italic placeholder:text-muted-foreground"
-                      : undefined
-                  }
-                />
-              )}
-            </FieldRow>
-
-            {(form.provider ?? persisted?.provider ?? unitDefaults?.provider) && (
-              <CredentialStatusBanner
-                providerId={
-                  (form.provider ??
-                    persisted?.provider ??
-                    unitDefaults?.provider) as string
+                ))}
+              </select>
+            ) : (
+              <Input
+                value={form.model ?? ""}
+                onChange={(e) =>
+                  setField("model", e.target.value ? e.target.value : null)
+                }
+                placeholder={
+                  inherited("model")
+                    ? `inherited from unit: ${inherited("model")}`
+                    : "e.g. claude-sonnet-4-20250514"
+                }
+                aria-label="Agent execution model"
+                data-testid="agent-execution-model-input"
+                className={
+                  !form.model && inherited("model")
+                    ? "italic text-muted-foreground placeholder:italic placeholder:text-muted-foreground"
+                    : undefined
                 }
               />
             )}
-          </>
+          </FieldRow>
         )}
+
+        {showProvider &&
+          (form.provider ?? persisted?.provider ?? unitDefaults?.provider) && (
+            <CredentialStatusBanner
+              providerId={
+                (form.provider ??
+                  persisted?.provider ??
+                  unitDefaults?.provider) as string
+              }
+            />
+          )}
 
         {/* Hosting — agent-exclusive. Unit defaults don't carry a
             hosting slot so there's nothing to inherit from. */}
