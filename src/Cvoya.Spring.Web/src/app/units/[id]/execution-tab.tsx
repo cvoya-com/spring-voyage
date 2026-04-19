@@ -231,7 +231,7 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
               discovery are tracked follow-ups (#622, #623). */}
           <FieldRow
             label="Image"
-            help="Default container image reference. Autocomplete is tracked as #622."
+            help="Default container image used to launch member agents. Individual agents can override this on their Execution panel."
             onClear={
               persisted?.image ? () => clearField("image") : undefined
             }

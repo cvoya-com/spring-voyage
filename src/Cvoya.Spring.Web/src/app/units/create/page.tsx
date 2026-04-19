@@ -887,7 +887,9 @@ export default function CreateUnitPage() {
                   aria-label="Execution image"
                 />
                 <span className="block text-xs text-muted-foreground">
-                  Default container image. Autocomplete is tracked as #622.
+                  Default container image used to launch member agents.
+                  Individual agents can override this on their Execution
+                  panel.
                 </span>
               </label>
 
