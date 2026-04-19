@@ -1,7 +1,25 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+// Agent detail page — tabbed layout (#604).
+//
+// The page used to scroll a flat stack of 11 cards; now it mirrors the
+// unit-detail pattern (`src/app/units/[id]/unit-config-client.tsx`) and
+// groups them into four tabs:
+//
+//   - Interaction: conversation quick-link + clones.
+//   - Runtime (default): lifecycle panel, cost summary, cost-over-time,
+//     cost breakdown by activity.
+//   - Settings: agent info, daily budget, expertise, execution.
+//   - Advanced: status JSON debug card (rendered only when present).
+//
+// Active tab is reflected in `?tab=...` via `useSearchParams` so deep
+// links and browser back/forward work. Because `useSearchParams` forces
+// a Suspense boundary in the App Router, the default export wraps the
+// content component in a Suspense shell (matching `/agents`,
+// `/conversations`, and the Analytics tabs).
+
+import { Suspense, useCallback, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import {
@@ -26,6 +44,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CostOverTimeCard } from "./cost-over-time";
 import { AgentExecutionPanel } from "./execution-panel";
 import { LifecyclePanel } from "./lifecycle-panel";
@@ -61,6 +80,29 @@ interface ClassifiedCost {
   classification: CostClass;
 }
 
+/**
+ * Tab identifiers surfaced on the page. The set is kept tight on purpose
+ * — adding a new tab means deciding which bucket the card belongs in and
+ * updating `parseTab` below so an unknown `?tab=` value falls back to the
+ * default rather than blanking the page.
+ */
+const TAB_VALUES = ["interaction", "runtime", "settings", "advanced"] as const;
+type TabValue = (typeof TAB_VALUES)[number];
+
+const DEFAULT_TAB: TabValue = "runtime";
+
+function parseTab(raw: string | null, hasAdvanced: boolean): TabValue {
+  if (raw && (TAB_VALUES as readonly string[]).includes(raw)) {
+    const tab = raw as TabValue;
+    // If the Advanced tab is hidden (no status payload), collapse into
+    // the default so a stale link doesn't land the user on a missing
+    // trigger.
+    if (tab === "advanced" && !hasAdvanced) return DEFAULT_TAB;
+    return tab;
+  }
+  return DEFAULT_TAB;
+}
+
 // Classify CostIncurred events by reading the `costSource` tag written at
 // emission time by AgentActor (see #101). Falls back to "work_cost" for
 // legacy events that pre-date the tag so the table stays readable during
@@ -91,8 +133,9 @@ interface ClientProps {
   id: string;
 }
 
-export default function AgentDetailClient({ id }: ClientProps) {
+function AgentDetailContent({ id }: ClientProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const enabled = Boolean(id && id !== "__placeholder__");
@@ -138,6 +181,27 @@ export default function AgentDetailClient({ id }: ClientProps) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [budget]);
+
+  const hasAdvanced = data?.status != null;
+  const activeTab = parseTab(searchParams.get("tab"), hasAdvanced);
+
+  // Push the new tab value into the URL via `router.replace` so deep
+  // links and browser back/forward stay honest without polluting the
+  // history stack. `DEFAULT_TAB` collapses to "no param" so the bare
+  // URL remains the canonical entry point.
+  const setActiveTab = useCallback(
+    (next: string) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (next === DEFAULT_TAB) {
+        params.delete("tab");
+      } else {
+        params.set("tab", next);
+      }
+      const qs = params.toString();
+      router.replace(qs ? `?${qs}` : "?", { scroll: false });
+    },
+    [router, searchParams],
+  );
 
   const handleDeleteAgent = async () => {
     try {
@@ -289,341 +353,419 @@ export default function AgentDetailClient({ id }: ClientProps) {
         </Button>
       </div>
 
-      {/* Quick link to the conversation surface filtered by this agent
-          (#410). Mirrors `spring conversation list --agent <name>` so
-          the portal exposes the same one-click jump. */}
-      <Card>
-        <CardContent className="flex items-center justify-between gap-3 py-4 text-sm">
-          <div className="flex items-center gap-2">
-            <MessagesSquare className="h-4 w-4 text-muted-foreground" />
-            <span>Conversations involving this agent</span>
-          </div>
-          <Link
-            href={`/conversations?agent=${encodeURIComponent(agent.name)}`}
-            className="inline-flex items-center gap-1 rounded-md border border-input bg-background px-3 py-1 text-xs font-medium text-primary hover:bg-accent"
-            data-testid="agent-conversations-link"
-          >
-            View threads →
-          </Link>
-        </CardContent>
-      </Card>
+      <Tabs
+        defaultValue={DEFAULT_TAB}
+        value={activeTab}
+        onValueChange={setActiveTab}
+      >
+        <TabsList aria-label="Agent detail sections">
+          <TabsTrigger value="interaction">Interaction</TabsTrigger>
+          <TabsTrigger value="runtime">Runtime</TabsTrigger>
+          <TabsTrigger value="settings">Settings</TabsTrigger>
+          {hasAdvanced && (
+            <TabsTrigger value="advanced">Advanced</TabsTrigger>
+          )}
+        </TabsList>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Agent Info</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2 text-sm">
-          <div className="flex flex-col gap-1 sm:flex-row sm:justify-between">
-            <span className="text-muted-foreground">Description</span>
-            <span className="sm:text-right">{agent.description || "—"}</span>
-          </div>
-          <div className="flex flex-col gap-1 sm:flex-row sm:justify-between">
-            <span className="text-muted-foreground">Role</span>
-            <span className="sm:text-right">
-              {agent.role ? (
-                <Badge variant="outline">{String(agent.role)}</Badge>
-              ) : (
-                "—"
-              )}
-            </span>
-          </div>
-          <div className="flex flex-col gap-1 sm:flex-row sm:justify-between">
-            <span className="text-muted-foreground">Registered</span>
-            <span className="sm:text-right">{timeAgo(agent.registeredAt)}</span>
-          </div>
-        </CardContent>
-      </Card>
+        <TabsContent
+          value="interaction"
+          className="space-y-6"
+          aria-label="Interaction"
+        >
+          {/* Quick link to the conversation surface filtered by this
+              agent (#410). Mirrors `spring conversation list --agent
+              <name>` so the portal exposes the same one-click jump. */}
+          <Card>
+            <CardContent className="flex items-center justify-between gap-3 py-4 text-sm">
+              <div className="flex items-center gap-2">
+                <MessagesSquare className="h-4 w-4 text-muted-foreground" />
+                <span>Conversations involving this agent</span>
+              </div>
+              <Link
+                href={`/conversations?agent=${encodeURIComponent(agent.name)}`}
+                className="inline-flex items-center gap-1 rounded-md border border-input bg-background px-3 py-1 text-xs font-medium text-primary hover:bg-accent"
+                data-testid="agent-conversations-link"
+              >
+                View threads →
+              </Link>
+            </CardContent>
+          </Card>
 
-      {/* Persistent-agent lifecycle (#396, #508). Always rendered — the
-          server validates hosting mode and returns 400 for ephemeral
-          agents, so the verbs stay 1:1 with the CLI surface and the UI
-          never has to guess the hosting mode from an incomplete signal. */}
-      <LifecyclePanel agentId={id} initialDeployment={data.deployment ?? null} />
-
-      {/* Execution panel (#601 / #603 / #409 B-wide — backend PR #628).
-          Surfaces the agent's own `execution:` block (image / runtime /
-          tool / provider / model / hosting) with "inherited from unit"
-          indicators for any slot the agent leaves blank. */}
-      <AgentExecutionPanel
-        agentId={agent.name}
-        parentUnitId={agent.parentUnit ?? null}
-      />
-
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {cost !== null && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <DollarSign className="h-4 w-4" /> Cost Summary
+                <Copy className="h-4 w-4" /> Clones ({clones.length})
               </CardTitle>
             </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr_auto]">
+                <label className="block space-y-1">
+                  <span className="text-xs text-muted-foreground">
+                    Clone type
+                  </span>
+                  <select
+                    value={cloneType}
+                    onChange={(e) => setCloneType(e.target.value as CloneType)}
+                    className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  >
+                    <option value="ephemeral-no-memory">
+                      Ephemeral (no memory)
+                    </option>
+                    <option value="ephemeral-with-memory">
+                      Ephemeral (with memory)
+                    </option>
+                  </select>
+                </label>
+                <label className="block space-y-1">
+                  <span className="text-xs text-muted-foreground">
+                    Attachment mode
+                  </span>
+                  <select
+                    value={attachmentMode}
+                    onChange={(e) =>
+                      setAttachmentMode(e.target.value as CloneAttachmentMode)
+                    }
+                    className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  >
+                    <option value="detached">Detached</option>
+                    <option value="attached">Attached</option>
+                  </select>
+                </label>
+                <div className="flex items-end">
+                  <Button
+                    onClick={handleCreateClone}
+                    disabled={creatingClone}
+                    className="w-full sm:w-auto"
+                  >
+                    <Plus className="mr-1 h-4 w-4" />
+                    {creatingClone ? "Creating…" : "Create clone"}
+                  </Button>
+                </div>
+              </div>
+
+              {clones.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No clones yet.</p>
+              ) : (
+                <div className="space-y-2">
+                  {clones.map((c) => (
+                    <div
+                      key={c.cloneId}
+                      className="flex flex-col gap-2 rounded-md border border-border p-3 text-sm sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <div className="min-w-0 space-y-1">
+                        <div className="truncate font-mono text-xs">
+                          {c.cloneId}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                          <Badge variant="outline">{c.cloneType}</Badge>
+                          <Badge variant="outline">{c.attachmentMode}</Badge>
+                          <Badge
+                            variant={
+                              c.status === "active" ? "success" : "default"
+                            }
+                          >
+                            {c.status}
+                          </Badge>
+                          <span>{timeAgo(c.createdAt)}</span>
+                        </div>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleDeleteClone(c.cloneId)}
+                        aria-label={`Delete clone ${c.cloneId}`}
+                      >
+                        <Trash2 className="mr-1 h-4 w-4" /> Delete
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent
+          value="runtime"
+          className="space-y-6"
+          aria-label="Runtime"
+        >
+          {/* Persistent-agent lifecycle (#396, #508). Always rendered —
+              the server validates hosting mode and returns 400 for
+              ephemeral agents, so the verbs stay 1:1 with the CLI
+              surface and the UI never has to guess the hosting mode from
+              an incomplete signal. */}
+          <LifecyclePanel
+            agentId={id}
+            initialDeployment={data.deployment ?? null}
+          />
+
+          {cost !== null && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <DollarSign className="h-4 w-4" /> Cost Summary
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Total Cost</span>
+                  <span className="font-medium">
+                    {formatCost(cost.totalCost)}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Input Tokens</span>
+                  <span>{cost.totalInputTokens.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Output Tokens</span>
+                  <span>{cost.totalOutputTokens.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Records</span>
+                  <span>{cost.recordCount}</span>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Cost-over-time card (PR-R4, #394). Renders per-window totals
+              (24h / 7d / 30d) as a proportional bar because the cost API
+              does not expose a time-series today (#569). The tool/model
+              breakdown #394 asks for is deferred to #570. */}
+          <CostOverTimeCard agentId={agent.name} />
+
+          {/* Cost breakdown by activity (client-side heuristic; see #75) */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Zap className="h-4 w-4" /> Cost breakdown by activity
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4 text-sm">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <div className="rounded-md border border-border p-3">
+                  <div className="text-xs text-muted-foreground">
+                    Initiative cost
+                  </div>
+                  <div className="text-lg font-semibold">
+                    {formatCost(initiativeCostTotal)}
+                  </div>
+                </div>
+                <div className="rounded-md border border-border p-3">
+                  <div className="text-xs text-muted-foreground">
+                    Work cost
+                  </div>
+                  <div className="text-lg font-semibold">
+                    {formatCost(workCostTotal)}
+                  </div>
+                </div>
+                <div className="rounded-md border border-border p-3">
+                  <div className="text-xs text-muted-foreground">
+                    Tier 2 invocations (last 24h)
+                  </div>
+                  <div className="text-lg font-semibold">{tier2Last24h}</div>
+                </div>
+              </div>
+
+              {recentClassified.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  No recent CostIncurred events.
+                </p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Time</TableHead>
+                        <TableHead>Class</TableHead>
+                        <TableHead>Summary</TableHead>
+                        <TableHead className="text-right">Cost</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {recentClassified.map(({ event, classification }) => (
+                        <TableRow key={event.id}>
+                          <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+                            {timeAgo(event.timestamp)}
+                          </TableCell>
+                          <TableCell>
+                            <Badge
+                              variant={
+                                classification === "initiative_cost"
+                                  ? "warning"
+                                  : "outline"
+                              }
+                            >
+                              {classification}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-sm">
+                            {event.summary}
+                          </TableCell>
+                          <TableCell className="text-right font-mono text-xs">
+                            {event.cost != null
+                              ? `$${event.cost.toFixed(4)}`
+                              : "—"}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent
+          value="settings"
+          className="space-y-6"
+          aria-label="Settings"
+        >
+          <Card>
+            <CardHeader>
+              <CardTitle>Agent Info</CardTitle>
+            </CardHeader>
             <CardContent className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Total Cost</span>
-                <span className="font-medium">
-                  {formatCost(cost.totalCost)}
+              <div className="flex flex-col gap-1 sm:flex-row sm:justify-between">
+                <span className="text-muted-foreground">Description</span>
+                <span className="sm:text-right">
+                  {agent.description || "—"}
                 </span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Input Tokens</span>
-                <span>{cost.totalInputTokens.toLocaleString()}</span>
+              <div className="flex flex-col gap-1 sm:flex-row sm:justify-between">
+                <span className="text-muted-foreground">Role</span>
+                <span className="sm:text-right">
+                  {agent.role ? (
+                    <Badge variant="outline">{String(agent.role)}</Badge>
+                  ) : (
+                    "—"
+                  )}
+                </span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Output Tokens</span>
-                <span>{cost.totalOutputTokens.toLocaleString()}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Records</span>
-                <span>{cost.recordCount}</span>
+              <div className="flex flex-col gap-1 sm:flex-row sm:justify-between">
+                <span className="text-muted-foreground">Registered</span>
+                <span className="sm:text-right">
+                  {timeAgo(agent.registeredAt)}
+                </span>
               </div>
             </CardContent>
           </Card>
-        )}
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Wallet className="h-4 w-4" /> Daily Budget
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            <p className="text-xs text-muted-foreground">
-              Sets a per-day cost ceiling (USD) for this agent. Used by
-              initiative and cost-guard policies.
-            </p>
-            <label className="block space-y-1">
-              <span className="text-xs text-muted-foreground">
-                Daily budget (USD)
-              </span>
-              <Input
-                type="number"
-                inputMode="decimal"
-                min="0"
-                step="0.01"
-                value={budgetInput}
-                onChange={(e) => setBudgetInput(e.target.value)}
-                placeholder="e.g. 5.00"
-              />
-            </label>
-            {budgetUtilization !== null && (
-              <div>
-                <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>Utilization (period-to-date)</span>
-                  <span>{budgetUtilization.toFixed(1)}%</span>
-                </div>
-                <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-muted">
-                  <div
-                    className="h-full bg-primary"
-                    style={{ width: `${budgetUtilization}%` }}
-                  />
-                </div>
-              </div>
-            )}
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-muted-foreground">
-                {budget
-                  ? `Current: ${formatCost(budget.dailyBudget)}/day`
-                  : "No budget set"}
-              </span>
-              <Button size="sm" onClick={handleSaveBudget} disabled={savingBudget}>
-                {savingBudget ? "Saving…" : "Save"}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Cost-over-time card (PR-R4, #394). Renders per-window totals
-          (24h / 7d / 30d) as a proportional bar because the cost API
-          does not expose a time-series today (#569). The tool/model
-          breakdown #394 asks for is deferred to #570. */}
-      <CostOverTimeCard agentId={agent.name} />
-
-      {/* Expertise panel (#486). Reads/writes /api/v1/agents/{id}/expertise —
-          the same surface `spring agent expertise get|set` uses on the CLI. */}
-      <AgentExpertisePanel agentId={agent.name} />
-
-      {/* Cost breakdown by activity (client-side heuristic; see #75) */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Zap className="h-4 w-4" /> Cost breakdown by activity
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4 text-sm">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <div className="rounded-md border border-border p-3">
-              <div className="text-xs text-muted-foreground">
-                Initiative cost
-              </div>
-              <div className="text-lg font-semibold">
-                {formatCost(initiativeCostTotal)}
-              </div>
-            </div>
-            <div className="rounded-md border border-border p-3">
-              <div className="text-xs text-muted-foreground">Work cost</div>
-              <div className="text-lg font-semibold">
-                {formatCost(workCostTotal)}
-              </div>
-            </div>
-            <div className="rounded-md border border-border p-3">
-              <div className="text-xs text-muted-foreground">
-                Tier 2 invocations (last 24h)
-              </div>
-              <div className="text-lg font-semibold">{tier2Last24h}</div>
-            </div>
-          </div>
-
-          {recentClassified.length === 0 ? (
-            <p className="text-xs text-muted-foreground">
-              No recent CostIncurred events.
-            </p>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Time</TableHead>
-                    <TableHead>Class</TableHead>
-                    <TableHead>Summary</TableHead>
-                    <TableHead className="text-right">Cost</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {recentClassified.map(({ event, classification }) => (
-                    <TableRow key={event.id}>
-                      <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
-                        {timeAgo(event.timestamp)}
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          variant={
-                            classification === "initiative_cost"
-                              ? "warning"
-                              : "outline"
-                          }
-                        >
-                          {classification}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-sm">{event.summary}</TableCell>
-                      <TableCell className="text-right font-mono text-xs">
-                        {event.cost != null
-                          ? `$${event.cost.toFixed(4)}`
-                          : "—"}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Copy className="h-4 w-4" /> Clones ({clones.length})
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr_auto]">
-            <label className="block space-y-1">
-              <span className="text-xs text-muted-foreground">Clone type</span>
-              <select
-                value={cloneType}
-                onChange={(e) => setCloneType(e.target.value as CloneType)}
-                className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              >
-                <option value="ephemeral-no-memory">
-                  Ephemeral (no memory)
-                </option>
-                <option value="ephemeral-with-memory">
-                  Ephemeral (with memory)
-                </option>
-              </select>
-            </label>
-            <label className="block space-y-1">
-              <span className="text-xs text-muted-foreground">
-                Attachment mode
-              </span>
-              <select
-                value={attachmentMode}
-                onChange={(e) =>
-                  setAttachmentMode(e.target.value as CloneAttachmentMode)
-                }
-                className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              >
-                <option value="detached">Detached</option>
-                <option value="attached">Attached</option>
-              </select>
-            </label>
-            <div className="flex items-end">
-              <Button
-                onClick={handleCreateClone}
-                disabled={creatingClone}
-                className="w-full sm:w-auto"
-              >
-                <Plus className="mr-1 h-4 w-4" />
-                {creatingClone ? "Creating…" : "Create clone"}
-              </Button>
-            </div>
-          </div>
-
-          {clones.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No clones yet.</p>
-          ) : (
-            <div className="space-y-2">
-              {clones.map((c) => (
-                <div
-                  key={c.cloneId}
-                  className="flex flex-col gap-2 rounded-md border border-border p-3 text-sm sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <div className="min-w-0 space-y-1">
-                    <div className="truncate font-mono text-xs">
-                      {c.cloneId}
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                      <Badge variant="outline">{c.cloneType}</Badge>
-                      <Badge variant="outline">{c.attachmentMode}</Badge>
-                      <Badge
-                        variant={
-                          c.status === "active" ? "success" : "default"
-                        }
-                      >
-                        {c.status}
-                      </Badge>
-                      <span>{timeAgo(c.createdAt)}</span>
-                    </div>
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Wallet className="h-4 w-4" /> Daily Budget
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              <p className="text-xs text-muted-foreground">
+                Sets a per-day cost ceiling (USD) for this agent. Used by
+                initiative and cost-guard policies.
+              </p>
+              <label className="block space-y-1">
+                <span className="text-xs text-muted-foreground">
+                  Daily budget (USD)
+                </span>
+                <Input
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="0.01"
+                  value={budgetInput}
+                  onChange={(e) => setBudgetInput(e.target.value)}
+                  placeholder="e.g. 5.00"
+                />
+              </label>
+              {budgetUtilization !== null && (
+                <div>
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>Utilization (period-to-date)</span>
+                    <span>{budgetUtilization.toFixed(1)}%</span>
                   </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handleDeleteClone(c.cloneId)}
-                    aria-label={`Delete clone ${c.cloneId}`}
-                  >
-                    <Trash2 className="mr-1 h-4 w-4" /> Delete
-                  </Button>
+                  <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-muted">
+                    <div
+                      className="h-full bg-primary"
+                      style={{ width: `${budgetUtilization}%` }}
+                    />
+                  </div>
                 </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+              )}
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">
+                  {budget
+                    ? `Current: ${formatCost(budget.dailyBudget)}/day`
+                    : "No budget set"}
+                </span>
+                <Button
+                  size="sm"
+                  onClick={handleSaveBudget}
+                  disabled={savingBudget}
+                >
+                  {savingBudget ? "Saving…" : "Save"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
 
-      {data.status != null && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Status</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <pre className="overflow-x-auto rounded bg-muted p-3 text-xs">
-              {JSON.stringify(data.status, null, 2)}
-            </pre>
-          </CardContent>
-        </Card>
-      )}
+          {/* Expertise panel (#486). Reads/writes
+              /api/v1/agents/{id}/expertise — the same surface `spring
+              agent expertise get|set` uses on the CLI. */}
+          <AgentExpertisePanel agentId={agent.name} />
+
+          {/* Execution panel (#601 / #603 / #409 B-wide — backend PR
+              #628). Surfaces the agent's own `execution:` block (image /
+              runtime / tool / provider / model / hosting) with
+              "inherited from unit" indicators for any slot the agent
+              leaves blank. */}
+          <AgentExecutionPanel
+            agentId={agent.name}
+            parentUnitId={agent.parentUnit ?? null}
+          />
+        </TabsContent>
+
+        {hasAdvanced && (
+          <TabsContent
+            value="advanced"
+            className="space-y-6"
+            aria-label="Advanced"
+          >
+            <Card>
+              <CardHeader>
+                <CardTitle>Status</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <pre className="overflow-x-auto rounded bg-muted p-3 text-xs">
+                  {JSON.stringify(data.status, null, 2)}
+                </pre>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
+      </Tabs>
     </div>
+  );
+}
+
+export default function AgentDetailClient({ id }: ClientProps) {
+  // `useSearchParams` requires a Suspense boundary in the App Router
+  // (the production build refuses to prerender the route otherwise).
+  // The fallback intentionally mirrors the post-load skeleton shape so
+  // the page doesn't jump when hydration completes — same approach the
+  // Agents lens and Analytics tabs use.
+  return (
+    <Suspense
+      fallback={
+        <div className="space-y-4">
+          <Skeleton className="h-8 w-48" />
+          <Skeleton className="h-40" />
+          <Skeleton className="h-32" />
+        </div>
+      }
+    >
+      <AgentDetailContent id={id} />
+    </Suspense>
   );
 }

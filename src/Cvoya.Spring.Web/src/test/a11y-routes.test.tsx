@@ -98,6 +98,17 @@ const apiStub = {
   searchDirectory: vi.fn<() => Promise<{ hits: unknown[]; totalCount: number }>>(),
   getTenantCost:
     vi.fn<() => Promise<{ totalCost: number; breakdowns: unknown[] }>>(),
+  // Agent detail tree (#604) — the tabbed detail page fans out to
+  // several panels; declaring the stubs up here keeps the mock surface
+  // in one place and lets `vi.clearAllMocks()` tidy them between tests.
+  getAgent: vi.fn<() => Promise<unknown>>(),
+  getAgentCost: vi.fn<() => Promise<unknown>>(),
+  getClones: vi.fn<() => Promise<unknown[]>>(),
+  getAgentBudget: vi.fn<() => Promise<unknown>>(),
+  getAgentExpertise: vi.fn<() => Promise<unknown[]>>(),
+  getAgentExecution: vi.fn<() => Promise<unknown>>(),
+  getUnitExecution: vi.fn<() => Promise<unknown>>(),
+  getPersistentAgentDeployment: vi.fn<() => Promise<unknown>>(),
 };
 
 vi.mock("@/lib/api/client", () => ({
@@ -277,6 +288,82 @@ describe("portal a11y smoke tests", () => {
       wrapper: createWrapper(),
     });
     await screen.findByRole("heading", { level: 1, name: /agents/i });
+    await expectNoAxeViolations(container);
+  });
+
+  it("/agents/[id] (tabbed detail — #604)", async () => {
+    // Seed the detail response for the proxy'd `api.getAgent(…)` call so
+    // the page renders past its loading skeleton and the tab list lands
+    // in the axe sweep. The remaining panels reach for additional api
+    // surfaces; all of them are stubbed so the detail tree settles into
+    // its default Runtime tab without hitting the "Unstubbed api.…"
+    // rejection path.
+    apiStub.getAgent.mockResolvedValue({
+      agent: {
+        id: "agent-1",
+        name: "alpha/one",
+        displayName: "Agent One",
+        description: "Primary analyst agent",
+        role: "analyst",
+        registeredAt: "2026-04-01T00:00:00Z",
+        enabled: true,
+        parentUnit: "alpha",
+        executionMode: null,
+      },
+      deployment: null,
+      status: null,
+    });
+    apiStub.getAgentCost.mockResolvedValue({
+      totalCost: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      recordCount: 0,
+      initiativeCost: 0,
+      workCost: 0,
+      breakdowns: [],
+    });
+    apiStub.getClones.mockResolvedValue([]);
+    apiStub.getAgentBudget.mockResolvedValue(null);
+    apiStub.getAgentExpertise.mockResolvedValue([]);
+    apiStub.getAgentExecution.mockResolvedValue({
+      image: null,
+      runtime: null,
+      tool: null,
+      provider: null,
+      model: null,
+      hosting: null,
+    });
+    apiStub.getUnitExecution.mockResolvedValue({
+      image: null,
+      runtime: null,
+      tool: null,
+      provider: null,
+      model: null,
+    });
+    apiStub.getPersistentAgentDeployment.mockResolvedValue({
+      agentId: "alpha/one",
+      running: false,
+      healthStatus: "unknown",
+      replicas: 0,
+      image: null,
+      endpoint: null,
+      containerId: null,
+      startedAt: null,
+      consecutiveFailures: 0,
+    });
+
+    const { default: AgentDetailClient } = await import(
+      "@/app/agents/[id]/agent-detail-client"
+    );
+    const { container } = render(<AgentDetailClient id="alpha/one" />, {
+      wrapper: createWrapper(),
+    });
+    await screen.findByRole("heading", { level: 1, name: /agent one/i });
+    // The tab list ships with `role="tablist"` — wait for it so the
+    // axe sweep runs against the post-hydration tree.
+    await screen.findByRole("tablist", {
+      name: /agent detail sections/i,
+    });
     await expectNoAxeViolations(container);
   });
 

@@ -258,7 +258,9 @@ The credential input that appears inside the #626 banner is NOT a generic reusab
 ### 7.7 Tabs — `src/components/ui/tabs.tsx`
 
 - Controlled via `TabsContext` — no Radix. `TabsList` is `inline-flex h-9 rounded-lg bg-muted p-1`. `TabsTrigger` is `rounded-md px-3 py-1 text-sm font-medium`; active state flips to `bg-background text-foreground shadow-sm`.
-- Used for unit detail's Agents / Sub-units / Skills / Connector / Secrets / Activity sections.
+- Used for unit detail's Agents / Sub-units / Skills / Connector / Secrets / Activity sections and the agent detail page's Interaction / Runtime / Settings / Advanced split (#604).
+- **Optional controlled mode.** `<Tabs>` accepts `value` + `onValueChange` for pages that need to reflect the active tab in the URL (e.g. agent detail's `?tab=<interaction|runtime|settings|advanced>` — the caller mirrors `useSearchParams` into the prop and pushes a `router.replace` on change so deep links and browser back/forward stay honest). Omit the props to fall back to the uncontrolled `defaultValue` path used by unit detail.
+- **Entity detail pages follow the same pattern.** `/units/[id]` (`unit-config-client.tsx`) and `/agents/[id]` (`agent-detail-client.tsx`) both group their Cards into `<TabsContent>` blocks with a single `<TabsList>` directly below the page header. New entity detail pages should mirror this shape rather than invent a new layout; pick Runtime as the default tab when the page has a "what's happening now?" surface to lead with.
 
 ### 7.8 Toast — `src/components/ui/toast.tsx`
 

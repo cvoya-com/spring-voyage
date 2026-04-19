@@ -51,15 +51,34 @@ function useTabsContext(): TabsContextValue {
 
 export function Tabs({
   defaultValue,
+  value: controlledValue,
+  onValueChange,
   children,
   className,
 }: {
   defaultValue: string;
+  /**
+   * Optional controlled mode. When provided, the caller owns the active
+   * tab and must supply `onValueChange` to react to user interactions
+   * (click + arrow-key follow-focus). Used by pages that sync tab state
+   * to the URL so deep links survive refresh.
+   */
+  value?: string;
+  onValueChange?: (value: string) => void;
   children: ReactNode;
   className?: string;
 }) {
   const baseId = useId();
-  const [value, setValue] = useState(defaultValue);
+  const [uncontrolledValue, setUncontrolledValue] = useState(defaultValue);
+  const isControlled = controlledValue !== undefined;
+  const value = isControlled ? controlledValue : uncontrolledValue;
+  const setValue = useCallback(
+    (next: string) => {
+      if (!isControlled) setUncontrolledValue(next);
+      onValueChange?.(next);
+    },
+    [isControlled, onValueChange],
+  );
   // Track trigger refs in insertion order so arrow-key navigation can
   // pick the previous / next sibling regardless of how the caller
   // arranges them. A ref map (not state) keeps this side-effect free.
@@ -105,7 +124,7 @@ export function Tabs({
       // moves. Matches the APG automatic-activation variant.
       setValue(next.value);
     },
-    [],
+    [setValue],
   );
 
   const ctx = useMemo<TabsContextValue>(
@@ -116,7 +135,7 @@ export function Tabs({
       registerTrigger,
       focusTrigger,
     }),
-    [value, baseId, registerTrigger, focusTrigger],
+    [value, setValue, baseId, registerTrigger, focusTrigger],
   );
 
   return (
