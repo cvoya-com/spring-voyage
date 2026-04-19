@@ -467,7 +467,7 @@ export default function CreateUnitPage() {
   });
 
   // True when the currently-typed key has a fresh, successful verdict
-  // attached. The Next button gate + the Model dropdown both read this.
+  // attached. The Model dropdown gate below reads this.
   const credentialValidated = useMemo(() => {
     if (credentialValidation.status !== "valid") return false;
     const trimmed = form.credentialKey.trim();
@@ -476,6 +476,64 @@ export default function CreateUnitPage() {
       credentialValidation.validatedProvider === requiredCredentialProvider
     );
   }, [credentialValidation, form.credentialKey, requiredCredentialProvider]);
+
+  // #655: auto-validate on blur. The input's onBlur calls this; it
+  // deduplicates "same key already validated" and "validation in
+  // flight" so paste-then-click-next doesn't fire two requests. Parent-
+  // level so the CredentialSection stays unaware of the staleness
+  // rules.
+  const attemptValidateCredential = useCallback(() => {
+    if (requiredCredentialProvider === null) return;
+    const trimmed = form.credentialKey.trim();
+    if (trimmed.length === 0) return;
+    if (validateCredential.isPending) return;
+    if (
+      credentialValidation.status === "valid" &&
+      credentialValidation.validatedKey === trimmed &&
+      credentialValidation.validatedProvider === requiredCredentialProvider
+    ) {
+      return;
+    }
+    validateCredential.mutate();
+  }, [
+    requiredCredentialProvider,
+    form.credentialKey,
+    credentialValidation.status,
+    credentialValidation.validatedKey,
+    credentialValidation.validatedProvider,
+    validateCredential,
+  ]);
+
+  // #655: Model dropdown visibility. We only show the dropdown when
+  // there is a live model source:
+  //   - Ollama (dapr-agent + ollama) — rendered regardless (reachability
+  //     banner handles failures; the dropdown is populated from
+  //     ollamaModels or blank during discovery).
+  //   - Tenant/unit credential is resolvable — `providerModels` was
+  //     fetched with that credential, so the list is live.
+  //   - Fresh validation of a user-typed key succeeded — use the model
+  //     list returned by the validate endpoint.
+  // Otherwise (the operator is still entering a key, or the key
+  // failed to validate) we hide the Model dropdown entirely to avoid
+  // asking them to pick from a stale static fallback.
+  const isOllamaDapr =
+    form.tool === "dapr-agent" && form.provider === "ollama";
+  const tenantOrUnitResolvable = credentialStatus?.resolvable === true;
+  const freshModels =
+    credentialValidated &&
+    credentialValidation.models &&
+    credentialValidation.models.length > 0
+      ? credentialValidation.models
+      : null;
+  const activeModelList: readonly string[] | null = useMemo(() => {
+    if (isOllamaDapr) return ollamaModels;
+    if (freshModels) return freshModels;
+    if (tenantOrUnitResolvable && providerModels && providerModels.length > 0) {
+      return providerModels;
+    }
+    return null;
+  }, [isOllamaDapr, ollamaModels, freshModels, tenantOrUnitResolvable, providerModels]);
+  const showModelDropdown = isOllamaDapr || activeModelList !== null;
 
   const update = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -519,29 +577,32 @@ export default function CreateUnitPage() {
         setStepError(err);
         return;
       }
-      // #655: if the operator typed a credential that hasn't been
-      // validated yet for this exact key+provider, trigger a live
-      // validation against the provider before advancing. The Model
-      // dropdown on the next render consumes the returned model list,
-      // so the wizard progresses only when the key actually works and
-      // the catalog is already seeded from the operator's account.
+      // #655: when a credential has been typed we gate advance on its
+      // live-verified validity. Blur-driven validation typically kicks
+      // off on its own; the cases handleNext covers:
+      //   - validation is still in flight (operator pasted and
+      //     clicked Next before the blur's request returned) → stay
+      //     on Step 1; Next disables via canGoNext until the mutation
+      //     settles.
+      //   - validation already failed for this key → stay on Step 1
+      //     so the inline error is visible and the operator can edit.
+      //   - no verdict yet ("idle", e.g. the operator never blurred
+      //     the input) → fire the validation now and await the result.
+      //   - validation already succeeded for this exact key → fall
+      //     through and advance.
       if (
         requiredCredentialProvider !== null &&
-        form.credentialKey.trim().length > 0 &&
-        !credentialValidated &&
-        !validateCredential.isPending
+        form.credentialKey.trim().length > 0
       ) {
-        try {
-          const result = await validateCredential.mutateAsync();
-          if (!result.valid) {
-            // The mutation's onSuccess has already stored the inline
-            // error on the CredentialSection; stay on Step 1 so the
-            // operator sees it without a duplicate step-level banner.
+        if (validateCredential.isPending) return;
+        if (effectiveValidation.status === "invalid") return;
+        if (effectiveValidation.status === "idle") {
+          try {
+            const result = await validateCredential.mutateAsync();
+            if (!result.valid) return;
+          } catch {
             return;
           }
-        } catch {
-          // onError has already populated the inline error. Stay put.
-          return;
         }
       }
     }
@@ -1113,39 +1174,6 @@ export default function CreateUnitPage() {
                       ))}
                     </select>
                   </label>
-
-                  <label className="block space-y-1">
-                    <span className="text-sm text-muted-foreground">Model</span>
-                    <select
-                      value={form.model}
-                      onChange={(e) => update("model", e.target.value)}
-                      aria-label="Model"
-                      disabled={
-                        form.provider === "ollama" && ollamaModelsLoading
-                      }
-                      className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {(form.provider === "ollama" && ollamaModels
-                        ? ollamaModels
-                        : credentialValidated &&
-                            credentialValidation.models &&
-                            credentialValidation.models.length > 0
-                          ? credentialValidation.models
-                          : providerModelsEnabled && providerModels
-                            ? providerModels
-                            : getProvider(form.provider).models.slice()
-                      ).map((m) => (
-                        <option key={m} value={m}>
-                          {m}
-                        </option>
-                      ))}
-                    </select>
-                    {form.provider === "ollama" && ollamaModelsLoading && (
-                      <span className="block text-xs text-muted-foreground">
-                        Loading models from Ollama server...
-                      </span>
-                    )}
-                  </label>
                 </div>
 
                 <CredentialSection
@@ -1162,6 +1190,7 @@ export default function CreateUnitPage() {
                   validationStatus={effectiveValidation.status}
                   validationError={effectiveValidation.error}
                   validationPassed={credentialValidated}
+                  onValidate={attemptValidateCredential}
                   onKeyChange={(v) => update("credentialKey", v)}
                   onToggleSaveAsTenantDefault={(v) =>
                     update("saveAsTenantDefault", v)
@@ -1178,51 +1207,54 @@ export default function CreateUnitPage() {
                     }));
                   }}
                 />
+
+                {/*
+                  #655: the Model dropdown is revealed only when a live
+                  model source is available — either the tenant default
+                  resolved (so `providerModels` is live), the operator
+                  just validated a key (so `credentialValidation.models`
+                  is live), or the Ollama provider is in use (list comes
+                  from the local server). Otherwise we hide the dropdown
+                  entirely so operators aren't asked to pick from a
+                  stale static fallback before the wizard knows their
+                  account works.
+                */}
+                {showModelDropdown && (
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <label className="block space-y-1">
+                      <span className="text-sm text-muted-foreground">
+                        Model
+                      </span>
+                      <select
+                        value={form.model}
+                        onChange={(e) => update("model", e.target.value)}
+                        aria-label="Model"
+                        disabled={isOllamaDapr && ollamaModelsLoading}
+                        className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {(activeModelList ?? []).map((m) => (
+                          <option key={m} value={m}>
+                            {m}
+                          </option>
+                        ))}
+                      </select>
+                      {isOllamaDapr && ollamaModelsLoading && (
+                        <span className="block text-xs text-muted-foreground">
+                          Loading models from Ollama server...
+                        </span>
+                      )}
+                    </label>
+                  </div>
+                )}
               </>
             )}
             {/*
-              #641: tools that hide the Provider dropdown (claude-code /
-              codex / gemini) still expose a Model dropdown populated from
-              that tool's catalog — operators need to pick opus/sonnet/
-              haiku for Claude Code, the Gemini model family for Gemini,
-              etc. `custom` is deliberately excluded: we don't know its
-              catalog. The dropdown mirrors the dapr-agent Model dropdown
-              shape so the form payload stays uniform downstream (`model`
-              still goes on the create-unit request).
-            */}
-            {form.tool !== "dapr-agent" && toolModelProvider !== null && (
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <label className="block space-y-1">
-                  <span className="text-sm text-muted-foreground">Model</span>
-                  <select
-                    value={form.model}
-                    onChange={(e) => update("model", e.target.value)}
-                    aria-label="Model"
-                    className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {(credentialValidated &&
-                    credentialValidation.models &&
-                    credentialValidation.models.length > 0
-                      ? credentialValidation.models
-                      : providerModels && providerModels.length > 0
-                        ? providerModels
-                        : getProvider(toolModelProvider).models.slice()
-                    ).map((m) => (
-                      <option key={m} value={m}>
-                        {m}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-            )}
-
-            {/*
-              #626: tools that hard-code their provider (Claude Code, Codex,
-              Gemini) still need the inline credential surface even though
-              the Provider dropdown stays hidden. We render it outside the
-              dapr-agent branch for those cases so the operator can supply
-              the API key without flipping the tool to Dapr Agent.
+              #626 + #641 + #655: tools that hard-code their provider
+              (Claude Code, Codex, Gemini) render the inline credential
+              surface first, then — only when a live model source is
+              available — the Model dropdown below it. `custom` is
+              deliberately excluded from the Model dropdown since we
+              don't know its catalog.
             */}
             {form.tool !== "dapr-agent" &&
               requiredCredentialProvider !== null && (
@@ -1238,6 +1270,7 @@ export default function CreateUnitPage() {
                   validationStatus={effectiveValidation.status}
                   validationError={effectiveValidation.error}
                   validationPassed={credentialValidated}
+                  onValidate={attemptValidateCredential}
                   onKeyChange={(v) => update("credentialKey", v)}
                   onToggleSaveAsTenantDefault={(v) =>
                     update("saveAsTenantDefault", v)
@@ -1251,6 +1284,28 @@ export default function CreateUnitPage() {
                     }));
                   }}
                 />
+              )}
+
+            {form.tool !== "dapr-agent" &&
+              toolModelProvider !== null &&
+              showModelDropdown && (
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <label className="block space-y-1">
+                    <span className="text-sm text-muted-foreground">Model</span>
+                    <select
+                      value={form.model}
+                      onChange={(e) => update("model", e.target.value)}
+                      aria-label="Model"
+                      className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {(activeModelList ?? []).map((m) => (
+                        <option key={m} value={m}>
+                          {m}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
               )}
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -1900,10 +1955,10 @@ interface CredentialSectionProps {
   ollamaProbe:
     | import("@/lib/api/types").ProviderCredentialStatusResponse
     | null;
-  // #655: wizard-time credential validation. Triggered automatically
-  // from `handleNext` when the operator advances past Step 1 — the
-  // component renders the verdict inline but never exposes a manual
-  // Validate button.
+  // #655: wizard-time credential validation. The verdict is surfaced
+  // inline; validation itself fires from the input's `onBlur` (the
+  // operator types a key, tabs or clicks away, and the wizard posts
+  // the key to the provider). There is no manual Validate button.
   //   - `validationStatus`: lifecycle of the validate mutation for the
   //     current key. `"idle"` is the resting state; `"validating"` is
   //     in flight; `"valid"` / `"invalid"` reflect the provider verdict.
@@ -1912,9 +1967,12 @@ interface CredentialSectionProps {
   //   - `validationPassed`: convenience flag that pins the "valid"
   //     verdict to the exact typed key + provider pair; stale passes
   //     (key edited after a previous validation) do not advance.
+  //   - `onValidate`: invoked from the input's `onBlur`. The parent is
+  //     responsible for skipping duplicate / in-flight requests.
   validationStatus: "idle" | "validating" | "valid" | "invalid";
   validationError: string | null;
   validationPassed: boolean;
+  onValidate: () => void;
   onKeyChange: (value: string) => void;
   onToggleSaveAsTenantDefault: (value: boolean) => void;
   onToggleOverride: (value: boolean) => void;
@@ -1933,6 +1991,7 @@ function CredentialSection(props: CredentialSectionProps) {
     validationStatus,
     validationError,
     validationPassed,
+    onValidate,
     onKeyChange,
     onToggleSaveAsTenantDefault,
     onToggleOverride,
@@ -2006,6 +2065,7 @@ function CredentialSection(props: CredentialSectionProps) {
               validationStatus={validationStatus}
               validationError={validationError}
               validationPassed={validationPassed}
+              onValidate={onValidate}
             />
             <button
               type="button"
@@ -2049,6 +2109,7 @@ function CredentialSection(props: CredentialSectionProps) {
         validationStatus={validationStatus}
         validationError={validationError}
         validationPassed={validationPassed}
+        onValidate={onValidate}
       />
     </div>
   );
@@ -2070,6 +2131,7 @@ function CredentialInputControls({
   validationStatus,
   validationError,
   validationPassed,
+  onValidate,
 }: {
   provider: "anthropic" | "openai" | "google";
   credentialKey: string;
@@ -2080,6 +2142,7 @@ function CredentialInputControls({
   validationStatus: "idle" | "validating" | "valid" | "invalid";
   validationError: string | null;
   validationPassed: boolean;
+  onValidate: () => void;
 }) {
   const [show, setShow] = useState(false);
   const inputId = `credential-key-${provider}`;
@@ -2099,6 +2162,7 @@ function CredentialInputControls({
             type={inputType}
             value={credentialKey}
             onChange={(e) => onKeyChange(e.target.value)}
+            onBlur={onValidate}
             placeholder={`Paste your ${displayName} API key`}
             autoComplete="off"
             spellCheck={false}
