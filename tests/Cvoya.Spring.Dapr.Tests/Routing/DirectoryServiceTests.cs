@@ -5,9 +5,13 @@ namespace Cvoya.Spring.Dapr.Tests.Routing;
 
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
 using Cvoya.Spring.Dapr.Routing;
+
+using global::Dapr.Actors;
+using global::Dapr.Actors.Client;
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -326,5 +330,299 @@ public class DirectoryServiceTests : IDisposable
         var all = await freshService.ListAllAsync(ct);
 
         all.ShouldContain(e => e.Address.Path == "seeded-unit");
+    }
+
+    /// <summary>
+    /// #652: deleting a unit must hard-delete every <c>UnitMembershipEntity</c>
+    /// row referencing the unit. The table has no <c>DeletedAt</c> column so
+    /// soft-delete is not representable — the invariant is "no row points at a
+    /// deleted unit".
+    /// </summary>
+    [Fact]
+    public async Task UnregisterAsync_unit_removes_all_memberships()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var proxyFactory = Substitute.For<IActorProxyFactory>();
+        var service = CreateServiceWithActorFactory(proxyFactory);
+
+        var unitAddress = new Address("unit", "engineering");
+        await service.RegisterAsync(
+            new DirectoryEntry(unitAddress, "unit-actor-eng", "Engineering", "", null, DateTimeOffset.UtcNow),
+            ct);
+
+        StubUnitMembers(proxyFactory, "unit-actor-eng", Array.Empty<Address>());
+
+        await SeedMembershipAsync("engineering", "ada", ct);
+        await SeedMembershipAsync("engineering", "hopper", ct);
+
+        await service.UnregisterAsync(unitAddress, ct);
+
+        using var scope = _serviceProvider.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        var remaining = await db.UnitMemberships
+            .Where(m => m.UnitId == "engineering")
+            .CountAsync(ct);
+        remaining.ShouldBe(0);
+    }
+
+    /// <summary>
+    /// #652 ref-counting rule: when the unit being deleted was the agent's
+    /// only membership, the agent is soft-deleted in the same cascade.
+    /// </summary>
+    [Fact]
+    public async Task UnregisterAsync_unit_soft_deletes_exclusive_agent()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var proxyFactory = Substitute.For<IActorProxyFactory>();
+        var service = CreateServiceWithActorFactory(proxyFactory);
+
+        var unitAddress = new Address("unit", "engineering");
+        await service.RegisterAsync(
+            new DirectoryEntry(unitAddress, "unit-actor-eng", "Engineering", "", null, DateTimeOffset.UtcNow),
+            ct);
+        await service.RegisterAsync(
+            new DirectoryEntry(new Address("agent", "ada"), "actor-ada", "Ada", "", "engineer", DateTimeOffset.UtcNow),
+            ct);
+
+        StubUnitMembers(proxyFactory, "unit-actor-eng", Array.Empty<Address>());
+        await SeedMembershipAsync("engineering", "ada", ct);
+
+        await service.UnregisterAsync(unitAddress, ct);
+
+        using var scope = _serviceProvider.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        var agent = await db.AgentDefinitions
+            .IgnoreQueryFilters()
+            .FirstAsync(a => a.AgentId == "ada", ct);
+        agent.DeletedAt.ShouldNotBeNull();
+    }
+
+    /// <summary>
+    /// #652 ref-counting rule: when the agent still has at least one live
+    /// membership in a different unit, only the edge is removed. The agent
+    /// itself must survive.
+    /// </summary>
+    [Fact]
+    public async Task UnregisterAsync_unit_preserves_shared_agent()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var proxyFactory = Substitute.For<IActorProxyFactory>();
+        var service = CreateServiceWithActorFactory(proxyFactory);
+
+        var unitX = new Address("unit", "x");
+        var unitY = new Address("unit", "y");
+        await service.RegisterAsync(
+            new DirectoryEntry(unitX, "unit-actor-x", "X", "", null, DateTimeOffset.UtcNow), ct);
+        await service.RegisterAsync(
+            new DirectoryEntry(unitY, "unit-actor-y", "Y", "", null, DateTimeOffset.UtcNow), ct);
+        await service.RegisterAsync(
+            new DirectoryEntry(new Address("agent", "ada"), "actor-ada", "Ada", "", null, DateTimeOffset.UtcNow), ct);
+
+        StubUnitMembers(proxyFactory, "unit-actor-x", Array.Empty<Address>());
+        await SeedMembershipAsync("x", "ada", ct);
+        await SeedMembershipAsync("y", "ada", ct);
+
+        await service.UnregisterAsync(unitX, ct);
+
+        using var scope = _serviceProvider.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+
+        // Edge into X is gone.
+        (await db.UnitMemberships.AnyAsync(m => m.UnitId == "x" && m.AgentAddress == "ada", ct))
+            .ShouldBeFalse();
+        // Edge into Y is preserved.
+        (await db.UnitMemberships.AnyAsync(m => m.UnitId == "y" && m.AgentAddress == "ada", ct))
+            .ShouldBeTrue();
+        // Agent itself survives.
+        var agent = await db.AgentDefinitions
+            .IgnoreQueryFilters()
+            .FirstAsync(a => a.AgentId == "ada", ct);
+        agent.DeletedAt.ShouldBeNull();
+    }
+
+    /// <summary>
+    /// #652: sub-units cascade. Deleting parent P with sub-unit S (S owns an
+    /// exclusive agent) must soft-delete P, S, and S's agent; S's membership
+    /// row is also cleaned up.
+    /// </summary>
+    [Fact]
+    public async Task UnregisterAsync_unit_cascades_sub_units()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var proxyFactory = Substitute.For<IActorProxyFactory>();
+        var service = CreateServiceWithActorFactory(proxyFactory);
+
+        var parent = new Address("unit", "p");
+        var sub = new Address("unit", "s");
+        await service.RegisterAsync(
+            new DirectoryEntry(parent, "unit-actor-p", "P", "", null, DateTimeOffset.UtcNow), ct);
+        await service.RegisterAsync(
+            new DirectoryEntry(sub, "unit-actor-s", "S", "", null, DateTimeOffset.UtcNow), ct);
+        await service.RegisterAsync(
+            new DirectoryEntry(new Address("agent", "exclusive"), "actor-exclusive", "Ex", "", null, DateTimeOffset.UtcNow),
+            ct);
+
+        // Parent lists sub as a unit-typed member; sub has no further nesting.
+        StubUnitMembers(proxyFactory, "unit-actor-p", new[] { sub });
+        StubUnitMembers(proxyFactory, "unit-actor-s", Array.Empty<Address>());
+
+        await SeedMembershipAsync("s", "exclusive", ct);
+
+        await service.UnregisterAsync(parent, ct);
+
+        using var scope = _serviceProvider.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+
+        var parentEntity = await db.UnitDefinitions
+            .IgnoreQueryFilters()
+            .FirstAsync(u => u.UnitId == "p", ct);
+        parentEntity.DeletedAt.ShouldNotBeNull();
+
+        var subEntity = await db.UnitDefinitions
+            .IgnoreQueryFilters()
+            .FirstAsync(u => u.UnitId == "s", ct);
+        subEntity.DeletedAt.ShouldNotBeNull();
+
+        var agent = await db.AgentDefinitions
+            .IgnoreQueryFilters()
+            .FirstAsync(a => a.AgentId == "exclusive", ct);
+        agent.DeletedAt.ShouldNotBeNull();
+
+        (await db.UnitMemberships.CountAsync(m => m.UnitId == "s", ct)).ShouldBe(0);
+    }
+
+    /// <summary>
+    /// #652: when a sub-unit's agent is also a member of an unrelated live
+    /// unit, the sub-unit itself is soft-deleted but the shared agent
+    /// survives with its surviving membership intact.
+    /// </summary>
+    [Fact]
+    public async Task UnregisterAsync_unit_cascades_sub_unit_but_preserves_shared_agent()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var proxyFactory = Substitute.For<IActorProxyFactory>();
+        var service = CreateServiceWithActorFactory(proxyFactory);
+
+        var parent = new Address("unit", "p");
+        var sub = new Address("unit", "s");
+        var unrelated = new Address("unit", "u");
+        await service.RegisterAsync(
+            new DirectoryEntry(parent, "unit-actor-p", "P", "", null, DateTimeOffset.UtcNow), ct);
+        await service.RegisterAsync(
+            new DirectoryEntry(sub, "unit-actor-s", "S", "", null, DateTimeOffset.UtcNow), ct);
+        await service.RegisterAsync(
+            new DirectoryEntry(unrelated, "unit-actor-u", "U", "", null, DateTimeOffset.UtcNow), ct);
+        await service.RegisterAsync(
+            new DirectoryEntry(new Address("agent", "shared"), "actor-shared", "Sh", "", null, DateTimeOffset.UtcNow),
+            ct);
+
+        StubUnitMembers(proxyFactory, "unit-actor-p", new[] { sub });
+        StubUnitMembers(proxyFactory, "unit-actor-s", Array.Empty<Address>());
+
+        await SeedMembershipAsync("s", "shared", ct);
+        await SeedMembershipAsync("u", "shared", ct);
+
+        await service.UnregisterAsync(parent, ct);
+
+        using var scope = _serviceProvider.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+
+        // Sub-unit is soft-deleted.
+        var subEntity = await db.UnitDefinitions
+            .IgnoreQueryFilters()
+            .FirstAsync(u => u.UnitId == "s", ct);
+        subEntity.DeletedAt.ShouldNotBeNull();
+
+        // Unrelated live unit untouched.
+        var unrelatedEntity = await db.UnitDefinitions
+            .FirstAsync(u => u.UnitId == "u", ct);
+        unrelatedEntity.DeletedAt.ShouldBeNull();
+
+        // Shared agent survives.
+        var agent = await db.AgentDefinitions
+            .IgnoreQueryFilters()
+            .FirstAsync(a => a.AgentId == "shared", ct);
+        agent.DeletedAt.ShouldBeNull();
+
+        // Only the membership into U remains.
+        var remaining = await db.UnitMemberships
+            .Where(m => m.AgentAddress == "shared")
+            .Select(m => m.UnitId)
+            .ToListAsync(ct);
+        remaining.ShouldBe(new[] { "u" });
+    }
+
+    /// <summary>
+    /// #652: unregistering a unit whose row is already soft-deleted is a
+    /// no-op — matches the pre-existing "not found" behaviour of
+    /// <c>DeleteEntryAsync</c> which silently returns when the entity is
+    /// missing. No second <c>DeletedAt</c> stamp is applied.
+    /// </summary>
+    [Fact]
+    public async Task UnregisterAsync_already_deleted_unit_is_noop()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var proxyFactory = Substitute.For<IActorProxyFactory>();
+        var service = CreateServiceWithActorFactory(proxyFactory);
+
+        var unitAddress = new Address("unit", "ghost");
+        await service.RegisterAsync(
+            new DirectoryEntry(unitAddress, "unit-actor-ghost", "Ghost", "", null, DateTimeOffset.UtcNow),
+            ct);
+
+        StubUnitMembers(proxyFactory, "unit-actor-ghost", Array.Empty<Address>());
+
+        await service.UnregisterAsync(unitAddress, ct);
+
+        using var scope = _serviceProvider.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        var first = await db.UnitDefinitions
+            .IgnoreQueryFilters()
+            .FirstAsync(u => u.UnitId == "ghost", ct);
+        var firstStamp = first.DeletedAt;
+        firstStamp.ShouldNotBeNull();
+
+        // Second call should not re-stamp or throw.
+        await service.UnregisterAsync(unitAddress, ct);
+
+        var second = await db.UnitDefinitions
+            .IgnoreQueryFilters()
+            .FirstAsync(u => u.UnitId == "ghost", ct);
+        second.DeletedAt.ShouldBe(firstStamp);
+    }
+
+    private DirectoryService CreateServiceWithActorFactory(IActorProxyFactory proxyFactory)
+    {
+        return new DirectoryService(
+            _cache,
+            _serviceProvider.GetRequiredService<IServiceScopeFactory>(),
+            _loggerFactory,
+            proxyFactory);
+    }
+
+    private static void StubUnitMembers(
+        IActorProxyFactory factory, string actorId, Address[] members)
+    {
+        var proxy = Substitute.For<IUnitActor>();
+        proxy.GetMembersAsync(Arg.Any<CancellationToken>()).Returns(members);
+        factory.CreateActorProxy<IUnitActor>(
+                Arg.Is<ActorId>(a => a.GetId() == actorId),
+                Arg.Any<string>())
+            .Returns(proxy);
+    }
+
+    private async Task SeedMembershipAsync(string unitId, string agentAddress, CancellationToken ct)
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        db.UnitMemberships.Add(new UnitMembershipEntity
+        {
+            UnitId = unitId,
+            AgentAddress = agentAddress,
+            Enabled = true,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
+        });
+        await db.SaveChangesAsync(ct);
     }
 }

@@ -7,8 +7,12 @@ using System.Collections.Concurrent;
 
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
+
+using global::Dapr.Actors;
+using global::Dapr.Actors.Client;
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -20,10 +24,20 @@ using Microsoft.Extensions.Logging;
 /// The in-memory cache provides the fast-path for reads; all mutations are persisted
 /// to the database so directory entries survive container restarts.
 /// </summary>
+/// <remarks>
+/// <paramref name="actorProxyFactory"/> is optional to keep legacy test harnesses
+/// (which construct <see cref="DirectoryService"/> with only DB dependencies) working.
+/// When absent, <see cref="UnregisterAsync"/> falls back to the pre-#652 behaviour of
+/// only soft-deleting the unit row — sub-unit recursion (which requires reading
+/// <see cref="IUnitActor.GetMembersAsync"/> from actor state, the only place sub-unit
+/// membership is materialised) is skipped. Production DI wires the factory so the full
+/// cascade runs.
+/// </remarks>
 public class DirectoryService(
     DirectoryCache cache,
     IServiceScopeFactory scopeFactory,
-    ILoggerFactory loggerFactory) : IDirectoryService
+    ILoggerFactory loggerFactory,
+    IActorProxyFactory? actorProxyFactory = null) : IDirectoryService
 {
     private readonly ILogger _logger = loggerFactory.CreateLogger<DirectoryService>();
     private readonly ConcurrentDictionary<string, DirectoryEntry> _entries = new();
@@ -227,16 +241,14 @@ public class DirectoryService(
 
         if (string.Equals(scheme, "unit", StringComparison.OrdinalIgnoreCase))
         {
-            await using var scope = scopeFactory.CreateAsyncScope();
-            var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
-            var entity = await db.UnitDefinitions
-                .FirstOrDefaultAsync(u => u.UnitId == address.Path, cancellationToken);
-
-            if (entity is not null)
-            {
-                entity.DeletedAt = DateTimeOffset.UtcNow;
-                await db.SaveChangesAsync(cancellationToken);
-            }
+            // Cascade: sub-units first, then memberships + ref-counted agents,
+            // then the unit row itself (#652). Sub-unit membership only lives in
+            // the unit actor's state, so we ask the proxy for the current member
+            // list before touching the DB. Actor unavailability degrades to
+            // "no sub-units found" — the unit still soft-deletes and its
+            // memberships still get cleaned up.
+            var visited = new HashSet<string>(StringComparer.Ordinal);
+            await CascadeDeleteUnitAsync(address, visited, cancellationToken);
         }
         else if (string.Equals(scheme, "agent", StringComparison.OrdinalIgnoreCase))
         {
@@ -250,6 +262,189 @@ public class DirectoryService(
                 entity.DeletedAt = DateTimeOffset.UtcNow;
                 await db.SaveChangesAsync(cancellationToken);
             }
+        }
+    }
+
+    /// <summary>
+    /// Recursively soft-deletes a unit and cascades to its sub-units and
+    /// memberships (#652). One DB unit-of-work per unit visited — the subtree
+    /// is walked depth-first via the unit actor's member list so a single
+    /// parent delete cleans every descendant row in one call chain.
+    /// </summary>
+    /// <remarks>
+    /// Semantics per acceptance criteria:
+    /// <list type="bullet">
+    /// <item><description>Sub-units are discovered from <see cref="IUnitActor.GetMembersAsync"/> and recursed first so their own cascade runs before the parent row is flipped to deleted.</description></item>
+    /// <item><description>Every <see cref="UnitMembershipEntity"/> row for the unit is hard-deleted — the entity has no <c>DeletedAt</c> column, so a "soft" delete is not representable. This matches the existing per-row <see cref="UnitMembershipRepository.DeleteAsync"/> behaviour.</description></item>
+    /// <item><description>For each agent that was a member of the unit, we check whether any other membership survives (rows the cascade did not just delete + the agent's own <c>DeletedAt == null</c>). If not, the agent is soft-deleted; otherwise only the membership edge is removed.</description></item>
+    /// <item><description><paramref name="visited"/> guards against pathological actor-state graphs that list the same sub-unit twice or self-reference — cycle detection is already enforced on add (<see cref="UnitActor.EnsureNoCycleAsync"/>), but a defensive check here keeps the delete path bounded even if state got corrupted.</description></item>
+    /// </list>
+    /// </remarks>
+    private async Task CascadeDeleteUnitAsync(
+        Address unitAddress,
+        HashSet<string> visited,
+        CancellationToken cancellationToken)
+    {
+        var unitId = unitAddress.Path;
+        if (!visited.Add(unitId))
+        {
+            // Already processed in this cascade — skip to avoid pathological
+            // re-entry if actor state ever contains a cycle we didn't prevent.
+            return;
+        }
+
+        // Discover sub-units from actor state before we soft-delete the row.
+        // After the row is gone from the directory its actor id becomes
+        // unaddressable for callers, but we already have it in our in-memory
+        // map.
+        var subUnits = await TryReadUnitMembersAsync(unitAddress, cancellationToken);
+
+        // Depth-first: cascade each sub-unit first so the leaf rows flip to
+        // deleted before their parent. Each recursion opens its own DB scope,
+        // which keeps the per-unit unit-of-work atomic at the SaveChangesAsync
+        // call below.
+        foreach (var sub in subUnits)
+        {
+            if (string.Equals(sub.Scheme, "unit", StringComparison.OrdinalIgnoreCase))
+            {
+                await CascadeDeleteUnitAsync(sub, visited, cancellationToken);
+                // Evict cascaded sub-units from the in-memory map + cache so
+                // the warm path doesn't serve a stale entry for the actor
+                // whose row we just flipped to deleted.
+                var subKey = ToKey(sub);
+                _entries.TryRemove(subKey, out _);
+                cache.Invalidate(sub);
+            }
+        }
+
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+
+        var entity = await db.UnitDefinitions
+            .FirstOrDefaultAsync(u => u.UnitId == unitId, cancellationToken);
+
+        // Already-deleted or missing unit: short-circuit. Matches the pre-#652
+        // "not found" semantic where DeleteEntryAsync silently returns.
+        if (entity is null)
+        {
+            return;
+        }
+
+        // Load every membership edge into the tracked change set so the same
+        // SaveChangesAsync that flips the unit's DeletedAt also hard-deletes
+        // the rows and commits the agent ref-count decisions below.
+        var memberships = await db.UnitMemberships
+            .Where(m => m.UnitId == unitId)
+            .ToListAsync(cancellationToken);
+
+        foreach (var membership in memberships)
+        {
+            db.UnitMemberships.Remove(membership);
+        }
+
+        // Ref-count each affected agent. An agent is soft-deleted iff every
+        // other unit it's attached to is already deleted. We check against
+        // unit_definitions (IgnoreQueryFilters so soft-deleted units read
+        // back as "deleted") and EXCLUDE the unit we're tearing down so a
+        // single-membership agent always becomes orphaned and gets
+        // soft-deleted here, not just its edge removed.
+        foreach (var membership in memberships)
+        {
+            var agentAddress = membership.AgentAddress;
+
+            var otherUnitIds = await db.UnitMemberships
+                .Where(m => m.AgentAddress == agentAddress && m.UnitId != unitId)
+                .Select(m => m.UnitId)
+                .ToListAsync(cancellationToken);
+
+            var hasLiveOtherUnit = false;
+            if (otherUnitIds.Count > 0)
+            {
+                hasLiveOtherUnit = await db.UnitDefinitions
+                    .Where(u => otherUnitIds.Contains(u.UnitId))
+                    .AnyAsync(cancellationToken);
+            }
+
+            if (hasLiveOtherUnit)
+            {
+                // Shared agent: only the edge was removed. Its directory
+                // entry stays live.
+                continue;
+            }
+
+            // Agent has no surviving unit membership — soft-delete it.
+            // IgnoreQueryFilters so an already-soft-deleted agent still
+            // matches (idempotent) rather than silently skipping.
+            var agentEntity = await db.AgentDefinitions
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(a => a.AgentId == agentAddress, cancellationToken);
+
+            if (agentEntity is null)
+            {
+                continue;
+            }
+
+            if (agentEntity.DeletedAt is null)
+            {
+                agentEntity.DeletedAt = DateTimeOffset.UtcNow;
+            }
+
+            // Evict from the in-memory map + cache so the next resolve falls
+            // through to the DB and sees "deleted".
+            var agentKey = ToKey(new Address("agent", agentAddress));
+            _entries.TryRemove(agentKey, out _);
+            cache.Invalidate(new Address("agent", agentAddress));
+        }
+
+        entity.DeletedAt = DateTimeOffset.UtcNow;
+
+        await db.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation(
+            "Cascade-deleted unit {UnitId}: memberships removed={MembershipCount}, sub-units visited={SubUnitCount}.",
+            unitId, memberships.Count, subUnits.Count);
+    }
+
+    /// <summary>
+    /// Best-effort read of a unit's current member addresses via the unit
+    /// actor proxy. A missing <see cref="IActorProxyFactory"/> (legacy test
+    /// harness), missing directory entry, or failed remoting call all
+    /// degrade to "no members" — the cascade still soft-deletes the unit
+    /// row and its memberships, just without recursing into sub-units.
+    /// </summary>
+    private async Task<IReadOnlyList<Address>> TryReadUnitMembersAsync(
+        Address unitAddress, CancellationToken cancellationToken)
+    {
+        if (actorProxyFactory is null)
+        {
+            return Array.Empty<Address>();
+        }
+
+        // Prefer the already-warmed in-memory entry; fall back to the DB so
+        // the cascade works on cold-path deletes too.
+        var entry = await ResolveAsync(unitAddress, cancellationToken);
+        if (entry is null)
+        {
+            return Array.Empty<Address>();
+        }
+
+        try
+        {
+            var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
+                new ActorId(entry.ActorId), nameof(UnitActor));
+            var members = await proxy.GetMembersAsync(cancellationToken);
+            return members ?? Array.Empty<Address>();
+        }
+        catch (Exception ex)
+        {
+            // Actor unreachable (placement down, activation failure). Log and
+            // move on — the worst-case outcome is orphaned sub-units in the
+            // DB, which is still strictly better than the pre-#652 orphaned
+            // memberships we're fixing here.
+            _logger.LogWarning(ex,
+                "Cascade delete: failed to read members of {Unit}; sub-unit recursion will be skipped.",
+                unitAddress);
+            return Array.Empty<Address>();
         }
     }
 
