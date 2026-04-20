@@ -10,8 +10,9 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 /// <summary>
 /// EF Core configuration for <see cref="UnitMembershipEntity"/>. Composite
-/// primary key on (unit_id, agent_address); secondary indexes cover the
-/// two list access paths (list-by-unit, list-by-agent).
+/// primary key on (tenant_id, unit_id, agent_address); secondary indexes
+/// cover the list-by-agent access path (list-by-unit is already covered
+/// by the PK prefix). The tenant query filter is applied on the DbContext.
 /// </summary>
 internal class UnitMembershipEntityConfiguration : IEntityTypeConfiguration<UnitMembershipEntity>
 {
@@ -20,8 +21,9 @@ internal class UnitMembershipEntityConfiguration : IEntityTypeConfiguration<Unit
     {
         builder.ToTable("unit_memberships");
 
-        builder.HasKey(e => new { e.UnitId, e.AgentAddress });
+        builder.HasKey(e => new { e.TenantId, e.UnitId, e.AgentAddress });
 
+        builder.Property(e => e.TenantId).HasColumnName("tenant_id").IsRequired().HasMaxLength(128);
         builder.Property(e => e.UnitId).HasColumnName("unit_id").IsRequired().HasMaxLength(256);
         builder.Property(e => e.AgentAddress).HasColumnName("agent_address").IsRequired().HasMaxLength(256);
         builder.Property(e => e.Model).HasColumnName("model").HasMaxLength(256);
@@ -31,8 +33,8 @@ internal class UnitMembershipEntityConfiguration : IEntityTypeConfiguration<Unit
         builder.Property(e => e.CreatedAt).HasColumnName("created_at").IsRequired();
         builder.Property(e => e.UpdatedAt).HasColumnName("updated_at").IsRequired();
 
-        builder.HasIndex(e => e.AgentAddress).HasDatabaseName("ix_unit_memberships_agent_address");
-        // unit_id is the first key column, so list-by-unit already has a
-        // covering index via the primary key.
+        builder.HasIndex(e => new { e.TenantId, e.AgentAddress }).HasDatabaseName("ix_unit_memberships_tenant_agent_address");
+        // (tenant_id, unit_id) is the PK prefix, so list-by-unit already
+        // has a covering index.
     }
 }

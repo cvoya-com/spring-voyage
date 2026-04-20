@@ -5,14 +5,19 @@ namespace Cvoya.Spring.Dapr.Data.Entities;
 
 using System.Text.Json;
 
+using Cvoya.Spring.Core.Tenancy;
+
 /// <summary>
 /// Represents an agent definition stored in the database.
 /// Contains the configuration and metadata for an agent that can be instantiated as a Dapr actor.
 /// </summary>
-public class AgentDefinitionEntity
+public class AgentDefinitionEntity : ITenantScopedEntity
 {
     /// <summary>Gets or sets the unique identifier for the agent definition.</summary>
     public Guid Id { get; set; }
+
+    /// <summary>Gets or sets the tenant that owns this agent definition.</summary>
+    public string TenantId { get; set; } = string.Empty;
 
     /// <summary>Gets or sets the user-facing identifier for the agent (e.g., "ada").</summary>
     public string AgentId { get; set; } = string.Empty;

@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Dapr.Tests.Costs;
 using Cvoya.Spring.Core.Costs;
 using Cvoya.Spring.Dapr.Costs;
 using Cvoya.Spring.Dapr.Data;
+using Cvoya.Spring.Dapr.Tenancy;
 
 using Microsoft.EntityFrameworkCore;
 
@@ -22,7 +23,9 @@ public class CostAggregationTests : IDisposable
         var options = new DbContextOptionsBuilder<SpringDbContext>()
             .UseInMemoryDatabase($"CostAggregationTest-{Guid.NewGuid()}")
             .Options;
-        _dbContext = new SpringDbContext(options);
+        // Tests seed rows with TenantId = "tenant-a"; align the
+        // DbContext-level tenant filter so those rows are visible.
+        _dbContext = new SpringDbContext(options, new StaticTenantContext("tenant-a"));
     }
 
     private CostAggregation CreateService() => new(_dbContext);
@@ -108,14 +111,21 @@ public class CostAggregationTests : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
         var now = DateTimeOffset.UtcNow;
+        // The DbContext-level tenant filter scopes all reads to the
+        // ambient tenant ("tenant-a" for this test fixture). Rows
+        // written for other tenants ("other") are invisible on read —
+        // which is the guarantee the whole scoping work introduces.
+        // The test continues to verify that GetTenantCostAsync narrows
+        // to the requested tenant AND that cross-tenant rows are
+        // filtered out, so rows for a different tenant must not count.
         _dbContext.CostRecords.AddRange(
-            CreateRecord(tenantId: "acme", cost: 0.50m, timestamp: now),
-            CreateRecord(tenantId: "acme", cost: 0.30m, timestamp: now),
+            CreateRecord(tenantId: "tenant-a", cost: 0.50m, timestamp: now),
+            CreateRecord(tenantId: "tenant-a", cost: 0.30m, timestamp: now),
             CreateRecord(tenantId: "other", cost: 0.10m, timestamp: now)); // different tenant
         await _dbContext.SaveChangesAsync(ct);
 
         var service = CreateService();
-        var result = await service.GetTenantCostAsync("acme", now.AddHours(-1), now.AddHours(1), ct);
+        var result = await service.GetTenantCostAsync("tenant-a", now.AddHours(-1), now.AddHours(1), ct);
 
         result.TotalCost.ShouldBe(0.80m);
         result.RecordCount.ShouldBe(2);

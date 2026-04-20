@@ -4,12 +4,13 @@
 namespace Cvoya.Spring.Dapr.Costs;
 
 using Cvoya.Spring.Core.Costs;
+using Cvoya.Spring.Core.Tenancy;
 
 /// <summary>
 /// Represents a persisted cost record for a single AI provider interaction.
 /// Tracks token usage, cost, and duration per agent, unit, and tenant.
 /// </summary>
-public class CostRecord
+public class CostRecord : ITenantScopedEntity
 {
     /// <summary>Gets or sets the unique identifier for the cost record.</summary>
     public Guid Id { get; set; }

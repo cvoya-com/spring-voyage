@@ -10,7 +10,9 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 /// <summary>
 /// EF Core configuration for the <see cref="CostRecord"/> type.
-/// Applies snake_case naming and indexes for querying by agent, unit, tenant, and timestamp.
+/// Applies snake_case naming and indexes for querying by agent, unit,
+/// tenant, and timestamp. The tenant query filter is applied on the
+/// DbContext.
 /// </summary>
 internal class CostRecordConfiguration : IEntityTypeConfiguration<CostRecord>
 {

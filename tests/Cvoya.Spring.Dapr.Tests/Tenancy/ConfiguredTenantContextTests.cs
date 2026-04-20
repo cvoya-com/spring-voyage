@@ -14,10 +14,10 @@ using Xunit;
 public class ConfiguredTenantContextTests
 {
     [Fact]
-    public void Defaults_To_Local_WhenNotConfigured()
+    public void Defaults_To_Default_WhenNotConfigured()
     {
         var sut = new ConfiguredTenantContext(Options.Create(new SecretsOptions()));
-        sut.CurrentTenantId.ShouldBe("local");
+        sut.CurrentTenantId.ShouldBe("default");
     }
 
     [Theory]
@@ -36,6 +36,6 @@ public class ConfiguredTenantContextTests
     {
         var sut = new ConfiguredTenantContext(
             Options.Create(new SecretsOptions { DefaultTenantId = "   " }));
-        sut.CurrentTenantId.ShouldBe("local");
+        sut.CurrentTenantId.ShouldBe("default");
     }
 }

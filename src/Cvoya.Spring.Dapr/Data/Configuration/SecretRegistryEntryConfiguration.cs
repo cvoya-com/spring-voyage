@@ -10,7 +10,12 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 /// <summary>
 /// EF Core configuration for <see cref="SecretRegistryEntry"/>. Applies
-/// snake_case naming and the structural uniqueness constraint.
+/// snake_case naming and the structural uniqueness constraint. The
+/// tenant query filter is applied on the DbContext. This entity was
+/// tenant-aware prior to the platform-wide scoping work; pairing it
+/// with <see cref="Cvoya.Spring.Core.Tenancy.ITenantScopedEntity"/>
+/// simply brings it under the same convention as the rest of the
+/// schema.
 ///
 /// <para>
 /// <b>Wave 7 A5 schema.</b> The uniqueness constraint spans

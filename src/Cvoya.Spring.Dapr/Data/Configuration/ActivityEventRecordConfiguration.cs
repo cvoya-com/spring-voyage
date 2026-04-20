@@ -10,7 +10,9 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 /// <summary>
 /// EF Core configuration for the <see cref="ActivityEventRecord"/> type.
-/// Applies snake_case naming and indexes for querying.
+/// Applies snake_case naming, tenant scoping, and indexes for querying.
+/// Activity events have no soft-delete column; the tenant query filter
+/// is applied on the DbContext.
 /// </summary>
 internal class ActivityEventRecordConfiguration : IEntityTypeConfiguration<ActivityEventRecord>
 {
@@ -21,6 +23,7 @@ internal class ActivityEventRecordConfiguration : IEntityTypeConfiguration<Activ
 
         builder.HasKey(e => e.Id);
         builder.Property(e => e.Id).HasColumnName("id");
+        builder.Property(e => e.TenantId).HasColumnName("tenant_id").IsRequired().HasMaxLength(128);
         builder.Property(e => e.Source).HasColumnName("source").IsRequired().HasMaxLength(256);
         builder.Property(e => e.EventType).HasColumnName("event_type").IsRequired().HasMaxLength(128);
         builder.Property(e => e.Severity).HasColumnName("severity").IsRequired().HasMaxLength(32);
@@ -32,5 +35,6 @@ internal class ActivityEventRecordConfiguration : IEntityTypeConfiguration<Activ
 
         builder.HasIndex(e => e.Timestamp);
         builder.HasIndex(e => e.CorrelationId);
+        builder.HasIndex(e => e.TenantId);
     }
 }

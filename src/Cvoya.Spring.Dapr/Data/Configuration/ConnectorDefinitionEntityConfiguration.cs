@@ -10,7 +10,9 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 /// <summary>
 /// EF Core configuration for the <see cref="ConnectorDefinitionEntity"/> type.
-/// Applies snake_case naming, audit columns, and soft-delete query filter.
+/// Applies snake_case naming, audit columns, and the tenant column +
+/// index. The combined tenant + soft-delete query filter is applied on
+/// the DbContext itself so the closure captures <c>this</c>.
 /// </summary>
 internal class ConnectorDefinitionEntityConfiguration : IEntityTypeConfiguration<ConnectorDefinitionEntity>
 {
@@ -21,6 +23,7 @@ internal class ConnectorDefinitionEntityConfiguration : IEntityTypeConfiguration
 
         builder.HasKey(e => e.Id);
         builder.Property(e => e.Id).HasColumnName("id");
+        builder.Property(e => e.TenantId).HasColumnName("tenant_id").IsRequired().HasMaxLength(128);
         builder.Property(e => e.ConnectorId).HasColumnName("connector_id").IsRequired().HasMaxLength(128);
         builder.Property(e => e.Type).HasColumnName("type").IsRequired().HasMaxLength(64);
         builder.Property(e => e.Config).HasColumnName("config").HasColumnType("jsonb");
@@ -28,8 +31,7 @@ internal class ConnectorDefinitionEntityConfiguration : IEntityTypeConfiguration
         builder.Property(e => e.UpdatedAt).HasColumnName("updated_at").IsRequired();
         builder.Property(e => e.DeletedAt).HasColumnName("deleted_at");
 
-        builder.HasIndex(e => e.ConnectorId).IsUnique().HasFilter("deleted_at IS NULL");
-
-        builder.HasQueryFilter(e => e.DeletedAt == null);
+        builder.HasIndex(e => new { e.TenantId, e.ConnectorId }).IsUnique().HasFilter("deleted_at IS NULL");
+        builder.HasIndex(e => e.TenantId);
     }
 }

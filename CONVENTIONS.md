@@ -341,6 +341,8 @@ This repo is the OSS core of a two-repo model. A private repository extends it v
 
 **No tenant assumptions:** Don't embed single-user or single-deployment assumptions. Use injected services for anything the private repo might scope per-tenant: repositories, configuration providers, policy evaluators.
 
+**Multi-tenancy (business-data entities):** Any new business-data entity MUST implement `Cvoya.Spring.Core.Tenancy.ITenantScopedEntity` and its `IEntityTypeConfiguration` MUST add the combined tenant + soft-delete query filter — `HasQueryFilter(e => e.TenantId == tenantContext.CurrentTenantId && e.DeletedAt == null)`, dropping the soft-delete clause only for entities that do not carry a `DeletedAt` column. The DbContext auto-populates `TenantId` from the injected `ITenantContext` on insert, so write sites do not set it explicitly. System/ops tables (migrations history, startup config) stay global and are not tenant-scoped. See issue #674 for background and the broader refactor plan.
+
 **No statics for state or services:** Everything goes through DI. No static service locators, no ambient contexts, no `static` mutable state.
 
 ## 14. UI / CLI Feature Parity

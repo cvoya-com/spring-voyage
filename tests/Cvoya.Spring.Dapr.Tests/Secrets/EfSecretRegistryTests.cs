@@ -7,10 +7,9 @@ using Cvoya.Spring.Core.Secrets;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Secrets;
+using Cvoya.Spring.Dapr.Tenancy;
 
 using Microsoft.EntityFrameworkCore;
-
-using NSubstitute;
 
 using Shouldly;
 
@@ -23,15 +22,25 @@ using Xunit;
 /// </summary>
 public class EfSecretRegistryTests : IDisposable
 {
+    // Shared in-memory database so rows written via one (tenant-scoped)
+    // DbContext are visible (or invisible, depending on the tenant
+    // filter) to another DbContext opened over the same database.
+    private readonly DbContextOptions<SpringDbContext> _dbOptions;
+
+    // The default-tenant context keeps the `_db` field — used by tests
+    // that assert row-count at the persistence layer — independent of
+    // whichever tenant each registry-under-test writes as. Its filter
+    // will exclude rows from other tenants; tests that need raw row
+    // counts IgnoreQueryFilters explicitly.
     private readonly SpringDbContext _db;
 
     public EfSecretRegistryTests()
     {
-        var options = new DbContextOptionsBuilder<SpringDbContext>()
+        _dbOptions = new DbContextOptionsBuilder<SpringDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
             .Options;
 
-        _db = new SpringDbContext(options);
+        _db = new SpringDbContext(_dbOptions, new StaticTenantContext("default"));
     }
 
     [Theory]
@@ -105,8 +114,9 @@ public class EfSecretRegistryTests : IDisposable
 
         // There should be exactly one row — the earlier register was an
         // in-place update, not an insert, so the unique index on
-        // (tenant, scope, owner, name) is not violated.
-        var count = await _db.SecretRegistryEntries.CountAsync(ct);
+        // (tenant, scope, owner, name) is not violated. IgnoreQueryFilters
+        // to count rows across tenants from the probe DbContext.
+        var count = await _db.SecretRegistryEntries.IgnoreQueryFilters().CountAsync(ct);
         count.ShouldBe(1);
     }
 
@@ -416,6 +426,7 @@ public class EfSecretRegistryTests : IDisposable
 
         // Both rows now coexist in the registry.
         var versionRows = await _db.SecretRegistryEntries
+            .IgnoreQueryFilters()
             .Where(e => e.Scope == SecretScope.Unit && e.OwnerId == "u1" && e.Name == "foo")
             .ToListAsync(ct);
         versionRows.Count.ShouldBe(2);
@@ -586,6 +597,7 @@ public class EfSecretRegistryTests : IDisposable
         await sut.DeleteAsync(@ref, ct);
 
         (await _db.SecretRegistryEntries
+            .IgnoreQueryFilters()
             .Where(e => e.Scope == SecretScope.Unit && e.OwnerId == "u1" && e.Name == "foo")
             .CountAsync(ct)).ShouldBe(0);
     }
@@ -616,9 +628,16 @@ public class EfSecretRegistryTests : IDisposable
 
     private EfSecretRegistry NewRegistry(string tenantId)
     {
-        var tenantContext = Substitute.For<ITenantContext>();
-        tenantContext.CurrentTenantId.Returns(tenantId);
-        return new EfSecretRegistry(_db, tenantContext);
+        // Each registry gets its own DbContext pinned to the tenant
+        // under test, so the DbContext-level query filter matches what
+        // the registry persists on writes. Both contexts share the same
+        // in-memory database so cross-tenant isolation is exercised on
+        // the same backing store. In production the DbContext is scoped
+        // per request alongside the tenant context; this is the test
+        // analogue.
+        var tenantContext = new StaticTenantContext(tenantId);
+        var db = new SpringDbContext(_dbOptions, tenantContext);
+        return new EfSecretRegistry(db, tenantContext);
     }
 
     public void Dispose()

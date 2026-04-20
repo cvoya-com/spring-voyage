@@ -10,8 +10,9 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 /// <summary>
 /// EF Core configuration for <see cref="UnitPolicyEntity"/>. Keyed on
-/// <c>unit_id</c>; sub-record dimensions are stored as jsonb columns so
-/// adding new dimensions is additive.
+/// (tenant_id, unit_id); sub-record dimensions are stored as jsonb
+/// columns so adding new dimensions is additive. The tenant query
+/// filter is applied on the DbContext.
 /// </summary>
 internal class UnitPolicyEntityConfiguration : IEntityTypeConfiguration<UnitPolicyEntity>
 {
@@ -20,8 +21,9 @@ internal class UnitPolicyEntityConfiguration : IEntityTypeConfiguration<UnitPoli
     {
         builder.ToTable("unit_policies");
 
-        builder.HasKey(e => e.UnitId);
+        builder.HasKey(e => new { e.TenantId, e.UnitId });
 
+        builder.Property(e => e.TenantId).HasColumnName("tenant_id").IsRequired().HasMaxLength(128);
         builder.Property(e => e.UnitId).HasColumnName("unit_id").IsRequired().HasMaxLength(256);
         builder.Property(e => e.Skill).HasColumnName("skill").HasColumnType("jsonb");
         builder.Property(e => e.Model).HasColumnName("model").HasColumnType("jsonb");

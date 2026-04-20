@@ -5,14 +5,19 @@ namespace Cvoya.Spring.Dapr.Data.Entities;
 
 using System.Text.Json;
 
+using Cvoya.Spring.Core.Tenancy;
+
 /// <summary>
 /// Represents a connector definition stored in the database.
 /// Connectors bridge external systems (e.g., GitHub, Slack) into the Spring Voyage platform.
 /// </summary>
-public class ConnectorDefinitionEntity
+public class ConnectorDefinitionEntity : ITenantScopedEntity
 {
     /// <summary>Gets or sets the unique identifier for the connector definition.</summary>
     public Guid Id { get; set; }
+
+    /// <summary>Gets or sets the tenant that owns this connector definition.</summary>
+    public string TenantId { get; set; } = string.Empty;
 
     /// <summary>Gets or sets the user-facing identifier for the connector.</summary>
     public string ConnectorId { get; set; } = string.Empty;

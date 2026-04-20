@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Dapr.Data.Entities;
 
 using Cvoya.Spring.Core.Agents;
+using Cvoya.Spring.Core.Tenancy;
 
 /// <summary>
 /// Persists one (unit, agent) membership edge with per-membership config
@@ -12,8 +13,11 @@ using Cvoya.Spring.Core.Agents;
 /// members remain 1:N and are not stored here — only <c>agent://</c>
 /// members have rows in this table.
 /// </summary>
-public class UnitMembershipEntity
+public class UnitMembershipEntity : ITenantScopedEntity
 {
+    /// <summary>Gets or sets the tenant that owns this membership row.</summary>
+    public string TenantId { get; set; } = string.Empty;
+
     /// <summary>The unit this membership attaches the agent to.</summary>
     public string UnitId { get; set; } = string.Empty;
 

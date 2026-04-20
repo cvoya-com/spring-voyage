@@ -3,13 +3,18 @@
 
 namespace Cvoya.Spring.Dapr.Data.Entities;
 
+using Cvoya.Spring.Core.Tenancy;
+
 /// <summary>
 /// Represents an API token used for authenticating requests to the platform.
 /// </summary>
-public class ApiTokenEntity
+public class ApiTokenEntity : ITenantScopedEntity
 {
     /// <summary>Gets or sets the unique identifier for the API token.</summary>
     public Guid Id { get; set; }
+
+    /// <summary>Gets or sets the tenant that owns this token.</summary>
+    public string TenantId { get; set; } = string.Empty;
 
     /// <summary>Gets or sets the identifier of the user associated with this token.</summary>
     public string? UserId { get; set; }

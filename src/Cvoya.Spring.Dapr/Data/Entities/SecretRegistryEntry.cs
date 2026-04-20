@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Dapr.Data.Entities;
 
 using Cvoya.Spring.Core.Secrets;
+using Cvoya.Spring.Core.Tenancy;
 
 /// <summary>
 /// Persists the structural metadata for a secret version (scope + owner +
@@ -20,7 +21,7 @@ using Cvoya.Spring.Core.Secrets;
 /// version when the caller supplies one.
 /// </para>
 /// </summary>
-public class SecretRegistryEntry
+public class SecretRegistryEntry : ITenantScopedEntity
 {
     /// <summary>Unique identifier for the registry entry.</summary>
     public Guid Id { get; set; }

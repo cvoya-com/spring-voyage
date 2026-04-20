@@ -5,14 +5,19 @@ namespace Cvoya.Spring.Dapr.Data.Entities;
 
 using System.Text.Json;
 
+using Cvoya.Spring.Core.Tenancy;
+
 /// <summary>
 /// Represents a persisted activity event record.
 /// Activity events capture observable actions within the platform for audit, analytics, and debugging.
 /// </summary>
-public class ActivityEventRecord
+public class ActivityEventRecord : ITenantScopedEntity
 {
     /// <summary>Gets or sets the unique identifier for the activity event.</summary>
     public Guid Id { get; set; }
+
+    /// <summary>Gets or sets the tenant that owns this activity event.</summary>
+    public string TenantId { get; set; } = string.Empty;
 
     /// <summary>Gets or sets the source address of the event (e.g., "agent:ada").</summary>
     public string Source { get; set; } = string.Empty;

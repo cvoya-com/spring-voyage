@@ -20,9 +20,14 @@ public class UnitMembershipRepository(SpringDbContext context) : IUnitMembership
     {
         ArgumentNullException.ThrowIfNull(membership);
 
-        var existing = await context.UnitMemberships.FindAsync(
-            new object?[] { membership.UnitId, membership.AgentAddress },
-            cancellationToken);
+        // Look up via the composed query filter so rows from other
+        // tenants are invisible and can never collide on upsert. The
+        // DbContext stamps TenantId from the ambient ITenantContext on
+        // insert, so inserts don't need to set it explicitly.
+        var existing = await context.UnitMemberships
+            .FirstOrDefaultAsync(
+                m => m.UnitId == membership.UnitId && m.AgentAddress == membership.AgentAddress,
+                cancellationToken);
 
         if (existing is null)
         {
@@ -52,9 +57,10 @@ public class UnitMembershipRepository(SpringDbContext context) : IUnitMembership
     /// <inheritdoc />
     public async Task DeleteAsync(string unitId, string agentAddress, CancellationToken cancellationToken = default)
     {
-        var existing = await context.UnitMemberships.FindAsync(
-            new object?[] { unitId, agentAddress },
-            cancellationToken);
+        var existing = await context.UnitMemberships
+            .FirstOrDefaultAsync(
+                m => m.UnitId == unitId && m.AgentAddress == agentAddress,
+                cancellationToken);
 
         if (existing is null)
         {

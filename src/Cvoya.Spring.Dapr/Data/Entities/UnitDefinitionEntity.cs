@@ -5,14 +5,19 @@ namespace Cvoya.Spring.Dapr.Data.Entities;
 
 using System.Text.Json;
 
+using Cvoya.Spring.Core.Tenancy;
+
 /// <summary>
 /// Represents a unit (team) definition stored in the database.
 /// A unit groups agents together under a shared orchestration strategy.
 /// </summary>
-public class UnitDefinitionEntity
+public class UnitDefinitionEntity : ITenantScopedEntity
 {
     /// <summary>Gets or sets the unique identifier for the unit definition.</summary>
     public Guid Id { get; set; }
+
+    /// <summary>Gets or sets the tenant that owns this unit definition.</summary>
+    public string TenantId { get; set; } = string.Empty;
 
     /// <summary>Gets or sets the user-facing identifier for the unit.</summary>
     public string UnitId { get; set; } = string.Empty;

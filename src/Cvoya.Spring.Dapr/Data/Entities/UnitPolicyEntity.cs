@@ -5,6 +5,8 @@ namespace Cvoya.Spring.Dapr.Data.Entities;
 
 using System.Text.Json;
 
+using Cvoya.Spring.Core.Tenancy;
+
 /// <summary>
 /// Persisted <see cref="Core.Policies.UnitPolicy"/> for a unit. One row per
 /// unit that has at least one non-empty policy dimension. The sibling-entity
@@ -13,8 +15,11 @@ using System.Text.Json;
 /// record grow over time. Each dimension is a nullable <c>jsonb</c> column so
 /// adding a new dimension is a purely additive schema change.
 /// </summary>
-public class UnitPolicyEntity
+public class UnitPolicyEntity : ITenantScopedEntity
 {
+    /// <summary>Gets or sets the tenant that owns this policy row.</summary>
+    public string TenantId { get; set; } = string.Empty;
+
     /// <summary>
     /// The unit id (<c>Address.Path</c>). Primary key — at most one policy
     /// row per unit.

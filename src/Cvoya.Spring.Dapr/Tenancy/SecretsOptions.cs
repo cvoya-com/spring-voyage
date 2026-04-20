@@ -18,9 +18,9 @@ public class SecretsOptions
 
     /// <summary>
     /// The tenant id returned by the OSS <see cref="ConfiguredTenantContext"/>.
-    /// Defaults to <c>"local"</c>.
+    /// Defaults to <c>"default"</c>.
     /// </summary>
-    public string DefaultTenantId { get; set; } = "local";
+    public string DefaultTenantId { get; set; } = ConfiguredTenantContext.DefaultTenantId;
 
     /// <summary>
     /// Whether the API accepts <c>{ name, value }</c> (pass-through) writes

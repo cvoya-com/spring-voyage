@@ -10,7 +10,10 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 /// <summary>
 /// EF Core configuration for the <see cref="ApiTokenEntity"/> type.
-/// Applies snake_case naming and audit columns.
+/// Applies snake_case naming, audit columns, and the tenant column +
+/// index. API tokens have no soft-delete column; revocation is recorded
+/// via <c>RevokedAt</c> but rows remain readable. The tenant query
+/// filter is applied on the DbContext.
 /// </summary>
 internal class ApiTokenEntityConfiguration : IEntityTypeConfiguration<ApiTokenEntity>
 {
@@ -21,6 +24,7 @@ internal class ApiTokenEntityConfiguration : IEntityTypeConfiguration<ApiTokenEn
 
         builder.HasKey(e => e.Id);
         builder.Property(e => e.Id).HasColumnName("id");
+        builder.Property(e => e.TenantId).HasColumnName("tenant_id").IsRequired().HasMaxLength(128);
         builder.Property(e => e.UserId).HasColumnName("user_id").HasMaxLength(256);
         builder.Property(e => e.TokenHash).HasColumnName("token_hash").IsRequired().HasMaxLength(512);
         builder.Property(e => e.Name).HasColumnName("name").IsRequired().HasMaxLength(256);
@@ -30,5 +34,6 @@ internal class ApiTokenEntityConfiguration : IEntityTypeConfiguration<ApiTokenEn
         builder.Property(e => e.RevokedAt).HasColumnName("revoked_at");
 
         builder.HasIndex(e => e.TokenHash).IsUnique();
+        builder.HasIndex(e => e.TenantId);
     }
 }
