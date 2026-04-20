@@ -1628,6 +1628,68 @@ public class SpringApiClient
     public Task DeletePlatformSecretAsync(string name, CancellationToken ct = default)
         => _client.Api.V1.Platform.Secrets[name].DeleteAsync(cancellationToken: ct);
 
+    // Connector tenant-installs (#689). Wrappers over the /install +
+    // /credential-health endpoints landed in #715 / #717. Sibling to the
+    // per-unit connector binding wrappers above — installs sit one level
+    // higher in the data model.
+
+    /// <summary>Lists every connector installed on the current tenant.</summary>
+    public async Task<IReadOnlyList<InstalledConnectorResponse>> ListInstalledConnectorsAsync(
+        CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Connectors.Installed.GetAsync(cancellationToken: ct);
+        return result ?? new List<InstalledConnectorResponse>();
+    }
+
+    /// <summary>Returns the install metadata for a connector on the current tenant, or <c>null</c> when not installed.</summary>
+    public async Task<InstalledConnectorResponse?> GetInstalledConnectorAsync(
+        string slugOrId, CancellationToken ct = default)
+    {
+        try
+        {
+            return await _client.Api.V1.Connectors[slugOrId].Install.GetAsync(cancellationToken: ct);
+        }
+        catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode == 404)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Installs a connector on the current tenant (idempotent).</summary>
+    public async Task<InstalledConnectorResponse> InstallConnectorAsync(
+        string slugOrId, CancellationToken ct = default)
+    {
+        var body = new Cvoya.Spring.Cli.Generated.Api.V1.Connectors.Item.Install.InstallRequestBuilder.InstallPostRequestBody();
+        var result = await _client.Api.V1.Connectors[slugOrId].Install.PostAsync(body, cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty install response for connector '{slugOrId}'.");
+    }
+
+    /// <summary>Uninstalls a connector from the current tenant.</summary>
+    public Task UninstallConnectorAsync(string slugOrId, CancellationToken ct = default)
+        => _client.Api.V1.Connectors[slugOrId].Install.DeleteAsync(cancellationToken: ct);
+
+    /// <summary>
+    /// Returns the current credential-health row for a connector, or
+    /// <c>null</c> when no validation has been recorded yet.
+    /// </summary>
+    public async Task<CredentialHealthResponse?> GetConnectorCredentialHealthAsync(
+        string slugOrId,
+        string? secretName = null,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            return await _client.Api.V1.Connectors[slugOrId].CredentialHealth.GetAsync(
+                config => { if (!string.IsNullOrWhiteSpace(secretName)) config.QueryParameters.SecretName = secretName; },
+                cancellationToken: ct);
+        }
+        catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode == 404)
+        {
+            return null;
+        }
+    }
+
     // Agent runtimes (#688). Mirrors the /api/v1/agent-runtimes surface
     // landed in #715: install / list / show / models / config / validate /
     // credential-health / verify-baseline. The CLI `spring agent-runtime`

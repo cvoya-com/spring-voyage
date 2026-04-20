@@ -76,9 +76,19 @@ public static class ConnectorCommand
         var connectorCommand = new Command("connector", "Manage connector bindings for units");
 
         connectorCommand.Subcommands.Add(CreateCatalogCommand(outputOption));
-        connectorCommand.Subcommands.Add(CreateShowCommand(outputOption));
+        connectorCommand.Subcommands.Add(CreateUnitBindingCommand(outputOption));
         connectorCommand.Subcommands.Add(CreateBindCommand(outputOption));
         connectorCommand.Subcommands.Add(CreateBindingsCommand(outputOption));
+        // #689 tenant-install verbs — sit alongside the per-unit binding
+        // verbs above. Installs sit one level above unit bindings: a
+        // connector must be installed on the tenant before any unit can
+        // bind to it.
+        connectorCommand.Subcommands.Add(CreateListInstalledCommand(outputOption));
+        connectorCommand.Subcommands.Add(CreateShowInstallCommand(outputOption));
+        connectorCommand.Subcommands.Add(CreateInstallCommand(outputOption));
+        connectorCommand.Subcommands.Add(CreateUninstallCommand());
+        connectorCommand.Subcommands.Add(CreateConfigCommand(outputOption));
+        connectorCommand.Subcommands.Add(CreateCredentialsCommand(outputOption));
 
         return connectorCommand;
     }
@@ -161,7 +171,7 @@ public static class ConnectorCommand
         return command;
     }
 
-    private static Command CreateShowCommand(Option<string> outputOption)
+    private static Command CreateUnitBindingCommand(Option<string> outputOption)
     {
         var unitOption = new Option<string>("--unit")
         {
@@ -170,8 +180,8 @@ public static class ConnectorCommand
         };
 
         var command = new Command(
-            "show",
-            "Show the unit's active connector binding + config. Returns a 'no binding' message when the unit isn't wired to any connector.");
+            "unit-binding",
+            "Show the unit's active connector binding + config. Returns a 'no binding' message when the unit isn't wired to any connector. Renamed from `show` in #689 to free the `show` verb for tenant-install queries.");
         command.Options.Add(unitOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
@@ -374,6 +384,228 @@ public static class ConnectorCommand
             }
         });
 
+        return command;
+    }
+
+    // ---------- #689 tenant-install verbs ----------
+
+    private static readonly OutputFormatter.Column<InstalledConnectorResponse>[] InstalledColumns =
+    {
+        new("slug", c => c.TypeSlug),
+        new("name", c => c.DisplayName),
+        new("installedAt", c => c.InstalledAt?.ToString("u")),
+        new("updatedAt", c => c.UpdatedAt?.ToString("u")),
+    };
+
+    private static Command CreateListInstalledCommand(Option<string> outputOption)
+    {
+        // Example: `spring connector list -o json`
+        var command = new Command(
+            "list",
+            "List every connector installed on the current tenant. Distinct from 'catalog' (which lists every registered connector type, installed or not).");
+        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var output = parseResult.GetValue(outputOption) ?? "table";
+            var client = ClientFactory.Create();
+            var result = await client.ListInstalledConnectorsAsync(ct);
+            Console.WriteLine(output == "json"
+                ? OutputFormatter.FormatJson(result)
+                : OutputFormatter.FormatTable(result, InstalledColumns));
+        });
+        return command;
+    }
+
+    private static Command CreateShowInstallCommand(Option<string> outputOption)
+    {
+        // Example: `spring connector show github`
+        var idArg = new Argument<string>("slugOrId")
+        {
+            Description = "Connector slug (e.g. 'github') or stable GUID type id.",
+        };
+        var command = new Command("show", "Show the install metadata for a connector on the current tenant.");
+        command.Arguments.Add(idArg);
+        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var slugOrId = parseResult.GetValue(idArg)!;
+            var output = parseResult.GetValue(outputOption) ?? "table";
+            var client = ClientFactory.Create();
+            var result = await client.GetInstalledConnectorAsync(slugOrId, ct);
+            if (result is null)
+            {
+                await Console.Error.WriteLineAsync(
+                    $"Connector '{slugOrId}' is not installed on the current tenant. Run 'spring connector install {slugOrId}' first.");
+                Environment.Exit(1);
+                return;
+            }
+            Console.WriteLine(output == "json"
+                ? OutputFormatter.FormatJson(result)
+                : OutputFormatter.FormatTable(new[] { result }, InstalledColumns));
+        });
+        return command;
+    }
+
+    private static Command CreateInstallCommand(Option<string> outputOption)
+    {
+        // Example: `spring connector install github`
+        var idArg = new Argument<string>("slugOrId") { Description = "Connector slug or type id." };
+        var command = new Command(
+            "install",
+            "Install a connector on the current tenant (idempotent). No config flags — connector-specific config flows through the per-unit PUT endpoint each connector owns.");
+        command.Arguments.Add(idArg);
+        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var slugOrId = parseResult.GetValue(idArg)!;
+            var output = parseResult.GetValue(outputOption) ?? "table";
+            var client = ClientFactory.Create();
+            try
+            {
+                var result = await client.InstallConnectorAsync(slugOrId, ct);
+                Console.WriteLine(output == "json"
+                    ? OutputFormatter.FormatJson(result)
+                    : OutputFormatter.FormatTable(new[] { result }, InstalledColumns));
+            }
+            catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode == 404)
+            {
+                await Console.Error.WriteLineAsync(
+                    $"Connector '{slugOrId}' is not registered with the host. Run 'spring connector catalog' to see available types.");
+                Environment.Exit(1);
+            }
+        });
+        return command;
+    }
+
+    private static Command CreateUninstallCommand()
+    {
+        // Example: `spring connector uninstall github --force`
+        var idArg = new Argument<string>("slugOrId") { Description = "Connector slug or type id." };
+        var forceOption = new Option<bool>("--force")
+        {
+            Description = "Skip the confirmation prompt.",
+        };
+        var command = new Command("uninstall", "Uninstall a connector from the current tenant.");
+        command.Arguments.Add(idArg);
+        command.Options.Add(forceOption);
+        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var slugOrId = parseResult.GetValue(idArg)!;
+            var force = parseResult.GetValue(forceOption);
+            if (!force)
+            {
+                Console.Write($"Uninstall connector '{slugOrId}' from the current tenant? [y/N]: ");
+                var answer = Console.ReadLine();
+                if (!string.Equals(answer, "y", StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(answer, "yes", StringComparison.OrdinalIgnoreCase))
+                {
+                    await Console.Error.WriteLineAsync("Uninstall cancelled.");
+                    Environment.Exit(1);
+                    return;
+                }
+            }
+            var client = ClientFactory.Create();
+            await client.UninstallConnectorAsync(slugOrId, ct);
+            Console.WriteLine($"Uninstalled connector '{slugOrId}'.");
+        });
+        return command;
+    }
+
+    private static Command CreateConfigCommand(Option<string> outputOption)
+    {
+        // `spring connector config set <id> <key=value>` — today the only
+        // supported key is "config", which takes a raw JSON document. The
+        // endpoint accepts an opaque JsonElement so per-connector config
+        // shapes evolve without changing this CLI. For unit-scoped typed
+        // config, use `spring connector bind` / the per-connector PUT.
+        var root = new Command("config", "Tenant-scoped connector configuration.");
+        root.Subcommands.Add(CreateConfigSetCommand(outputOption));
+        return root;
+    }
+
+    private static Command CreateConfigSetCommand(Option<string> outputOption)
+    {
+        var idArg = new Argument<string>("slugOrId") { Description = "Connector slug or type id." };
+        var kvArg = new Argument<string>("key=value")
+        {
+            Description = "Supported keys: 'config=<json>'. Empty value clears the payload.",
+        };
+        var command = new Command(
+            "set",
+            "Set a single config field on an installed connector. Only 'config=<json>' is supported today — connector-specific keys extend this as connectors publish typed schemas.");
+        command.Arguments.Add(idArg);
+        command.Arguments.Add(kvArg);
+        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var slugOrId = parseResult.GetValue(idArg)!;
+            var kv = parseResult.GetValue(kvArg)!;
+            var eq = kv.IndexOf('=');
+            if (eq < 0)
+            {
+                await Console.Error.WriteLineAsync($"Expected key=value, got '{kv}'.");
+                Environment.Exit(1);
+                return;
+            }
+            var key = kv[..eq].Trim();
+            if (!string.Equals(key, "config", StringComparison.OrdinalIgnoreCase))
+            {
+                await Console.Error.WriteLineAsync(
+                    $"Unknown config key '{key}'. Supported: config=<json>. Use 'spring connector bind' for per-unit typed config.");
+                Environment.Exit(1);
+                return;
+            }
+
+            // Deferred to a follow-up: wiring this through a typed Kiota
+            // PATCH call. The endpoint exists (PATCH
+            // /api/v1/connectors/{slugOrId}/install/config) but the Kiota
+            // wrapper for opaque JsonElement bodies requires a small
+            // helper that we'll land alongside the first connector that
+            // ships a typed tenant-config schema. For V2, all OSS
+            // connectors either carry no tenant-level config (Arxiv,
+            // WebSearch) or rely on unit-level config (GitHub).
+            await Console.Error.WriteLineAsync(
+                $"'spring connector config set' is not yet wired to the PATCH endpoint (tracked as a follow-up to #689). Use the HTTP API directly to set tenant-scoped connector config for now.");
+            Environment.Exit(1);
+        });
+        return command;
+    }
+
+    private static Command CreateCredentialsCommand(Option<string> outputOption)
+    {
+        var root = new Command("credentials", "Read credential-health state for an installed connector.");
+        root.Subcommands.Add(CreateCredentialsStatusCommand(outputOption));
+        return root;
+    }
+
+    private static Command CreateCredentialsStatusCommand(Option<string> outputOption)
+    {
+        // Example: `spring connector credentials status github`
+        var idArg = new Argument<string>("slugOrId") { Description = "Connector slug or type id." };
+        var secretOption = new Option<string?>("--secret-name")
+        {
+            Description = "Secret name within the connector (defaults to 'default'). Multi-credential connectors (e.g. GitHub App id + private key) store one row per credential.",
+        };
+        var command = new Command(
+            "status",
+            "Show the current credential-health status for a connector. Sourced from the shared credential_health store (#686).");
+        command.Arguments.Add(idArg);
+        command.Options.Add(secretOption);
+        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var slugOrId = parseResult.GetValue(idArg)!;
+            var secretName = parseResult.GetValue(secretOption);
+            var output = parseResult.GetValue(outputOption) ?? "table";
+            var client = ClientFactory.Create();
+            var result = await client.GetConnectorCredentialHealthAsync(slugOrId, secretName, ct);
+            if (result is null)
+            {
+                await Console.Error.WriteLineAsync(
+                    $"No credential-health row recorded for connector '{slugOrId}'. Validate credentials via the portal or the HTTP API to prime the row.");
+                Environment.Exit(1);
+                return;
+            }
+            Console.WriteLine(output == "json"
+                ? OutputFormatter.FormatJson(result)
+                : $"{result.SubjectId} / {result.SecretName} → {result.Status} (last checked {result.LastChecked:u})"
+                    + (string.IsNullOrWhiteSpace(result.LastError) ? "" : $"\n  reason: {result.LastError}"));
+        });
         return command;
     }
 }

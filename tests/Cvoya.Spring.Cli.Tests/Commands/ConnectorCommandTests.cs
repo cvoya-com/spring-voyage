@@ -14,10 +14,12 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Parser + wire-level tests for the <c>spring connector</c> verb family
-/// (#455 / C4). Covers the three verbs — <c>catalog</c>, <c>show</c>,
-/// <c>bind</c> — both at the CommandLine parse step and through the
-/// typed-client wrappers that translate flags into HTTP calls.
+/// Parser + wire-level tests for the <c>spring connector</c> verb family.
+/// Covers both the legacy per-unit binding verbs (<c>catalog</c>,
+/// <c>unit-binding</c>, <c>bind</c>, <c>bindings</c>) from #455 / C4 and
+/// the tenant-install verbs (<c>list</c>, <c>show</c>, <c>install</c>,
+/// <c>uninstall</c>, <c>config set</c>, <c>credentials status</c>)
+/// landed in #689.
 /// </summary>
 public class ConnectorCommandTests
 {
@@ -30,6 +32,37 @@ public class ConnectorCommandTests
             Description = "Output format",
             DefaultValueFactory = _ => "table",
         };
+    }
+
+    [Theory]
+    [InlineData("connector list")]
+    [InlineData("connector show github")]
+    [InlineData("connector install github")]
+    [InlineData("connector uninstall github --force")]
+    [InlineData("connector credentials status github")]
+    public void ConnectorTenantInstallVerbs_Parse(string argLine)
+    {
+        var outputOption = CreateOutputOption();
+        var connectorCommand = ConnectorCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(connectorCommand);
+
+        var parseResult = rootCommand.Parse(argLine);
+
+        parseResult.Errors.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void ConnectorShow_TenantInstall_RequiresPositional()
+    {
+        var outputOption = CreateOutputOption();
+        var connectorCommand = ConnectorCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(connectorCommand);
+
+        var parseResult = rootCommand.Parse("connector show");
+
+        parseResult.Errors.ShouldNotBeEmpty();
     }
 
     [Fact]
@@ -70,7 +103,7 @@ public class ConnectorCommandTests
         var rootCommand = new RootCommand { Options = { outputOption } };
         rootCommand.Subcommands.Add(connectorCommand);
 
-        var parseResult = rootCommand.Parse("connector show --unit eng-team");
+        var parseResult = rootCommand.Parse("connector unit-binding --unit eng-team");
 
         parseResult.Errors.ShouldBeEmpty();
         parseResult.GetValue<string>("--unit").ShouldBe("eng-team");
@@ -86,7 +119,7 @@ public class ConnectorCommandTests
         var rootCommand = new RootCommand { Options = { outputOption } };
         rootCommand.Subcommands.Add(connectorCommand);
 
-        var parseResult = rootCommand.Parse("connector show");
+        var parseResult = rootCommand.Parse("connector unit-binding");
 
         parseResult.Errors.ShouldNotBeEmpty();
     }
