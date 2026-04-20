@@ -433,6 +433,21 @@ export type AgentRuntimeCredentialKind = Schemas["AgentRuntimeCredentialKind"];
 /** Response body for POST /api/v1/agent-runtimes/{id}/validate-credential. */
 export type CredentialValidateResponse = Schemas["CredentialValidateResponse"];
 
+/**
+ * Persistent credential status for a stored credential on an agent
+ * runtime or connector. Returned by the `credential-health` endpoints
+ * on both surfaces and surfaced read-only in the portal admin views
+ * (#691). A single network error does NOT flip the persistent status.
+ */
+export type CredentialHealthStatus = Schemas["CredentialHealthStatus"];
+
+/**
+ * GET response body for
+ * `/api/v1/agent-runtimes/{id}/credential-health` and
+ * `/api/v1/connectors/{slugOrId}/credential-health`.
+ */
+export type CredentialHealthResponse = Schemas["CredentialHealthResponse"];
+
 /** GET /api/v1/units/{id}/connector response — a pointer to the typed config. */
 export type UnitConnectorPointerResponse = Schemas["UnitConnectorPointerResponse"];
 

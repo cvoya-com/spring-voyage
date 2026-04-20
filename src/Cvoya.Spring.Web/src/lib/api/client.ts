@@ -1117,4 +1117,46 @@ export const api = {
         body: { credential, secretName },
       }),
     ) as import("./types").CredentialValidateResponse,
+
+  // Credential health (#691). Read-only inspection of the persistent
+  // credential status the watchdog + accept-time validation write to. The
+  // admin portal views (`/admin/agent-runtimes`, `/admin/connectors`) ride
+  // these; mutation stays CLI-only per the AGENTS.md carve-out. 404
+  // normalises to null so the caller can render a "no signal yet" row
+  // without a try/catch.
+  getAgentRuntimeCredentialHealth: async (
+    id: string,
+    secretName?: string,
+  ): Promise<import("./types").CredentialHealthResponse | null> => {
+    const query: Record<string, string> = {};
+    if (secretName) query.secretName = secretName;
+    const result = await fetchClient.GET(
+      "/api/v1/agent-runtimes/{id}/credential-health",
+      {
+        params: { path: { id }, query: query as never },
+      },
+    );
+    if (result.response.status === 404) {
+      return null;
+    }
+    return unwrap(result) as import("./types").CredentialHealthResponse;
+  },
+
+  getConnectorCredentialHealth: async (
+    slugOrId: string,
+    secretName?: string,
+  ): Promise<import("./types").CredentialHealthResponse | null> => {
+    const query: Record<string, string> = {};
+    if (secretName) query.secretName = secretName;
+    const result = await fetchClient.GET(
+      "/api/v1/connectors/{slugOrId}/credential-health",
+      {
+        params: { path: { slugOrId }, query: query as never },
+      },
+    );
+    if (result.response.status === 404) {
+      return null;
+    }
+    return unwrap(result) as import("./types").CredentialHealthResponse;
+  },
 };

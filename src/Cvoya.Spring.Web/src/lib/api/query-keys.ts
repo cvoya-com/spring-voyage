@@ -130,6 +130,8 @@ export const queryKeys = {
     list: () => ["connectors", "list"] as const,
     detail: (slugOrId: string) =>
       ["connectors", "detail", slugOrId] as const,
+    credentialHealth: (slugOrId: string, secretName?: string) =>
+      ["connectors", "credentialHealth", slugOrId, secretName ?? null] as const,
     githubInstallations: () =>
       ["connectors", "github", "installations"] as const,
     githubInstallUrl: () =>
@@ -164,6 +166,8 @@ export const queryKeys = {
     list: () => ["agentRuntimes", "list"] as const,
     models: (runtimeId: string) =>
       ["agentRuntimes", runtimeId, "models"] as const,
+    credentialHealth: (runtimeId: string, secretName?: string) =>
+      ["agentRuntimes", runtimeId, "credentialHealth", secretName ?? null] as const,
   },
 
   // Settings drawer (#451) — drawer panels fetch a small amount of

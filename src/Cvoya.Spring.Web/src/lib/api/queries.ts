@@ -1077,6 +1077,58 @@ export function useAgentRuntimeModels(
 }
 
 /**
+ * Persistent credential-health row for an agent runtime (#691). Feeds
+ * the read-only admin view at `/admin/agent-runtimes`. Returns `null`
+ * when the endpoint 404s — a fresh install that has never been probed
+ * has no row yet, so the portal renders a muted "No signal yet" state
+ * rather than trapping the admin error boundary.
+ */
+export function useAgentRuntimeCredentialHealth(
+  runtimeId: string,
+  secretName?: string,
+  opts?: SliceOptions<import("./types").CredentialHealthResponse | null>,
+): UseQueryResult<import("./types").CredentialHealthResponse | null, Error> {
+  return useQuery({
+    queryKey: queryKeys.agentRuntimes.credentialHealth(runtimeId, secretName),
+    queryFn: async () => {
+      try {
+        return await api.getAgentRuntimeCredentialHealth(runtimeId, secretName);
+      } catch {
+        return null;
+      }
+    },
+    staleTime: opts?.staleTime ?? 30 * 1000,
+    refetchInterval: opts?.refetchInterval,
+    enabled: opts?.enabled ?? Boolean(runtimeId),
+  });
+}
+
+/**
+ * Persistent credential-health row for a connector (#691). Feeds the
+ * read-only admin view at `/admin/connectors`. Mirrors
+ * {@link useAgentRuntimeCredentialHealth}; same null-on-404 semantics.
+ */
+export function useConnectorCredentialHealth(
+  slugOrId: string,
+  secretName?: string,
+  opts?: SliceOptions<import("./types").CredentialHealthResponse | null>,
+): UseQueryResult<import("./types").CredentialHealthResponse | null, Error> {
+  return useQuery({
+    queryKey: queryKeys.connectors.credentialHealth(slugOrId, secretName),
+    queryFn: async () => {
+      try {
+        return await api.getConnectorCredentialHealth(slugOrId, secretName);
+      } catch {
+        return null;
+      }
+    },
+    staleTime: opts?.staleTime ?? 30 * 1000,
+    refetchInterval: opts?.refetchInterval,
+    enabled: opts?.enabled ?? Boolean(slugOrId),
+  });
+}
+
+/**
  * Provider credential-status hook (#598). Asks the server whether the
  * currently-selected LLM provider's credentials are configured (or, for
  * Ollama, whether the configured endpoint is reachable). Drives the

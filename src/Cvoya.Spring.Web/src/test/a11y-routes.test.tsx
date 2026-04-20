@@ -94,6 +94,9 @@ const apiStub = {
   queryActivity:
     vi.fn<() => Promise<ActivityQueryResult>>(),
   listConnectors: vi.fn<() => Promise<unknown[]>>(),
+  listAgentRuntimes: vi.fn<() => Promise<unknown[]>>(),
+  getAgentRuntimeCredentialHealth: vi.fn<() => Promise<unknown | null>>(),
+  getConnectorCredentialHealth: vi.fn<() => Promise<unknown | null>>(),
   listPackages: vi.fn<() => Promise<unknown[]>>(),
   searchDirectory: vi.fn<() => Promise<{ hits: unknown[]; totalCount: number }>>(),
   getTenantCost:
@@ -234,6 +237,9 @@ describe("portal a11y smoke tests", () => {
       totalCount: 0,
     } as unknown as ActivityQueryResult);
     apiStub.listConnectors.mockResolvedValue([]);
+    apiStub.listAgentRuntimes.mockResolvedValue([]);
+    apiStub.getAgentRuntimeCredentialHealth.mockResolvedValue(null);
+    apiStub.getConnectorCredentialHealth.mockResolvedValue(null);
     apiStub.listPackages.mockResolvedValue([]);
     apiStub.searchDirectory.mockResolvedValue({ hits: [], totalCount: 0 });
     apiStub.getTenantCost.mockResolvedValue({ totalCost: 0, breakdowns: [] });
@@ -468,6 +474,34 @@ describe("portal a11y smoke tests", () => {
     });
     await waitFor(() => {
       expect(container.querySelector("h1, h2, h3")).toBeTruthy();
+    });
+    await expectNoAxeViolations(container);
+  });
+
+  it("/admin/agent-runtimes (#691)", async () => {
+    const { default: AdminAgentRuntimesPage } = await import(
+      "@/app/admin/agent-runtimes/page"
+    );
+    const { container } = render(<AdminAgentRuntimesPage />, {
+      wrapper: createWrapper(),
+    });
+    await screen.findByRole("heading", {
+      level: 1,
+      name: /agent runtimes/i,
+    });
+    await expectNoAxeViolations(container);
+  });
+
+  it("/admin/connectors (#691)", async () => {
+    const { default: AdminConnectorsPage } = await import(
+      "@/app/admin/connectors/page"
+    );
+    const { container } = render(<AdminConnectorsPage />, {
+      wrapper: createWrapper(),
+    });
+    await screen.findByRole("heading", {
+      level: 1,
+      name: /connector health/i,
     });
     await expectNoAxeViolations(container);
   });
