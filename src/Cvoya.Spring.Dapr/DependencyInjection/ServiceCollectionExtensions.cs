@@ -220,6 +220,19 @@ public static class ServiceCollectionExtensions
         services.TryAddEnumerable(
             ServiceDescriptor.Singleton<ITenantSeedProvider, FileSystemSkillBundleSeedProvider>());
 
+        // Per-tenant agent-runtime + connector install services (#683,
+        // #684). Scoped because they depend on SpringDbContext; paired
+        // with singleton seed providers that crack open a child DI scope
+        // per seed pass. TryAdd* so a cloud overlay can register a
+        // tenant-scoped variant (e.g. backed by a different repository)
+        // without touching this call site.
+        services.TryAddScoped<ITenantAgentRuntimeInstallService, TenantAgentRuntimeInstallService>();
+        services.TryAddScoped<ITenantConnectorInstallService, TenantConnectorInstallService>();
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<ITenantSeedProvider, AgentRuntimeInstallSeedProvider>());
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<ITenantSeedProvider, ConnectorInstallSeedProvider>());
+
         // Agents-as-skills surface (#359 — rework of closed #532). The
         // catalog derives the skill surface live from the expertise
         // directory (#487 / #498) rather than from a startup snapshot, so

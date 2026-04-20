@@ -4634,6 +4634,199 @@
         }
       }
     },
+    "/api/v1/connectors/installed": {
+      "get": {
+        "tags": [
+          "Connectors"
+        ],
+        "summary": "List every connector installed on the current tenant",
+        "operationId": "ListInstalledConnectors",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/InstalledConnectorResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/connectors/{slugOrId}/install": {
+      "get": {
+        "tags": [
+          "Connectors"
+        ],
+        "summary": "Get the install metadata for a connector on the current tenant",
+        "operationId": "GetInstalledConnector",
+        "parameters": [
+          {
+            "name": "slugOrId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstalledConnectorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Connectors"
+        ],
+        "summary": "Install the connector on the current tenant (idempotent)",
+        "operationId": "InstallConnector",
+        "parameters": [
+          {
+            "name": "slugOrId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ConnectorInstallRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstalledConnectorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Connectors"
+        ],
+        "summary": "Uninstall the connector from the current tenant",
+        "operationId": "UninstallConnector",
+        "parameters": [
+          {
+            "name": "slugOrId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        }
+      }
+    },
+    "/api/v1/connectors/{slugOrId}/install/config": {
+      "patch": {
+        "tags": [
+          "Connectors"
+        ],
+        "summary": "Replace the tenant-scoped install configuration for a connector",
+        "operationId": "UpdateConnectorInstallConfig",
+        "parameters": [
+          {
+            "name": "slugOrId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectorInstallConfig"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstalledConnectorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/connectors/github/units/{unitId}/config": {
       "get": {
         "tags": [
@@ -5262,6 +5455,245 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/JsonElement"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/agent-runtimes": {
+      "get": {
+        "tags": [
+          "AgentRuntimes"
+        ],
+        "summary": "List every agent runtime installed on the current tenant",
+        "operationId": "ListInstalledAgentRuntimes",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/InstalledAgentRuntimeResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/agent-runtimes/{id}": {
+      "get": {
+        "tags": [
+          "AgentRuntimes"
+        ],
+        "summary": "Get a single installed agent runtime by id",
+        "operationId": "GetInstalledAgentRuntime",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstalledAgentRuntimeResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "AgentRuntimes"
+        ],
+        "summary": "Uninstall the runtime from the current tenant",
+        "operationId": "UninstallAgentRuntime",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        }
+      }
+    },
+    "/api/v1/agent-runtimes/{id}/models": {
+      "get": {
+        "tags": [
+          "AgentRuntimes"
+        ],
+        "summary": "Get the tenant's configured model list for an installed agent runtime",
+        "operationId": "GetInstalledAgentRuntimeModels",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AgentRuntimeModelResponse"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/agent-runtimes/{id}/install": {
+      "post": {
+        "tags": [
+          "AgentRuntimes"
+        ],
+        "summary": "Install the runtime on the current tenant (idempotent)",
+        "operationId": "InstallAgentRuntime",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/AgentRuntimeInstallRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstalledAgentRuntimeResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/agent-runtimes/{id}/config": {
+      "patch": {
+        "tags": [
+          "AgentRuntimes"
+        ],
+        "summary": "Replace the tenant-scoped configuration for an installed runtime",
+        "operationId": "UpdateAgentRuntimeConfig",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentRuntimeInstallConfig"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstalledAgentRuntimeResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
                 }
               }
             }
@@ -6841,6 +7273,90 @@
           }
         }
       },
+      "AgentRuntimeInstallConfig": {
+        "required": [
+          "models",
+          "defaultModel",
+          "baseUrl"
+        ],
+        "type": "object",
+        "properties": {
+          "models": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "defaultModel": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "baseUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "AgentRuntimeInstallRequest": {
+        "required": [
+          "models",
+          "defaultModel",
+          "baseUrl"
+        ],
+        "type": "object",
+        "properties": {
+          "models": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "defaultModel": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "baseUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "AgentRuntimeModelResponse": {
+        "required": [
+          "id",
+          "displayName",
+          "contextWindow"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "contextWindow": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
       "AgentSkillsResponse": {
         "required": [
           "skills"
@@ -7144,6 +7660,42 @@
           "Disabled",
           "Invalid"
         ]
+      },
+      "ConnectorInstallConfig": {
+        "required": [
+          "config"
+        ],
+        "type": "object",
+        "properties": {
+          "config": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
+          }
+        }
+      },
+      "ConnectorInstallRequest": {
+        "required": [
+          "config"
+        ],
+        "type": "object",
+        "properties": {
+          "config": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
+          }
+        }
       },
       "ConnectorSummary": {
         "required": [
@@ -8304,6 +8856,101 @@
             "items": {
               "type": "string"
             }
+          }
+        }
+      },
+      "InstalledAgentRuntimeResponse": {
+        "required": [
+          "id",
+          "displayName",
+          "toolKind",
+          "installedAt",
+          "updatedAt",
+          "models",
+          "defaultModel",
+          "baseUrl"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "toolKind": {
+            "type": "string"
+          },
+          "installedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "defaultModel": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "baseUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "InstalledConnectorResponse": {
+        "required": [
+          "typeId",
+          "typeSlug",
+          "displayName",
+          "description",
+          "installedAt",
+          "updatedAt",
+          "config"
+        ],
+        "type": "object",
+        "properties": {
+          "typeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "typeSlug": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "installedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "config": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
           }
         }
       },
@@ -10537,6 +11184,9 @@
     },
     {
       "name": "Connectors.WebSearch"
+    },
+    {
+      "name": "AgentRuntimes"
     },
     {
       "name": "Secrets"

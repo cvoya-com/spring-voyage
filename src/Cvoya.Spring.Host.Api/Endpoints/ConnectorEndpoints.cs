@@ -45,6 +45,44 @@ public static class ConnectorEndpoints
             .Produces<ConnectorUnitBindingResponse[]>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
+        // Tenant-install management surface. Sibling to the registry-level
+        // list/get routes above — those report "which connectors does the
+        // host know about", these report "which connectors are installed
+        // on the current tenant" (a strict subset in deployments where
+        // the operator has uninstalled some, identical otherwise).
+        connectors.MapGet("/installed", ListInstalledAsync)
+            .WithName("ListInstalledConnectors")
+            .WithSummary("List every connector installed on the current tenant")
+            .Produces<InstalledConnectorResponse[]>(StatusCodes.Status200OK)
+            .RequireAuthorization();
+
+        connectors.MapGet("/{slugOrId}/install", GetInstallAsync)
+            .WithName("GetInstalledConnector")
+            .WithSummary("Get the install metadata for a connector on the current tenant")
+            .Produces<InstalledConnectorResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .RequireAuthorization();
+
+        connectors.MapPost("/{slugOrId}/install", InstallConnectorAsync)
+            .WithName("InstallConnector")
+            .WithSummary("Install the connector on the current tenant (idempotent)")
+            .Produces<InstalledConnectorResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .RequireAuthorization();
+
+        connectors.MapDelete("/{slugOrId}/install", UninstallConnectorAsync)
+            .WithName("UninstallConnector")
+            .WithSummary("Uninstall the connector from the current tenant")
+            .Produces(StatusCodes.Status204NoContent)
+            .RequireAuthorization();
+
+        connectors.MapPatch("/{slugOrId}/install/config", UpdateInstallConfigAsync)
+            .WithName("UpdateConnectorInstallConfig")
+            .WithSummary("Replace the tenant-scoped install configuration for a connector")
+            .Produces<InstalledConnectorResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .RequireAuthorization();
+
         // Each connector owns its typed routes under /api/v1/connectors/{slug}/...
         // The host calls MapRoutes on a pre-scoped group so the connector
         // package stays ignorant of the outer path structure.
@@ -216,4 +254,122 @@ public static class ConnectorEndpoints
             ConfigUrl: $"/api/v1/connectors/{type.Slug}/units/{{unitId}}/config",
             ActionsBaseUrl: $"/api/v1/connectors/{type.Slug}/actions",
             ConfigSchemaUrl: $"/api/v1/connectors/{type.Slug}/config-schema");
+
+    private static async Task<IResult> ListInstalledAsync(
+        [FromServices] ITenantConnectorInstallService installService,
+        [FromServices] IEnumerable<IConnectorType> connectorTypes,
+        CancellationToken cancellationToken)
+    {
+        var installs = await installService.ListAsync(cancellationToken);
+        var typeIndex = connectorTypes.ToDictionary(
+            c => c.Slug, StringComparer.OrdinalIgnoreCase);
+        var rows = installs
+            .Select(install => typeIndex.TryGetValue(install.ConnectorId, out var type)
+                ? ToInstalledResponse(install, type)
+                : null)
+            .Where(r => r is not null)
+            .Cast<InstalledConnectorResponse>()
+            .ToArray();
+        return Results.Ok(rows);
+    }
+
+    private static async Task<IResult> GetInstallAsync(
+        string slugOrId,
+        [FromServices] ITenantConnectorInstallService installService,
+        [FromServices] IEnumerable<IConnectorType> connectorTypes,
+        CancellationToken cancellationToken)
+    {
+        var type = ResolveConnector(slugOrId, connectorTypes);
+        if (type is null)
+        {
+            return Results.Problem(
+                detail: $"Connector '{slugOrId}' is not registered.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+        var install = await installService.GetAsync(type.Slug, cancellationToken);
+        return install is null
+            ? Results.Problem(
+                detail: $"Connector '{type.Slug}' is not installed on the current tenant.",
+                statusCode: StatusCodes.Status404NotFound)
+            : Results.Ok(ToInstalledResponse(install, type));
+    }
+
+    private static async Task<IResult> InstallConnectorAsync(
+        string slugOrId,
+        [FromBody] ConnectorInstallRequest? body,
+        [FromServices] ITenantConnectorInstallService installService,
+        [FromServices] IEnumerable<IConnectorType> connectorTypes,
+        CancellationToken cancellationToken)
+    {
+        var type = ResolveConnector(slugOrId, connectorTypes);
+        if (type is null)
+        {
+            return Results.Problem(
+                detail: $"Connector '{slugOrId}' is not registered.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        var config = body is null ? null : new ConnectorInstallConfig(body.Config);
+        var install = await installService.InstallAsync(type.Slug, config, cancellationToken);
+        return Results.Ok(ToInstalledResponse(install, type));
+    }
+
+    private static async Task<IResult> UninstallConnectorAsync(
+        string slugOrId,
+        [FromServices] ITenantConnectorInstallService installService,
+        [FromServices] IEnumerable<IConnectorType> connectorTypes,
+        CancellationToken cancellationToken)
+    {
+        var type = ResolveConnector(slugOrId, connectorTypes);
+        if (type is null)
+        {
+            // The resolver treats unknown slugs as 404 on every other route
+            // in this file; surface the same contract for uninstall so a
+            // typo cannot silently succeed.
+            return Results.Problem(
+                detail: $"Connector '{slugOrId}' is not registered.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+        await installService.UninstallAsync(type.Slug, cancellationToken);
+        return Results.NoContent();
+    }
+
+    private static async Task<IResult> UpdateInstallConfigAsync(
+        string slugOrId,
+        [FromBody] ConnectorInstallConfig config,
+        [FromServices] ITenantConnectorInstallService installService,
+        [FromServices] IEnumerable<IConnectorType> connectorTypes,
+        CancellationToken cancellationToken)
+    {
+        var type = ResolveConnector(slugOrId, connectorTypes);
+        if (type is null)
+        {
+            return Results.Problem(
+                detail: $"Connector '{slugOrId}' is not registered.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+        try
+        {
+            var install = await installService.UpdateConfigAsync(type.Slug, config, cancellationToken);
+            return Results.Ok(ToInstalledResponse(install, type));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Results.Problem(
+                detail: ex.Message,
+                statusCode: StatusCodes.Status404NotFound);
+        }
+    }
+
+    private static InstalledConnectorResponse ToInstalledResponse(
+        InstalledConnector install,
+        IConnectorType type)
+        => new(
+            TypeId: type.TypeId,
+            TypeSlug: type.Slug,
+            DisplayName: type.DisplayName,
+            Description: type.Description,
+            InstalledAt: install.InstalledAt,
+            UpdatedAt: install.UpdatedAt,
+            Config: install.Config.Config);
 }

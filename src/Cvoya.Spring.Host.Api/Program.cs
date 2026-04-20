@@ -175,6 +175,7 @@ try
     app.MapDashboardEndpoints().RequireAuthorization();
     app.MapSkillsEndpoints().RequireAuthorization();
     app.MapConnectorEndpoints();
+    app.MapAgentRuntimeEndpoints().RequireAuthorization();
     app.MapSecretEndpoints().RequireAuthorization();
     app.MapOllamaEndpoints().RequireAuthorization();
     app.MapModelsEndpoints().RequireAuthorization();

@@ -93,6 +93,12 @@ public class SpringDbContext : DbContext
     /// <summary>Gets the set of unit-policy rows.</summary>
     public DbSet<UnitPolicyEntity> UnitPolicies => Set<UnitPolicyEntity>();
 
+    /// <summary>Gets the set of per-tenant agent-runtime install rows.</summary>
+    public DbSet<TenantAgentRuntimeInstallEntity> TenantAgentRuntimeInstalls => Set<TenantAgentRuntimeInstallEntity>();
+
+    /// <summary>Gets the set of per-tenant connector install rows.</summary>
+    public DbSet<TenantConnectorInstallEntity> TenantConnectorInstalls => Set<TenantConnectorInstallEntity>();
+
     /// <inheritdoc />
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -115,6 +121,8 @@ public class SpringDbContext : DbContext
         modelBuilder.ApplyConfiguration(new SecretRegistryEntryConfiguration());
         modelBuilder.ApplyConfiguration(new UnitMembershipEntityConfiguration());
         modelBuilder.ApplyConfiguration(new UnitPolicyEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new TenantAgentRuntimeInstallEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new TenantConnectorInstallEntityConfiguration());
 
         // Combined tenant + soft-delete query filters. Each filter
         // captures <c>this</c>, so EF Core parameterises the tenant-id
@@ -137,6 +145,10 @@ public class SpringDbContext : DbContext
             .HasQueryFilter(e => e.TenantId == CurrentTenantId);
         modelBuilder.Entity<UnitPolicyEntity>()
             .HasQueryFilter(e => e.TenantId == CurrentTenantId);
+        modelBuilder.Entity<TenantAgentRuntimeInstallEntity>()
+            .HasQueryFilter(e => e.TenantId == CurrentTenantId && e.DeletedAt == null);
+        modelBuilder.Entity<TenantConnectorInstallEntity>()
+            .HasQueryFilter(e => e.TenantId == CurrentTenantId && e.DeletedAt == null);
     }
 
     /// <inheritdoc />

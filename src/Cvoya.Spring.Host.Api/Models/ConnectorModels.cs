@@ -89,3 +89,41 @@ public record ConnectorUnitBindingResponse(
     string TypeSlug,
     string ConfigUrl,
     string ActionsBaseUrl);
+
+/// <summary>
+/// Response body for the tenant-connector install endpoints — the union
+/// of the connector's type-descriptor fields (from the registry) with
+/// the tenant install metadata (from <c>tenant_connector_installs</c>).
+/// Returned by <c>GET /api/v1/connectors/installed</c>,
+/// <c>GET /api/v1/connectors/{slugOrId}/install</c>,
+/// <c>POST /api/v1/connectors/{slugOrId}/install</c>, and
+/// <c>PATCH /api/v1/connectors/{slugOrId}/install/config</c>.
+/// </summary>
+/// <param name="TypeId">Stable connector identity from <c>IConnectorType.TypeId</c>.</param>
+/// <param name="TypeSlug">URL-safe slug from <c>IConnectorType.Slug</c>.</param>
+/// <param name="DisplayName">Human-facing display name.</param>
+/// <param name="Description">Short description used by the wizard and unit-config UI.</param>
+/// <param name="InstalledAt">Timestamp when the connector was first installed on the tenant.</param>
+/// <param name="UpdatedAt">Timestamp when the install row was last updated.</param>
+/// <param name="Config">
+/// Opaque per-tenant config payload. <c>null</c> for connectors with no
+/// tenant-level configuration.
+/// </param>
+public record InstalledConnectorResponse(
+    Guid TypeId,
+    string TypeSlug,
+    string DisplayName,
+    string Description,
+    DateTimeOffset InstalledAt,
+    DateTimeOffset UpdatedAt,
+    System.Text.Json.JsonElement? Config);
+
+/// <summary>
+/// Request body for <c>POST /api/v1/connectors/{slugOrId}/install</c>.
+/// </summary>
+/// <param name="Config">
+/// Opaque tenant-level config payload to persist. <c>null</c> for an empty
+/// payload — connectors with no tenant-level configuration should send
+/// this or omit the body entirely.
+/// </param>
+public record ConnectorInstallRequest(System.Text.Json.JsonElement? Config);
