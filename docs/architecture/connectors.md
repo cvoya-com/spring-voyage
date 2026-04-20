@@ -167,3 +167,52 @@ See
 for the verb's flag list and out-of-scope boundary. The connector's
 disabled-with-reason classifier still fires when credentials are missing
 — the verb just makes "missing" a single-step problem to fix.
+
+## Credential-validation and container-baseline hooks
+
+`IConnectorType` carries two optional hooks for connectors that need to
+report ongoing health beyond the boot-time configuration classification:
+
+- `Task<CredentialValidationResult?> ValidateCredentialAsync(string credential, CancellationToken ct)`
+  — exchanges the connector's stored credential for an end-to-end
+  round-trip against the backing service and returns a typed outcome
+  (`Valid` / `Invalid` / `NetworkError` / `Unknown`). The result records
+  live in `Cvoya.Spring.Core.AgentRuntimes` and are shared with the
+  `IAgentRuntime` plugin contract so the credential-health store
+  (separate sub-issue) can speak one vocabulary across runtimes and
+  connectors.
+- `Task<ContainerBaselineCheckResult?> VerifyContainerBaselineAsync(CancellationToken ct)`
+  — probes the host process / container for any tooling beyond outbound
+  HTTPS the connector requires (CLI binary on PATH, side-car
+  reachability, etc.). Returns a passing result for connectors with
+  nothing to verify so the install / wizard surface can render
+  "checked, OK".
+
+Both hooks default to a no-op (`Task.FromResult(null)`), so connectors
+that do not carry authentication (Arxiv, WebSearch) inherit "nothing to
+check" without any extra code. Connectors that DO carry auth override
+`ValidateCredentialAsync`; connectors that depend on a host-side
+binary or side-car override `VerifyContainerBaselineAsync`.
+
+The GitHub connector implements both:
+
+- `ValidateCredentialAsync` consults
+  `GitHubAppConfigurationRequirement` (returns `Unknown` with the
+  disabled reason when credentials are missing or malformed),
+  otherwise mints an installation token via the configured /
+  first-visible installation and calls `GET /installation/repositories`.
+  401/403 → `Invalid`; transport / 5xx / DNS / TLS / timeout →
+  `NetworkError`.
+- `VerifyContainerBaselineAsync` returns `Passed=true` — the connector
+  talks to `api.github.com` over outbound HTTPS only.
+
+The `credential` parameter is currently ignored by the GitHub
+implementation because GitHub App auth is multi-part (App id +
+private key + installation id) — the hook validates the connector's
+bound configuration rather than a single token. Connectors that DO
+accept a single-token credential consume the parameter directly.
+
+Persisting the result of these hooks into a credential-health store
+and flipping health on hot-path 401/403 responses are tracked as
+separate phase-2 sub-issues — the platform side of #674 lands the
+contract first, the storage and middleware land independently.

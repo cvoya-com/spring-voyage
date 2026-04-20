@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.Connector.GitHub;
 
+using System.Net;
+using System.Net.Http;
 using System.Text.Json;
 
 using Cvoya.Spring.Connector.GitHub.Auth;
@@ -10,6 +12,7 @@ using Cvoya.Spring.Connector.GitHub.Auth.OAuth;
 using Cvoya.Spring.Connector.GitHub.Configuration;
 using Cvoya.Spring.Connector.GitHub.Webhooks;
 using Cvoya.Spring.Connectors;
+using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Configuration;
 
 using Microsoft.AspNetCore.Builder;
@@ -18,6 +21,8 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+
+using Octokit;
 
 /// <summary>
 /// GitHub concrete implementation of <see cref="IConnectorType"/>. Registers
@@ -242,6 +247,137 @@ public class GitHubConnectorType : IConnectorType
                 runtime.HookId, unitId, config.Owner, config.Repo);
         }
     }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// The GitHub connector authenticates via App credentials
+    /// (App ID + private key + installation id), not via a single bearer
+    /// token, so the <paramref name="credential"/> parameter is currently
+    /// ignored — the validation runs against the credentials already bound
+    /// in <see cref="GitHubConnectorOptions"/>. The flow:
+    /// <list type="number">
+    ///   <item><description>If the App credentials are missing or malformed at startup (per <see cref="GitHubAppConfigurationRequirement"/>), return a result with <see cref="CredentialValidationStatus.Unknown"/> and the disabled reason.</description></item>
+    ///   <item><description>Pick an installation id (the configured <see cref="GitHubConnectorOptions.InstallationId"/> when set; otherwise the first installation visible to the App).</description></item>
+    ///   <item><description>Mint an installation access token and call <c>GET /installation/repositories</c> via <see cref="IGitHubInstallationsClient.ListInstallationRepositoriesAsync(long, CancellationToken)"/>.</description></item>
+    ///   <item><description>Map the outcome: success → Valid; 401/403 → Invalid; transport / 5xx / DNS / TLS / timeout → NetworkError.</description></item>
+    /// </list>
+    /// </remarks>
+    public virtual async Task<CredentialValidationResult?> ValidateCredentialAsync(
+        string credential,
+        CancellationToken cancellationToken = default)
+    {
+        if (!IsConnectorEnabled)
+        {
+            return new CredentialValidationResult(
+                Valid: false,
+                ErrorMessage: ConnectorDisabledReason,
+                Status: CredentialValidationStatus.Unknown);
+        }
+
+        try
+        {
+            var installationId = _options.Value.InstallationId;
+            if (installationId is null or 0)
+            {
+                var installations = await _installationsClient
+                    .ListInstallationsAsync(cancellationToken)
+                    .ConfigureAwait(false);
+                if (installations.Count == 0)
+                {
+                    // The App is configured but has no installations.
+                    // We exchanged the App JWT successfully (otherwise the
+                    // listing call would have thrown), so the credentials
+                    // are valid even though there's nothing to enumerate.
+                    return new CredentialValidationResult(
+                        Valid: true,
+                        ErrorMessage: null,
+                        Status: CredentialValidationStatus.Valid);
+                }
+
+                installationId = installations[0].InstallationId;
+            }
+
+            // GET /installation/repositories — the canonical "is this
+            // installation token actually accepted" probe.
+            _ = await _installationsClient
+                .ListInstallationRepositoriesAsync(installationId.Value, cancellationToken)
+                .ConfigureAwait(false);
+
+            return new CredentialValidationResult(
+                Valid: true,
+                ErrorMessage: null,
+                Status: CredentialValidationStatus.Valid);
+        }
+        catch (AuthorizationException ex)
+        {
+            _logger.LogInformation(ex,
+                "GitHub App credential validation rejected by GitHub (status {Status}).",
+                ex.StatusCode);
+            return new CredentialValidationResult(
+                Valid: false,
+                ErrorMessage: ex.Message,
+                Status: CredentialValidationStatus.Invalid);
+        }
+        catch (ApiException ex) when (
+            ex.StatusCode == HttpStatusCode.Unauthorized
+            || ex.StatusCode == HttpStatusCode.Forbidden)
+        {
+            _logger.LogInformation(ex,
+                "GitHub App credential validation rejected by GitHub (status {Status}).",
+                ex.StatusCode);
+            return new CredentialValidationResult(
+                Valid: false,
+                ErrorMessage: ex.Message,
+                Status: CredentialValidationStatus.Invalid);
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogWarning(ex,
+                "GitHub App credential validation could not reach GitHub.");
+            return new CredentialValidationResult(
+                Valid: false,
+                ErrorMessage: ex.Message,
+                Status: CredentialValidationStatus.NetworkError);
+        }
+        catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            // Request-side timeout (Octokit / HttpClient) — caller's token
+            // wasn't tripped, so this is a transport-level failure rather
+            // than a cooperative cancel.
+            _logger.LogWarning(ex,
+                "GitHub App credential validation timed out reaching GitHub.");
+            return new CredentialValidationResult(
+                Valid: false,
+                ErrorMessage: ex.Message,
+                Status: CredentialValidationStatus.NetworkError);
+        }
+        catch (ApiException ex)
+        {
+            // Any other API error (5xx, rate-limit, etc.) — credential
+            // validity is unknown; surface as NetworkError so the caller
+            // can retry.
+            _logger.LogWarning(ex,
+                "GitHub App credential validation failed with API error (status {Status}).",
+                ex.StatusCode);
+            return new CredentialValidationResult(
+                Valid: false,
+                ErrorMessage: ex.Message,
+                Status: CredentialValidationStatus.NetworkError);
+        }
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// The GitHub connector talks to <c>api.github.com</c> over outbound
+    /// HTTPS only — there is no host-side binary or side-car to verify.
+    /// We return a passing result rather than <c>null</c> so the install /
+    /// wizard surface renders "checked, OK" instead of "skipped" for the
+    /// connector that most operators care about.
+    /// </remarks>
+    public virtual Task<ContainerBaselineCheckResult?> VerifyContainerBaselineAsync(
+        CancellationToken cancellationToken = default)
+        => Task.FromResult<ContainerBaselineCheckResult?>(
+            new ContainerBaselineCheckResult(Passed: true, Errors: Array.Empty<string>()));
 
     private async Task<UnitGitHubConfig?> LoadConfigAsync(string unitId, CancellationToken ct)
     {

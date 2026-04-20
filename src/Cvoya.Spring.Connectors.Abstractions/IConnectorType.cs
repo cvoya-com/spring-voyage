@@ -5,6 +5,8 @@ namespace Cvoya.Spring.Connectors;
 
 using System.Text.Json;
 
+using Cvoya.Spring.Core.AgentRuntimes;
+
 using Microsoft.AspNetCore.Routing;
 
 /// <summary>
@@ -38,6 +40,18 @@ using Microsoft.AspNetCore.Routing;
 /// webhook on the configured repository when the unit transitions to
 /// Running and tears it down on stop. The generic Host.Api lifecycle path
 /// dispatches these hooks without knowing anything about the connector type.
+/// </para>
+/// <para>
+/// Optional health hooks (<see cref="ValidateCredentialAsync"/> /
+/// <see cref="VerifyContainerBaselineAsync"/>) let connectors that carry
+/// authentication or rely on host-side tooling report current health to the
+/// platform. Both default to a no-op (returning <c>null</c>) so connectors
+/// that do not carry auth (Arxiv, WebSearch) inherit a "nothing to check"
+/// signal without any extra code. Connectors that DO carry auth (GitHub
+/// App credentials, OAuth tokens) should override
+/// <see cref="ValidateCredentialAsync"/>; connectors that depend on a host
+/// binary or network reachability beyond outbound HTTP should override
+/// <see cref="VerifyContainerBaselineAsync"/>.
 /// </para>
 /// </remarks>
 public interface IConnectorType
@@ -111,4 +125,68 @@ public interface IConnectorType
     /// <param name="unitId">The id of the unit being stopped.</param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     Task OnUnitStoppingAsync(string unitId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Validates the connector's stored credential against the backing
+    /// service. The default implementation returns <c>null</c> — connectors
+    /// that do not carry authentication (e.g. Arxiv, WebSearch) inherit it
+    /// untouched, signalling "nothing to validate" to the credential-health
+    /// store. Connectors that DO carry auth (e.g. GitHub App credentials,
+    /// OAuth tokens) override this hook to perform a cheap end-to-end
+    /// round-trip against the backing service and translate the response
+    /// into a <see cref="CredentialValidationResult"/>.
+    /// </summary>
+    /// <remarks>
+    /// Implementations must surface transport-level failures as
+    /// <see cref="CredentialValidationStatus.NetworkError"/> rather than
+    /// throwing. Authentication failures (401/403 from the backing service)
+    /// translate to <see cref="CredentialValidationStatus.Invalid"/>. Empty
+    /// or absent stored credentials should return a result with
+    /// <see cref="CredentialValidationStatus.Unknown"/> rather than null,
+    /// so the caller can distinguish "this connector cannot validate" from
+    /// "this connector has nothing configured yet".
+    /// </remarks>
+    /// <param name="credential">
+    /// The candidate credential to validate. May be empty when the
+    /// connector authenticates from its own multi-part configuration
+    /// (e.g. GitHub App ID + private key) rather than a single token. In
+    /// that case implementations may ignore the parameter and validate
+    /// against their stored configuration directly.
+    /// </param>
+    /// <param name="cancellationToken">A token to cancel the validation.</param>
+    /// <returns>
+    /// A <see cref="CredentialValidationResult"/> describing the outcome,
+    /// or <c>null</c> when this connector does not require credentials and
+    /// has nothing to check.
+    /// </returns>
+    Task<CredentialValidationResult?> ValidateCredentialAsync(
+        string credential,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult<CredentialValidationResult?>(null);
+
+    /// <summary>
+    /// Probes the host process / container for any baseline tooling the
+    /// connector requires beyond outbound HTTP — for example a CLI binary
+    /// on PATH or a reachable side-car. The default implementation returns
+    /// <c>null</c> — connectors that have no host-side baseline (every
+    /// current connector talks straight to a remote API) inherit it
+    /// untouched, signalling "nothing to verify" to the install / wizard
+    /// flow.
+    /// </summary>
+    /// <remarks>
+    /// Implementations should never throw; surface every failed check as
+    /// an entry in <see cref="ContainerBaselineCheckResult.Errors"/> with a
+    /// human-readable explanation the operator can act on. A connector that
+    /// genuinely has nothing to verify (e.g. the GitHub connector, which
+    /// only needs outbound HTTPS) may explicitly return a passing result so
+    /// the install flow surfaces "checked, OK" instead of "skipped".
+    /// </remarks>
+    /// <param name="cancellationToken">A token to cancel the check.</param>
+    /// <returns>
+    /// A <see cref="ContainerBaselineCheckResult"/> describing the outcome,
+    /// or <c>null</c> when this connector has no baseline to verify.
+    /// </returns>
+    Task<ContainerBaselineCheckResult?> VerifyContainerBaselineAsync(
+        CancellationToken cancellationToken = default)
+        => Task.FromResult<ContainerBaselineCheckResult?>(null);
 }
