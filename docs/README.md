@@ -51,6 +51,7 @@ How to use Spring Voyage V2 through the `spring` CLI.
 CLI workflows for managing the OSS admin surfaces (agent-runtime + connector installs, credential-health, tenant seeds).
 
 - [Agent Runtimes](user-guide/agent-runtimes.md) — install, configure, and check health of agent runtimes on a tenant.
+- [Connectors](user-guide/connectors.md) — install, configure, and check health of connectors on a tenant.
 
 ### [Developer Guide](developer/overview.md)
 
