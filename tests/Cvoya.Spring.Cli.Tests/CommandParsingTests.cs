@@ -30,11 +30,31 @@ public class CommandParsingTests
         var rootCommand = new RootCommand { Options = { outputOption } };
         rootCommand.Subcommands.Add(agentCommand);
 
-        var parseResult = rootCommand.Parse("agent create my-agent --name \"My Agent\"");
+        // #744: --unit is required on `agent create` so the CLI command line
+        // must supply at least one. Omitting it trips the option validator.
+        var parseResult = rootCommand.Parse("agent create my-agent --name \"My Agent\" --unit engineering");
 
         parseResult.Errors.ShouldBeEmpty();
         parseResult.GetValue<string>("id").ShouldBe("my-agent");
         parseResult.GetValue<string>("--name").ShouldBe("My Agent");
+        parseResult.GetValue<string[]>("--unit").ShouldBe(new[] { "engineering" });
+    }
+
+    [Fact]
+    public void AgentCreate_MissingUnit_ProducesError()
+    {
+        // #744: omitting --unit must produce a parse-time error. The CLI
+        // command wires --unit as a required option so callers never hit
+        // the server's 400 path for this invariant.
+        var outputOption = CreateOutputOption();
+        var agentCommand = AgentCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(agentCommand);
+
+        var parseResult = rootCommand.Parse("agent create orphan");
+
+        parseResult.Errors.ShouldNotBeEmpty();
+        parseResult.Errors.ShouldContain(e => e.Message.Contains("--unit"));
     }
 
     [Fact]

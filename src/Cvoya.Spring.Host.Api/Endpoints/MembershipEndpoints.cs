@@ -63,7 +63,8 @@ public static class MembershipEndpoints
             .WithName("DeleteUnitMembership")
             .WithSummary("Remove an agent's membership of this unit")
             .Produces(StatusCodes.Status204NoContent)
-            .ProducesProblem(StatusCodes.Status404NotFound);
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
 
         return group;
     }
@@ -168,7 +169,25 @@ public static class MembershipEndpoints
                 statusCode: StatusCodes.Status404NotFound);
         }
 
-        await repository.DeleteAsync(unitId, agentAddress, cancellationToken);
+        try
+        {
+            await repository.DeleteAsync(unitId, agentAddress, cancellationToken);
+        }
+        catch (AgentMembershipRequiredException ex)
+        {
+            // #744: removing the last membership would orphan the agent.
+            // Surface as 409 Conflict per the ProblemDetails shape
+            // established by #192 for rejected state changes.
+            return Results.Problem(
+                title: "Agent must belong to at least one unit",
+                detail: ex.Message,
+                statusCode: StatusCodes.Status409Conflict,
+                extensions: new Dictionary<string, object?>
+                {
+                    ["agentAddress"] = ex.AgentAddress,
+                    ["unitId"] = ex.UnitId,
+                });
+        }
         return Results.NoContent();
     }
 

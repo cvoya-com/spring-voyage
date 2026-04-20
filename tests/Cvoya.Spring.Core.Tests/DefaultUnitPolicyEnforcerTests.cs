@@ -520,6 +520,9 @@ public class DefaultUnitPolicyEnforcerTests
         public Task DeleteAsync(string unitId, string agentAddress, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
+        public Task DeleteAllForAgentAsync(string agentAddress, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
         public Task<UnitMembership?> GetAsync(string unitId, string agentAddress, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 

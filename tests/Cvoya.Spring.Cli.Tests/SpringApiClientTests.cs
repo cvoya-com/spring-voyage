@@ -46,12 +46,19 @@ public class SpringApiClientTests
                 json.GetProperty("name").GetString().ShouldBe("ada");
                 json.GetProperty("displayName").GetString().ShouldBe("Ada");
                 json.GetProperty("role").GetString().ShouldBe("coder");
+                // #744: unitIds is required ≥1 on create.
+                var units = json.GetProperty("unitIds");
+                units.ValueKind.ShouldBe(JsonValueKind.Array);
+                units.GetArrayLength().ShouldBe(1);
+                units[0].GetString().ShouldBe("engineering");
             });
 
         var httpClient = new HttpClient(handler);
         var client = new SpringApiClient(httpClient, BaseUrl);
 
-        var result = await client.CreateAgentAsync("ada", "Ada", "coder", ct: TestContext.Current.CancellationToken);
+        var result = await client.CreateAgentAsync(
+            "ada", "Ada", "coder", new[] { "engineering" },
+            ct: TestContext.Current.CancellationToken);
 
         result.Id.ShouldBe("ada");
         result.DisplayName.ShouldBe("Ada");

@@ -10,7 +10,13 @@ using System.Text.Json.Serialization;
 
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Units;
+using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Host.Api.Models;
+
+using global::Dapr.Actors;
+
+using Microsoft.Extensions.DependencyInjection;
 
 using NSubstitute;
 
@@ -61,7 +67,12 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     public async Task CreateAgent_RegistersAndReturnsCreated()
     {
         var ct = TestContext.Current.CancellationToken;
-        var request = new CreateAgentRequest("new-agent", "New Agent", "A brand new agent", "frontend");
+        ArrangeUnitEntry("engineering", "actor-eng");
+        ArrangeAgentActorProxy();
+
+        var request = new CreateAgentRequest(
+            "new-agent", "New Agent", "A brand new agent", "frontend",
+            UnitIds: new[] { "engineering" });
 
         var response = await _client.PostAsJsonAsync("/api/v1/agents", request, ct);
 
@@ -74,5 +85,78 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
                 e.Address.Path == "new-agent" &&
                 e.DisplayName == "New Agent"),
             Arg.Any<CancellationToken>());
+
+        // Verify the membership row was written.
+        using var scope = _factory.Services.CreateScope();
+        var repo = scope.ServiceProvider.GetRequiredService<IUnitMembershipRepository>();
+        (await repo.GetAsync("engineering", "new-agent", ct)).ShouldNotBeNull();
+    }
+
+    [Fact]
+    public async Task CreateAgent_EmptyUnitIds_Returns400()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        _factory.DirectoryService.ClearReceivedCalls();
+
+        var request = new CreateAgentRequest(
+            "orphan", "Orphan", "A would-be orphan", "frontend",
+            UnitIds: Array.Empty<string>());
+
+        var response = await _client.PostAsJsonAsync("/api/v1/agents", request, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        await _factory.DirectoryService.DidNotReceive().RegisterAsync(
+            Arg.Any<DirectoryEntry>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CreateAgent_UnknownUnit_Returns404()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        _factory.DirectoryService.ClearReceivedCalls();
+        _factory.DirectoryService
+            .ResolveAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
+            .Returns((DirectoryEntry?)null);
+
+        var request = new CreateAgentRequest(
+            "lost", "Lost", "Unit does not exist", "frontend",
+            UnitIds: new[] { "ghost-unit" });
+
+        var response = await _client.PostAsJsonAsync("/api/v1/agents", request, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        await _factory.DirectoryService.DidNotReceive().RegisterAsync(
+            Arg.Is<DirectoryEntry>(e => e.Address.Scheme == "agent"),
+            Arg.Any<CancellationToken>());
+    }
+
+    private void ArrangeUnitEntry(string unitId, string actorId)
+    {
+        var entry = new DirectoryEntry(
+            new Address("unit", unitId),
+            actorId,
+            unitId,
+            $"unit {unitId}",
+            null,
+            DateTimeOffset.UtcNow);
+        _factory.DirectoryService
+            .ResolveAsync(
+                Arg.Is<Address>(a => a.Scheme == "unit" && a.Path == unitId),
+                Arg.Any<CancellationToken>())
+            .Returns(entry);
+
+        var proxy = Substitute.For<IUnitActor>();
+        _factory.ActorProxyFactory
+            .CreateActorProxy<IUnitActor>(
+                Arg.Is<ActorId>(a => a.GetId() == actorId),
+                Arg.Any<string>())
+            .Returns(proxy);
+    }
+
+    private void ArrangeAgentActorProxy()
+    {
+        _factory.ActorProxyFactory
+            .CreateActorProxy<IAgentActor>(Arg.Any<ActorId>(), Arg.Any<string>())
+            .Returns(Substitute.For<IAgentActor>());
     }
 }

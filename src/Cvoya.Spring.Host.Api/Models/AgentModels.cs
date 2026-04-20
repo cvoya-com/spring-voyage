@@ -14,6 +14,14 @@ using Cvoya.Spring.Core.Agents;
 /// <param name="DisplayName">A human-readable display name.</param>
 /// <param name="Description">A description of the agent's purpose.</param>
 /// <param name="Role">An optional role identifier for multicast resolution.</param>
+/// <param name="UnitIds">
+/// The unit memberships to establish for the new agent. Per #744 every
+/// agent must belong to at least one unit at creation time — the server
+/// rejects the request with 400 when this list is empty or omitted.
+/// Each entry is a unit id (equivalent to the unit's <c>Address.Path</c>);
+/// the server resolves each through the directory and rejects the whole
+/// request with 404 when any id does not map to a registered unit.
+/// </param>
 /// <param name="DefinitionJson">
 /// Optional agent-definition JSON document serialised as a string (e.g.
 /// <c>{"execution":{"tool":"dapr-agent","image":"…","provider":"ollama","model":"llama3.2:3b"}}</c>).
@@ -30,6 +38,7 @@ public record CreateAgentRequest(
     string DisplayName,
     string Description,
     string? Role,
+    IReadOnlyList<string> UnitIds,
     string? DefinitionJson = null);
 
 /// <summary>

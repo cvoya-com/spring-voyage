@@ -26,21 +26,4 @@ public class DatabaseOptions
     /// to have DDL privileges.
     /// </remarks>
     public bool AutoMigrate { get; set; } = true;
-
-    /// <summary>
-    /// Whether the host should, on startup, scan every registered agent
-    /// actor for a legacy <c>Agent:ParentUnit</c> cached pointer and
-    /// upsert the corresponding row in the new unit-membership table
-    /// (see #160 / C2b-1). Defaults to <c>true</c> so first-time
-    /// deployments pick up the M:N model without manual intervention;
-    /// operators who have already run the backfill, or who are on a
-    /// fresh install, can flip it to <c>false</c> to skip the scan.
-    /// </summary>
-    /// <remarks>
-    /// Idempotent — the backfill uses <c>UpsertAsync</c> and skips
-    /// agents that already have a membership row, so repeat runs are
-    /// harmless. The backfill runs once per host start and blocks
-    /// startup until it completes.
-    /// </remarks>
-    public bool BackfillMemberships { get; set; } = true;
 }

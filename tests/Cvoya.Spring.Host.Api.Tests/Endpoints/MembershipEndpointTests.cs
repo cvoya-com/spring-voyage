@@ -157,12 +157,17 @@ public class MembershipEndpointTests : IClassFixture<CustomWebApplicationFactory
     {
         var ct = TestContext.Current.CancellationToken;
         ClearMemberships();
+        // Two memberships — the agent must retain at least one after the
+        // delete, per the #744 invariant. Without the second row the
+        // repository rejects the removal with 409.
         await UpsertAsync("engineering", "ada");
+        await UpsertAsync("marketing", "ada");
 
         var response = await _client.DeleteAsync(
             "/api/v1/units/engineering/memberships/ada", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
         (await GetAsync("engineering", "ada")).ShouldBeNull();
+        (await GetAsync("marketing", "ada")).ShouldNotBeNull();
     }
 
     [Fact]
@@ -174,6 +179,24 @@ public class MembershipEndpointTests : IClassFixture<CustomWebApplicationFactory
         var response = await _client.DeleteAsync(
             "/api/v1/units/engineering/memberships/ghost", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task DeleteMembership_LastRow_Returns409()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        ClearMemberships();
+        // Only one membership; removing it would orphan the agent, which
+        // #744 forbids — the endpoint surfaces the repository's
+        // AgentMembershipRequiredException as 409 Conflict.
+        await UpsertAsync("engineering", "ada");
+
+        var response = await _client.DeleteAsync(
+            "/api/v1/units/engineering/memberships/ada", ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+
+        // The membership must still exist — the rejection was not a soft fail.
+        (await GetAsync("engineering", "ada")).ShouldNotBeNull();
     }
 
     [Fact]

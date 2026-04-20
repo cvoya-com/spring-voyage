@@ -67,7 +67,38 @@ public class UnitMembershipRepository(SpringDbContext context) : IUnitMembership
             return;
         }
 
+        // Per #744: every agent must carry at least one unit membership at
+        // all times. Refuse to delete the last membership — callers that
+        // intend a full teardown must delete the agent itself (e.g.
+        // `spring agent purge`), which cascades the membership rows.
+        var remaining = await context.UnitMemberships
+            .CountAsync(m => m.AgentAddress == agentAddress, cancellationToken);
+        if (remaining <= 1)
+        {
+            throw new AgentMembershipRequiredException(
+                agentAddress,
+                unitId,
+                $"Cannot remove agent '{agentAddress}' from unit '{unitId}': this is the agent's last unit membership. "
+                + "Assign the agent to another unit first, or delete the agent itself.");
+        }
+
         context.UnitMemberships.Remove(existing);
+        await context.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task DeleteAllForAgentAsync(string agentAddress, CancellationToken cancellationToken = default)
+    {
+        var rows = await context.UnitMemberships
+            .Where(m => m.AgentAddress == agentAddress)
+            .ToListAsync(cancellationToken);
+
+        if (rows.Count == 0)
+        {
+            return;
+        }
+
+        context.UnitMemberships.RemoveRange(rows);
         await context.SaveChangesAsync(cancellationToken);
     }
 

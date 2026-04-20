@@ -200,6 +200,24 @@ public static class UnitCommand
                 "Pair with --api-key / --api-key-from-file to write the key as a tenant-default secret instead of a unit-scoped secret.",
         };
 
+        // Review feedback on #744: every unit must have a parent. Either
+        // one or more --parent-unit ids (parent = another unit) or the
+        // explicit --top-level flag (parent = tenant) is required.
+        // Neither / both is rejected at parse time so callers see the
+        // error before the server returns 400. Repeatable so a unit can
+        // attach to multiple parents in one call.
+        var parentUnitOption = new Option<string[]>("--parent-unit")
+        {
+            Description = "Parent unit to attach the new unit to. Repeat for multiple parents. "
+                + "Mutually exclusive with --top-level; exactly one of the two forms is required.",
+            AllowMultipleArgumentsPerToken = true,
+        };
+        var topLevelOption = new Option<bool>("--top-level")
+        {
+            Description = "Mark the new unit as a top-level unit (parent = tenant). "
+                + "Mutually exclusive with --parent-unit.",
+        };
+
         var command = new Command("create", "Create a new unit");
         command.Arguments.Add(nameArg);
         command.Options.Add(displayNameOption);
@@ -214,6 +232,8 @@ public static class UnitCommand
         command.Options.Add(apiKeyOption);
         command.Options.Add(apiKeyFromFileOption);
         command.Options.Add(saveAsTenantDefaultOption);
+        command.Options.Add(parentUnitOption);
+        command.Options.Add(topLevelOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
@@ -230,7 +250,30 @@ public static class UnitCommand
             var apiKey = parseResult.GetValue(apiKeyOption);
             var apiKeyFromFile = parseResult.GetValue(apiKeyFromFileOption);
             var saveAsTenantDefault = parseResult.GetValue(saveAsTenantDefaultOption);
+            var parentUnits = (parseResult.GetValue(parentUnitOption) ?? Array.Empty<string>())
+                .Where(p => !string.IsNullOrWhiteSpace(p))
+                .Select(p => p.Trim())
+                .ToArray();
+            var topLevel = parseResult.GetValue(topLevelOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
+
+            // Review feedback on #744: reject neither / both at parse time
+            // so callers see a local error instead of the server's 400.
+            if (topLevel && parentUnits.Length > 0)
+            {
+                await Console.Error.WriteLineAsync(
+                    "--top-level and --parent-unit are mutually exclusive. Supply exactly one.");
+                Environment.Exit(1);
+                return;
+            }
+            if (!topLevel && parentUnits.Length == 0)
+            {
+                await Console.Error.WriteLineAsync(
+                    "Every unit must have a parent. Supply one or more --parent-unit <id> flags, "
+                    + "or pass --top-level to attach the unit directly to the tenant.");
+                Environment.Exit(1);
+                return;
+            }
 
             // #598 + #644: reject --provider on non-dapr-agent tools
             // (their provider is baked in), and reject both flags on
@@ -300,7 +343,9 @@ public static class UnitCommand
                     hosting,
                     output,
                     credentialResolution,
-                    ct);
+                    ct,
+                    parentUnitIds: parentUnits.Length > 0 ? parentUnits : null,
+                    isTopLevel: topLevel);
                 if (exitCode != 0)
                 {
                     Environment.Exit(exitCode);
@@ -350,6 +395,8 @@ public static class UnitCommand
                 tool: tool,
                 provider: provider,
                 hosting: hosting,
+                parentUnitIds: parentUnits.Length > 0 ? parentUnits : null,
+                isTopLevel: topLevel ? true : null,
                 ct: ct);
 
             // #626: when --save-as-tenant-default is NOT set, write the
@@ -453,6 +500,20 @@ public static class UnitCommand
                 "Pair with --api-key / --api-key-from-file to write the key as a tenant-default secret instead of a unit-scoped secret.",
         };
 
+        // Review feedback on #744: parent-required flags (repeated on the
+        // template path so the two entry points stay in lock-step).
+        var parentUnitOption = new Option<string[]>("--parent-unit")
+        {
+            Description = "Parent unit to attach the new unit to. Repeat for multiple parents. "
+                + "Mutually exclusive with --top-level; exactly one of the two forms is required.",
+            AllowMultipleArgumentsPerToken = true,
+        };
+        var topLevelOption = new Option<bool>("--top-level")
+        {
+            Description = "Mark the new unit as a top-level unit (parent = tenant). "
+                + "Mutually exclusive with --parent-unit.",
+        };
+
         var command = new Command(
             "create-from-template",
             "Instantiate a unit from a packaged template. First-class verb equivalent to the " +
@@ -468,6 +529,8 @@ public static class UnitCommand
         command.Options.Add(apiKeyOption);
         command.Options.Add(apiKeyFromFileOption);
         command.Options.Add(saveAsTenantDefaultOption);
+        command.Options.Add(parentUnitOption);
+        command.Options.Add(topLevelOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
@@ -482,7 +545,30 @@ public static class UnitCommand
             var apiKey = parseResult.GetValue(apiKeyOption);
             var apiKeyFromFile = parseResult.GetValue(apiKeyFromFileOption);
             var saveAsTenantDefault = parseResult.GetValue(saveAsTenantDefaultOption);
+            var parentUnits = (parseResult.GetValue(parentUnitOption) ?? Array.Empty<string>())
+                .Where(p => !string.IsNullOrWhiteSpace(p))
+                .Select(p => p.Trim())
+                .ToArray();
+            var topLevel = parseResult.GetValue(topLevelOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
+
+            // Review feedback on #744: reject neither / both at parse time
+            // so callers see a local error instead of the server's 400.
+            if (topLevel && parentUnits.Length > 0)
+            {
+                await Console.Error.WriteLineAsync(
+                    "--top-level and --parent-unit are mutually exclusive. Supply exactly one.");
+                Environment.Exit(1);
+                return;
+            }
+            if (!topLevel && parentUnits.Length == 0)
+            {
+                await Console.Error.WriteLineAsync(
+                    "Every unit must have a parent. Supply one or more --parent-unit <id> flags, "
+                    + "or pass --top-level to attach the unit directly to the tenant.");
+                Environment.Exit(1);
+                return;
+            }
 
             // #598 + #644: same gate applies to the template path —
             // --provider rejected for non-dapr-agent, both rejected for
@@ -524,7 +610,9 @@ public static class UnitCommand
                 hosting,
                 output,
                 credentialResolution,
-                ct);
+                ct,
+                parentUnitIds: parentUnits.Length > 0 ? parentUnits : null,
+                isTopLevel: topLevel);
             if (exitCode != 0)
             {
                 Environment.Exit(exitCode);
@@ -553,7 +641,9 @@ public static class UnitCommand
         string? hosting,
         string output,
         UnitCredentialOptions credential,
-        CancellationToken ct)
+        CancellationToken ct,
+        IReadOnlyList<string>? parentUnitIds = null,
+        bool isTopLevel = false)
     {
         var slash = target.IndexOf('/');
         if (slash <= 0 || slash == target.Length - 1)
@@ -598,6 +688,8 @@ public static class UnitCommand
             tool: tool,
             provider: provider,
             hosting: hosting,
+            parentUnitIds: parentUnitIds,
+            isTopLevel: isTopLevel ? true : null,
             ct: ct);
 
         // #626: unit-scoped secret is written AFTER the unit exists.

@@ -102,6 +102,28 @@ function assertOk(result: FetchResult<unknown>): void {
   }
 }
 
+/**
+ * Stamp `isTopLevel: true` on a unit-creation request body unless the
+ * caller already supplied a parent form (either `parentUnitIds` with
+ * entries or an explicit `isTopLevel`). Review feedback on #744 made
+ * the parent form mandatory at the server; the wizard currently only
+ * produces top-level units, so the client defaults the flag so the
+ * existing wizard path keeps working while the parent-unit picker UI
+ * lands later.
+ */
+function withDefaultParentParent<T>(body: T): T {
+  const shaped = body as {
+    parentUnitIds?: string[] | null;
+    isTopLevel?: boolean | null;
+  };
+  const hasParents =
+    Array.isArray(shaped.parentUnitIds) && shaped.parentUnitIds.length > 0;
+  if (hasParents || shaped.isTopLevel !== undefined && shaped.isTopLevel !== null) {
+    return body;
+  }
+  return { ...body, isTopLevel: true } as T;
+}
+
 export const api = {
   // Dashboard
   getDashboardSummary: async (): Promise<DashboardSummary> => {
@@ -260,17 +282,30 @@ export const api = {
     // on the wire we pass the zero-GUID as a sentinel when the caller only
     // knows the slug.
     connector?: UnitConnectorBindingRequest;
+    // Review feedback on #744: every unit must carry a parent at create
+    // time. The wizard currently produces only top-level units (the
+    // parent-unit picker is a future UI surface), so the client stamps
+    // `isTopLevel=true` by default when the caller does not opt into
+    // `parentUnitIds` explicitly.
+    parentUnitIds?: string[];
+    isTopLevel?: boolean;
   }) =>
     unwrap(
-      await fetchClient.POST("/api/v1/units", { body }),
+      await fetchClient.POST("/api/v1/units", {
+        body: withDefaultParentParent(body),
+      }),
     ),
   createUnitFromYaml: async (body: CreateUnitFromYamlRequest) =>
     unwrap(
-      await fetchClient.POST("/api/v1/units/from-yaml", { body }),
+      await fetchClient.POST("/api/v1/units/from-yaml", {
+        body: withDefaultParentParent(body),
+      }),
     ),
   createUnitFromTemplate: async (body: CreateUnitFromTemplateRequest) =>
     unwrap(
-      await fetchClient.POST("/api/v1/units/from-template", { body }),
+      await fetchClient.POST("/api/v1/units/from-template", {
+        body: withDefaultParentParent(body),
+      }),
     ),
   listUnitTemplates: async () =>
     unwrap(await fetchClient.GET("/api/v1/packages/templates")),

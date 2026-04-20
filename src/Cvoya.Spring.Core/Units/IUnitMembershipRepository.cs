@@ -31,8 +31,25 @@ public interface IUnitMembershipRepository
     /// Removes the membership row for the given composite key. No-op when
     /// no row matches — callers that need 404 semantics must check via
     /// <see cref="GetAsync(string, string, CancellationToken)"/> first.
+    /// <para>
+    /// Per #744 every agent must carry at least one unit membership. The
+    /// implementation throws <see cref="AgentMembershipRequiredException"/>
+    /// when removing this row would leave the agent with zero memberships;
+    /// callers that intend a full teardown (e.g. delete-agent cascade)
+    /// must use <see cref="DeleteAllForAgentAsync(string, CancellationToken)"/>.
+    /// </para>
     /// </summary>
     Task DeleteAsync(string unitId, string agentAddress, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Bulk-removes every membership row attached to the given agent.
+    /// Bypasses the last-membership guard enforced by
+    /// <see cref="DeleteAsync(string, string, CancellationToken)"/> — this
+    /// is the cascade path used by delete-agent so purging an agent does
+    /// not trip the "at least one membership" invariant on the final row.
+    /// No-op when the agent has no memberships.
+    /// </summary>
+    Task DeleteAllForAgentAsync(string agentAddress, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Returns the membership for the given composite key, or <c>null</c>

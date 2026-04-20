@@ -122,7 +122,8 @@ public static class UnitEndpoints
             .WithName("RemoveMember")
             .WithSummary("Remove a member from a unit")
             .Produces(StatusCodes.Status204NoContent)
-            .ProducesProblem(StatusCodes.Status404NotFound);
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
 
         // Generic (non-polymorphic) pointer endpoints — the typed per-unit
         // config lives on the connector package's own surface under
@@ -173,7 +174,8 @@ public static class UnitEndpoints
             .WithName("UnassignUnitAgent")
             .WithSummary("Unassign an agent from this unit. Deletes the membership row and removes the agent from the unit's members list; other memberships the agent holds are unaffected.")
             .Produces(StatusCodes.Status204NoContent)
-            .ProducesProblem(StatusCodes.Status404NotFound);
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
 
         return group;
     }
@@ -332,6 +334,23 @@ public static class UnitEndpoints
             var result = await creationService.CreateAsync(request, cancellationToken);
             return Results.Created($"/api/v1/units/{request.Name}", result.Unit);
         }
+        catch (InvalidUnitParentRequestException ex)
+        {
+            // Review feedback on #744: neither / both of parentUnitIds +
+            // isTopLevel is a client error, distinct from the "unit name
+            // collision" 400 above.
+            return Results.Problem(
+                title: "Unit parent required",
+                detail: ex.Message,
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+        catch (UnknownParentUnitException ex)
+        {
+            return Results.Problem(
+                title: "Unknown parent unit",
+                detail: ex.Message,
+                statusCode: StatusCodes.Status404NotFound);
+        }
         catch (UnitCreationBindingException ex)
         {
             return ProblemFromBindingFailure(ex);
@@ -363,7 +382,8 @@ public static class UnitEndpoints
         }
 
         var overrides = new UnitCreationOverrides(request.DisplayName, request.Color, request.Model,
-            Tool: request.Tool, Provider: request.Provider, Hosting: request.Hosting);
+            Tool: request.Tool, Provider: request.Provider, Hosting: request.Hosting,
+            ParentUnitIds: request.ParentUnitIds, IsTopLevel: request.IsTopLevel);
         try
         {
             var result = await creationService.CreateFromManifestAsync(
@@ -372,6 +392,20 @@ public static class UnitEndpoints
             return Results.Created(
                 $"/api/v1/units/{result.Unit.Name}",
                 new UnitCreationResponse(result.Unit, result.Warnings, result.MembersAdded));
+        }
+        catch (InvalidUnitParentRequestException ex)
+        {
+            return Results.Problem(
+                title: "Unit parent required",
+                detail: ex.Message,
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+        catch (UnknownParentUnitException ex)
+        {
+            return Results.Problem(
+                title: "Unknown parent unit",
+                detail: ex.Message,
+                statusCode: StatusCodes.Status404NotFound);
         }
         catch (UnitCreationBindingException ex)
         {
@@ -438,7 +472,9 @@ public static class UnitEndpoints
             request.UnitName,
             request.Tool,
             request.Provider,
-            request.Hosting);
+            request.Hosting,
+            request.ParentUnitIds,
+            request.IsTopLevel);
         try
         {
             var result = await creationService.CreateFromManifestAsync(
@@ -447,6 +483,20 @@ public static class UnitEndpoints
             return Results.Created(
                 $"/api/v1/units/{result.Unit.Name}",
                 new UnitCreationResponse(result.Unit, result.Warnings, result.MembersAdded));
+        }
+        catch (InvalidUnitParentRequestException ex)
+        {
+            return Results.Problem(
+                title: "Unit parent required",
+                detail: ex.Message,
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+        catch (UnknownParentUnitException ex)
+        {
+            return Results.Problem(
+                title: "Unknown parent unit",
+                detail: ex.Message,
+                statusCode: StatusCodes.Status404NotFound);
         }
         catch (UnitCreationBindingException ex)
         {
@@ -890,6 +940,7 @@ public static class UnitEndpoints
         IDirectoryService directoryService,
         IActorProxyFactory actorProxyFactory,
         IExpertiseAggregator expertiseAggregator,
+        IUnitMembershipTenantGuard tenantGuard,
         CancellationToken cancellationToken)
     {
         var unitAddress = new Address("unit", id);
@@ -901,6 +952,21 @@ public static class UnitEndpoints
         }
 
         var memberAddress = new Address(request.MemberAddress.Scheme, request.MemberAddress.Path);
+
+        // #745: enforce same-tenant before any actor-state write. Cross-
+        // tenant members would let a message dispatched to unit A reach an
+        // agent or sub-unit in tenant B.
+        try
+        {
+            await tenantGuard.EnsureSameTenantAsync(unitAddress, memberAddress, cancellationToken);
+        }
+        catch (CrossTenantMembershipException ex)
+        {
+            return Results.Problem(
+                title: "Member not found in this tenant",
+                detail: ex.Message,
+                statusCode: StatusCodes.Status404NotFound);
+        }
 
         var unitProxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
             new ActorId(entry.ActorId), nameof(UnitActor));
@@ -944,6 +1010,7 @@ public static class UnitEndpoints
         IDirectoryService directoryService,
         IActorProxyFactory actorProxyFactory,
         IExpertiseAggregator expertiseAggregator,
+        IUnitParentInvariantGuard parentGuard,
         CancellationToken cancellationToken)
     {
         var unitAddress = new Address("unit", id);
@@ -963,6 +1030,33 @@ public static class UnitEndpoints
         // — no cycle check is required.
         var unitProxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
             new ActorId(entry.ActorId), nameof(UnitActor));
+
+        // Review feedback on #744: the unit variant of memberId must carry
+        // the same "no un-parenting" invariant the agent-removal path
+        // already enforces. Ask the guard before the actor-state write so
+        // we reject the removal with a 409 instead of leaving the child
+        // unit parentless and non-top-level. Top-level children and
+        // non-registered children pass through (see
+        // UnitParentInvariantGuard for the exact branches).
+        try
+        {
+            await parentGuard.EnsureParentRemainsAsync(
+                unitAddress,
+                new Address("unit", memberId),
+                cancellationToken);
+        }
+        catch (UnitParentRequiredException ex)
+        {
+            return Results.Problem(
+                title: "Unit parent required",
+                detail: ex.Message,
+                statusCode: StatusCodes.Status409Conflict,
+                extensions: new Dictionary<string, object?>
+                {
+                    ["unitAddress"] = ex.UnitAddress,
+                    ["parentUnitId"] = ex.ParentUnitId,
+                });
+        }
 
         await unitProxy.RemoveMemberAsync(new Address("agent", memberId), cancellationToken);
         await unitProxy.RemoveMemberAsync(new Address("unit", memberId), cancellationToken);
@@ -1235,6 +1329,7 @@ public static class UnitEndpoints
         [FromServices] IActorProxyFactory actorProxyFactory,
         [FromServices] IUnitMembershipRepository membershipRepository,
         [FromServices] IExpertiseAggregator expertiseAggregator,
+        [FromServices] IUnitMembershipTenantGuard tenantGuard,
         [FromServices] ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
@@ -1257,6 +1352,23 @@ public static class UnitEndpoints
         if (agentEntry is null)
         {
             return Results.Problem(detail: $"Agent '{agentId}' not found", statusCode: StatusCodes.Status404NotFound);
+        }
+
+        // #745: enforce same-tenant before the membership write. The
+        // directory still services cross-tenant Resolve* calls out of a
+        // shared in-memory cache (the DirectoryService cache isn't tenant-
+        // aware yet), so the guard is the authoritative seam for this
+        // invariant.
+        try
+        {
+            await tenantGuard.EnsureSameTenantAsync(unitAddress, agentAddress, cancellationToken);
+        }
+        catch (CrossTenantMembershipException ex)
+        {
+            return Results.Problem(
+                title: "Agent not found in this tenant",
+                detail: ex.Message,
+                statusCode: StatusCodes.Status404NotFound);
         }
 
         // C2b-1: M:N membership model (see #160). An agent may be a member
@@ -1322,8 +1434,26 @@ public static class UnitEndpoints
         }
 
         // Delete the membership row. Other units the agent still belongs to
-        // are unaffected — this is the point of M:N.
-        await membershipRepository.DeleteAsync(id, agentId, cancellationToken);
+        // are unaffected — this is the point of M:N. Per #744 the repo
+        // rejects removal when this is the agent's last membership; we
+        // surface that as 409 so the caller either assigns the agent to
+        // another unit first or deletes the agent via DELETE /agents/{id}.
+        try
+        {
+            await membershipRepository.DeleteAsync(id, agentId, cancellationToken);
+        }
+        catch (AgentMembershipRequiredException ex)
+        {
+            return Results.Problem(
+                title: "Agent must belong to at least one unit",
+                detail: ex.Message,
+                statusCode: StatusCodes.Status409Conflict,
+                extensions: new Dictionary<string, object?>
+                {
+                    ["agentAddress"] = ex.AgentAddress,
+                    ["unitId"] = ex.UnitId,
+                });
+        }
 
         var unitProxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
             new ActorId(unitEntry.ActorId), nameof(UnitActor));

@@ -15,6 +15,23 @@ using Cvoya.Spring.Core.Units;
 /// <param name="Description">A description of the unit's purpose.</param>
 /// <param name="Model">An optional model identifier hint (e.g., default LLM).</param>
 /// <param name="Color">An optional UI color hint used by the dashboard.</param>
+/// <param name="ParentUnitIds">
+/// The parent-unit memberships to establish for the new unit. Per the
+/// review feedback on #744, every unit must either belong to at least
+/// one parent unit OR be created with the explicit <paramref name="IsTopLevel"/>
+/// flag set. The two options are mutually exclusive: neither → 400, both
+/// → 400, unknown parent-unit id → 404. Each entry is a unit id
+/// (equivalent to the unit's <c>Address.Path</c>); the server resolves
+/// each through the directory and rejects the whole request with 404
+/// when any id does not map to a registered unit.
+/// </param>
+/// <param name="IsTopLevel">
+/// When <c>true</c>, marks the unit as a top-level (tenant-parented)
+/// unit — its parent is the tenant itself. Mutually exclusive with a
+/// non-empty <paramref name="ParentUnitIds"/>. Persisted to the unit
+/// definition row so the parent-required invariant can distinguish
+/// "deliberately tenant-parented" from "orphaned in transit."
+/// </param>
 public record CreateUnitRequest(
     string Name,
     string DisplayName,
@@ -24,7 +41,9 @@ public record CreateUnitRequest(
     UnitConnectorBindingRequest? Connector = null,
     string? Tool = null,
     string? Provider = null,
-    string? Hosting = null);
+    string? Hosting = null,
+    IReadOnlyList<string>? ParentUnitIds = null,
+    bool? IsTopLevel = null);
 
 /// <summary>
 /// Request body for updating mutable unit metadata. All fields are optional;
@@ -101,7 +120,9 @@ public record CreateUnitFromYamlRequest(
     UnitConnectorBindingRequest? Connector = null,
     string? Tool = null,
     string? Provider = null,
-    string? Hosting = null);
+    string? Hosting = null,
+    IReadOnlyList<string>? ParentUnitIds = null,
+    bool? IsTopLevel = null);
 
 /// <summary>
 /// Request body for <c>POST /api/v1/units/from-template</c>.
@@ -131,7 +152,9 @@ public record CreateUnitFromTemplateRequest(
     string? UnitName = null,
     string? Tool = null,
     string? Provider = null,
-    string? Hosting = null);
+    string? Hosting = null,
+    IReadOnlyList<string>? ParentUnitIds = null,
+    bool? IsTopLevel = null);
 
 /// <summary>
 /// Response body for a unit created through the manifest-backed flows

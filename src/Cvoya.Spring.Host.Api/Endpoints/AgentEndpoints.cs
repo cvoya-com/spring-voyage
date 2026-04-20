@@ -543,9 +543,86 @@ public static class AgentEndpoints
     private static async Task<IResult> CreateAgentAsync(
         CreateAgentRequest request,
         IDirectoryService directoryService,
+        IActorProxyFactory actorProxyFactory,
+        IUnitMembershipRepository membershipRepository,
+        IUnitMembershipTenantGuard tenantGuard,
         SpringDbContext db,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(request);
+
+        // Per #744: every agent must carry at least one unit membership
+        // at creation time. An empty / null UnitIds list is a hard
+        // 400 — the "unit-less agent" state is no longer representable.
+        var unitIds = (request.UnitIds ?? Array.Empty<string>())
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => id!.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        if (unitIds.Count == 0)
+        {
+            return Results.Problem(
+                title: "Agent requires at least one unit membership",
+                detail: "Agent creation must include at least one non-empty 'unitIds' entry. An agent must always belong to a unit.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        // Resolve every referenced unit BEFORE we touch any server-side
+        // state so the caller sees a clean 404 with no partial-register
+        // rollback. The first missing unit wins; the error message names
+        // it so the caller can correct the request. Per #745 we also
+        // require each unit to live in the caller's tenant — the
+        // tenant guard rejects cross-tenant unit ids with the same 404
+        // shape we return for genuinely missing units, so the agent
+        // creation surface never leaks the existence of other-tenant
+        // units.
+        var resolvedUnits = new List<(string Id, DirectoryEntry Entry)>(unitIds.Count);
+        var pseudoParent = new Address("agent", request.Name);
+        foreach (var unitId in unitIds)
+        {
+            var unitAddress = new Address("unit", unitId);
+            var unitEntry = await directoryService.ResolveAsync(unitAddress, cancellationToken);
+            if (unitEntry is null)
+            {
+                return Results.Problem(
+                    detail: $"Unit '{unitId}' not found",
+                    statusCode: StatusCodes.Status404NotFound);
+            }
+            // Ask the guard whether the unit is visible in the current
+            // tenant. The guard's ShareTenantAsync(unit, agent) needs both
+            // addresses to belong to visible rows — at create time the
+            // agent row does not exist yet, so we check unit-only
+            // visibility by asking "does this unit share a tenant with
+            // itself in my scope?".
+            var visibleInTenant = await tenantGuard.ShareTenantAsync(
+                unitAddress, unitAddress, cancellationToken);
+            if (!visibleInTenant)
+            {
+                return Results.Problem(
+                    detail: $"Unit '{unitId}' not found",
+                    statusCode: StatusCodes.Status404NotFound);
+            }
+            resolvedUnits.Add((unitId, unitEntry));
+        }
+
+        // Validate the optional definition JSON before we register so a
+        // malformed document is rejected without a rollback dance.
+        JsonElement? definition = null;
+        if (!string.IsNullOrWhiteSpace(request.DefinitionJson))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(request.DefinitionJson);
+                definition = doc.RootElement.Clone();
+            }
+            catch (JsonException ex)
+            {
+                return Results.Problem(
+                    detail: $"DefinitionJson is not valid JSON: {ex.Message}",
+                    statusCode: StatusCodes.Status400BadRequest);
+            }
+        }
+
         var actorId = Guid.NewGuid().ToString();
         var address = new Address("agent", request.Name);
         var entry = new DirectoryEntry(
@@ -558,42 +635,66 @@ public static class AgentEndpoints
 
         await directoryService.RegisterAsync(entry, cancellationToken);
 
-        // If the caller supplied a definition JSON document, parse and persist
-        // it on the AgentDefinitionEntity so IAgentDefinitionProvider can
-        // surface the execution configuration to the dispatcher. This is the
-        // YAML-only path for selecting the agent's runtime (tool / image /
-        // provider / model) — required by #480 acceptance so switching provider
-        // is a pure-configuration change, no code edit.
-        if (!string.IsNullOrWhiteSpace(request.DefinitionJson))
+        // Establish the mandatory unit memberships. Each write mirrors
+        // what AssignUnitAgent does (membership row + unit-actor member
+        // add + legacy cached pointer on the agent actor). The first unit
+        // in the ordered list acts as the derived "primary" for wire-
+        // compat surfaces (AgentMetadata.ParentUnit). Ordering is
+        // preserved from the caller's UnitIds list — the repository's
+        // CreatedAt tie-break picks whichever row was written first, and
+        // we write them in declaration order.
+        for (var i = 0; i < resolvedUnits.Count; i++)
         {
-            JsonElement definition;
-            try
-            {
-                using var doc = JsonDocument.Parse(request.DefinitionJson);
-                definition = doc.RootElement.Clone();
-            }
-            catch (JsonException ex)
-            {
-                return Results.Problem(
-                    detail: $"DefinitionJson is not valid JSON: {ex.Message}",
-                    statusCode: StatusCodes.Status400BadRequest);
-            }
+            var (unitId, unitEntry) = resolvedUnits[i];
 
+            await membershipRepository.UpsertAsync(
+                new UnitMembership(
+                    UnitId: unitId,
+                    AgentAddress: request.Name,
+                    Enabled: true),
+                cancellationToken);
+
+            var unitProxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
+                new ActorId(unitEntry.ActorId), nameof(UnitActor));
+            await unitProxy.AddMemberAsync(address, cancellationToken);
+        }
+
+        // Mirror the primary unit onto the legacy cached pointer on the
+        // agent actor so any reader still consulting it sees a consistent
+        // value. Authoritative source is the membership table.
+        var primaryUnit = resolvedUnits[0].Id;
+        var agentProxy = actorProxyFactory.CreateActorProxy<IAgentActor>(
+            new ActorId(actorId), nameof(AgentActor));
+        await agentProxy.SetMetadataAsync(
+            new AgentMetadata(ParentUnit: primaryUnit),
+            cancellationToken);
+
+        // If the caller supplied a definition JSON document, persist it on
+        // the AgentDefinitionEntity so IAgentDefinitionProvider can
+        // surface the execution configuration to the dispatcher. This is
+        // the YAML-only path for selecting the agent's runtime (tool /
+        // image / provider / model) — required by #480 acceptance so
+        // switching provider is a pure-configuration change, no code
+        // edit.
+        if (definition is { } def)
+        {
             var entity = await db.AgentDefinitions
                 .FirstOrDefaultAsync(a => a.AgentId == request.Name, cancellationToken);
             if (entity is not null)
             {
-                entity.Definition = definition;
+                entity.Definition = def;
                 await db.SaveChangesAsync(cancellationToken);
             }
         }
 
-        return Results.Created($"/api/v1/agents/{request.Name}", ToAgentResponse(entry));
+        var response = ToAgentResponse(entry, new AgentMetadata(ParentUnit: primaryUnit));
+        return Results.Created($"/api/v1/agents/{request.Name}", response);
     }
 
     private static async Task<IResult> DeleteAgentAsync(
         string id,
         IDirectoryService directoryService,
+        IUnitMembershipRepository membershipRepository,
         CancellationToken cancellationToken)
     {
         var address = new Address("agent", id);
@@ -604,6 +705,13 @@ public static class AgentEndpoints
             return Results.Problem(detail: $"Agent '{id}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
+        // Per #744 the last-membership guard lives on DeleteAsync — the
+        // cascade path must bypass it, otherwise DELETE /agents/{id} would
+        // fail for every agent whose membership count ≥ 1. DeleteAll* is
+        // the authorised bulk-clear seam the repository exposes for this
+        // purpose; call it before the directory unregister so the write
+        // is persisted even if a downstream step hiccups.
+        await membershipRepository.DeleteAllForAgentAsync(id, cancellationToken);
         await directoryService.UnregisterAsync(address, cancellationToken);
 
         return Results.NoContent();

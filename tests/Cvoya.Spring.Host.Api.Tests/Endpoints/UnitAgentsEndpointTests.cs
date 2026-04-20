@@ -208,6 +208,38 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
     }
 
     [Fact]
+    public async Task AssignUnitAgent_CrossTenantAgent_Returns404()
+    {
+        // #745: the tenant guard rejects the write when the agent is not
+        // visible in the current tenant. The endpoint surfaces the
+        // CrossTenantMembershipException as 404 so the caller never
+        // learns that the id exists in a different tenant.
+        var ct = TestContext.Current.CancellationToken;
+        ClearAllMocks();
+
+        var unitProxy = ArrangeUnit();
+        ArrangeAgent("foreign-ada", "actor-foreign-ada", new AgentMetadata());
+
+        _factory.TenantGuard
+            .EnsureSameTenantAsync(
+                Arg.Is<Address>(a => a.Scheme == "unit" && a.Path == UnitName),
+                Arg.Is<Address>(a => a.Scheme == "agent" && a.Path == "foreign-ada"),
+                Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new CrossTenantMembershipException(
+                new Address("unit", UnitName),
+                new Address("agent", "foreign-ada"),
+                "cross-tenant")));
+
+        var response = await _client.PostAsync(
+            $"/api/v1/units/{UnitName}/agents/foreign-ada", content: null, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        (await GetMembershipAsync(UnitName, "foreign-ada")).ShouldBeNull();
+        await unitProxy.DidNotReceive().AddMemberAsync(
+            Arg.Any<Address>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task AssignUnitAgent_SameAgentInMultipleUnits_BothMembershipsExist()
     {
         // C2b-1 removes the 1:N conflict check. An agent may belong to any
@@ -255,21 +287,47 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
         var ct = TestContext.Current.CancellationToken;
         ClearAllMocks();
 
+        // #744: removing the last membership is no longer allowed — the
+        // "other membership" case is the only one that still returns 204.
+        // The solo-membership case is covered by
+        // UnassignUnitAgent_LastMembership_Returns409 below.
         var unitProxy = ArrangeUnit();
+        ArrangeUnit("marketing", "actor-marketing");
         var agentProxy = ArrangeAgent("ada", "actor-ada", new AgentMetadata());
         await UpsertMembershipAsync(UnitName, "ada");
+        await UpsertMembershipAsync("marketing", "ada");
 
         var response = await _client.DeleteAsync(
             $"/api/v1/units/{UnitName}/agents/ada", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
         (await GetMembershipAsync(UnitName, "ada")).ShouldBeNull();
+        (await GetMembershipAsync("marketing", "ada")).ShouldNotBeNull();
 
         await unitProxy.Received(1).RemoveMemberAsync(
             Arg.Is<Address>(a => a.Scheme == "agent" && a.Path == "ada"),
             Arg.Any<CancellationToken>());
-        // Cached pointer is cleared because this was the agent's only membership.
-        await agentProxy.Received(1).ClearParentUnitAsync(Arg.Any<CancellationToken>());
+        // Cached pointer tracks the surviving membership now — it must NOT
+        // have been cleared, since the agent still belongs to marketing.
+        await agentProxy.DidNotReceive().ClearParentUnitAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task UnassignUnitAgent_LastMembership_Returns409()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        ClearAllMocks();
+
+        ArrangeUnit();
+        ArrangeAgent("ada", "actor-ada", new AgentMetadata());
+        await UpsertMembershipAsync(UnitName, "ada");
+
+        var response = await _client.DeleteAsync(
+            $"/api/v1/units/{UnitName}/agents/ada", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        // Row must still exist — the invariant is enforced transactionally.
+        (await GetMembershipAsync(UnitName, "ada")).ShouldNotBeNull();
     }
 
     [Fact]
@@ -291,6 +349,40 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
         (await GetMembershipAsync(UnitName, "ada")).ShouldBeNull();
         (await GetMembershipAsync("marketing", "ada")).ShouldNotBeNull();
+    }
+
+    [Fact]
+    public async Task AddMember_CrossTenantUnit_Returns404()
+    {
+        // #745: adding a sub-unit from a different tenant must fail. The
+        // endpoint wires the tenant guard before the actor call, so a
+        // seeded rejection is surfaced as 404 without ever touching
+        // actor state — cross-tenant members would be a data-leak path
+        // because subsequent dispatch would reach into the foreign tenant.
+        var ct = TestContext.Current.CancellationToken;
+        ClearAllMocks();
+
+        var unitProxy = ArrangeUnit();
+        _factory.TenantGuard
+            .EnsureSameTenantAsync(
+                Arg.Is<Address>(a => a.Scheme == "unit" && a.Path == UnitName),
+                Arg.Is<Address>(a => a.Scheme == "unit" && a.Path == "foreign-sub"),
+                Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new CrossTenantMembershipException(
+                new Address("unit", UnitName),
+                new Address("unit", "foreign-sub"),
+                "cross-tenant")));
+
+        var body = new AddMemberRequest(new AddressDto("unit", "foreign-sub"));
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/units/{UnitName}/members")
+        {
+            Content = JsonContent.Create(body, options: JsonOptions),
+        };
+        var response = await _client.SendAsync(request, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        await unitProxy.DidNotReceive().AddMemberAsync(
+            Arg.Any<Address>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -356,6 +448,17 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
         _factory.DirectoryService
             .ResolveAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
             .Returns((DirectoryEntry?)null);
+
+        // #745: reset the tenant-guard substitute back to allow-all so
+        // tests that seed cross-tenant rejection don't bleed into the
+        // next test via the shared factory.
+        _factory.TenantGuard.ClearReceivedCalls();
+        _factory.TenantGuard
+            .ShareTenantAsync(Arg.Any<Address>(), Arg.Any<Address>(), Arg.Any<CancellationToken>())
+            .Returns(true);
+        _factory.TenantGuard
+            .EnsureSameTenantAsync(Arg.Any<Address>(), Arg.Any<Address>(), Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
 
         // Each test gets a fresh scoped repository view via the DI container;
         // the underlying in-memory DB is per-factory but we clear rows here
@@ -461,6 +564,9 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
 
         public Task DeleteAsync(string unitId, string agentAddress, CancellationToken cancellationToken = default)
             => _inner.DeleteAsync(unitId, agentAddress, cancellationToken);
+
+        public Task DeleteAllForAgentAsync(string agentAddress, CancellationToken cancellationToken = default)
+            => _inner.DeleteAllForAgentAsync(agentAddress, cancellationToken);
 
         public Task<UnitMembership?> GetAsync(string unitId, string agentAddress, CancellationToken cancellationToken = default)
             => _inner.GetAsync(unitId, agentAddress, cancellationToken);

@@ -64,7 +64,9 @@ public record UnitCreationOverrides(
     string? Name = null,
     string? Tool = null,
     string? Provider = null,
-    string? Hosting = null);
+    string? Hosting = null,
+    IReadOnlyList<string>? ParentUnitIds = null,
+    bool? IsTopLevel = null);
 
 /// <summary>
 /// Outcome of a unit-creation call.
@@ -118,6 +120,45 @@ public class UnitCreationBindingException : System.Exception
     /// Why the binding failed.
     /// </summary>
     public UnitCreationBindingFailureReason Reason { get; }
+}
+
+/// <summary>
+/// Thrown by <see cref="IUnitCreationService"/> when the caller asks to
+/// attach the new unit to a parent unit that is not registered (or not
+/// visible in the current tenant). Surfaces as ProblemDetails 404 from
+/// the creation endpoints so the caller can correct the request. Mirrors
+/// the unknown-unit 404 branch on the agent create path.
+/// </summary>
+public class UnknownParentUnitException : System.Exception
+{
+    /// <summary>
+    /// Initialises a new <see cref="UnknownParentUnitException"/>.
+    /// </summary>
+    /// <param name="parentUnitId">The unresolved parent-unit id.</param>
+    public UnknownParentUnitException(string parentUnitId)
+        : base($"Parent unit '{parentUnitId}' not found")
+    {
+        ParentUnitId = parentUnitId;
+    }
+
+    /// <summary>The unit id that did not resolve.</summary>
+    public string ParentUnitId { get; }
+}
+
+/// <summary>
+/// Thrown by <see cref="IUnitCreationService"/> when the create request
+/// fails the "every unit has a parent" invariant — either neither a
+/// parent list nor the explicit <c>IsTopLevel</c> flag was supplied, or
+/// both were. Surfaces as ProblemDetails 400. Distinct from
+/// <see cref="Core.Units.UnitParentRequiredException"/>, which fires on
+/// the removal side when the last parent edge would be stripped.
+/// </summary>
+public class InvalidUnitParentRequestException : System.Exception
+{
+    /// <summary>Initialises a new <see cref="InvalidUnitParentRequestException"/>.</summary>
+    public InvalidUnitParentRequestException(string message) : base(message)
+    {
+    }
 }
 
 /// <summary>

@@ -135,6 +135,49 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
     /// </summary>
     public IExpertiseSearch ExpertiseSearch { get; } = Substitute.For<IExpertiseSearch>();
 
+    /// <summary>
+    /// Gets the substitute <see cref="IUnitMembershipTenantGuard"/> wired
+    /// into the test DI container (#745). Defaults to allow-all so existing
+    /// tests that do not exercise the cross-tenant branches keep passing;
+    /// tests that want to assert the guard surface configure the
+    /// substitute explicitly.
+    /// </summary>
+    public IUnitMembershipTenantGuard TenantGuard { get; } = CreatePermissiveTenantGuard();
+
+    /// <summary>
+    /// Gets the substitute <see cref="IUnitParentInvariantGuard"/> wired
+    /// into the test DI container (review feedback on #744). Defaults to
+    /// no-op so existing tests that do not exercise the parent-required
+    /// removal branches keep passing; tests that want to assert the
+    /// guard's 409 surface configure the substitute explicitly.
+    /// </summary>
+    public IUnitParentInvariantGuard ParentInvariantGuard { get; } = CreatePermissiveParentGuard();
+
+    private static IUnitMembershipTenantGuard CreatePermissiveTenantGuard()
+    {
+        var stub = Substitute.For<IUnitMembershipTenantGuard>();
+        stub.ShareTenantAsync(Arg.Any<Cvoya.Spring.Core.Messaging.Address>(),
+                              Arg.Any<Cvoya.Spring.Core.Messaging.Address>(),
+                              Arg.Any<CancellationToken>())
+            .Returns(true);
+        stub.EnsureSameTenantAsync(Arg.Any<Cvoya.Spring.Core.Messaging.Address>(),
+                                   Arg.Any<Cvoya.Spring.Core.Messaging.Address>(),
+                                   Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+        return stub;
+    }
+
+    private static IUnitParentInvariantGuard CreatePermissiveParentGuard()
+    {
+        var stub = Substitute.For<IUnitParentInvariantGuard>();
+        stub.EnsureParentRemainsAsync(
+                Arg.Any<Cvoya.Spring.Core.Messaging.Address>(),
+                Arg.Any<Cvoya.Spring.Core.Messaging.Address>(),
+                Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+        return stub;
+    }
+
     private static ISecretStore CreateStubSecretStore()
     {
         var stub = Substitute.For<ISecretStore>();
@@ -247,6 +290,8 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
                 typeof(ISecretStore),
                 typeof(ISecretAccessPolicy),
                 typeof(IExpertiseSearch),
+                typeof(IUnitMembershipTenantGuard),
+                typeof(IUnitParentInvariantGuard),
             };
 
             var descriptors = services
@@ -276,6 +321,8 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
             services.AddSingleton(SecretStore);
             services.AddSingleton(SecretAccessPolicy);
             services.AddSingleton(ExpertiseSearch);
+            services.AddSingleton(TenantGuard);
+            services.AddSingleton(ParentInvariantGuard);
             services.AddSingleton(new DirectoryCache());
 
             // #687: the skill-bundle resolver is now wrapped in a

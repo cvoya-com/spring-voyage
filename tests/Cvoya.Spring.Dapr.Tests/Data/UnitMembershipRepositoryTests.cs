@@ -123,10 +123,14 @@ public class UnitMembershipRepositoryTests : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
 
+        // Two memberships for the same agent so the #744 last-membership
+        // guard does not trip when we drop one of them.
         await _repository.UpsertAsync(new UnitMembership("engineering", "ada"), ct);
+        await _repository.UpsertAsync(new UnitMembership("marketing", "ada"), ct);
         await _repository.DeleteAsync("engineering", "ada", ct);
 
         (await _repository.GetAsync("engineering", "ada", ct)).ShouldBeNull();
+        (await _repository.GetAsync("marketing", "ada", ct)).ShouldNotBeNull();
     }
 
     [Fact]
@@ -136,6 +140,44 @@ public class UnitMembershipRepositoryTests : IDisposable
 
         // Should not throw.
         await _repository.DeleteAsync("ghost", "ghost", ct);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_LastMembership_Throws()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        await _repository.UpsertAsync(new UnitMembership("engineering", "ada"), ct);
+
+        var ex = await Should.ThrowAsync<AgentMembershipRequiredException>(
+            () => _repository.DeleteAsync("engineering", "ada", ct));
+        ex.AgentAddress.ShouldBe("ada");
+        ex.UnitId.ShouldBe("engineering");
+
+        // Row must still exist — the invariant is enforced as a transactional rejection.
+        (await _repository.GetAsync("engineering", "ada", ct)).ShouldNotBeNull();
+    }
+
+    [Fact]
+    public async Task DeleteAllForAgentAsync_BypassesLastMembershipGuard()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        await _repository.UpsertAsync(new UnitMembership("engineering", "ada"), ct);
+        await _repository.UpsertAsync(new UnitMembership("marketing", "ada"), ct);
+
+        await _repository.DeleteAllForAgentAsync("ada", ct);
+
+        (await _repository.ListByAgentAsync("ada", ct)).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task DeleteAllForAgentAsync_NoMemberships_Noop()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        // Should not throw.
+        await _repository.DeleteAllForAgentAsync("ghost", ct);
     }
 
     public void Dispose()

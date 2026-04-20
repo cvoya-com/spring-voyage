@@ -134,6 +134,15 @@ public static class AgentCommand
         var idArg = new Argument<string>("id") { Description = "The agent identifier (sent as the server's Name field)" };
         var nameOption = new Option<string?>("--name") { Description = "Human-readable display name (defaults to id)" };
         var roleOption = new Option<string?>("--role") { Description = "The agent role" };
+        // #744: agents must carry ≥1 unit at creation time. --unit is repeatable
+        // so operators can assign an agent to multiple units in one call; the
+        // server rejects the request with 400 when the list is empty.
+        var unitOption = new Option<string[]>("--unit")
+        {
+            Description = "Unit to add the agent to. Repeat to assign multiple units; at least one is required.",
+            AllowMultipleArgumentsPerToken = true,
+            Required = true,
+        };
         var definitionFileOption = new Option<string?>("--definition-file")
         {
             Description =
@@ -173,6 +182,7 @@ public static class AgentCommand
         command.Arguments.Add(idArg);
         command.Options.Add(nameOption);
         command.Options.Add(roleOption);
+        command.Options.Add(unitOption);
         command.Options.Add(definitionFileOption);
         command.Options.Add(definitionOption);
         command.Options.Add(imageOption);
@@ -184,6 +194,7 @@ public static class AgentCommand
             var id = parseResult.GetValue(idArg)!;
             var displayName = parseResult.GetValue(nameOption);
             var role = parseResult.GetValue(roleOption);
+            var units = parseResult.GetValue(unitOption) ?? Array.Empty<string>();
             var definitionFile = parseResult.GetValue(definitionFileOption);
             var definitionInline = parseResult.GetValue(definitionOption);
             var image = parseResult.GetValue(imageOption);
@@ -218,7 +229,11 @@ public static class AgentCommand
 
             var client = ClientFactory.Create();
 
-            var result = await client.CreateAgentAsync(id, displayName, role, definitionJson, ct);
+            var unitIds = units
+                .Where(u => !string.IsNullOrWhiteSpace(u))
+                .Select(u => u.Trim())
+                .ToArray();
+            var result = await client.CreateAgentAsync(id, displayName, role, unitIds, definitionJson, ct);
 
             Console.WriteLine(output == "json"
                 ? OutputFormatter.FormatJson(result)

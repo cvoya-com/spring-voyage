@@ -11,6 +11,7 @@ using Cvoya.Spring.Dapr.Actors;
 using global::Dapr.Actors;
 using global::Dapr.Actors.Client;
 
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
@@ -41,6 +42,7 @@ using Microsoft.Extensions.Logging;
 public class DirectoryUnitHierarchyResolver(
     IDirectoryService directoryService,
     IActorProxyFactory actorProxyFactory,
+    IServiceScopeFactory scopeFactory,
     ILoggerFactory loggerFactory) : IUnitHierarchyResolver
 {
     private readonly ILogger _logger = loggerFactory.CreateLogger<DirectoryUnitHierarchyResolver>();
@@ -71,6 +73,13 @@ public class DirectoryUnitHierarchyResolver(
             return Array.Empty<Address>();
         }
 
+        // #745: open one DI scope for the whole walk so the scoped
+        // IUnitMembershipTenantGuard (and its SpringDbContext) is reused
+        // across candidate checks. The resolver itself is a singleton,
+        // so we can't take the guard as a constructor dependency.
+        using var scope = scopeFactory.CreateScope();
+        var tenantGuard = scope.ServiceProvider.GetRequiredService<IUnitMembershipTenantGuard>();
+
         var parents = new List<Address>();
         foreach (var entry in all)
         {
@@ -80,6 +89,33 @@ public class DirectoryUnitHierarchyResolver(
             }
 
             if (entry.Address == child)
+            {
+                continue;
+            }
+
+            // #745: defensively filter cross-tenant candidates. The
+            // DirectoryService cache is still shared across tenants at the
+            // in-memory layer, so ListAllAsync can return units from other
+            // tenants. The tenant guard consults the tenant-scoped entity
+            // rows (which DO carry TenantId + query filter) to decide
+            // whether the candidate is visible — a parent outside the
+            // child's tenant is skipped before we ever read its actor
+            // state, matching the issue #745 requirement to "not traverse
+            // across tenants, even if data were inconsistent".
+            bool shareTenant;
+            try
+            {
+                shareTenant = await tenantGuard.ShareTenantAsync(
+                    entry.Address, child, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Tenant guard threw while inspecting candidate parent {Parent} for child {Child}; skipping conservatively.",
+                    entry.Address, child);
+                continue;
+            }
+            if (!shareTenant)
             {
                 continue;
             }

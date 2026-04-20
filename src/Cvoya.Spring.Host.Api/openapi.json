@@ -1402,6 +1402,16 @@
                 }
               }
             }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
           }
         }
       }
@@ -1761,6 +1771,16 @@
                 }
               }
             }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
           }
         }
       }
@@ -2057,6 +2077,16 @@
           },
           "404": {
             "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -8241,7 +8271,8 @@
           "name",
           "displayName",
           "description",
-          "role"
+          "role",
+          "unitIds"
         ],
         "type": "object",
         "properties": {
@@ -8259,6 +8290,12 @@
               "null",
               "string"
             ]
+          },
+          "unitIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "definitionJson": {
             "type": [
@@ -8432,6 +8469,21 @@
               "null",
               "string"
             ]
+          },
+          "parentUnitIds": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "isTopLevel": {
+            "type": [
+              "null",
+              "boolean"
+            ]
           }
         }
       },
@@ -8488,6 +8540,21 @@
             "type": [
               "null",
               "string"
+            ]
+          },
+          "parentUnitIds": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "isTopLevel": {
+            "type": [
+              "null",
+              "boolean"
             ]
           }
         }
@@ -8547,6 +8614,21 @@
             "type": [
               "null",
               "string"
+            ]
+          },
+          "parentUnitIds": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "isTopLevel": {
+            "type": [
+              "null",
+              "boolean"
             ]
           }
         }

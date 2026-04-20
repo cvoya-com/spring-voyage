@@ -197,6 +197,21 @@ public static class ServiceCollectionExtensions
         services.TryAddScoped<IUnitMembershipRepository, UnitMembershipRepository>();
         services.TryAddScoped<IUnitPolicyRepository, UnitPolicyRepository>();
 
+        // Tenant-scoping guard for composition + membership writes (#745).
+        // Scoped so the guard sees the current request's tenant context —
+        // the SpringDbContext it consults captures CurrentTenantId at query
+        // time. TryAddScoped so a cloud overlay can layer additional
+        // policy (audit logging, permission checks) on top without
+        // displacing the OSS default.
+        services.TryAddScoped<IUnitMembershipTenantGuard, UnitMembershipTenantGuard>();
+
+        // Parent-required guard for unit-edge removals (review feedback on
+        // #744). Scoped for the same reason as the tenant guard: it reads
+        // the per-request SpringDbContext (IsTopLevel lookup) and
+        // IUnitHierarchyResolver (singleton, but its internals use a
+        // per-walk scope). TryAddScoped keeps the cloud overlay hook.
+        services.TryAddScoped<IUnitParentInvariantGuard, UnitParentInvariantGuard>();
+
         // Unit-policy enforcement (#162 / #163). TryAdd so the private cloud
         // repo can pre-register a tenant-scoped / audit-logging wrapper that
         // wraps the OSS default. Scoped because the underlying repositories
@@ -275,16 +290,6 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<DirectorySearchSkillRegistry>();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<ISkillRegistry, DirectorySearchSkillRegistry>(
             sp => sp.GetRequiredService<DirectorySearchSkillRegistry>()));
-
-        // Unit-membership backfill hosted service (#160 / C2b-1).
-        // Gated by Database:BackfillMemberships; idempotent; short-lived.
-        // Also gated by doc-gen mode — the service depends on SpringDbContext
-        // which may not have a configured provider during build-time OpenAPI
-        // generation. See #370.
-        if (!isDocGen)
-        {
-            services.AddHostedService<UnitMembershipBackfillService>();
-        }
 
         // Options
         services.AddOptions<AiProviderOptions>().BindConfiguration(AiProviderOptions.SectionName);
