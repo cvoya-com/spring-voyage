@@ -4,44 +4,6 @@
 namespace Cvoya.Spring.Host.Api.Models;
 
 /// <summary>
-/// Uniform response shape for <c>GET /api/v1/connectors</c> and
-/// <c>GET /api/v1/connectors/{slugOrId}</c>. Non-polymorphic on purpose: every
-/// connector reports the same envelope regardless of its typed config shape,
-/// so clients can list connectors generically and drill into a specific one's
-/// typed surface via <see cref="ConfigUrl"/> / <see cref="ActionsBaseUrl"/>.
-/// </summary>
-/// <param name="TypeId">
-/// Stable identity. Persisted with every unit binding so renames of
-/// <see cref="TypeSlug"/> never invalidate stored data.
-/// </param>
-/// <param name="TypeSlug">
-/// URL-safe identifier (e.g. <c>github</c>). Used as the registry key on the
-/// web side and as the <c>{slug}</c> segment in connector-owned routes.
-/// </param>
-/// <param name="DisplayName">Human-facing display name.</param>
-/// <param name="Description">Short description used by the wizard and unit-config UI.</param>
-/// <param name="ConfigUrl">
-/// Template for the per-unit typed config endpoint, containing a
-/// <c>{unitId}</c> placeholder the client substitutes at call time.
-/// </param>
-/// <param name="ActionsBaseUrl">
-/// Base URL under which the connector's typed actions are mapped. Clients
-/// append <c>/{actionName}</c> to invoke a specific action.
-/// </param>
-/// <param name="ConfigSchemaUrl">
-/// URL of the connector's JSON Schema describing its per-unit config body.
-/// Useful for dynamic form generation.
-/// </param>
-public record ConnectorTypeResponse(
-    Guid TypeId,
-    string TypeSlug,
-    string DisplayName,
-    string Description,
-    string ConfigUrl,
-    string ActionsBaseUrl,
-    string ConfigSchemaUrl);
-
-/// <summary>
 /// Response body for <c>GET /api/v1/units/{id}/connector</c>. A pointer to
 /// the connector typed config for this unit — intentionally narrow, so the
 /// generic Host.Api response stays stable regardless of how the connector
@@ -91,18 +53,32 @@ public record ConnectorUnitBindingResponse(
     string ActionsBaseUrl);
 
 /// <summary>
-/// Response body for the tenant-connector install endpoints — the union
-/// of the connector's type-descriptor fields (from the registry) with
-/// the tenant install metadata (from <c>tenant_connector_installs</c>).
-/// Returned by <c>GET /api/v1/connectors/installed</c>,
-/// <c>GET /api/v1/connectors/{slugOrId}/install</c>,
+/// Uniform response body for the tenant-scoped connector endpoints — the
+/// union of the connector's type-descriptor fields (from the registry)
+/// with the tenant install metadata (from <c>tenant_connector_installs</c>).
+/// Returned by <c>GET /api/v1/connectors</c>,
+/// <c>GET /api/v1/connectors/{slugOrId}</c>,
 /// <c>POST /api/v1/connectors/{slugOrId}/install</c>, and
-/// <c>PATCH /api/v1/connectors/{slugOrId}/install/config</c>.
+/// <c>PATCH /api/v1/connectors/{slugOrId}/config</c>. The list and get
+/// endpoints are tenant-scoped: they only surface connectors that are
+/// currently installed on the caller's tenant (see issue #714).
 /// </summary>
 /// <param name="TypeId">Stable connector identity from <c>IConnectorType.TypeId</c>.</param>
 /// <param name="TypeSlug">URL-safe slug from <c>IConnectorType.Slug</c>.</param>
 /// <param name="DisplayName">Human-facing display name.</param>
 /// <param name="Description">Short description used by the wizard and unit-config UI.</param>
+/// <param name="ConfigUrl">
+/// Template for the per-unit typed config endpoint, containing a
+/// <c>{unitId}</c> placeholder the client substitutes at call time.
+/// </param>
+/// <param name="ActionsBaseUrl">
+/// Base URL under which the connector's typed actions are mapped. Clients
+/// append <c>/{actionName}</c> to invoke a specific action.
+/// </param>
+/// <param name="ConfigSchemaUrl">
+/// URL of the connector's JSON Schema describing its per-unit config body.
+/// Useful for dynamic form generation.
+/// </param>
 /// <param name="InstalledAt">Timestamp when the connector was first installed on the tenant.</param>
 /// <param name="UpdatedAt">Timestamp when the install row was last updated.</param>
 /// <param name="Config">
@@ -114,6 +90,9 @@ public record InstalledConnectorResponse(
     string TypeSlug,
     string DisplayName,
     string Description,
+    string ConfigUrl,
+    string ActionsBaseUrl,
+    string ConfigSchemaUrl,
     DateTimeOffset InstalledAt,
     DateTimeOffset UpdatedAt,
     System.Text.Json.JsonElement? Config);

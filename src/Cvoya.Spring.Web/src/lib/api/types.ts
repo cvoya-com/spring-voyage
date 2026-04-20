@@ -395,8 +395,18 @@ export type UpsertMembershipRequest = Schemas["UpsertMembershipRequest"];
 // Connectors (generic + GitHub)
 // ---------------------------------------------------------------------------
 
-/** GET /api/v1/connectors response item — uniform, non-polymorphic. */
-export type ConnectorTypeResponse = Schemas["ConnectorTypeResponse"];
+/**
+ * GET /api/v1/connectors response item — one entry per connector installed
+ * on the current tenant (#714). The type-descriptor fields
+ * (`typeId`, `typeSlug`, `displayName`, `description`, `configUrl`,
+ * `actionsBaseUrl`, `configSchemaUrl`) come from the registered
+ * `IConnectorType`; `installedAt`, `updatedAt`, and `config` come from
+ * the tenant install row. Pre-#714 the endpoint returned every registered
+ * connector type regardless of tenant-install state under the name
+ * `ConnectorTypeResponse`; that schema was retired when the list/get
+ * semantics pivoted to tenant-install.
+ */
+export type InstalledConnectorResponse = Schemas["InstalledConnectorResponse"];
 
 /** GET /api/v1/units/{id}/connector response — a pointer to the typed config. */
 export type UnitConnectorPointerResponse = Schemas["UnitConnectorPointerResponse"];

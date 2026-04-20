@@ -956,22 +956,44 @@ public class SpringApiClient
     // Connectors
     //
     // The generic surface at /api/v1/connectors is connector-agnostic: it
-    // lists every registered connector type and carries the pointer for a
-    // unit's current binding. Typed config lives under
-    // /api/v1/connectors/{slug}/units/{unitId}/config and is owned by each
-    // connector package — today only the GitHub connector has a typed PUT
-    // generated into the Kiota client.
+    // lists every connector installed on the current tenant (#714) and
+    // carries the pointer for a unit's current binding. Typed config lives
+    // under /api/v1/connectors/{slug}/units/{unitId}/config and is owned by
+    // each connector package — today only the GitHub connector has a typed
+    // PUT generated into the Kiota client.
 
     /// <summary>
-    /// Lists every connector type the server is aware of. This is the same
-    /// data the web portal renders in its connector chooser, so
-    /// <c>spring connector catalog</c> stays at parity with the UI.
+    /// Lists every connector installed on the current tenant (#714). The
+    /// response carries both type-descriptor fields (slug, id, display name,
+    /// URL templates) and install metadata (installedAt, updatedAt, config);
+    /// pre-#714 this endpoint returned every connector the host knew about
+    /// regardless of tenant-install state.
     /// </summary>
-    public async Task<IReadOnlyList<ConnectorTypeResponse>> ListConnectorsAsync(
+    public async Task<IReadOnlyList<InstalledConnectorResponse>> ListConnectorsAsync(
         CancellationToken ct = default)
     {
         var result = await _client.Api.V1.Connectors.GetAsync(cancellationToken: ct);
-        return result ?? new List<ConnectorTypeResponse>();
+        return result ?? new List<InstalledConnectorResponse>();
+    }
+
+    /// <summary>
+    /// Returns the install envelope for a connector on the current tenant
+    /// (#714) or <c>null</c> when the connector isn't installed. The server
+    /// flipped this endpoint in #714 — a connector type registered with the
+    /// host but not installed on the tenant now returns 404, mirroring the
+    /// agent-runtime surface.
+    /// </summary>
+    public async Task<InstalledConnectorResponse?> GetConnectorAsync(
+        string slugOrId, CancellationToken ct = default)
+    {
+        try
+        {
+            return await _client.Api.V1.Connectors[slugOrId].GetAsync(cancellationToken: ct);
+        }
+        catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode == 404)
+        {
+            return null;
+        }
     }
 
     /// <summary>
@@ -1629,31 +1651,10 @@ public class SpringApiClient
         => _client.Api.V1.Platform.Secrets[name].DeleteAsync(cancellationToken: ct);
 
     // Connector tenant-installs (#689). Wrappers over the /install +
-    // /credential-health endpoints landed in #715 / #717. Sibling to the
-    // per-unit connector binding wrappers above — installs sit one level
-    // higher in the data model.
-
-    /// <summary>Lists every connector installed on the current tenant.</summary>
-    public async Task<IReadOnlyList<InstalledConnectorResponse>> ListInstalledConnectorsAsync(
-        CancellationToken ct = default)
-    {
-        var result = await _client.Api.V1.Connectors.Installed.GetAsync(cancellationToken: ct);
-        return result ?? new List<InstalledConnectorResponse>();
-    }
-
-    /// <summary>Returns the install metadata for a connector on the current tenant, or <c>null</c> when not installed.</summary>
-    public async Task<InstalledConnectorResponse?> GetInstalledConnectorAsync(
-        string slugOrId, CancellationToken ct = default)
-    {
-        try
-        {
-            return await _client.Api.V1.Connectors[slugOrId].Install.GetAsync(cancellationToken: ct);
-        }
-        catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode == 404)
-        {
-            return null;
-        }
-    }
+    // /credential-health endpoints landed in #715 / #717; the list/get
+    // surface was pivoted onto `GET /connectors` + `GET /connectors/{id}`
+    // in #714. Sibling to the per-unit connector binding wrappers above —
+    // installs sit one level higher in the data model.
 
     /// <summary>Installs a connector on the current tenant (idempotent).</summary>
     public async Task<InstalledConnectorResponse> InstallConnectorAsync(
@@ -1665,9 +1666,13 @@ public class SpringApiClient
             $"Server returned an empty install response for connector '{slugOrId}'.");
     }
 
-    /// <summary>Uninstalls a connector from the current tenant.</summary>
+    /// <summary>
+    /// Uninstalls a connector from the current tenant. Post-#714 this
+    /// targets <c>DELETE /connectors/{slugOrId}</c> (was
+    /// <c>DELETE /connectors/{slug}/install</c>).
+    /// </summary>
     public Task UninstallConnectorAsync(string slugOrId, CancellationToken ct = default)
-        => _client.Api.V1.Connectors[slugOrId].Install.DeleteAsync(cancellationToken: ct);
+        => _client.Api.V1.Connectors[slugOrId].DeleteAsync(cancellationToken: ct);
 
     /// <summary>
     /// Returns the current credential-health row for a connector, or

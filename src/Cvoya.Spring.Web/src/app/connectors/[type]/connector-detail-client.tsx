@@ -88,7 +88,12 @@ export default function ConnectorDetailClient({ slugOrId }: Props) {
         <Card>
           <CardContent className="p-6">
             <p className="text-sm text-muted-foreground">
-              Connector &quot;{slugOrId}&quot; is not registered on this server.
+              Connector &quot;{slugOrId}&quot; is not installed on the current
+              tenant. Install it with{" "}
+              <code className="rounded bg-muted px-1 py-0.5 text-xs">
+                spring connector install {slugOrId}
+              </code>
+              .
             </p>
           </CardContent>
         </Card>

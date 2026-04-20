@@ -17,7 +17,7 @@ import { useToast } from "@/components/ui/toast";
 import { getConnectorComponent } from "@/connectors/registry";
 import { api } from "@/lib/api/client";
 import type {
-  ConnectorTypeResponse,
+  InstalledConnectorResponse,
   UnitConnectorPointerResponse,
 } from "@/lib/api/types";
 
@@ -41,7 +41,7 @@ export function ConnectorTab({ unitId }: ConnectorTabProps) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pointer, setPointer] =
     useState<UnitConnectorPointerResponse | null>(null);
-  const [connectors, setConnectors] = useState<ConnectorTypeResponse[]>([]);
+  const [connectors, setConnectors] = useState<InstalledConnectorResponse[]>([]);
   const [pendingSlug, setPendingSlug] = useState<string | null>(null);
   // Reset `loading` to true whenever the unitId prop changes, using the
   // "adjusting state while rendering" pattern (React docs:
@@ -210,7 +210,7 @@ export function ConnectorTab({ unitId }: ConnectorTabProps) {
         <div className="grid gap-2 sm:grid-cols-2">
           {connectors.length === 0 && (
             <p className="col-span-full text-sm text-muted-foreground">
-              No connector types are registered on the server.
+              No connectors are installed on this tenant.
             </p>
           )}
           {connectors.map((c) => {

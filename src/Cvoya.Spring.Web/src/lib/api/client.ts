@@ -709,7 +709,7 @@ export const api = {
   },
   /**
    * Fetches a connector's JSON Schema describing its per-unit config
-   * body. The endpoint URL lives on `ConnectorTypeResponse.configSchemaUrl`
+   * body. The endpoint URL lives on `InstalledConnectorResponse.configSchemaUrl`
    * (e.g. `/api/v1/connectors/github/config-schema`); we accept the slug
    * here and assemble the URL so call sites don't have to. Returns `null`
    * when the connector doesn't expose a schema (404 or empty body).

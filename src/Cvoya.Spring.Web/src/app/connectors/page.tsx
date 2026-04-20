@@ -3,11 +3,15 @@
 /**
  * /connectors — top-level connector catalog (#449).
  *
- * Mirrors the data the CLI's `spring connector catalog` consumes:
- * the generic `/api/v1/connectors` endpoint feeds both surfaces. Each
- * card deep-links to `/connectors/[type]` — the same destination the
- * unit Connector tab points at when an "active connector" header is
- * shown — so the catalog is also a hub for "what binds this connector?"
+ * Mirrors the data the CLI's `spring connector catalog` consumes: the
+ * generic `/api/v1/connectors` endpoint feeds both surfaces. Post-#714
+ * this page lists only the connectors installed on the current tenant
+ * (aligned with the agent-runtimes surface); a connector registered
+ * with the host but not installed on the tenant is invisible here and
+ * in the unit Connector tab. Each card deep-links to `/connectors/[type]`
+ * — the same destination the unit Connector tab points at when an
+ * "active connector" header is shown — so the catalog is also a hub for
+ * "what binds this connector?"
  *
  * Design contract: docs/design/portal-exploration.md § 3.2 lists
  * Connectors as a primary nav entry; the empty-state pattern matches
@@ -21,7 +25,7 @@ import { ArrowRight, Plug } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useConnectorTypes } from "@/lib/api/queries";
-import type { ConnectorTypeResponse } from "@/lib/api/types";
+import type { InstalledConnectorResponse } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
 export default function ConnectorsListPage() {
@@ -36,7 +40,7 @@ export default function ConnectorsListPage() {
           <Plug className="h-5 w-5" aria-hidden="true" /> Connectors
         </h1>
         <p className="text-sm text-muted-foreground">
-          Every connector type registered on this server. Mirrors{" "}
+          Every connector installed on the current tenant. Mirrors{" "}
           <code className="rounded bg-muted px-1 py-0.5 text-xs">
             spring connector catalog
           </code>
@@ -63,15 +67,22 @@ export default function ConnectorsListPage() {
           <CardContent className="space-y-2 p-6 text-center">
             <Plug className="mx-auto h-10 w-10 text-muted-foreground" aria-hidden="true" />
             <p className="text-sm text-muted-foreground">
-              No connector types registered. Install a connector
-              package and restart the host to make it appear here. See{" "}
+              No connectors installed on this tenant. Install one with{" "}
+              <code className="rounded bg-muted px-1 py-0.5 text-xs">
+                spring connector install &lt;slug&gt;
+              </code>{" "}
+              — run{" "}
+              <code className="rounded bg-muted px-1 py-0.5 text-xs">
+                spring connector catalog
+              </code>{" "}
+              from the CLI to see available types, or browse{" "}
               <Link
                 href="/packages"
                 className="text-primary hover:underline"
               >
                 Packages
               </Link>{" "}
-              for the catalog of installed packages.
+              to install a connector-bearing package.
             </p>
           </CardContent>
         </Card>
@@ -86,7 +97,7 @@ export default function ConnectorsListPage() {
   );
 }
 
-function ConnectorCard({ connector }: { connector: ConnectorTypeResponse }) {
+function ConnectorCard({ connector }: { connector: InstalledConnectorResponse }) {
   const href = `/connectors/${encodeURIComponent(connector.typeSlug)}`;
   return (
     <Card

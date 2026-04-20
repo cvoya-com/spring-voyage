@@ -29,7 +29,7 @@ import type {
   AggregatedExpertiseResponse,
   BudgetResponse,
   CloneResponse,
-  ConnectorTypeResponse,
+  InstalledConnectorResponse,
   ConversationDetail,
   ConversationListFilters,
   ConversationSummary,
@@ -756,9 +756,17 @@ export function useUnitTemplateDetail(
   });
 }
 
+/**
+ * Lists every connector installed on the current tenant (#714). Post-#714
+ * this is the only connector list on the wire — the generic
+ * "every connector the host knows about" endpoint was retired in favour
+ * of tenant-install semantics. A connector package registered with the
+ * host but not installed on the tenant is invisible here and in the
+ * wizard's chooser.
+ */
 export function useConnectorTypes(
-  opts?: SliceOptions<ConnectorTypeResponse[]>,
-): UseQueryResult<ConnectorTypeResponse[], Error> {
+  opts?: SliceOptions<InstalledConnectorResponse[]>,
+): UseQueryResult<InstalledConnectorResponse[], Error> {
   return useQuery({
     queryKey: queryKeys.connectors.list(),
     queryFn: () => api.listConnectors(),
@@ -767,14 +775,16 @@ export function useConnectorTypes(
 }
 
 /**
- * Single connector type by slug or id. Returns `null` when the
- * connector isn't registered (404), so the detail page can render
- * a clean not-found state without trapping the error boundary.
+ * Single installed connector by slug or id. Returns `null` when the
+ * connector isn't installed on the current tenant (404 post-#714, which
+ * collapses the "not registered" and "not installed" cases into one
+ * not-found state for the detail page). Pre-#714 this returned the
+ * registry descriptor regardless of install state.
  */
 export function useConnector(
   slugOrId: string,
-  opts?: SliceOptions<ConnectorTypeResponse | null>,
-): UseQueryResult<ConnectorTypeResponse | null, Error> {
+  opts?: SliceOptions<InstalledConnectorResponse | null>,
+): UseQueryResult<InstalledConnectorResponse | null, Error> {
   return useQuery({
     queryKey: queryKeys.connectors.detail(slugOrId),
     queryFn: () => api.getConnector(slugOrId),

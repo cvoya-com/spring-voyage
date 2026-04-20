@@ -4,12 +4,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 
 import type {
-  ConnectorTypeResponse,
+  InstalledConnectorResponse,
   ConnectorUnitBindingResponse,
 } from "@/lib/api/types";
 
 const getConnector =
-  vi.fn<(slug: string) => Promise<ConnectorTypeResponse | null>>();
+  vi.fn<(slug: string) => Promise<InstalledConnectorResponse | null>>();
 const getConnectorConfigSchema =
   vi.fn<(slug: string) => Promise<unknown | null>>();
 const listConnectorBindings =
@@ -69,7 +69,7 @@ describe("ConnectorDetailClient", () => {
       configUrl: "/api/v1/connectors/github/units/{unitId}/config",
       actionsBaseUrl: "/api/v1/connectors/github/actions",
       configSchemaUrl: "/api/v1/connectors/github/config-schema",
-    } as ConnectorTypeResponse);
+    } as InstalledConnectorResponse);
     getConnectorConfigSchema.mockResolvedValue({
       type: "object",
       properties: { owner: { type: "string" } },
@@ -111,14 +111,14 @@ describe("ConnectorDetailClient", () => {
     ).toHaveAttribute("href", "/units/u1");
   });
 
-  it("renders the not-registered state when the connector returns null", async () => {
+  it("renders the not-installed state when the connector returns null", async () => {
     getConnector.mockResolvedValue(null);
 
     renderClient("ghost");
 
     await waitFor(() => {
       expect(
-        screen.getByText(/is not registered on this server/i),
+        screen.getByText(/is not installed on the current/i),
       ).toBeInTheDocument();
     });
     expect(
@@ -131,11 +131,16 @@ describe("ConnectorDetailClient", () => {
       typeId: "raw-id",
       typeSlug: "raw",
       displayName: "Raw",
-      description: null,
+      // Post-#714 Description is non-nullable on the installed envelope;
+      // use an empty string for the "no description" path.
+      description: "",
       configUrl: "/api/v1/connectors/raw/units/{unitId}/config",
       actionsBaseUrl: "/api/v1/connectors/raw/actions",
       configSchemaUrl: "/api/v1/connectors/raw/config-schema",
-    } as ConnectorTypeResponse);
+      installedAt: "2026-04-20T00:00:00Z",
+      updatedAt: "2026-04-20T00:00:00Z",
+      config: null,
+    } as InstalledConnectorResponse);
     getConnectorConfigSchema.mockResolvedValue(null);
     listConnectorBindings.mockResolvedValue([]);
 

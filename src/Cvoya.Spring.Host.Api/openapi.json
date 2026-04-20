@@ -4530,7 +4530,7 @@
         "tags": [
           "Connectors"
         ],
-        "summary": "List every connector type the server knows about",
+        "summary": "List every connector installed on the current tenant",
         "operationId": "ListConnectors",
         "responses": {
           "200": {
@@ -4540,7 +4540,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/ConnectorTypeResponse"
+                    "$ref": "#/components/schemas/InstalledConnectorResponse"
                   }
                 }
               }
@@ -4554,7 +4554,7 @@
         "tags": [
           "Connectors"
         ],
-        "summary": "Get a single connector type by slug or id",
+        "summary": "Get a single installed connector on the current tenant by slug or id",
         "operationId": "GetConnector",
         "parameters": [
           {
@@ -4572,10 +4572,42 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ConnectorTypeResponse"
+                  "$ref": "#/components/schemas/InstalledConnectorResponse"
                 }
               }
             }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Connectors"
+        ],
+        "summary": "Uninstall the connector from the current tenant",
+        "operationId": "UninstallConnector",
+        "parameters": [
+          {
+            "name": "slugOrId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
           },
           "404": {
             "description": "Not Found",
@@ -4634,70 +4666,7 @@
         }
       }
     },
-    "/api/v1/connectors/installed": {
-      "get": {
-        "tags": [
-          "Connectors"
-        ],
-        "summary": "List every connector installed on the current tenant",
-        "operationId": "ListInstalledConnectors",
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/InstalledConnectorResponse"
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/connectors/{slugOrId}/install": {
-      "get": {
-        "tags": [
-          "Connectors"
-        ],
-        "summary": "Get the install metadata for a connector on the current tenant",
-        "operationId": "GetInstalledConnector",
-        "parameters": [
-          {
-            "name": "slugOrId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/InstalledConnectorResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not Found",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          }
-        }
-      },
       "post": {
         "tags": [
           "Connectors"
@@ -4752,31 +4721,9 @@
             }
           }
         }
-      },
-      "delete": {
-        "tags": [
-          "Connectors"
-        ],
-        "summary": "Uninstall the connector from the current tenant",
-        "operationId": "UninstallConnector",
-        "parameters": [
-          {
-            "name": "slugOrId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "No Content"
-          }
-        }
       }
     },
-    "/api/v1/connectors/{slugOrId}/install/config": {
+    "/api/v1/connectors/{slugOrId}/config": {
       "patch": {
         "tags": [
           "Connectors"
@@ -7955,42 +7902,6 @@
           }
         }
       },
-      "ConnectorTypeResponse": {
-        "required": [
-          "typeId",
-          "typeSlug",
-          "displayName",
-          "description",
-          "configUrl",
-          "actionsBaseUrl",
-          "configSchemaUrl"
-        ],
-        "type": "object",
-        "properties": {
-          "typeId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "typeSlug": {
-            "type": "string"
-          },
-          "displayName": {
-            "type": "string"
-          },
-          "description": {
-            "type": "string"
-          },
-          "configUrl": {
-            "type": "string"
-          },
-          "actionsBaseUrl": {
-            "type": "string"
-          },
-          "configSchemaUrl": {
-            "type": "string"
-          }
-        }
-      },
       "ConnectorUnitBindingResponse": {
         "required": [
           "unitId",
@@ -9256,6 +9167,9 @@
           "typeSlug",
           "displayName",
           "description",
+          "configUrl",
+          "actionsBaseUrl",
+          "configSchemaUrl",
           "installedAt",
           "updatedAt",
           "config"
@@ -9273,6 +9187,15 @@
             "type": "string"
           },
           "description": {
+            "type": "string"
+          },
+          "configUrl": {
+            "type": "string"
+          },
+          "actionsBaseUrl": {
+            "type": "string"
+          },
+          "configSchemaUrl": {
             "type": "string"
           },
           "installedAt": {

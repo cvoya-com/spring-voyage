@@ -30,16 +30,24 @@ public static class ConnectorEndpoints
         var connectors = app.MapGroup("/api/v1/connectors")
             .WithTags("Connectors");
 
+        // Tenant-scoped list/get (#714). The list/get endpoints no longer
+        // surface every connector type registered with the host; they now
+        // return only the connectors installed on the caller's tenant, to
+        // match the agent-runtimes surface (#693). A connector must be
+        // installed on the current tenant before the wizard, CLI, or unit
+        // Connector tab can see it.
         connectors.MapGet("/", ListConnectorsAsync)
             .WithName("ListConnectors")
-            .WithSummary("List every connector type the server knows about")
-            .Produces<ConnectorTypeResponse[]>(StatusCodes.Status200OK);
+            .WithSummary("List every connector installed on the current tenant")
+            .Produces<InstalledConnectorResponse[]>(StatusCodes.Status200OK)
+            .RequireAuthorization();
 
         connectors.MapGet("/{slugOrId}", GetConnectorAsync)
             .WithName("GetConnector")
-            .WithSummary("Get a single connector type by slug or id")
-            .Produces<ConnectorTypeResponse>(StatusCodes.Status200OK)
-            .ProducesProblem(StatusCodes.Status404NotFound);
+            .WithSummary("Get a single installed connector on the current tenant by slug or id")
+            .Produces<InstalledConnectorResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .RequireAuthorization();
 
         connectors.MapGet("/{slugOrId}/bindings", ListConnectorBindingsAsync)
             .WithName("ListConnectorBindings")
@@ -47,24 +55,13 @@ public static class ConnectorEndpoints
             .Produces<ConnectorUnitBindingResponse[]>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
-        // Tenant-install management surface. Sibling to the registry-level
-        // list/get routes above — those report "which connectors does the
-        // host know about", these report "which connectors are installed
-        // on the current tenant" (a strict subset in deployments where
-        // the operator has uninstalled some, identical otherwise).
-        connectors.MapGet("/installed", ListInstalledAsync)
-            .WithName("ListInstalledConnectors")
-            .WithSummary("List every connector installed on the current tenant")
-            .Produces<InstalledConnectorResponse[]>(StatusCodes.Status200OK)
-            .RequireAuthorization();
-
-        connectors.MapGet("/{slugOrId}/install", GetInstallAsync)
-            .WithName("GetInstalledConnector")
-            .WithSummary("Get the install metadata for a connector on the current tenant")
-            .Produces<InstalledConnectorResponse>(StatusCodes.Status200OK)
-            .ProducesProblem(StatusCodes.Status404NotFound)
-            .RequireAuthorization();
-
+        // Tenant install lifecycle. `/install` (POST) is an idempotent
+        // install verb that mirrors the agent-runtime surface
+        // (#693 + AgentRuntimeEndpoints); `DELETE /{slugOrId}` uninstalls
+        // and `PATCH /{slugOrId}/config` replaces the stored tenant-scoped
+        // config. The additive `/installed` list + `GET /{slug}/install`
+        // siblings were retired in #714 — `GET /connectors` and
+        // `GET /connectors/{slugOrId}` now carry tenant-install semantics.
         connectors.MapPost("/{slugOrId}/install", InstallConnectorAsync)
             .WithName("InstallConnector")
             .WithSummary("Install the connector on the current tenant (idempotent)")
@@ -72,13 +69,14 @@ public static class ConnectorEndpoints
             .ProducesProblem(StatusCodes.Status404NotFound)
             .RequireAuthorization();
 
-        connectors.MapDelete("/{slugOrId}/install", UninstallConnectorAsync)
+        connectors.MapDelete("/{slugOrId}", UninstallConnectorAsync)
             .WithName("UninstallConnector")
             .WithSummary("Uninstall the connector from the current tenant")
             .Produces(StatusCodes.Status204NoContent)
+            .ProducesProblem(StatusCodes.Status404NotFound)
             .RequireAuthorization();
 
-        connectors.MapPatch("/{slugOrId}/install/config", UpdateInstallConfigAsync)
+        connectors.MapPatch("/{slugOrId}/config", UpdateInstallConfigAsync)
             .WithName("UpdateConnectorInstallConfig")
             .WithSummary("Replace the tenant-scoped install configuration for a connector")
             .Produces<InstalledConnectorResponse>(StatusCodes.Status200OK)
@@ -132,25 +130,60 @@ public static class ConnectorEndpoints
             .Produces(StatusCodes.Status204NoContent);
     }
 
-    private static Task<IResult> ListConnectorsAsync(
-        [FromServices] IEnumerable<IConnectorType> connectorTypes)
+    /// <summary>
+    /// Handler for <c>GET /api/v1/connectors</c> (#714). Returns the
+    /// connectors installed on the current tenant — a strict subset of
+    /// the connectors registered with the host. Swap of semantics from
+    /// the pre-#714 "every registered connector type" shape; the generic
+    /// list was redundant with <see cref="ITenantConnectorInstallService"/>
+    /// and made it too easy to surface tenants connectors they haven't
+    /// installed.
+    /// </summary>
+    private static async Task<IResult> ListConnectorsAsync(
+        [FromServices] ITenantConnectorInstallService installService,
+        [FromServices] IEnumerable<IConnectorType> connectorTypes,
+        CancellationToken cancellationToken)
     {
-        var response = connectorTypes.Select(ToConnectorResponse).ToArray();
-        return Task.FromResult(Results.Ok(response));
+        var installs = await installService.ListAsync(cancellationToken);
+        var typeIndex = connectorTypes.ToDictionary(
+            c => c.Slug, StringComparer.OrdinalIgnoreCase);
+        var rows = installs
+            .Select(install => typeIndex.TryGetValue(install.ConnectorId, out var type)
+                ? ToInstalledResponse(install, type)
+                : null)
+            .Where(r => r is not null)
+            .Cast<InstalledConnectorResponse>()
+            .ToArray();
+        return Results.Ok(rows);
     }
 
-    private static Task<IResult> GetConnectorAsync(
+    /// <summary>
+    /// Handler for <c>GET /api/v1/connectors/{slugOrId}</c> (#714). Returns
+    /// a 404 when the connector is not installed on the current tenant
+    /// even if it is registered with the host.
+    /// </summary>
+    private static async Task<IResult> GetConnectorAsync(
         string slugOrId,
-        [FromServices] IEnumerable<IConnectorType> connectorTypes)
+        [FromServices] ITenantConnectorInstallService installService,
+        [FromServices] IEnumerable<IConnectorType> connectorTypes,
+        CancellationToken cancellationToken)
     {
-        var connector = ResolveConnector(slugOrId, connectorTypes);
-        if (connector is null)
+        var type = ResolveConnector(slugOrId, connectorTypes);
+        if (type is null)
         {
-            return Task.FromResult(Results.Problem(
+            return Results.Problem(
                 detail: $"Connector '{slugOrId}' is not registered.",
-                statusCode: StatusCodes.Status404NotFound));
+                statusCode: StatusCodes.Status404NotFound);
         }
-        return Task.FromResult(Results.Ok(ToConnectorResponse(connector)));
+
+        var install = await installService.GetAsync(type.Slug, cancellationToken);
+        if (install is null)
+        {
+            return Results.Problem(
+                detail: $"Connector '{type.Slug}' is not installed on the current tenant.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+        return Results.Ok(ToInstalledResponse(install, type));
     }
 
     /// <summary>
@@ -261,55 +294,6 @@ public static class ConnectorEndpoints
             c => string.Equals(c.Slug, slugOrId, StringComparison.OrdinalIgnoreCase));
     }
 
-    private static ConnectorTypeResponse ToConnectorResponse(IConnectorType type)
-        => new(
-            TypeId: type.TypeId,
-            TypeSlug: type.Slug,
-            DisplayName: type.DisplayName,
-            Description: type.Description,
-            ConfigUrl: $"/api/v1/connectors/{type.Slug}/units/{{unitId}}/config",
-            ActionsBaseUrl: $"/api/v1/connectors/{type.Slug}/actions",
-            ConfigSchemaUrl: $"/api/v1/connectors/{type.Slug}/config-schema");
-
-    private static async Task<IResult> ListInstalledAsync(
-        [FromServices] ITenantConnectorInstallService installService,
-        [FromServices] IEnumerable<IConnectorType> connectorTypes,
-        CancellationToken cancellationToken)
-    {
-        var installs = await installService.ListAsync(cancellationToken);
-        var typeIndex = connectorTypes.ToDictionary(
-            c => c.Slug, StringComparer.OrdinalIgnoreCase);
-        var rows = installs
-            .Select(install => typeIndex.TryGetValue(install.ConnectorId, out var type)
-                ? ToInstalledResponse(install, type)
-                : null)
-            .Where(r => r is not null)
-            .Cast<InstalledConnectorResponse>()
-            .ToArray();
-        return Results.Ok(rows);
-    }
-
-    private static async Task<IResult> GetInstallAsync(
-        string slugOrId,
-        [FromServices] ITenantConnectorInstallService installService,
-        [FromServices] IEnumerable<IConnectorType> connectorTypes,
-        CancellationToken cancellationToken)
-    {
-        var type = ResolveConnector(slugOrId, connectorTypes);
-        if (type is null)
-        {
-            return Results.Problem(
-                detail: $"Connector '{slugOrId}' is not registered.",
-                statusCode: StatusCodes.Status404NotFound);
-        }
-        var install = await installService.GetAsync(type.Slug, cancellationToken);
-        return install is null
-            ? Results.Problem(
-                detail: $"Connector '{type.Slug}' is not installed on the current tenant.",
-                statusCode: StatusCodes.Status404NotFound)
-            : Results.Ok(ToInstalledResponse(install, type));
-    }
-
     private static async Task<IResult> InstallConnectorAsync(
         string slugOrId,
         [FromBody] ConnectorInstallRequest? body,
@@ -385,6 +369,9 @@ public static class ConnectorEndpoints
             TypeSlug: type.Slug,
             DisplayName: type.DisplayName,
             Description: type.Description,
+            ConfigUrl: $"/api/v1/connectors/{type.Slug}/units/{{unitId}}/config",
+            ActionsBaseUrl: $"/api/v1/connectors/{type.Slug}/actions",
+            ConfigSchemaUrl: $"/api/v1/connectors/{type.Slug}/config-schema",
             InstalledAt: install.InstalledAt,
             UpdatedAt: install.UpdatedAt,
             Config: install.Config.Config);

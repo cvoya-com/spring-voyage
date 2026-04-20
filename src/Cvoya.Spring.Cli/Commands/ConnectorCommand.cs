@@ -29,7 +29,11 @@ using Cvoya.Spring.Cli.Output;
 /// </remarks>
 public static class ConnectorCommand
 {
-    private static readonly OutputFormatter.Column<ConnectorTypeResponse>[] CatalogColumns =
+    // #714: GET /api/v1/connectors now returns InstalledConnectorResponse
+    // (tenant-installed connectors only). The CLI `catalog` verb prints the
+    // same columns — slug/name/description — so the operator-facing table
+    // shape is preserved across the pivot.
+    private static readonly OutputFormatter.Column<InstalledConnectorResponse>[] CatalogColumns =
     {
         new("slug", c => c.TypeSlug),
         new("name", c => c.DisplayName),
@@ -152,9 +156,14 @@ public static class ConnectorCommand
 
     private static Command CreateCatalogCommand(Option<string> outputOption)
     {
+        // Post-#714 `catalog` lists every connector installed on the
+        // current tenant (same surface as `spring connector list`). A
+        // connector registered with the host but not installed on the
+        // tenant is invisible here and in the portal's connector chooser,
+        // mirroring the agent-runtimes surface.
         var command = new Command(
             "catalog",
-            "List every connector type the server knows about. Matches the data the web portal renders in its connector chooser.");
+            "List every connector installed on the current tenant. Matches the data the web portal renders in its connector chooser.");
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
@@ -399,15 +408,18 @@ public static class ConnectorCommand
 
     private static Command CreateListInstalledCommand(Option<string> outputOption)
     {
-        // Example: `spring connector list -o json`
+        // Example: `spring connector list -o json`. Post-#714 this shares
+        // the underlying endpoint with the `catalog` verb — both now point
+        // at tenant-installed connectors. `list` kept for muscle-memory
+        // parity with `spring agent-runtime list`.
         var command = new Command(
             "list",
-            "List every connector installed on the current tenant. Distinct from 'catalog' (which lists every registered connector type, installed or not).");
+            "List every connector installed on the current tenant. Synonym of 'catalog' after the #714 pivot.");
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
             var output = parseResult.GetValue(outputOption) ?? "table";
             var client = ClientFactory.Create();
-            var result = await client.ListInstalledConnectorsAsync(ct);
+            var result = await client.ListConnectorsAsync(ct);
             Console.WriteLine(output == "json"
                 ? OutputFormatter.FormatJson(result)
                 : OutputFormatter.FormatTable(result, InstalledColumns));
@@ -429,7 +441,10 @@ public static class ConnectorCommand
             var slugOrId = parseResult.GetValue(idArg)!;
             var output = parseResult.GetValue(outputOption) ?? "table";
             var client = ClientFactory.Create();
-            var result = await client.GetInstalledConnectorAsync(slugOrId, ct);
+            // Post-#714 the tenant install envelope rides on the pivoted
+            // GET /api/v1/connectors/{slugOrId} endpoint (was
+            // GET /api/v1/connectors/{slug}/install).
+            var result = await client.GetConnectorAsync(slugOrId, ct);
             if (result is null)
             {
                 await Console.Error.WriteLineAsync(

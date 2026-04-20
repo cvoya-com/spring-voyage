@@ -3,9 +3,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 
-import type { ConnectorTypeResponse } from "@/lib/api/types";
+import type { InstalledConnectorResponse } from "@/lib/api/types";
 
-const listConnectors = vi.fn<() => Promise<ConnectorTypeResponse[]>>();
+const listConnectors = vi.fn<() => Promise<InstalledConnectorResponse[]>>();
 
 vi.mock("@/lib/api/client", () => ({
   api: {
@@ -48,7 +48,7 @@ describe("ConnectorsListPage", () => {
     listConnectors.mockReset();
   });
 
-  it("renders one card per registered connector type with a link to its detail page", async () => {
+  it("renders one card per installed connector with a link to its detail page", async () => {
     listConnectors.mockResolvedValue([
       {
         typeId: "github-id",
@@ -58,7 +58,7 @@ describe("ConnectorsListPage", () => {
         configUrl: "/api/v1/connectors/github/units/{unitId}/config",
         actionsBaseUrl: "/api/v1/connectors/github/actions",
         configSchemaUrl: "/api/v1/connectors/github/config-schema",
-      } as ConnectorTypeResponse,
+      } as InstalledConnectorResponse,
       {
         typeId: "slack-id",
         typeSlug: "slack",
@@ -67,7 +67,7 @@ describe("ConnectorsListPage", () => {
         configUrl: "/api/v1/connectors/slack/units/{unitId}/config",
         actionsBaseUrl: "/api/v1/connectors/slack/actions",
         configSchemaUrl: "/api/v1/connectors/slack/config-schema",
-      } as ConnectorTypeResponse,
+      } as InstalledConnectorResponse,
     ]);
 
     renderPage();
@@ -83,14 +83,14 @@ describe("ConnectorsListPage", () => {
     expect(githubLink).toHaveAttribute("href", "/connectors/github");
   });
 
-  it("renders the empty state when no connectors are registered", async () => {
+  it("renders the empty state when no connectors are installed on the tenant", async () => {
     listConnectors.mockResolvedValue([]);
 
     renderPage();
 
     await waitFor(() => {
       expect(
-        screen.getByText(/No connector types registered\./i),
+        screen.getByText(/No connectors installed on this tenant\./i),
       ).toBeInTheDocument();
     });
     const packagesLink = screen.getByRole("link", { name: /Packages/i });
