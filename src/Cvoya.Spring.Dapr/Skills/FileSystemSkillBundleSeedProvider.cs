@@ -5,49 +5,45 @@ namespace Cvoya.Spring.Dapr.Skills;
 
 using System.IO;
 
+using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Tenancy;
 
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 /// <summary>
-/// Tenant seed provider adapter that lets the OSS file-system skill
-/// bundle resolver participate in the default-tenant bootstrap pass.
+/// Tenant seed provider that walks the on-disk packages root and binds
+/// every discovered bundle to the bootstrapped tenant via
+/// <see cref="ITenantSkillBundleBindingService"/>. Bindings default to
+/// <c>enabled=true</c> so a fresh OSS deployment surfaces every shipped
+/// bundle to the default tenant.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <strong>What this seeds.</strong> Today the OSS skill bundle layer
-/// has no per-tenant install table — bundles are read from disk on
-/// demand by <see cref="FileSystemSkillBundleResolver"/>, and units
-/// pick the bundles they want via the manifest. There is therefore
-/// nothing for this provider to upsert. Its real job is to enumerate
-/// the on-disk packages root and emit one <c>Information</c>-level
-/// log entry per discovered package so operators can confirm at boot
-/// time that the file-system layout matches what the manifest layer
-/// will look for. The skill-bundle tenant binding table that would
-/// give this provider real upsert work is a Phase 2 sub-issue (see
-/// the comment in #676's "Out of scope" section); when it lands the
-/// upsert logic slots into this provider without changing the
-/// <see cref="ITenantSeedProvider"/> contract or the bootstrap caller.
-/// </para>
-/// <para>
-/// <strong>Idempotency.</strong> Pure read-only enumeration. Re-runs
-/// produce the same log lines and never mutate state.
+/// <strong>Idempotency.</strong> <see cref="ITenantSkillBundleBindingService.BindAsync"/>
+/// is upsert-shaped — re-running the provider on an existing deployment
+/// refreshes no persistent state. Skipped binds are logged at
+/// <c>Debug</c> level by the service; the provider itself logs every
+/// discovered package at <c>Information</c> so operators can confirm the
+/// file-system layout matches what the manifest layer will look for.
 /// </para>
 /// <para>
 /// <strong>Failure mode.</strong> A misconfigured packages root
-/// (missing directory, no <c>Skills:PackagesRoot</c> set) is logged
-/// at <c>Warning</c> level and the provider returns without throwing
-/// — an OSS deployment that does not ship bundles must still be able
-/// to bootstrap. The
-/// <see cref="FileSystemSkillBundleResolver"/> itself throws on a
-/// missing root the first time a unit asks for a bundle, which is the
-/// correct fail-loud surface for the operator-driven "install this
-/// unit" flow.
+/// (missing directory, no <c>Skills:PackagesRoot</c> set) is logged at
+/// <c>Warning</c> level and the provider returns without throwing — an
+/// OSS deployment that does not ship bundles must still bootstrap.
+/// </para>
+/// <para>
+/// <strong>DI lifecycle.</strong> Registered as a singleton; opens a
+/// child DI scope per bootstrap pass so the scoped
+/// <see cref="ITenantSkillBundleBindingService"/> (which holds a
+/// <see cref="Data.SpringDbContext"/>) resolves correctly.
 /// </para>
 /// </remarks>
 public class FileSystemSkillBundleSeedProvider(
     IOptions<SkillBundleOptions> options,
+    IServiceScopeFactory scopeFactory,
     ILogger<FileSystemSkillBundleSeedProvider> logger) : ITenantSeedProvider
 {
     private readonly SkillBundleOptions _options = options.Value;
@@ -66,7 +62,7 @@ public class FileSystemSkillBundleSeedProvider(
     public int Priority => 10;
 
     /// <inheritdoc />
-    public Task ApplySeedsAsync(string tenantId, CancellationToken cancellationToken)
+    public async Task ApplySeedsAsync(string tenantId, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(tenantId);
 
@@ -76,7 +72,7 @@ public class FileSystemSkillBundleSeedProvider(
             logger.LogWarning(
                 "Tenant '{TenantId}' skill-bundle seed: 'Skills:PackagesRoot' is not configured; skipping enumeration.",
                 tenantId);
-            return Task.CompletedTask;
+            return;
         }
 
         if (!Directory.Exists(root))
@@ -84,33 +80,48 @@ public class FileSystemSkillBundleSeedProvider(
             logger.LogWarning(
                 "Tenant '{TenantId}' skill-bundle seed: configured packages root '{PackagesRoot}' does not exist; skipping enumeration.",
                 tenantId, root);
-            return Task.CompletedTask;
+            return;
         }
 
-        var packageCount = 0;
+        var discovered = new List<(string BundleId, int SkillCount)>();
         foreach (var packageDir in Directory.EnumerateDirectories(root))
         {
             cancellationToken.ThrowIfCancellationRequested();
 
             var packageName = Path.GetFileName(packageDir);
             var skillsDir = Path.Combine(packageDir, "skills");
-            var skillCount = 0;
-            if (Directory.Exists(skillsDir))
-            {
-                skillCount = Directory.EnumerateFiles(skillsDir, "*.md").Count();
-            }
+            var skillCount = Directory.Exists(skillsDir)
+                ? Directory.EnumerateFiles(skillsDir, "*.md").Count()
+                : 0;
 
             logger.LogInformation(
                 "Tenant '{TenantId}' skill-bundle seed: discovered package '{Package}' with {SkillCount} skill(s).",
                 tenantId, packageName, skillCount);
 
-            packageCount++;
+            discovered.Add((packageName, skillCount));
+        }
+
+        if (discovered.Count == 0)
+        {
+            logger.LogInformation(
+                "Tenant '{TenantId}' skill-bundle seed: no packages under '{PackagesRoot}'; nothing to bind.",
+                tenantId, root);
+            return;
+        }
+
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var bindingService = scope.ServiceProvider
+            .GetRequiredService<ITenantSkillBundleBindingService>();
+
+        foreach (var (bundleId, _) in discovered)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await bindingService.BindAsync(bundleId, enabled: true, cancellationToken)
+                .ConfigureAwait(false);
         }
 
         logger.LogInformation(
-            "Tenant '{TenantId}' skill-bundle seed: enumerated {PackageCount} package(s) under '{PackagesRoot}'.",
-            tenantId, packageCount, root);
-
-        return Task.CompletedTask;
+            "Tenant '{TenantId}' skill-bundle seed: bound {PackageCount} package(s) from '{PackagesRoot}'.",
+            tenantId, discovered.Count, root);
     }
 }

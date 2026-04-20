@@ -209,7 +209,14 @@ public static class ServiceCollectionExtensions
         // cloud host can register a tenant-scoped bundle store or validator
         // without touching the API layer.
         services.AddOptions<SkillBundleOptions>().BindConfiguration(SkillBundleOptions.SectionName);
-        services.TryAddSingleton<ISkillBundleResolver, FileSystemSkillBundleResolver>();
+        // #687: resolve `ISkillBundleResolver` through a tenant-filtering
+        // decorator so bundles surface only when the current tenant has an
+        // `enabled=true` binding. The inner file-system resolver stays a
+        // singleton (its cache is restart-scoped); the decorator is scoped
+        // because the binding service holds a SpringDbContext.
+        services.TryAddSingleton<FileSystemSkillBundleResolver>();
+        services.TryAddScoped<ISkillBundleResolver, TenantFilteringSkillBundleResolver>();
+        services.TryAddScoped<ITenantSkillBundleBindingService, DefaultTenantSkillBundleBindingService>();
         services.TryAddScoped<ISkillBundleValidator, DefaultSkillBundleValidator>();
         services.TryAddSingleton<IUnitSkillBundleStore, StateStoreBackedUnitSkillBundleStore>();
 

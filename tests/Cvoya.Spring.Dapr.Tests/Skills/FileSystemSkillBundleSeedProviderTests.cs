@@ -10,11 +10,15 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 
+using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Dapr.Skills;
 
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+
+using NSubstitute;
 
 using Shouldly;
 
@@ -22,8 +26,10 @@ using Xunit;
 
 /// <summary>
 /// Tests for <see cref="FileSystemSkillBundleSeedProvider"/>. Verify the
-/// adapter is read-only / idempotent, logs every discovered package, and
-/// degrades cleanly (warn + return) when the packages root is missing.
+/// adapter enumerates the packages root, binds every discovered bundle
+/// with <c>enabled=true</c> via
+/// <see cref="ITenantSkillBundleBindingService"/>, and degrades cleanly
+/// (warn + return) when the packages root is missing.
 /// </summary>
 public class FileSystemSkillBundleSeedProviderTests : IDisposable
 {
@@ -53,7 +59,7 @@ public class FileSystemSkillBundleSeedProviderTests : IDisposable
     [Fact]
     public void Id_Is_Stable_And_Priority_Is_DocumentedSlot()
     {
-        var sut = CreateSut();
+        var (sut, _) = CreateSut();
 
         sut.Id.ShouldBe("skill-bundles");
         sut.Priority.ShouldBe(10);
@@ -66,102 +72,123 @@ public class FileSystemSkillBundleSeedProviderTests : IDisposable
         WritePackage("research", new[] { "summarise.md" });
 
         var logger = new CapturingLogger<FileSystemSkillBundleSeedProvider>();
-        var sut = CreateSut(logger);
+        var (sut, _) = CreateSut(logger);
 
         await sut.ApplySeedsAsync("default", TestContext.Current.CancellationToken);
 
-        // Two per-package log lines + one summary line.
         var infos = logger.Entries.Where(e => e.Level == LogLevel.Information).ToArray();
         infos.Count(e => e.Message.Contains("software-engineering")).ShouldBe(1);
         infos.Count(e => e.Message.Contains("research")).ShouldBe(1);
-        infos.Count(e => e.Message.Contains("enumerated 2 package")).ShouldBe(1);
+        infos.Count(e => e.Message.Contains("bound 2 package")).ShouldBe(1);
     }
 
     [Fact]
-    public async Task ApplySeedsAsync_EmitsSkillCounts_PerPackage()
+    public async Task ApplySeedsAsync_BindsEveryDiscoveredPackage()
     {
-        WritePackage("se", new[] { "a.md", "b.md", "c.md" });
+        WritePackage("software-engineering", new[] { "triage.md" });
+        WritePackage("research", new[] { "summarise.md" });
 
-        var logger = new CapturingLogger<FileSystemSkillBundleSeedProvider>();
-        var sut = CreateSut(logger);
+        var (sut, bindingService) = CreateSut();
 
         await sut.ApplySeedsAsync("default", TestContext.Current.CancellationToken);
 
-        logger.Entries
-            .Any(e => e.Message.Contains("'se'") && e.Message.Contains("3 skill"))
-            .ShouldBeTrue();
+        await bindingService.Received(1).BindAsync(
+            "software-engineering",
+            enabled: true,
+            Arg.Any<CancellationToken>());
+        await bindingService.Received(1).BindAsync(
+            "research",
+            enabled: true,
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task ApplySeedsAsync_NoPackagesRoot_LogsWarningAndReturns()
     {
         var logger = new CapturingLogger<FileSystemSkillBundleSeedProvider>();
-        var sut = new FileSystemSkillBundleSeedProvider(
-            Options.Create(new SkillBundleOptions { PackagesRoot = null }),
-            logger);
+        var (sut, bindingService) = CreateSut(logger, rootConfigured: false);
 
         await Should.NotThrowAsync(
             () => sut.ApplySeedsAsync("default", TestContext.Current.CancellationToken));
 
-        logger.Entries.ShouldContain(e => e.Level == LogLevel.Warning && e.Message.Contains("not configured"));
+        logger.Entries.ShouldContain(
+            e => e.Level == LogLevel.Warning && e.Message.Contains("not configured"));
+        await bindingService.DidNotReceive().BindAsync(
+            Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task ApplySeedsAsync_PackagesRootMissing_LogsWarningAndReturns()
     {
         var logger = new CapturingLogger<FileSystemSkillBundleSeedProvider>();
-        var sut = new FileSystemSkillBundleSeedProvider(
-            Options.Create(new SkillBundleOptions
-            {
-                PackagesRoot = Path.Combine(_root, "does-not-exist"),
-            }),
-            logger);
+        var (sut, bindingService) = CreateSut(
+            logger,
+            customRoot: Path.Combine(_root, "does-not-exist"));
 
         await Should.NotThrowAsync(
             () => sut.ApplySeedsAsync("default", TestContext.Current.CancellationToken));
 
-        logger.Entries.ShouldContain(e => e.Level == LogLevel.Warning && e.Message.Contains("does not exist"));
+        logger.Entries.ShouldContain(
+            e => e.Level == LogLevel.Warning && e.Message.Contains("does not exist"));
+        await bindingService.DidNotReceive().BindAsync(
+            Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task ApplySeedsAsync_TenantIdRequired()
     {
-        var sut = CreateSut();
+        var (sut, _) = CreateSut();
 
         await Should.ThrowAsync<ArgumentException>(
             () => sut.ApplySeedsAsync(string.Empty, TestContext.Current.CancellationToken));
     }
 
     [Fact]
-    public async Task ApplySeedsAsync_RunTwice_ProducesNoSideEffects()
+    public async Task ApplySeedsAsync_RunTwice_IsIdempotent()
     {
-        // Idempotency for a read-only provider means: rerunning yields the
-        // same observable behaviour and never mutates the on-disk layout.
+        // The service-level BindAsync is upsert-shaped. The provider must
+        // call it exactly once per package per pass, and a second pass
+        // must produce the same call count — the second run is
+        // semantically a no-op against existing rows.
         WritePackage("se", new[] { "a.md" });
 
-        var logger = new CapturingLogger<FileSystemSkillBundleSeedProvider>();
-        var sut = CreateSut(logger);
+        var (sut, bindingService) = CreateSut();
 
         await sut.ApplySeedsAsync("default", TestContext.Current.CancellationToken);
-        var entriesAfterFirst = logger.Entries.Count;
-
         await sut.ApplySeedsAsync("default", TestContext.Current.CancellationToken);
-        var entriesAfterSecond = logger.Entries.Count;
 
-        // Each call emits the same number of entries — no duplicate
-        // "wrote new row" signals because there are no rows to write.
-        (entriesAfterSecond - entriesAfterFirst).ShouldBe(entriesAfterFirst);
-
-        // On-disk state must not have changed (no row creation, no
-        // file writes).
-        Directory.EnumerateFiles(_root, "*", SearchOption.AllDirectories)
-            .Count().ShouldBe(1);
+        await bindingService.Received(2).BindAsync(
+            "se", enabled: true, Arg.Any<CancellationToken>());
     }
 
-    private FileSystemSkillBundleSeedProvider CreateSut(ILogger<FileSystemSkillBundleSeedProvider>? logger = null)
-        => new(
-            Options.Create(new SkillBundleOptions { PackagesRoot = _root }),
+    private (FileSystemSkillBundleSeedProvider Provider, ITenantSkillBundleBindingService BindingService) CreateSut(
+        ILogger<FileSystemSkillBundleSeedProvider>? logger = null,
+        bool rootConfigured = true,
+        string? customRoot = null)
+    {
+        // Build a service provider whose scope resolves the substitute
+        // binding service — mirrors the production DI graph where the
+        // seed provider opens a child scope per pass and resolves the
+        // scoped binding service from it.
+        var bindingService = Substitute.For<ITenantSkillBundleBindingService>();
+        bindingService
+            .BindAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(ci => Task.FromResult(new TenantSkillBundleBinding(
+                TenantId: "default",
+                BundleId: ci.Arg<string>(),
+                Enabled: ci.Arg<bool>(),
+                BoundAt: DateTimeOffset.UtcNow)));
+
+        var services = new ServiceCollection();
+        services.AddSingleton(bindingService);
+        string? rootValue = customRoot ?? (rootConfigured ? _root : null);
+
+        var provider = new FileSystemSkillBundleSeedProvider(
+            Options.Create(new SkillBundleOptions { PackagesRoot = rootValue }),
+            services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(),
             logger ?? NullLogger<FileSystemSkillBundleSeedProvider>.Instance);
+        return (provider, bindingService);
+    }
 
     private void WritePackage(string packageDir, string[] skillFiles)
     {

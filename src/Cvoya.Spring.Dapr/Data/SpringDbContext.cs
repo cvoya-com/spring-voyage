@@ -102,6 +102,9 @@ public class SpringDbContext : DbContext
     /// <summary>Gets the set of credential-health rows (runtimes + connectors).</summary>
     public DbSet<CredentialHealthEntity> CredentialHealth => Set<CredentialHealthEntity>();
 
+    /// <summary>Gets the set of per-tenant skill-bundle binding rows.</summary>
+    public DbSet<TenantSkillBundleBindingEntity> TenantSkillBundleBindings => Set<TenantSkillBundleBindingEntity>();
+
     /// <inheritdoc />
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -127,6 +130,7 @@ public class SpringDbContext : DbContext
         modelBuilder.ApplyConfiguration(new TenantAgentRuntimeInstallEntityConfiguration());
         modelBuilder.ApplyConfiguration(new TenantConnectorInstallEntityConfiguration());
         modelBuilder.ApplyConfiguration(new CredentialHealthEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new TenantSkillBundleBindingEntityConfiguration());
 
         // Combined tenant + soft-delete query filters. Each filter
         // captures <c>this</c>, so EF Core parameterises the tenant-id
@@ -154,6 +158,8 @@ public class SpringDbContext : DbContext
         modelBuilder.Entity<TenantConnectorInstallEntity>()
             .HasQueryFilter(e => e.TenantId == CurrentTenantId && e.DeletedAt == null);
         modelBuilder.Entity<CredentialHealthEntity>()
+            .HasQueryFilter(e => e.TenantId == CurrentTenantId);
+        modelBuilder.Entity<TenantSkillBundleBindingEntity>()
             .HasQueryFilter(e => e.TenantId == CurrentTenantId);
     }
 

@@ -350,7 +350,15 @@ Every user-facing feature must ship through BOTH the web portal UI and the `spri
 
 **Admin/operator carve-out (OSS only, per #674):** agent-runtime config (`spring agent-runtime …`), connector config (`spring connector …`), credential health, tenant seeds, and skill-bundle bindings are CLI-only in the OSS core by design. The portal MAY expose read-only views for visibility, but mutations are via the CLI. This carve-out is ADDITIVE to the parity rule — user-facing features remain parity-bound.
 
-## 15. Credential-Health Watchdog
+## 15. Skill-Bundle Tenant Binding
+
+Tenants see only skill bundles bound to them. Discovery stays filesystem-based — `FileSystemSkillBundleResolver` walks the packages root — but `TenantFilteringSkillBundleResolver` wraps it and checks the current tenant's `ITenantSkillBundleBindingService` for an `enabled=true` row before delegating. Unbound or disabled bundles surface as `SkillBundlePackageNotFoundException`, indistinguishable from a missing package so callers never leak the existence of bundles they can't use.
+
+- Bootstrap populates default-tenant bindings from the on-disk packages layout (via `FileSystemSkillBundleSeedProvider`). The Worker host runs bootstrap at startup; the API host reads the bindings.
+- A `spring skill-bundle …` CLI to mutate bindings is V2.1 — V2 does not expose mutation over HTTP or CLI. Operator surfaces stay read-only.
+- A manifest entry like `spring-voyage/software-engineering` looks up the binding keyed on the package directory name `software-engineering`. Prefix normalization lives in both the inner resolver and the decorator — they must not diverge.
+
+## 16. Credential-Health Watchdog
 
 Every `HttpClient` used by an agent runtime or connector that authenticates against a remote service MUST flow through the `CredentialHealthWatchdogHandler` (`src/Cvoya.Spring.Dapr/CredentialHealth/`). Without it, revoked or expired tokens surface only when a unit fails at run-time — the operator sees no accumulating signal.
 

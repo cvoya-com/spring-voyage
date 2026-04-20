@@ -10,6 +10,7 @@ using Cvoya.Spring.Core.Costs;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Observability;
 using Cvoya.Spring.Core.Secrets;
+using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.State;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Auth;
@@ -276,6 +277,32 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
             services.AddSingleton(SecretAccessPolicy);
             services.AddSingleton(ExpertiseSearch);
             services.AddSingleton(new DirectoryCache());
+
+            // #687: the skill-bundle resolver is now wrapped in a
+            // tenant-filtering decorator that requires an enabled binding
+            // row before resolving. The integration test host does NOT
+            // register the default-tenant bootstrap (Worker owns it in
+            // production), so no bindings exist and every bundle resolve
+            // would 404. Substitute an allow-all binding service so tests
+            // that plant on-disk bundles (e.g. UnitCreationEndpointTests)
+            // resolve them transparently — mirrors the post-bootstrap
+            // state.
+            var bindingDescriptors = services
+                .Where(d => d.ServiceType == typeof(ITenantSkillBundleBindingService))
+                .ToList();
+            foreach (var descriptor in bindingDescriptors)
+            {
+                services.Remove(descriptor);
+            }
+            var bindingStub = Substitute.For<ITenantSkillBundleBindingService>();
+            bindingStub.GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+                .Returns(ci => Task.FromResult<TenantSkillBundleBinding?>(
+                    new TenantSkillBundleBinding(
+                        TenantId: "default",
+                        BundleId: ci.Arg<string>(),
+                        Enabled: true,
+                        BoundAt: DateTimeOffset.UtcNow)));
+            services.AddSingleton(bindingStub);
 
             // Remove and re-register permission service.
             var permDescriptors = services
