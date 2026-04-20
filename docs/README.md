@@ -32,6 +32,7 @@ How the concepts are realized as a running system.
 - [Deployment](architecture/deployment.md) -- execution modes, solution structure
 - [Security](architecture/security.md) -- RBAC, authentication, resilience
 - [Packages](architecture/packages.md) -- domain packages, skill format
+- [Agent Runtimes & Tenant Scoping](architecture/agent-runtimes-and-tenant-scoping.md) -- V2 plugin model, tenant installs, credential-health lifecycle (#674)
 - [Open Questions](architecture/open-questions.md) -- design questions, future work
 
 ### [User Guide](guide/overview.md)
