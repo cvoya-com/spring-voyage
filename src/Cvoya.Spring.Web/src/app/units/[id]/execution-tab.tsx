@@ -18,8 +18,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/api/client";
 import {
+  useAgentRuntimeModels,
   useProviderCredentialStatus,
-  useProviderModels,
   useUnitExecution,
 } from "@/lib/api/queries";
 import { queryKeys } from "@/lib/api/query-keys";
@@ -29,7 +29,35 @@ import {
   EXECUTION_RUNTIMES,
   EXECUTION_TOOL_KEYS,
 } from "@/lib/api/types";
-import { getToolModelProvider, type ExecutionTool } from "@/lib/ai-models";
+import { getToolRuntimeId, type ExecutionTool } from "@/lib/ai-models";
+
+/**
+ * #735: collapse the canonical provider string space
+ * (`anthropic`/`openai`/`google`/`ollama`) onto the runtime id space the
+ * agent-runtimes endpoint keys on. Anthropic's runtime id is `claude`;
+ * everything else round-trips verbatim. Returns `null` when the provider
+ * isn't a known runtime — the caller renders a free-text Model input in
+ * that case.
+ */
+function providerToRuntimeId(provider: string): string | null {
+  const normalised = provider.trim().toLowerCase();
+  if (!normalised) return null;
+  switch (normalised) {
+    case "claude":
+    case "anthropic":
+      return "claude";
+    case "openai":
+      return "openai";
+    case "google":
+    case "gemini":
+    case "googleai":
+      return "google";
+    case "ollama":
+      return "ollama";
+    default:
+      return null;
+  }
+}
 
 /**
  * Unit Execution tab (#601 / #603 / #409 B-wide, portal half).
@@ -109,25 +137,30 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
 
   // #641: tools that hide Provider (claude-code / codex / gemini) still
   // expose a Model dropdown populated from that tool's catalog. Derive
-  // the catalog provider from the effective tool; use the explicit
-  // Provider value when dapr-agent is active. `custom` returns null,
-  // which collapses the Model slot entirely.
+  // the runtime id from the effective tool; use the explicit Provider
+  // value when dapr-agent is active. `custom` returns null, which
+  // collapses the Model slot entirely. #735: route the catalog through
+  // `useAgentRuntimeModels` so the hardcoded provider→model table is
+  // gone — the tenant's installed runtimes are the single source of
+  // truth.
   const toolForCatalog = effectiveToolForGating as ExecutionTool | null;
-  const toolModelProvider =
-    toolForCatalog !== null ? getToolModelProvider(toolForCatalog) : null;
-  const providerForModels = showProvider
-    ? (form.provider ?? "")
-    : (toolModelProvider ?? "");
-  const showModel = showProvider || toolModelProvider !== null;
+  const toolRuntimeId =
+    toolForCatalog !== null ? getToolRuntimeId(toolForCatalog) : null;
+  const runtimeIdForModels = showProvider
+    ? providerToRuntimeId(form.provider ?? "")
+    : toolRuntimeId;
+  const showModel = showProvider || toolRuntimeId !== null;
 
   // Provider-dependent model suggestions (#597 / PR #613). The field is
   // a plain text input when no provider is selected, falling back to a
   // dropdown when we have a known set.
-  const providerModelsEnabled = Boolean(providerForModels);
-  const providerModelsQuery = useProviderModels(providerForModels, {
-    enabled: providerModelsEnabled,
-  });
-  const providerModels = providerModelsQuery.data ?? null;
+  const providerModelsEnabled = runtimeIdForModels !== null;
+  const agentRuntimeModelsQuery = useAgentRuntimeModels(
+    runtimeIdForModels ?? "",
+    { enabled: providerModelsEnabled },
+  );
+  const providerModels =
+    agentRuntimeModelsQuery.data?.map((m) => m.id) ?? null;
 
   const setMutation = useMutation({
     mutationFn: async (

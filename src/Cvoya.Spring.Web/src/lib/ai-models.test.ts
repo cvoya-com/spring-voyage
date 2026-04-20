@@ -1,71 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  AI_PROVIDERS,
   DEFAULT_EXECUTION_TOOL,
   DEFAULT_HOSTING_MODE,
-  DEFAULT_MODEL,
-  DEFAULT_PROVIDER_ID,
   EXECUTION_TOOLS,
   HOSTING_MODES,
-  getProvider,
+  getToolRuntimeId,
+  getToolWireProvider,
+  getRuntimeSecretName,
 } from "./ai-models";
-
-describe("ai-models catalog", () => {
-  it("exposes at least one provider", () => {
-    expect(AI_PROVIDERS.length).toBeGreaterThan(0);
-  });
-
-  it("ships at least one model per provider", () => {
-    for (const provider of AI_PROVIDERS) {
-      expect(provider.models.length).toBeGreaterThan(0);
-    }
-  });
-
-  it("uses the first provider as the default", () => {
-    expect(DEFAULT_PROVIDER_ID).toBe(AI_PROVIDERS[0].id);
-  });
-
-  it("uses the first provider's first model as the default", () => {
-    expect(DEFAULT_MODEL).toBe(AI_PROVIDERS[0].models[0]);
-  });
-
-  it("keeps the platform-wide claude-sonnet-4 default in sync", () => {
-    // Bug #258: changing this string requires a matching change to
-    // Cvoya.Spring.Dapr/Execution/AiProviderOptions.cs. Catch drift early.
-    expect(DEFAULT_MODEL).toBe("claude-sonnet-4-20250514");
-  });
-
-  it("includes claude, openai, google, and ollama providers", () => {
-    const ids = AI_PROVIDERS.map((p) => p.id);
-    expect(ids).toContain("claude");
-    expect(ids).toContain("openai");
-    expect(ids).toContain("google");
-    expect(ids).toContain("ollama");
-  });
-
-  it("ollama provider includes recommended models", () => {
-    const ollama = getProvider("ollama");
-    expect(ollama.models).toContain("qwen2.5:14b");
-    expect(ollama.models).toContain("llama3.2:3b");
-    expect(ollama.models).toContain("llama3.1:8b");
-    expect(ollama.models).toContain("mistral:7b");
-    expect(ollama.models).toContain("deepseek-coder-v2:16b");
-  });
-
-  it("openai provider includes gpt-4o models", () => {
-    const openai = getProvider("openai");
-    expect(openai.models).toContain("gpt-4o");
-    expect(openai.models).toContain("gpt-4o-mini");
-    expect(openai.models).toContain("o3-mini");
-  });
-
-  it("google provider includes gemini-2.5 models", () => {
-    const google = getProvider("google");
-    expect(google.models).toContain("gemini-2.5-pro");
-    expect(google.models).toContain("gemini-2.5-flash");
-  });
-});
 
 describe("execution tools", () => {
   it("has claude-code as the default execution tool", () => {
@@ -94,19 +37,47 @@ describe("hosting modes", () => {
   });
 });
 
-describe("getProvider", () => {
-  it("returns the matching provider when the id is known", () => {
-    const provider = getProvider("claude");
-    expect(provider.id).toBe("claude");
+describe("getToolRuntimeId", () => {
+  it("maps fixed-provider tools to their canonical runtime id", () => {
+    expect(getToolRuntimeId("claude-code")).toBe("claude");
+    expect(getToolRuntimeId("codex")).toBe("openai");
+    expect(getToolRuntimeId("gemini")).toBe("google");
   });
 
-  it("falls back to the first provider when the id is unknown", () => {
-    const provider = getProvider("not-a-provider");
-    expect(provider.id).toBe(AI_PROVIDERS[0].id);
+  it("returns null for tools that don't imply a runtime", () => {
+    expect(getToolRuntimeId("dapr-agent")).toBeNull();
+    expect(getToolRuntimeId("custom")).toBeNull();
+  });
+});
+
+describe("getToolWireProvider", () => {
+  it("carries a fixed provider for Claude / Codex / Gemini", () => {
+    expect(getToolWireProvider("claude-code", null)).toBe("claude");
+    expect(getToolWireProvider("codex", null)).toBe("openai");
+    expect(getToolWireProvider("gemini", null)).toBe("google");
   });
 
-  it("falls back to the first provider on empty string", () => {
-    const provider = getProvider("");
-    expect(provider.id).toBe(AI_PROVIDERS[0].id);
+  it("passes the dapr-agent runtime id through verbatim", () => {
+    expect(getToolWireProvider("dapr-agent", "ollama")).toBe("ollama");
+    expect(getToolWireProvider("dapr-agent", null)).toBeUndefined();
+  });
+
+  it("returns undefined for custom tools", () => {
+    expect(getToolWireProvider("custom", null)).toBeUndefined();
+  });
+});
+
+describe("getRuntimeSecretName", () => {
+  it("returns the canonical secret name for each provider alias", () => {
+    expect(getRuntimeSecretName("claude")).toBe("anthropic-api-key");
+    expect(getRuntimeSecretName("anthropic")).toBe("anthropic-api-key");
+    expect(getRuntimeSecretName("openai")).toBe("openai-api-key");
+    expect(getRuntimeSecretName("google")).toBe("google-api-key");
+    expect(getRuntimeSecretName("gemini")).toBe("google-api-key");
+  });
+
+  it("returns null for providers without a known secret", () => {
+    expect(getRuntimeSecretName("ollama")).toBeNull();
+    expect(getRuntimeSecretName("unknown")).toBeNull();
   });
 });

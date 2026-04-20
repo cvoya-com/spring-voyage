@@ -5,14 +5,11 @@ import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import {
-  AI_PROVIDERS,
-  DEFAULT_MODEL,
-  getProvider,
-} from "@/lib/ai-models";
+import { useAgentRuntimes } from "@/lib/api/queries";
 import type {
   AgentExecutionMode,
   AgentResponse,
+  InstalledAgentRuntimeResponse,
   UnitMembershipResponse,
 } from "@/lib/api/types";
 
@@ -84,8 +81,33 @@ export function MembershipDialog({
   onCancel,
   onSubmit,
 }: MembershipDialogProps) {
+  // #690 / #735: model catalog is sourced from the tenant-installed agent
+  // runtimes. The hook returns the runtimes + their configured model lists
+  // so the dropdown can render grouped options without a hardcoded
+  // fallback. Runtimes the tenant has not installed are invisible here —
+  // the caller can still type any server-accepted value via the "keep
+  // current" option below, so an unknown persisted model round-trips
+  // losslessly.
+  const agentRuntimesQuery = useAgentRuntimes();
+  const runtimes = useMemo<InstalledAgentRuntimeResponse[]>(
+    () => agentRuntimesQuery.data ?? [],
+    [agentRuntimesQuery.data],
+  );
+
+  // Default model: the first installed runtime's `defaultModel` (falling
+  // back to its first configured model), or the empty string when no
+  // runtimes are installed yet. Resolved lazily via a helper so the
+  // useEffect seeding below can read the freshest value each time.
+  const defaultModel = useMemo<string>(() => {
+    for (const r of runtimes) {
+      if (r.defaultModel) return r.defaultModel;
+      if (r.models && r.models.length > 0) return r.models[0];
+    }
+    return "";
+  }, [runtimes]);
+
   const [agentAddress, setAgentAddress] = useState("");
-  const [model, setModel] = useState<string>(DEFAULT_MODEL);
+  const [model, setModel] = useState<string>("");
   const [specialty, setSpecialty] = useState("");
   const [enabled, setEnabled] = useState(true);
   const [executionMode, setExecutionMode] = useState<AgentExecutionMode>("Auto");
@@ -102,40 +124,43 @@ export function MembershipDialog({
     setSubmitting(false);
     if (mode === "edit" && initial) {
       setAgentAddress(initial.agentAddress);
-      setModel(initial.model ?? DEFAULT_MODEL);
+      setModel(initial.model ?? defaultModel);
       setSpecialty(initial.specialty ?? "");
       setEnabled(initial.enabled);
       setExecutionMode(initial.executionMode ?? "Auto");
     } else {
       setAgentAddress("");
-      setModel(DEFAULT_MODEL);
+      setModel(defaultModel);
       setSpecialty("");
       setEnabled(true);
       setExecutionMode("Auto");
     }
-  }, [open, mode, initial]);
+  }, [open, mode, initial, defaultModel]);
 
-  // Flatten every provider's models into a single list. The server is the
-  // source of truth for which model strings are legal; the dropdown is a
-  // convenience so users don't have to remember the exact id. Grouping by
-  // provider (via <optgroup>) helps when the list grows.
+  // Group the dropdown by runtime (display name) so operators can see
+  // which provider a model comes from. Each runtime carries its own
+  // configured `models` list; empty lists collapse the optgroup entirely.
   const modelGroups = useMemo(
     () =>
-      AI_PROVIDERS.map((p) => ({
-        id: p.id,
-        label: p.displayName,
-        models: p.models,
-      })),
-    [],
+      runtimes
+        .map((r) => ({
+          id: r.id,
+          label: r.displayName,
+          models: r.models ?? [],
+        }))
+        .filter((g) => g.models.length > 0),
+    [runtimes],
   );
 
   // Also include the current model value in the dropdown even when the
-  // catalog doesn't know it (server-side the model may be anything). Without
-  // this, editing a membership whose model is outside the catalog would
-  // silently switch it to `DEFAULT_MODEL` on next change.
+  // catalog doesn't know it (server-side the model may be anything, and
+  // runtimes that aren't installed on this tenant aren't surfaced by the
+  // agent-runtimes endpoint). Without this, editing a membership whose
+  // model is outside the catalog would silently switch it to the default
+  // on next change.
   const isModelInCatalog = useMemo(() => {
-    return AI_PROVIDERS.some((p) => p.models.includes(model));
-  }, [model]);
+    return modelGroups.some((g) => g.models.includes(model));
+  }, [model, modelGroups]);
 
   const headerLabel = useMemo(() => {
     if (mode === "edit" && initial) {
@@ -239,7 +264,7 @@ export function MembershipDialog({
           )}
           {modelGroups.map((g) => (
             <optgroup key={g.id} label={g.label}>
-              {getProvider(g.id).models.map((m) => (
+              {g.models.map((m) => (
                 <option key={m} value={m}>
                   {m}
                 </option>

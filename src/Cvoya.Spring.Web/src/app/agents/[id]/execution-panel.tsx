@@ -19,8 +19,8 @@ import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/api/client";
 import {
   useAgentExecution,
+  useAgentRuntimeModels,
   useProviderCredentialStatus,
-  useProviderModels,
   useUnitExecution,
 } from "@/lib/api/queries";
 import { queryKeys } from "@/lib/api/query-keys";
@@ -34,7 +34,36 @@ import {
   EXECUTION_RUNTIMES,
   EXECUTION_TOOL_KEYS,
 } from "@/lib/api/types";
-import { getToolModelProvider, type ExecutionTool } from "@/lib/ai-models";
+import { getToolRuntimeId, type ExecutionTool } from "@/lib/ai-models";
+
+/**
+ * #735: the Execution-surface Provider dropdown standardises on the
+ * canonical names (`anthropic`/`openai`/`google`/`ollama`), while the
+ * agent-runtimes endpoint keys on the runtime id (`claude` for the
+ * Anthropic backend). Collapse the provider-string space to a runtime
+ * id so the Model dropdown below can drive `useAgentRuntimeModels`
+ * directly — the hook returns `null` when the runtime isn't installed
+ * on the tenant, which we surface as a free-text Model input.
+ */
+function providerToRuntimeId(provider: string): string | null {
+  const normalised = provider.trim().toLowerCase();
+  if (!normalised) return null;
+  switch (normalised) {
+    case "claude":
+    case "anthropic":
+      return "claude";
+    case "openai":
+      return "openai";
+    case "google":
+    case "gemini":
+    case "googleai":
+      return "google";
+    case "ollama":
+      return "ollama";
+    default:
+      return null;
+  }
+}
 
 /**
  * Agent Execution panel (#601 / #603 / #409 B-wide, portal half).
@@ -129,24 +158,34 @@ export function AgentExecutionPanel({
 
   // #641: tools that hide Provider (claude-code / codex / gemini) still
   // expose a Model dropdown populated from that tool's catalog. Derive
-  // the catalog provider from the effective tool; use the explicit
-  // Provider value when dapr-agent is active. `custom` and unset tool
-  // for a non-dapr-agent effective return null, which collapses the
-  // Model dropdown into the inherited/free-text fallback below.
+  // the runtime id from the effective tool; use the explicit Provider
+  // value when dapr-agent is active. `custom` and unset tool for a
+  // non-dapr-agent effective return null, which collapses the Model
+  // dropdown into the inherited/free-text fallback below. #735: route
+  // the catalog through `useAgentRuntimeModels` so the hardcoded
+  // provider→model table is gone — the tenant's installed runtimes
+  // are the single source of truth.
   const toolForCatalog = (effectiveToolForGating ?? null) as
     | ExecutionTool
     | null;
-  const toolModelProvider =
-    toolForCatalog !== null ? getToolModelProvider(toolForCatalog) : null;
-  const providerForModels = showProvider
-    ? (form.provider ?? persisted?.provider ?? unitDefaults?.provider ?? "")
-    : (toolModelProvider ?? "");
-  const showModel = showProvider || toolModelProvider !== null;
-  const providerModelsEnabled = Boolean(providerForModels);
-  const providerModelsQuery = useProviderModels(providerForModels, {
-    enabled: providerModelsEnabled,
-  });
-  const providerModels = providerModelsQuery.data ?? null;
+  const toolRuntimeId =
+    toolForCatalog !== null ? getToolRuntimeId(toolForCatalog) : null;
+  const runtimeIdForModels = showProvider
+    ? providerToRuntimeId(
+        form.provider ??
+          persisted?.provider ??
+          unitDefaults?.provider ??
+          "",
+      )
+    : toolRuntimeId;
+  const showModel = showProvider || toolRuntimeId !== null;
+  const agentRuntimeModelsQuery = useAgentRuntimeModels(
+    runtimeIdForModels ?? "",
+    { enabled: runtimeIdForModels !== null },
+  );
+  const providerModelsEnabled = runtimeIdForModels !== null;
+  const providerModels =
+    agentRuntimeModelsQuery.data?.map((m) => m.id) ?? null;
 
   const setMutation = useMutation({
     mutationFn: async (

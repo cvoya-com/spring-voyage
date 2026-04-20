@@ -1,3 +1,6 @@
+import type { ReactNode } from "react";
+
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   act,
   fireEvent,
@@ -10,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
   AgentResponse,
+  InstalledAgentRuntimeResponse,
   UnitMembershipResponse,
 } from "@/lib/api/types";
 
@@ -20,6 +24,11 @@ const listUnitMemberships =
 const listAgents = vi.fn<() => Promise<AgentResponse[]>>();
 const upsertUnitMembership = vi.fn();
 const deleteUnitMembership = vi.fn();
+// #735: MembershipDialog now sources its Model dropdown from the
+// agent-runtimes endpoint via `useAgentRuntimes`, so this stub is
+// required whenever the dialog opens.
+const listAgentRuntimes =
+  vi.fn<() => Promise<InstalledAgentRuntimeResponse[]>>();
 
 vi.mock("@/lib/api/client", () => ({
   api: {
@@ -29,6 +38,7 @@ vi.mock("@/lib/api/client", () => ({
       upsertUnitMembership(...args),
     deleteUnitMembership: (...args: unknown[]) =>
       deleteUnitMembership(...args),
+    listAgentRuntimes: () => listAgentRuntimes(),
   },
 }));
 
@@ -38,6 +48,23 @@ vi.mock("@/components/ui/toast", () => ({
 }));
 
 import { AgentsTab } from "./agents-tab";
+
+function Wrapper({ children }: { children: ReactNode }) {
+  const client = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false, gcTime: 0, staleTime: 0 },
+    },
+  });
+  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+}
+
+function renderAgentsTab(unitId: string) {
+  return render(
+    <Wrapper>
+      <AgentsTab unitId={unitId} />
+    </Wrapper>,
+  );
+}
 
 function makeAgent(overrides: Partial<AgentResponse> = {}): AgentResponse {
   return {
@@ -73,13 +100,41 @@ function makeMembership(
   };
 }
 
+// Minimal tenant-installed-runtime fixture modelled after
+// `InstalledAgentRuntimeResponse`. Only the fields the dialog reads
+// (`id`, `displayName`, `models`, `defaultModel`) are populated; the
+// rest default to whatever the test runtime tolerates so the contract
+// schema can grow without updating every test.
+const DEFAULT_RUNTIMES = [
+  {
+    id: "claude",
+    displayName: "Anthropic Claude",
+    models: [
+      "claude-sonnet-4-20250514",
+      "claude-opus-4-20250514",
+    ],
+    defaultModel: "claude-sonnet-4-20250514",
+  },
+  {
+    id: "openai",
+    displayName: "OpenAI",
+    models: ["gpt-4o", "gpt-4o-mini"],
+    defaultModel: "gpt-4o",
+  },
+] as unknown as InstalledAgentRuntimeResponse[];
+
 describe("AgentsTab", () => {
   beforeEach(() => {
     listUnitMemberships.mockReset();
     listAgents.mockReset();
     upsertUnitMembership.mockReset();
     deleteUnitMembership.mockReset();
+    listAgentRuntimes.mockReset();
     toastMock.mockReset();
+    // Every dialog-opening test needs the runtimes list available; the
+    // couple of tests that never open the dialog also benefit from a
+    // stable default so no path triggers an unmocked call.
+    listAgentRuntimes.mockResolvedValue(DEFAULT_RUNTIMES);
   });
 
   afterEach(() => {
@@ -90,7 +145,7 @@ describe("AgentsTab", () => {
     listUnitMemberships.mockResolvedValue([]);
     listAgents.mockResolvedValue([makeAgent({ name: "hopper" })]);
 
-    render(<AgentsTab unitId="engineering" />);
+    renderAgentsTab("engineering");
 
     await waitFor(() => {
       expect(
@@ -114,7 +169,7 @@ describe("AgentsTab", () => {
       }),
     ]);
 
-    render(<AgentsTab unitId="engineering" />);
+    renderAgentsTab("engineering");
 
     await waitFor(() => {
       expect(screen.getByText("Ada")).toBeInTheDocument();
@@ -137,7 +192,7 @@ describe("AgentsTab", () => {
     });
     upsertUnitMembership.mockResolvedValue(saved);
 
-    render(<AgentsTab unitId="engineering" />);
+    renderAgentsTab("engineering");
 
     await waitFor(() => {
       expect(
@@ -208,7 +263,7 @@ describe("AgentsTab", () => {
     });
     upsertUnitMembership.mockResolvedValue(updated);
 
-    render(<AgentsTab unitId="engineering" />);
+    renderAgentsTab("engineering");
 
     await waitFor(() => {
       expect(screen.getByText("Ada")).toBeInTheDocument();
@@ -255,7 +310,7 @@ describe("AgentsTab", () => {
       makeMembership({ agentAddress: "ada" }),
     ]);
 
-    render(<AgentsTab unitId="engineering" />);
+    renderAgentsTab("engineering");
 
     await waitFor(() => {
       expect(screen.getByText("Ada")).toBeInTheDocument();
@@ -285,7 +340,7 @@ describe("AgentsTab", () => {
     ]);
     deleteUnitMembership.mockResolvedValue(undefined);
 
-    render(<AgentsTab unitId="engineering" />);
+    renderAgentsTab("engineering");
 
     await waitFor(() => {
       expect(screen.getByText("Ada")).toBeInTheDocument();
@@ -319,7 +374,7 @@ describe("AgentsTab", () => {
       new Error("API error 400: Bad Request — model is required"),
     );
 
-    render(<AgentsTab unitId="engineering" />);
+    renderAgentsTab("engineering");
     await waitFor(() => {
       expect(
         screen.getByRole("button", { name: /add agent/i }),
@@ -359,7 +414,7 @@ describe("AgentsTab", () => {
       makeMembership({ agentAddress: "ada" }),
     ]);
 
-    render(<AgentsTab unitId="engineering" />);
+    renderAgentsTab("engineering");
     await waitFor(() => {
       expect(screen.getByText("Ada")).toBeInTheDocument();
     });
@@ -375,5 +430,53 @@ describe("AgentsTab", () => {
     const options = Array.from(agentSelect.options).map((o) => o.value);
     expect(options).toContain("hopper");
     expect(options).not.toContain("ada");
+  });
+
+  it("sources the Model dropdown from the tenant-installed runtimes (#735)", async () => {
+    const hopper = makeAgent({ name: "hopper", displayName: "Hopper" });
+    listAgents.mockResolvedValue([hopper]);
+    listUnitMemberships.mockResolvedValue([]);
+    // Override the default to prove the dropdown reflects the mocked
+    // runtimes payload rather than any hardcoded provider list.
+    listAgentRuntimes.mockResolvedValue([
+      {
+        id: "openai",
+        displayName: "OpenAI",
+        models: ["gpt-4o", "o3-mini"],
+        defaultModel: "gpt-4o",
+      } as unknown as InstalledAgentRuntimeResponse,
+    ]);
+
+    renderAgentsTab("engineering");
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /add agent/i }),
+      ).toBeEnabled();
+    });
+    fireEvent.click(screen.getByRole("button", { name: /add agent/i }));
+
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() => {
+      expect(listAgentRuntimes).toHaveBeenCalled();
+    });
+
+    const modelSelect = await waitFor(() => {
+      const select = within(dialog).getByLabelText(
+        /^Model$/i,
+      ) as HTMLSelectElement;
+      expect(
+        Array.from(select.options).map((o) => o.value),
+      ).toContain("gpt-4o");
+      return select;
+    });
+
+    const options = Array.from(modelSelect.options).map((o) => o.value);
+    expect(options).toContain("gpt-4o");
+    expect(options).toContain("o3-mini");
+    // The retired hardcoded catalog would have included Claude models;
+    // the single-runtime mock above proves the dropdown no longer
+    // inlines that static list.
+    expect(options).not.toContain("claude-sonnet-4-20250514");
   });
 });

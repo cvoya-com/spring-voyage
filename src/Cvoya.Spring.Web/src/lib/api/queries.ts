@@ -1036,56 +1036,6 @@ export function useOllamaModels(
 }
 
 /**
- * Legacy per-provider model catalog hook. Post-#690 the endpoint it
- * used to target (`GET /api/v1/models/{provider}`) is gone; this wrapper
- * translates the `provider` argument to a runtime id and re-issues the
- * call against `GET /api/v1/agent-runtimes/{id}/models`. The execution
- * panel + tab + membership dialog still call into this shape while
- * those surfaces are migrated in a follow-up; new callers should use
- * `useAgentRuntimeModels` directly.
- */
-export function useProviderModels(
-  provider: string,
-  opts?: SliceOptions<string[] | null>,
-): UseQueryResult<string[] | null, Error> {
-  const runtimeId = providerToRuntimeId(provider);
-  return useQuery({
-    queryKey: queryKeys.agentRuntimes.models(runtimeId ?? provider),
-    queryFn: async () => {
-      if (!runtimeId) return null;
-      try {
-        const models = await api.getAgentRuntimeModels(runtimeId);
-        return models.map((m) => m.id);
-      } catch {
-        return null;
-      }
-    },
-    staleTime: opts?.staleTime ?? 60 * 60 * 1000,
-    refetchInterval: opts?.refetchInterval,
-    enabled: opts?.enabled ?? Boolean(provider),
-  });
-}
-
-function providerToRuntimeId(provider: string): string | null {
-  const normalised = provider.trim().toLowerCase();
-  switch (normalised) {
-    case "claude":
-    case "anthropic":
-      return "claude";
-    case "openai":
-      return "openai";
-    case "google":
-    case "gemini":
-    case "googleai":
-      return "google";
-    case "ollama":
-      return "ollama";
-    default:
-      return null;
-  }
-}
-
-/**
  * Tenant-installed agent runtimes (#690). The wizard reads every
  * available runtime from this hook — the list drives the provider/tool
  * dropdown and each entry's `credentialKind` + `credentialDisplayHint`

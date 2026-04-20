@@ -1,20 +1,12 @@
 // Wizard-side constants for execution-tool and hosting-mode selection.
 //
-// After #690 the unit-creation wizard reads its provider/model lists
-// from `GET /api/v1/agent-runtimes` + `GET /api/v1/agent-runtimes/{id}/models`
-// instead of `AI_PROVIDERS` below. The constants stay in place for
-// `membership-dialog.tsx`, `execution-panel.tsx`, and `execution-tab.tsx`,
-// which still consume the hardcoded list — migrating those surfaces
-// onto the runtimes endpoint is tracked as a follow-up.
-
-export interface AiProvider {
-  /** Machine identifier used by the server, e.g. `claude`, `openai`. */
-  readonly id: string;
-  /** Human-readable label shown in the provider dropdown. */
-  readonly displayName: string;
-  /** Model identifiers this provider supports (first entry is the default). */
-  readonly models: readonly string[];
-}
+// Provider/model catalogs are sourced exclusively from the agent-runtimes
+// endpoint (`GET /api/v1/agent-runtimes` + `GET /api/v1/agent-runtimes/{id}/models`)
+// via the `useAgentRuntimes` / `useAgentRuntimeModels` hooks in
+// `@/lib/api/queries`. The hardcoded `AI_PROVIDERS` catalog that used to
+// live here was retired in #735 once the last consumer
+// (`membership-dialog.tsx`, `execution-panel.tsx`, `execution-tab.tsx`)
+// migrated onto the runtimes endpoint.
 
 /** Execution tool identifiers — determines which agent runtime processes work. */
 export type ExecutionTool =
@@ -47,50 +39,6 @@ export const HOSTING_MODES: readonly { id: HostingMode; label: string }[] = [
 
 export const DEFAULT_HOSTING_MODE: HostingMode = "ephemeral";
 
-// Fallback catalog consumed by `membership-dialog.tsx` / `execution-panel.tsx`
-// / `execution-tab.tsx` until those surfaces migrate to the agent-runtimes
-// endpoint. The wizard itself no longer reads this list.
-export const AI_PROVIDERS: readonly AiProvider[] = [
-  {
-    id: "claude",
-    displayName: "Anthropic Claude",
-    models: [
-      "claude-sonnet-4-20250514",
-      "claude-opus-4-20250514",
-      "claude-haiku-4-20250514",
-    ],
-  },
-  {
-    id: "openai",
-    displayName: "OpenAI",
-    models: ["gpt-4o", "gpt-4o-mini", "o3-mini"],
-  },
-  {
-    id: "google",
-    displayName: "Google AI",
-    models: ["gemini-2.5-pro", "gemini-2.5-flash"],
-  },
-  {
-    id: "ollama",
-    displayName: "Ollama",
-    models: [
-      "qwen2.5:14b",
-      "llama3.2:3b",
-      "llama3.1:8b",
-      "mistral:7b",
-      "deepseek-coder-v2:16b",
-    ],
-  },
-];
-
-export const DEFAULT_PROVIDER_ID = AI_PROVIDERS[0].id;
-
-export const DEFAULT_MODEL = AI_PROVIDERS[0].models[0];
-
-export function getProvider(id: string): AiProvider {
-  return AI_PROVIDERS.find((p) => p.id === id) ?? AI_PROVIDERS[0];
-}
-
 /**
  * Maps an execution tool to the canonical runtime id the wizard and
  * related surfaces resolve via the agent-runtimes endpoint. Non-Dapr-
@@ -111,15 +59,6 @@ export function getToolRuntimeId(tool: ExecutionTool): string | null {
     default:
       return null;
   }
-}
-
-/**
- * Legacy alias kept for `execution-panel.tsx` / `execution-tab.tsx`
- * until those surfaces migrate onto the runtimes endpoint. Mirrors
- * `getToolRuntimeId` because the two concepts collapsed after #690.
- */
-export function getToolModelProvider(tool: ExecutionTool): string | null {
-  return getToolRuntimeId(tool);
 }
 
 /**
