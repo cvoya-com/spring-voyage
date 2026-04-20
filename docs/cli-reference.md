@@ -88,6 +88,26 @@ Runtime 'claude' baseline: OK
 
 Invokes the runtime's `VerifyContainerBaselineAsync`. Failures print one error per line and exit 1. Runtimes with no host-side tooling pass trivially.
 
+### `refresh-models <id> [--credential <value>]`
+
+```
+# Provider-authenticated runtimes (OpenAI / Claude / Google)
+$ spring agent-runtime refresh-models openai --credential sk-proj-...
+$ spring agent-runtime refresh-models claude --credential sk-ant-api-...
+$ spring agent-runtime refresh-models google --credential AIza...
+
+# Credential-less runtimes (local Ollama)
+$ spring agent-runtime refresh-models ollama
+```
+
+Fetches the runtime's live model catalog from its backing service (typically `/v1/models` or equivalent) and replaces the tenant's configured model list with the returned entries. `DefaultModel` is preserved if it is still in the refreshed list; otherwise it resets to the first live entry. `BaseUrl` is never touched — refresh is about the catalog, not the endpoint.
+
+The command exits 1 when:
+
+- The runtime is not installed on the current tenant (404).
+- The provider rejects the supplied credential (401).
+- The runtime cannot enumerate live models — e.g. Claude.ai OAuth tokens against the Anthropic Platform REST surface, or an unreachable Ollama endpoint (502). The stored model list is left untouched in every failure case.
+
 ## `spring connector`
 
 Manage tenant-scoped connector installs (alongside the existing per-unit binding verbs).
@@ -148,18 +168,19 @@ Orthogonal to the tenant-install surface:
 
 These predate the tenant-install surface and work for units whose tenant has the connector installed.
 
-## Top 10 scenarios
+## Top scenarios
 
 1. **Fresh tenant, Claude auth check.** `spring agent-runtime credentials status claude` → primes via the wizard if 404.
 2. **Add a new Claude model to the tenant.** `spring agent-runtime models add claude claude-opus-4-2`.
-3. **Retire a model from the catalog.** `spring agent-runtime models remove openai gpt-4o-mini` (existing units keep their pinned id per #674's pass-through rule).
-4. **Verify Claude CLI is on PATH in this image.** `spring agent-runtime verify-baseline claude`.
-5. **Install Ollama with a custom node URL.** `spring agent-runtime install ollama --base-url http://ollama.internal:11434`.
-6. **Hide OpenAI from a tenant.** `spring agent-runtime uninstall openai --force`.
-7. **Re-enable OpenAI later.** `spring agent-runtime install openai` — install is upsert-shaped; prior config is preserved where possible.
-8. **Install GitHub connector on a tenant that didn't auto-seed it.** `spring connector install github`.
-9. **Audit GitHub credential state.** `spring connector credentials status github --secret-name github-app-private-key`.
-10. **See which units would break if we uninstall GitHub.** `spring connector bindings github`.
+3. **Reconcile the tenant's list with what the provider currently publishes.** `spring agent-runtime refresh-models openai --credential sk-proj-…` (closes #720 — replaces the refresh-script).
+4. **Retire a model from the catalog.** `spring agent-runtime models remove openai gpt-4o-mini` (existing units keep their pinned id per #674's pass-through rule).
+5. **Verify Claude CLI is on PATH in this image.** `spring agent-runtime verify-baseline claude`.
+6. **Install Ollama with a custom node URL.** `spring agent-runtime install ollama --base-url http://ollama.internal:11434`.
+7. **Hide OpenAI from a tenant.** `spring agent-runtime uninstall openai --force`.
+8. **Re-enable OpenAI later.** `spring agent-runtime install openai` — install is upsert-shaped; prior config is preserved where possible.
+9. **Install GitHub connector on a tenant that didn't auto-seed it.** `spring connector install github`.
+10. **Audit GitHub credential state.** `spring connector credentials status github --secret-name github-app-private-key`.
+11. **See which units would break if we uninstall GitHub.** `spring connector bindings github`.
 
 ## See also
 

@@ -5887,6 +5887,73 @@
         }
       }
     },
+    "/api/v1/agent-runtimes/{id}/refresh-models": {
+      "post": {
+        "tags": [
+          "AgentRuntimes"
+        ],
+        "summary": "Best-effort live-catalog lookup; replaces the tenant's configured model list on success",
+        "operationId": "RefreshAgentRuntimeModels",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/AgentRuntimeRefreshModelsRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstalledAgentRuntimeResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Bad Gateway",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/units/{id}/secrets": {
       "get": {
         "tags": [
@@ -7540,6 +7607,20 @@
               "string"
             ],
             "format": "int32"
+          }
+        }
+      },
+      "AgentRuntimeRefreshModelsRequest": {
+        "required": [
+          "credential"
+        ],
+        "type": "object",
+        "properties": {
+          "credential": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },

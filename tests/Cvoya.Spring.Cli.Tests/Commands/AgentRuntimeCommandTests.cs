@@ -41,6 +41,9 @@ public class AgentRuntimeCommandTests
     [InlineData("agent-runtime config set claude defaultModel=claude-sonnet-4-5")]
     [InlineData("agent-runtime credentials status claude")]
     [InlineData("agent-runtime verify-baseline claude")]
+    [InlineData("agent-runtime refresh-models claude")]
+    [InlineData("agent-runtime refresh-models claude --credential sk-ant-api-test")]
+    [InlineData("agent-runtime refresh-models ollama")]
     public void EveryVerb_ParsesWithoutErrors(string argLine)
     {
         var outputOption = CreateOutputOption();
@@ -75,6 +78,19 @@ public class AgentRuntimeCommandTests
         root.Subcommands.Add(command);
 
         var parseResult = root.Parse("agent-runtime models set claude");
+
+        parseResult.Errors.ShouldNotBeEmpty();
+    }
+
+    [Fact]
+    public void RefreshModels_WithoutId_FailsToParse()
+    {
+        var outputOption = CreateOutputOption();
+        var command = AgentRuntimeCommand.Create(outputOption);
+        var root = new RootCommand { Options = { outputOption } };
+        root.Subcommands.Add(command);
+
+        var parseResult = root.Parse("agent-runtime refresh-models");
 
         parseResult.Errors.ShouldNotBeEmpty();
     }

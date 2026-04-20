@@ -202,6 +202,109 @@ public class ClaudeAgentRuntime : IAgentRuntime
     }
 
     /// <inheritdoc />
+    public async Task<FetchLiveModelsResult> FetchLiveModelsAsync(
+        string credential,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(credential))
+        {
+            return FetchLiveModelsResult.InvalidCredential(
+                "Supply an Anthropic API key (sk-ant-api…) to fetch the live model catalog.");
+        }
+
+        // The Anthropic Platform REST endpoint rejects Claude.ai OAuth
+        // tokens with a 401 indistinguishable from a bad key. The CLI
+        // does not expose a models subcommand, so we cannot fulfil the
+        // fetch for OAuth credentials — surface it as Unsupported so
+        // operators get a precise message instead of a misleading
+        // "invalid credential" flip.
+        if (ClaudeCliInvoker.IsOAuthToken(credential))
+        {
+            return FetchLiveModelsResult.Unsupported(
+                "Claude.ai OAuth tokens (from `claude setup-token`) cannot enumerate models through the Anthropic Platform REST API. " +
+                "Supply an Anthropic API key (sk-ant-api…) to refresh, or keep the seed catalog.");
+        }
+
+        var baseUrl = string.IsNullOrWhiteSpace(_seed.BaseUrl)
+            ? "https://api.anthropic.com"
+            : _seed.BaseUrl!.TrimEnd('/');
+
+        var client = _httpClientFactory.CreateClient(HttpClientName);
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/v1/models");
+        request.Headers.Add("x-api-key", credential);
+        request.Headers.Add("anthropic-version", AnthropicVersion);
+
+        try
+        {
+            using var response = await client.SendAsync(request, cancellationToken).ConfigureAwait(false);
+
+            if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+            {
+                return FetchLiveModelsResult.InvalidCredential(
+                    $"Anthropic rejected the key (HTTP {(int)response.StatusCode}). " +
+                    "Check that it is a live API key with models access.");
+            }
+            if (!response.IsSuccessStatusCode)
+            {
+                return FetchLiveModelsResult.NetworkError(
+                    $"Anthropic responded with HTTP {(int)response.StatusCode} {response.StatusCode}.");
+            }
+
+            var payload = await response.Content
+                .ReadFromJsonAsync(AnthropicRestJsonContext.Default.AnthropicModelsResponse, cancellationToken)
+                .ConfigureAwait(false);
+
+            var models = BuildModels(payload);
+            return FetchLiveModelsResult.Success(models);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogWarning(ex, "Network error fetching Anthropic live model list.");
+            return FetchLiveModelsResult.NetworkError(
+                $"Could not reach the Anthropic API: {ex.Message}");
+        }
+        catch (TaskCanceledException ex)
+        {
+            _logger.LogWarning(ex, "Timeout fetching Anthropic live model list.");
+            return FetchLiveModelsResult.NetworkError(
+                "Timed out contacting the Anthropic API.");
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogWarning(ex, "Failed to parse Anthropic live-models response.");
+            return FetchLiveModelsResult.NetworkError(
+                "The Anthropic API returned an unexpected response body.");
+        }
+    }
+
+    private static IReadOnlyList<ModelDescriptor> BuildModels(AnthropicModelsResponse? payload)
+    {
+        if (payload?.Data is null || payload.Data.Length == 0)
+        {
+            return Array.Empty<ModelDescriptor>();
+        }
+
+        var result = new List<ModelDescriptor>(payload.Data.Length);
+        foreach (var entry in payload.Data)
+        {
+            if (string.IsNullOrWhiteSpace(entry.Id))
+            {
+                continue;
+            }
+            // Anthropic's /v1/models envelope doesn't publish a context
+            // window — DisplayName falls back to Id to match the seed
+            // catalog projection.
+            var display = string.IsNullOrWhiteSpace(entry.DisplayName) ? entry.Id! : entry.DisplayName!;
+            result.Add(new ModelDescriptor(entry.Id!, display, ContextWindow: null));
+        }
+        return result;
+    }
+
+    /// <inheritdoc />
     public async Task<ContainerBaselineCheckResult> VerifyContainerBaselineAsync(
         CancellationToken cancellationToken = default)
     {
@@ -297,7 +400,8 @@ internal sealed record AnthropicModelsResponse(
 
 /// <summary>One entry in the Anthropic models response.</summary>
 internal sealed record AnthropicModelDto(
-    [property: JsonPropertyName("id")] string? Id);
+    [property: JsonPropertyName("id")] string? Id,
+    [property: JsonPropertyName("display_name")] string? DisplayName);
 
 [JsonSerializable(typeof(AnthropicModelsResponse))]
 internal partial class AnthropicRestJsonContext : JsonSerializerContext;

@@ -120,5 +120,10 @@ public class AgentRuntimeRegistryTests
         public Task<ContainerBaselineCheckResult> VerifyContainerBaselineAsync(
             CancellationToken cancellationToken = default) =>
             Task.FromResult(new ContainerBaselineCheckResult(true, Array.Empty<string>()));
+
+        public Task<FetchLiveModelsResult> FetchLiveModelsAsync(
+            string credential,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(FetchLiveModelsResult.Unsupported("Fake runtime does not expose a live catalog."));
     }
 }

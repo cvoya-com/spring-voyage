@@ -103,4 +103,35 @@ public interface IAgentRuntime
     /// </summary>
     /// <param name="cancellationToken">A token to cancel the check.</param>
     Task<ContainerBaselineCheckResult> VerifyContainerBaselineAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Best-effort fetch of the runtime's live model catalog from its
+    /// backing service (typically via the provider's <c>/v1/models</c> or
+    /// equivalent endpoint). Used by the tenant install's
+    /// <c>POST /api/v1/agent-runtimes/{id}/refresh-models</c> path to
+    /// reconcile the tenant's stored model list with what the provider
+    /// currently publishes.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Implementations should surface transport-level failures as
+    /// <see cref="FetchLiveModelsStatus.NetworkError"/> and rejected
+    /// credentials as <see cref="FetchLiveModelsStatus.InvalidCredential"/>
+    /// rather than throwing. Runtimes whose backing service does not
+    /// expose a model-enumeration endpoint (for example, runtimes that
+    /// only speak a single hard-coded model) MUST return
+    /// <see cref="FetchLiveModelsStatus.Unsupported"/> so callers can
+    /// keep the seed catalog as the authoritative list.
+    /// </para>
+    /// <para>
+    /// The <paramref name="credential"/> is the raw credential the
+    /// caller supplies — typically the tenant's configured API key.
+    /// Runtimes that authenticate via schemes other than
+    /// <see cref="AgentRuntimeCredentialKind.ApiKey"/> (for example,
+    /// Ollama's credential-less local endpoint) should ignore it.
+    /// </para>
+    /// </remarks>
+    /// <param name="credential">The raw credential to present to the backing service. Empty when the runtime requires no credential.</param>
+    /// <param name="cancellationToken">A token to cancel the fetch.</param>
+    Task<FetchLiveModelsResult> FetchLiveModelsAsync(string credential, CancellationToken cancellationToken = default);
 }

@@ -82,3 +82,18 @@ public record ContainerBaselineCheckResponse(
     string RuntimeId,
     bool Passed,
     IReadOnlyList<string> Errors);
+
+/// <summary>
+/// Request body for <c>POST /api/v1/agent-runtimes/{id}/refresh-models</c>.
+/// The endpoint invokes the runtime's
+/// <c>FetchLiveModelsAsync</c> with the supplied credential and, on
+/// success, replaces the tenant's configured model list with the returned
+/// catalog.
+/// </summary>
+/// <param name="Credential">
+/// Raw credential presented to the backing service to authorise the live
+/// catalog lookup. Runtimes that require no credential (e.g. local
+/// Ollama) ignore this field.
+/// </param>
+public record AgentRuntimeRefreshModelsRequest(
+    string? Credential);

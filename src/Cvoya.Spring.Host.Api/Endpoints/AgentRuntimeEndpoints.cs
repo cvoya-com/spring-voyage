@@ -82,6 +82,13 @@ public static class AgentRuntimeEndpoints
             .Produces<ContainerBaselineCheckResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
+        group.MapPost("/{id}/refresh-models", RefreshModelsAsync)
+            .WithName("RefreshAgentRuntimeModels")
+            .WithSummary("Best-effort live-catalog lookup; replaces the tenant's configured model list on success")
+            .Produces<InstalledAgentRuntimeResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status502BadGateway);
+
         return group;
     }
 
@@ -327,6 +334,90 @@ public static class AgentRuntimeEndpoints
             RuntimeId: runtime.Id,
             Passed: result.Passed,
             Errors: result.Errors));
+    }
+
+    private static async Task<IResult> RefreshModelsAsync(
+        string id,
+        [FromBody] AgentRuntimeRefreshModelsRequest? body,
+        [FromServices] IAgentRuntimeRegistry registry,
+        [FromServices] ITenantAgentRuntimeInstallService installService,
+        CancellationToken cancellationToken)
+    {
+        var runtime = registry.Get(id);
+        if (runtime is null)
+        {
+            return Results.Problem(
+                detail: $"Agent runtime '{id}' is not registered with the host.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        var install = await installService.GetAsync(id, cancellationToken);
+        if (install is null)
+        {
+            return Results.Problem(
+                detail: $"Agent runtime '{id}' is not installed on the current tenant.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        var credential = body?.Credential ?? string.Empty;
+        var fetch = await runtime.FetchLiveModelsAsync(credential, cancellationToken);
+
+        if (fetch.Status is not FetchLiveModelsStatus.Success)
+        {
+            // Map non-success statuses to HTTP problem responses. 502 is
+            // the correct signal for both transient transport failures
+            // and "runtime cannot enumerate" outcomes: the caller asked
+            // the platform to reach through to a provider, and the
+            // provider did not cooperate. Invalid credential flips to
+            // 401 so the wizard can distinguish "fix your key" from
+            // "try again later".
+            var (statusCode, prefix) = fetch.Status switch
+            {
+                FetchLiveModelsStatus.InvalidCredential => (StatusCodes.Status401Unauthorized, "Credential rejected"),
+                FetchLiveModelsStatus.Unsupported => (StatusCodes.Status502BadGateway, "Live catalog not supported"),
+                FetchLiveModelsStatus.NetworkError => (StatusCodes.Status502BadGateway, "Upstream fetch failed"),
+                _ => (StatusCodes.Status502BadGateway, "Unknown fetch outcome"),
+            };
+            return Results.Problem(
+                title: prefix,
+                detail: fetch.ErrorMessage ?? prefix,
+                statusCode: statusCode);
+        }
+
+        // Replace the tenant's stored model list with the live catalog.
+        // DefaultModel is preserved if still present in the new list;
+        // otherwise we pick the first entry so the tenant never ends up
+        // with a DefaultModel id that no longer exists. BaseUrl stays
+        // untouched — refresh is about the catalog, not the endpoint.
+        var liveIds = fetch.Models.Select(m => m.Id).Where(id => !string.IsNullOrWhiteSpace(id)).ToArray();
+        var existingDefault = install.Config.DefaultModel;
+        var preservedDefault = existingDefault is not null
+            && liveIds.Any(id => string.Equals(id, existingDefault, StringComparison.OrdinalIgnoreCase));
+        var nextDefault = preservedDefault
+            ? existingDefault
+            : (liveIds.Length > 0 ? liveIds[0] : null);
+
+        var nextConfig = new AgentRuntimeInstallConfig(
+            Models: liveIds,
+            DefaultModel: nextDefault,
+            BaseUrl: install.Config.BaseUrl);
+
+        try
+        {
+            var updated = await installService.UpdateConfigAsync(id, nextConfig, cancellationToken);
+            var response = ToResponse(updated, runtime);
+            return response is null
+                ? Results.Problem(
+                    detail: "Live-model catalog was fetched but the install row could not be projected.",
+                    statusCode: StatusCodes.Status500InternalServerError)
+                : Results.Ok(response);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Results.Problem(
+                detail: ex.Message,
+                statusCode: StatusCodes.Status404NotFound);
+        }
     }
 
     private static InstalledAgentRuntimeResponse? ToResponse(

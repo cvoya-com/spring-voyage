@@ -48,6 +48,7 @@ public static class AgentRuntimeCommand
         root.Subcommands.Add(CreateConfigCommand(outputOption));
         root.Subcommands.Add(CreateCredentialsCommand(outputOption));
         root.Subcommands.Add(CreateVerifyBaselineCommand(outputOption));
+        root.Subcommands.Add(CreateRefreshModelsCommand(outputOption));
         return root;
     }
 
@@ -417,6 +418,70 @@ public static class AgentRuntimeCommand
             {
                 await Console.Error.WriteLineAsync(
                     $"Runtime '{id}' is not registered with the host.");
+                Environment.Exit(1);
+            }
+        });
+        return command;
+    }
+
+    private static Command CreateRefreshModelsCommand(Option<string> outputOption)
+    {
+        // Examples:
+        //   spring agent-runtime refresh-models claude --credential sk-ant-api-...
+        //   spring agent-runtime refresh-models openai --credential sk-proj-...
+        //   spring agent-runtime refresh-models ollama                    # no credential needed
+        //
+        // Replaces the tenant's configured model list with the live
+        // catalog published by the provider's /v1/models endpoint (or
+        // equivalent). Closes #720 — supersedes the ad-hoc
+        // refresh-script carried in #671 Part 2.
+        var idArg = new Argument<string>("id")
+        {
+            Description = "Runtime id to refresh (e.g. 'claude', 'openai', 'google', 'ollama').",
+        };
+        var credentialOption = new Option<string?>("--credential")
+        {
+            Description =
+                "Credential to present to the backing service for the live catalog lookup. " +
+                "Omit for credential-less runtimes (e.g. local Ollama).",
+        };
+        var command = new Command(
+            "refresh-models",
+            "Fetch the live model catalog from the runtime's provider and replace the tenant's configured model list with it.");
+        command.Arguments.Add(idArg);
+        command.Options.Add(credentialOption);
+
+        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var id = parseResult.GetValue(idArg)!;
+            var credential = parseResult.GetValue(credentialOption);
+            var output = parseResult.GetValue(outputOption) ?? "table";
+            var client = ClientFactory.Create();
+            try
+            {
+                var result = await client.RefreshAgentRuntimeModelsAsync(id, credential, ct);
+                Console.WriteLine(output == "json"
+                    ? OutputFormatter.FormatJson(result)
+                    : OutputFormatter.FormatTable(new[] { result }, ListColumns));
+            }
+            catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode == 404)
+            {
+                await Console.Error.WriteLineAsync(
+                    $"Runtime '{id}' is not installed on the current tenant, or is not registered with the host. " +
+                    $"Run 'spring agent-runtime install {id}' first.");
+                Environment.Exit(1);
+            }
+            catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode == 401)
+            {
+                await Console.Error.WriteLineAsync(
+                    $"The provider rejected the supplied credential for runtime '{id}'. Supply --credential with a live key.");
+                Environment.Exit(1);
+            }
+            catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode == 502)
+            {
+                await Console.Error.WriteLineAsync(
+                    $"Could not refresh '{id}' — the provider did not return a live model catalog. " +
+                    "The runtime may not expose /v1/models, or the backing service is unreachable.");
                 Environment.Exit(1);
             }
         });

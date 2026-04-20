@@ -4,6 +4,9 @@
 namespace Cvoya.Spring.AgentRuntimes.OpenAI;
 
 using System.Net;
+using System.Net.Http.Json;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 using Cvoya.Spring.Core.AgentRuntimes;
 
@@ -190,6 +193,107 @@ public class OpenAiAgentRuntime : IAgentRuntime
     }
 
     /// <inheritdoc />
+    public async Task<FetchLiveModelsResult> FetchLiveModelsAsync(
+        string credential,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(credential))
+        {
+            return FetchLiveModelsResult.InvalidCredential(
+                "Supply an OpenAI API key to fetch the live model catalog.");
+        }
+
+        var client = _httpClientFactory.CreateClient(HttpClientName);
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"{EffectiveBaseUrl}/v1/models");
+        request.Headers.Add("Authorization", $"Bearer {credential}");
+
+        try
+        {
+            using var response = await client.SendAsync(request, cancellationToken).ConfigureAwait(false);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var payload = await response.Content
+                    .ReadFromJsonAsync(
+                        OpenAiModelsJsonContext.Default.OpenAiModelsResponse,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                var models = BuildModels(payload);
+                return FetchLiveModelsResult.Success(models);
+            }
+
+            var body = await SafeReadBodyAsync(response, cancellationToken).ConfigureAwait(false);
+
+            if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+            {
+                return FetchLiveModelsResult.InvalidCredential(
+                    BuildErrorMessage(response.StatusCode, body, transientPrefix: false));
+            }
+
+            if ((int)response.StatusCode >= 500)
+            {
+                _logger.LogWarning(
+                    "OpenAI /v1/models returned {StatusCode} during live-model fetch; treating as NetworkError. Body: {Body}",
+                    response.StatusCode, body);
+                return FetchLiveModelsResult.NetworkError(
+                    BuildErrorMessage(response.StatusCode, body, transientPrefix: true));
+            }
+
+            // Other 4xx — likely a key scoping issue that the operator
+            // should surface as an invalid credential. The JSON body
+            // carries the precise reason.
+            return FetchLiveModelsResult.InvalidCredential(
+                BuildErrorMessage(response.StatusCode, body, transientPrefix: false));
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogWarning(ex,
+                "Network error contacting OpenAI /v1/models during live-model fetch.");
+            return FetchLiveModelsResult.NetworkError(
+                $"Could not reach the OpenAI API: {ex.Message}");
+        }
+        catch (TaskCanceledException ex)
+        {
+            _logger.LogWarning(ex,
+                "Timeout contacting OpenAI /v1/models during live-model fetch.");
+            return FetchLiveModelsResult.NetworkError(
+                "Timed out contacting the OpenAI API.");
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogWarning(ex, "Failed to parse OpenAI /v1/models response.");
+            return FetchLiveModelsResult.NetworkError(
+                "The OpenAI API returned an unexpected response body.");
+        }
+    }
+
+    private static IReadOnlyList<ModelDescriptor> BuildModels(OpenAiModelsResponse? payload)
+    {
+        if (payload?.Data is null || payload.Data.Length == 0)
+        {
+            return Array.Empty<ModelDescriptor>();
+        }
+
+        var result = new List<ModelDescriptor>(payload.Data.Length);
+        foreach (var entry in payload.Data)
+        {
+            if (string.IsNullOrWhiteSpace(entry.Id))
+            {
+                continue;
+            }
+            // OpenAI's /v1/models envelope does not publish a context
+            // window — DisplayName mirrors Id for parity with the seed
+            // catalog projection.
+            result.Add(new ModelDescriptor(entry.Id, entry.Id, ContextWindow: null));
+        }
+        return result;
+    }
+
+    /// <inheritdoc />
     public Task<ContainerBaselineCheckResult> VerifyContainerBaselineAsync(
         CancellationToken cancellationToken = default)
     {
@@ -263,3 +367,14 @@ public class OpenAiAgentRuntime : IAgentRuntime
             : $"{prefix}: {body}";
     }
 }
+
+/// <summary>Subset of OpenAI's <c>GET /v1/models</c> envelope we parse during live-model fetch.</summary>
+internal sealed record OpenAiModelsResponse(
+    [property: JsonPropertyName("data")] OpenAiModelDto[]? Data);
+
+/// <summary>One entry in the OpenAI models envelope.</summary>
+internal sealed record OpenAiModelDto(
+    [property: JsonPropertyName("id")] string? Id);
+
+[JsonSerializable(typeof(OpenAiModelsResponse))]
+internal partial class OpenAiModelsJsonContext : JsonSerializerContext;

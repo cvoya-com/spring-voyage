@@ -4,6 +4,9 @@
 namespace Cvoya.Spring.AgentRuntimes.Ollama;
 
 using System.Net;
+using System.Net.Http.Json;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 using Cvoya.Spring.Core.AgentRuntimes;
 
@@ -143,6 +146,97 @@ public class OllamaAgentRuntime : IAgentRuntime
     }
 
     /// <inheritdoc />
+    public async Task<FetchLiveModelsResult> FetchLiveModelsAsync(
+        string credential,
+        CancellationToken cancellationToken = default)
+    {
+        // Ollama requires no credential; the supplied value is ignored.
+        _ = credential;
+
+        var baseUrl = _options.Value.BaseUrl;
+        if (string.IsNullOrWhiteSpace(baseUrl))
+        {
+            return FetchLiveModelsResult.NetworkError(
+                "AgentRuntimes:Ollama:BaseUrl is empty.");
+        }
+
+        if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var parsed))
+        {
+            return FetchLiveModelsResult.NetworkError(
+                $"AgentRuntimes:Ollama:BaseUrl '{baseUrl}' is not a valid absolute URI.");
+        }
+
+        var uri = new Uri(parsed, "/api/tags");
+        var timeout = TimeSpan.FromSeconds(Math.Max(1, _options.Value.HealthCheckTimeoutSeconds));
+
+        var client = _httpClientFactory.CreateClient(HttpClientName);
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(timeout);
+
+        try
+        {
+            using var response = await client.GetAsync(uri, cts.Token).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+                {
+                    return FetchLiveModelsResult.InvalidCredential(
+                        $"GET {uri} returned {(int)response.StatusCode} {response.StatusCode} — " +
+                        "an Ollama reverse proxy is rejecting the request.");
+                }
+                return FetchLiveModelsResult.NetworkError(
+                    $"GET {uri} returned {(int)response.StatusCode} {response.StatusCode}.");
+            }
+
+            var payload = await response.Content
+                .ReadFromJsonAsync(OllamaTagsJsonContext.Default.OllamaTagsResponse, cts.Token)
+                .ConfigureAwait(false);
+
+            var models = BuildModels(payload);
+            return FetchLiveModelsResult.Success(models);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (OperationCanceledException)
+        {
+            return FetchLiveModelsResult.NetworkError(
+                $"Probe of {uri} timed out after {timeout.TotalSeconds:0.#}s.");
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogDebug(ex, "Ollama live-model fetch failed for {Uri}", uri);
+            return FetchLiveModelsResult.NetworkError($"GET {uri} failed: {ex.Message}");
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogWarning(ex, "Failed to parse Ollama /api/tags response.");
+            return FetchLiveModelsResult.NetworkError(
+                "The Ollama server returned an unexpected response body.");
+        }
+    }
+
+    private static IReadOnlyList<ModelDescriptor> BuildModels(OllamaTagsResponse? payload)
+    {
+        if (payload?.Models is null || payload.Models.Length == 0)
+        {
+            return Array.Empty<ModelDescriptor>();
+        }
+
+        var result = new List<ModelDescriptor>(payload.Models.Length);
+        foreach (var entry in payload.Models)
+        {
+            if (string.IsNullOrWhiteSpace(entry.Name))
+            {
+                continue;
+            }
+            result.Add(new ModelDescriptor(entry.Name!, entry.Name!, ContextWindow: null));
+        }
+        return result;
+    }
+
+    /// <inheritdoc />
     public async Task<ContainerBaselineCheckResult> VerifyContainerBaselineAsync(
         CancellationToken cancellationToken = default)
     {
@@ -255,3 +349,14 @@ public class OllamaAgentRuntime : IAgentRuntime
         CredentialValidationStatus Status,
         string? Message);
 }
+
+/// <summary>Subset of Ollama's <c>GET /api/tags</c> envelope we parse during live-model fetch.</summary>
+internal sealed record OllamaTagsResponse(
+    [property: JsonPropertyName("models")] OllamaTagsModelDto[]? Models);
+
+/// <summary>One entry in the Ollama tags response.</summary>
+internal sealed record OllamaTagsModelDto(
+    [property: JsonPropertyName("name")] string? Name);
+
+[JsonSerializable(typeof(OllamaTagsResponse))]
+internal partial class OllamaTagsJsonContext : JsonSerializerContext;

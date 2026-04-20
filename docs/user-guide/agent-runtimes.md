@@ -124,6 +124,29 @@ Runtime 'claude' baseline: FAILED
 
 Runtimes that need no host-side tooling (the OpenAI-compatible set) pass trivially.
 
+## Refreshing the model catalog from the provider
+
+When an operator wants the tenant's list to match whatever the provider currently publishes (rather than curating it by hand), use `refresh-models`. The CLI hits the provider's `/v1/models` endpoint (or equivalent) and replaces the stored list with the returned ids.
+
+```
+$ spring agent-runtime refresh-models openai --credential sk-proj-…
+$ spring agent-runtime refresh-models claude  --credential sk-ant-api-…
+$ spring agent-runtime refresh-models google  --credential AIza…
+$ spring agent-runtime refresh-models ollama                    # no credential needed
+```
+
+Behaviour:
+
+- `DefaultModel` is preserved if it's still in the refreshed list; otherwise the endpoint resets it to the first live entry so the tenant never keeps a dangling default.
+- `BaseUrl` is untouched — refresh is only about the catalog.
+- Units with a pinned model id that the provider no longer publishes are **not** rewritten — the pinned id flows through to the next run and surfaces as a unit-level error, not a silent catalog change. Pinning reconciliation is tracked separately through `ExpertiseSkillRegistry` drift handling.
+
+Failure modes (each exits 1, leaves the stored list untouched):
+
+- **Not installed** (404) — run `spring agent-runtime install <id>` first.
+- **Credential rejected** (401) — supply `--credential` with a live key.
+- **Live catalog not supported** (502) — some credential formats (e.g. Claude.ai OAuth tokens against the Anthropic Platform) or unreachable endpoints (e.g. offline Ollama) cannot enumerate models. The seed catalog remains authoritative in that case.
+
 ## Uninstalling a runtime
 
 ```

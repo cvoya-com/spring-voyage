@@ -14,7 +14,7 @@ impl lives in `Cvoya.Spring.Dapr/AgentRuntimes/`.
 
 | Type | Purpose |
 |------|---------|
-| `IAgentRuntime` | The runtime itself: `Id`, `DisplayName`, `ToolKind`, `CredentialSchema`, `ValidateCredentialAsync`, `DefaultModels`, `VerifyContainerBaselineAsync`. |
+| `IAgentRuntime` | The runtime itself: `Id`, `DisplayName`, `ToolKind`, `CredentialSchema`, `ValidateCredentialAsync`, `DefaultModels`, `VerifyContainerBaselineAsync`, `FetchLiveModelsAsync`. |
 | `IAgentRuntimeRegistry` | Singleton enumeration + case-insensitive `Get(id)` lookup over every DI-registered runtime. |
 | `AgentRuntimeCredentialSchema` | Record describing the expected credential shape (kind + optional display hint). |
 | `AgentRuntimeCredentialKind` | `None` / `ApiKey` / `OAuthToken`. |
@@ -22,6 +22,8 @@ impl lives in `Cvoya.Spring.Dapr/AgentRuntimes/`.
 | `CredentialValidationStatus` | `Unknown` / `Valid` / `Invalid` / `NetworkError`. |
 | `ModelDescriptor` | One entry in a runtime's catalog: `Id`, `DisplayName`, `ContextWindow`. |
 | `ContainerBaselineCheckResult` | Outcome of the container-baseline probe: `Passed`, `Errors`. |
+| `FetchLiveModelsResult` | Outcome of `FetchLiveModelsAsync`: `Status`, `Models`, `ErrorMessage`. |
+| `FetchLiveModelsStatus` | `Unknown` / `Success` / `InvalidCredential` / `NetworkError` / `Unsupported`. |
 
 ## Adding a new agent runtime
 
@@ -52,6 +54,7 @@ impl lives in `Cvoya.Spring.Dapr/AgentRuntimes/`.
 5. Add unit tests under
    `tests/Cvoya.Spring.AgentRuntimes.<Name>.Tests/`. Cover
    `ValidateCredentialAsync` (valid / invalid / network-error paths),
+   `FetchLiveModelsAsync` (success / unsupported / network-error paths),
    seed deserialization round-trip, and
    `VerifyContainerBaselineAsync`.
 6. Update any user-facing docs: `docs/guide/` for install/config,

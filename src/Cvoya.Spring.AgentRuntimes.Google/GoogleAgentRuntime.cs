@@ -4,6 +4,9 @@
 namespace Cvoya.Spring.AgentRuntimes.Google;
 
 using System.Net;
+using System.Net.Http.Json;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 using Cvoya.Spring.Core.AgentRuntimes;
 
@@ -205,6 +208,122 @@ public class GoogleAgentRuntime : IAgentRuntime
     }
 
     /// <inheritdoc />
+    public async Task<FetchLiveModelsResult> FetchLiveModelsAsync(
+        string credential,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(credential))
+        {
+            return FetchLiveModelsResult.InvalidCredential(
+                "Supply a Google AI API key to fetch the live model catalog.");
+        }
+
+        var client = _httpClientFactory.CreateClient(HttpClientName);
+        var uri = $"{EffectiveBaseUrl}{ValidationPath}?key={Uri.EscapeDataString(credential)}";
+        using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+
+        try
+        {
+            using var response = await client.SendAsync(request, cancellationToken).ConfigureAwait(false);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var payload = await response.Content
+                    .ReadFromJsonAsync(
+                        GoogleModelsJsonContext.Default.GoogleModelsResponse,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                var models = BuildModels(payload);
+                return FetchLiveModelsResult.Success(models);
+            }
+
+            var body = await SafeReadBodyAsync(response, cancellationToken).ConfigureAwait(false);
+
+            if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+            {
+                return FetchLiveModelsResult.InvalidCredential(
+                    BuildErrorMessage(response.StatusCode, body, transientPrefix: false));
+            }
+
+            if ((int)response.StatusCode >= 500)
+            {
+                _logger.LogWarning(
+                    "Google {Path} returned {StatusCode} during live-model fetch; treating as NetworkError. Body: {Body}",
+                    ValidationPath, response.StatusCode, body);
+                return FetchLiveModelsResult.NetworkError(
+                    BuildErrorMessage(response.StatusCode, body, transientPrefix: true));
+            }
+
+            // Other 4xx — likely a key scoping problem that the operator
+            // should surface as an invalid credential. The JSON body
+            // carries the precise reason.
+            return FetchLiveModelsResult.InvalidCredential(
+                BuildErrorMessage(response.StatusCode, body, transientPrefix: false));
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogWarning(ex,
+                "Network error contacting Google {Path} during live-model fetch.", ValidationPath);
+            return FetchLiveModelsResult.NetworkError(
+                $"Could not reach the Google AI API: {ex.Message}");
+        }
+        catch (TaskCanceledException ex)
+        {
+            _logger.LogWarning(ex,
+                "Timeout contacting Google {Path} during live-model fetch.", ValidationPath);
+            return FetchLiveModelsResult.NetworkError(
+                "Timed out contacting the Google AI API.");
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogWarning(ex, "Failed to parse Google {Path} response.", ValidationPath);
+            return FetchLiveModelsResult.NetworkError(
+                "The Google AI API returned an unexpected response body.");
+        }
+    }
+
+    private static IReadOnlyList<ModelDescriptor> BuildModels(GoogleModelsResponse? payload)
+    {
+        if (payload?.Models is null || payload.Models.Length == 0)
+        {
+            return Array.Empty<ModelDescriptor>();
+        }
+
+        var result = new List<ModelDescriptor>(payload.Models.Length);
+        foreach (var entry in payload.Models)
+        {
+            // Google's model Name is prefixed with "models/" (e.g.
+            // "models/gemini-2.5-pro") — strip the prefix so the id
+            // projection matches the seed catalog shape the rest of the
+            // platform uses.
+            var id = NormaliseModelId(entry.Name);
+            if (string.IsNullOrWhiteSpace(id))
+            {
+                continue;
+            }
+            var display = string.IsNullOrWhiteSpace(entry.DisplayName) ? id : entry.DisplayName!;
+            result.Add(new ModelDescriptor(id!, display, ContextWindow: entry.InputTokenLimit));
+        }
+        return result;
+    }
+
+    private static string? NormaliseModelId(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return null;
+        }
+        const string prefix = "models/";
+        return name.StartsWith(prefix, StringComparison.Ordinal)
+            ? name[prefix.Length..]
+            : name;
+    }
+
+    /// <inheritdoc />
     public Task<ContainerBaselineCheckResult> VerifyContainerBaselineAsync(
         CancellationToken cancellationToken = default)
     {
@@ -278,3 +397,16 @@ public class GoogleAgentRuntime : IAgentRuntime
             : $"{prefix}: {body}";
     }
 }
+
+/// <summary>Subset of Google's <c>GET /v1beta/models</c> envelope we parse during live-model fetch.</summary>
+internal sealed record GoogleModelsResponse(
+    [property: JsonPropertyName("models")] GoogleModelDto[]? Models);
+
+/// <summary>One entry in the Google models envelope.</summary>
+internal sealed record GoogleModelDto(
+    [property: JsonPropertyName("name")] string? Name,
+    [property: JsonPropertyName("displayName")] string? DisplayName,
+    [property: JsonPropertyName("inputTokenLimit")] int? InputTokenLimit);
+
+[JsonSerializable(typeof(GoogleModelsResponse))]
+internal partial class GoogleModelsJsonContext : JsonSerializerContext;

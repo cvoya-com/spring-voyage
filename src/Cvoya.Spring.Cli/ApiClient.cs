@@ -1828,6 +1828,29 @@ public class SpringApiClient
             $"Server returned an empty verify-baseline response for agent runtime '{id}'.");
     }
 
+    /// <summary>
+    /// Asks the server to fetch the runtime's live model catalog from its
+    /// backing service (e.g. the provider's <c>/v1/models</c> endpoint)
+    /// and replace the tenant's stored list with the result. Backs
+    /// <c>spring agent-runtime refresh-models &lt;id&gt;</c>.
+    /// </summary>
+    public async Task<InstalledAgentRuntimeResponse> RefreshAgentRuntimeModelsAsync(
+        string id,
+        string? credential,
+        CancellationToken ct = default)
+    {
+        var body = new Cvoya.Spring.Cli.Generated.Api.V1.AgentRuntimes.Item.RefreshModels.RefreshModelsRequestBuilder.RefreshModelsPostRequestBody
+        {
+            AgentRuntimeRefreshModelsRequest = new AgentRuntimeRefreshModelsRequest
+            {
+                Credential = credential,
+            },
+        };
+        var result = await _client.Api.V1.AgentRuntimes[id].RefreshModels.PostAsync(body, cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty refresh-models response for agent runtime '{id}'.");
+    }
+
     // Packages (#395). Backs `spring package list / show` and
     // `spring template show <package>/<template>`. The portal's
     // /packages route consumes the same endpoints, so the CLI stays at
