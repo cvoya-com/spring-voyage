@@ -28,11 +28,9 @@ Before working on an issue, read the relevant architecture document(s). Key conc
 
 ## Build & Test
 
-```bash
-dotnet build                       # build all projects
-dotnet test                        # run all tests
-dotnet format --verify-no-changes  # check formatting
-```
+Use the `/build`, `/test`, and `/lint` skills (defined in `.claude/commands/`). Each points at the canonical CI invocation for its step.
+
+Pitfall: bare `dotnet test` or `dotnet test SpringVoyage.slnx` exits 0 without running tests — always use `/test` (or the full invocation it documents).
 
 ## Open-Source Platform & Extensibility
 
