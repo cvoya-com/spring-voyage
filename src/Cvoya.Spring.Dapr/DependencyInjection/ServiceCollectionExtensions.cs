@@ -357,48 +357,16 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IPromptAssembler, PromptAssembler>();
         services.AddSingleton<IPlatformPromptProvider, PlatformPromptProvider>();
 
-        // Dynamic model catalog (#597). Backs the unit-creation wizard's model
-        // dropdown so we don't ship a stale hard-coded list for every
-        // provider release. Default implementation fetches from the provider
-        // models endpoint when possible (Anthropic, OpenAI, Ollama) and falls
-        // back to a static curated list otherwise. TryAdd so the private cloud
-        // host can swap in a tenant-scoped catalog (e.g. per-tenant API keys,
-        // per-tenant allowlists) without forking the endpoint.
-        services.AddHttpClient(ModelCatalog.HttpClientName);
-        services.TryAddSingleton<IModelCatalog, ModelCatalog>();
-
         // Agent-runtime plugin registry (#678, cornerstone of the #674
         // refactor). Enumerates every DI-registered IAgentRuntime so the
         // API layer, wizard, and CLI can resolve runtimes by id without
         // importing concrete runtime packages. Per-runtime migrations
         // (#679–#682) register the concrete IAgentRuntime implementations
-        // via their own AddCvoyaSpringAgentRuntime<Name>() extensions;
-        // until those land, All is intentionally empty and the hardcoded
-        // ModelCatalog / ProviderCredentialValidator paths above stay in
-        // force. TryAdd so the private cloud host can supply a
-        // tenant-scoped registry (e.g. one that filters on
-        // tenant_agent_runtime_installs) without forking.
+        // via their own AddCvoyaSpringAgentRuntime<Name>() extensions.
+        // TryAdd so the private cloud host can supply a tenant-scoped
+        // registry (e.g. one that filters on tenant_agent_runtime_installs)
+        // without forking.
         services.TryAddSingleton<IAgentRuntimeRegistry, AgentRuntimeRegistry>();
-
-        // Wizard-time credential validator (#655 / #660). Primary path
-        // issues a lightweight GET /v1/models against the provider with
-        // a caller-supplied key; for Anthropic the validator delegates
-        // first to the locally-installed claude CLI (#660) so Claude.ai
-        // OAuth tokens — which the Platform REST API rejects — can be
-        // validated transparently. Shares the ModelCatalog HTTP client
-        // pool — same handler lifecycle, low call volume. TryAdd so the
-        // private cloud host can supply a tenant-scoped validator (e.g.
-        // one that proxies through a tenant egress gateway) without
-        // forking.
-        //
-        // CLI invokers are registered as enumerable singletons so
-        // additional providers (codex, gemini) can plug into the same
-        // seam later without touching the validator. Per #660 the
-        // invoker set is intentionally small: Anthropic only. Other
-        // providers still take the REST path.
-        services.TryAddEnumerable(
-            ServiceDescriptor.Singleton<IProviderCliInvoker, ClaudeCliInvoker>());
-        services.TryAddSingleton<IProviderCredentialValidator, ProviderCredentialValidator>();
 
         // Tier-2 LLM credential resolver (#615). Delegates to the
         // existing ISecretResolver (Unit → Tenant inheritance, ADR 0003).

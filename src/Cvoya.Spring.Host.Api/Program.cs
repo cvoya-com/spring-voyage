@@ -241,11 +241,11 @@ try
     app.MapAgentRuntimeEndpoints().RequireAuthorization();
     app.MapSecretEndpoints().RequireAuthorization();
     app.MapOllamaEndpoints().RequireAuthorization();
-    app.MapModelsEndpoints().RequireAuthorization();
-    // Provider credential-status probes feed the wizard's "is this
-    // provider configured" banner (#598). Auth-required because the
-    // resolver touches tenant-scoped secrets even though the response
-    // never surfaces key material.
+    // Provider credential-status probes feed the Execution panels' "is
+    // this provider configured" banner (#598). The per-provider list-models
+    // and validate endpoints were retired in #690 — callers consume
+    // `/api/v1/agent-runtimes/{id}/models` and
+    // `/api/v1/agent-runtimes/{id}/validate-credential` instead.
     app.MapSystemEndpoints().RequireAuthorization();
     // #616 startup configuration report. Anonymous in the OSS build — the
     // report contains env-var names and human-readable reasons but no secret

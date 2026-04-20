@@ -40,13 +40,6 @@ using Microsoft.Extensions.Logging;
 /// failures and 5xx responses, matching the contract documented on
 /// <see cref="IAgentRuntime.ValidateCredentialAsync"/>.
 /// </para>
-/// <para>
-/// During Phase 2 of the #674 refactor this runtime co-exists with the
-/// hardcoded Google paths in
-/// <c>Cvoya.Spring.Dapr.Execution.ProviderCredentialValidator</c> and
-/// <c>ModelCatalog.StaticFallback</c>; those paths are removed by the
-/// Phase 3 wizard issue.
-/// </para>
 /// </remarks>
 public class GoogleAgentRuntime : IAgentRuntime
 {

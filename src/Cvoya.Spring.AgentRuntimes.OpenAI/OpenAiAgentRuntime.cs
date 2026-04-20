@@ -28,13 +28,6 @@ using Microsoft.Extensions.Logging;
 /// <see cref="HttpClientName"/> on the injected <see cref="IHttpClientFactory"/>
 /// so the host-wide handler lifecycle is honoured.
 /// </para>
-/// <para>
-/// During Phase 2 of the #674 refactor this runtime co-exists with the
-/// hardcoded OpenAI paths in
-/// <c>Cvoya.Spring.Dapr.Execution.ProviderCredentialValidator</c> and
-/// <c>ModelCatalog.StaticFallback</c>; those paths are removed by the
-/// Phase 3 wizard issue.
-/// </para>
 /// </remarks>
 public class OpenAiAgentRuntime : IAgentRuntime
 {

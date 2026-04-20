@@ -172,9 +172,8 @@ public class OpenAiAgentRuntimeSeedTests
     [Fact]
     public void ShippedSeed_MirrorsCuratedOpenAiList_FromIssue680()
     {
-        // The runtime ships with the curated OpenAI list pulled from
-        // Cvoya.Spring.Dapr.Execution.ModelCatalog.StaticFallback as of
-        // issue #680. Drift between the two lists is intentional only
+        // The runtime's seed encodes the curated OpenAI list the wizard
+        // and CLI read at tenant-install time. Drift is intentional only
         // when a follow-up updates this test alongside the seed file.
         var seed = OpenAiAgentRuntimeSeedLoader.LoadFromAssemblyDirectory();
 

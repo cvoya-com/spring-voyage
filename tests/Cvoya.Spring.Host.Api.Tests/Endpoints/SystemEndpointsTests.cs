@@ -160,36 +160,6 @@ public class SystemEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
-    public async Task Validate_MissingBody_ReturnsBadRequest()
-    {
-        var ct = TestContext.Current.CancellationToken;
-
-        var response = await _client.PostAsJsonAsync(
-            "/api/v1/system/credentials/anthropic/validate",
-            new { apiKey = "" },
-            ct);
-
-        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        var body = await response.Content.ReadAsStringAsync(ct);
-        body.ShouldContain("missing-key");
-    }
-
-    [Fact]
-    public async Task Validate_UnknownProvider_ReturnsBadRequest()
-    {
-        var ct = TestContext.Current.CancellationToken;
-
-        var response = await _client.PostAsJsonAsync(
-            "/api/v1/system/credentials/no-such-provider/validate",
-            new { apiKey = "some-key" },
-            ct);
-
-        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        var body = await response.Content.ReadAsStringAsync(ct);
-        body.ShouldContain("unknown-provider");
-    }
-
-    [Fact]
     public async Task Status_AliasClaude_ResolvesSameAsAnthropic()
     {
         var ct = TestContext.Current.CancellationToken;

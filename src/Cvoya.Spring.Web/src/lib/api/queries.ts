@@ -1036,35 +1036,93 @@ export function useOllamaModels(
 }
 
 /**
- * Dynamic model-list hook for the unit-creation wizard (#597). Queries
- * <c>GET /api/v1/models/{provider}</c> which either returns a list fetched
- * live from the provider's API or the server-side static fallback — either
- * way the endpoint succeeds with a list, so this hook never throws into
- * the page. Callers still guard with `enabled` to avoid a network round-
- * trip when they know they want the hard-coded list (e.g. YAML import).
+ * Legacy per-provider model catalog hook. Post-#690 the endpoint it
+ * used to target (`GET /api/v1/models/{provider}`) is gone; this wrapper
+ * translates the `provider` argument to a runtime id and re-issues the
+ * call against `GET /api/v1/agent-runtimes/{id}/models`. The execution
+ * panel + tab + membership dialog still call into this shape while
+ * those surfaces are migrated in a follow-up; new callers should use
+ * `useAgentRuntimeModels` directly.
  */
 export function useProviderModels(
   provider: string,
   opts?: SliceOptions<string[] | null>,
 ): UseQueryResult<string[] | null, Error> {
+  const runtimeId = providerToRuntimeId(provider);
   return useQuery({
-    queryKey: queryKeys.models.forProvider(provider),
+    queryKey: queryKeys.agentRuntimes.models(runtimeId ?? provider),
     queryFn: async () => {
+      if (!runtimeId) return null;
       try {
-        return await api.listProviderModels(provider);
+        const models = await api.getAgentRuntimeModels(runtimeId);
+        return models.map((m) => m.id);
       } catch {
-        // The server already falls back to the static list on provider
-        // errors; a null here means the call itself failed (auth, CORS,
-        // etc.). Surface null so the wizard can still render its static
-        // catalog from `ai-models.ts`.
         return null;
       }
     },
-    // Models don't change minute-by-minute. Match the server's cache TTL
-    // so repeated wizard opens don't re-issue the request.
     staleTime: opts?.staleTime ?? 60 * 60 * 1000,
     refetchInterval: opts?.refetchInterval,
     enabled: opts?.enabled ?? Boolean(provider),
+  });
+}
+
+function providerToRuntimeId(provider: string): string | null {
+  const normalised = provider.trim().toLowerCase();
+  switch (normalised) {
+    case "claude":
+    case "anthropic":
+      return "claude";
+    case "openai":
+      return "openai";
+    case "google":
+    case "gemini":
+    case "googleai":
+      return "google";
+    case "ollama":
+      return "ollama";
+    default:
+      return null;
+  }
+}
+
+/**
+ * Tenant-installed agent runtimes (#690). The wizard reads every
+ * available runtime from this hook — the list drives the provider/tool
+ * dropdown and each entry's `credentialKind` + `credentialDisplayHint`
+ * drive the credential input.
+ */
+export function useAgentRuntimes(
+  opts?: SliceOptions<
+    import("./types").InstalledAgentRuntimeResponse[]
+  >,
+): UseQueryResult<
+  import("./types").InstalledAgentRuntimeResponse[],
+  Error
+> {
+  return useQuery({
+    queryKey: queryKeys.agentRuntimes.list(),
+    queryFn: () => api.listAgentRuntimes(),
+    staleTime: opts?.staleTime ?? 60 * 60 * 1000,
+    refetchInterval: opts?.refetchInterval,
+    enabled: opts?.enabled ?? true,
+  });
+}
+
+/**
+ * Per-runtime model catalog (#690). Returns the tenant's configured
+ * model list for a runtime; feeds the wizard's Model dropdown when a
+ * runtime is selected.
+ */
+export function useAgentRuntimeModels(
+  runtimeId: string,
+  opts?: SliceOptions<import("./types").AgentRuntimeModelResponse[]>,
+): UseQueryResult<import("./types").AgentRuntimeModelResponse[], Error> {
+  return useQuery({
+    queryKey: queryKeys.agentRuntimes.models(runtimeId),
+    queryFn: () => api.getAgentRuntimeModels(runtimeId),
+    staleTime: opts?.staleTime ?? 60 * 60 * 1000,
+    refetchInterval: opts?.refetchInterval,
+    enabled: opts?.enabled ?? Boolean(runtimeId),
   });
 }
 

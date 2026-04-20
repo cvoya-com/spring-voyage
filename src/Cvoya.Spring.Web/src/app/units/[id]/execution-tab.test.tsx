@@ -19,7 +19,7 @@ const setUnitExecution =
     ) => Promise<UnitExecutionResponse>
   >();
 const clearUnitExecution = vi.fn<(id: string) => Promise<void>>();
-const listProviderModels = vi.fn<(provider: string) => Promise<string[]>>();
+const getAgentRuntimeModels = vi.fn<(id: string) => Promise<{ id: string; displayName: string; contextWindow: number | null }[]>>();
 const getProviderCredentialStatus =
   vi.fn<
     (provider: string) => Promise<ProviderCredentialStatusResponse>
@@ -31,7 +31,7 @@ vi.mock("@/lib/api/client", () => ({
     setUnitExecution: (id: string, body: UnitExecutionResponse) =>
       setUnitExecution(id, body),
     clearUnitExecution: (id: string) => clearUnitExecution(id),
-    listProviderModels: (provider: string) => listProviderModels(provider),
+    getAgentRuntimeModels: (id: string) => getAgentRuntimeModels(id),
     getProviderCredentialStatus: (provider: string) =>
       getProviderCredentialStatus(provider),
   },
@@ -73,12 +73,12 @@ describe("ExecutionTab", () => {
     getUnitExecution.mockReset();
     setUnitExecution.mockReset();
     clearUnitExecution.mockReset();
-    listProviderModels.mockReset();
+    getAgentRuntimeModels.mockReset();
     getProviderCredentialStatus.mockReset();
     toastMock.mockReset();
     // Default: no models fetched + no credential probe so the banner
     // doesn't pop up unless the test sets it.
-    listProviderModels.mockResolvedValue([]);
+    getAgentRuntimeModels.mockResolvedValue([]);
     getProviderCredentialStatus.mockResolvedValue({
       provider: "anthropic",
       resolvable: true,
@@ -118,9 +118,9 @@ describe("ExecutionTab", () => {
     // dropdown is now rendered against the tool's catalog so the operator
     // can still pick a model family (e.g. claude-opus-4 for Claude Code).
     getUnitExecution.mockResolvedValue({ tool: "claude-code" });
-    listProviderModels.mockResolvedValue([
-      "claude-sonnet-4-20250514",
-      "claude-opus-4-20250514",
+    getAgentRuntimeModels.mockResolvedValue([
+      { id: "claude-sonnet-4-20250514", displayName: "claude-sonnet-4-20250514", contextWindow: null },
+      { id: "claude-opus-4-20250514", displayName: "claude-opus-4-20250514", contextWindow: null },
     ]);
 
     render(
@@ -137,8 +137,14 @@ describe("ExecutionTab", () => {
 
   it("renders a Model dropdown populated from the tool's catalog when tool=codex (#641)", async () => {
     getUnitExecution.mockResolvedValue({ tool: "codex" });
-    listProviderModels.mockImplementation(async (provider: string) => {
-      if (provider === "openai") return ["gpt-4o", "gpt-4o-mini", "o3-mini"];
+    getAgentRuntimeModels.mockImplementation(async (id: string) => {
+      if (id === "openai") {
+        return [
+          { id: "gpt-4o", displayName: "gpt-4o", contextWindow: null },
+          { id: "gpt-4o-mini", displayName: "gpt-4o-mini", contextWindow: null },
+          { id: "o3-mini", displayName: "o3-mini", contextWindow: null },
+        ];
+      }
       return [];
     });
 
@@ -150,7 +156,7 @@ describe("ExecutionTab", () => {
 
     await screen.findByTestId("unit-execution-card");
     await waitFor(() => {
-      expect(listProviderModels).toHaveBeenCalledWith("openai");
+      expect(getAgentRuntimeModels).toHaveBeenCalledWith("openai");
     });
 
     const modelSelect = (await screen.findByTestId(
@@ -166,7 +172,7 @@ describe("ExecutionTab", () => {
 
   it("shows both Provider and Model when tool=dapr-agent (#641)", async () => {
     getUnitExecution.mockResolvedValue({ tool: "dapr-agent" });
-    listProviderModels.mockResolvedValue([]);
+    getAgentRuntimeModels.mockResolvedValue([]);
 
     render(
       <Wrapper>
@@ -185,7 +191,7 @@ describe("ExecutionTab", () => {
 
   it("omits the Model slot when tool=custom (no known catalog) (#641)", async () => {
     getUnitExecution.mockResolvedValue({ tool: "custom" });
-    listProviderModels.mockResolvedValue([]);
+    getAgentRuntimeModels.mockResolvedValue([]);
 
     render(
       <Wrapper>

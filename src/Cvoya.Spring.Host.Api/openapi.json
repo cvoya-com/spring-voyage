@@ -7071,37 +7071,6 @@
         }
       }
     },
-    "/api/v1/models/{provider}": {
-      "get": {
-        "tags": [
-          "Models"
-        ],
-        "summary": "List available models for an AI provider, dynamically when possible",
-        "operationId": "ListModelsForProvider",
-        "parameters": [
-          {
-            "name": "provider",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ModelsResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/system/credentials/{provider}/status": {
       "get": {
         "tags": [
@@ -7126,56 +7095,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProviderCredentialStatusResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request"
-          }
-        }
-      }
-    },
-    "/api/v1/system/credentials/{provider}/validate": {
-      "post": {
-        "tags": [
-          "System"
-        ],
-        "summary": "Validate a caller-supplied LLM provider API key against the provider",
-        "operationId": "ValidateProviderCredential",
-        "parameters": [
-          {
-            "name": "provider",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/ValidateCredentialRequest"
-                  }
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProviderCredentialValidationResponse"
                 }
               }
             }
@@ -7525,6 +7444,13 @@
             ]
           }
         }
+      },
+      "AgentRuntimeCredentialKind": {
+        "enum": [
+          "None",
+          "ApiKey",
+          "OAuthToken"
+        ]
       },
       "AgentRuntimeInstallConfig": {
         "required": [
@@ -9201,7 +9127,9 @@
           "updatedAt",
           "models",
           "defaultModel",
-          "baseUrl"
+          "baseUrl",
+          "credentialKind",
+          "credentialDisplayHint"
         ],
         "type": "object",
         "properties": {
@@ -9235,6 +9163,15 @@
             ]
           },
           "baseUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "credentialKind": {
+            "$ref": "#/components/schemas/AgentRuntimeCredentialKind"
+          },
+          "credentialDisplayHint": {
             "type": [
               "null",
               "string"
@@ -9417,24 +9354,6 @@
               "null",
               "array"
             ],
-            "items": {
-              "type": "string"
-            }
-          }
-        }
-      },
-      "ModelsResponse": {
-        "required": [
-          "provider",
-          "models"
-        ],
-        "type": "object",
-        "properties": {
-          "provider": {
-            "type": "string"
-          },
-          "models": {
-            "type": "array",
             "items": {
               "type": "string"
             }
@@ -9869,42 +9788,6 @@
             ]
           },
           "suggestion": {
-            "type": [
-              "null",
-              "string"
-            ]
-          }
-        }
-      },
-      "ProviderCredentialValidationResponse": {
-        "required": [
-          "provider",
-          "valid",
-          "status",
-          "models",
-          "error"
-        ],
-        "type": "object",
-        "properties": {
-          "provider": {
-            "type": "string"
-          },
-          "valid": {
-            "type": "boolean"
-          },
-          "status": {
-            "type": "string"
-          },
-          "models": {
-            "type": [
-              "null",
-              "array"
-            ],
-            "items": {
-              "type": "string"
-            }
-          },
-          "error": {
             "type": [
               "null",
               "string"
@@ -11327,17 +11210,6 @@
           }
         }
       },
-      "ValidateCredentialRequest": {
-        "required": [
-          "apiKey"
-        ],
-        "type": "object",
-        "properties": {
-          "apiKey": {
-            "type": "string"
-          }
-        }
-      },
       "WaitTimeEntryResponse": {
         "required": [
           "source",
@@ -11538,9 +11410,6 @@
     },
     {
       "name": "Ollama"
-    },
-    {
-      "name": "Models"
     },
     {
       "name": "System"

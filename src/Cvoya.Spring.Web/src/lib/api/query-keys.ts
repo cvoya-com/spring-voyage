@@ -156,11 +156,14 @@ export const queryKeys = {
     models: () => ["ollama", "models"] as const,
   },
 
-  // Dynamic model catalog (#597) — per-provider cache so switching the
-  // provider dropdown doesn't clobber the previous provider's entry.
-  models: {
-    all: ["models"] as const,
-    forProvider: (provider: string) => ["models", provider] as const,
+  // Tenant-installed agent runtimes (#690) — per-runtime cache so
+  // switching the runtime dropdown doesn't clobber the previous
+  // runtime's model list.
+  agentRuntimes: {
+    all: ["agentRuntimes"] as const,
+    list: () => ["agentRuntimes", "list"] as const,
+    models: (runtimeId: string) =>
+      ["agentRuntimes", runtimeId, "models"] as const,
   },
 
   // Settings drawer (#451) — drawer panels fetch a small amount of

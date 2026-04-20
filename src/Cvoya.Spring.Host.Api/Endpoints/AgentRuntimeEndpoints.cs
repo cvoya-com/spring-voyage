@@ -441,6 +441,8 @@ public static class AgentRuntimeEndpoints
             UpdatedAt: install.UpdatedAt,
             Models: install.Config.Models,
             DefaultModel: install.Config.DefaultModel,
-            BaseUrl: install.Config.BaseUrl);
+            BaseUrl: install.Config.BaseUrl,
+            CredentialKind: runtime.CredentialSchema.Kind,
+            CredentialDisplayHint: runtime.CredentialSchema.DisplayHint);
     }
 }

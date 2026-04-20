@@ -3,11 +3,14 @@
 
 namespace Cvoya.Spring.Core.AgentRuntimes;
 
+using System.Text.Json.Serialization;
+
 /// <summary>
 /// The kind of credential an <see cref="IAgentRuntime"/> expects at accept
 /// time. Used by the wizard to render the correct input control and by the
 /// credential-health store to categorize stored secrets.
 /// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter<AgentRuntimeCredentialKind>))]
 public enum AgentRuntimeCredentialKind
 {
     /// <summary>
