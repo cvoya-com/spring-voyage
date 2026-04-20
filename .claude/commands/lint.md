@@ -1,13 +1,13 @@
-Check v2 code formatting.
+Check code formatting.
 
 ```bash
-cd v2 && dotnet format --verify-no-changes
+dotnet format SpringVoyage.slnx --verify-no-changes
 ```
 
 If formatting issues are found, fix them with:
 
 ```bash
-cd v2 && dotnet format
+dotnet format SpringVoyage.slnx
 ```
 
 Then re-run the check to verify.

@@ -329,21 +329,9 @@ Multiple agents work on v2 simultaneously. Follow these rules:
 
 ## 13. Extensibility Conventions
 
-This repo is the OSS core of a two-repo model. A private repository extends it via DI and git submodule. All code must be designed for clean extension. See `AGENTS.md` § "Open-Source Platform & Extensibility" for the full rationale.
-
-**Service registration:** Always use `TryAdd*` (`TryAddSingleton`, `TryAddScoped`, `TryAddTransient`). This lets the private repo pre-register overrides.
-
-**Sealing policy:** Don't `seal` services, handlers, base classes, or strategy implementations. Seal only leaf types that are not extension points (e.g., record DTOs, internal helpers).
-
-**Visibility:** Types that are part of the extension contract must be `public`. Use `internal` only for true implementation details that no consumer would ever need to access or replace.
-
-**Base class hooks:** When creating base classes (`ConnectorBase`, `ActorBase`, etc.), make template/hook methods `protected virtual` so they can be overridden.
-
-**No tenant assumptions:** Don't embed single-user or single-deployment assumptions. Use injected services for anything the private repo might scope per-tenant: repositories, configuration providers, policy evaluators.
+General extensibility rules (TryAdd*, no-seal, visibility, virtual hooks, no tenant assumptions, no statics) are covered in `AGENTS.md` § "Open-Source Platform & Extensibility". The conventions below are the tenancy-specific rules that belong with code patterns.
 
 **Multi-tenancy (business-data entities):** Any new business-data entity MUST implement `Cvoya.Spring.Core.Tenancy.ITenantScopedEntity` and its `IEntityTypeConfiguration` MUST add the combined tenant + soft-delete query filter — `HasQueryFilter(e => e.TenantId == tenantContext.CurrentTenantId && e.DeletedAt == null)`, dropping the soft-delete clause only for entities that do not carry a `DeletedAt` column. The DbContext auto-populates `TenantId` from the injected `ITenantContext` on insert, so write sites do not set it explicitly. System/ops tables (migrations history, startup config) stay global and are not tenant-scoped. See issue #674 for background and the broader refactor plan.
-
-**No statics for state or services:** Everything goes through DI. No static service locators, no ambient contexts, no `static` mutable state.
 
 **Cross-tenant reads and writes go through `ITenantScopeBypass`.** The EF Core query filter applied to every tenant-scoped entity restricts reads and writes to the current tenant. A small set of operations legitimately need to cross that boundary — `DatabaseMigrator`, platform-wide analytics, system administration. Those call sites wrap the work in `ITenantScopeBypass.BeginBypass(reason)` so the bypass is auditable (structured log on open and close, with caller context and duration) and so the private cloud repo can swap the default implementation for a permission-checked variant. Never call `IgnoreQueryFilters()` directly in business code — if a feature seems to need it, rethink the feature or file an issue.
 
@@ -359,3 +347,5 @@ Every user-facing feature must ship through BOTH the web portal UI and the `spri
 - An E2E scenario under `tests/e2e/` is a good parity proxy: if the scenario has to fall back to `curl` because the CLI lacks the command, the CLI is behind.
 
 **Exceptions:** admin/ops operations that are genuinely dev-only (e.g., `dotnet ef migrations add`) don't need a UI counterpart. Internal test affordances are also out of scope.
+
+**Admin/operator carve-out (OSS only, per #674):** agent-runtime config (`spring agent-runtime …`), connector config (`spring connector …`), credential health, tenant seeds, and skill-bundle bindings are CLI-only in the OSS core by design. The portal MAY expose read-only views for visibility, but mutations are via the CLI. This carve-out is ADDITIVE to the parity rule — user-facing features remain parity-bound.
