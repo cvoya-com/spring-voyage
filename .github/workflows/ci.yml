@@ -359,6 +359,36 @@ jobs:
         working-directory: src/Cvoya.Spring.Web
         run: npm run build
 
+  web-test:
+    name: Test web (vitest)
+    runs-on: ubuntu-latest
+    needs: changes
+    # Skipped in the merge queue: vitest runs the portal's own unit tests
+    # against committed sources, so a pass on the pull_request run stays
+    # valid through the queue. #663 slipped through because this check
+    # didn't exist.
+    if: >
+      github.event_name != 'merge_group' &&
+      (needs.changes.outputs.web == 'true' || needs.changes.outputs.workflows == 'true')
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install workspace dependencies
+        run: npm ci
+
+      # pretest runs openapi-typescript against the committed
+      # src/Cvoya.Spring.Host.Api/openapi.json - no dotnet build needed
+      # here; openapi-drift covers contract freshness separately.
+      - name: Run vitest
+        run: npm --workspace=spring-voyage-dashboard run test
+
   python-lint:
     name: Lint Python agents
     runs-on: ubuntu-latest
@@ -480,6 +510,7 @@ jobs:
       - connector-web-lint
       - web-lint
       - web-build
+      - web-test
       - openapi-drift
       - python-lint
       - python-test
@@ -500,6 +531,7 @@ jobs:
           CONNECTOR_WEB_RESULT: ${{ needs.connector-web-lint.result }}
           WEB_LINT_RESULT: ${{ needs.web-lint.result }}
           WEB_BUILD_RESULT: ${{ needs.web-build.result }}
+          WEB_TEST_RESULT: ${{ needs.web-test.result }}
           OPENAPI_RESULT: ${{ needs.openapi-drift.result }}
           PYTHON_LINT_RESULT: ${{ needs.python-lint.result }}
           PYTHON_TEST_RESULT: ${{ needs.python-test.result }}
@@ -513,6 +545,7 @@ jobs:
           echo "connector-web-lint=$CONNECTOR_WEB_RESULT"
           echo "web-lint=$WEB_LINT_RESULT"
           echo "web-build=$WEB_BUILD_RESULT"
+          echo "web-test=$WEB_TEST_RESULT"
           echo "openapi-drift=$OPENAPI_RESULT"
           echo "python-lint=$PYTHON_LINT_RESULT"
           echo "python-test=$PYTHON_TEST_RESULT"
@@ -536,6 +569,7 @@ jobs:
           ok "$CONNECTOR_WEB_RESULT"   || { echo "::error::connector-web-lint failed"; exit 1; }
           ok "$WEB_LINT_RESULT"        || { echo "::error::web-lint failed"; exit 1; }
           ok "$WEB_BUILD_RESULT"       || { echo "::error::web-build failed"; exit 1; }
+          ok "$WEB_TEST_RESULT"        || { echo "::error::web-test failed"; exit 1; }
           ok "$OPENAPI_RESULT"         || { echo "::error::openapi-drift failed"; exit 1; }
           ok "$PYTHON_LINT_RESULT"    || { echo "::error::python-lint failed"; exit 1; }
           ok "$PYTHON_TEST_RESULT"    || { echo "::error::python-test failed"; exit 1; }
