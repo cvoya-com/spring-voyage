@@ -62,6 +62,7 @@ For contributors to the Spring Voyage V2 platform.
 
 ### Reference
 
+- [CLI Reference — `spring agent-runtime` / `spring connector`](cli-reference.md) -- concise verb reference for the admin surfaces introduced by the #674 refactor.
 - [Glossary](glossary.md) -- definitions of all key terms
 - [Design Decisions](design-decisions.md) -- the "why" behind major architectural choices
 - [Decision Records](decisions/README.md) -- narrow, dated records for trade-offs that lock in a specific approach
