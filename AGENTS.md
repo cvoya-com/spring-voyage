@@ -47,6 +47,7 @@ The private repo extends the OSS platform through dependency injection:
 - **Tenant-scoped wrappers** around OSS repositories and services (the OSS codebase has no concept of tenants or `TenantId`)
 - **DI overrides** — the cloud host replaces OSS service registrations with tenant-aware implementations
 - **Additional actors, strategies, and connectors** that compose OSS building blocks
+- **Plugin contracts** — implement `IAgentRuntime` (LLM backend + execution tool + credential schema + model catalog) or `IConnectorType` (external-system binding) and register with `TryAdd*`; the host picks new implementations up via DI without any core code change
 - **Cloud API host** that layers middleware (auth, tenant context) on top of the OSS API host
 
 ### Design Principles for Extensibility

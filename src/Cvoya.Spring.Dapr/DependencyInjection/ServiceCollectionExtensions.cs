@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Dapr.DependencyInjection;
 
 using Cvoya.Spring.Connectors;
+using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Cloning;
 using Cvoya.Spring.Core.Configuration;
@@ -21,6 +22,7 @@ using Cvoya.Spring.Core.State;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
+using Cvoya.Spring.Dapr.AgentRuntimes;
 using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Capabilities;
 using Cvoya.Spring.Dapr.Cloning;
@@ -327,6 +329,19 @@ public static class ServiceCollectionExtensions
         // per-tenant allowlists) without forking the endpoint.
         services.AddHttpClient(ModelCatalog.HttpClientName);
         services.TryAddSingleton<IModelCatalog, ModelCatalog>();
+
+        // Agent-runtime plugin registry (#678, cornerstone of the #674
+        // refactor). Enumerates every DI-registered IAgentRuntime so the
+        // API layer, wizard, and CLI can resolve runtimes by id without
+        // importing concrete runtime packages. Per-runtime migrations
+        // (#679–#682) register the concrete IAgentRuntime implementations
+        // via their own AddCvoyaSpringAgentRuntime<Name>() extensions;
+        // until those land, All is intentionally empty and the hardcoded
+        // ModelCatalog / ProviderCredentialValidator paths above stay in
+        // force. TryAdd so the private cloud host can supply a
+        // tenant-scoped registry (e.g. one that filters on
+        // tenant_agent_runtime_installs) without forking.
+        services.TryAddSingleton<IAgentRuntimeRegistry, AgentRuntimeRegistry>();
 
         // Wizard-time credential validator (#655 / #660). Primary path
         // issues a lightweight GET /v1/models against the provider with
