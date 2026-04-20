@@ -12,6 +12,8 @@ using Cvoya.Spring.AgentRuntimes.Ollama.DependencyInjection;
 using Cvoya.Spring.AgentRuntimes.OpenAI;
 using Cvoya.Spring.AgentRuntimes.OpenAI.DependencyInjection;
 using Cvoya.Spring.Connector.Arxiv.DependencyInjection;
+using Cvoya.Spring.Connector.GitHub;
+using Cvoya.Spring.Connector.GitHub.Auth;
 using Cvoya.Spring.Connector.GitHub.Auth.OAuth;
 using Cvoya.Spring.Connector.GitHub.DependencyInjection;
 using Cvoya.Spring.Connector.WebSearch.DependencyInjection;
@@ -101,15 +103,28 @@ try
             CredentialHealthKind.AgentRuntime,
             subjectId: OllamaAgentRuntime.RuntimeId,
             secretName: "api-key");
-    // GitHub: only the OAuth named client routes through IHttpClientFactory
-    // today. The App-auth + Octokit surface bypasses the factory (direct
-    // HttpClient and Octokit's own handler chain respectively), so those
-    // paths do not participate in the watchdog yet. Tracked as #730.
+    // GitHub: all three named clients (OAuth token exchange, App-auth
+    // installation-token mint, Octokit repo-API calls) route through
+    // IHttpClientFactory / IHttpMessageHandlerFactory, so the watchdog
+    // observes every auth outcome. Per CONVENTIONS.md § 16 the secret-name
+    // is the credential key inside the subject — "client-secret" for the
+    // OAuth app secret, "private-key" for the App-auth RSA key that signs
+    // the JWT (and whose associated installation token Octokit carries).
     builder.Services.AddHttpClient(GitHubOAuthHttpClient.HttpClientName)
         .AddCredentialHealthWatchdog(
             CredentialHealthKind.Connector,
             subjectId: "github",
             secretName: "client-secret");
+    builder.Services.AddHttpClient(GitHubAppAuth.HttpClientName)
+        .AddCredentialHealthWatchdog(
+            CredentialHealthKind.Connector,
+            subjectId: "github",
+            secretName: "private-key");
+    builder.Services.AddHttpClient(GitHubConnector.OctokitHttpClientName)
+        .AddCredentialHealthWatchdog(
+            CredentialHealthKind.Connector,
+            subjectId: "github",
+            secretName: "private-key");
 
     // DataProtection tries to persist/load keys from disk and logs a warning when
     // no stable key directory is configured. During build-time OpenAPI generation

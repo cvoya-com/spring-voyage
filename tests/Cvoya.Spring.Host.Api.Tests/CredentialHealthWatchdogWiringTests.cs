@@ -10,6 +10,8 @@ using Cvoya.Spring.AgentRuntimes.Claude;
 using Cvoya.Spring.AgentRuntimes.Google;
 using Cvoya.Spring.AgentRuntimes.Ollama;
 using Cvoya.Spring.AgentRuntimes.OpenAI;
+using Cvoya.Spring.Connector.GitHub;
+using Cvoya.Spring.Connector.GitHub.Auth;
 using Cvoya.Spring.Connector.GitHub.Auth.OAuth;
 using Cvoya.Spring.Core.CredentialHealth;
 using Cvoya.Spring.Dapr.Data;
@@ -97,6 +99,8 @@ public sealed class CredentialHealthWatchdogWiringTests : IDisposable
                     ConfigurePrimaryHandler(services, OpenAiAgentRuntime.HttpClientName);
                     ConfigurePrimaryHandler(services, OllamaAgentRuntime.HttpClientName);
                     ConfigurePrimaryHandler(services, GitHubOAuthHttpClient.HttpClientName);
+                    ConfigurePrimaryHandler(services, GitHubAppAuth.HttpClientName);
+                    ConfigurePrimaryHandler(services, GitHubConnector.OctokitHttpClientName);
                 });
             });
     }
@@ -107,6 +111,8 @@ public sealed class CredentialHealthWatchdogWiringTests : IDisposable
     [InlineData(OpenAiAgentRuntime.HttpClientName, CredentialHealthKind.AgentRuntime, "openai", "api-key")]
     [InlineData(OllamaAgentRuntime.HttpClientName, CredentialHealthKind.AgentRuntime, OllamaAgentRuntime.RuntimeId, "api-key")]
     [InlineData(GitHubOAuthHttpClient.HttpClientName, CredentialHealthKind.Connector, "github", "client-secret")]
+    [InlineData(GitHubAppAuth.HttpClientName, CredentialHealthKind.Connector, "github", "private-key")]
+    [InlineData(GitHubConnector.OctokitHttpClientName, CredentialHealthKind.Connector, "github", "private-key")]
     public async Task Plugin401Response_FlipsStoreToInvalid(
         string httpClientName,
         CredentialHealthKind expectedKind,

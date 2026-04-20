@@ -25,6 +25,15 @@ using Octokit.Internal;
 /// </summary>
 public class GitHubConnector : IGitHubConnector
 {
+    /// <summary>
+    /// Name of the <see cref="HttpClient"/> / handler chain this connector
+    /// resolves through <see cref="IHttpMessageHandlerFactory"/> for Octokit
+    /// repo-API calls. Exposed as a constant so the host can attach the
+    /// credential-health watchdog (see <c>CONVENTIONS.md</c> § 16) to the
+    /// same logical pipeline.
+    /// </summary>
+    public const string OctokitHttpClientName = "github-octokit";
+
     private readonly GitHubAppAuth _auth;
     private readonly GitHubWebhookHandler _webhookHandler;
     private readonly IWebhookSignatureValidator _signatureValidator;
@@ -33,6 +42,7 @@ public class GitHubConnector : IGitHubConnector
     private readonly GitHubRetryOptions _retryOptions;
     private readonly IInstallationTokenCache _tokenCache;
     private readonly IGitHubResponseCache _responseCache;
+    private readonly IHttpMessageHandlerFactory? _handlerFactory;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
 
@@ -42,6 +52,16 @@ public class GitHubConnector : IGitHubConnector
     /// back to a best-effort no-op cache so behaviour stays equivalent to
     /// re-minting on every call.
     /// </summary>
+    /// <remarks>
+    /// When <paramref name="handlerFactory"/> is supplied, Octokit's inner
+    /// HTTP pipeline is sourced from the named handler chain
+    /// <see cref="OctokitHttpClientName"/>, which lets the host attach
+    /// cross-cutting <see cref="DelegatingHandler"/>s (credential-health
+    /// watchdog, proxies) alongside the built-in retry handler without the
+    /// connector needing a reference to <c>Cvoya.Spring.Dapr</c>. Left null
+    /// (unit tests) the connector falls back to an in-line chain that
+    /// wraps the retry handler around a fresh <see cref="HttpClientHandler"/>.
+    /// </remarks>
     public GitHubConnector(
         GitHubAppAuth auth,
         GitHubWebhookHandler webhookHandler,
@@ -51,7 +71,8 @@ public class GitHubConnector : IGitHubConnector
         GitHubRetryOptions retryOptions,
         ILoggerFactory loggerFactory,
         IInstallationTokenCache? tokenCache = null,
-        IGitHubResponseCache? responseCache = null)
+        IGitHubResponseCache? responseCache = null,
+        IHttpMessageHandlerFactory? handlerFactory = null)
     {
         _auth = auth;
         _webhookHandler = webhookHandler;
@@ -66,6 +87,7 @@ public class GitHubConnector : IGitHubConnector
         // Default to the no-op cache so legacy constructor call sites
         // (tests) don't need to wire up the response-cache plumbing.
         _responseCache = responseCache ?? NoOpGitHubResponseCache.Instance;
+        _handlerFactory = handlerFactory;
         _logger = loggerFactory.CreateLogger<GitHubConnector>();
     }
 
@@ -228,9 +250,24 @@ public class GitHubConnector : IGitHubConnector
 
     private HttpMessageHandler CreateHandler()
     {
-        // Octokit defaults to HttpClientHandler when its caller provides no
-        // inner handler; replicate that and wrap it in the retry handler so
-        // every outbound request goes through the rate-limit tracker.
+        // Prefer the host-registered handler chain so the credential-health
+        // watchdog (and any future cross-cutting handler attached by the
+        // host via AddHttpClient) sits on top of the connector-owned retry
+        // handler. IHttpMessageHandlerFactory returns the configured chain
+        // for the named client including primary handler + every registered
+        // DelegatingHandler, which is what Octokit's HttpClientAdapter
+        // expects. The factory manages the handler lifetime (rotation every
+        // few minutes), so we must NOT dispose the returned instance — that
+        // matches how IHttpClientFactory-sourced clients behave elsewhere.
+        if (_handlerFactory is not null)
+        {
+            return _handlerFactory.CreateHandler(OctokitHttpClientName);
+        }
+
+        // Fallback for direct-construction callers (unit tests). Octokit
+        // defaults to HttpClientHandler when its caller provides no inner
+        // handler; replicate that and wrap it in the retry handler so every
+        // outbound request goes through the rate-limit tracker.
         var retryHandler = new GitHubRetryHandler(
             _rateLimitTracker,
             _retryOptions,
