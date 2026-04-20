@@ -545,6 +545,7 @@ public static class AgentEndpoints
         IDirectoryService directoryService,
         IActorProxyFactory actorProxyFactory,
         IUnitMembershipRepository membershipRepository,
+        IUnitMembershipTenantGuard tenantGuard,
         SpringDbContext db,
         CancellationToken cancellationToken)
     {
@@ -569,13 +570,33 @@ public static class AgentEndpoints
         // Resolve every referenced unit BEFORE we touch any server-side
         // state so the caller sees a clean 404 with no partial-register
         // rollback. The first missing unit wins; the error message names
-        // it so the caller can correct the request.
+        // it so the caller can correct the request. Per #745 we also
+        // require each unit to live in the caller's tenant — the
+        // tenant guard rejects cross-tenant unit ids with the same 404
+        // shape we return for genuinely missing units, so the agent
+        // creation surface never leaks the existence of other-tenant
+        // units.
         var resolvedUnits = new List<(string Id, DirectoryEntry Entry)>(unitIds.Count);
+        var pseudoParent = new Address("agent", request.Name);
         foreach (var unitId in unitIds)
         {
-            var unitEntry = await directoryService.ResolveAsync(
-                new Address("unit", unitId), cancellationToken);
+            var unitAddress = new Address("unit", unitId);
+            var unitEntry = await directoryService.ResolveAsync(unitAddress, cancellationToken);
             if (unitEntry is null)
+            {
+                return Results.Problem(
+                    detail: $"Unit '{unitId}' not found",
+                    statusCode: StatusCodes.Status404NotFound);
+            }
+            // Ask the guard whether the unit is visible in the current
+            // tenant. The guard's ShareTenantAsync(unit, agent) needs both
+            // addresses to belong to visible rows — at create time the
+            // agent row does not exist yet, so we check unit-only
+            // visibility by asking "does this unit share a tenant with
+            // itself in my scope?".
+            var visibleInTenant = await tenantGuard.ShareTenantAsync(
+                unitAddress, unitAddress, cancellationToken);
+            if (!visibleInTenant)
             {
                 return Results.Problem(
                     detail: $"Unit '{unitId}' not found",

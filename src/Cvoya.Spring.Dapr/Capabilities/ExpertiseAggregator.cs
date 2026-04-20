@@ -234,6 +234,15 @@ public class ExpertiseAggregator(
             return Array.Empty<Address>();
         }
 
+        // #745: resolve the tenant guard from a fresh scope for the
+        // invalidate parent walk. Optional so the test-only
+        // DirectRepositoryScopeFactory (which only provides an
+        // IUnitMembershipRepository) keeps working — GetService returns
+        // null there and the filter degrades to "check every candidate",
+        // matching pre-#745 behaviour.
+        await using var walkScope = scopeFactory.CreateAsyncScope();
+        var tenantGuard = walkScope.ServiceProvider.GetService<IUnitMembershipTenantGuard>();
+
         var parents = new List<Address>();
         foreach (var entry in all)
         {
@@ -243,6 +252,18 @@ public class ExpertiseAggregator(
             }
 
             if (entry.Address == child)
+            {
+                continue;
+            }
+
+            // #745: filter cross-tenant candidates defensively. The
+            // DirectoryService cache is shared across tenants today, so
+            // ListAllAsync may return units the caller is not allowed to
+            // see. The tenant guard uses tenant-scoped row visibility to
+            // decide — a parent in another tenant is skipped before we
+            // ever read its actor state.
+            if (tenantGuard is not null
+                && !await tenantGuard.ShareTenantAsync(entry.Address, child, ct))
             {
                 continue;
             }
@@ -273,6 +294,13 @@ public class ExpertiseAggregator(
 
     private async Task<AggregatedExpertise> ComputeAsync(Address unit, CancellationToken ct)
     {
+        // #745: open one scope for the whole walk so the scoped tenant
+        // guard (and its SpringDbContext) is re-used across edges. The
+        // aggregator itself is a singleton so the guard cannot be a ctor
+        // dependency.
+        await using var walkScope = scopeFactory.CreateAsyncScope();
+        var tenantGuard = walkScope.ServiceProvider.GetService<IUnitMembershipTenantGuard>();
+
         if (!string.Equals(unit.Scheme, "unit", StringComparison.OrdinalIgnoreCase))
         {
             // The aggregator is unit-oriented; for an agent, return whatever
@@ -352,6 +380,21 @@ public class ExpertiseAggregator(
                 if (!visited.Add(ToKey(member)))
                 {
                     // Already visited — benign DAG convergence; skip.
+                    continue;
+                }
+
+                // #745: even if actor state somehow holds a cross-tenant
+                // reference (pre-guard row, direct DB edit, cloud-overlay
+                // bypass), refuse to traverse it. The guard consults the
+                // tenant-scoped row tables so a member whose tenant does
+                // not match the current context is invisible — we skip it
+                // and keep the rest of the walk going.
+                if (tenantGuard is not null
+                    && !await tenantGuard.ShareTenantAsync(current, member, ct))
+                {
+                    _logger.LogWarning(
+                        "Aggregation: cross-tenant member {Member} of unit {Parent} skipped (tenant mismatch).",
+                        member, current);
                     continue;
                 }
 

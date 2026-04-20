@@ -65,6 +65,7 @@ public class UnitCreationService : IUnitCreationService
     private readonly IOrchestrationStrategyCacheInvalidator _orchestrationCacheInvalidator;
     private readonly IUnitOrchestrationStore? _orchestrationStore;
     private readonly IUnitExecutionStore? _executionStore;
+    private readonly IUnitMembershipTenantGuard? _tenantGuard;
     private readonly ILogger<UnitCreationService> _logger;
 
     /// <summary>
@@ -98,7 +99,8 @@ public class UnitCreationService : IUnitCreationService
         IUnitBoundaryStore? boundaryStore = null,
         IOrchestrationStrategyCacheInvalidator? orchestrationCacheInvalidator = null,
         IUnitOrchestrationStore? orchestrationStore = null,
-        IUnitExecutionStore? executionStore = null)
+        IUnitExecutionStore? executionStore = null,
+        IUnitMembershipTenantGuard? tenantGuard = null)
     {
         _directoryService = directoryService;
         _actorProxyFactory = actorProxyFactory;
@@ -115,6 +117,7 @@ public class UnitCreationService : IUnitCreationService
             ?? NullOrchestrationStrategyCacheInvalidator.Instance;
         _orchestrationStore = orchestrationStore;
         _executionStore = executionStore;
+        _tenantGuard = tenantGuard;
         _logger = loggerFactory.CreateLogger<UnitCreationService>();
     }
 
@@ -648,6 +651,33 @@ public class UnitCreationService : IUnitCreationService
                     continue;
                 }
 
+                var memberAddress = new Address(resolved.Value.Scheme, resolved.Value.Path);
+
+                // #745: for pre-existing members (not auto-registered below)
+                // enforce the same-tenant invariant before the actor-state
+                // write. Auto-registered agents are created in the current
+                // tenant by DirectoryService.RegisterAsync so they need no
+                // check — the guard only matters when the manifest names an
+                // id that already exists. Unit-typed members follow the
+                // same rule: the parent unit and the candidate must live
+                // in the same tenant.
+                if (_tenantGuard is not null)
+                {
+                    var existingDirectory = await _directoryService.ResolveAsync(
+                        memberAddress, cancellationToken);
+                    if (existingDirectory is not null)
+                    {
+                        var shareTenant = await _tenantGuard.ShareTenantAsync(
+                            address, memberAddress, cancellationToken);
+                        if (!shareTenant)
+                        {
+                            warnings.Add(
+                                $"member {resolved.Value.Scheme}:{resolved.Value.Path} is not visible in this tenant; skipped");
+                            continue;
+                        }
+                    }
+                }
+
                 // Fix #324: call the actor directly instead of round-tripping
                 // through MessageRouter. The router's permission gate is for
                 // external callers; a platform-internal service-to-actor call
@@ -658,7 +688,7 @@ public class UnitCreationService : IUnitCreationService
                 try
                 {
                     await proxy.AddMemberAsync(
-                        new Address(resolved.Value.Scheme, resolved.Value.Path),
+                        memberAddress,
                         cancellationToken);
                     membersAdded++;
                 }

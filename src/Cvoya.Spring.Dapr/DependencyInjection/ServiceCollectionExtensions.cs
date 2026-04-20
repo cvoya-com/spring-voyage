@@ -197,6 +197,14 @@ public static class ServiceCollectionExtensions
         services.TryAddScoped<IUnitMembershipRepository, UnitMembershipRepository>();
         services.TryAddScoped<IUnitPolicyRepository, UnitPolicyRepository>();
 
+        // Tenant-scoping guard for composition + membership writes (#745).
+        // Scoped so the guard sees the current request's tenant context —
+        // the SpringDbContext it consults captures CurrentTenantId at query
+        // time. TryAddScoped so a cloud overlay can layer additional
+        // policy (audit logging, permission checks) on top without
+        // displacing the OSS default.
+        services.TryAddScoped<IUnitMembershipTenantGuard, UnitMembershipTenantGuard>();
+
         // Unit-policy enforcement (#162 / #163). TryAdd so the private cloud
         // repo can pre-register a tenant-scoped / audit-logging wrapper that
         // wraps the OSS default. Scoped because the underlying repositories

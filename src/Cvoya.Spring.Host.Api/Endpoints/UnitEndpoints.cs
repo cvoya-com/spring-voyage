@@ -891,6 +891,7 @@ public static class UnitEndpoints
         IDirectoryService directoryService,
         IActorProxyFactory actorProxyFactory,
         IExpertiseAggregator expertiseAggregator,
+        IUnitMembershipTenantGuard tenantGuard,
         CancellationToken cancellationToken)
     {
         var unitAddress = new Address("unit", id);
@@ -902,6 +903,21 @@ public static class UnitEndpoints
         }
 
         var memberAddress = new Address(request.MemberAddress.Scheme, request.MemberAddress.Path);
+
+        // #745: enforce same-tenant before any actor-state write. Cross-
+        // tenant members would let a message dispatched to unit A reach an
+        // agent or sub-unit in tenant B.
+        try
+        {
+            await tenantGuard.EnsureSameTenantAsync(unitAddress, memberAddress, cancellationToken);
+        }
+        catch (CrossTenantMembershipException ex)
+        {
+            return Results.Problem(
+                title: "Member not found in this tenant",
+                detail: ex.Message,
+                statusCode: StatusCodes.Status404NotFound);
+        }
 
         var unitProxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
             new ActorId(entry.ActorId), nameof(UnitActor));
@@ -1236,6 +1252,7 @@ public static class UnitEndpoints
         [FromServices] IActorProxyFactory actorProxyFactory,
         [FromServices] IUnitMembershipRepository membershipRepository,
         [FromServices] IExpertiseAggregator expertiseAggregator,
+        [FromServices] IUnitMembershipTenantGuard tenantGuard,
         [FromServices] ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
@@ -1258,6 +1275,23 @@ public static class UnitEndpoints
         if (agentEntry is null)
         {
             return Results.Problem(detail: $"Agent '{agentId}' not found", statusCode: StatusCodes.Status404NotFound);
+        }
+
+        // #745: enforce same-tenant before the membership write. The
+        // directory still services cross-tenant Resolve* calls out of a
+        // shared in-memory cache (the DirectoryService cache isn't tenant-
+        // aware yet), so the guard is the authoritative seam for this
+        // invariant.
+        try
+        {
+            await tenantGuard.EnsureSameTenantAsync(unitAddress, agentAddress, cancellationToken);
+        }
+        catch (CrossTenantMembershipException ex)
+        {
+            return Results.Problem(
+                title: "Agent not found in this tenant",
+                detail: ex.Message,
+                statusCode: StatusCodes.Status404NotFound);
         }
 
         // C2b-1: M:N membership model (see #160). An agent may be a member

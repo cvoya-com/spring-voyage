@@ -135,6 +135,29 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
     /// </summary>
     public IExpertiseSearch ExpertiseSearch { get; } = Substitute.For<IExpertiseSearch>();
 
+    /// <summary>
+    /// Gets the substitute <see cref="IUnitMembershipTenantGuard"/> wired
+    /// into the test DI container (#745). Defaults to allow-all so existing
+    /// tests that do not exercise the cross-tenant branches keep passing;
+    /// tests that want to assert the guard surface configure the
+    /// substitute explicitly.
+    /// </summary>
+    public IUnitMembershipTenantGuard TenantGuard { get; } = CreatePermissiveTenantGuard();
+
+    private static IUnitMembershipTenantGuard CreatePermissiveTenantGuard()
+    {
+        var stub = Substitute.For<IUnitMembershipTenantGuard>();
+        stub.ShareTenantAsync(Arg.Any<Cvoya.Spring.Core.Messaging.Address>(),
+                              Arg.Any<Cvoya.Spring.Core.Messaging.Address>(),
+                              Arg.Any<CancellationToken>())
+            .Returns(true);
+        stub.EnsureSameTenantAsync(Arg.Any<Cvoya.Spring.Core.Messaging.Address>(),
+                                   Arg.Any<Cvoya.Spring.Core.Messaging.Address>(),
+                                   Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+        return stub;
+    }
+
     private static ISecretStore CreateStubSecretStore()
     {
         var stub = Substitute.For<ISecretStore>();
@@ -247,6 +270,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
                 typeof(ISecretStore),
                 typeof(ISecretAccessPolicy),
                 typeof(IExpertiseSearch),
+                typeof(IUnitMembershipTenantGuard),
             };
 
             var descriptors = services
@@ -276,6 +300,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
             services.AddSingleton(SecretStore);
             services.AddSingleton(SecretAccessPolicy);
             services.AddSingleton(ExpertiseSearch);
+            services.AddSingleton(TenantGuard);
             services.AddSingleton(new DirectoryCache());
 
             // #687: the skill-bundle resolver is now wrapped in a
