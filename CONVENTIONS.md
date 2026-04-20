@@ -349,3 +349,22 @@ Every user-facing feature must ship through BOTH the web portal UI and the `spri
 **Exceptions:** admin/ops operations that are genuinely dev-only (e.g., `dotnet ef migrations add`) don't need a UI counterpart. Internal test affordances are also out of scope.
 
 **Admin/operator carve-out (OSS only, per #674):** agent-runtime config (`spring agent-runtime …`), connector config (`spring connector …`), credential health, tenant seeds, and skill-bundle bindings are CLI-only in the OSS core by design. The portal MAY expose read-only views for visibility, but mutations are via the CLI. This carve-out is ADDITIVE to the parity rule — user-facing features remain parity-bound.
+
+## 15. Credential-Health Watchdog
+
+Every `HttpClient` used by an agent runtime or connector that authenticates against a remote service MUST flow through the `CredentialHealthWatchdogHandler` (`src/Cvoya.Spring.Dapr/CredentialHealth/`). Without it, revoked or expired tokens surface only when a unit fails at run-time — the operator sees no accumulating signal.
+
+Wiring pattern (inside a runtime/connector's `AddCvoya…()` DI extension):
+
+```csharp
+services.AddHttpClient("my-runtime-client")
+    .AddCredentialHealthWatchdog(
+        kind: CredentialHealthKind.AgentRuntime,
+        subjectId: "my-runtime",
+        secretName: "api-key");
+```
+
+- `subjectId` is the runtime `Id` (for `CredentialHealthKind.AgentRuntime`) or connector `Slug` (for `CredentialHealthKind.Connector`).
+- `secretName` is the credential key inside the subject — use `"api-key"` for single-credential subjects and stable names per credential for multi-part auth.
+- The handler flips the persistent credential-health row on `401` (→ `Invalid`) and `403` (→ `Revoked`); other status codes pass through unmodified so a flaky upstream does not flap the operator-facing status.
+- Handler writes go through a child DI scope — the handler is safe to use from any pipeline, including background hosted services that have no ambient request scope.

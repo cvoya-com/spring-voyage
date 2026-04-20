@@ -4827,6 +4827,105 @@
         }
       }
     },
+    "/api/v1/connectors/{slugOrId}/validate-credential": {
+      "post": {
+        "tags": [
+          "Connectors"
+        ],
+        "summary": "Validate a candidate credential against the connector's backing service; records the outcome in the credential-health store",
+        "operationId": "ValidateConnectorCredential",
+        "parameters": [
+          {
+            "name": "slugOrId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CredentialValidateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialValidateResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/connectors/{slugOrId}/credential-health": {
+      "get": {
+        "tags": [
+          "Connectors"
+        ],
+        "summary": "Get the current credential-health row for a connector on the current tenant",
+        "operationId": "GetConnectorCredentialHealth",
+        "parameters": [
+          {
+            "name": "slugOrId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "secretName",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialHealthResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/connectors/github/units/{unitId}/config": {
       "get": {
         "tags": [
@@ -5684,6 +5783,105 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/InstalledAgentRuntimeResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/agent-runtimes/{id}/validate-credential": {
+      "post": {
+        "tags": [
+          "AgentRuntimes"
+        ],
+        "summary": "Validate a candidate credential against the runtime's backing service; records the outcome in the credential-health store",
+        "operationId": "ValidateAgentRuntimeCredential",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CredentialValidateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialValidateResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/agent-runtimes/{id}/credential-health": {
+      "get": {
+        "tags": [
+          "AgentRuntimes"
+        ],
+        "summary": "Get the current credential-health row for a runtime on the current tenant",
+        "operationId": "GetAgentRuntimeCredentialHealth",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "secretName",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialHealthResponse"
                 }
               }
             }
@@ -8365,6 +8563,86 @@
             ]
           },
           "hosting": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "CredentialHealthResponse": {
+        "required": [
+          "subjectId",
+          "secretName",
+          "status",
+          "lastError",
+          "lastChecked"
+        ],
+        "type": "object",
+        "properties": {
+          "subjectId": {
+            "type": "string"
+          },
+          "secretName": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CredentialHealthStatus"
+          },
+          "lastError": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "lastChecked": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CredentialHealthStatus": {
+        "enum": [
+          "Unknown",
+          "Valid",
+          "Invalid",
+          "Expired",
+          "Revoked"
+        ]
+      },
+      "CredentialValidateRequest": {
+        "required": [
+          "credential",
+          "secretName"
+        ],
+        "type": "object",
+        "properties": {
+          "credential": {
+            "type": "string"
+          },
+          "secretName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "CredentialValidateResponse": {
+        "required": [
+          "valid",
+          "status",
+          "errorMessage"
+        ],
+        "type": "object",
+        "properties": {
+          "valid": {
+            "type": "boolean"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CredentialHealthStatus"
+          },
+          "errorMessage": {
             "type": [
               "null",
               "string"

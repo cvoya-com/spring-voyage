@@ -9,6 +9,7 @@ using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Cloning;
 using Cvoya.Spring.Core.Configuration;
 using Cvoya.Spring.Core.Costs;
+using Cvoya.Spring.Core.CredentialHealth;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Initiative;
@@ -29,6 +30,7 @@ using Cvoya.Spring.Dapr.Cloning;
 using Cvoya.Spring.Dapr.Configuration;
 using Cvoya.Spring.Dapr.Connectors;
 using Cvoya.Spring.Dapr.Costs;
+using Cvoya.Spring.Dapr.CredentialHealth;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
 using Cvoya.Spring.Dapr.Execution;
@@ -232,6 +234,12 @@ public static class ServiceCollectionExtensions
             ServiceDescriptor.Singleton<ITenantSeedProvider, AgentRuntimeInstallSeedProvider>());
         services.TryAddEnumerable(
             ServiceDescriptor.Singleton<ITenantSeedProvider, ConnectorInstallSeedProvider>());
+
+        // Credential-health store (#686). Scoped because it holds a
+        // SpringDbContext. The DelegatingHandler that feeds this store at
+        // use-time opens a child DI scope per write so it can be invoked
+        // from any HttpClient pipeline, regardless of ambient scope.
+        services.TryAddScoped<ICredentialHealthStore, DefaultCredentialHealthStore>();
 
         // Agents-as-skills surface (#359 — rework of closed #532). The
         // catalog derives the skill surface live from the expertise

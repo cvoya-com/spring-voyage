@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Host.Api.Endpoints;
 
 using Cvoya.Spring.Core.AgentRuntimes;
+using Cvoya.Spring.Core.CredentialHealth;
 using Cvoya.Spring.Host.Api.Models;
 
 using Microsoft.AspNetCore.Mvc;
@@ -61,6 +62,18 @@ public static class AgentRuntimeEndpoints
             .WithName("UpdateAgentRuntimeConfig")
             .WithSummary("Replace the tenant-scoped configuration for an installed runtime")
             .Produces<InstalledAgentRuntimeResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        group.MapPost("/{id}/validate-credential", ValidateCredentialAsync)
+            .WithName("ValidateAgentRuntimeCredential")
+            .WithSummary("Validate a candidate credential against the runtime's backing service; records the outcome in the credential-health store")
+            .Produces<CredentialValidateResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        group.MapGet("/{id}/credential-health", GetCredentialHealthAsync)
+            .WithName("GetAgentRuntimeCredentialHealth")
+            .WithSummary("Get the current credential-health row for a runtime on the current tenant")
+            .Produces<CredentialHealthResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
         return group;
@@ -208,6 +221,87 @@ public static class AgentRuntimeEndpoints
                 statusCode: StatusCodes.Status404NotFound);
         }
     }
+
+    private static async Task<IResult> ValidateCredentialAsync(
+        string id,
+        [FromBody] CredentialValidateRequest body,
+        [FromServices] IAgentRuntimeRegistry registry,
+        [FromServices] ICredentialHealthStore credentialHealthStore,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+
+        var runtime = registry.Get(id);
+        if (runtime is null)
+        {
+            return Results.Problem(
+                detail: $"Agent runtime '{id}' is not registered with the host.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        var secretName = string.IsNullOrWhiteSpace(body.SecretName) ? "default" : body.SecretName;
+        var result = await runtime.ValidateCredentialAsync(body.Credential ?? string.Empty, cancellationToken);
+        var persistent = MapToHealth(result.Status);
+
+        // NetworkError is a per-attempt signal; don't flip the persistent
+        // row on transient transport failures. Every other outcome writes
+        // so the accept-time record reflects the latest check.
+        if (result.Status != CredentialValidationStatus.NetworkError)
+        {
+            await credentialHealthStore.RecordAsync(
+                CredentialHealthKind.AgentRuntime,
+                runtime.Id,
+                secretName,
+                persistent,
+                lastError: result.ErrorMessage,
+                cancellationToken);
+        }
+
+        return Results.Ok(new CredentialValidateResponse(
+            Valid: result.Valid,
+            Status: persistent,
+            ErrorMessage: result.ErrorMessage));
+    }
+
+    private static async Task<IResult> GetCredentialHealthAsync(
+        string id,
+        [FromServices] IAgentRuntimeRegistry registry,
+        [FromServices] ICredentialHealthStore credentialHealthStore,
+        [FromQuery] string? secretName,
+        CancellationToken cancellationToken)
+    {
+        if (registry.Get(id) is null)
+        {
+            return Results.Problem(
+                detail: $"Agent runtime '{id}' is not registered with the host.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        var resolvedSecret = string.IsNullOrWhiteSpace(secretName) ? "default" : secretName;
+        var row = await credentialHealthStore.GetAsync(
+            CredentialHealthKind.AgentRuntime, id, resolvedSecret, cancellationToken);
+        if (row is null)
+        {
+            return Results.Problem(
+                detail: $"No credential-health row recorded for agent runtime '{id}' / '{resolvedSecret}'.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        return Results.Ok(new CredentialHealthResponse(
+            SubjectId: row.SubjectId,
+            SecretName: row.SecretName,
+            Status: row.Status,
+            LastError: row.LastError,
+            LastChecked: row.LastChecked));
+    }
+
+    private static CredentialHealthStatus MapToHealth(CredentialValidationStatus status) => status switch
+    {
+        CredentialValidationStatus.Valid => CredentialHealthStatus.Valid,
+        CredentialValidationStatus.Invalid => CredentialHealthStatus.Invalid,
+        CredentialValidationStatus.NetworkError => CredentialHealthStatus.Unknown,
+        _ => CredentialHealthStatus.Unknown,
+    };
 
     private static InstalledAgentRuntimeResponse? ToResponse(
         InstalledAgentRuntime install,

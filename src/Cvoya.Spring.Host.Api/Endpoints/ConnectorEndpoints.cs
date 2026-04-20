@@ -4,6 +4,8 @@
 namespace Cvoya.Spring.Host.Api.Endpoints;
 
 using Cvoya.Spring.Connectors;
+using Cvoya.Spring.Core.AgentRuntimes;
+using Cvoya.Spring.Core.CredentialHealth;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Host.Api.Models;
 
@@ -80,6 +82,20 @@ public static class ConnectorEndpoints
             .WithName("UpdateConnectorInstallConfig")
             .WithSummary("Replace the tenant-scoped install configuration for a connector")
             .Produces<InstalledConnectorResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .RequireAuthorization();
+
+        connectors.MapPost("/{slugOrId}/validate-credential", ValidateConnectorCredentialAsync)
+            .WithName("ValidateConnectorCredential")
+            .WithSummary("Validate a candidate credential against the connector's backing service; records the outcome in the credential-health store")
+            .Produces<CredentialValidateResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .RequireAuthorization();
+
+        connectors.MapGet("/{slugOrId}/credential-health", GetConnectorCredentialHealthAsync)
+            .WithName("GetConnectorCredentialHealth")
+            .WithSummary("Get the current credential-health row for a connector on the current tenant")
+            .Produces<CredentialHealthResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .RequireAuthorization();
 
@@ -372,4 +388,95 @@ public static class ConnectorEndpoints
             InstalledAt: install.InstalledAt,
             UpdatedAt: install.UpdatedAt,
             Config: install.Config.Config);
+
+    private static async Task<IResult> ValidateConnectorCredentialAsync(
+        string slugOrId,
+        [FromBody] CredentialValidateRequest body,
+        [FromServices] IEnumerable<IConnectorType> connectorTypes,
+        [FromServices] ICredentialHealthStore credentialHealthStore,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+
+        var type = ResolveConnector(slugOrId, connectorTypes);
+        if (type is null)
+        {
+            return Results.Problem(
+                detail: $"Connector '{slugOrId}' is not registered.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        var secretName = string.IsNullOrWhiteSpace(body.SecretName) ? "default" : body.SecretName;
+        var result = await type.ValidateCredentialAsync(body.Credential ?? string.Empty, cancellationToken);
+
+        // Connectors that return null from ValidateCredentialAsync do not
+        // carry auth — surface that as an Unknown health status without
+        // trying to persist, and return a friendly "nothing to check" body
+        // so callers can distinguish this from an actual validation pass.
+        if (result is null)
+        {
+            return Results.Ok(new CredentialValidateResponse(
+                Valid: false,
+                Status: CredentialHealthStatus.Unknown,
+                ErrorMessage: $"Connector '{type.Slug}' does not require credentials."));
+        }
+
+        var persistent = MapToHealth(result.Status);
+        if (result.Status != CredentialValidationStatus.NetworkError)
+        {
+            await credentialHealthStore.RecordAsync(
+                CredentialHealthKind.Connector,
+                type.Slug,
+                secretName,
+                persistent,
+                lastError: result.ErrorMessage,
+                cancellationToken);
+        }
+
+        return Results.Ok(new CredentialValidateResponse(
+            Valid: result.Valid,
+            Status: persistent,
+            ErrorMessage: result.ErrorMessage));
+    }
+
+    private static async Task<IResult> GetConnectorCredentialHealthAsync(
+        string slugOrId,
+        [FromServices] IEnumerable<IConnectorType> connectorTypes,
+        [FromServices] ICredentialHealthStore credentialHealthStore,
+        [FromQuery] string? secretName,
+        CancellationToken cancellationToken)
+    {
+        var type = ResolveConnector(slugOrId, connectorTypes);
+        if (type is null)
+        {
+            return Results.Problem(
+                detail: $"Connector '{slugOrId}' is not registered.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        var resolvedSecret = string.IsNullOrWhiteSpace(secretName) ? "default" : secretName;
+        var row = await credentialHealthStore.GetAsync(
+            CredentialHealthKind.Connector, type.Slug, resolvedSecret, cancellationToken);
+        if (row is null)
+        {
+            return Results.Problem(
+                detail: $"No credential-health row recorded for connector '{type.Slug}' / '{resolvedSecret}'.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        return Results.Ok(new CredentialHealthResponse(
+            SubjectId: row.SubjectId,
+            SecretName: row.SecretName,
+            Status: row.Status,
+            LastError: row.LastError,
+            LastChecked: row.LastChecked));
+    }
+
+    private static CredentialHealthStatus MapToHealth(CredentialValidationStatus status) => status switch
+    {
+        CredentialValidationStatus.Valid => CredentialHealthStatus.Valid,
+        CredentialValidationStatus.Invalid => CredentialHealthStatus.Invalid,
+        CredentialValidationStatus.NetworkError => CredentialHealthStatus.Unknown,
+        _ => CredentialHealthStatus.Unknown,
+    };
 }
