@@ -38,8 +38,7 @@ returned as a `CredentialValidationResult`.
 
 `DefaultModels` is loaded from
 [`agent-runtimes/openai/seed.json`](agent-runtimes/openai/seed.json)
-shipped alongside the assembly. The seed currently mirrors the curated
-OpenAI list in `Cvoya.Spring.Dapr.Execution.ModelCatalog.StaticFallback`:
+shipped alongside the assembly:
 
 ```json
 {
@@ -84,7 +83,6 @@ implementation without forking this project.
 This project is a Phase-2 sub-issue of the
 [#674](https://github.com/cvoya-com/spring-voyage/issues/674) refactor
 (landed via [#680](https://github.com/cvoya-com/spring-voyage/issues/680)).
-The legacy hardcoded OpenAI paths in
-`Cvoya.Spring.Dapr.Execution.ProviderCredentialValidator` and
-`ModelCatalog.StaticFallback` keep working untouched until the Phase-3
-wizard issue migrates the wizard onto the registry and removes them.
+The wizard and CLI consume the runtime directly via
+`IAgentRuntimeRegistry` — there is no hardcoded OpenAI path left in the
+Dapr layer.

@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.Host.Api.Models;
 
+using Cvoya.Spring.Core.AgentRuntimes;
+
 /// <summary>
 /// Response body for <c>GET /api/v1/agent-runtimes</c> and the
 /// install-management endpoints. Combines the runtime's type-descriptor
@@ -35,6 +37,16 @@ namespace Cvoya.Spring.Host.Api.Models;
 /// Optional base URL override used by runtimes that support self-hosted
 /// or proxied endpoints.
 /// </param>
+/// <param name="CredentialKind">
+/// The kind of credential the runtime expects at accept-time. Drives
+/// whether the wizard renders a credential input at all
+/// (<see cref="AgentRuntimeCredentialKind.None"/> = skip).
+/// </param>
+/// <param name="CredentialDisplayHint">
+/// Optional human-facing hint describing the credential format or how to
+/// obtain it. Surfaces next to the wizard input. <c>null</c> when the
+/// runtime declares no hint.
+/// </param>
 public record InstalledAgentRuntimeResponse(
     string Id,
     string DisplayName,
@@ -43,7 +55,9 @@ public record InstalledAgentRuntimeResponse(
     DateTimeOffset UpdatedAt,
     IReadOnlyList<string> Models,
     string? DefaultModel,
-    string? BaseUrl);
+    string? BaseUrl,
+    AgentRuntimeCredentialKind CredentialKind,
+    string? CredentialDisplayHint);
 
 /// <summary>
 /// Single entry in the response to <c>GET /api/v1/agent-runtimes/{id}/models</c>.

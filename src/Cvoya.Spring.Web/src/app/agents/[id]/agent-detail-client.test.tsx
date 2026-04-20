@@ -135,7 +135,7 @@ const apiStub = {
   getUnitExecution: vi.fn(),
   getPersistentAgentDeployment: vi.fn(),
   getProviderCredentialStatus: vi.fn(),
-  listProviderModels: vi.fn(),
+  getAgentRuntimeModels: vi.fn(),
   setAgentExpertise: vi.fn(),
   setAgentExecution: vi.fn(),
   setAgentBudget: vi.fn(),
@@ -260,7 +260,7 @@ async function renderDetail({
     configured: false,
     hint: null,
   });
-  apiStub.listProviderModels.mockResolvedValue([]);
+  apiStub.getAgentRuntimeModels.mockResolvedValue([]);
 
   const { default: AgentDetailClient } = await import("./agent-detail-client");
 

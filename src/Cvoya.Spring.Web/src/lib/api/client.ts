@@ -1067,31 +1067,12 @@ export const api = {
     >;
   },
 
-  // Provider-agnostic model discovery (#597). The server returns a
-  // dynamic list from the provider's API when a key is configured and
-  // the provider exposes one, falling back to a curated static list in
-  // every other case. Manual fetch because the endpoint is new.
-  listProviderModels: async (provider: string): Promise<string[]> => {
-    const resp = await fetch(
-      `${BASE}/api/v1/models/${encodeURIComponent(provider)}`,
-    );
-    if (!resp.ok) {
-      throw new ApiError(resp.status, resp.statusText, await resp.text());
-    }
-    const body = (await resp.json()) as {
-      provider: string;
-      models: string[];
-    };
-    return body.models;
-  },
-
   // Provider credential-status probe (#598). The server answers whether
   // the currently-selected LLM provider is usable — credentials for
   // Anthropic/OpenAI/Google, endpoint reachability for Ollama. The
   // response is a narrow `{ resolvable, source, suggestion }` shape and
   // NEVER contains the key material itself; see the endpoint doc-comment
-  // for the invariant. Manual fetch because the endpoint is new and not
-  // yet in the generated openapi client.
+  // for the invariant.
   getProviderCredentialStatus: async (
     provider: string,
   ): Promise<import("./types").ProviderCredentialStatusResponse> => {
@@ -1104,26 +1085,36 @@ export const api = {
     return (await resp.json()) as import("./types").ProviderCredentialStatusResponse;
   },
 
-  // Wizard-time credential validation (#655). POSTs a caller-supplied
-  // key to the provider via the server-side validator and returns the
-  // verdict + discovered model list. The server NEVER echoes the key
-  // back and does not persist it; the body here is write-only from the
-  // browser's perspective.
-  validateProviderCredential: async (
-    provider: string,
-    apiKey: string,
-  ): Promise<import("./types").ProviderCredentialValidationResponse> => {
-    const resp = await fetch(
-      `${BASE}/api/v1/system/credentials/${encodeURIComponent(provider)}/validate`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ apiKey }),
-      },
-    );
-    if (!resp.ok) {
-      throw new ApiError(resp.status, resp.statusText, await resp.text());
-    }
-    return (await resp.json()) as import("./types").ProviderCredentialValidationResponse;
-  },
+  // Tenant-installed agent runtimes (#690). Feeds the unit-creation
+  // wizard's provider + model dropdowns: the wizard reads the available
+  // runtimes from this endpoint, then per-runtime models from
+  // `getAgentRuntimeModels`, and validates caller-supplied credentials
+  // via `validateAgentRuntimeCredential`. The old `listProviderModels` +
+  // `validateProviderCredential` endpoints were retired along with the
+  // hardcoded provider tables.
+  listAgentRuntimes: async (): Promise<
+    import("./types").InstalledAgentRuntimeResponse[]
+  > =>
+    unwrap(await fetchClient.GET("/api/v1/agent-runtimes")) as import("./types").InstalledAgentRuntimeResponse[],
+
+  getAgentRuntimeModels: async (
+    id: string,
+  ): Promise<import("./types").AgentRuntimeModelResponse[]> =>
+    unwrap(
+      await fetchClient.GET("/api/v1/agent-runtimes/{id}/models", {
+        params: { path: { id } },
+      }),
+    ) as import("./types").AgentRuntimeModelResponse[],
+
+  validateAgentRuntimeCredential: async (
+    id: string,
+    credential: string,
+    secretName = "api-key",
+  ): Promise<import("./types").CredentialValidateResponse> =>
+    unwrap(
+      await fetchClient.POST("/api/v1/agent-runtimes/{id}/validate-credential", {
+        params: { path: { id } },
+        body: { credential, secretName },
+      }),
+    ) as import("./types").CredentialValidateResponse,
 };

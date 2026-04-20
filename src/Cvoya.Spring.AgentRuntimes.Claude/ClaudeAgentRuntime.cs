@@ -27,11 +27,9 @@ using Microsoft.Extensions.Logging;
 /// shelling out to the <c>claude</c> CLI bundled in the runtime's
 /// container image — the CLI handles both formats transparently. API
 /// keys also fall back to a direct REST <c>GET /v1/models</c> call when
-/// the CLI is unavailable, replicating the host-CLI-optional behavior of
-/// the legacy <c>ProviderCredentialValidator</c>. OAuth tokens never
-/// reach REST: the Anthropic Platform endpoint rejects them with a 401
-/// indistinguishable from a bad key, so we surface a precise "CLI
-/// unavailable" error instead.
+/// the CLI is unavailable. OAuth tokens never reach REST: the Anthropic
+/// Platform endpoint rejects them with a 401 indistinguishable from a
+/// bad key, so we surface a precise "CLI unavailable" error instead.
 /// </para>
 /// <para>
 /// <b>Container baseline.</b> <see cref="VerifyContainerBaselineAsync"/>
@@ -42,11 +40,8 @@ using Microsoft.Extensions.Logging;
 /// </para>
 /// <para>
 /// <b>Default models.</b> Loaded once at construction from the embedded
-/// <c>agent-runtimes/claude/seed.json</c> resource, mirroring the
-/// curated list previously hard-coded in
-/// <c>ModelCatalog.StaticFallback["claude"]</c>. Tenants override or
-/// extend the catalog through per-tenant install configuration (Phase 3
-/// — the wizard rework lands separately under #690).
+/// <c>agent-runtimes/claude/seed.json</c> resource. Tenants override or
+/// extend the catalog through per-tenant install configuration.
 /// </para>
 /// </remarks>
 public class ClaudeAgentRuntime : IAgentRuntime

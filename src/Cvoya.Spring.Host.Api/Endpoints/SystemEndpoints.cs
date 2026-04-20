@@ -11,6 +11,13 @@ using Cvoya.Spring.Dapr.Execution;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
 
+// Note: this endpoint group previously hosted `POST /api/v1/system/credentials/{provider}/validate`,
+// which delegated to IProviderCredentialValidator. Phase 3.16 (#690) retired
+// that path in favour of the per-runtime `POST /api/v1/agent-runtimes/{id}/validate-credential`
+// route. The status probe (GET /status) remains because the agent/unit
+// Execution panels depend on the tenant-default resolvability signal it
+// surfaces.
+
 /// <summary>
 /// Platform-system-status endpoints. Today this group exposes a
 /// read-only credential-status probe used by the unit-creation wizard
@@ -55,12 +62,6 @@ public static class SystemEndpoints
             .WithName("GetProviderCredentialStatus")
             .WithSummary("Report whether an LLM provider's credentials / endpoint are configured")
             .Produces<ProviderCredentialStatusResponse>(StatusCodes.Status200OK)
-            .Produces(StatusCodes.Status400BadRequest);
-
-        group.MapPost("/credentials/{provider}/validate", ValidateCredentialAsync)
-            .WithName("ValidateProviderCredential")
-            .WithSummary("Validate a caller-supplied LLM provider API key against the provider")
-            .Produces<ProviderCredentialValidationResponse>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status400BadRequest);
 
         return group;
@@ -135,60 +136,6 @@ public static class SystemEndpoints
                     message = "Provider must be one of: anthropic, openai, google, ollama.",
                 });
         }
-    }
-
-    private static async Task<IResult> ValidateCredentialAsync(
-        string provider,
-        ValidateCredentialRequest? request,
-        IProviderCredentialValidator validator,
-        CancellationToken cancellationToken)
-    {
-        if (request is null || string.IsNullOrWhiteSpace(request.ApiKey))
-        {
-            return Results.BadRequest(new
-            {
-                error = "missing-key",
-                message = "Request body must include a non-empty 'apiKey'.",
-            });
-        }
-
-        var result = await validator.ValidateAsync(provider, request.ApiKey, cancellationToken);
-
-        if (result.Status == ProviderCredentialValidationStatus.UnknownProvider)
-        {
-            // Unknown-provider is structurally a 400 — the caller asked us
-            // to validate against a route we do not serve. All other
-            // statuses (including Unauthorized and NetworkError) ride a
-            // 200 with `valid=false` so the portal's validation UI can
-            // treat them uniformly without catching HTTP errors.
-            return Results.BadRequest(new
-            {
-                error = "unknown-provider",
-                message = result.ErrorMessage ?? "Provider must be one of: anthropic, openai, google.",
-            });
-        }
-
-        var status = result.Status switch
-        {
-            ProviderCredentialValidationStatus.Valid => "valid",
-            ProviderCredentialValidationStatus.Unauthorized => "unauthorized",
-            ProviderCredentialValidationStatus.ProviderError => "provider-error",
-            ProviderCredentialValidationStatus.NetworkError => "network-error",
-            ProviderCredentialValidationStatus.MissingKey => "missing-key",
-            _ => "unknown",
-        };
-
-        // NEVER echo `request.ApiKey` in the response. The shape is
-        // limited to the validation verdict, an optional model list, and
-        // an error string — the key stays on the request side only.
-        return Results.Ok(new ProviderCredentialValidationResponse(
-            Provider: (provider ?? string.Empty).Trim().ToLowerInvariant(),
-            Valid: result.Status == ProviderCredentialValidationStatus.Valid,
-            Status: status,
-            Models: result.Status == ProviderCredentialValidationStatus.Valid
-                ? (result.Models ?? Array.Empty<string>())
-                : null,
-            Error: result.ErrorMessage));
     }
 
     private static string? MapSource(LlmCredentialSource source) => source switch
@@ -273,38 +220,3 @@ public record ProviderCredentialStatusResponse(
     [property: JsonPropertyName("resolvable")] bool Resolvable,
     [property: JsonPropertyName("source")] string? Source,
     [property: JsonPropertyName("suggestion")] string? Suggestion);
-
-/// <summary>
-/// Request body for <c>POST /api/v1/system/credentials/{provider}/validate</c>.
-/// </summary>
-/// <param name="ApiKey">The plaintext API key to validate. Never persisted.</param>
-public record ValidateCredentialRequest(
-    [property: JsonPropertyName("apiKey")] string ApiKey);
-
-/// <summary>
-/// Response body for <c>POST /api/v1/system/credentials/{provider}/validate</c>.
-/// </summary>
-/// <param name="Provider">Echoes the requested provider id.</param>
-/// <param name="Valid">
-/// <c>true</c> when the provider accepted the key. The portal gates the
-/// wizard's Next button on this flag.
-/// </param>
-/// <param name="Status">
-/// Coarse-grained outcome: <c>"valid"</c>, <c>"unauthorized"</c>,
-/// <c>"provider-error"</c>, <c>"network-error"</c>, <c>"missing-key"</c>.
-/// </param>
-/// <param name="Models">
-/// Model ids returned by the provider when <see cref="Valid"/> is
-/// <c>true</c>, so the wizard can seed the Model dropdown from the same
-/// call it used to validate the key. <c>null</c> on any failure.
-/// </param>
-/// <param name="Error">
-/// Operator-facing failure reason. <c>null</c> on success. NEVER
-/// contains the key itself.
-/// </param>
-public record ProviderCredentialValidationResponse(
-    [property: JsonPropertyName("provider")] string Provider,
-    [property: JsonPropertyName("valid")] bool Valid,
-    [property: JsonPropertyName("status")] string Status,
-    [property: JsonPropertyName("models")] IReadOnlyList<string>? Models,
-    [property: JsonPropertyName("error")] string? Error);

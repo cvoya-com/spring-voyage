@@ -74,8 +74,6 @@ not appear in `models`.
 
 ## Scope note
 
-This package coexists with the hardcoded Google paths in
-`Cvoya.Spring.Dapr.Execution.ProviderCredentialValidator` and
-`ModelCatalog.StaticFallback` until the Phase 3 wizard issue removes
-them; both paths produce the same model list and the same validation
-behaviour.
+The wizard and CLI consume the runtime directly via
+`IAgentRuntimeRegistry` — there is no hardcoded Google path left in the
+Dapr layer.

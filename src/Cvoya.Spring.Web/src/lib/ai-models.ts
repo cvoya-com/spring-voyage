@@ -1,19 +1,11 @@
-// Central catalog of AI providers and their models, used by the unit-creation
-// wizard (Bug #258). The authoritative source at runtime is the server's
-// `GET /api/v1/models/{provider}` endpoint (#597) — the wizard queries it via
-// `useProviderModels` and falls back to the list below when the request fails
-// (e.g. anonymous / offline dev session).
+// Wizard-side constants for execution-tool and hosting-mode selection.
 //
-// IMPORTANT: the default provider/model pair must match the platform-wide
-// default in `Cvoya.Spring.Dapr/Execution/AiProviderOptions.cs`. Keep them in
-// sync so users who accept the wizard defaults write a model string the server
-// actually supports. Provider/model names also drive the server-side static
-// fallback in `Cvoya.Spring.Dapr/Execution/ModelCatalog.cs` — update both
-// files together when adjusting the known-good list.
-//
-// To add a provider or a model, edit the array below. The UI renders the first
-// entry in PROVIDERS as the default; the first model in each provider is the
-// default when that provider is selected.
+// After #690 the unit-creation wizard reads its provider/model lists
+// from `GET /api/v1/agent-runtimes` + `GET /api/v1/agent-runtimes/{id}/models`
+// instead of `AI_PROVIDERS` below. The constants stay in place for
+// `membership-dialog.tsx`, `execution-panel.tsx`, and `execution-tab.tsx`,
+// which still consume the hardcoded list — migrating those surfaces
+// onto the runtimes endpoint is tracked as a follow-up.
 
 export interface AiProvider {
   /** Machine identifier used by the server, e.g. `claude`, `openai`. */
@@ -55,12 +47,14 @@ export const HOSTING_MODES: readonly { id: HostingMode; label: string }[] = [
 
 export const DEFAULT_HOSTING_MODE: HostingMode = "ephemeral";
 
+// Fallback catalog consumed by `membership-dialog.tsx` / `execution-panel.tsx`
+// / `execution-tab.tsx` until those surfaces migrate to the agent-runtimes
+// endpoint. The wizard itself no longer reads this list.
 export const AI_PROVIDERS: readonly AiProvider[] = [
   {
     id: "claude",
     displayName: "Anthropic Claude",
     models: [
-      // Default — matches AiProviderOptions.Model.
       "claude-sonnet-4-20250514",
       "claude-opus-4-20250514",
       "claude-haiku-4-20250514",
@@ -89,42 +83,22 @@ export const AI_PROVIDERS: readonly AiProvider[] = [
   },
 ];
 
-/** The default provider shown when the wizard opens. */
 export const DEFAULT_PROVIDER_ID = AI_PROVIDERS[0].id;
 
-/** The default model shown when the wizard opens. */
 export const DEFAULT_MODEL = AI_PROVIDERS[0].models[0];
 
-/**
- * Looks up a provider by id. Returns the first provider as a fallback so the
- * wizard always has something to render even when the stored preference
- * references a provider that's no longer in the catalog.
- */
 export function getProvider(id: string): AiProvider {
   return AI_PROVIDERS.find((p) => p.id === id) ?? AI_PROVIDERS[0];
 }
 
 /**
- * Maps a non-dapr-agent execution tool to the provider id whose model
- * catalog the tool draws from (#641). Non-Dapr-Agent tools hardcode
- * their provider inside the CLI (Claude Code → Anthropic, Codex →
- * OpenAI, Gemini → Google), but operators still need to pick which
- * model inside that family to run — that choice lives in the wizard's
- * Model dropdown even when the Provider dropdown is hidden.
- *
- * Returns:
- *   - `claude-code` → "claude"
- *   - `codex`       → "openai"
- *   - `gemini`      → "google"
- *   - `custom`      → null (no finite known catalog — see #641 scope)
- *   - `dapr-agent`  → null (caller branches on the Provider dropdown
- *     directly; this helper is for tools that hide Provider)
- *
- * The returned id is the same key used by <c>getProvider()</c> and the
- * server's <c>GET /api/v1/models/{provider}</c> endpoint, so the
- * wizard can reuse <c>useProviderModels</c> without a second mapping.
+ * Maps an execution tool to the canonical runtime id the wizard and
+ * related surfaces resolve via the agent-runtimes endpoint. Non-Dapr-
+ * Agent tools hardcode their provider inside the CLI (Claude Code →
+ * Anthropic, Codex → OpenAI, Gemini → Google), so callers can still
+ * surface a Model dropdown by routing through the matching runtime.
  */
-export function getToolModelProvider(tool: ExecutionTool): string | null {
+export function getToolRuntimeId(tool: ExecutionTool): string | null {
   switch (tool) {
     case "claude-code":
       return "claude";
@@ -134,6 +108,64 @@ export function getToolModelProvider(tool: ExecutionTool): string | null {
       return "google";
     case "dapr-agent":
     case "custom":
+    default:
+      return null;
+  }
+}
+
+/**
+ * Legacy alias kept for `execution-panel.tsx` / `execution-tab.tsx`
+ * until those surfaces migrate onto the runtimes endpoint. Mirrors
+ * `getToolRuntimeId` because the two concepts collapsed after #690.
+ */
+export function getToolModelProvider(tool: ExecutionTool): string | null {
+  return getToolRuntimeId(tool);
+}
+
+/**
+ * Maps an execution tool to the wire-level `provider` field the unit
+ * creation endpoint expects. `dapr-agent` passes the explicit provider
+ * the caller picked; all other tools have a fixed provider derived from
+ * the CLI they drive.
+ */
+export function getToolWireProvider(
+  tool: ExecutionTool,
+  runtimeId: string | null,
+): string | undefined {
+  switch (tool) {
+    case "claude-code":
+      return "claude";
+    case "codex":
+      return "openai";
+    case "gemini":
+      return "google";
+    case "dapr-agent":
+      return runtimeId ?? undefined;
+    case "custom":
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * Maps a runtime id to the secret name tier-2 resolution looks up in
+ * the secret registry. The wizard writes the operator-supplied key
+ * under this name (either unit- or tenant-scoped) so downstream
+ * dispatch resolves through `ILlmCredentialResolver` without further
+ * config. Returns `null` when the runtime requires no credential
+ * (e.g. local Ollama).
+ */
+export function getRuntimeSecretName(runtimeId: string): string | null {
+  switch (runtimeId) {
+    case "claude":
+    case "anthropic":
+      return "anthropic-api-key";
+    case "openai":
+      return "openai-api-key";
+    case "google":
+    case "gemini":
+    case "googleai":
+      return "google-api-key";
     default:
       return null;
   }

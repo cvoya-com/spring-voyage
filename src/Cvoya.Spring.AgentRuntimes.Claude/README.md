@@ -80,10 +80,5 @@ implementation.
 
 ## Out of scope
 
-- The legacy `ProviderCredentialValidator` and
-  `ModelCatalog.StaticFallback` paths in `Cvoya.Spring.Dapr.Execution`
-  stay intact for now — the Phase 3 wizard rework (#690) is the PR that
-  removes them.
 - Codex, Gemini, OpenAI, and dapr-agent runtime migrations live in
   sibling projects (`Cvoya.Spring.AgentRuntimes.<Name>`).
-- Per-tenant install metadata is owned by a separate Phase 2 sub-issue.

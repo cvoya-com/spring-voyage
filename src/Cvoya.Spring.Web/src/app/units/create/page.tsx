@@ -31,25 +31,27 @@ import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/api/client";
 import { getConnectorWizardStep } from "@/connectors/registry";
 import {
+  useAgentRuntimeModels,
+  useAgentRuntimes,
   useConnectorTypes,
   useOllamaModels,
   useProviderCredentialStatus,
-  useProviderModels,
   useUnitTemplates,
 } from "@/lib/api/queries";
 import { queryKeys } from "@/lib/api/query-keys";
-import type { UnitConnectorBindingRequest } from "@/lib/api/types";
+import type {
+  InstalledAgentRuntimeResponse,
+  UnitConnectorBindingRequest,
+} from "@/lib/api/types";
 import { EXECUTION_RUNTIMES } from "@/lib/api/types";
 import {
-  AI_PROVIDERS,
   DEFAULT_EXECUTION_TOOL,
   DEFAULT_HOSTING_MODE,
-  DEFAULT_MODEL,
-  DEFAULT_PROVIDER_ID,
   EXECUTION_TOOLS,
   HOSTING_MODES,
-  getProvider,
-  getToolModelProvider,
+  getRuntimeSecretName,
+  getToolRuntimeId,
+  getToolWireProvider,
   type ExecutionTool,
   type HostingMode,
 } from "@/lib/ai-models";
@@ -76,8 +78,12 @@ const STEP_LABELS: Record<Step, string> = {
   6: "Finalize",
 };
 
-// Issue #659: per-provider "where do I get an API key?" deep links.
-// Rendered next to the credential input on Screen 2.
+// #690: "where do I get an API key?" deep links live on the wizard
+// because the agent-runtime descriptor's `credentialDisplayHint` is a
+// free-text hint — these URLs are the stable landing pages we know
+// operators should go to for each backend. The hint renders alongside
+// them. Keyed by the canonical provider id (the wizard uses
+// "anthropic" / "openai" / "google" throughout the credential surface).
 const PROVIDER_KEY_HELP: Readonly<
   Record<"anthropic" | "openai" | "google", { href: string; label: string }>
 > = {
@@ -140,7 +146,7 @@ interface FormState {
   connectorTypeId: string | null;
   connectorConfig: Record<string, unknown> | null;
   // #626: inline LLM credential entry. Derived from the selected
-  // tool+provider at render time (see `deriveRequiredCredentialProvider`).
+  // tool+provider at render time (see `deriveRequiredCredentialRuntime`).
   // `credentialKey` is the raw key typed by the operator — it lives in
   // component state just long enough to be POSTed to the server during
   // submission and is never echoed back or persisted client-side. When
@@ -157,63 +163,64 @@ interface FormState {
 }
 
 /**
- * #626: the canonical secret name used by the `ILlmCredentialResolver`
- * for each tier-2 provider. The server reads these same names when
- * resolving credentials at dispatch time. Kept in lock-step with
- * `src/Cvoya.Spring.Dapr/Execution/LlmCredentialResolver.cs` — the
- * mapping is small, fixed, and has no reason to live on the wire.
+ * #690: map a runtime id to the canonical provider string previous
+ * wizard code passed around for credential-status probes and
+ * secret-name resolution. Keeps the `credentialProvider` returned to
+ * the CredentialSection as one of the three known tokens
+ * ("anthropic" | "openai" | "google") while the agent-runtimes list
+ * uses `claude` for the Anthropic backend.
  */
-const PROVIDER_SECRET_NAMES: Readonly<Record<string, string>> = {
-  anthropic: "anthropic-api-key",
-  openai: "openai-api-key",
-  google: "google-api-key",
-};
+function runtimeIdToProviderId(
+  runtimeId: string,
+): "anthropic" | "openai" | "google" | null {
+  switch (runtimeId.toLowerCase()) {
+    case "claude":
+    case "anthropic":
+      return "anthropic";
+    case "openai":
+      return "openai";
+    case "google":
+    case "gemini":
+    case "googleai":
+      return "google";
+    default:
+      return null;
+  }
+}
 
 /**
- * #626: derive the provider that actually needs an LLM credential,
- * given the currently-selected tool and (for dapr-agent) provider
- * dropdown. The mapping is intentionally terse:
- *
- *   - claude-code → anthropic   (Claude Code talks to Anthropic)
- *   - codex       → openai
- *   - gemini      → google
- *   - dapr-agent  → the selected provider, mapped to its canonical id
- *     (anthropic / openai / google); "ollama" returns null (no secret
- *     — Ollama is tier-1 reachability) and an unrecognised provider
- *     returns null as a safe default.
- *   - custom      → null (contract undefined; the custom launcher
- *     declares its own secrets if any)
- *
- * Returns `null` when no API-key is required for the selection. That
- * is the signal the wizard uses to hide the inline credential surface
- * altogether (Ollama/custom paths).
+ * #690: resolve the runtime the wizard needs a credential for, given
+ * the current tool+provider inputs and the list of installed runtimes.
+ * Returns `null` when no runtime is selected (custom tool), when the
+ * selected runtime declares `CredentialKind === "None"` (e.g. local
+ * Ollama), or when the runtime is not installed on the tenant.
  */
-export function deriveRequiredCredentialProvider(
+export function deriveRequiredCredentialRuntime(
   tool: ExecutionTool,
   provider: string,
-): "anthropic" | "openai" | "google" | null {
+  runtimes: InstalledAgentRuntimeResponse[] | null,
+): InstalledAgentRuntimeResponse | null {
+  if (!runtimes || runtimes.length === 0) return null;
+
+  const lookup = (id: string) =>
+    runtimes.find((r) => r.id.toLowerCase() === id.toLowerCase()) ?? null;
+
   switch (tool) {
     case "claude-code":
-      return "anthropic";
+      return lookup("claude");
     case "codex":
-      return "openai";
+      return lookup("openai");
     case "gemini":
-      return "google";
-    case "dapr-agent":
-      switch (provider) {
-        case "claude":
-        case "anthropic":
-          return "anthropic";
-        case "openai":
-          return "openai";
-        case "google":
-        case "gemini":
-        case "googleai":
-          return "google";
-        default:
-          // ollama (tier-1, reachability only) + unknowns fall through.
-          return null;
-      }
+      return lookup("google");
+    case "dapr-agent": {
+      const normalised = provider.trim().toLowerCase();
+      const runtimeId =
+        normalised === "anthropic" ? "claude" : normalised;
+      const runtime = lookup(runtimeId);
+      if (!runtime) return null;
+      if (runtime.credentialKind === "None") return null;
+      return runtime;
+    }
     case "custom":
     default:
       return null;
@@ -224,8 +231,11 @@ const INITIAL_FORM: FormState = {
   name: "",
   displayName: "",
   description: "",
-  provider: DEFAULT_PROVIDER_ID,
-  model: DEFAULT_MODEL,
+  // #690: provider is seeded lazily once the agent-runtimes list
+  // arrives. An empty string until then; the Execution step renders a
+  // loading placeholder.
+  provider: "",
+  model: "",
   color: DEFAULT_COLOR,
   tool: DEFAULT_EXECUTION_TOOL,
   hosting: DEFAULT_HOSTING_MODE,
@@ -314,49 +324,103 @@ export default function CreateUnitPage() {
       : String(connectorTypesQuery.error)
     : null;
 
+  // #690: agent runtimes installed on the current tenant. Feeds the
+  // provider dropdown (dapr-agent path) and the per-runtime
+  // credential/model metadata consumed by the execution step.
+  const agentRuntimesQuery = useAgentRuntimes();
+  const agentRuntimes = useMemo<InstalledAgentRuntimeResponse[]>(
+    () => agentRuntimesQuery.data ?? [],
+    [agentRuntimesQuery.data],
+  );
+
   // #350: Ollama model discovery — enabled only when dapr-agent + ollama
-  // is selected. When disabled the query is idle, mirroring the previous
-  // `useEffect` early-return behaviour.
+  // is selected. The Ollama endpoint is still consulted directly because
+  // it surfaces richer per-model metadata (pull status) than the
+  // agent-runtimes catalog lookup.
   const ollamaEnabled =
     form.tool === "dapr-agent" && form.provider === "ollama";
   const ollamaQuery = useOllamaModels({ enabled: ollamaEnabled });
   const ollamaModels = ollamaQuery.data?.map((m) => m.name) ?? null;
   const ollamaModelsLoading = ollamaEnabled && ollamaQuery.isPending;
 
-  // #597: provider-agnostic dynamic model list. The server probes the
-  // provider's own models endpoint (Anthropic, OpenAI) when a key is
-  // configured, so the dropdown tracks the current catalog without a
-  // code change. The server falls back to its static list on any error,
-  // so a null here only means the fetch itself collapsed (e.g. auth
-  // denied on the portal side); `ai-models.ts` is the client-side safety
-  // net in that case. Skipped for ollama — the #350 path is richer
-  // (includes pull status) and we don't want two overlapping requests.
-  //
-  // #641: when the tool hides the Provider dropdown (claude-code / codex
-  // / gemini), we still need a Model dropdown populated from that tool's
-  // catalog — derive the provider id from the tool and reuse the same
-  // hook. For `dapr-agent`, fall back to `form.provider`.
-  const toolModelProvider = getToolModelProvider(form.tool);
-  const effectiveProviderForModels =
-    form.tool === "dapr-agent" ? form.provider : (toolModelProvider ?? "");
-  const providerModelsEnabled =
-    effectiveProviderForModels !== "" && effectiveProviderForModels !== "ollama";
-  const providerModelsQuery = useProviderModels(effectiveProviderForModels, {
-    enabled: providerModelsEnabled,
+  // #690: Model catalog for the active runtime. The wizard selects
+  // the runtime based on tool (fixed-provider tools) or the provider
+  // dropdown (dapr-agent). Ollama keeps its dedicated hook above.
+  const activeRuntimeId = useMemo<string | null>(() => {
+    if (form.tool === "custom") return null;
+    if (form.tool === "dapr-agent") {
+      const normalised = form.provider.trim().toLowerCase();
+      if (!normalised || normalised === "ollama") return null;
+      return normalised === "anthropic" ? "claude" : normalised;
+    }
+    return getToolRuntimeId(form.tool);
+  }, [form.tool, form.provider]);
+  const agentRuntimeModelsQuery = useAgentRuntimeModels(activeRuntimeId ?? "", {
+    enabled: activeRuntimeId !== null,
   });
-  const providerModels = providerModelsQuery.data ?? null;
+  const providerModels =
+    agentRuntimeModelsQuery.data?.map((m) => m.id) ?? null;
 
-  // #626: derive the provider that actually needs an API key, given
-  // the currently-selected tool+provider. For Claude Code / Codex /
-  // Gemini the provider is fixed regardless of what the Provider
-  // dropdown shows (the dropdown only renders for dapr-agent anyway);
-  // for dapr-agent we thread the current dropdown value through. A
-  // `null` return means "no key required for this selection" (custom
-  // tool, ollama) and hides the credential surface entirely.
-  const requiredCredentialProvider = deriveRequiredCredentialProvider(
-    form.tool,
-    form.provider,
+  // #690: seed the provider dropdown from the first installed
+  // dapr-agent runtime the first time the runtimes list arrives.
+  // The wizard stayed empty before this because the initial form
+  // declares `provider: ""` — without the seed the dropdown would
+  // render with no selection.
+  const daprAgentRuntimes = useMemo(
+    () =>
+      agentRuntimes.filter(
+        (r) => r.toolKind === "dapr-agent",
+      ),
+    [agentRuntimes],
   );
+  // Seed the provider + model fields when the runtimes list arrives
+  // and whenever tool/provider changes move the current selection
+  // outside the live catalog. Using `useEffect` would trigger
+  // cascading renders (react-hooks/set-state-in-effect); the
+  // effective values are derived below and the setForm calls are
+  // gated through memoised identifiers so they only fire when the
+  // stored value actually needs to change.
+  const effectiveProvider = useMemo(() => {
+    if (form.tool !== "dapr-agent") return form.provider;
+    if (form.provider !== "") return form.provider;
+    return daprAgentRuntimes.length > 0 ? daprAgentRuntimes[0].id : "";
+  }, [form.tool, form.provider, daprAgentRuntimes]);
+  if (form.tool === "dapr-agent" && effectiveProvider !== form.provider) {
+    setForm((prev) =>
+      prev.provider === "" && prev.tool === "dapr-agent"
+        ? { ...prev, provider: effectiveProvider }
+        : prev,
+    );
+  }
+
+  const effectiveModel = useMemo(() => {
+    if (form.tool === "custom") return form.model;
+    if (form.tool === "dapr-agent" && form.provider === "ollama") return form.model;
+    if (!providerModels || providerModels.length === 0) return form.model;
+    if (providerModels.includes(form.model)) return form.model;
+    return providerModels[0];
+  }, [form.tool, form.provider, form.model, providerModels]);
+  if (effectiveModel !== form.model) {
+    setForm((prev) =>
+      prev.model === effectiveModel ? prev : { ...prev, model: effectiveModel },
+    );
+  }
+
+  // #690: derive the runtime that actually needs a credential for the
+  // current tool+provider selection. `null` means "no credential
+  // required" (custom tool, uninstalled runtime, or `CredentialKind.None`).
+  const requiredCredentialRuntime = useMemo(
+    () =>
+      deriveRequiredCredentialRuntime(
+        form.tool,
+        form.provider,
+        agentRuntimes.length > 0 ? agentRuntimes : null,
+      ),
+    [form.tool, form.provider, agentRuntimes],
+  );
+  const requiredCredentialProvider = requiredCredentialRuntime
+    ? runtimeIdToProviderId(requiredCredentialRuntime.id)
+    : null;
 
   // Status probe runs whenever a provider needs a key. For the
   // dapr-agent+ollama case it still runs so the existing reachability
@@ -434,18 +498,20 @@ export default function CreateUnitPage() {
   // Auto-validation is triggered from `handleNext` — there is no
   // standalone Validate button on the wizard. We use `mutateAsync` so
   // the Next handler can await the outcome and keep/advance the step
-  // based on the verdict.
+  // based on the verdict. #690: validation routes through the
+  // per-runtime `/api/v1/agent-runtimes/{id}/validate-credential`
+  // endpoint rather than the legacy `/system/credentials/*` path.
   const validateCredential = useMutation({
     mutationFn: async () => {
-      if (requiredCredentialProvider === null) {
+      if (requiredCredentialRuntime === null) {
         throw new Error("No credential required for this selection.");
       }
       const trimmed = form.credentialKey.trim();
       if (!trimmed) {
         throw new Error("Enter an API key to validate.");
       }
-      return await api.validateProviderCredential(
-        requiredCredentialProvider,
+      return await api.validateAgentRuntimeCredential(
+        requiredCredentialRuntime.id,
         trimmed,
       );
     },
@@ -460,23 +526,13 @@ export default function CreateUnitPage() {
       const trimmed = form.credentialKey.trim();
       setCredentialValidation({
         status: result.valid ? "valid" : "invalid",
-        error: result.valid ? null : (result.error ?? "Validation failed."),
-        models: result.valid ? (result.models ?? []) : null,
+        error: result.valid ? null : (result.errorMessage ?? "Validation failed."),
+        // The new endpoint doesn't return a model list; the wizard
+        // reads models from GET /agent-runtimes/{id}/models instead.
+        models: null,
         validatedKey: trimmed,
         validatedProvider: requiredCredentialProvider,
       });
-      // Seed the Model field from the freshly-validated list so the
-      // selection reflects what the operator's account actually
-      // supports. Only overwrite when we got a non-empty list —
-      // providers that return zero entries (rare) would otherwise
-      // blank the dropdown.
-      if (result.valid && result.models && result.models.length > 0) {
-        setForm((prev) =>
-          result.models!.includes(prev.model)
-            ? prev
-            : { ...prev, model: result.models![0] },
-        );
-      }
     },
     onError: (err) => {
       const message = err instanceof Error ? err.message : String(err);
@@ -526,35 +582,36 @@ export default function CreateUnitPage() {
     validateCredential,
   ]);
 
-  // #655: Model dropdown visibility. We only show the dropdown when
-  // there is a live model source:
+  // Model dropdown visibility (#655 / #690). We only show the dropdown
+  // when there is a live model source:
   //   - Ollama (dapr-agent + ollama) — rendered regardless (reachability
   //     banner handles failures; the dropdown is populated from
   //     ollamaModels or blank during discovery).
   //   - Tenant/unit credential is resolvable — `providerModels` was
   //     fetched with that credential, so the list is live.
-  //   - Fresh validation of a user-typed key succeeded — use the model
-  //     list returned by the validate endpoint.
-  // Otherwise (the operator is still entering a key, or the key
-  // failed to validate) we hide the Model dropdown entirely to avoid
-  // asking them to pick from a stale static fallback.
+  //   - The operator just successfully validated a key against
+  //     /api/v1/agent-runtimes/{id}/validate-credential — the runtime's
+  //     configured model catalog is the live source.
   const isOllamaDapr =
     form.tool === "dapr-agent" && form.provider === "ollama";
   const tenantOrUnitResolvable = credentialStatus?.resolvable === true;
-  const freshModels =
-    credentialValidated &&
-    credentialValidation.models &&
-    credentialValidation.models.length > 0
-      ? credentialValidation.models
-      : null;
   const activeModelList: readonly string[] | null = useMemo(() => {
     if (isOllamaDapr) return ollamaModels;
-    if (freshModels) return freshModels;
-    if (tenantOrUnitResolvable && providerModels && providerModels.length > 0) {
+    if (
+      (tenantOrUnitResolvable || credentialValidated) &&
+      providerModels &&
+      providerModels.length > 0
+    ) {
       return providerModels;
     }
     return null;
-  }, [isOllamaDapr, ollamaModels, freshModels, tenantOrUnitResolvable, providerModels]);
+  }, [
+    isOllamaDapr,
+    ollamaModels,
+    tenantOrUnitResolvable,
+    credentialValidated,
+    providerModels,
+  ]);
   const showModelDropdown = isOllamaDapr || activeModelList !== null;
 
   // Issue #661: Next on the Execution screen is disabled until a model
@@ -768,17 +825,18 @@ export default function CreateUnitPage() {
       // store) — we want to know about it before we persist an actor.
       // When the toggle is off the write happens after the unit exists
       // (further down), because the unit id is part of the secret path.
-      const providerForKey = deriveRequiredCredentialProvider(
-        form.tool,
-        form.provider,
-      );
+      const runtimeForKey = requiredCredentialRuntime;
       const trimmedKey = form.credentialKey.trim();
+      const secretNameForRuntime = runtimeForKey
+        ? getRuntimeSecretName(runtimeForKey.id)
+        : null;
       const tenantWritePlanned =
-        providerForKey !== null &&
+        runtimeForKey !== null &&
+        secretNameForRuntime !== null &&
         trimmedKey.length > 0 &&
         form.saveAsTenantDefault;
-      if (tenantWritePlanned && providerForKey) {
-        const secretName = PROVIDER_SECRET_NAMES[providerForKey];
+      if (tenantWritePlanned && secretNameForRuntime) {
+        const secretName = secretNameForRuntime;
         const tenantSecretExists =
           credentialStatus?.resolvable === true &&
           credentialStatus.source === "tenant";
@@ -899,11 +957,12 @@ export default function CreateUnitPage() {
       // tab rather than losing the freshly-created unit.
       if (
         createdName &&
-        providerForKey !== null &&
+        runtimeForKey !== null &&
+        secretNameForRuntime !== null &&
         trimmedKey.length > 0 &&
         !form.saveAsTenantDefault
       ) {
-        const secretName = PROVIDER_SECRET_NAMES[providerForKey];
+        const secretName = secretNameForRuntime;
         try {
           await api.createUnitSecret(createdName, {
             name: secretName,
@@ -1146,25 +1205,13 @@ export default function CreateUnitPage() {
               <select
                 value={form.tool}
                 onChange={(e) => {
-                  // #598: Provider dropdown only renders when the tool
-                  // is dapr-agent. #641: every other tool with a finite
-                  // model catalog (claude-code / codex / gemini) still
-                  // shows a Model dropdown — when the tool changes we
-                  // snap `model` to the tool's default so the wire
-                  // payload stays coherent with the hidden Provider.
-                  // `custom` has no known catalog; leave `model` alone.
+                  // #690: model selection is seeded by the
+                  // `useAgentRuntimeModels` effect once the catalog
+                  // arrives, so the tool-change handler just clears
+                  // the current model and lets the effect snap to
+                  // the new runtime's default.
                   const nextTool = e.target.value as ExecutionTool;
-                  const toolProvider = getToolModelProvider(nextTool);
-                  setForm((prev) => {
-                    if (toolProvider !== null) {
-                      return {
-                        ...prev,
-                        tool: nextTool,
-                        model: getProvider(toolProvider).models[0],
-                      };
-                    }
-                    return { ...prev, tool: nextTool };
-                  });
+                  setForm((prev) => ({ ...prev, tool: nextTool, model: "" }));
                 }}
                 aria-label="Execution tool"
                 className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
@@ -1178,10 +1225,12 @@ export default function CreateUnitPage() {
             </label>
 
             {/*
-              #598: Provider renders only when the execution tool is
-              `dapr-agent`. Claude Code, Codex, and Gemini hard-code
-              their own provider inside the tool CLI, so exposing a
-              Provider dropdown for them is misleading.
+              #598 + #690: Provider renders only when the execution tool
+              is `dapr-agent`. The list is sourced from the installed
+              agent runtimes whose tool-kind is `dapr-agent` — Claude
+              Code, Codex, and Gemini hard-code their own provider
+              inside the tool CLI, so exposing a Provider dropdown for
+              them would be misleading.
             */}
             {form.tool === "dapr-agent" && (
               <label className="block space-y-1">
@@ -1191,22 +1240,20 @@ export default function CreateUnitPage() {
                 <select
                   value={form.provider}
                   onChange={(e) => {
-                    // Bug #258: when the provider changes, snap the model to
-                    // that provider's default so we never submit a model that
-                    // the selected provider doesn't support.
-                    const nextProvider = getProvider(e.target.value);
+                    const nextProvider = e.target.value;
                     setForm((prev) => ({
                       ...prev,
-                      provider: nextProvider.id,
-                      model: nextProvider.models[0],
+                      provider: nextProvider,
+                      model: "",
                     }));
                   }}
                   aria-label="LLM provider"
+                  disabled={daprAgentRuntimes.length === 0}
                   className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {AI_PROVIDERS.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.displayName}
+                  {daprAgentRuntimes.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.displayName}
                     </option>
                   ))}
                 </select>
@@ -1798,7 +1845,7 @@ export default function CreateUnitPage() {
                   value={form.description || "—"}
                 />
               )}
-              <SummaryRow label="Model" value={form.model || DEFAULT_MODEL} />
+              <SummaryRow label="Model" value={form.model || "(not selected)"} />
               <SummaryRow label="Color" value={form.color || DEFAULT_COLOR} />
               <SummaryRow label="Image" value={form.image || "(leave to default)"} />
               <SummaryRow label="Runtime" value={form.runtime || "(leave to default)"} />
