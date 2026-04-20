@@ -121,6 +121,27 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<RateLimitStateStoreOptions>>(),
             sp.GetRequiredService<ILoggerFactory>()));
 
+        // Named HttpClient for the GitHub App JWT-backed token mint
+        // (POST /app/installations/{id}/access_tokens). Declared here so the
+        // host can attach the credential-health watchdog by name — the
+        // connector project itself doesn't reference Cvoya.Spring.Dapr
+        // (#730 / CONVENTIONS.md § 16).
+        services.AddHttpClient(GitHubAppAuth.HttpClientName);
+
+        // Named handler chain Octokit's HttpClientAdapter resolves via
+        // IHttpMessageHandlerFactory in GitHubConnector.CreateHandler. The
+        // built-in retry handler is registered here so DI controls its
+        // lifetime; AddHttpMessageHandler requires the handler type to be
+        // resolvable as transient. Declared as AddTransient (not TryAdd)
+        // because IHttpClientBuilder reads the registration on every
+        // handler-chain build, and TryAdd would no-op if the type was
+        // pre-registered singleton by an overlay. Host.Api layers
+        // AddCredentialHealthWatchdog onto the same named client so the
+        // watchdog sits above the retry handler.
+        services.AddTransient<GitHubRetryHandler>();
+        services.AddHttpClient(GitHubConnector.OctokitHttpClientName)
+            .AddHttpMessageHandler<GitHubRetryHandler>();
+
         // Label state machine — default config matches the minimal v1 coordinator
         // protocol. Customers override via the GitHub:Labels configuration section
         // to ship their own label vocabulary.

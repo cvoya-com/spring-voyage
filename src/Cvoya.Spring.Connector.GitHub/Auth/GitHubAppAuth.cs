@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Connector.GitHub.Auth;
 
 using System.IdentityModel.Tokens.Jwt;
+using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text.Json;
 
@@ -19,21 +20,43 @@ using Microsoft.IdentityModel.Tokens;
 /// </summary>
 public class GitHubAppAuth
 {
+    /// <summary>
+    /// Name of the <see cref="HttpClient"/> this class resolves through
+    /// <see cref="IHttpClientFactory"/> for App-auth token minting. Exposed
+    /// as a constant so the host can attach the credential-health watchdog
+    /// (see <c>CONVENTIONS.md</c> § 16) to the same logical client.
+    /// </summary>
+    public const string HttpClientName = "github-app";
+
     private readonly GitHubConnectorOptions _options;
+    private readonly IHttpClientFactory? _httpClientFactory;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger _logger;
 
     /// <summary>
     /// Initializes the auth helper with connector options, a logger factory,
-    /// and an optional <see cref="TimeProvider"/> used only for JWT timestamp
-    /// stability in tests (defaults to <see cref="TimeProvider.System"/>).
+    /// an optional <see cref="IHttpClientFactory"/> (routes the mint call
+    /// through the factory so the host-registered watchdog / proxy handlers
+    /// run on the response), and an optional <see cref="TimeProvider"/> used
+    /// only for JWT timestamp stability in tests (defaults to
+    /// <see cref="TimeProvider.System"/>).
     /// </summary>
+    /// <remarks>
+    /// <paramref name="httpClientFactory"/> is optional so existing unit
+    /// tests that instantiate this class directly (see
+    /// <c>Cvoya.Spring.Connector.GitHub.Tests</c>) keep compiling without
+    /// wiring up <c>AddHttpClient</c>. Production callers go through DI
+    /// which always supplies the factory, so the watchdog is always
+    /// attached on the happy path.
+    /// </remarks>
     public GitHubAppAuth(
         GitHubConnectorOptions options,
         ILoggerFactory loggerFactory,
+        IHttpClientFactory? httpClientFactory = null,
         TimeProvider? timeProvider = null)
     {
         _options = options;
+        _httpClientFactory = httpClientFactory;
         _timeProvider = timeProvider ?? TimeProvider.System;
         _logger = loggerFactory.CreateLogger<GitHubAppAuth>();
     }
@@ -85,18 +108,53 @@ public class GitHubAppAuth
     {
         var jwt = GenerateJwt();
 
-        using var httpClient = new HttpClient();
-        httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {jwt}");
-        httpClient.DefaultRequestHeaders.Add("Accept", "application/vnd.github+json");
-        httpClient.DefaultRequestHeaders.Add("User-Agent", "SpringVoyage-GitHubConnector");
+        // Route through IHttpClientFactory when available so the host-wired
+        // credential-health watchdog (and any future cross-cutting handler
+        // the host attaches via AddHttpClient(HttpClientName)) sees the
+        // response. Fallback to a one-shot HttpClient is kept so direct-
+        // construction callers (unit tests) continue to work.
+        HttpClient httpClient;
+        bool ownsClient;
+        if (_httpClientFactory is not null)
+        {
+            httpClient = _httpClientFactory.CreateClient(HttpClientName);
+            ownsClient = false;
+        }
+        else
+        {
+            httpClient = new HttpClient();
+            ownsClient = true;
+        }
 
-        var response = await httpClient.PostAsync(
-            $"https://api.github.com/app/installations/{installationId}/access_tokens",
-            null,
-            cancellationToken);
+        try
+        {
+            using var request = new HttpRequestMessage(
+                HttpMethod.Post,
+                $"https://api.github.com/app/installations/{installationId}/access_tokens");
+            request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {jwt}");
+            request.Headers.TryAddWithoutValidation("Accept", "application/vnd.github+json");
+            request.Headers.TryAddWithoutValidation("User-Agent", "SpringVoyage-GitHubConnector");
 
-        response.EnsureSuccessStatusCode();
+            var response = await httpClient.SendAsync(request, cancellationToken);
 
+            response.EnsureSuccessStatusCode();
+
+            return await ParseTokenResponseAsync(response, installationId, cancellationToken);
+        }
+        finally
+        {
+            if (ownsClient)
+            {
+                httpClient.Dispose();
+            }
+        }
+    }
+
+    private async Task<InstallationAccessToken> ParseTokenResponseAsync(
+        HttpResponseMessage response,
+        long installationId,
+        CancellationToken cancellationToken)
+    {
         var json = await response.Content.ReadAsStringAsync(cancellationToken);
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
