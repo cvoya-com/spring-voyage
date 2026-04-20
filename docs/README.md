@@ -46,6 +46,12 @@ How to use Spring Voyage V2 through the `spring` CLI.
 - [Declarative Configuration](guide/declarative.md) -- YAML definitions and `spring apply`
 - [Deployment](guide/deployment.md) -- self-hosting on Docker Compose or Podman (including the no-build / registry path)
 
+### Operator Guides
+
+CLI workflows for managing the OSS admin surfaces (agent-runtime + connector installs, credential-health, tenant seeds).
+
+- [Agent Runtimes](user-guide/agent-runtimes.md) — install, configure, and check health of agent runtimes on a tenant.
+
 ### [Developer Guide](developer/overview.md)
 
 For contributors to the Spring Voyage V2 platform.
