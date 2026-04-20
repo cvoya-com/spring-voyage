@@ -81,6 +81,18 @@ The OSS core ships per-runtime `IAgentRuntime` plugins as sibling projects under
 
 To add a new runtime, follow the contract in [`src/Cvoya.Spring.Core/AgentRuntimes/README.md`](src/Cvoya.Spring.Core/AgentRuntimes/README.md) and append a row above. Per-runtime READMEs live next to their projects.
 
+### Admin surfaces (CLI-only)
+
+Per the #674 carve-out, operational surfaces for the OSS core are **CLI-only**. The portal MAY expose **read-only** views for visibility, but every mutation goes through the `spring` CLI:
+
+- **Agent-runtime config** (`spring agent-runtime …`) — tenant install / uninstall, model list, base-URL overrides, credential validation.
+- **Connector config** (`spring connector …`) — tenant install / uninstall, per-tenant configuration, credential validation.
+- **Credential health** (`spring … credentials status`) — read-only status surfaced via both CLI and portal; writes come only from accept-time validation and the HTTP watchdog middleware.
+- **Tenant seeds** — default-tenant bootstrap runs once per deployment start in the Worker host; there is no HTTP or CLI surface to trigger re-seeding in V2.
+- **Skill-bundle bindings** — bootstrap binds every discovered package to the default tenant; mutation CLI (`spring skill-bundle …`) is deferred to V2.1.
+
+This carve-out is **additive** to the UI / CLI parity rule (`CONVENTIONS.md` § 14): user-facing features remain parity-bound; admin surfaces are intentionally CLI-only. The corresponding user-memory rule is recorded as `feedback_ui_cli_parity` — update it alongside this list when a new admin surface lands.
+
 ## Key Rules
 
 - `Cvoya.Spring.Core` must have ZERO external NuGet package references. It defines domain abstractions only.

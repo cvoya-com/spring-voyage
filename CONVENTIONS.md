@@ -376,3 +376,30 @@ services.AddHttpClient("my-runtime-client")
 - `secretName` is the credential key inside the subject — use `"api-key"` for single-credential subjects and stable names per credential for multi-part auth.
 - The handler flips the persistent credential-health row on `401` (→ `Invalid`) and `403` (→ `Revoked`); other status codes pass through unmodified so a flaky upstream does not flap the operator-facing status.
 - Handler writes go through a child DI scope — the handler is safe to use from any pipeline, including background hosted services that have no ambient request scope.
+
+## 17. Agent Runtimes and Connectors Are Plugins
+
+Every agent runtime (`IAgentRuntime`) and connector (`IConnectorType`) is a first-class extension point. The host references the abstraction only; concrete implementations live in their own `Cvoya.Spring.AgentRuntimes.<Name>` / `Cvoya.Spring.Connector.<Name>` project and register via DI.
+
+### Project layout
+
+- **Agent runtimes** live under `src/Cvoya.Spring.AgentRuntimes.<Name>/` and reference `Cvoya.Spring.Core` only (no Dapr, no ASP.NET runtime). Each project ships:
+  - A single `AddCvoyaSpringAgentRuntime<Name>()` DI extension (registered with `TryAddEnumerable(ServiceDescriptor.Singleton<IAgentRuntime, …>)` so a cloud overlay can pre-register a variant without displacing the OSS default).
+  - A `seed.json` at `agent-runtimes/<id>/seed.json` carrying the runtime's `DefaultModels` catalog.
+  - A per-project `README.md` documenting the runtime's id, tool kind, credential schema, and any host-side baseline tooling the runtime expects.
+- **Connectors** live under `src/Cvoya.Spring.Connector.<Name>/` and reference `Cvoya.Spring.Connectors.Abstractions` (which itself references `Cvoya.Spring.Core` plus the ASP.NET shared framework so connectors can own their typed HTTP routes). Each connector exposes `AddCvoyaSpringConnector<Name>(IConfiguration configuration)` and registers its `IConnectorType` as a singleton. Connector-specific HTTP routes attach via the `MapRoutes(IEndpointRouteBuilder group)` contract — the host calls it on a pre-scoped `/api/v1/connectors/{slug}` group so the connector package stays ignorant of the outer path shape.
+
+### Tenant install surfaces
+
+Both plugin kinds sit behind a **tenant install table** (`tenant_agent_runtime_installs`, `tenant_connector_installs`) managed by `ITenantAgentRuntimeInstallService` / `ITenantConnectorInstallService`. A plugin registered in DI is _available_ to the host; an install row makes it _visible_ to a given tenant. Bootstrap seeds default-tenant installs for every registered plugin; subsequent lifecycle goes through the install service.
+
+### Credential-health wiring
+
+Plugins that authenticate via `HttpClient` MUST wire `AddCredentialHealthWatchdog(kind, subjectId, secretName)` onto their named client (see `CONVENTIONS.md` § 16). Without it, revoked or expired tokens surface only on unit failure, not on accumulating signal. The accept-time path is the `/validate-credential` endpoint — `ValidateCredentialAsync` on the plugin contract is the single hook the host invokes for both the wizard accept button and (future) the `spring … credentials validate` CLI verb.
+
+### Adding a new plugin
+
+1. Create `src/Cvoya.Spring.<Kind>.<Name>/` with a single DI-extension entry point. Reference `Cvoya.Spring.Core` (runtimes) or `Cvoya.Spring.Connectors.Abstractions` (connectors) only.
+2. Implement the contract; wire the credential-health watchdog on any HttpClient that authenticates.
+3. For runtimes, ship a `seed.json` and append a row to the "Built-in agent runtimes" table in `AGENTS.md`. For connectors, document the typed routes exposed via `MapRoutes` in the project `README.md`.
+4. Register the DI extension from `src/Cvoya.Spring.Host.Api/Program.cs`. No changes to `Cvoya.Spring.Dapr` are required — the install surface, registry, and bootstrap pick up the new plugin automatically.
