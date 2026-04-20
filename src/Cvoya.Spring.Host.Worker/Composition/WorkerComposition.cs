@@ -87,6 +87,13 @@ public static class WorkerComposition
         // fresh deployments while making the Worker the single owner.
         services.AddCvoyaSpringDatabaseMigrator();
 
+        // Worker owns the default-tenant bootstrap (#676) for the same
+        // single-owner reason: only one host runs the seed pass per
+        // deployment, and the Worker is the host that already owns the
+        // DB lifecycle. Gated at runtime by
+        // Tenancy:BootstrapDefaultTenant (default true).
+        services.AddCvoyaSpringDefaultTenantBootstrap();
+
         // Register Dapr workflows
         services.AddDaprWorkflow(options =>
         {

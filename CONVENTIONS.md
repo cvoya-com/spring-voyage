@@ -347,6 +347,8 @@ This repo is the OSS core of a two-repo model. A private repository extends it v
 
 **Cross-tenant reads and writes go through `ITenantScopeBypass`.** The EF Core query filter applied to every tenant-scoped entity restricts reads and writes to the current tenant. A small set of operations legitimately need to cross that boundary — `DatabaseMigrator`, platform-wide analytics, system administration. Those call sites wrap the work in `ITenantScopeBypass.BeginBypass(reason)` so the bypass is auditable (structured log on open and close, with caller context and duration) and so the private cloud repo can swap the default implementation for a permission-checked variant. Never call `IgnoreQueryFilters()` directly in business code — if a feature seems to need it, rethink the feature or file an issue.
 
+**Bootstrap seeds are declared via `ITenantSeedProvider`; implementations MUST be idempotent and MUST NOT overwrite user edits.** The default-tenant bootstrap hosted service iterates every DI-registered `Cvoya.Spring.Core.Tenancy.ITenantSeedProvider` in ascending `Priority` order on host startup, gated by `Tenancy:BootstrapDefaultTenant` (default true). Implementations upsert by `(tenant_id, <natural-key>)`, log every action at `Information`, and treat seed values as initial data — operator edits made after the seed landed always win. The bootstrap runs on every startup, so a non-idempotent provider that re-inserts on each call duplicates rows and breaks the contract.
+
 ## 14. UI / CLI Feature Parity
 
 Every user-facing feature must ship through BOTH the web portal UI and the `spring` CLI. Neither surface is allowed to drift ahead of the other.

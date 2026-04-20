@@ -315,6 +315,30 @@ Dapr provides pluggable resiliency policies (retries, timeouts, circuit breakers
 
 ---
 
+## Default tenant bootstrap (#676)
+
+The OSS schema treats tenant identity as a value (`tenant_id` on every `ITenantScopedEntity`) rather than a row in a `tenants` table. The literal `"default"` is therefore materialised the moment the first tenant-scoped row lands. The `DefaultTenantBootstrapService` hosted service in `Cvoya.Spring.Dapr.Tenancy` exists to give the platform a uniform place to drive that first write per subsystem, and to surface a single audit log per startup that names every contributor.
+
+**Lifecycle.** Mirrors `DatabaseMigrator`: runs once during `IHostedService.StartAsync`, no-ops in `StopAsync`, registered in **exactly one** host per deployment via the explicit `services.AddCvoyaSpringDefaultTenantBootstrap()` extension. The OSS Worker owns the registration. Gated by `Tenancy:BootstrapDefaultTenant` (default `true`); set the flag to `false` to make the service a strict no-op (used by integration test harnesses that pre-seed and by private-cloud topologies that drive tenant provisioning out-of-band).
+
+**Seed providers.** Every component that contributes startup data implements `Cvoya.Spring.Core.Tenancy.ITenantSeedProvider`:
+
+| Member | Purpose |
+| --- | --- |
+| `string Id` | Stable kebab-case identifier; used in audit logs. |
+| `int Priority` | Ascending order for the bootstrap pass. Recommended slots: 0–99 platform infrastructure, 100–199 platform content, 200–299 private overlays. |
+| `Task ApplySeedsAsync(string tenantId, CancellationToken ct)` | Applies the seed. The tenant row already exists when this is called. |
+
+The bootstrap service iterates every DI-registered `ITenantSeedProvider` in `Priority` order (ties broken by `Id` ordinal) and aborts the host on any provider exception so a broken seed surfaces loudly rather than half-applying.
+
+**Idempotency contract.** The bootstrap runs on every startup. Implementations MUST be idempotent — every call after the first MUST be a no-op against rows the provider itself owns. Implementations upsert by a `(tenant_id, <natural-key>)` pair owned by the provider and MUST NOT overwrite columns the operator may have edited after the seed landed (description text, custom labels, policy overrides, …). Treat the seed as initial data, not a source of truth — the operator wins after the first install.
+
+**Tenant-scope bypass.** The bootstrap pass is wrapped in an `ITenantScopeBypass.BeginBypass("default-tenant bootstrap")` scope so the audit trail matches the rest of the system-admin paths and a private-cloud override (e.g. a permission-checked `TenantScopeBypass`) gates it uniformly with the migrator.
+
+**OSS providers shipped today.** `FileSystemSkillBundleSeedProvider` (priority `10`) wraps the on-disk `FileSystemSkillBundleResolver` so the bundle layer participates in the bootstrap pass. The Phase 2 sub-issues add per-tenant install tables for agent runtimes, connector types, and skill-bundle bindings; each lands as an additional `ITenantSeedProvider` implementation without touching the bootstrap caller.
+
+---
+
 ## Extension Points for Commercial Features
 
 The OSS platform is designed for extensibility via dependency injection. Commercial extensions add:

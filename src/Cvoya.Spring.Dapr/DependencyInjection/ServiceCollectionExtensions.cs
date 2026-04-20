@@ -211,6 +211,15 @@ public static class ServiceCollectionExtensions
         services.TryAddScoped<ISkillBundleValidator, DefaultSkillBundleValidator>();
         services.TryAddSingleton<IUnitSkillBundleStore, StateStoreBackedUnitSkillBundleStore>();
 
+        // Default-tenant bootstrap seed adapter for the file-system bundle
+        // resolver (#676). Registered as an enumerable ITenantSeedProvider
+        // so the DefaultTenantBootstrapService picks it up on first run;
+        // the wrapper is a thin enumeration that keeps the resolver in
+        // the Phase 1 bootstrap loop without coupling it to an OSS bundle
+        // install table that does not yet exist (Phase 2 follow-up).
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<ITenantSeedProvider, FileSystemSkillBundleSeedProvider>());
+
         // Agents-as-skills surface (#359 — rework of closed #532). The
         // catalog derives the skill surface live from the expertise
         // directory (#487 / #498) rather than from a startup snapshot, so
@@ -557,6 +566,7 @@ public static class ServiceCollectionExtensions
         //   - ISecretRegistry / ISecretResolver: composed from the above;
         //     decorators layer RBAC and audit logging.
         services.AddOptions<SecretsOptions>().BindConfiguration(SecretsOptions.SectionName);
+        services.AddOptions<TenancyOptions>().BindConfiguration(TenancyOptions.SectionName);
         services.TryAddSingleton<ITenantContext, ConfiguredTenantContext>();
         // Cross-tenant bypass helper (#677). AsyncLocal-backed nesting-safe
         // scope with structured audit logging on open / close — the
@@ -660,6 +670,45 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddCvoyaSpringDatabaseMigrator(this IServiceCollection services)
     {
         services.AddHostedService<DatabaseMigrator>();
+        return services;
+    }
+
+    /// <summary>
+    /// Registers <see cref="DefaultTenantBootstrapService"/> as a hosted
+    /// service so the containing host bootstraps the canonical
+    /// <c>"default"</c> tenant on startup and invokes every registered
+    /// <see cref="ITenantSeedProvider"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Mirrors the single-owner invariant of
+    /// <see cref="AddCvoyaSpringDatabaseMigrator"/>: call this from
+    /// <strong>exactly one</strong> host in a deployment. The OSS
+    /// topology owns the bootstrap from the Worker (which already owns
+    /// EF Core migrations); a private-cloud host that drives tenant
+    /// provisioning out-of-band can leave it unregistered, or register
+    /// it and gate the run via
+    /// <see cref="TenancyOptions.BootstrapDefaultTenant"/>.
+    /// </para>
+    /// <para>
+    /// Seed providers themselves are picked up via the standard DI
+    /// graph — any <see cref="ITenantSeedProvider"/> registered before
+    /// the hosted service starts participates in the run. The OSS
+    /// providers register themselves inside
+    /// <see cref="AddCvoyaSpringDapr"/>, so this extension is the only
+    /// extra call a host needs to make.
+    /// </para>
+    /// <para>
+    /// <see cref="TenancyOptions"/> binding lives in
+    /// <see cref="AddCvoyaSpringDapr"/> so non-bootstrapping hosts can
+    /// still observe the configured value.
+    /// </para>
+    /// </remarks>
+    /// <param name="services">The service collection to configure.</param>
+    /// <returns>The same service collection for chaining.</returns>
+    public static IServiceCollection AddCvoyaSpringDefaultTenantBootstrap(this IServiceCollection services)
+    {
+        services.AddHostedService<DefaultTenantBootstrapService>();
         return services;
     }
 

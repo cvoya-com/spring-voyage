@@ -211,4 +211,73 @@ public class ServiceCollectionExtensionsTests
 
         Should.NotThrow(() => services.AddCvoyaSpringDapr(config));
     }
+
+    /// <summary>
+    /// #676: <c>AddCvoyaSpringDapr</c> must register the OSS file-system
+    /// skill-bundle adapter as an enumerable
+    /// <see cref="Core.Tenancy.ITenantSeedProvider"/>. Mirrors the
+    /// single-host-owner pattern of <see cref="Cvoya.Spring.Dapr.Data.DatabaseMigrator"/>:
+    /// the seed provider is part of the shared DI graph, but the
+    /// hosted bootstrap service that consumes it is opt-in via
+    /// <see cref="ServiceCollectionExtensions.AddCvoyaSpringDefaultTenantBootstrap"/>.
+    /// </summary>
+    [Fact]
+    public void AddCvoyaSpringDapr_RegistersFileSystemSkillBundleSeedProvider()
+    {
+        using var provider = BuildProvider();
+
+        var seedProviders = provider.GetServices<Core.Tenancy.ITenantSeedProvider>().ToList();
+
+        seedProviders.ShouldContain(p => p is Cvoya.Spring.Dapr.Skills.FileSystemSkillBundleSeedProvider);
+    }
+
+    /// <summary>
+    /// #676 (mirrors the #305 invariant for the migrator):
+    /// <c>AddCvoyaSpringDapr</c> on its own MUST NOT register the
+    /// bootstrap as a hosted service, otherwise both the API and Worker
+    /// hosts (which both call <c>AddCvoyaSpringDapr</c>) would race on
+    /// the seed pass. Bootstrap registration is opt-in via
+    /// <see cref="ServiceCollectionExtensions.AddCvoyaSpringDefaultTenantBootstrap"/>
+    /// from the single host that owns it (the Worker in OSS).
+    /// </summary>
+    [Fact]
+    public void AddCvoyaSpringDapr_DoesNotRegisterDefaultTenantBootstrap()
+    {
+        using var provider = BuildProvider();
+
+        var hosted = provider.GetServices<Microsoft.Extensions.Hosting.IHostedService>().ToList();
+        hosted.ShouldNotContain(s => s is Cvoya.Spring.Dapr.Tenancy.DefaultTenantBootstrapService);
+    }
+
+    /// <summary>
+    /// The opt-in extension introduced for #676 must register the bootstrap
+    /// service as a hosted service so the host that calls it actually runs
+    /// the seed pass on startup.
+    /// </summary>
+    [Fact]
+    public void AddCvoyaSpringDefaultTenantBootstrap_RegistersHostedService()
+    {
+        var services = new ServiceCollection();
+
+        services.AddCvoyaSpringDefaultTenantBootstrap();
+
+        services.ShouldContain(d =>
+            d.ServiceType == typeof(Microsoft.Extensions.Hosting.IHostedService)
+            && d.ImplementationType == typeof(Cvoya.Spring.Dapr.Tenancy.DefaultTenantBootstrapService));
+    }
+
+    /// <summary>
+    /// #676: <c>TenancyOptions</c> binding lives in
+    /// <c>AddCvoyaSpringDapr</c> so non-bootstrapping hosts (the API)
+    /// can still observe the configured value.
+    /// </summary>
+    [Fact]
+    public void AddCvoyaSpringDapr_BindsTenancyOptions()
+    {
+        using var provider = BuildProvider();
+
+        var options = provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<Cvoya.Spring.Dapr.Tenancy.TenancyOptions>>();
+
+        options.Value.BootstrapDefaultTenant.ShouldBeTrue();
+    }
 }

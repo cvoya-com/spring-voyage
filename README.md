@@ -70,6 +70,16 @@ The platform validates its tier-1 configuration (environment variables, `appsett
 
 Inspect the cached report after startup via the portal page `/system/configuration` or the CLI verb `spring system configuration`. Both surfaces read `GET /api/v1/system/configuration` and render per-subsystem status, env-var names, reasons, and suggested fixes. See [`docs/architecture/configuration.md`](docs/architecture/configuration.md) for the framework contract.
 
+### Default tenant bootstrap
+
+On first start the Worker host materialises the canonical `default` tenant
+and invokes every registered `ITenantSeedProvider` against it. The pass is
+gated by `Tenancy:BootstrapDefaultTenant` (default `true`); set it to
+`false` when tenant provisioning is driven out-of-band. See the
+**Multi-tenancy** section of [`docs/architecture/security.md`](docs/architecture/security.md#default-tenant-bootstrap-676)
+for the contract every seed provider must honour (idempotent upserts by
+`(tenant_id, <natural-key>)`, never overwrite operator edits).
+
 ### Connector credentials are optional for startup
 
 The platform starts cleanly without any connector secrets. Connector-specific

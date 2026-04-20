@@ -23,6 +23,12 @@
     <PackageReference Include="Shouldly" />
     <PackageReference Include="NSubstitute" />
     <PackageReference Include="Dapr.Actors" />
+    <!-- #676: integration coverage for the default-tenant bootstrap stands
+         up the Dapr DI graph with an in-memory EF Core context so the
+         hosted-service wiring is exercised end-to-end without a live
+         Postgres. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" />
   </ItemGroup>
 
 </Project>
