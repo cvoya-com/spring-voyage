@@ -1,0 +1,11 @@
+{
+  "models": [
+    "qwen2.5:14b",
+    "llama3.2:3b",
+    "llama3.1:8b",
+    "mistral:7b",
+    "deepseek-coder-v2:16b"
+  ],
+  "defaultModel": "llama3.2:3b",
+  "baseUrl": "http://spring-ollama:11434"
+}

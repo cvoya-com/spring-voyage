@@ -13,11 +13,12 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Cvoya.Spring.AgentRuntimes.Claude\Cvoya.Spring.AgentRuntimes.Claude.csproj" />
-    <ProjectReference Include="..\..\src\Cvoya.Spring.Core\Cvoya.Spring.Core.csproj" />
-    <ProjectReference Include="..\..\src\Cvoya.Spring.Dapr\Cvoya.Spring.Dapr.csproj" />
     <ProjectReference Include="..\..\src\Cvoya.Spring.AgentRuntimes.Google\Cvoya.Spring.AgentRuntimes.Google.csproj" />
+    <ProjectReference Include="..\..\src\Cvoya.Spring.AgentRuntimes.Ollama\Cvoya.Spring.AgentRuntimes.Ollama.csproj" />
     <ProjectReference Include="..\..\src\Cvoya.Spring.AgentRuntimes.OpenAI\Cvoya.Spring.AgentRuntimes.OpenAI.csproj" />
     <ProjectReference Include="..\..\src\Cvoya.Spring.Connector.GitHub\Cvoya.Spring.Connector.GitHub.csproj" />
+    <ProjectReference Include="..\..\src\Cvoya.Spring.Core\Cvoya.Spring.Core.csproj" />
+    <ProjectReference Include="..\..\src\Cvoya.Spring.Dapr\Cvoya.Spring.Dapr.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -5,6 +5,7 @@ using System.Text.Json.Serialization;
 
 using Cvoya.Spring.AgentRuntimes.Claude.DependencyInjection;
 using Cvoya.Spring.AgentRuntimes.Google.DependencyInjection;
+using Cvoya.Spring.AgentRuntimes.Ollama.DependencyInjection;
 using Cvoya.Spring.AgentRuntimes.OpenAI.DependencyInjection;
 using Cvoya.Spring.Connector.Arxiv.DependencyInjection;
 using Cvoya.Spring.Connector.GitHub.DependencyInjection;
@@ -38,13 +39,13 @@ try
     builder.Services
         .AddCvoyaSpringCore()
         .AddCvoyaSpringDapr(builder.Configuration)
-        .AddCvoyaSpringOllamaLlm(builder.Configuration)
         .AddCvoyaSpringAgentRuntimeClaude()
         .AddCvoyaSpringAgentRuntimeGoogle()
+        .AddCvoyaSpringAgentRuntimeOllama(builder.Configuration)
+        .AddCvoyaSpringAgentRuntimeOpenAI()
         .AddCvoyaSpringConnectorGitHub(builder.Configuration)
         .AddCvoyaSpringConnectorArxiv(builder.Configuration)
         .AddCvoyaSpringConnectorWebSearch(builder.Configuration)
-        .AddCvoyaSpringAgentRuntimeOpenAI()
         .AddCvoyaSpringApiServices(builder.Configuration);
 
     // DataProtection tries to persist/load keys from disk and logs a warning when

@@ -76,6 +76,7 @@ The OSS core ships per-runtime `IAgentRuntime` plugins as sibling projects under
 |------------|---------|-----------|--------------|
 | `claude` | `Cvoya.Spring.AgentRuntimes.Claude` | `claude-code-cli` | `AddCvoyaSpringAgentRuntimeClaude()` |
 | `google` | `Cvoya.Spring.AgentRuntimes.Google` | `dapr-agent` | `AddCvoyaSpringAgentRuntimeGoogle()` |
+| `ollama` | `Cvoya.Spring.AgentRuntimes.Ollama` | `dapr-agent` | `AddCvoyaSpringAgentRuntimeOllama()` |
 | `openai` | `Cvoya.Spring.AgentRuntimes.OpenAI` | `dapr-agent` | `AddCvoyaSpringAgentRuntimeOpenAI()` |
 
 To add a new runtime, follow the contract in [`src/Cvoya.Spring.Core/AgentRuntimes/README.md`](src/Cvoya.Spring.Core/AgentRuntimes/README.md) and append a row above. Per-runtime READMEs live next to their projects.

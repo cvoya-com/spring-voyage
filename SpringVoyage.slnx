@@ -3,6 +3,7 @@
     <Project Path="src/Cvoya.Spring.A2A/Cvoya.Spring.A2A.csproj" />
     <Project Path="src/Cvoya.Spring.AgentRuntimes.Claude/Cvoya.Spring.AgentRuntimes.Claude.csproj" />
     <Project Path="src/Cvoya.Spring.AgentRuntimes.Google/Cvoya.Spring.AgentRuntimes.Google.csproj" />
+    <Project Path="src/Cvoya.Spring.AgentRuntimes.Ollama/Cvoya.Spring.AgentRuntimes.Ollama.csproj" />
     <Project Path="src/Cvoya.Spring.AgentRuntimes.OpenAI/Cvoya.Spring.AgentRuntimes.OpenAI.csproj" />
     <Project Path="src/Cvoya.Spring.Cli/Cvoya.Spring.Cli.csproj" />
     <Project Path="src/Cvoya.Spring.Connector.Arxiv/Cvoya.Spring.Connector.Arxiv.csproj" />
@@ -19,6 +20,7 @@
   <Folder Name="/tests/">
     <Project Path="tests/Cvoya.Spring.AgentRuntimes.Claude.Tests/Cvoya.Spring.AgentRuntimes.Claude.Tests.csproj" />
     <Project Path="tests/Cvoya.Spring.AgentRuntimes.Google.Tests/Cvoya.Spring.AgentRuntimes.Google.Tests.csproj" />
+    <Project Path="tests/Cvoya.Spring.AgentRuntimes.Ollama.Tests/Cvoya.Spring.AgentRuntimes.Ollama.Tests.csproj" />
     <Project Path="tests/Cvoya.Spring.AgentRuntimes.OpenAI.Tests/Cvoya.Spring.AgentRuntimes.OpenAI.Tests.csproj" />
     <Project Path="tests/Cvoya.Spring.Cli.Tests/Cvoya.Spring.Cli.Tests.csproj" />
     <Project Path="tests/Cvoya.Spring.Connector.Arxiv.Tests/Cvoya.Spring.Connector.Arxiv.Tests.csproj" />
