@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Cvoya.Spring.A2A/Cvoya.Spring.A2A.csproj" />
+    <Project Path="src/Cvoya.Spring.AgentRuntimes.Google/Cvoya.Spring.AgentRuntimes.Google.csproj" />
     <Project Path="src/Cvoya.Spring.Cli/Cvoya.Spring.Cli.csproj" />
     <Project Path="src/Cvoya.Spring.Connector.Arxiv/Cvoya.Spring.Connector.Arxiv.csproj" />
     <Project Path="src/Cvoya.Spring.Connector.GitHub/Cvoya.Spring.Connector.GitHub.csproj" />
@@ -14,6 +15,7 @@
     <Project Path="src/Cvoya.Spring.Manifest/Cvoya.Spring.Manifest.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Cvoya.Spring.AgentRuntimes.Google.Tests/Cvoya.Spring.AgentRuntimes.Google.Tests.csproj" />
     <Project Path="tests/Cvoya.Spring.Cli.Tests/Cvoya.Spring.Cli.Tests.csproj" />
     <Project Path="tests/Cvoya.Spring.Connector.Arxiv.Tests/Cvoya.Spring.Connector.Arxiv.Tests.csproj" />
     <Project Path="tests/Cvoya.Spring.Connector.GitHub.Tests/Cvoya.Spring.Connector.GitHub.Tests.csproj" />

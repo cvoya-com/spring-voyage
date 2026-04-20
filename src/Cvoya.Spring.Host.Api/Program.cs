@@ -3,6 +3,7 @@
 
 using System.Text.Json.Serialization;
 
+using Cvoya.Spring.AgentRuntimes.Google.DependencyInjection;
 using Cvoya.Spring.Connector.Arxiv.DependencyInjection;
 using Cvoya.Spring.Connector.GitHub.DependencyInjection;
 using Cvoya.Spring.Connector.WebSearch.DependencyInjection;
@@ -36,6 +37,7 @@ try
         .AddCvoyaSpringCore()
         .AddCvoyaSpringDapr(builder.Configuration)
         .AddCvoyaSpringOllamaLlm(builder.Configuration)
+        .AddCvoyaSpringAgentRuntimeGoogle()
         .AddCvoyaSpringConnectorGitHub(builder.Configuration)
         .AddCvoyaSpringConnectorArxiv(builder.Configuration)
         .AddCvoyaSpringConnectorWebSearch(builder.Configuration)

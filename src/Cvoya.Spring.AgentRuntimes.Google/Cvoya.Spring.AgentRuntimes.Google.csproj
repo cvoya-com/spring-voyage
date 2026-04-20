@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Cvoya.Spring.AgentRuntimes.Google</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Cvoya.Spring.AgentRuntimes.Google.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Cvoya.Spring.Core\Cvoya.Spring.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Http" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Ship the seed catalog alongside the assembly. The runtime loads it
+         from the assembly directory at first use; embedding it as content
+         (rather than an embedded resource) keeps it inspectable / patchable
+         in deployed images without rebuilding the assembly. -->
+    <None Include="agent-runtimes\google\seed.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Pack>true</Pack>
+      <PackagePath>contentFiles\any\any\agent-runtimes\google\seed.json</PackagePath>
+    </None>
+  </ItemGroup>
+
+</Project>
