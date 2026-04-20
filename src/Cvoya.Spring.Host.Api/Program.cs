@@ -43,6 +43,17 @@ try
         .AddCvoyaSpringAgentRuntimeGoogle()
         .AddCvoyaSpringAgentRuntimeOllama(builder.Configuration)
         .AddCvoyaSpringAgentRuntimeOpenAI()
+        // Phase 2.8 (#682) replaced the legacy Ollama call-site with the new
+        // agent-runtime registration above, but two host-side bindings still
+        // ride on AddCvoyaSpringOllamaLlm: OllamaOptions (consumed by
+        // OllamaEndpoints + SystemEndpoints for the BaseUrl/timeout knobs
+        // operators set via LanguageModel__Ollama__*) and the
+        // OllamaConfigurationRequirement startup probe (#616). The new
+        // AgentRuntimes:Ollama section + OllamaAgentRuntimeOptions don't
+        // feed those legacy seams yet, so keep the legacy registration
+        // alongside the runtime one until the API-host code paths are
+        // retired — tracked in #728 (follow-up to #711).
+        .AddCvoyaSpringOllamaLlm(builder.Configuration)
         .AddCvoyaSpringConnectorGitHub(builder.Configuration)
         .AddCvoyaSpringConnectorArxiv(builder.Configuration)
         .AddCvoyaSpringConnectorWebSearch(builder.Configuration)
