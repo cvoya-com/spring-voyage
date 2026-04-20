@@ -124,8 +124,15 @@ public class UnitCreationService : IUnitCreationService
     /// <inheritdoc />
     public Task<UnitCreationResult> CreateAsync(
         CreateUnitRequest request,
-        CancellationToken cancellationToken) =>
-        CreateCoreAsync(
+        CancellationToken cancellationToken)
+    {
+        // Review feedback on #744: every unit must have a parent. Either
+        // the caller names ≥1 parent-unit ids OR passes `isTopLevel=true`
+        // (parent = tenant). Neither / both → 400.
+        var parentInfo = ValidateParentRequest(
+            request.ParentUnitIds, request.IsTopLevel);
+
+        return CreateCoreAsync(
             name: request.Name,
             displayName: request.DisplayName,
             description: request.Description,
@@ -143,7 +150,9 @@ public class UnitCreationService : IUnitCreationService
             // not observe a new 400. #325 introduces the duplicate check
             // specifically for the from-template override path.
             rejectDuplicates: false,
+            parentInfo: parentInfo,
             cancellationToken);
+    }
 
     /// <inheritdoc />
     public async Task<UnitCreationResult> CreateFromManifestAsync(
@@ -180,6 +189,12 @@ public class UnitCreationService : IUnitCreationService
         // the /from-yaml and /from-template defaults unannounced.
         var rejectDuplicates = !string.IsNullOrWhiteSpace(overrides.Name);
 
+        // Review feedback on #744: every unit must have a parent. Either
+        // the overrides name ≥1 parent-unit ids OR pass `isTopLevel=true`
+        // (parent = tenant). Neither / both → 400.
+        var parentInfo = ValidateParentRequest(
+            overrides.ParentUnitIds, overrides.IsTopLevel);
+
         var result = await CreateCoreAsync(
             name,
             displayName,
@@ -194,6 +209,7 @@ public class UnitCreationService : IUnitCreationService
             connector,
             ExtractSkillReferences(manifest),
             rejectDuplicates,
+            parentInfo,
             cancellationToken);
 
         // #488: persist the manifest's `expertise:` block onto the unit
@@ -526,6 +542,7 @@ public class UnitCreationService : IUnitCreationService
         UnitConnectorBindingRequest? connector,
         IReadOnlyList<SkillBundleReference> skillReferences,
         bool rejectDuplicates,
+        UnitParentInfo parentInfo,
         CancellationToken cancellationToken)
     {
         // Validate the connector binding request up-front — before we touch
@@ -535,6 +552,36 @@ public class UnitCreationService : IUnitCreationService
         if (connector is not null)
         {
             targetConnector = ResolveConnectorType(connector);
+        }
+
+        // Review feedback on #744: resolve every requested parent unit
+        // BEFORE we touch any server-side state so the caller sees a
+        // clean 404 with no partial-register rollback. Per-tenant visibility
+        // is enforced through the tenant guard — cross-tenant parent-unit
+        // ids surface as 404 so we never leak other-tenant units.
+        var resolvedParents = new List<(string Id, DirectoryEntry Entry)>(parentInfo.ParentUnitIds.Count);
+        foreach (var parentId in parentInfo.ParentUnitIds)
+        {
+            var parentAddress = new Address("unit", parentId);
+            var parentEntry = await _directoryService.ResolveAsync(parentAddress, cancellationToken);
+            if (parentEntry is null)
+            {
+                throw new UnknownParentUnitException(parentId);
+            }
+            if (_tenantGuard is not null)
+            {
+                // Ask the guard whether the parent is visible in the
+                // current tenant. Matches the CreateAgent 404 shape so the
+                // unit creation surface never leaks the existence of
+                // other-tenant units.
+                var visibleInTenant = await _tenantGuard.ShareTenantAsync(
+                    parentAddress, parentAddress, cancellationToken);
+                if (!visibleInTenant)
+                {
+                    throw new UnknownParentUnitException(parentId);
+                }
+            }
+            resolvedParents.Add((parentId, parentEntry));
         }
 
         // Resolve skill bundles and validate their tool requirements up-front
@@ -584,6 +631,20 @@ public class UnitCreationService : IUnitCreationService
             DateTimeOffset.UtcNow);
 
         await _directoryService.RegisterAsync(entry, cancellationToken);
+
+        // Review feedback on #744: persist the IsTopLevel flag on the
+        // UnitDefinition row so the parent-required invariant can
+        // distinguish "deliberately tenant-parented" from "orphaned in
+        // transit." The row was just upserted by RegisterAsync — load it
+        // back and flip the flag in a separate save so we don't have to
+        // reach into DirectoryService for this one field. A failure here
+        // rolls the whole creation back (directory entry + any bundle
+        // rows) via the catch below so the unit never exists in the
+        // half-persisted state where its parent contract is ambiguous.
+        if (parentInfo.IsTopLevel)
+        {
+            await SetTopLevelFlagAsync(name, cancellationToken);
+        }
 
         try
         {
@@ -639,6 +700,30 @@ public class UnitCreationService : IUnitCreationService
                 _logger.LogWarning(ex,
                     "Failed to mirror Owner grant onto human actor {HumanId} for unit '{UnitName}'; unit-side grant is authoritative.",
                     creatorId, name);
+            }
+
+            // Review feedback on #744: wire the new unit as a member of each
+            // resolved parent unit BEFORE the manifest members are added. The
+            // parent actors were resolved up-front (404 path above) so every
+            // entry in resolvedParents maps to a reachable parent actor.
+            // Failure to add to a parent rolls the whole creation back
+            // (via the catch below) so a non-top-level unit is never left
+            // unparented after CreateCoreAsync returns.
+            foreach (var (parentId, parentEntry) in resolvedParents)
+            {
+                try
+                {
+                    var parentProxy = _actorProxyFactory.CreateActorProxy<IUnitActor>(
+                        new ActorId(parentEntry.ActorId), nameof(UnitActor));
+                    await parentProxy.AddMemberAsync(address, cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    throw new UnitCreationBindingException(
+                        UnitCreationBindingFailureReason.StoreFailure,
+                        $"Failed to attach unit '{name}' to parent unit '{parentId}': {ex.Message}",
+                        ex);
+                }
             }
 
             var membersAdded = 0;
@@ -989,4 +1074,96 @@ public class UnitCreationService : IUnitCreationService
         }
         return null;
     }
+
+    /// <summary>
+    /// Validates the caller-supplied parent inputs against the "every unit
+    /// has a parent" invariant (review feedback on #744). Exactly one of
+    /// <paramref name="parentUnitIds"/> or <paramref name="isTopLevel"/>
+    /// must resolve to a positive signal; neither and both are rejected
+    /// with <see cref="InvalidUnitParentRequestException"/>. Kept public so
+    /// unit tests can exercise the pure classifier without spinning up the
+    /// whole service graph.
+    /// </summary>
+    public static UnitParentInfo ValidateParentRequest(
+        IReadOnlyList<string>? parentUnitIds,
+        bool? isTopLevel)
+    {
+        var normalisedParents = (parentUnitIds ?? Array.Empty<string>())
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => id!.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        var topLevel = isTopLevel ?? false;
+
+        if (topLevel && normalisedParents.Count > 0)
+        {
+            throw new InvalidUnitParentRequestException(
+                "Unit creation accepts either 'isTopLevel=true' or a non-empty 'parentUnitIds' list, not both. "
+                + "Top-level units are parented by the tenant; attached units must name at least one parent unit.");
+        }
+
+        if (!topLevel && normalisedParents.Count == 0)
+        {
+            throw new InvalidUnitParentRequestException(
+                "Unit creation must include either 'isTopLevel=true' or a non-empty 'parentUnitIds' list. "
+                + "Every unit belongs to a parent — either another unit, or the tenant itself when top-level.");
+        }
+
+        return new UnitParentInfo(topLevel, normalisedParents);
+    }
+
+    private async Task SetTopLevelFlagAsync(string unitId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetService<SpringDbContext>();
+            if (db is null)
+            {
+                _logger.LogWarning(
+                    "Unit '{UnitId}': SpringDbContext is not registered in the current scope; IsTopLevel flag will remain at its default (false).",
+                    unitId);
+                return;
+            }
+
+            var entity = await db.UnitDefinitions
+                .FirstOrDefaultAsync(u => u.UnitId == unitId && u.DeletedAt == null, cancellationToken);
+
+            if (entity is null)
+            {
+                _logger.LogWarning(
+                    "Unit '{UnitId}': could not locate UnitDefinition row to persist IsTopLevel flag; flag will remain at its default (false).",
+                    unitId);
+                return;
+            }
+
+            entity.IsTopLevel = true;
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // Matches the PersistUnitDefinitionExpertiseAsync / boundary
+            // patterns above: the unit itself is already live, so we
+            // degrade to a warning rather than rolling back a successful
+            // creation. Operators can re-apply the flag via a follow-up
+            // path if the DB write hiccups — out of scope for this PR.
+            _logger.LogWarning(ex,
+                "Unit '{UnitId}': failed to persist IsTopLevel flag on UnitDefinition; flag will remain at its default (false).",
+                unitId);
+        }
+    }
 }
+
+/// <summary>
+/// Validated pair of "parent" inputs for <see cref="IUnitCreationService"/>.
+/// Exactly one of the two will carry a positive signal: either
+/// <see cref="IsTopLevel"/> is <c>true</c> and <see cref="ParentUnitIds"/>
+/// is empty, or <see cref="ParentUnitIds"/> has at least one entry and
+/// <see cref="IsTopLevel"/> is <c>false</c>.
+/// </summary>
+public sealed record UnitParentInfo(bool IsTopLevel, IReadOnlyList<string> ParentUnitIds);

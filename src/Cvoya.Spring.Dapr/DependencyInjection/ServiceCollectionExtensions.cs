@@ -205,6 +205,13 @@ public static class ServiceCollectionExtensions
         // displacing the OSS default.
         services.TryAddScoped<IUnitMembershipTenantGuard, UnitMembershipTenantGuard>();
 
+        // Parent-required guard for unit-edge removals (review feedback on
+        // #744). Scoped for the same reason as the tenant guard: it reads
+        // the per-request SpringDbContext (IsTopLevel lookup) and
+        // IUnitHierarchyResolver (singleton, but its internals use a
+        // per-walk scope). TryAddScoped keeps the cloud overlay hook.
+        services.TryAddScoped<IUnitParentInvariantGuard, UnitParentInvariantGuard>();
+
         // Unit-policy enforcement (#162 / #163). TryAdd so the private cloud
         // repo can pre-register a tenant-scoped / audit-logging wrapper that
         // wraps the OSS default. Scoped because the underlying repositories

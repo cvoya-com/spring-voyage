@@ -71,7 +71,7 @@ public class UnitMetadataEndpointTests : IClassFixture<CustomWebApplicationFacto
 
         var createResponse = await _client.PostAsJsonAsync(
             "/api/v1/units",
-            new CreateUnitRequest(UnitName, "Engineering", "Engineering unit", "claude-opus-4", "#336699"),
+            new CreateUnitRequest(UnitName, "Engineering", "Engineering unit", "claude-opus-4", "#336699", IsTopLevel: true),
             ct);
 
         createResponse.StatusCode.ShouldBe(HttpStatusCode.Created);

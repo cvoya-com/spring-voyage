@@ -1402,6 +1402,16 @@
                 }
               }
             }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
           }
         }
       }
@@ -8459,6 +8469,21 @@
               "null",
               "string"
             ]
+          },
+          "parentUnitIds": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "isTopLevel": {
+            "type": [
+              "null",
+              "boolean"
+            ]
           }
         }
       },
@@ -8515,6 +8540,21 @@
             "type": [
               "null",
               "string"
+            ]
+          },
+          "parentUnitIds": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "isTopLevel": {
+            "type": [
+              "null",
+              "boolean"
             ]
           }
         }
@@ -8574,6 +8614,21 @@
             "type": [
               "null",
               "string"
+            ]
+          },
+          "parentUnitIds": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "isTopLevel": {
+            "type": [
+              "null",
+              "boolean"
             ]
           }
         }

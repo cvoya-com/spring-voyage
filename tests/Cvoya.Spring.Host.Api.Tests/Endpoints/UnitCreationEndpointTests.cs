@@ -87,7 +87,7 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
 
         var response = await _client.PostAsJsonAsync(
             "/api/v1/units/from-yaml",
-            new CreateUnitFromYamlRequest(Yaml, DisplayName: "From YAML"),
+            new CreateUnitFromYamlRequest(Yaml, DisplayName: "From YAML", IsTopLevel: true),
             ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Created);
@@ -197,7 +197,7 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
 
         var response = await _client.PostAsJsonAsync(
             "/api/v1/units/from-template",
-            new CreateUnitFromTemplateRequest("sample-pkg", "sample-unit"),
+            new CreateUnitFromTemplateRequest("sample-pkg", "sample-unit", IsTopLevel: true),
             ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Created);
@@ -263,7 +263,7 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
 
         var createResponse = await _client.PostAsJsonAsync(
             "/api/v1/units/from-yaml",
-            new CreateUnitFromYamlRequest(Yaml),
+            new CreateUnitFromYamlRequest(Yaml, IsTopLevel: true),
             ct);
 
         createResponse.StatusCode.ShouldBe(HttpStatusCode.Created);
@@ -345,7 +345,7 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
 
         var createResponse = await _client.PostAsJsonAsync(
             "/api/v1/units/from-yaml",
-            new CreateUnitFromYamlRequest(Yaml),
+            new CreateUnitFromYamlRequest(Yaml, IsTopLevel: true),
             ct);
 
         createResponse.StatusCode.ShouldBe(HttpStatusCode.Created);
@@ -392,7 +392,8 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
             new CreateUnitFromTemplateRequest(
                 "sample-pkg",
                 "sample-unit",
-                UnitName: "run42-sample-unit"),
+                UnitName: "run42-sample-unit",
+                IsTopLevel: true),
             ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Created);
@@ -428,7 +429,7 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
 
         var response = await _client.PostAsJsonAsync(
             "/api/v1/units/from-template",
-            new CreateUnitFromTemplateRequest("sample-pkg", "sample-unit"),
+            new CreateUnitFromTemplateRequest("sample-pkg", "sample-unit", IsTopLevel: true),
             ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Created);
@@ -479,7 +480,8 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
             new CreateUnitFromTemplateRequest(
                 "sample-pkg",
                 "sample-unit",
-                UnitName: "existing-unit"),
+                UnitName: "existing-unit",
+                IsTopLevel: true),
             ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
@@ -511,7 +513,7 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
 
         var response = await _client.PostAsJsonAsync(
             "/api/v1/units/from-template",
-            new CreateUnitFromTemplateRequest("sample-pkg", "sample-unit"),
+            new CreateUnitFromTemplateRequest("sample-pkg", "sample-unit", IsTopLevel: true),
             ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Created);
@@ -553,6 +555,7 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
             name = "scratch-owner-unit",
             displayName = "Scratch Owner Unit",
             description = "",
+            isTopLevel = true,
         };
 
         var response = await _client.PostAsJsonAsync("/api/v1/units", request, ct);
@@ -595,7 +598,7 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
 
         var response = await _client.PostAsJsonAsync(
             "/api/v1/units/from-template",
-            new CreateUnitFromTemplateRequest("sample-pkg", "sample-unit"),
+            new CreateUnitFromTemplateRequest("sample-pkg", "sample-unit", IsTopLevel: true),
             ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Created);
@@ -635,6 +638,7 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
             description = "made via wizard scratch + skip",
             model = "claude-sonnet-4-20250514",
             color = "#6366f1",
+            isTopLevel = true,
             // No 'connector' field — the wizard omits it for the skip case.
         };
 
@@ -677,6 +681,7 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
             name = "bundled-unit",
             displayName = "Bundled Unit",
             description = "created + bound in one call",
+            isTopLevel = true,
             connector = new
             {
                 typeSlug = "stub",
@@ -718,6 +723,7 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
             name = "missing-connector-unit",
             displayName = "X",
             description = "",
+            isTopLevel = true,
             connector = new
             {
                 typeSlug = "does-not-exist",
@@ -761,6 +767,7 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
             name = "rollback-unit",
             displayName = "Rollback Unit",
             description = "",
+            isTopLevel = true,
             connector = new
             {
                 typeSlug = "stub",
@@ -833,7 +840,7 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
 
         var response = await _client.PostAsJsonAsync(
             "/api/v1/units/from-yaml",
-            new CreateUnitFromYamlRequest(Yaml),
+            new CreateUnitFromYamlRequest(Yaml, IsTopLevel: true),
             ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Created);
@@ -872,7 +879,7 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
 
         var response = await _client.PostAsJsonAsync(
             "/api/v1/units/from-yaml",
-            new CreateUnitFromYamlRequest(Yaml),
+            new CreateUnitFromYamlRequest(Yaml, IsTopLevel: true),
             ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
@@ -913,7 +920,7 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
 
         var response = await _client.PostAsJsonAsync(
             "/api/v1/units/from-yaml",
-            new CreateUnitFromYamlRequest(Yaml),
+            new CreateUnitFromYamlRequest(Yaml, IsTopLevel: true),
             ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Created);

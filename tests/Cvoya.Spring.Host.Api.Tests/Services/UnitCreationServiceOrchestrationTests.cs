@@ -53,7 +53,7 @@ public class UnitCreationServiceOrchestrationTests
         };
 
         await service.CreateFromManifestAsync(
-            manifest, new UnitCreationOverrides(), TestContext.Current.CancellationToken);
+            manifest, new UnitCreationOverrides(IsTopLevel: true), TestContext.Current.CancellationToken);
 
         using var verifyScope = scopeFactory.CreateScope();
         var db = verifyScope.ServiceProvider.GetRequiredService<SpringDbContext>();
@@ -79,7 +79,7 @@ public class UnitCreationServiceOrchestrationTests
         };
 
         await service.CreateFromManifestAsync(
-            manifest, new UnitCreationOverrides(), TestContext.Current.CancellationToken);
+            manifest, new UnitCreationOverrides(IsTopLevel: true), TestContext.Current.CancellationToken);
 
         using var verifyScope = scopeFactory.CreateScope();
         var db = verifyScope.ServiceProvider.GetRequiredService<SpringDbContext>();
@@ -113,7 +113,7 @@ public class UnitCreationServiceOrchestrationTests
         };
 
         await service.CreateFromManifestAsync(
-            manifest, new UnitCreationOverrides(), TestContext.Current.CancellationToken);
+            manifest, new UnitCreationOverrides(IsTopLevel: true), TestContext.Current.CancellationToken);
 
         using var verifyScope = scopeFactory.CreateScope();
         var db = verifyScope.ServiceProvider.GetRequiredService<SpringDbContext>();
@@ -140,7 +140,7 @@ public class UnitCreationServiceOrchestrationTests
         };
 
         await service.CreateFromManifestAsync(
-            manifest, new UnitCreationOverrides(), TestContext.Current.CancellationToken);
+            manifest, new UnitCreationOverrides(IsTopLevel: true), TestContext.Current.CancellationToken);
 
         using var verifyScope = scopeFactory.CreateScope();
         var db = verifyScope.ServiceProvider.GetRequiredService<SpringDbContext>();

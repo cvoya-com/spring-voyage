@@ -175,7 +175,11 @@ public class UnitCreationServiceTests
                     Description: "test",
                     Model: null,
                     Color: null,
-                    Connector: null),
+                    Connector: null,
+                    // Review feedback on #744: every unit needs a parent.
+                    // Legacy tests exercise the "create from scratch"
+                    // shape, which maps to top-level.
+                    IsTopLevel: true),
                 CancellationToken.None);
 
         public Task<UnitCreationResult> CreateFromManifestAsync(
@@ -188,7 +192,7 @@ public class UnitCreationServiceTests
                     Description = $"{name} description",
                     Members = members.ToList(),
                 },
-                new UnitCreationOverrides(),
+                new UnitCreationOverrides(IsTopLevel: true),
                 CancellationToken.None);
     }
 
@@ -390,7 +394,8 @@ public class UnitCreationServiceTests
                 Description: "test",
                 Model: "claude-sonnet-4-20250514",
                 Color: null,
-                Connector: null),
+                Connector: null,
+                IsTopLevel: true),
             CancellationToken.None);
 
         result.Unit.Status.ShouldBe(UnitStatus.Stopped);

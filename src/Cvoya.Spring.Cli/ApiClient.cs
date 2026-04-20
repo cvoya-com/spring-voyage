@@ -290,6 +290,8 @@ public class SpringApiClient
         string? tool = null,
         string? provider = null,
         string? hosting = null,
+        IReadOnlyList<string>? parentUnitIds = null,
+        bool? isTopLevel = null,
         CancellationToken ct = default)
     {
         var request = new CreateUnitRequest
@@ -302,6 +304,12 @@ public class SpringApiClient
             Tool = string.IsNullOrWhiteSpace(tool) ? null : tool,
             Provider = string.IsNullOrWhiteSpace(provider) ? null : provider,
             Hosting = string.IsNullOrWhiteSpace(hosting) ? null : hosting,
+            // Review feedback on #744: forward the parent-required inputs
+            // so the server enforces the invariant. The CLI catches the
+            // neither/both case at parse time; the server remains the
+            // source of truth.
+            ParentUnitIds = parentUnitIds is { Count: > 0 } ? parentUnitIds.ToList() : null,
+            IsTopLevel = isTopLevel,
         };
         var result = await _client.Api.V1.Units.PostAsync(request, cancellationToken: ct);
         return result ?? throw new InvalidOperationException("Server returned an empty CreateUnit response.");
@@ -326,6 +334,8 @@ public class SpringApiClient
         string? tool = null,
         string? provider = null,
         string? hosting = null,
+        IReadOnlyList<string>? parentUnitIds = null,
+        bool? isTopLevel = null,
         CancellationToken ct = default)
     {
         var request = new CreateUnitFromTemplateRequest
@@ -339,6 +349,8 @@ public class SpringApiClient
             Tool = string.IsNullOrWhiteSpace(tool) ? null : tool,
             Provider = string.IsNullOrWhiteSpace(provider) ? null : provider,
             Hosting = string.IsNullOrWhiteSpace(hosting) ? null : hosting,
+            ParentUnitIds = parentUnitIds is { Count: > 0 } ? parentUnitIds.ToList() : null,
+            IsTopLevel = isTopLevel,
         };
         var result = await _client.Api.V1.Units.FromTemplate.PostAsync(request, cancellationToken: ct);
         return result ?? throw new InvalidOperationException(

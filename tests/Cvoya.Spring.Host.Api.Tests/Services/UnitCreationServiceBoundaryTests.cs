@@ -77,7 +77,7 @@ public class UnitCreationServiceBoundaryTests
         };
 
         await service.CreateFromManifestAsync(
-            manifest, new UnitCreationOverrides(), TestContext.Current.CancellationToken);
+            manifest, new UnitCreationOverrides(IsTopLevel: true), TestContext.Current.CancellationToken);
 
         // One SetAsync call carrying the projected UnitBoundary — check the
         // exact content so YAML → core projection stays stable.
@@ -106,7 +106,7 @@ public class UnitCreationServiceBoundaryTests
         };
 
         await service.CreateFromManifestAsync(
-            manifest, new UnitCreationOverrides(), TestContext.Current.CancellationToken);
+            manifest, new UnitCreationOverrides(IsTopLevel: true), TestContext.Current.CancellationToken);
 
         await boundaryStore.DidNotReceive().SetAsync(
             Arg.Any<Address>(),
@@ -132,7 +132,7 @@ public class UnitCreationServiceBoundaryTests
         };
 
         await service.CreateFromManifestAsync(
-            manifest, new UnitCreationOverrides(), TestContext.Current.CancellationToken);
+            manifest, new UnitCreationOverrides(IsTopLevel: true), TestContext.Current.CancellationToken);
 
         await boundaryStore.DidNotReceive().SetAsync(
             Arg.Any<Address>(),
@@ -166,7 +166,7 @@ public class UnitCreationServiceBoundaryTests
 
         // Should not throw.
         var result = await service.CreateFromManifestAsync(
-            manifest, new UnitCreationOverrides(), TestContext.Current.CancellationToken);
+            manifest, new UnitCreationOverrides(IsTopLevel: true), TestContext.Current.CancellationToken);
 
         result.Unit.Name.ShouldBe("flaky-boundary");
     }
@@ -195,7 +195,7 @@ public class UnitCreationServiceBoundaryTests
         };
 
         await service.CreateFromManifestAsync(
-            manifest, new UnitCreationOverrides(), TestContext.Current.CancellationToken);
+            manifest, new UnitCreationOverrides(IsTopLevel: true), TestContext.Current.CancellationToken);
 
         await boundaryStore.DidNotReceive().SetAsync(
             Arg.Any<Address>(),
@@ -229,7 +229,7 @@ public class UnitCreationServiceBoundaryTests
         };
 
         await service.CreateFromManifestAsync(
-            manifest, new UnitCreationOverrides(), TestContext.Current.CancellationToken);
+            manifest, new UnitCreationOverrides(IsTopLevel: true), TestContext.Current.CancellationToken);
 
         await boundaryStore.Received(1).SetAsync(
             Arg.Any<Address>(),

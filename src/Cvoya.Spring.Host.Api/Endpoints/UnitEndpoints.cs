@@ -122,7 +122,8 @@ public static class UnitEndpoints
             .WithName("RemoveMember")
             .WithSummary("Remove a member from a unit")
             .Produces(StatusCodes.Status204NoContent)
-            .ProducesProblem(StatusCodes.Status404NotFound);
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
 
         // Generic (non-polymorphic) pointer endpoints — the typed per-unit
         // config lives on the connector package's own surface under
@@ -333,6 +334,23 @@ public static class UnitEndpoints
             var result = await creationService.CreateAsync(request, cancellationToken);
             return Results.Created($"/api/v1/units/{request.Name}", result.Unit);
         }
+        catch (InvalidUnitParentRequestException ex)
+        {
+            // Review feedback on #744: neither / both of parentUnitIds +
+            // isTopLevel is a client error, distinct from the "unit name
+            // collision" 400 above.
+            return Results.Problem(
+                title: "Unit parent required",
+                detail: ex.Message,
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+        catch (UnknownParentUnitException ex)
+        {
+            return Results.Problem(
+                title: "Unknown parent unit",
+                detail: ex.Message,
+                statusCode: StatusCodes.Status404NotFound);
+        }
         catch (UnitCreationBindingException ex)
         {
             return ProblemFromBindingFailure(ex);
@@ -364,7 +382,8 @@ public static class UnitEndpoints
         }
 
         var overrides = new UnitCreationOverrides(request.DisplayName, request.Color, request.Model,
-            Tool: request.Tool, Provider: request.Provider, Hosting: request.Hosting);
+            Tool: request.Tool, Provider: request.Provider, Hosting: request.Hosting,
+            ParentUnitIds: request.ParentUnitIds, IsTopLevel: request.IsTopLevel);
         try
         {
             var result = await creationService.CreateFromManifestAsync(
@@ -373,6 +392,20 @@ public static class UnitEndpoints
             return Results.Created(
                 $"/api/v1/units/{result.Unit.Name}",
                 new UnitCreationResponse(result.Unit, result.Warnings, result.MembersAdded));
+        }
+        catch (InvalidUnitParentRequestException ex)
+        {
+            return Results.Problem(
+                title: "Unit parent required",
+                detail: ex.Message,
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+        catch (UnknownParentUnitException ex)
+        {
+            return Results.Problem(
+                title: "Unknown parent unit",
+                detail: ex.Message,
+                statusCode: StatusCodes.Status404NotFound);
         }
         catch (UnitCreationBindingException ex)
         {
@@ -439,7 +472,9 @@ public static class UnitEndpoints
             request.UnitName,
             request.Tool,
             request.Provider,
-            request.Hosting);
+            request.Hosting,
+            request.ParentUnitIds,
+            request.IsTopLevel);
         try
         {
             var result = await creationService.CreateFromManifestAsync(
@@ -448,6 +483,20 @@ public static class UnitEndpoints
             return Results.Created(
                 $"/api/v1/units/{result.Unit.Name}",
                 new UnitCreationResponse(result.Unit, result.Warnings, result.MembersAdded));
+        }
+        catch (InvalidUnitParentRequestException ex)
+        {
+            return Results.Problem(
+                title: "Unit parent required",
+                detail: ex.Message,
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+        catch (UnknownParentUnitException ex)
+        {
+            return Results.Problem(
+                title: "Unknown parent unit",
+                detail: ex.Message,
+                statusCode: StatusCodes.Status404NotFound);
         }
         catch (UnitCreationBindingException ex)
         {
@@ -961,6 +1010,7 @@ public static class UnitEndpoints
         IDirectoryService directoryService,
         IActorProxyFactory actorProxyFactory,
         IExpertiseAggregator expertiseAggregator,
+        IUnitParentInvariantGuard parentGuard,
         CancellationToken cancellationToken)
     {
         var unitAddress = new Address("unit", id);
@@ -980,6 +1030,33 @@ public static class UnitEndpoints
         // — no cycle check is required.
         var unitProxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
             new ActorId(entry.ActorId), nameof(UnitActor));
+
+        // Review feedback on #744: the unit variant of memberId must carry
+        // the same "no un-parenting" invariant the agent-removal path
+        // already enforces. Ask the guard before the actor-state write so
+        // we reject the removal with a 409 instead of leaving the child
+        // unit parentless and non-top-level. Top-level children and
+        // non-registered children pass through (see
+        // UnitParentInvariantGuard for the exact branches).
+        try
+        {
+            await parentGuard.EnsureParentRemainsAsync(
+                unitAddress,
+                new Address("unit", memberId),
+                cancellationToken);
+        }
+        catch (UnitParentRequiredException ex)
+        {
+            return Results.Problem(
+                title: "Unit parent required",
+                detail: ex.Message,
+                statusCode: StatusCodes.Status409Conflict,
+                extensions: new Dictionary<string, object?>
+                {
+                    ["unitAddress"] = ex.UnitAddress,
+                    ["parentUnitId"] = ex.ParentUnitId,
+                });
+        }
 
         await unitProxy.RemoveMemberAsync(new Address("agent", memberId), cancellationToken);
         await unitProxy.RemoveMemberAsync(new Address("unit", memberId), cancellationToken);

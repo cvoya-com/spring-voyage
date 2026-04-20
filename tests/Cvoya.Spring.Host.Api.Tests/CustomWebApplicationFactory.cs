@@ -144,6 +144,15 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
     /// </summary>
     public IUnitMembershipTenantGuard TenantGuard { get; } = CreatePermissiveTenantGuard();
 
+    /// <summary>
+    /// Gets the substitute <see cref="IUnitParentInvariantGuard"/> wired
+    /// into the test DI container (review feedback on #744). Defaults to
+    /// no-op so existing tests that do not exercise the parent-required
+    /// removal branches keep passing; tests that want to assert the
+    /// guard's 409 surface configure the substitute explicitly.
+    /// </summary>
+    public IUnitParentInvariantGuard ParentInvariantGuard { get; } = CreatePermissiveParentGuard();
+
     private static IUnitMembershipTenantGuard CreatePermissiveTenantGuard()
     {
         var stub = Substitute.For<IUnitMembershipTenantGuard>();
@@ -154,6 +163,17 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
         stub.EnsureSameTenantAsync(Arg.Any<Cvoya.Spring.Core.Messaging.Address>(),
                                    Arg.Any<Cvoya.Spring.Core.Messaging.Address>(),
                                    Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+        return stub;
+    }
+
+    private static IUnitParentInvariantGuard CreatePermissiveParentGuard()
+    {
+        var stub = Substitute.For<IUnitParentInvariantGuard>();
+        stub.EnsureParentRemainsAsync(
+                Arg.Any<Cvoya.Spring.Core.Messaging.Address>(),
+                Arg.Any<Cvoya.Spring.Core.Messaging.Address>(),
+                Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
         return stub;
     }
@@ -271,6 +291,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
                 typeof(ISecretAccessPolicy),
                 typeof(IExpertiseSearch),
                 typeof(IUnitMembershipTenantGuard),
+                typeof(IUnitParentInvariantGuard),
             };
 
             var descriptors = services
@@ -301,6 +322,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
             services.AddSingleton(SecretAccessPolicy);
             services.AddSingleton(ExpertiseSearch);
             services.AddSingleton(TenantGuard);
+            services.AddSingleton(ParentInvariantGuard);
             services.AddSingleton(new DirectoryCache());
 
             // #687: the skill-bundle resolver is now wrapped in a

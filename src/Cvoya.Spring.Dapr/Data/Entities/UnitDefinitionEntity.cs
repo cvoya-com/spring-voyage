@@ -46,4 +46,14 @@ public class UnitDefinitionEntity : ITenantScopedEntity
     /// <summary>Gets or sets the timestamp when the unit definition was soft-deleted, or null if active.</summary>
     public DateTimeOffset? DeletedAt { get; set; }
 
+    /// <summary>
+    /// Gets or sets a flag indicating whether this unit is a top-level unit —
+    /// i.e. its parent is the tenant itself, not another unit. Every unit must
+    /// either be top-level OR carry at least one parent-unit edge; the two
+    /// cases are mutually exclusive at creation time. Default is <c>false</c>:
+    /// a plain (non-top-level) unit must be added as a member of at least one
+    /// parent unit.
+    /// </summary>
+    public bool IsTopLevel { get; set; }
+
 }

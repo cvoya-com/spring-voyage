@@ -103,7 +103,7 @@ public class UnitCreationServiceExpertiseSeedTests
             },
         };
 
-        await service.CreateFromManifestAsync(manifest, new UnitCreationOverrides(), TestContext.Current.CancellationToken);
+        await service.CreateFromManifestAsync(manifest, new UnitCreationOverrides(IsTopLevel: true), TestContext.Current.CancellationToken);
 
         // Re-open the DB and verify the Definition JSON carries the expertise.
         using var verifyScope = scopeFactory.CreateScope();

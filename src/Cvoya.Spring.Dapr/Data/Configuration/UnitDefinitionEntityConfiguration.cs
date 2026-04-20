@@ -33,6 +33,10 @@ internal class UnitDefinitionEntityConfiguration : IEntityTypeConfiguration<Unit
         builder.Property(e => e.CreatedAt).HasColumnName("created_at").IsRequired();
         builder.Property(e => e.UpdatedAt).HasColumnName("updated_at").IsRequired();
         builder.Property(e => e.DeletedAt).HasColumnName("deleted_at");
+        builder.Property(e => e.IsTopLevel)
+            .HasColumnName("is_top_level")
+            .IsRequired()
+            .HasDefaultValue(false);
 
         builder.HasIndex(e => new { e.TenantId, e.UnitId }).IsUnique().HasFilter("deleted_at IS NULL");
         builder.HasIndex(e => e.TenantId);
