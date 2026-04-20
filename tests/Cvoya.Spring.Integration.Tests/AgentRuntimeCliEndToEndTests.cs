@@ -557,6 +557,7 @@ public sealed class AgentRuntimeCliEndToEndTests : IDisposable
         public string ToolKind => "mock-tool";
         public AgentRuntimeCredentialSchema CredentialSchema { get; } =
             new(AgentRuntimeCredentialKind.None, DisplayHint: null);
+        public string CredentialSecretName => "";
         public IReadOnlyList<ModelDescriptor> DefaultModels { get; } =
             new[] { new ModelDescriptor("mock-model", "Mock Model", ContextWindow: null) };
         public Task<CredentialValidationResult> ValidateCredentialAsync(
