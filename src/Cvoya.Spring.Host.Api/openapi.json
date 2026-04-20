@@ -9129,7 +9129,8 @@
           "defaultModel",
           "baseUrl",
           "credentialKind",
-          "credentialDisplayHint"
+          "credentialDisplayHint",
+          "credentialSecretName"
         ],
         "type": "object",
         "properties": {
@@ -9176,6 +9177,9 @@
               "null",
               "string"
             ]
+          },
+          "credentialSecretName": {
+            "type": "string"
           }
         }
       },

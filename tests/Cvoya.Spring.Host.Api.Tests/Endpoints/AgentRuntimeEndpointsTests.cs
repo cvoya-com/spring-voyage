@@ -72,6 +72,37 @@ public class AgentRuntimeEndpointsTests : IClassFixture<CustomWebApplicationFact
     }
 
     [Fact]
+    public async Task List_Surfaces_CredentialSecretName_From_Runtime()
+    {
+        // #742: the CLI wizard reads `credentialSecretName` off the
+        // agent-runtime payload instead of hardcoding the provider →
+        // secret-name map, so the field must round-trip verbatim from
+        // each `IAgentRuntime.CredentialSecretName`.
+        var ct = TestContext.Current.CancellationToken;
+        await _client.PostAsJsonAsync(
+            "/api/v1/agent-runtimes/claude/install",
+            new AgentRuntimeInstallRequest(null, null, null),
+            ct);
+        await _client.PostAsJsonAsync(
+            "/api/v1/agent-runtimes/ollama/install",
+            new AgentRuntimeInstallRequest(null, null, null),
+            ct);
+
+        var listResponse = await _client.GetAsync("/api/v1/agent-runtimes", ct);
+        var list = await listResponse.Content.ReadFromJsonAsync<InstalledAgentRuntimeResponse[]>(ct);
+        list.ShouldNotBeNull();
+
+        var claude = list!.Single(r => r.Id == "claude");
+        claude.CredentialSecretName.ShouldBe("anthropic-api-key");
+
+        // Ollama declares no credential — the contract is an empty
+        // string (which downstream consumers, including the CLI, treat
+        // as "no credential to write").
+        var ollama = list!.Single(r => r.Id == "ollama");
+        ollama.CredentialSecretName.ShouldBe(string.Empty);
+    }
+
+    [Fact]
     public async Task GetModels_AfterInstallWithDefaults_ReturnsSeedCatalog()
     {
         var ct = TestContext.Current.CancellationToken;

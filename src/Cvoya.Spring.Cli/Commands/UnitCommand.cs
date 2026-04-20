@@ -248,12 +248,18 @@ public static class UnitCommand
             // #626: resolve + validate --api-key / --api-key-from-file /
             // --save-as-tenant-default. Rejection surfaces here so callers
             // find out before we POST the unit-create request.
+            // #742: the canonical secret name now comes from the agent-
+            // runtime API response rather than a client-side switch, so
+            // the CLI, portal, and resolver stay in lock-step off the
+            // same authority.
+            var credentialClient = ClientFactory.Create();
             var credentialResolution = await ResolveCredentialOptionsAsync(
                 tool,
                 provider,
                 apiKey,
                 apiKeyFromFile,
                 saveAsTenantDefault,
+                RuntimeSecretNameResolver(credentialClient),
                 ct);
             if (credentialResolution.ErrorMessage is not null)
             {
@@ -311,7 +317,7 @@ public static class UnitCommand
                 return;
             }
 
-            var directClient = ClientFactory.Create();
+            var directClient = credentialClient;
 
             // #626: when --save-as-tenant-default is set, write the
             // tenant secret BEFORE the unit is created so a failure
@@ -489,12 +495,16 @@ public static class UnitCommand
                 return;
             }
 
+            // #742: secret name comes from the agent-runtime payload —
+            // see RuntimeSecretNameResolver below.
+            var credentialClient = ClientFactory.Create();
             var credentialResolution = await ResolveCredentialOptionsAsync(
                 tool,
                 provider,
                 apiKey,
                 apiKeyFromFile,
                 saveAsTenantDefault,
+                RuntimeSecretNameResolver(credentialClient),
                 ct);
             if (credentialResolution.ErrorMessage is not null)
             {
@@ -1252,13 +1262,41 @@ public static class UnitCommand
     }
 
     /// <summary>
-    /// #626: derive the provider whose API key is needed, given the
-    /// currently-selected tool + provider. Returns <c>null</c> when no
-    /// key is required (Ollama / custom). Mirrors the portal-side
-    /// `deriveRequiredCredentialProvider` in
-    /// `src/Cvoya.Spring.Web/src/app/units/create/page.tsx`.
+    /// #742: adapter over <see cref="SpringApiClient.GetAgentRuntimeAsync"/>
+    /// that satisfies the
+    /// <c>Func&lt;string, CancellationToken, Task&lt;string?&gt;&gt;</c>
+    /// resolver signature expected by
+    /// <see cref="ResolveCredentialOptionsAsync"/>. Returns the runtime's
+    /// <c>CredentialSecretName</c> verbatim — <c>null</c> when the runtime
+    /// is not installed on the current tenant, <see cref="string.Empty"/>
+    /// when the runtime declares no credential (for example Ollama).
     /// </summary>
-    public static string? DeriveRequiredCredentialProvider(
+    private static Func<string, CancellationToken, Task<string?>> RuntimeSecretNameResolver(
+        SpringApiClient client)
+        => async (runtimeId, ct) =>
+        {
+            var runtime = await client.GetAgentRuntimeAsync(runtimeId, ct);
+            return runtime?.CredentialSecretName;
+        };
+
+    /// <summary>
+    /// #626 / #742: derive the agent-runtime id whose credential the
+    /// operator's tool + provider combination needs, so the CLI can fetch
+    /// <c>credentialSecretName</c> from <c>GET /api/v1/agent-runtimes/{id}</c>
+    /// instead of hardcoding the provider → secret-name map. Returns
+    /// <c>null</c> when the combination has no declared credential contract
+    /// (<c>custom</c> tool, <c>--tool</c> omitted, or an unknown provider on
+    /// <c>dapr-agent</c>).
+    /// </summary>
+    /// <remarks>
+    /// Ollama maps to the <c>ollama</c> runtime id even though it needs no
+    /// key — the runtime's own <c>CredentialSecretName</c> is the empty
+    /// string, which <see cref="ResolveCredentialOptionsAsync"/> treats as
+    /// "no credential to write". Mirrors the portal-side
+    /// <c>deriveRequiredRuntimeId</c> in
+    /// <c>src/Cvoya.Spring.Web/src/app/units/create/page.tsx</c>.
+    /// </remarks>
+    public static string? DeriveRequiredRuntimeId(
         string? tool,
         string? provider)
     {
@@ -1266,15 +1304,15 @@ public static class UnitCommand
         var normalizedProvider = (provider ?? string.Empty).Trim().ToLowerInvariant();
         return normalizedTool switch
         {
-            "claude-code" => "anthropic",
+            "claude-code" => "claude",
             "codex" => "openai",
             "gemini" => "google",
             "dapr-agent" => normalizedProvider switch
             {
-                "claude" or "anthropic" => "anthropic",
+                "claude" or "anthropic" => "claude",
                 "openai" => "openai",
                 "google" or "gemini" or "googleai" => "google",
-                // ollama + unknown fall through — no key required.
+                "ollama" => "ollama",
                 _ => null,
             },
             // custom / unspecified → no declared credential contract.
@@ -1283,16 +1321,29 @@ public static class UnitCommand
     }
 
     /// <summary>
-    /// #626: resolve the inline-credential flags into a validated
+    /// #626 / #742: resolve the inline-credential flags into a validated
     /// payload. Handles mutual exclusion between <c>--api-key</c> and
     /// <c>--api-key-from-file</c>, rejects keys on tool/provider
-    /// combinations that have no credential contract, and loads the
-    /// file contents when the <c>--api-key-from-file</c> path is used.
+    /// combinations that have no credential contract, fetches the
+    /// canonical secret name from the runtime registry via
+    /// <paramref name="runtimeSecretNameResolver"/>, and loads the file
+    /// contents when the <c>--api-key-from-file</c> path is used.
     /// </summary>
+    /// <param name="runtimeSecretNameResolver">
+    /// Asks the platform for a given runtime id's <c>credentialSecretName</c>
+    /// (the string the resolver returns flows straight into the tenant /
+    /// unit secret write). <c>null</c> means "runtime not installed";
+    /// <see cref="string.Empty"/> means "runtime declares no credential"
+    /// (for example Ollama). The indirection keeps this method testable
+    /// without an API round-trip.
+    /// </param>
     /// <remarks>
-    /// The method is <c>internal</c> (+ <see cref="System.Runtime.CompilerServices.InternalsVisibleToAttribute"/>
-    /// in the .csproj) so tests can cover the rejection matrix without
-    /// crossing the process-exit boundary.
+    /// The secret-name mapping used to live in a client-side switch
+    /// (<c>SecretNameForProvider</c>) that mirrored each runtime's
+    /// <c>IAgentRuntime.CredentialSecretName</c>. #742 deleted the switch
+    /// and routes the lookup through
+    /// <c>GET /api/v1/agent-runtimes/{id}</c> so the CLI, portal, and
+    /// resolver stay in lock-step off a single authority.
     /// </remarks>
     public static async Task<UnitCredentialOptions> ResolveCredentialOptionsAsync(
         string? tool,
@@ -1300,8 +1351,11 @@ public static class UnitCommand
         string? apiKey,
         string? apiKeyFromFile,
         bool saveAsTenantDefault,
+        Func<string, CancellationToken, Task<string?>> runtimeSecretNameResolver,
         CancellationToken ct)
     {
+        ArgumentNullException.ThrowIfNull(runtimeSecretNameResolver);
+
         var hasKeyFlag = !string.IsNullOrEmpty(apiKey);
         var hasKeyFileFlag = !string.IsNullOrEmpty(apiKeyFromFile);
 
@@ -1323,13 +1377,30 @@ public static class UnitCommand
                 "--api-key and --api-key-from-file are mutually exclusive. Pass exactly one.");
         }
 
-        var derivedProvider = DeriveRequiredCredentialProvider(tool, provider);
-        if (derivedProvider is null)
+        var runtimeId = DeriveRequiredRuntimeId(tool, provider);
+        if (runtimeId is null)
         {
             return UnitCredentialOptions.Rejected(
-                "--api-key / --api-key-from-file is only valid for tools that need an LLM API key " +
-                "(claude-code, codex, gemini, or dapr-agent with provider anthropic/openai/google). " +
-                "Ollama is local (no key) and custom tools have no declared credential contract.");
+                "--api-key / --api-key-from-file is only valid for tools that map to a registered agent runtime " +
+                "(claude-code, codex, gemini, or dapr-agent with a known provider). " +
+                "custom tools have no declared credential contract.");
+        }
+
+        // Ollama's runtime id is known but its CredentialSecretName is
+        // the empty string — that means "no credential to write", so the
+        // inline-key flags have nowhere to land.
+        var secretName = await runtimeSecretNameResolver(runtimeId, ct);
+        if (secretName is null)
+        {
+            return UnitCredentialOptions.Rejected(
+                $"Agent runtime '{runtimeId}' is not installed on the current tenant. " +
+                "Install it (`spring agent-runtime install " + runtimeId + "`) before supplying an API key.");
+        }
+        if (secretName.Length == 0)
+        {
+            return UnitCredentialOptions.Rejected(
+                $"Agent runtime '{runtimeId}' declares no credential (runs without an API key). " +
+                "Drop --api-key / --api-key-from-file for this tool/provider combination.");
         }
 
         string? resolvedKey;
@@ -1357,29 +1428,12 @@ public static class UnitCommand
                 "Supplied API key is empty. Pass a non-empty value via --api-key or a file that contains one.");
         }
 
-        var secretName = SecretNameForProvider(derivedProvider);
         return new UnitCredentialOptions(
             Key: resolvedKey,
             SecretName: secretName,
             SaveAsTenantDefault: saveAsTenantDefault,
             ErrorMessage: null);
     }
-
-    /// <summary>
-    /// The canonical secret name per provider, kept in lock-step with
-    /// each runtime's <c>IAgentRuntime.CredentialSecretName</c> — the CLI
-    /// wizard runs client-side without DI to the runtime registry, so the
-    /// mapping is duplicated here. Keep it in lock-step with the plugin
-    /// implementations under <c>src/Cvoya.Spring.AgentRuntimes.*/</c>.
-    /// </summary>
-    public static string SecretNameForProvider(string provider) => provider switch
-    {
-        "anthropic" => "anthropic-api-key",
-        "openai" => "openai-api-key",
-        "google" => "google-api-key",
-        _ => throw new InvalidOperationException(
-            $"No secret-name mapping for provider '{provider}'."),
-    };
 }
 
 /// <summary>

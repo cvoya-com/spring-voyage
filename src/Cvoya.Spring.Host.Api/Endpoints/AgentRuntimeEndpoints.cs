@@ -443,6 +443,7 @@ public static class AgentRuntimeEndpoints
             DefaultModel: install.Config.DefaultModel,
             BaseUrl: install.Config.BaseUrl,
             CredentialKind: runtime.CredentialSchema.Kind,
-            CredentialDisplayHint: runtime.CredentialSchema.DisplayHint);
+            CredentialDisplayHint: runtime.CredentialSchema.DisplayHint,
+            CredentialSecretName: runtime.CredentialSecretName);
     }
 }

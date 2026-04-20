@@ -47,6 +47,16 @@ using Cvoya.Spring.Core.AgentRuntimes;
 /// obtain it. Surfaces next to the wizard input. <c>null</c> when the
 /// runtime declares no hint.
 /// </param>
+/// <param name="CredentialSecretName">
+/// Canonical secret name under which the runtime's credential is stored
+/// (e.g. <c>anthropic-api-key</c>, <c>openai-api-key</c>,
+/// <c>google-api-key</c>). Mirrors <c>IAgentRuntime.CredentialSecretName</c>
+/// so the CLI wizard — which runs client-side without DI access to the
+/// runtime registry — can resolve the secret name by reading this field
+/// instead of hardcoding the mapping. Empty string when the runtime
+/// declares no credential (for example, Ollama): callers MUST treat the
+/// empty case as "no credential to write" and skip any secret write.
+/// </param>
 public record InstalledAgentRuntimeResponse(
     string Id,
     string DisplayName,
@@ -57,7 +67,8 @@ public record InstalledAgentRuntimeResponse(
     string? DefaultModel,
     string? BaseUrl,
     AgentRuntimeCredentialKind CredentialKind,
-    string? CredentialDisplayHint);
+    string? CredentialDisplayHint,
+    string CredentialSecretName);
 
 /// <summary>
 /// Single entry in the response to <c>GET /api/v1/agent-runtimes/{id}/models</c>.
