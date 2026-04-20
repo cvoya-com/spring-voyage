@@ -133,6 +133,8 @@ public class ProviderCredentialValidator : IProviderCredentialValidator
         // REST and surfacing a generic 401.
         var isOAuthToken = apiKey.StartsWith(
             ClaudeCliInvoker.OAuthTokenPrefix, StringComparison.Ordinal);
+        var isApiKey = apiKey.StartsWith(
+            ClaudeCliInvoker.ApiKeyPrefix, StringComparison.Ordinal);
 
         if (_cliInvokers.TryGetValue("anthropic", out var cliInvoker))
         {
@@ -140,6 +142,30 @@ public class ProviderCredentialValidator : IProviderCredentialValidator
             if (cliAvailable)
             {
                 var cliResult = await cliInvoker.ValidateAsync(apiKey, cancellationToken).ConfigureAwait(false);
+
+                // #664: the claude CLI does not expose a models subcommand, so
+                // it reports Models = null even on success. For API-key
+                // credentials we can still enrich the response with the live
+                // list via a follow-up REST call — the CLI has already
+                // confirmed the key is live, so any REST glitch here falls
+                // back silently to the static catalog rather than failing the
+                // validation. OAuth tokens skip this path because the Platform
+                // REST endpoint rejects them.
+                if (cliResult.Status == ProviderCredentialValidationStatus.Valid
+                    && cliResult.Models is null
+                    && isApiKey)
+                {
+                    var liveModels = await TryFetchAnthropicModelsAsync(apiKey, cancellationToken)
+                        .ConfigureAwait(false);
+                    if (liveModels is { Count: > 0 })
+                    {
+                        return new ProviderCredentialValidationResult(
+                            ProviderCredentialValidationStatus.Valid,
+                            Models: liveModels,
+                            ErrorMessage: null);
+                    }
+                }
+
                 return MapCliResult(cliResult, providerDisplayName: "Anthropic", providerId: "claude");
             }
 
@@ -201,6 +227,55 @@ public class ProviderCredentialValidator : IProviderCredentialValidator
             ProviderCredentialValidationStatus.Valid,
             Models: ids,
             ErrorMessage: null);
+    }
+
+    /// <summary>
+    /// Best-effort fetch of Anthropic's live model list using an API key.
+    /// Used only after the claude CLI has already confirmed the credential
+    /// is live (#664): any REST failure is treated as a missed enrichment
+    /// and returns <c>null</c> so the caller falls back to the static
+    /// curated catalog. Not a substitute for the dedicated REST fallback
+    /// path (which maps 401/403 to <see cref="ProviderCredentialValidationStatus.Unauthorized"/>).
+    /// </summary>
+    private async Task<IReadOnlyList<string>?> TryFetchAnthropicModelsAsync(
+        string apiKey,
+        CancellationToken cancellationToken)
+    {
+        var baseUrl = string.IsNullOrWhiteSpace(_anthropicOptions.Value.BaseUrl)
+            ? AnthropicBaseUrl
+            : _anthropicOptions.Value.BaseUrl.TrimEnd('/');
+        var client = _httpClientFactory.CreateClient(ModelCatalog.HttpClientName);
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/v1/models");
+        request.Headers.Add("x-api-key", apiKey);
+        request.Headers.Add("anthropic-version", AnthropicVersion);
+
+        try
+        {
+            using var response = await client.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogDebug(
+                    "Anthropic /v1/models returned {StatusCode} after CLI validation; using static fallback.",
+                    response.StatusCode);
+                return null;
+            }
+
+            var body = await response.Content
+                .ReadFromJsonAsync(ProviderCredentialValidatorJsonContext.Default.ProviderModelsResponse, cancellationToken)
+                .ConfigureAwait(false);
+            var ids = ExtractIds(body?.Data);
+            return ids.Count > 0 ? ids : null;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            _logger.LogDebug(ex,
+                "Anthropic /v1/models fetch failed after CLI validation; using static fallback.");
+            return null;
+        }
     }
 
     /// <summary>
