@@ -19,6 +19,10 @@
     <ProjectReference Include="..\..\src\Cvoya.Spring.Connector.GitHub\Cvoya.Spring.Connector.GitHub.csproj" />
     <ProjectReference Include="..\..\src\Cvoya.Spring.Core\Cvoya.Spring.Core.csproj" />
     <ProjectReference Include="..\..\src\Cvoya.Spring.Dapr\Cvoya.Spring.Dapr.csproj" />
+    <!-- #698: the Phase 4 CLI E2E audit boots the API host end-to-end via
+         WebApplicationFactory<Program> so the tests exercise the real
+         install / validate / verify-baseline pipelines the CLI calls. -->
+    <ProjectReference Include="..\..\src\Cvoya.Spring.Host.Api\Cvoya.Spring.Host.Api.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -33,6 +37,10 @@
          Postgres. -->
     <PackageReference Include="Microsoft.EntityFrameworkCore" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" />
+    <!-- #698: WebApplicationFactory + Dapr workflow stubs for the Phase 4
+         CLI E2E audit (AgentRuntimeCliEndToEndTests). -->
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <PackageReference Include="Dapr.Workflow" />
   </ItemGroup>
 
 </Project>
