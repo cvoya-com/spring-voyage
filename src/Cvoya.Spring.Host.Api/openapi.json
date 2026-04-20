@@ -5899,6 +5899,47 @@
         }
       }
     },
+    "/api/v1/agent-runtimes/{id}/verify-baseline": {
+      "post": {
+        "tags": [
+          "AgentRuntimes"
+        ],
+        "summary": "Invoke the runtime's VerifyContainerBaselineAsync and return the result",
+        "operationId": "VerifyAgentRuntimeBaseline",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContainerBaselineCheckResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/units/{id}/secrets": {
       "get": {
         "tags": [
@@ -7983,6 +8024,28 @@
           },
           "actionsBaseUrl": {
             "type": "string"
+          }
+        }
+      },
+      "ContainerBaselineCheckResponse": {
+        "required": [
+          "runtimeId",
+          "passed",
+          "errors"
+        ],
+        "type": "object",
+        "properties": {
+          "runtimeId": {
+            "type": "string"
+          },
+          "passed": {
+            "type": "boolean"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },

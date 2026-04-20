@@ -1628,6 +1628,139 @@ public class SpringApiClient
     public Task DeletePlatformSecretAsync(string name, CancellationToken ct = default)
         => _client.Api.V1.Platform.Secrets[name].DeleteAsync(cancellationToken: ct);
 
+    // Agent runtimes (#688). Mirrors the /api/v1/agent-runtimes surface
+    // landed in #715: install / list / show / models / config / validate /
+    // credential-health / verify-baseline. The CLI `spring agent-runtime`
+    // verbs ride these wrappers so the command layer stays free of Kiota
+    // ceremony.
+
+    /// <summary>Lists every agent runtime installed on the current tenant.</summary>
+    public async Task<IReadOnlyList<InstalledAgentRuntimeResponse>> ListAgentRuntimesAsync(
+        CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.AgentRuntimes.GetAsync(cancellationToken: ct);
+        return result ?? new List<InstalledAgentRuntimeResponse>();
+    }
+
+    /// <summary>
+    /// Returns the install metadata for a runtime, or <c>null</c> when not installed.
+    /// </summary>
+    public async Task<InstalledAgentRuntimeResponse?> GetAgentRuntimeAsync(
+        string id, CancellationToken ct = default)
+    {
+        try
+        {
+            return await _client.Api.V1.AgentRuntimes[id].GetAsync(cancellationToken: ct);
+        }
+        catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode == 404)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Returns the tenant's configured model list for an installed runtime.</summary>
+    public async Task<IReadOnlyList<AgentRuntimeModelResponse>> GetAgentRuntimeModelsAsync(
+        string id, CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.AgentRuntimes[id].Models.GetAsync(cancellationToken: ct);
+        return result ?? new List<AgentRuntimeModelResponse>();
+    }
+
+    /// <summary>Installs (or refreshes) a runtime on the current tenant.</summary>
+    public async Task<InstalledAgentRuntimeResponse> InstallAgentRuntimeAsync(
+        string id,
+        IReadOnlyList<string>? models,
+        string? defaultModel,
+        string? baseUrl,
+        CancellationToken ct = default)
+    {
+        var body = new Cvoya.Spring.Cli.Generated.Api.V1.AgentRuntimes.Item.Install.InstallRequestBuilder.InstallPostRequestBody
+        {
+            AgentRuntimeInstallRequest = new AgentRuntimeInstallRequest
+            {
+                Models = models?.ToList(),
+                DefaultModel = defaultModel,
+                BaseUrl = baseUrl,
+            },
+        };
+        var result = await _client.Api.V1.AgentRuntimes[id].Install.PostAsync(body, cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty install response for agent runtime '{id}'.");
+    }
+
+    /// <summary>Uninstalls the runtime from the current tenant.</summary>
+    public Task UninstallAgentRuntimeAsync(string id, CancellationToken ct = default)
+        => _client.Api.V1.AgentRuntimes[id].DeleteAsync(cancellationToken: ct);
+
+    /// <summary>Replaces the tenant-scoped config for an installed runtime.</summary>
+    public async Task<InstalledAgentRuntimeResponse> UpdateAgentRuntimeConfigAsync(
+        string id,
+        IReadOnlyList<string> models,
+        string? defaultModel,
+        string? baseUrl,
+        CancellationToken ct = default)
+    {
+        var request = new AgentRuntimeInstallConfig
+        {
+            Models = models.ToList(),
+            DefaultModel = defaultModel,
+            BaseUrl = baseUrl,
+        };
+        var result = await _client.Api.V1.AgentRuntimes[id].Config.PatchAsync(request, cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty config response for agent runtime '{id}'.");
+    }
+
+    /// <summary>
+    /// Validates a candidate credential against the runtime's backing service
+    /// and records the outcome in the credential-health store.
+    /// </summary>
+    public async Task<CredentialValidateResponse> ValidateAgentRuntimeCredentialAsync(
+        string id,
+        string credential,
+        string? secretName,
+        CancellationToken ct = default)
+    {
+        var request = new CredentialValidateRequest
+        {
+            Credential = credential,
+            SecretName = secretName,
+        };
+        var result = await _client.Api.V1.AgentRuntimes[id].ValidateCredential.PostAsync(request, cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty validate-credential response for agent runtime '{id}'.");
+    }
+
+    /// <summary>
+    /// Returns the current credential-health row for a runtime, or <c>null</c>
+    /// when no validation has been recorded yet.
+    /// </summary>
+    public async Task<CredentialHealthResponse?> GetAgentRuntimeCredentialHealthAsync(
+        string id,
+        string? secretName = null,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            return await _client.Api.V1.AgentRuntimes[id].CredentialHealth.GetAsync(
+                config => { if (!string.IsNullOrWhiteSpace(secretName)) config.QueryParameters.SecretName = secretName; },
+                cancellationToken: ct);
+        }
+        catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode == 404)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Invokes the runtime's VerifyContainerBaselineAsync and returns the result.</summary>
+    public async Task<ContainerBaselineCheckResponse> VerifyAgentRuntimeBaselineAsync(
+        string id, CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.AgentRuntimes[id].VerifyBaseline.PostAsync(cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty verify-baseline response for agent runtime '{id}'.");
+    }
+
     // Packages (#395). Backs `spring package list / show` and
     // `spring template show <package>/<template>`. The portal's
     // /packages route consumes the same endpoints, so the CLI stays at

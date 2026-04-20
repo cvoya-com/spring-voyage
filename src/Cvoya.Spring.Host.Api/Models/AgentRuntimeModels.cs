@@ -68,3 +68,17 @@ public record AgentRuntimeInstallRequest(
     IReadOnlyList<string>? Models,
     string? DefaultModel,
     string? BaseUrl);
+
+/// <summary>
+/// Response for <c>POST /api/v1/agent-runtimes/{id}/verify-baseline</c>.
+/// </summary>
+/// <param name="RuntimeId">Runtime that was probed.</param>
+/// <param name="Passed"><c>true</c> when every baseline check succeeded.</param>
+/// <param name="Errors">
+/// Human-readable entries — one per failed check. Empty when
+/// <paramref name="Passed"/> is <c>true</c>.
+/// </param>
+public record ContainerBaselineCheckResponse(
+    string RuntimeId,
+    bool Passed,
+    IReadOnlyList<string> Errors);

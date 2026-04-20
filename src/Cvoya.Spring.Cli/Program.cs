@@ -36,6 +36,7 @@ public class Program
                 ConversationCommand.Create(outputOption),
                 InboxCommand.Create(outputOption),
                 ActivityCommand.Create(outputOption),
+                AgentRuntimeCommand.Create(outputOption),
                 ConnectorCommand.Create(outputOption),
                 AnalyticsCommand.Create(outputOption),
                 CostCommand.Create(outputOption),

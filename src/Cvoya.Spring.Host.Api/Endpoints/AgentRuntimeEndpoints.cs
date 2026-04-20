@@ -76,6 +76,12 @@ public static class AgentRuntimeEndpoints
             .Produces<CredentialHealthResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
+        group.MapPost("/{id}/verify-baseline", VerifyBaselineAsync)
+            .WithName("VerifyAgentRuntimeBaseline")
+            .WithSummary("Invoke the runtime's VerifyContainerBaselineAsync and return the result")
+            .Produces<ContainerBaselineCheckResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
         return group;
     }
 
@@ -302,6 +308,26 @@ public static class AgentRuntimeEndpoints
         CredentialValidationStatus.NetworkError => CredentialHealthStatus.Unknown,
         _ => CredentialHealthStatus.Unknown,
     };
+
+    private static async Task<IResult> VerifyBaselineAsync(
+        string id,
+        [FromServices] IAgentRuntimeRegistry registry,
+        CancellationToken cancellationToken)
+    {
+        var runtime = registry.Get(id);
+        if (runtime is null)
+        {
+            return Results.Problem(
+                detail: $"Agent runtime '{id}' is not registered with the host.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        var result = await runtime.VerifyContainerBaselineAsync(cancellationToken);
+        return Results.Ok(new ContainerBaselineCheckResponse(
+            RuntimeId: runtime.Id,
+            Passed: result.Passed,
+            Errors: result.Errors));
+    }
 
     private static InstalledAgentRuntimeResponse? ToResponse(
         InstalledAgentRuntime install,
