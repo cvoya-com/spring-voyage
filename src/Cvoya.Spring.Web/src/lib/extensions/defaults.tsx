@@ -5,6 +5,7 @@
 
 import {
   Activity,
+  Cpu,
   GraduationCap,
   Inbox,
   Info,
@@ -192,6 +193,47 @@ export const defaultRoutes: readonly RouteEntry[] = [
     ],
     description:
       "Tier-1 platform config (env vars, secrets) validated at startup — per-subsystem status + actionable suggestions.",
+  },
+  {
+    // #691 — read-only admin view for tenant-installed agent runtimes.
+    // The carve-out in AGENTS.md keeps install/configure CLI-only; this
+    // page exists so operators can see what is installed, which models
+    // are available, and the current credential-health status without
+    // leaving the portal.
+    path: "/admin/agent-runtimes",
+    label: "Agent runtimes",
+    icon: Cpu,
+    navSection: "settings",
+    orderHint: 210,
+    keywords: [
+      "admin",
+      "runtime",
+      "llm",
+      "provider",
+      "spring agent-runtime list",
+    ],
+    description:
+      "Read-only view of installed agent runtimes, their model lists, and credential health. Mutations ride the CLI.",
+  },
+  {
+    // #691 — read-only admin view for tenant-installed connectors.
+    // Parallel to `/admin/agent-runtimes`; catalog + binding views for
+    // end users already live at `/connectors`, this surface is the
+    // admin-facing credential-health view.
+    path: "/admin/connectors",
+    label: "Connector health",
+    icon: Plug,
+    navSection: "settings",
+    orderHint: 220,
+    keywords: [
+      "admin",
+      "connector",
+      "credential",
+      "health",
+      "spring connector list",
+    ],
+    description:
+      "Read-only view of installed connectors and credential health. Mutations ride the CLI.",
   },
 ];
 
