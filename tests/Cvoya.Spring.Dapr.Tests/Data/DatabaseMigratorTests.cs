@@ -8,6 +8,7 @@ using System.Data.Common;
 
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.DependencyInjection;
+using Cvoya.Spring.Dapr.Tenancy;
 
 using global::Dapr.Actors.Client;
 
@@ -268,6 +269,7 @@ public class DatabaseMigratorTests
             serviceProvider,
             configuration,
             Options.Create(options),
+            new TenantScopeBypass(NullLogger<TenantScopeBypass>.Instance),
             NullLogger<DatabaseMigrator>.Instance);
     }
 }

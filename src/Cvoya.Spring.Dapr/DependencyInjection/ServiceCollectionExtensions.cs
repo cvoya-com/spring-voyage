@@ -543,6 +543,15 @@ public static class ServiceCollectionExtensions
         //     decorators layer RBAC and audit logging.
         services.AddOptions<SecretsOptions>().BindConfiguration(SecretsOptions.SectionName);
         services.TryAddSingleton<ITenantContext, ConfiguredTenantContext>();
+        // Cross-tenant bypass helper (#677). AsyncLocal-backed nesting-safe
+        // scope with structured audit logging on open / close — the
+        // EF query filters introduced in the #675 sibling PR consult its
+        // IsBypassActive flag for legitimate system-wide reads
+        // (DatabaseMigrator, platform analytics). TryAdd so the private
+        // cloud repo can swap in a permission-checked variant (e.g. one
+        // that requires a platform-admin grant on the caller principal)
+        // without touching any call site.
+        services.TryAddSingleton<ITenantScopeBypass, TenantScopeBypass>();
         services.TryAddSingleton<ISecretsEncryptor, SecretsEncryptor>();
         services.TryAddSingleton<ISecretStore, DaprStateBackedSecretStore>();
         services.TryAddScoped<ISecretRegistry, EfSecretRegistry>();

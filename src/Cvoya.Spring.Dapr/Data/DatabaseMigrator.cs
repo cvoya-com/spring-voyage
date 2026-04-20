@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.Dapr.Data;
 
+using Cvoya.Spring.Core.Tenancy;
+
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -48,6 +50,7 @@ public class DatabaseMigrator(
     IServiceProvider services,
     IConfiguration configuration,
     IOptions<DatabaseOptions> options,
+    ITenantScopeBypass tenantScopeBypass,
     ILogger<DatabaseMigrator> logger) : IHostedService
 {
     private readonly DatabaseOptions _options = options.Value;
@@ -88,6 +91,14 @@ public class DatabaseMigrator(
     // avoiding assembly-resolution issues in the tooling process.
     private async Task MigrateCoreAsync(CancellationToken cancellationToken)
     {
+        // Migrations run before any tenant context exists and must be able
+        // to read/write rows across every tenant (e.g. backfilling a new
+        // TenantId column on existing business-data rows). The tenant-scope
+        // bypass is the auditable escape hatch (#677) that the EF query
+        // filter added in #675 consults — without it the migration would
+        // silently see an empty database for any tenant-scoped entity.
+        using var bypass = tenantScopeBypass.BeginBypass("database migration");
+
         using var scope = services.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
 
