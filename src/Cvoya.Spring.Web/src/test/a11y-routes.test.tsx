@@ -518,7 +518,7 @@ describe("portal a11y smoke tests", () => {
 describe("shell + primitive a11y", () => {
   it("sidebar renders with landmark nav, skip link, and aria-current on active", async () => {
     const { Sidebar } = await import("@/components/sidebar");
-    const { container } = render(<Sidebar onOpenSettings={() => {}} />, {
+    const { container } = render(<Sidebar />, {
       wrapper: createWrapper(),
     });
     // Skip link is sr-only but present in the DOM.

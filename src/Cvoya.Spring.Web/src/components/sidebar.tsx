@@ -1,109 +1,104 @@
 "use client";
 
-import { cn } from "@/lib/utils";
-import { useTheme } from "@/lib/theme";
-import { NAV_SECTION_ORDER, useExtensions } from "@/lib/extensions";
-import type { NavSection, RouteEntry } from "@/lib/extensions";
-import { Menu, Moon, Settings, Sun, X } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Menu,
+  Moon,
+  Sun,
+  X,
+} from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useMemo, useState, type ReactNode } from "react";
 
-interface SidebarProps {
-  /**
-   * Called when the user activates the sidebar-footer Settings trigger.
-   * Hoisted up to `AppShell` so the drawer's focus trap and scroll lock
-   * live at the shell level rather than inside the sidebar.
-   */
-  onOpenSettings?: () => void;
+import { BrandMark } from "@/components/brand-mark";
+import {
+  NAV_SECTION_LABEL,
+  NAV_SECTION_ORDER,
+  useExtensions,
+} from "@/lib/extensions";
+import type { NavSection, RouteEntry } from "@/lib/extensions";
+import { usePlatformInfo } from "@/lib/api/queries";
+import { useTheme } from "@/lib/theme";
+import { cn } from "@/lib/utils";
+
+// Dimensions from plan §8 — expanded/collapsed widths are load-bearing
+// for the canvas the main pane gets, so keep them as named constants
+// rather than magic numbers scattered through the markup.
+const SIDEBAR_EXPANDED_PX = 224;
+const SIDEBAR_COLLAPSED_PX = 56;
+const COLLAPSE_STORAGE_KEY = "spring-voyage-sidebar-collapsed";
+
+const OSS_ENV_LABEL = "local-dev";
+
+// Safe localStorage read — jsdom, opaque-origin contexts, and
+// privacy-hardened browsers can throw on access, so the collapse
+// preference degrades silently to "expanded" when storage is
+// unavailable.
+function readStoredCollapsed(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(COLLAPSE_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
 }
 
-export function Sidebar({ onOpenSettings }: SidebarProps = {}) {
+function writeStoredCollapsed(collapsed: boolean): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(COLLAPSE_STORAGE_KEY, collapsed ? "1" : "0");
+  } catch {
+    // Storage unavailable — preference is session-only, which is fine.
+  }
+}
+
+/**
+ * Top-level sidebar chrome introduced in IA-sidebar-chrome (plan §8):
+ * BrandMark + wordmark header with an env pill, grouped route manifest
+ * (Overview / Orchestrate / Control / Settings), and a footer carrying
+ * the signed-in user, theme toggle, and version pill. The legacy
+ * in-sidebar Settings-drawer trigger is gone — `/settings` is now a
+ * route under the Control group.
+ */
+export function Sidebar() {
   const pathname = usePathname();
-  const { theme, toggleTheme } = useTheme();
+  const { routes, auth } = useExtensions();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState<boolean>(() =>
+    readStoredCollapsed(),
+  );
+  const toggleCollapsed = () => {
+    setCollapsed((prev) => {
+      writeStoredCollapsed(!prev);
+      return !prev;
+    });
+  };
+
   // Auto-close the mobile drawer when the route changes. Using the
   // "adjusting state while rendering" pattern (React docs:
   // https://react.dev/reference/react/useState#storing-information-from-previous-renders)
-  // avoids the `react-hooks/set-state-in-effect` cascading-render warning
-  // that a `useEffect` resetting this same state would produce.
+  // avoids the `react-hooks/set-state-in-effect` cascading-render warning.
   const [lastPathname, setLastPathname] = useState(pathname);
   if (pathname !== lastPathname) {
     setLastPathname(pathname);
     setMobileOpen(false);
   }
 
-  const { routes, slots, auth } = useExtensions();
-
-  // Route manifest → grouped sections. The sidebar never hard-codes
-  // a route list — it reads whatever the (OSS + hosted) extension
-  // registry supplies. See `src/lib/extensions/README.md`.
   const sections = useMemo(
     () => groupVisibleRoutes(routes, (perm) => auth.hasPermission(perm)),
     [routes, auth],
   );
 
   const sidebarContent = (
-    <>
-      <div className="flex items-center justify-between px-4 py-4">
-        <span className="text-lg font-bold">Spring Voyage</span>
-        <button
-          onClick={() => setMobileOpen(false)}
-          className="md:hidden rounded-md p-1 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          aria-label="Close sidebar"
-        >
-          <X className="h-5 w-5" aria-hidden="true" />
-        </button>
-      </div>
-
-      <nav
-        aria-label="Primary"
-        className="flex-1 space-y-4 px-2 py-2 overflow-y-auto"
-      >
-        {sections.map((section) => (
-          <SidebarSection
-            key={section.id}
-            section={section.id}
-            entries={section.entries}
-            pathname={pathname}
-          />
-        ))}
-      </nav>
-
-      <div className="border-t border-border px-4 py-3 space-y-2">
-        {slots.sidebarFooter ? (
-          <div data-testid="sidebar-footer-slot">
-            {slots.sidebarFooter as ReactNode}
-          </div>
-        ) : null}
-        {onOpenSettings ? (
-          <button
-            onClick={onOpenSettings}
-            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            data-testid="sidebar-settings-trigger"
-            aria-haspopup="dialog"
-          >
-            <Settings className="h-4 w-4" aria-hidden="true" />
-            Settings
-          </button>
-        ) : null}
-        <div className="flex items-center justify-between">
-          <span className="text-xs text-muted-foreground">Spring Voyage v2</span>
-          <button
-            onClick={toggleTheme}
-            className="rounded-md p-1 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
-            aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
-          >
-            {theme === "dark" ? (
-              <Sun className="h-3.5 w-3.5" aria-hidden="true" />
-            ) : (
-              <Moon className="h-3.5 w-3.5" aria-hidden="true" />
-            )}
-          </button>
-        </div>
-      </div>
-    </>
+    <SidebarContent
+      sections={sections}
+      pathname={pathname}
+      collapsed={collapsed}
+      toggleCollapsed={toggleCollapsed}
+      onMobileClose={() => setMobileOpen(false)}
+    />
   );
 
   return (
@@ -142,16 +137,21 @@ export function Sidebar({ onOpenSettings }: SidebarProps = {}) {
         id="mobile-sidebar"
         aria-label="Sidebar navigation"
         className={cn(
-          "fixed inset-y-0 left-0 z-50 flex w-56 flex-col border-r border-border bg-card transition-transform duration-200 md:hidden",
-          mobileOpen ? "translate-x-0" : "-translate-x-full"
+          "fixed inset-y-0 left-0 z-50 flex flex-col border-r border-border bg-card transition-transform duration-200 md:hidden",
+          mobileOpen ? "translate-x-0" : "-translate-x-full",
         )}
+        style={{ width: SIDEBAR_EXPANDED_PX }}
       >
         {sidebarContent}
       </aside>
 
       <aside
         aria-label="Sidebar navigation"
-        className="hidden md:flex h-screen w-56 flex-col border-r border-border bg-card"
+        data-collapsed={collapsed || undefined}
+        className="hidden md:flex h-screen flex-col border-r border-border bg-card transition-[width] duration-150"
+        style={{
+          width: collapsed ? SIDEBAR_COLLAPSED_PX : SIDEBAR_EXPANDED_PX,
+        }}
       >
         {sidebarContent}
       </aside>
@@ -186,30 +186,123 @@ function groupVisibleRoutes(
   return ordered;
 }
 
+function SidebarContent({
+  sections,
+  pathname,
+  collapsed,
+  toggleCollapsed,
+  onMobileClose,
+}: {
+  sections: readonly GroupedSection[];
+  pathname: string;
+  collapsed: boolean;
+  toggleCollapsed: () => void;
+  onMobileClose: () => void;
+}) {
+  return (
+    <>
+      <SidebarHeader collapsed={collapsed} onMobileClose={onMobileClose} />
+
+      <nav
+        aria-label="Primary"
+        className="flex-1 space-y-4 px-2 py-2 overflow-y-auto"
+      >
+        {sections.map((section) => (
+          <SidebarSection
+            key={section.id}
+            section={section.id}
+            entries={section.entries}
+            pathname={pathname}
+            collapsed={collapsed}
+          />
+        ))}
+      </nav>
+
+      <SidebarFooter collapsed={collapsed} toggleCollapsed={toggleCollapsed} />
+    </>
+  );
+}
+
+function SidebarHeader({
+  collapsed,
+  onMobileClose,
+}: {
+  collapsed: boolean;
+  onMobileClose: () => void;
+}) {
+  return (
+    <div
+      data-testid="sidebar-header"
+      className={cn(
+        "flex items-center gap-2 border-b border-border px-3 py-3",
+        collapsed && "justify-center px-0",
+      )}
+    >
+      <BrandMark size={24} className="shrink-0" />
+      {collapsed ? null : (
+        <div className="flex min-w-0 flex-1 flex-col">
+          <span className="truncate text-sm font-semibold">Spring Voyage</span>
+          <span
+            data-testid="sidebar-env-pill"
+            className="truncate font-mono text-[10px] uppercase tracking-wider text-muted-foreground"
+          >
+            env · {OSS_ENV_LABEL}
+          </span>
+        </div>
+      )}
+      <button
+        onClick={onMobileClose}
+        className="md:hidden rounded-md p-1 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        aria-label="Close sidebar"
+      >
+        <X className="h-5 w-5" aria-hidden="true" />
+      </button>
+    </div>
+  );
+}
+
 function SidebarSection({
   section,
   entries,
   pathname,
+  collapsed,
 }: {
   section: NavSection;
   entries: readonly RouteEntry[];
   pathname: string;
+  collapsed: boolean;
 }) {
   return (
     <div className="space-y-1" data-testid={`sidebar-section-${section}`}>
-      {section !== "primary" && (
-        <div className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          {section}
+      {collapsed ? null : (
+        <div
+          data-testid={`sidebar-section-label-${section}`}
+          className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
+        >
+          {NAV_SECTION_LABEL[section]}
         </div>
       )}
       {entries.map((item) => (
-        <NavLink key={item.path} item={item} pathname={pathname} />
+        <NavLink
+          key={item.path}
+          item={item}
+          pathname={pathname}
+          collapsed={collapsed}
+        />
       ))}
     </div>
   );
 }
 
-function NavLink({ item, pathname }: { item: RouteEntry; pathname: string }) {
+function NavLink({
+  item,
+  pathname,
+  collapsed,
+}: {
+  item: RouteEntry;
+  pathname: string;
+  collapsed: boolean;
+}) {
   const active =
     item.path === "/"
       ? pathname === "/"
@@ -221,15 +314,159 @@ function NavLink({ item, pathname }: { item: RouteEntry; pathname: string }) {
     <Link
       href={item.path}
       aria-current={active ? "page" : undefined}
+      title={collapsed ? item.label : undefined}
       className={cn(
-        "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        "flex items-center gap-2 rounded-md text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        collapsed ? "justify-center px-2 py-2" : "px-3 py-2",
         active
           ? "bg-primary/10 text-primary font-medium"
-          : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+          : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
       )}
     >
-      <Icon className="h-4 w-4" aria-hidden="true" />
-      {item.label}
+      <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+      {collapsed ? (
+        <span className="sr-only">{item.label}</span>
+      ) : (
+        <span className="truncate">{item.label}</span>
+      )}
     </Link>
+  );
+}
+
+function SidebarFooter({
+  collapsed,
+  toggleCollapsed,
+}: {
+  collapsed: boolean;
+  toggleCollapsed: () => void;
+}) {
+  const { auth, slots } = useExtensions();
+  const user = auth.getUser();
+  const platform = usePlatformInfo({ staleTime: 60 * 1000 });
+  const version = platform.data?.version ?? "dev";
+
+  return (
+    <div
+      data-testid="sidebar-footer"
+      className="border-t border-border p-2 text-xs"
+    >
+      {slots.sidebarFooter ? (
+        <div data-testid="sidebar-footer-slot" className="mb-2">
+          {slots.sidebarFooter as ReactNode}
+        </div>
+      ) : null}
+
+      <UserBlock user={user} collapsed={collapsed} />
+
+      <div
+        className={cn(
+          "mt-2 flex items-center",
+          collapsed ? "flex-col gap-2" : "justify-between gap-2",
+        )}
+      >
+        <ThemeToggle />
+        {collapsed ? null : (
+          <span
+            data-testid="sidebar-version"
+            className="truncate font-mono text-[10px] uppercase tracking-wider text-muted-foreground"
+          >
+            v{version}
+          </span>
+        )}
+        <CollapseToggle collapsed={collapsed} onToggle={toggleCollapsed} />
+      </div>
+    </div>
+  );
+}
+
+function UserBlock({
+  user,
+  collapsed,
+}: {
+  user: ReturnType<
+    ReturnType<typeof useExtensions>["auth"]["getUser"]
+  >;
+  collapsed: boolean;
+}) {
+  const displayName = user?.displayName ?? user?.id ?? "local";
+  const email = user?.email;
+  const initial = (displayName[0] ?? "?").toUpperCase();
+
+  return (
+    <div
+      data-testid="sidebar-user"
+      className={cn(
+        "flex items-center gap-2",
+        collapsed && "justify-center",
+      )}
+    >
+      <div
+        aria-hidden="true"
+        className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent text-xs font-semibold text-accent-foreground"
+      >
+        {initial}
+        <span
+          data-testid="sidebar-user-status"
+          className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border-2 border-card bg-success"
+          title="Connected"
+        />
+      </div>
+      {collapsed ? null : (
+        <div className="flex min-w-0 flex-col">
+          <span className="truncate text-xs font-medium text-foreground">
+            {displayName}
+          </span>
+          {email ? (
+            <span className="truncate text-[10px] text-muted-foreground">
+              {email}
+            </span>
+          ) : null}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ThemeToggle() {
+  const { theme, toggleTheme } = useTheme();
+  const next = theme === "dark" ? "light" : "dark";
+  return (
+    <button
+      onClick={toggleTheme}
+      className="rounded-md p-1 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      title={`Switch to ${next} mode`}
+      aria-label={`Switch to ${next} mode`}
+      data-testid="sidebar-theme-toggle"
+    >
+      {theme === "dark" ? (
+        <Sun className="h-3.5 w-3.5" aria-hidden="true" />
+      ) : (
+        <Moon className="h-3.5 w-3.5" aria-hidden="true" />
+      )}
+    </button>
+  );
+}
+
+function CollapseToggle({
+  collapsed,
+  onToggle,
+}: {
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      onClick={onToggle}
+      data-testid="sidebar-collapse-toggle"
+      aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+      aria-expanded={!collapsed}
+      className="rounded-md p-1 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      {collapsed ? (
+        <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+      ) : (
+        <ChevronLeft className="h-3.5 w-3.5" aria-hidden="true" />
+      )}
+    </button>
   );
 }

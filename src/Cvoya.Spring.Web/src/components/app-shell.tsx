@@ -2,20 +2,22 @@
 
 import { Sidebar } from "@/components/sidebar";
 import { CommandPaletteProvider } from "@/components/command-palette";
-import { SettingsDrawer } from "@/components/settings-drawer";
 import { ExtensionProvider } from "@/lib/extensions";
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 
+/**
+ * Portal shell. Wraps every route with the extension registry, the
+ * command palette, and the sidebar chrome.
+ *
+ * Settings are reached via the `/settings` route (plan §2 of the v2
+ * design-system rollout — umbrella #815). The legacy `<SettingsDrawer>`
+ * mount + `onOpenSettings` plumbing was retired in IA-appshell.
+ */
 export function AppShell({ children }: { children: ReactNode }) {
-  // Drawer state lives at the shell level so the focus trap and body
-  // scroll lock compose with the rest of the portal (sidebar, command
-  // palette). The trigger sits in the sidebar footer (§ 3.2 of the
-  // portal design doc — "bottom-sidebar Settings drawer").
-  const [settingsOpen, setSettingsOpen] = useState(false);
   return (
     <ExtensionProvider>
       <CommandPaletteProvider>
-        <Sidebar onOpenSettings={() => setSettingsOpen(true)} />
+        <Sidebar />
         {/* `min-w-0` lets the flex main pane shrink below its
             intrinsic content width when a descendant carries a fixed
             pixel width — without it, flexbox pins main to the widest
@@ -28,10 +30,6 @@ export function AppShell({ children }: { children: ReactNode }) {
         >
           {children}
         </main>
-        <SettingsDrawer
-          open={settingsOpen}
-          onClose={() => setSettingsOpen(false)}
-        />
       </CommandPaletteProvider>
     </ExtensionProvider>
   );
