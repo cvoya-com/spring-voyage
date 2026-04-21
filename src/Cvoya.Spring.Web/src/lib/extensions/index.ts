@@ -13,7 +13,7 @@ export type {
   RouteEntry,
   ShellSlot,
 } from "./types";
-export { NAV_SECTION_ORDER } from "./types";
+export { NAV_SECTION_LABEL, NAV_SECTION_ORDER } from "./types";
 
 export {
   registerExtension,

@@ -2,22 +2,33 @@
 // place the OSS build hard-codes the portal's routes and actions —
 // everything downstream (sidebar, command palette) reads the merged
 // registry and therefore never names a route directly.
+//
+// The v2 IA (plan §2 of umbrella #815) groups the sidebar into three
+// visible clusters:
+//
+//   • Overview     — Dashboard, Activity, Analytics
+//   • Orchestrate  — Units (Explorer), Inbox, Discovery
+//   • Control      — Connectors, Policies, Budgets, Settings
+//
+// Every route below declares which cluster it belongs to via
+// `navSection`; the sidebar reads `NAV_SECTION_ORDER` to decide the
+// render order.
 
 import {
   Activity,
-  Cpu,
+  BarChart3,
+  Compass,
   GraduationCap,
   Inbox,
-  Info,
-  KeyRound,
   LayoutDashboard,
   MessagesSquare,
   Network,
   Package,
+  Play,
   Plug,
   Plus,
-  Play,
   ShieldCheck,
+  Settings,
   Square,
   UserCircle,
   Users,
@@ -29,6 +40,7 @@ import { AboutPanel } from "@/components/settings/about-panel";
 import { AuthPanel } from "@/components/settings/auth-panel";
 import { BudgetPanel } from "@/components/settings/budget-panel";
 import { TenantDefaultsPanel } from "@/components/settings/tenant-defaults-panel";
+import { KeyRound, Info } from "lucide-react";
 
 import type {
   DrawerPanel,
@@ -50,190 +62,144 @@ export const defaultAuthContext: IAuthContext = {
 };
 
 /**
- * Routes shipped with the OSS build. These match the current sidebar
- * today (#440 only introduces the seam; the nav restructure in #444
- * will evolve this list).
+ * Routes shipped with the OSS build. The v2 IA packs the sidebar into
+ * the three groups defined in plan §2; downstream EXP-* / SURF-* /
+ * DEL-* issues will continue rewiring the target pages under these
+ * declared paths.
  */
 export const defaultRoutes: readonly RouteEntry[] = [
+  // ----- Overview ---------------------------------------------------
   {
     path: "/",
     label: "Dashboard",
     icon: LayoutDashboard,
-    navSection: "primary",
+    navSection: "overview",
     orderHint: 10,
     keywords: ["home", "overview", "summary"],
     description: "Units, agents, and recent activity at a glance.",
   },
   {
+    path: "/activity",
+    label: "Activity",
+    icon: Activity,
+    navSection: "overview",
+    orderHint: 20,
+    keywords: ["events", "log", "stream", "audit"],
+    description: "Raw activity event stream with filters.",
+  },
+  {
+    path: "/analytics",
+    label: "Analytics",
+    icon: BarChart3,
+    navSection: "overview",
+    orderHint: 30,
+    keywords: [
+      "costs",
+      "throughput",
+      "waits",
+      "charts",
+      "spring analytics",
+    ],
+    description:
+      "Deep-dive charts: cost, throughput, and wait-time breakdowns.",
+  },
+
+  // ----- Orchestrate ------------------------------------------------
+  // orderHint lives in one global sequence so the merged-registry sort
+  // (by orderHint alone, across clusters) preserves the declared
+  // Overview → Orchestrate → Control reading order when both are
+  // equivalent. The cluster bucketing is separate: the sidebar groups
+  // by `navSection` before it renders.
+  {
+    path: "/units",
+    label: "Units",
+    icon: Network,
+    navSection: "orchestrate",
+    orderHint: 40,
+    keywords: ["teams", "groups", "agents", "explorer", "spring unit list"],
+    description:
+      "Canonical Explorer — units, agents, policies, and memory in one tree.",
+  },
+  {
     path: "/inbox",
     label: "Inbox",
     icon: Inbox,
-    navSection: "primary",
-    orderHint: 15,
+    navSection: "orchestrate",
+    orderHint: 50,
     keywords: [
       "awaiting",
       "pending",
       "human",
       "spring inbox list",
     ],
-    description:
-      "Conversations awaiting a response from you.",
+    description: "Conversations awaiting a response from you.",
   },
   {
-    path: "/units",
-    label: "Units",
-    icon: Network,
-    navSection: "primary",
-    orderHint: 20,
-    keywords: ["teams", "groups"],
-    description: "Composite agents, policies, and connector bindings.",
-  },
-  {
-    path: "/agents",
-    label: "Agents",
-    icon: Users,
-    navSection: "primary",
-    orderHint: 22,
-    keywords: [
-      "agent",
-      "roster",
-      "directory",
-      "spring agent list",
-    ],
-    description:
-      "Every agent across every unit, filter by status, unit, or expertise.",
-  },
-  {
-    path: "/activity",
-    label: "Activity",
-    icon: Activity,
-    navSection: "primary",
-    orderHint: 30,
-    keywords: ["events", "log", "stream", "audit"],
-    description: "Raw activity event stream with filters.",
-  },
-  {
-    path: "/conversations",
-    label: "Conversations",
-    icon: MessagesSquare,
-    navSection: "primary",
-    orderHint: 35,
-    keywords: ["chat", "thread", "message", "spring conversation list"],
-    description: "Message threads between humans, agents, and units.",
-  },
-  {
-    path: "/initiative",
-    label: "Initiative",
-    icon: Zap,
-    navSection: "primary",
-    orderHint: 40,
-    keywords: ["policy", "autonomy"],
-    description: "Per-agent initiative policy editor.",
-  },
-  {
-    path: "/budgets",
-    label: "Budgets",
-    icon: Wallet,
-    navSection: "primary",
-    orderHint: 50,
-    keywords: ["cost", "spend", "limits"],
-    description: "Tenant-wide and per-agent spend caps.",
-  },
-  {
-    path: "/connectors",
-    label: "Connectors",
-    icon: Plug,
-    navSection: "primary",
-    orderHint: 55,
-    keywords: ["integrations", "github", "webhook", "spring connector catalog"],
-    description: "Catalog of connector types and which units bind them.",
-  },
-  {
-    path: "/packages",
-    label: "Packages",
-    icon: Package,
-    navSection: "primary",
+    path: "/discovery",
+    label: "Discovery",
+    icon: Compass,
+    navSection: "orchestrate",
     orderHint: 60,
-    keywords: ["templates", "skills", "domain", "catalog"],
-    description: "Browse installed packages and their unit/agent templates.",
-  },
-  {
-    path: "/directory",
-    label: "Directory",
-    icon: GraduationCap,
-    navSection: "primary",
-    orderHint: 65,
     keywords: [
       "expertise",
       "domains",
       "search",
       "capabilities",
+      "directory",
       "spring agent expertise",
       "spring unit expertise",
     ],
     description:
       "Browse and search expertise declared by every agent and unit.",
   },
+
+  // ----- Control ----------------------------------------------------
   {
-    // #616 — startup configuration report. Surfaces the same cached
-    // ConfigurationReport the CLI's `spring system configuration` verb
-    // consumes. Anonymous read in the OSS build; the private cloud host
-    // can layer tenant-aware auth on top.
-    path: "/system/configuration",
-    label: "System configuration",
-    icon: ShieldCheck,
-    navSection: "primary",
-    orderHint: 70,
-    keywords: [
-      "config",
-      "startup",
-      "validation",
-      "health",
-      "spring system configuration",
-    ],
-    description:
-      "Tier-1 platform config (env vars, secrets) validated at startup — per-subsystem status + actionable suggestions.",
-  },
-  {
-    // #691 — read-only admin view for tenant-installed agent runtimes.
-    // The carve-out in AGENTS.md keeps install/configure CLI-only; this
-    // page exists so operators can see what is installed, which models
-    // are available, and the current credential-health status without
-    // leaving the portal.
-    path: "/admin/agent-runtimes",
-    label: "Agent runtimes",
-    icon: Cpu,
-    navSection: "settings",
-    orderHint: 210,
-    keywords: [
-      "admin",
-      "runtime",
-      "llm",
-      "provider",
-      "spring agent-runtime list",
-    ],
-    description:
-      "Read-only view of installed agent runtimes, their model lists, and credential health. Mutations ride the CLI.",
-  },
-  {
-    // #691 — read-only admin view for tenant-installed connectors.
-    // Parallel to `/admin/agent-runtimes`; catalog + binding views for
-    // end users already live at `/connectors`, this surface is the
-    // admin-facing credential-health view.
-    path: "/admin/connectors",
-    label: "Connector health",
+    path: "/connectors",
+    label: "Connectors",
     icon: Plug,
-    navSection: "settings",
-    orderHint: 220,
+    navSection: "control",
+    orderHint: 70,
+    keywords: ["integrations", "github", "webhook", "spring connector catalog"],
+    description:
+      "Connector catalog, bindings, and credential health.",
+  },
+  {
+    path: "/policies",
+    label: "Policies",
+    icon: ShieldCheck,
+    navSection: "control",
+    orderHint: 80,
+    keywords: ["rollup", "routing", "boundary", "rules"],
+    description: "Tenant-wide policy rollup across every unit.",
+  },
+  {
+    path: "/budgets",
+    label: "Budgets",
+    icon: Wallet,
+    navSection: "control",
+    orderHint: 90,
+    keywords: ["cost", "spend", "limits"],
+    description: "Tenant-wide and per-unit spend caps.",
+  },
+  {
+    path: "/settings",
+    label: "Settings",
+    icon: Settings,
+    navSection: "control",
+    orderHint: 100,
     keywords: [
-      "admin",
-      "connector",
-      "credential",
-      "health",
-      "spring connector list",
+      "tenant",
+      "defaults",
+      "account",
+      "about",
+      "packages",
+      "skills",
+      "agent-runtimes",
+      "system configuration",
     ],
     description:
-      "Read-only view of installed connectors and credential health. Mutations ride the CLI.",
+      "Tenant defaults, account, packages, skills, agent runtimes, and system configuration.",
   },
 ];
 
@@ -257,11 +223,19 @@ export const defaultActions: readonly PaletteAction[] = [
   },
   {
     id: "unit.list",
-    label: "List units",
+    label: "Open Explorer",
     icon: Network,
     section: "actions",
     orderHint: 20,
-    keywords: ["spring unit list"],
+    keywords: [
+      "spring unit list",
+      "units",
+      "agents",
+      "tree",
+      "explorer",
+    ],
+    description:
+      "Open the canonical `/units` Explorer — the single surface for units and agents.",
     href: "/units",
   },
   {
@@ -271,8 +245,9 @@ export const defaultActions: readonly PaletteAction[] = [
     section: "actions",
     orderHint: 22,
     keywords: ["spring agent list", "roster", "directory"],
-    description: "Browse every agent across every unit.",
-    href: "/agents",
+    description:
+      "Browse every agent across every unit (Explorer → Agents tab).",
+    href: "/units",
   },
   {
     id: "unit.start",
@@ -281,7 +256,7 @@ export const defaultActions: readonly PaletteAction[] = [
     section: "actions",
     orderHint: 30,
     keywords: ["spring unit start", "run"],
-    description: "Go to the units list to start a unit.",
+    description: "Go to the Explorer to start a unit.",
     href: "/units",
   },
   {
@@ -291,7 +266,7 @@ export const defaultActions: readonly PaletteAction[] = [
     section: "actions",
     orderHint: 40,
     keywords: ["spring unit stop", "halt"],
-    description: "Go to the units list to stop a unit.",
+    description: "Go to the Explorer to stop a unit.",
     href: "/units",
   },
   {
@@ -309,9 +284,10 @@ export const defaultActions: readonly PaletteAction[] = [
     icon: MessagesSquare,
     section: "actions",
     orderHint: 55,
-    keywords: ["spring conversation list", "threads", "chat"],
-    description: "Browse message threads between humans, agents, and units.",
-    href: "/conversations",
+    keywords: ["spring conversation list", "threads", "chat", "messages"],
+    description:
+      "Browse message threads (Explorer → Messages tab on any unit or agent).",
+    href: "/units",
   },
   {
     id: "inbox.list",
@@ -343,8 +319,10 @@ export const defaultActions: readonly PaletteAction[] = [
     icon: Zap,
     section: "actions",
     orderHint: 70,
-    keywords: ["autonomy", "policy"],
-    href: "/initiative",
+    keywords: ["autonomy", "policy", "initiative"],
+    description:
+      "Edit a unit's initiative policy (Explorer → Policies tab).",
+    href: "/units",
   },
   {
     id: "packages.browse",
@@ -353,8 +331,8 @@ export const defaultActions: readonly PaletteAction[] = [
     section: "actions",
     orderHint: 80,
     keywords: ["spring package list", "templates", "catalog"],
-    description: "List installed packages and their templates.",
-    href: "/packages",
+    description: "List installed packages in Settings.",
+    href: "/settings",
   },
   {
     id: "connectors.catalog",
@@ -367,7 +345,7 @@ export const defaultActions: readonly PaletteAction[] = [
     href: "/connectors",
   },
   {
-    id: "directory.expertise",
+    id: "discovery.expertise",
     label: "Browse expertise",
     icon: GraduationCap,
     section: "actions",
@@ -378,27 +356,31 @@ export const defaultActions: readonly PaletteAction[] = [
       "domains",
       "capabilities",
       "search",
+      "directory",
     ],
     description:
       "Search the tenant's expertise directory across every agent and unit.",
-    href: "/directory",
+    href: "/discovery",
   },
   {
-    id: "system.configuration",
-    label: "View system configuration",
-    icon: ShieldCheck,
+    id: "settings.open",
+    label: "Open Settings",
+    icon: Settings,
     section: "actions",
     orderHint: 110,
     keywords: [
-      "spring system configuration",
-      "config",
-      "startup",
-      "validation",
-      "health",
+      "tenant",
+      "defaults",
+      "account",
+      "about",
+      "system configuration",
+      "packages",
+      "skills",
+      "agent runtimes",
     ],
     description:
-      "Inspect the cached startup configuration report — which tier-1 settings are met, degraded, or invalid.",
-    href: "/system/configuration",
+      "Tenant defaults, account, packages, skills, agent runtimes, and system configuration.",
+    href: "/settings",
   },
 ];
 

@@ -8,21 +8,43 @@
 import type { ComponentType, ReactNode } from "react";
 
 /**
- * Logical sidebar section that a route belongs to. Keeps the sidebar
- * free of hard-coded groupings — hosted-only entries (e.g. "Tenant",
- * "Billing") can pick the "settings" section without patching OSS.
+ * Logical sidebar section that a route belongs to. The v2 IA (plan §2
+ * of umbrella issue #815) groups the 10-item sidebar into three visible
+ * clusters — Overview, Orchestrate, Control — plus an optional
+ * hosted-only <c>settings</c> cluster that tenant extensions can
+ * populate without patching OSS.
  *
  * New sections are added by appending to this union. The sidebar
- * renders sections in the order declared by `NAV_SECTION_ORDER` below.
- */
-export type NavSection = "primary" | "settings";
-
-/**
- * Declared order in which nav sections render. Append new entries at
- * the end — renaming or reordering existing ones is a breaking change
+ * renders sections in the order declared by <c>NAV_SECTION_ORDER</c>
+ * below; renaming or reordering existing entries is a breaking change
  * for hosted consumers.
  */
-export const NAV_SECTION_ORDER: readonly NavSection[] = ["primary", "settings"];
+export type NavSection = "overview" | "orchestrate" | "control" | "settings";
+
+/**
+ * Declared order in which nav sections render. The three OSS clusters
+ * (<c>overview</c> → <c>orchestrate</c> → <c>control</c>) match the
+ * top-to-bottom reading order of plan §2's IA diagram. The trailing
+ * <c>settings</c> cluster is empty in the OSS build; hosted extensions
+ * populate it with tenant-management surfaces.
+ */
+export const NAV_SECTION_ORDER: readonly NavSection[] = [
+  "overview",
+  "orchestrate",
+  "control",
+  "settings",
+];
+
+/**
+ * Human-readable label for each nav section. Sidebar headers read from
+ * this map so the layout stays in lockstep with the type.
+ */
+export const NAV_SECTION_LABEL: Record<NavSection, string> = {
+  overview: "Overview",
+  orchestrate: "Orchestrate",
+  control: "Control",
+  settings: "Settings",
+};
 
 /**
  * A single navigable route exposed by the portal. Both the sidebar
