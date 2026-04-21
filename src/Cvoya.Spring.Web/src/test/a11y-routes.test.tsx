@@ -425,12 +425,12 @@ describe("portal a11y smoke tests", () => {
     await expectNoAxeViolations(container);
   });
 
-  it("/directory", async () => {
-    const { default: DirectoryPage } = await import("@/app/directory/page");
-    const { container } = render(<DirectoryPage />, {
+  it("/discovery", async () => {
+    const { default: DiscoveryPage } = await import("@/app/discovery/page");
+    const { container } = render(<DiscoveryPage />, {
       wrapper: createWrapper(),
     });
-    await screen.findByRole("heading", { name: /directory/i });
+    await screen.findByRole("heading", { name: /discovery/i });
     await expectNoAxeViolations(container);
   });
 

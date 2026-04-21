@@ -1,8 +1,9 @@
 /**
- * Unit tests for the `/directory` tenant-wide expertise surface
- * (#486 / #542). The page now rides the backend search endpoint, so
- * these tests mock `api.searchDirectory` to exercise the rendering,
- * typed-only filter, and empty state.
+ * Unit tests for the `/discovery` tenant-wide expertise surface
+ * (#486 / #542, renamed from `/directory` by #869). The page rides
+ * the backend search endpoint, so these tests mock
+ * `api.searchDirectory` to exercise the rendering, typed-only filter,
+ * and empty state.
  */
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -64,7 +65,7 @@ function renderPage() {
   );
 }
 
-describe("/directory", () => {
+describe("/discovery", () => {
   beforeEach(() => {
     searchDirectory.mockReset();
   });

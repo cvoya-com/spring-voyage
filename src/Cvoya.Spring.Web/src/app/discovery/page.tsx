@@ -1,7 +1,8 @@
 "use client";
 
 /**
- * /directory — Tenant-wide expertise directory (#486 / #542).
+ * /discovery — Tenant-wide expertise discovery (#486 / #542, renamed
+ * from `/directory` by #869 per the v2 IA rework in umbrella #815).
  *
  * Calls the POST /api/v1/directory/search endpoint with the user's
  * free-text query + filters so ranking (exact slug > tag/domain > text
@@ -10,7 +11,9 @@
  * operators can jump straight to the per-entity editor.
  *
  * The CLI counterpart is `spring directory search` — both surfaces ride
- * the same endpoint per CONVENTIONS.md § ui-cli-parity.
+ * the same endpoint per CONVENTIONS.md § ui-cli-parity. The backend
+ * search endpoint keeps its `/api/v1/directory/search` path; only the
+ * portal route renames.
  */
 
 import Link from "next/link";
@@ -96,7 +99,7 @@ export default function DirectoryPage() {
     <div className="space-y-6">
       <div>
         <h1 className="flex items-center gap-2 text-2xl font-bold">
-          <GraduationCap className="h-5 w-5" /> Directory
+          <GraduationCap className="h-5 w-5" /> Discovery
         </h1>
         <p className="text-sm text-muted-foreground">
           Expertise domains declared by every agent and unit in the tenant.

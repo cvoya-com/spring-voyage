@@ -494,8 +494,8 @@ function EmptyState({ hasAnyAgents }: { hasAnyAgents: boolean }) {
         <p>No agents match these filters.</p>
         <p className="mt-2">
           Widen the filters above, or browse the{" "}
-          <Link href="/directory" className="text-primary hover:underline">
-            expertise directory
+          <Link href="/discovery" className="text-primary hover:underline">
+            expertise discovery
           </Link>{" "}
           for capabilities.
         </p>
@@ -522,11 +522,11 @@ function EmptyState({ hasAnyAgents }: { hasAnyAgents: boolean }) {
           Browse units
         </Link>
         <Link
-          href="/directory"
+          href="/discovery"
           className="inline-flex h-8 items-center rounded-md border border-input bg-background px-3 text-xs font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
         >
           <GraduationCap className="mr-1 h-4 w-4" />
-          Expertise directory
+          Expertise discovery
         </Link>
         <Link
           href="/packages"
