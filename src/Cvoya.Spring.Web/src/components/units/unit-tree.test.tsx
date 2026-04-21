@@ -180,6 +180,179 @@ describe("UnitTree", () => {
     expect(dot).toHaveAttribute("data-status", "running");
   });
 
+  describe("keyboard navigation (V21-tree-keyboard)", () => {
+    // Local fixture so keyboard-test mutation of expansion state can't
+    // leak into the colocated ARIA tests above.
+    const kbTree: TreeNode = {
+      id: "tenant-root",
+      name: "Tenant",
+      kind: "Tenant",
+      status: "running",
+      children: [
+        {
+          id: "unit-alpha",
+          name: "Alpha",
+          kind: "Unit",
+          status: "running",
+          children: [
+            { id: "agent-anna", name: "Anna", kind: "Agent", status: "running" },
+            { id: "agent-arno", name: "Arno", kind: "Agent", status: "running" },
+          ],
+        },
+        {
+          id: "unit-beta",
+          name: "Beta",
+          kind: "Unit",
+          status: "running",
+        },
+      ],
+    };
+
+    function renderKb(selectedId = "tenant-root") {
+      return render(
+        <UnitTree
+          tree={kbTree}
+          selectedId={selectedId}
+          onSelect={vi.fn()}
+          defaultExpanded={{ "tenant-root": true, "unit-alpha": true }}
+        />,
+      );
+    }
+
+    it("ArrowDown moves focus to the next visible row", () => {
+      renderKb();
+      const start = screen.getByTestId("tree-row-tenant-root");
+      start.focus();
+      fireEvent.keyDown(start, { key: "ArrowDown" });
+      expect(document.activeElement).toBe(
+        screen.getByTestId("tree-row-unit-alpha"),
+      );
+    });
+
+    it("ArrowUp moves focus to the previous visible row", () => {
+      renderKb();
+      const from = screen.getByTestId("tree-row-unit-alpha");
+      from.focus();
+      fireEvent.keyDown(from, { key: "ArrowUp" });
+      expect(document.activeElement).toBe(
+        screen.getByTestId("tree-row-tenant-root"),
+      );
+    });
+
+    it("ArrowRight on a closed branch expands it (focus stays)", () => {
+      render(
+        <UnitTree
+          tree={kbTree}
+          selectedId="unit-alpha"
+          onSelect={vi.fn()}
+          defaultExpanded={{ "tenant-root": true, "unit-alpha": false }}
+        />,
+      );
+      const row = screen.getByTestId("tree-row-unit-alpha");
+      row.focus();
+      // Children hidden initially.
+      expect(screen.queryByTestId("tree-row-agent-anna")).toBeNull();
+      fireEvent.keyDown(row, { key: "ArrowRight" });
+      expect(
+        screen.getByTestId("tree-row-unit-alpha"),
+      ).toHaveAttribute("aria-expanded", "true");
+      expect(screen.getByTestId("tree-row-agent-anna")).toBeInTheDocument();
+    });
+
+    it("ArrowRight on an open branch moves to the first child", () => {
+      renderKb();
+      const row = screen.getByTestId("tree-row-unit-alpha");
+      row.focus();
+      fireEvent.keyDown(row, { key: "ArrowRight" });
+      expect(document.activeElement).toBe(
+        screen.getByTestId("tree-row-agent-anna"),
+      );
+    });
+
+    it("ArrowLeft on an open branch collapses it (focus stays)", () => {
+      renderKb();
+      const row = screen.getByTestId("tree-row-unit-alpha");
+      row.focus();
+      fireEvent.keyDown(row, { key: "ArrowLeft" });
+      expect(
+        screen.getByTestId("tree-row-unit-alpha"),
+      ).toHaveAttribute("aria-expanded", "false");
+    });
+
+    it("ArrowLeft on a leaf moves focus to the parent", () => {
+      renderKb();
+      const row = screen.getByTestId("tree-row-agent-anna");
+      row.focus();
+      fireEvent.keyDown(row, { key: "ArrowLeft" });
+      expect(document.activeElement).toBe(
+        screen.getByTestId("tree-row-unit-alpha"),
+      );
+    });
+
+    it("Home focuses the first visible row", () => {
+      renderKb();
+      const row = screen.getByTestId("tree-row-agent-arno");
+      row.focus();
+      fireEvent.keyDown(row, { key: "Home" });
+      expect(document.activeElement).toBe(
+        screen.getByTestId("tree-row-tenant-root"),
+      );
+    });
+
+    it("End focuses the last visible row", () => {
+      renderKb();
+      const row = screen.getByTestId("tree-row-tenant-root");
+      row.focus();
+      fireEvent.keyDown(row, { key: "End" });
+      expect(document.activeElement).toBe(
+        screen.getByTestId("tree-row-unit-beta"),
+      );
+    });
+
+    it("Enter dispatches onSelect for the focused row", () => {
+      const onSelect = vi.fn();
+      render(
+        <UnitTree
+          tree={kbTree}
+          selectedId="tenant-root"
+          onSelect={onSelect}
+          defaultExpanded={{ "tenant-root": true, "unit-alpha": true }}
+        />,
+      );
+      const row = screen.getByTestId("tree-row-unit-beta");
+      row.focus();
+      fireEvent.keyDown(row, { key: "Enter" });
+      expect(onSelect).toHaveBeenCalledWith("unit-beta");
+    });
+
+    it("Space dispatches onSelect for the focused row", () => {
+      const onSelect = vi.fn();
+      render(
+        <UnitTree
+          tree={kbTree}
+          selectedId="tenant-root"
+          onSelect={onSelect}
+          defaultExpanded={{ "tenant-root": true, "unit-alpha": true }}
+        />,
+      );
+      const row = screen.getByTestId("tree-row-agent-anna");
+      row.focus();
+      fireEvent.keyDown(row, { key: " " });
+      expect(onSelect).toHaveBeenCalledWith("agent-anna");
+    });
+
+    it("type-ahead moves focus to the next row whose label starts with the typed prefix", () => {
+      renderKb();
+      const row = screen.getByTestId("tree-row-tenant-root");
+      row.focus();
+      // "b" should jump to Beta (the only visible row starting with 'b').
+      fireEvent.keyDown(row, { key: "b" });
+      expect(document.activeElement).toBe(
+        screen.getByTestId("tree-row-unit-beta"),
+      );
+    });
+  });
+
   it("surfaces a worst-status buried four levels deep on the collapsed top-level row", () => {
     // Fixture independent of the file-scoped `tree` above: a
     // Tenant → Unit → Unit → Unit → Agent(error) chain where only the leaf

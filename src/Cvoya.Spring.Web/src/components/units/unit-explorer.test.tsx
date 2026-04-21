@@ -185,4 +185,66 @@ describe("UnitExplorer (foundation scaffold)", () => {
     fireEvent.click(screen.getByTestId("detail-tab-activity"));
     expect(onTabChange).toHaveBeenCalledWith("tenant-acme", "Activity");
   });
+
+  describe("tabstrip keyboard navigation (V21-explorer-tabstrip-keyboard)", () => {
+    // Tenant tab order (per aggregate.ts TENANT_TABS.visible):
+    //   Overview, Activity, Policies, Budgets, Memory
+
+    it("ArrowRight activates the next tab", () => {
+      const onTabChange = vi.fn();
+      render(<UnitExplorer tree={tree} onTabChange={onTabChange} />);
+      fireEvent.keyDown(screen.getByTestId("detail-tabstrip"), {
+        key: "ArrowRight",
+      });
+      expect(onTabChange).toHaveBeenCalledWith("tenant-acme", "Activity");
+    });
+
+    it("ArrowLeft wraps from the first tab to the last", () => {
+      const onTabChange = vi.fn();
+      render(<UnitExplorer tree={tree} onTabChange={onTabChange} />);
+      fireEvent.keyDown(screen.getByTestId("detail-tabstrip"), {
+        key: "ArrowLeft",
+      });
+      expect(onTabChange).toHaveBeenCalledWith("tenant-acme", "Memory");
+    });
+
+    it("ArrowRight wraps from the last tab back to the first", () => {
+      const onTabChange = vi.fn();
+      render(
+        <UnitExplorer
+          tree={tree}
+          tab="Memory"
+          onTabChange={onTabChange}
+        />,
+      );
+      fireEvent.keyDown(screen.getByTestId("detail-tabstrip"), {
+        key: "ArrowRight",
+      });
+      expect(onTabChange).toHaveBeenCalledWith("tenant-acme", "Overview");
+    });
+
+    it("Home activates the first tab", () => {
+      const onTabChange = vi.fn();
+      render(
+        <UnitExplorer
+          tree={tree}
+          tab="Budgets"
+          onTabChange={onTabChange}
+        />,
+      );
+      fireEvent.keyDown(screen.getByTestId("detail-tabstrip"), {
+        key: "Home",
+      });
+      expect(onTabChange).toHaveBeenCalledWith("tenant-acme", "Overview");
+    });
+
+    it("End activates the last tab", () => {
+      const onTabChange = vi.fn();
+      render(<UnitExplorer tree={tree} onTabChange={onTabChange} />);
+      fireEvent.keyDown(screen.getByTestId("detail-tabstrip"), {
+        key: "End",
+      });
+      expect(onTabChange).toHaveBeenCalledWith("tenant-acme", "Memory");
+    });
+  });
 });
