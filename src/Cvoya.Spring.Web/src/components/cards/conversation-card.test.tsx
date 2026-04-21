@@ -104,4 +104,44 @@ describe("ConversationCard", () => {
       "+2 more",
     );
   });
+
+  // v2 design-system reskin (CARD-conversation-refresh, #851): the
+  // participant list is mono-typed, the status pill uses the status
+  // badge variant, and the last-activity timestamp is a pill.
+  it("renders participants as a mono-font address list", () => {
+    render(
+      <ConversationCard
+        conversation={{
+          id: "conv-1",
+          participants: ["agent://ada"],
+        }}
+      />,
+    );
+    const list = screen.getByTestId("conversation-participants");
+    expect(list.className).toMatch(/font-mono/);
+  });
+
+  it("renders the last-activity timestamp as a pill badge", () => {
+    render(
+      <ConversationCard
+        conversation={{
+          id: "conv-1",
+          lastActivityAt: "2026-04-01T00:00:00Z",
+        }}
+      />,
+    );
+    const pill = screen.getByTestId("conversation-last-activity");
+    expect(pill.tagName).toBe("SPAN");
+    expect(pill.className).toMatch(/rounded-full/);
+  });
+
+  it("renders the conversation id under the title in mono font", () => {
+    render(
+      <ConversationCard
+        conversation={{ id: "conv-1", title: "PR review thread" }}
+      />,
+    );
+    const idLine = screen.getByText("conv-1");
+    expect(idLine.className).toMatch(/font-mono/);
+  });
 });
