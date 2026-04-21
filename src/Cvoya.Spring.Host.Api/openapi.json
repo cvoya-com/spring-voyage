@@ -11383,7 +11383,8 @@
           "Starting",
           "Running",
           "Stopping",
-          "Error"
+          "Error",
+          "Validating"
         ]
       },
       "UnitTemplateDetail": {

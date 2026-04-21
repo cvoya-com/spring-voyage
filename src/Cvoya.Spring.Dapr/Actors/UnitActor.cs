@@ -705,6 +705,19 @@ public class UnitActor : Actor, IUnitActor
             (UnitStatus.Stopping, UnitStatus.Stopped) => true,
             (UnitStatus.Stopping, UnitStatus.Error) => true,
             (UnitStatus.Error, UnitStatus.Stopped) => true,
+
+            // Backend-validation edges (#944, T-02). The orchestrator that drives
+            // these transitions — the Dapr workflow that runs the in-container
+            // probes and calls back into UnitActor — lands in T-05; this PR wires
+            // the state-machine edges only. The existing compound Draft -> Starting
+            // path in TransitionAsync still bypasses IsTransitionAllowed and will
+            // need to be re-routed through Validating when orchestration lands.
+            (UnitStatus.Draft, UnitStatus.Validating) => true,
+            (UnitStatus.Validating, UnitStatus.Stopped) => true,
+            (UnitStatus.Validating, UnitStatus.Error) => true,
+            (UnitStatus.Error, UnitStatus.Validating) => true,
+            (UnitStatus.Stopped, UnitStatus.Validating) => true,
+
             _ => false,
         };
 

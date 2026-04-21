@@ -37,6 +37,8 @@ internal class UnitDefinitionEntityConfiguration : IEntityTypeConfiguration<Unit
             .HasColumnName("is_top_level")
             .IsRequired()
             .HasDefaultValue(false);
+        builder.Property(e => e.LastValidationErrorJson).HasColumnName("last_validation_error_json");
+        builder.Property(e => e.LastValidationRunId).HasColumnName("last_validation_run_id");
 
         builder.HasIndex(e => new { e.TenantId, e.UnitId }).IsUnique().HasFilter("deleted_at IS NULL");
         builder.HasIndex(e => e.TenantId);

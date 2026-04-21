@@ -56,4 +56,17 @@ public class UnitDefinitionEntity : ITenantScopedEntity
     /// </summary>
     public bool IsTopLevel { get; set; }
 
+    /// <summary>
+    /// Structured validation error from the last Validating → Error transition,
+    /// as JSON-serialized <see cref="Cvoya.Spring.Core.Units.UnitValidationError"/>.
+    /// Null if the most recent probe succeeded or the unit has never been validated.
+    /// </summary>
+    public string? LastValidationErrorJson { get; set; }
+
+    /// <summary>
+    /// Instance id of the Dapr workflow run that last validated this unit, for
+    /// debugging and log correlation.
+    /// </summary>
+    public string? LastValidationRunId { get; set; }
+
 }
