@@ -9,6 +9,23 @@ namespace Cvoya.Spring.Core.Execution;
 public interface IContainerRuntime
 {
     /// <summary>
+    /// Pulls a container image from its registry so a subsequent
+    /// <see cref="RunAsync(ContainerConfig, CancellationToken)"/> call can
+    /// start it without an implicit pull. Separate from
+    /// <see cref="RunAsync(ContainerConfig, CancellationToken)"/> because image
+    /// pulls have distinct timeout and failure semantics (slow registry,
+    /// auth failure, tag-not-found) that the <c>UnitValidationWorkflow</c>
+    /// surfaces as <see cref="Units.UnitValidationCodes.ImagePullFailed"/>
+    /// rather than a run-time failure.
+    /// </summary>
+    /// <param name="image">The fully-qualified container image reference (e.g. <c>ghcr.io/cvoya/claude:1.2.3</c>).</param>
+    /// <param name="timeout">Maximum wall-clock time the runtime will allow the pull to run before aborting.</param>
+    /// <param name="ct">A token to cancel the operation.</param>
+    /// <exception cref="TimeoutException">Thrown when the pull does not complete within <paramref name="timeout"/>.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when the underlying CLI / dispatcher reports a non-zero exit.</exception>
+    Task PullImageAsync(string image, TimeSpan timeout, CancellationToken ct = default);
+
+    /// <summary>
     /// Launches a container with the given configuration and waits for it to complete.
     /// </summary>
     /// <param name="config">The container configuration.</param>

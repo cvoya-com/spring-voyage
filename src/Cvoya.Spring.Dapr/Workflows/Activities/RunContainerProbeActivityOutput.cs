@@ -3,36 +3,40 @@
 
 namespace Cvoya.Spring.Dapr.Workflows.Activities;
 
+using Cvoya.Spring.Core.Units;
+
 /// <summary>
-/// Output of the <c>RunContainerProbeActivity</c> — the raw in-container
-/// exec triple with stdout / stderr already redacted.
+/// Structured outcome returned by <c>RunContainerProbeActivity</c>: either a
+/// success verdict (optionally with <see cref="Extras"/> forwarded from the
+/// runtime's interpreter) OR a failure with a stable code from
+/// <see cref="UnitValidationCodes"/>. Every string field MUST have been
+/// passed through <see cref="Cvoya.Spring.Core.Security.CredentialRedactor"/>
+/// before this record leaves the activity process.
 /// </summary>
 /// <remarks>
 /// <para>
-/// The workflow feeds this triple into the originating
-/// <see cref="Cvoya.Spring.Core.AgentRuntimes.ProbeStep.InterpretOutput"/>
-/// delegate to derive a
-/// <see cref="Cvoya.Spring.Core.AgentRuntimes.StepResult"/>, then maps any
-/// failure onto <see cref="Cvoya.Spring.Core.Units.UnitValidationError"/>
-/// with the originating step's
-/// <see cref="Cvoya.Spring.Core.Units.UnitValidationStep"/>. This split —
-/// value-only activity output + in-process interpreter — is the T-03
-/// serialization contract: activity records carry no delegates, so they
-/// round-trip through the Dapr Workflow JSON serializer without
-/// special-casing.
+/// T-04 refined the T-03 shape from the raw <c>(exitCode, stdout, stderr)</c>
+/// triple to this pre-interpreted payload. The reason: the workflow body
+/// must be deterministic + delegate-free, so interpretation happens in the
+/// activity (where DI + runtime registry live) rather than in the workflow.
+/// See <see cref="RunContainerProbeActivityInput"/> for the rationale in
+/// full.
 /// </para>
 /// <para>
-/// Both <see cref="StdOut"/> and <see cref="StdErr"/> MUST have been passed
-/// through <see cref="Cvoya.Spring.Core.Security.CredentialRedactor"/>
-/// inside the activity BEFORE this record is returned. The interpreter
-/// delegate and every downstream consumer can treat the strings as
-/// already-redacted.
+/// <see cref="RedactedStdOut"/> and <see cref="RedactedStdErr"/> are always
+/// populated so the workflow (and any diagnostic hook) can log or persist
+/// them without risk of leaking the credential. Logs should never need to
+/// re-run the redactor.
 /// </para>
 /// </remarks>
-/// <param name="ExitCode">The container process' exit code. <c>0</c> conventionally means success; interpreters MUST still inspect <see cref="StdOut"/> for provider-level errors (HTTP 401 bodies, error envelopes, etc.).</param>
-/// <param name="StdOut">Redacted standard output captured from the container process.</param>
-/// <param name="StdErr">Redacted standard error captured from the container process.</param>
+/// <param name="Success"><c>true</c> when the step's <see cref="Cvoya.Spring.Core.AgentRuntimes.ProbeStep.InterpretOutput"/> returned <see cref="Cvoya.Spring.Core.AgentRuntimes.StepOutcome.Succeeded"/>; <c>false</c> on any failure path (container run failure, timeout, interpreter failure, or internal error).</param>
+/// <param name="Failure">Structured failure payload — <c>null</c> when <see cref="Success"/> is <c>true</c>; otherwise carries the originating <see cref="UnitValidationStep"/>, a stable <see cref="UnitValidationCodes"/> code, a redacted operator message, and optional structured details.</param>
+/// <param name="Extras">Optional success-path payload from <see cref="Cvoya.Spring.Core.AgentRuntimes.StepResult.Extras"/>. For <see cref="UnitValidationStep.ResolvingModel"/> this carries the comma-separated <c>"models"</c> catalog under the <c>models</c> key; <c>null</c> when the interpreter emits nothing.</param>
+/// <param name="RedactedStdOut">The container process' stdout with the credential replaced by <c>***</c>. Always populated.</param>
+/// <param name="RedactedStdErr">The container process' stderr with the credential replaced by <c>***</c>. Always populated.</param>
 public record RunContainerProbeActivityOutput(
-    int ExitCode,
-    string StdOut,
-    string StdErr);
+    bool Success,
+    UnitValidationError? Failure,
+    IReadOnlyDictionary<string, string>? Extras,
+    string RedactedStdOut,
+    string RedactedStdErr);

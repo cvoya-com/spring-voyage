@@ -122,6 +122,7 @@ public static class WorkerComposition
         {
             options.RegisterWorkflow<AgentLifecycleWorkflow>();
             options.RegisterWorkflow<CloningLifecycleWorkflow>();
+            options.RegisterWorkflow<UnitValidationWorkflow>();
             options.RegisterActivity<ValidateAgentDefinitionActivity>();
             options.RegisterActivity<RegisterAgentActivity>();
             options.RegisterActivity<UnregisterAgentActivity>();
@@ -129,6 +130,9 @@ public static class WorkerComposition
             options.RegisterActivity<CreateCloneActorActivity>();
             options.RegisterActivity<RegisterCloneActivity>();
             options.RegisterActivity<DestroyCloneActivity>();
+            options.RegisterActivity<PullImageActivity>();
+            options.RegisterActivity<RunContainerProbeActivity>();
+            options.RegisterActivity<EmitValidationProgressActivity>();
         });
 
         // Register Dapr actors

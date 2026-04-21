@@ -23,6 +23,42 @@ public class ProcessContainerRuntime(
     private readonly ContainerRuntimeOptions _options = options.Value;
 
     /// <summary>
+    /// Pulls a container image by shelling out to <c>&lt;binary&gt; pull &lt;image&gt;</c>.
+    /// </summary>
+    /// <param name="image">The fully-qualified container image reference.</param>
+    /// <param name="timeout">Maximum wall-clock time the pull is allowed to run.</param>
+    /// <param name="ct">A token to cancel the operation.</param>
+    public async Task PullImageAsync(string image, TimeSpan timeout, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(image);
+
+        _logger.LogInformation(
+            "Pulling image {Image} using {Binary}", image, binaryName);
+
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeoutCts.CancelAfter(timeout);
+
+        try
+        {
+            var (exitCode, _, stderr) = await RunProcessAsync(
+                binaryName, $"pull {image}", timeoutCts.Token);
+
+            if (exitCode != 0)
+            {
+                throw new InvalidOperationException(
+                    $"Failed to pull image {image}. Exit code: {exitCode}. Stderr: {stderr}");
+            }
+
+            _logger.LogInformation("Pulled image {Image}", image);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            _logger.LogWarning("Pull of image {Image} timed out after {Timeout}", image, timeout);
+            throw new TimeoutException($"Pull of image {image} exceeded timeout of {timeout}.");
+        }
+    }
+
+    /// <summary>
     /// Launches a container using the configured CLI binary and waits for it to complete.
     /// </summary>
     /// <param name="config">The container configuration.</param>

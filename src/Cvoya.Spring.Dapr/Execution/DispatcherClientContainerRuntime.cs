@@ -49,6 +49,42 @@ public class DispatcherClientContainerRuntime(
     };
 
     /// <inheritdoc />
+    public async Task PullImageAsync(string image, TimeSpan timeout, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(image);
+
+        var httpClient = CreateClient();
+        var request = new DispatcherPullRequest
+        {
+            Image = image,
+            TimeoutSeconds = (int)timeout.TotalSeconds,
+        };
+
+        _logger.LogInformation(
+            "Requesting dispatcher pull for image {Image}", image);
+
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeoutCts.CancelAfter(timeout);
+
+        try
+        {
+            using var response = await httpClient.PostAsJsonAsync(
+                "v1/images/pull", request, JsonOptions, timeoutCts.Token);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await SafeReadBodyAsync(response, timeoutCts.Token);
+                throw new InvalidOperationException(
+                    $"Dispatcher returned {(int)response.StatusCode} pulling image {image}: {body}");
+            }
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            throw new TimeoutException($"Pull of image {image} exceeded timeout of {timeout}.");
+        }
+    }
+
+    /// <inheritdoc />
     public async Task<ContainerResult> RunAsync(ContainerConfig config, CancellationToken ct = default)
     {
         var request = BuildRunRequest(config, detached: false);
@@ -221,6 +257,16 @@ public class DispatcherClientContainerRuntime(
         public IDictionary<string, string>? Labels { get; init; }
         public IReadOnlyList<string>? ExtraHosts { get; init; }
         public bool Detached { get; init; }
+    }
+
+    /// <summary>
+    /// Wire shape sent to <c>POST /v1/images/pull</c>. Kept private to this
+    /// client — the dispatcher side owns the server definition.
+    /// </summary>
+    internal record DispatcherPullRequest
+    {
+        public required string Image { get; init; }
+        public int? TimeoutSeconds { get; init; }
     }
 
     /// <summary>

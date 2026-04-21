@@ -75,4 +75,18 @@ public enum ActivityEventType
     /// "a gate could not be evaluated." See #552.
     /// </summary>
     ReflectionActionProposed,
+
+    /// <summary>
+    /// Emitted by the <c>UnitValidationWorkflow</c> (T-04) as each probe step
+    /// transitions through <c>Running</c> / <c>Succeeded</c> / <c>Failed</c>,
+    /// with the unit address as <see cref="ActivityEvent.Source"/>. Payload
+    /// carries at minimum <c>{step, status}</c> and, on failure,
+    /// <c>{code}</c> from <see cref="Units.UnitValidationCodes"/>. The T-06
+    /// web detail page and the T-07 validation panel subscribe to this type
+    /// to render live progress without polling. APPENDED to the end of the
+    /// enum per #956: the actor-remoting wire format serialises this enum
+    /// by ordinal, so any mid-insert would silently renumber existing
+    /// events — append is the safe operation.
+    /// </summary>
+    ValidationProgress,
 }
