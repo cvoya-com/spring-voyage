@@ -154,6 +154,35 @@ public class StreamingTests
     }
 
     [Fact]
+    public async Task StreamCompleteAsync_OAuthToken_ThrowsCredentialFormatRejectedWithoutCallingRest()
+    {
+        var options = Options.Create(new AiProviderOptions
+        {
+            ApiKey = "sk-ant-oat01-example",
+            Model = "claude-sonnet-4-6",
+            MaxTokens = 1024,
+            BaseUrl = "https://api.anthropic.com"
+        });
+        var handler = new CountingSseHttpMessageHandler(
+            BuildSseResponse("""{"type":"message_start","message":{"usage":{"input_tokens":1}}}"""),
+            HttpStatusCode.OK);
+        var provider = new AnthropicProvider(new HttpClient(handler), options, _loggerFactory);
+
+        var act = async () =>
+        {
+            await foreach (var _ in provider.StreamCompleteAsync("test prompt", TestContext.Current.CancellationToken))
+            {
+                // consume
+            }
+        };
+
+        var ex = await Should.ThrowAsync<Core.SpringException>(act);
+        ex.Message.ShouldContain("CredentialFormatRejected");
+        ex.Message.ShouldContain("sk-ant-oat");
+        handler.CallCount.ShouldBe(0);
+    }
+
+    [Fact]
     public async Task StreamCompleteAsync_DoneSignal_StopsStreaming()
     {
         var sseContent = BuildSseResponse(
@@ -185,6 +214,31 @@ public class StreamingTests
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
+
+            var response = new HttpResponseMessage(statusCode)
+            {
+                Content = new StringContent(responseContent, Encoding.UTF8, "text/event-stream")
+            };
+
+            return Task.FromResult(response);
+        }
+    }
+
+    /// <summary>
+    /// Variant of <see cref="SseHttpMessageHandler"/> that records how many
+    /// times <c>SendAsync</c> was invoked. Used by the OAuth-token guard test
+    /// to assert the REST endpoint was never contacted.
+    /// </summary>
+    private sealed class CountingSseHttpMessageHandler(string responseContent, HttpStatusCode statusCode) : HttpMessageHandler
+    {
+        public int CallCount { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            CallCount++;
 
             var response = new HttpResponseMessage(statusCode)
             {

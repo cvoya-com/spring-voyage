@@ -31,9 +31,22 @@ public class AnthropicProvider(
     private const string AnthropicVersion = "2023-06-01";
     private const int MaxRetries = 3;
 
+    /// <summary>
+    /// Credential prefix identifying a Claude.ai OAuth token produced by
+    /// <c>claude setup-token</c>. The Anthropic Platform REST endpoint
+    /// rejects this format — OAuth tokens are only usable through the
+    /// <c>claude</c> CLI running inside a unit container via the
+    /// <see cref="Cvoya.Spring.Core.AgentRuntimes.IAgentRuntime"/> dispatch
+    /// path. Detected here so we fail fast with an operator-actionable
+    /// message instead of surfacing a silent upstream 401 as a 502.
+    /// </summary>
+    private const string OAuthTokenPrefix = "sk-ant-oat";
+
     /// <inheritdoc />
     public async Task<string> CompleteAsync(string prompt, CancellationToken cancellationToken = default)
     {
+        RejectOAuthToken(_options.ApiKey);
+
         var requestBody = new
         {
             model = _options.Model,
@@ -129,6 +142,8 @@ public class AnthropicProvider(
         string prompt,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
+        RejectOAuthToken(_options.ApiKey);
+
         var requestBody = new
         {
             model = _options.Model,
@@ -294,5 +309,29 @@ public class AnthropicProvider(
     {
         var delay = TimeSpan.FromMilliseconds(500 * Math.Pow(2, attempt - 1));
         await Task.Delay(delay, cancellationToken);
+    }
+
+    /// <summary>
+    /// Guards the REST call against Claude.ai OAuth tokens. The Anthropic
+    /// Platform endpoint rejects OAuth tokens with a 401 that the generic
+    /// error path would surface as a silent 502 on the first user message
+    /// (see #981). OAuth tokens are usable only through the <c>claude</c>
+    /// CLI running inside a unit container via the
+    /// <see cref="Cvoya.Spring.Core.AgentRuntimes.IAgentRuntime"/> dispatch
+    /// path — this <see cref="IAiProvider"/> implementation is host-side
+    /// REST only (ADR 0021) and so cannot serve them.
+    /// </summary>
+    private static void RejectOAuthToken(string? credential)
+    {
+        if (credential is not null
+            && credential.StartsWith(OAuthTokenPrefix, StringComparison.Ordinal))
+        {
+            throw new SpringException(
+                "CredentialFormatRejected: the AiProvider credential is a Claude.ai OAuth token (sk-ant-oat…), " +
+                "which the Anthropic Platform REST endpoint rejects. " +
+                "OAuth tokens are only usable through the `claude` CLI running inside a unit container — " +
+                "supply an Anthropic Platform API key (sk-ant-api…) for `AiProvider:ApiKey`, " +
+                "or keep the OAuth token as a unit/tenant secret (anthropic-api-key) used by the Claude agent runtime.");
+        }
     }
 }
