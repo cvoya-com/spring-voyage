@@ -12,8 +12,9 @@ import type { ReactNode } from "react";
  * chrome.
  *
  * Settings are reached via the `/settings` route (plan §2 of the v2
- * design-system rollout — umbrella #815). The legacy `<SettingsDrawer>`
- * mount + `onOpenSettings` plumbing was retired in IA-appshell.
+ * design-system rollout — umbrella #815). The legacy in-shell settings
+ * drawer + its `onOpenSettings` plumbing was retired in IA-appshell
+ * (#896) and fully dropped in SET-drop-drawer (#867).
  *
  * The `<ExplorerSelectionProvider>` owns the Cmd-K ⇄ Explorer bridge
  * introduced in EXP-cmdk-bridge: selecting a node in the palette

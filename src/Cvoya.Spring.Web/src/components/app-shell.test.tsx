@@ -70,7 +70,7 @@ describe("AppShell", () => {
   beforeEach(() => __resetExtensionsForTesting());
   afterEach(() => __resetExtensionsForTesting());
 
-  it("renders the sidebar + children + command palette without mounting the legacy SettingsDrawer", () => {
+  it("renders the sidebar + children + command palette; settings live at /settings", () => {
     renderShell();
 
     // Sidebar chrome is present.
@@ -78,10 +78,10 @@ describe("AppShell", () => {
     // Page body renders inside the main landmark.
     expect(screen.getByRole("main")).toHaveTextContent("Page body");
 
-    // SettingsDrawer is no longer mounted by the shell (IA-appshell).
-    expect(screen.queryByTestId("settings-drawer")).toBeNull();
-    expect(screen.queryByTestId("settings-drawer-backdrop")).toBeNull();
-    // ...and the sidebar no longer renders a drawer trigger either.
+    // The legacy in-shell settings drawer was retired in IA-appshell
+    // (#896) and fully deleted in SET-drop-drawer (#867). Settings are
+    // now reached via the `/settings` route (SET-hub, #862). The
+    // sidebar no longer renders an in-shell drawer trigger either.
     expect(screen.queryByTestId("sidebar-settings-trigger")).toBeNull();
   });
 });

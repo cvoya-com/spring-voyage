@@ -7,8 +7,9 @@
  * drawer in favour of a dedicated page. The hub surfaces two things:
  *
  *  1. The four tenant-panel cards (Tenant budget, Tenant defaults,
- *     Account, About) promoted verbatim from the legacy
- *     `SettingsDrawer`. Each panel is rendered inline inside a
+ *     Account, About) promoted verbatim from the legacy in-shell
+ *     settings drawer (retired in IA-appshell #896; deleted in
+ *     SET-drop-drawer #867). Each panel is rendered inline inside a
  *     `<Card>` with its `label` + `description` as header chrome.
  *     The merged drawer-panel registry is read via `useDrawerPanels()`
  *     so hosted extensions that register additional panels (e.g.
