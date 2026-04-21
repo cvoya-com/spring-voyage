@@ -1630,6 +1630,35 @@ export default function CreateUnitPage() {
               the unit&apos;s Secrets tab.
             </p>
 
+            {requiredCredentialProvider !== null &&
+              requiredCredentialRuntime !== null &&
+              credentialStatus?.resolvable === true &&
+              credentialStatus?.source === "tenant" && (
+                <TenantDefaultSecretRow
+                  provider={requiredCredentialProvider}
+                  secretName={
+                    getRuntimeSecretName(requiredCredentialRuntime.id) ?? ""
+                  }
+                  overrideOpen={form.credentialOverrideOpen}
+                  credentialKey={form.credentialKey}
+                  saveAsTenantDefault={form.saveAsTenantDefault}
+                  onToggleOverride={(v) => {
+                    setForm((prev) => ({
+                      ...prev,
+                      credentialOverrideOpen: v,
+                      credentialKey: v ? prev.credentialKey : "",
+                      saveAsTenantDefault: v
+                        ? prev.saveAsTenantDefault
+                        : false,
+                    }));
+                  }}
+                  onKeyChange={(v) => update("credentialKey", v)}
+                  onToggleSaveAsTenantDefault={(v) =>
+                    update("saveAsTenantDefault", v)
+                  }
+                />
+              )}
+
             {form.secrets.length === 0 && (
               <p className="text-muted-foreground">No secrets queued.</p>
             )}
@@ -2022,10 +2051,37 @@ function CredentialSection(props: CredentialSectionProps) {
   if (statusPending) return null;
 
   if (statusError || !status) {
+    // Even when the probe fails, the user still needs to enter an API
+    // key to proceed. Render the input alongside a muted "could not
+    // verify" message so the wizard never dead-ends on a flaky probe.
+    // `status?.suggestion` carries an optional operator-facing hint from
+    // the backend (may be absent on older servers — optional chaining
+    // keeps this path working regardless of backend shape).
+    const probeHint = status?.suggestion ?? null;
     return (
-      <p className="text-xs text-muted-foreground" role="status">
-        Could not verify {displayName} credentials.
-      </p>
+      <div
+        role="status"
+        data-testid="credential-status"
+        data-resolvable="unknown"
+        className="space-y-3 rounded-md border border-warning/50 bg-warning/15 px-3 py-3 text-sm text-foreground"
+      >
+        <div className="flex items-start gap-2">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+          <p className="flex-1">
+            {probeHint ?? `Could not verify ${displayName} credentials.`} Enter
+            a key below to save it as a unit-scoped secret, or tick the box to
+            save it as your tenant default.
+          </p>
+        </div>
+        <CredentialInputControls
+          provider={requiredProvider}
+          credentialKey={credentialKey}
+          saveAsTenantDefault={saveAsTenantDefault}
+          onKeyChange={onKeyChange}
+          onToggleSaveAsTenantDefault={onToggleSaveAsTenantDefault}
+          tenantToggleLabel={`Use this key as the default for all future units using ${displayName}.`}
+        />
+      </div>
     );
   }
 
@@ -2297,6 +2353,104 @@ function OllamaReachabilityBanner({
         {data.suggestion ??
           "Ollama not reachable. Check that the Ollama server is running."}
       </p>
+    </div>
+  );
+}
+
+/**
+ * Step 5 row that surfaces the tenant-default LLM credential for the
+ * selected runtime (read-only) alongside an "Override" affordance. This
+ * closes the gap where Step 5 previously showed "No secrets queued" even
+ * when a tenant default existed — operators had no way to tell whether
+ * the unit would inherit a key or needed one queued. The override flow
+ * mirrors Step 2's: opening it reveals the shared credential input; the
+ * entered value is written as a unit-scoped secret (or a new tenant
+ * default when the checkbox is ticked) during the Finalize submit.
+ */
+function TenantDefaultSecretRow({
+  provider,
+  secretName,
+  overrideOpen,
+  credentialKey,
+  saveAsTenantDefault,
+  onToggleOverride,
+  onKeyChange,
+  onToggleSaveAsTenantDefault,
+}: {
+  provider: "anthropic" | "openai" | "google";
+  secretName: string;
+  overrideOpen: boolean;
+  credentialKey: string;
+  saveAsTenantDefault: boolean;
+  onToggleOverride: (value: boolean) => void;
+  onKeyChange: (value: string) => void;
+  onToggleSaveAsTenantDefault: (value: boolean) => void;
+}) {
+  const displayName = providerLabel(provider);
+  return (
+    <div
+      data-testid="tenant-default-secret-row"
+      data-provider={provider}
+      className="space-y-2 rounded-md border border-border bg-muted/30 p-3"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1">
+          <div className="flex items-center gap-2">
+            <CheckCircle2
+              className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400"
+              aria-hidden
+            />
+            <span className="font-medium">
+              {displayName} tenant default
+            </span>
+          </div>
+          {secretName && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              This unit will inherit the tenant-default secret{" "}
+              <code className="rounded bg-background px-1 py-0.5 font-mono text-[11px]">
+                {secretName}
+              </code>{" "}
+              at dispatch time. No action needed unless you want to override
+              it for this unit.
+            </p>
+          )}
+        </div>
+        {!overrideOpen && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => onToggleOverride(true)}
+            data-testid="tenant-default-override"
+          >
+            Override
+          </Button>
+        )}
+      </div>
+      {overrideOpen && (
+        <div className="space-y-2 rounded-md border border-border bg-background p-3">
+          <p className="text-xs text-muted-foreground">
+            The existing tenant default stays in place until you save a new
+            value. The current value is not shown — type a replacement below,
+            or click Cancel to keep the tenant default.
+          </p>
+          <CredentialInputControls
+            provider={provider}
+            credentialKey={credentialKey}
+            saveAsTenantDefault={saveAsTenantDefault}
+            onKeyChange={onKeyChange}
+            onToggleSaveAsTenantDefault={onToggleSaveAsTenantDefault}
+            tenantToggleLabel={`Overwrite the tenant default for all future units using ${displayName}.`}
+          />
+          <button
+            type="button"
+            data-testid="tenant-default-override-cancel"
+            onClick={() => onToggleOverride(false)}
+            className="text-xs font-medium underline underline-offset-2 text-muted-foreground"
+          >
+            Cancel override
+          </button>
+        </div>
+      )}
     </div>
   );
 }

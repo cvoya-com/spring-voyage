@@ -347,6 +347,177 @@ describe("CreateUnitPage — credential-status banner (#598, preserved post-T-07
   });
 });
 
+// Issue #978 — two wizard dead-ends around the credential flow.
+describe("CreateUnitPage — #978 wizard credential dead-ends", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    seedDefaultMocks();
+  });
+
+  it("defect 2: renders the credential input when the probe fails (statusError branch)", async () => {
+    // Simulate the pre-sibling-PR backend returning 500 for unreadable
+    // ciphertext: the query's queryFn catches and returns null.
+    getProviderCredentialStatus.mockResolvedValue(null);
+
+    renderPage();
+    await advanceToExecution();
+
+    // The input must be present even though the probe didn't resolve,
+    // so the user has an escape hatch out of the Finalize dead-end.
+    expect(await screen.findByTestId("credential-input")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("credential-save-as-tenant-default"),
+    ).toBeInTheDocument();
+    const status = screen.getByTestId("credential-status");
+    expect(status.textContent).toMatch(/could not verify/i);
+  });
+
+  it("defect 2: renders the credential input when the probe throws", async () => {
+    getProviderCredentialStatus.mockRejectedValue(
+      new Error("API error 500: Internal Server Error"),
+    );
+
+    renderPage();
+    await advanceToExecution();
+
+    // Even on a throw the queries hook swallows and returns null, so the
+    // UI must still surface the input.
+    expect(await screen.findByTestId("credential-input")).toBeInTheDocument();
+  });
+
+  it("defect 3: step 5 shows the tenant-default row when source=tenant", async () => {
+    getProviderCredentialStatus.mockResolvedValue(
+      makeStatus({ provider: "anthropic", resolvable: true, source: "tenant" }),
+    );
+
+    renderPage();
+    // Identity
+    const nameInput = screen.getByPlaceholderText(
+      /engineering-team/i,
+    ) as HTMLInputElement;
+    await act(async () => {
+      fireEvent.change(nameInput, { target: { value: "acme" } });
+    });
+    const clickNext = async () => {
+      const next = screen.getByRole("button", { name: /^next$/i });
+      await act(async () => {
+        fireEvent.click(next);
+      });
+    };
+    await clickNext(); // → Execution
+    // Wait for the model dropdown so Next is enabled.
+    await waitFor(async () => {
+      const modelSelect = (await screen.findByLabelText(
+        /^Model$/i,
+      )) as HTMLSelectElement;
+      expect(modelSelect.value).not.toBe("");
+    });
+    await clickNext(); // → Mode
+    const scratch = screen.getByRole("button", { name: /scratch/i });
+    await act(async () => {
+      fireEvent.click(scratch);
+    });
+    await clickNext(); // → Connector
+    await clickNext(); // → Secrets
+
+    const row = await screen.findByTestId("tenant-default-secret-row");
+    expect(row.getAttribute("data-provider")).toBe("anthropic");
+    expect(row.textContent).toMatch(/anthropic tenant default/i);
+    expect(row.textContent).toContain("anthropic-api-key");
+    // "No secrets queued" must not be rendered here — the operator has
+    // a tenant default and an override affordance, not an empty slate.
+    expect(
+      screen.getByTestId("tenant-default-override"),
+    ).toBeInTheDocument();
+  });
+
+  it("defect 3: clicking Override on step 5 reveals the credential input", async () => {
+    getProviderCredentialStatus.mockResolvedValue(
+      makeStatus({ provider: "anthropic", resolvable: true, source: "tenant" }),
+    );
+
+    renderPage();
+    const nameInput = screen.getByPlaceholderText(
+      /engineering-team/i,
+    ) as HTMLInputElement;
+    await act(async () => {
+      fireEvent.change(nameInput, { target: { value: "acme" } });
+    });
+    const clickNext = async () => {
+      const next = screen.getByRole("button", { name: /^next$/i });
+      await act(async () => {
+        fireEvent.click(next);
+      });
+    };
+    await clickNext();
+    await waitFor(async () => {
+      const modelSelect = (await screen.findByLabelText(
+        /^Model$/i,
+      )) as HTMLSelectElement;
+      expect(modelSelect.value).not.toBe("");
+    });
+    await clickNext();
+    const scratch = screen.getByRole("button", { name: /scratch/i });
+    await act(async () => {
+      fireEvent.click(scratch);
+    });
+    await clickNext();
+    await clickNext();
+
+    const override = await screen.findByTestId("tenant-default-override");
+    await act(async () => {
+      fireEvent.click(override);
+    });
+    // The shared credential input + tenant checkbox should now render.
+    expect(
+      await screen.findByTestId("credential-input"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("credential-save-as-tenant-default"),
+    ).toBeInTheDocument();
+  });
+
+  it("defect 3: step 5 omits the tenant-default row when source=unit", async () => {
+    getProviderCredentialStatus.mockResolvedValue(
+      makeStatus({ provider: "anthropic", resolvable: true, source: "unit" }),
+    );
+
+    renderPage();
+    const nameInput = screen.getByPlaceholderText(
+      /engineering-team/i,
+    ) as HTMLInputElement;
+    await act(async () => {
+      fireEvent.change(nameInput, { target: { value: "acme" } });
+    });
+    const clickNext = async () => {
+      const next = screen.getByRole("button", { name: /^next$/i });
+      await act(async () => {
+        fireEvent.click(next);
+      });
+    };
+    await clickNext();
+    await waitFor(async () => {
+      const modelSelect = (await screen.findByLabelText(
+        /^Model$/i,
+      )) as HTMLSelectElement;
+      expect(modelSelect.value).not.toBe("");
+    });
+    await clickNext();
+    const scratch = screen.getByRole("button", { name: /scratch/i });
+    await act(async () => {
+      fireEvent.click(scratch);
+    });
+    await clickNext();
+    await clickNext();
+
+    expect(
+      screen.queryByTestId("tenant-default-secret-row"),
+    ).not.toBeInTheDocument();
+    // Legacy "No secrets queued" state is preserved.
+    expect(screen.getByText(/no secrets queued/i)).toBeInTheDocument();
+  });
+});
+
 // T-07 (#949): the Model dropdown now renders against the agent-runtime
 // catalog regardless of credential status — Next is never gated on a
 // live reach-out to the LLM. The backend validates the key after the
