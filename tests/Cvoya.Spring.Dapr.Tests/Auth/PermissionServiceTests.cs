@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Dapr.Tests.Auth;
 
+using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
@@ -30,6 +31,7 @@ public class PermissionServiceTests
 {
     private readonly IActorProxyFactory _actorProxyFactory = Substitute.For<IActorProxyFactory>();
     private readonly IUnitHierarchyResolver _hierarchyResolver = Substitute.For<IUnitHierarchyResolver>();
+    private readonly IDirectoryService _directoryService = Substitute.For<IDirectoryService>();
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
     private readonly Dictionary<string, IUnitActor> _actors = new();
     private readonly PermissionService _service;
@@ -50,7 +52,27 @@ public class PermissionServiceTests
         _hierarchyResolver.GetParentsAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<Address>());
 
-        _service = new PermissionService(_actorProxyFactory, _hierarchyResolver, _loggerFactory);
+        // The directory resolution step added for #976 maps the route-level
+        // unit id to its Dapr actor id. In production the two differ (the
+        // actor id is a Guid minted at creation time) but the substitute
+        // keeps them identical so existing assertions that key actors by
+        // the unit name continue to work unchanged — the point under test
+        // is the hierarchy + inheritance logic, not the id mapping itself.
+        _directoryService.ResolveAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
+            .Returns(ci =>
+            {
+                var address = ci.ArgAt<Address>(0);
+                return Task.FromResult<DirectoryEntry?>(new DirectoryEntry(
+                    address,
+                    address.Path,
+                    address.Path,
+                    string.Empty,
+                    null,
+                    DateTimeOffset.UtcNow));
+            });
+
+        _service = new PermissionService(
+            _actorProxyFactory, _hierarchyResolver, _directoryService, _loggerFactory);
     }
 
     private IUnitActor Unit(string id)
@@ -281,5 +303,113 @@ public class PermissionServiceTests
         var result = await _service.ResolveEffectivePermissionAsync("human-1", "child", ct);
 
         result.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task ResolveEffectivePermissionAsync_ResolvesRouteIdToActorIdBeforeProxy()
+    {
+        // #976: the route `{id}` is the unit name, but the actor is keyed
+        // under a Guid. The permission service must resolve the directory
+        // entry first so it reads the authoritative permission state; if
+        // it addresses the proxy by the route id directly it hits a
+        // freshly activated actor with an empty permission map and every
+        // `/humans/*` call 403s.
+        var ct = TestContext.Current.CancellationToken;
+        const string RouteId = "my-unit";
+        const string ActorId = "11111111-2222-3333-4444-555555555555";
+
+        var actor = Substitute.For<IUnitActor>();
+        actor.GetHumanPermissionAsync("human-1", Arg.Any<CancellationToken>())
+            .Returns(PermissionLevel.Owner);
+
+        var directory = Substitute.For<IDirectoryService>();
+        directory.ResolveAsync(
+                Arg.Is<Address>(a => a.Scheme == "unit" && a.Path == RouteId),
+                Arg.Any<CancellationToken>())
+            .Returns(new DirectoryEntry(
+                new Address("unit", RouteId),
+                ActorId,
+                RouteId,
+                string.Empty,
+                null,
+                DateTimeOffset.UtcNow));
+
+        var proxyFactory = Substitute.For<IActorProxyFactory>();
+        proxyFactory.CreateActorProxy<IUnitActor>(
+                Arg.Is<ActorId>(a => a.GetId() == ActorId), nameof(UnitActor))
+            .Returns(actor);
+
+        var service = new PermissionService(
+            proxyFactory, _hierarchyResolver, directory, _loggerFactory);
+
+        var result = await service.ResolveEffectivePermissionAsync("human-1", RouteId, ct);
+
+        result.ShouldBe(PermissionLevel.Owner);
+
+        // Crucially the service must NOT address the proxy by the raw
+        // route id; doing so reads a different (empty) actor instance.
+        proxyFactory.DidNotReceive().CreateActorProxy<IUnitActor>(
+            Arg.Is<ActorId>(a => a.GetId() == RouteId), nameof(UnitActor));
+    }
+
+    [Fact]
+    public async Task ResolveEffectivePermissionAsync_DirectoryHasNoEntry_ReturnsNull()
+    {
+        // A stale / unknown unit id must surface as "no permission" rather
+        // than silently spinning up an empty actor that reports null either
+        // way. The behaviour needs to be explicit so callers' 403s remain
+        // stable if the directory loses a row.
+        var ct = TestContext.Current.CancellationToken;
+
+        var directory = Substitute.For<IDirectoryService>();
+        directory.ResolveAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<DirectoryEntry?>(null));
+
+        var service = new PermissionService(
+            _actorProxyFactory, _hierarchyResolver, directory, _loggerFactory);
+
+        var result = await service.ResolveEffectivePermissionAsync("human-1", "ghost-unit", ct);
+
+        result.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task ResolvePermissionAsync_ResolvesRouteIdToActorIdBeforeProxy()
+    {
+        // Mirror of the effective-permission regression — the direct
+        // resolver must also consult the directory so callers that use
+        // `ResolvePermissionAsync` (e.g. unit-editor surfaces) read the
+        // authoritative permission state instead of an empty actor.
+        var ct = TestContext.Current.CancellationToken;
+        const string RouteId = "unit-direct";
+        const string ActorId = "99999999-8888-7777-6666-555555555555";
+
+        var actor = Substitute.For<IUnitActor>();
+        actor.GetHumanPermissionAsync("human-1", Arg.Any<CancellationToken>())
+            .Returns(PermissionLevel.Operator);
+
+        var directory = Substitute.For<IDirectoryService>();
+        directory.ResolveAsync(
+                Arg.Is<Address>(a => a.Scheme == "unit" && a.Path == RouteId),
+                Arg.Any<CancellationToken>())
+            .Returns(new DirectoryEntry(
+                new Address("unit", RouteId),
+                ActorId,
+                RouteId,
+                string.Empty,
+                null,
+                DateTimeOffset.UtcNow));
+
+        var proxyFactory = Substitute.For<IActorProxyFactory>();
+        proxyFactory.CreateActorProxy<IUnitActor>(
+                Arg.Is<ActorId>(a => a.GetId() == ActorId), nameof(UnitActor))
+            .Returns(actor);
+
+        var service = new PermissionService(
+            proxyFactory, _hierarchyResolver, directory, _loggerFactory);
+
+        var result = await service.ResolvePermissionAsync("human-1", RouteId, ct);
+
+        result.ShouldBe(PermissionLevel.Operator);
     }
 }

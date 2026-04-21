@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Dapr.Auth;
 
+using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
@@ -21,9 +22,22 @@ using Microsoft.Extensions.Logging;
 /// <see cref="UnitPermissionInheritance"/> setting so opaque sub-units block
 /// ancestor authority from cascading through them.
 /// </summary>
+/// <remarks>
+/// The <paramref name="directoryService"/> dependency resolves each unit's
+/// route-level id (the unit name / path) to its Dapr actor id before the
+/// proxy is created. Without this step the proxy would talk to a freshly
+/// activated actor keyed on the unit name, bypassing the authoritative
+/// permission state persisted under the GUID actor id
+/// <see cref="Services.UnitCreationService"/> assigns at creation time —
+/// which is what caused <c>humans</c> endpoints to 403 in LocalDev
+/// (issue #976). Every other unit-scoped endpoint path resolves the
+/// directory entry first; the permission evaluator now does the same so the
+/// two views agree.
+/// </remarks>
 public class PermissionService(
     IActorProxyFactory actorProxyFactory,
     IUnitHierarchyResolver hierarchyResolver,
+    IDirectoryService directoryService,
     ILoggerFactory loggerFactory) : IPermissionService
 {
     /// <summary>
@@ -44,8 +58,14 @@ public class PermissionService(
     {
         try
         {
+            var actorId = await ResolveActorIdAsync(unitId, cancellationToken);
+            if (actorId is null)
+            {
+                return null;
+            }
+
             var unitProxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
-                new ActorId(unitId), nameof(UnitActor));
+                new ActorId(actorId), nameof(UnitActor));
 
             return await unitProxy.GetHumanPermissionAsync(humanId, cancellationToken);
         }
@@ -75,8 +95,16 @@ public class PermissionService(
         PermissionLevel? direct;
         try
         {
+            var actorId = await ResolveActorIdAsync(unitId, cancellationToken);
+            if (actorId is null)
+            {
+                // Target unit is not in the directory — nothing to inherit
+                // from either, since ancestor walks read the directory too.
+                return null;
+            }
+
             var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
-                new ActorId(unitId), nameof(UnitActor));
+                new ActorId(actorId), nameof(UnitActor));
             direct = await proxy.GetHumanPermissionAsync(humanId, cancellationToken);
         }
         catch (Exception ex)
@@ -165,8 +193,16 @@ public class PermissionService(
                 PermissionLevel? grant;
                 try
                 {
+                    var parentActorId = await ResolveActorIdAsync(parent.Path, cancellationToken);
+                    if (parentActorId is null)
+                    {
+                        // Ancestor not in the directory (stale hierarchy
+                        // row). Skip it — a missing row is never authority.
+                        continue;
+                    }
+
                     var parentProxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
-                        new ActorId(parent.Path), nameof(UnitActor));
+                        new ActorId(parentActorId), nameof(UnitActor));
                     grant = await parentProxy.GetHumanPermissionAsync(humanId, cancellationToken);
                 }
                 catch (Exception ex)
@@ -209,8 +245,20 @@ public class PermissionService(
     {
         try
         {
+            var actorId = await ResolveActorIdAsync(unit.Path, ct);
+            if (actorId is null)
+            {
+                // Missing directory entry: treat as Isolated for the same
+                // "confused-deputy safe default" reason the exception
+                // branch below uses.
+                _logger.LogWarning(
+                    "Effective-permission walk: directory entry missing for {Unit}; treating as Isolated for safety.",
+                    unit);
+                return UnitPermissionInheritance.Isolated;
+            }
+
             var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
-                new ActorId(unit.Path), nameof(UnitActor));
+                new ActorId(actorId), nameof(UnitActor));
             return await proxy.GetPermissionInheritanceAsync(ct);
         }
         catch (Exception ex)
@@ -223,6 +271,31 @@ public class PermissionService(
                 "Effective-permission walk: could not read inheritance mode for {Unit}; treating as Isolated for safety.",
                 unit);
             return UnitPermissionInheritance.Isolated;
+        }
+    }
+
+    /// <summary>
+    /// Resolves the route-level unit id (the unit name / path that appears
+    /// in <c>/api/v1/units/{id}</c>) to the Dapr actor id that the unit's
+    /// state is keyed under. Returns <c>null</c> when the directory has no
+    /// entry for the unit — callers treat that as "no permission" rather
+    /// than surfacing an error, which mirrors the pre-fix behaviour when
+    /// the proxy silently talked to an unseeded actor.
+    /// </summary>
+    private async Task<string?> ResolveActorIdAsync(string unitId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var entry = await directoryService.ResolveAsync(
+                new Address("unit", unitId), cancellationToken);
+            return entry?.ActorId;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Failed to resolve directory entry for unit {UnitId}; treating as unknown.",
+                unitId);
+            return null;
         }
     }
 

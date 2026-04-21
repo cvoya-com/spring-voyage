@@ -153,6 +153,14 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
     /// </summary>
     public IUnitParentInvariantGuard ParentInvariantGuard { get; } = CreatePermissiveParentGuard();
 
+    /// <summary>
+    /// Gets the substitute <see cref="IPermissionService"/> wired into
+    /// the test DI container. Tests that exercise the unit permission
+    /// gate (e.g. the <c>/humans</c> endpoints regressed by #976)
+    /// arrange effective-permission responses on this mock.
+    /// </summary>
+    public IPermissionService PermissionService { get; } = Substitute.For<IPermissionService>();
+
     private static IUnitMembershipTenantGuard CreatePermissiveTenantGuard()
     {
         var stub = Substitute.For<IUnitMembershipTenantGuard>();
@@ -360,8 +368,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
                 services.Remove(descriptor);
             }
 
-            var permissionService = Substitute.For<IPermissionService>();
-            services.AddSingleton(permissionService);
+            services.AddSingleton(PermissionService);
 
             // Dapr runtime dependencies.
             services.AddSingleton(Substitute.For<DaprClient>());
