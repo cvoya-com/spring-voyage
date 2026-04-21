@@ -1,7 +1,7 @@
 "use client";
 
 import { Search } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -11,6 +11,7 @@ import {
   type TabName,
   type TreeNode,
 } from "./aggregate";
+import { useExplorerSelection } from "./explorer-selection-context";
 import { DetailPane } from "./unit-detail-pane";
 import { UnitTree } from "./unit-tree";
 
@@ -88,6 +89,14 @@ export function UnitExplorer({
     },
     [controlledSelectedId, onSelectProp],
   );
+
+  // EXP-cmdk-bridge: register `setSelected` with the shell-level
+  // selection bridge so the command palette can teleport the Explorer
+  // without a router round-trip. The bridge is a no-op outside an
+  // `<ExplorerSelectionProvider>`, so isolated component tests that
+  // don't wrap the provider still work.
+  const { registerListener } = useExplorerSelection();
+  useEffect(() => registerListener(setSelected), [registerListener, setSelected]);
 
   const setTab = useCallback(
     (next: TabName) => {

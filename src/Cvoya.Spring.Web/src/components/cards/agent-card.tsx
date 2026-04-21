@@ -16,6 +16,8 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
+import { CardTabRow, type CardTabName } from "./card-tab-row";
+
 /**
  * Minimal shape that the AgentCard needs. `AgentDashboardSummary` from
  * the dashboard endpoint satisfies this; the extra optional fields allow
@@ -34,6 +36,22 @@ export interface AgentCardAgent {
   lastActivity?: string | null;
 }
 
+/**
+ * Tab chips rendered in the `<CardTabRow>` footer when `onOpenTab` is
+ * provided. Matches plan §7 of the v2 design-system rollout (#815):
+ * deeplinks for the Explorer's Agent tab catalog, excluding Overview
+ * (already covered by the card's primary "Open" affordance).
+ */
+export const AGENT_CARD_TABS: readonly CardTabName[] = [
+  "Messages",
+  "Activity",
+  "Memory",
+  "Skills",
+  "Traces",
+  "Clones",
+  "Config",
+] as const;
+
 interface AgentCardProps {
   agent: AgentCardAgent | AgentDashboardSummary;
   /** Parent-unit override, when known from the caller's context. */
@@ -47,6 +65,16 @@ interface AgentCardProps {
    * `null` when omitted, so dashboard / list usages stay unchanged.
    */
   actions?: React.ReactNode;
+  /**
+   * When provided, the card renders a `<CardTabRow>` footer of
+   * icon-only tab-deeplink chips (plan §7). Clicking a chip dispatches
+   * `(agent.name, tabName)` — callers wire the handler to the Explorer
+   * selection bridge (`<ExplorerSelectionProvider>`) or to their own
+   * router.push. Legacy cross-link icons (Conversations / Cost) render
+   * as the fallback when this prop is omitted so existing call sites
+   * keep working unchanged.
+   */
+  onOpenTab?: (agentName: string, tab: CardTabName) => void;
   className?: string;
 }
 
@@ -61,15 +89,18 @@ const statusVariant: Record<
 };
 
 /**
- * Reusable agent card primitive. See § 3.3 of the portal design doc:
- * every agent card links to its parent unit, its conversations, and its
- * cost detail.
+ * Reusable agent card primitive. See plan §7 of the v2 design-system
+ * rollout (#815): each agent card ends in a `<CardTabRow>` of icon-only
+ * tab deeplinks that fire `onOpenTab(agent.name, tab)` into the
+ * Explorer. Dashboard + Explorer usages wire the handler; list pages
+ * that want the legacy cross-link icons omit the prop.
  */
 export function AgentCard({
   agent,
   parentUnit,
   lastActivity,
   actions,
+  onOpenTab,
   className,
 }: AgentCardProps) {
   const href = `/agents/${encodeURIComponent(agent.name)}`;
@@ -87,7 +118,7 @@ export function AgentCard({
     <Card
       data-testid={`agent-card-${agent.name}`}
       className={cn(
-        "relative h-full transition-colors hover:border-primary/50 hover:bg-muted/30 focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2",
+        "relative h-full overflow-hidden transition-colors hover:border-primary/50 hover:bg-muted/30 focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2",
         className,
       )}
     >
@@ -161,19 +192,28 @@ export function AgentCard({
         )}
 
         <div className="relative z-[1] mt-3 flex items-center justify-between">
-          <div className="flex items-center gap-1">
-            <CrossLinkButton
-              href={conversationsHref}
-              label={`View conversations for ${agent.displayName}`}
-              icon={<MessagesSquare className="h-3.5 w-3.5" />}
-              testId={`agent-link-conversations-${agent.name}`}
-            />
-            <CrossLinkButton
-              href={costHref}
-              label={`View cost detail for ${agent.displayName}`}
-              icon={<DollarSign className="h-3.5 w-3.5" />}
-              testId={`agent-link-cost-${agent.name}`}
-            />
+          {/* Legacy cross-links: suppressed when the `<CardTabRow>`
+              footer is active via `onOpenTab`. */}
+          <div
+            className="flex items-center gap-1"
+            data-testid={`agent-cross-links-${agent.name}`}
+          >
+            {onOpenTab ? null : (
+              <>
+                <CrossLinkButton
+                  href={conversationsHref}
+                  label={`View conversations for ${agent.displayName}`}
+                  icon={<MessagesSquare className="h-3.5 w-3.5" />}
+                  testId={`agent-link-conversations-${agent.name}`}
+                />
+                <CrossLinkButton
+                  href={costHref}
+                  label={`View cost detail for ${agent.displayName}`}
+                  icon={<DollarSign className="h-3.5 w-3.5" />}
+                  testId={`agent-link-cost-${agent.name}`}
+                />
+              </>
+            )}
           </div>
           <div className="flex items-center gap-1">
             {actions && (
@@ -195,6 +235,18 @@ export function AgentCard({
           </div>
         </div>
       </CardContent>
+      {onOpenTab && (
+        <div
+          className="relative z-[1]"
+          data-testid={`agent-card-tabrow-${agent.name}`}
+        >
+          <CardTabRow
+            id={agent.name}
+            tabs={AGENT_CARD_TABS}
+            onOpenTab={(id, tab) => onOpenTab(id, tab)}
+          />
+        </div>
+      )}
     </Card>
   );
 }

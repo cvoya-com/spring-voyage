@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { AgentCard } from "./agent-card";
 
@@ -162,5 +162,45 @@ describe("AgentCard", () => {
     expect(screen.getByTestId("agent-last-activity")).toHaveTextContent(
       "Replied to PR review",
     );
+  });
+
+  it("renders a CardTabRow footer and hides the legacy cross-links when onOpenTab is provided", () => {
+    const onOpenTab = vi.fn();
+    render(
+      <AgentCard
+        agent={{
+          name: "ada",
+          displayName: "Ada",
+          role: null,
+          registeredAt: "2026-04-01T00:00:00Z",
+        }}
+        onOpenTab={onOpenTab}
+      />,
+    );
+
+    expect(screen.queryByTestId("agent-link-conversations-ada")).toBeNull();
+    expect(screen.queryByTestId("agent-link-cost-ada")).toBeNull();
+
+    expect(screen.getByTestId("agent-card-tabrow-ada")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("card-tab-chip-messages"));
+    expect(onOpenTab).toHaveBeenCalledWith("ada", "Messages");
+  });
+
+  it("keeps the legacy cross-links as fallback when onOpenTab is omitted", () => {
+    render(
+      <AgentCard
+        agent={{
+          name: "ada",
+          displayName: "Ada",
+          role: null,
+          registeredAt: "2026-04-01T00:00:00Z",
+        }}
+      />,
+    );
+
+    expect(
+      screen.getByTestId("agent-link-conversations-ada"),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("agent-card-tabrow-ada")).toBeNull();
   });
 });
