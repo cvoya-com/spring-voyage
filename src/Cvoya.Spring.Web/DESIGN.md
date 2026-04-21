@@ -345,7 +345,7 @@ Per-kind tab sets are declared in `src/components/units/aggregate.ts` as `TENANT
 | Agents        | Child agents + child units in one grid; units carry an outlined card variant and a "unit" pill so they read distinct from agents. |
 | Orchestration | Strategy selector (read-only today) + effective-strategy card + label-routing rule editor.                                        |
 | Activity      | Unit-scoped event feed.                                                                                                          |
-| Messages      | Inline master/detail: conversation list on the left; selecting a row mounts the thread + composer inline on the right. Selection is URL-owned via `?conversation=<id>`. |
+| Messages      | Inline master/detail: conversation list on the left; selecting a row mounts the thread + composer inline on the right. Selection is URL-owned via `?conversation=<id>`. A prominent **+ New conversation** button sits above the list and opens a modal composer; on submit the portal POSTs `/api/v1/messages` and routes to the new thread (see § 9.3). |
 | Memory        | Unit-scoped read-only memory inspector (see § 10).                                                                               |
 | Policies      | Unit policies including the Initiative section.                                                                                  |
 | **Config** (overflow) | Six sub-tabs: Boundary, Execution, Connector, Skills, Secrets, Expertise. Sub-tab selection is URL-owned via `?subtab=<name>`. Cross-links out to `/settings/skills` and `/connectors?unit=…`. |
@@ -356,7 +356,7 @@ Per-kind tab sets are declared in `src/components/units/aggregate.ts` as `TENANT
 | --------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | Overview  | Lifecycle + cost summary tiles.                                                                                              |
 | Activity  | Cost-over-time + per-slice breakdown.                                                                                        |
-| Messages  | Inline master/detail (same layout as the unit Messages tab); URL-owned via `?conversation=<id>`.                             |
+| Messages  | Inline master/detail (same layout as the unit Messages tab); URL-owned via `?conversation=<id>`. A **+ New conversation** button opens the same modal composer, targeting `agent://<slug>`. |
 | Memory    | Agent-scoped read-only memory inspector (see § 10).                                                                          |
 | Skills    | Read from `/api/v1/agents/{id}/skills`.                                                                                      |
 | Traces    | Mock-backed in v2.0; a real `/api/v1/traces?agent=…` endpoint is a v2.1 follow-up.                                           |
@@ -369,6 +369,17 @@ Per-kind tab sets are declared in `src/components/units/aggregate.ts` as `TENANT
 Each tab implementation is a dedicated module under `src/components/units/tabs/` (`unit-overview.tsx`, `agent-config.tsx`, etc.). Every module calls `registerTab(kind, tab, Component)` at top-level, and `src/components/units/tabs/register-all.ts` imports each module so the Explorer route mounts with every tab wired. `lookupTab(kind, tab)` returns the registered component or `null`; the `DetailPane` substitutes `<TabPlaceholder>` for the `null` case so the surface stays testable.
 
 The overflow strip (Unit's `Config`) renders as a second `role="tablist"` after a `bg-border` separator. Triggers are functionally identical to visible tabs — same `onTabChange` callback, same URL shape — so a deep-link to `?tab=Config` just snaps to the overflow trigger.
+
+### 9.3 Pane header actions and compose
+
+The right-hand detail pane's header hosts a status-gated action cluster (`<UnitPaneActions>`, `src/components/units/unit-pane-actions.tsx`) that exposes the Day-2 verbs the CLI already ships:
+
+- **Unit** — `Validate` (shown on `Draft`), `Revalidate` (shown on `Error` / `Stopped`), `Start` (shown on `Stopped`), `Stop` (shown on `Running`), and `Delete` (always shown, guarded by a confirmation dialog whose confirm button reads "Permanently delete"). The tenant-tree endpoint pins every node to `"running"` for aggregation purposes, so the gate reads the real `UnitStatus` from `useUnit(id)` rather than the tree status.
+- **Agent** — `Delete` only. `Start` / `Stop` have no CLI equivalent today; when they land the buttons come with them.
+
+Every mutation invalidates `queryKeys.units.detail(id)` / `queryKeys.agents.detail(id)`, `queryKeys.tenant.tree()`, `queryKeys.activity.all`, and `queryKeys.dashboard.all` so the status badge and the tree refresh in place. After a successful delete the pane routes back to `/units` so the stale selection does not trap the Explorer.
+
+The Messages tab's **+ New conversation** button opens `<NewConversationDialog>` (`src/components/conversation/new-conversation-dialog.tsx`). The dialog collects a first message body, POSTs `/api/v1/messages` with `to: { scheme: "unit"|"agent", path }`, `type: "Domain"`, and a null `conversationId` — the server's auto-gen (#985) assigns a fresh UUID, which the dialog forwards to the caller so the Explorer routes to the new thread via `?conversation=<id>`. The dialog surfaces server errors inline without closing.
 
 ---
 

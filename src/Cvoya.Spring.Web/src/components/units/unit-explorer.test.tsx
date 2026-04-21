@@ -1,6 +1,14 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+// The Explorer pane now hosts `<UnitPaneActions>` (#980 item 3). Stub it
+// out here so these scaffold tests don't have to wire a TanStack Query
+// client + Next router mock — those concerns are covered by
+// `unit-pane-actions.test.tsx`.
+vi.mock("./unit-pane-actions", () => ({
+  UnitPaneActions: () => null,
+}));
+
 import type { TreeNode } from "./aggregate";
 import {
   __resetTabRegistryForTesting,

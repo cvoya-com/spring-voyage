@@ -72,6 +72,13 @@ vi.mock("@/lib/api/queries", () => ({
     data: { entries: [] },
     isPending: false,
   }),
+  // The Explorer pane header now hosts `<UnitPaneActions>` (#980 item 3),
+  // which reads the real UnitResponse status from `useUnit` so the
+  // Validate / Start / Stop / Revalidate gate matches the server's
+  // lifecycle. These smoke tests don't exercise those buttons, so we
+  // stub the hook with "no data" — the Delete button is the only one
+  // that always renders and the test suite doesn't click it.
+  useUnit: () => ({ data: null }),
 }));
 
 function wrap(node: ReactNode) {

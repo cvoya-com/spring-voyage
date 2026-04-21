@@ -1,11 +1,9 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { AgentNode } from "../aggregate";
 
 vi.mock("next/link", () => ({
-  // Strip next/link-only props so React doesn't warn about them being
-  // forwarded to a plain <a>.
   default: ({
     href,
     children,
@@ -26,9 +24,10 @@ vi.mock("next/link", () => ({
   ),
 }));
 
+const routerReplaceMock = vi.fn();
 const searchParamsStateMock = { value: "" };
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace: vi.fn() }),
+  useRouter: () => ({ replace: routerReplaceMock }),
   useSearchParams: () => new URLSearchParams(searchParamsStateMock.value),
 }));
 
@@ -46,6 +45,31 @@ vi.mock("@/components/conversation/conversation-detail-pane", () => ({
       data-self-address={selfAddress ?? ""}
     />
   ),
+}));
+
+vi.mock("@/components/conversation/new-conversation-dialog", () => ({
+  NewConversationDialog: (props: {
+    open: boolean;
+    onClose: () => void;
+    targetScheme: "unit" | "agent";
+    targetPath: string;
+    onCreated: (id: string) => void;
+  }) => {
+    if (!props.open) return null;
+    return (
+      <div
+        data-testid="new-conversation-dialog-stub"
+        data-target-scheme={props.targetScheme}
+        data-target-path={props.targetPath}
+      >
+        <button
+          type="button"
+          data-testid="stub-emit-created"
+          onClick={() => props.onCreated("conv-new")}
+        />
+      </div>
+    );
+  },
 }));
 
 const useConversationsMock = vi.fn();
@@ -73,6 +97,38 @@ describe("AgentMessagesTab", () => {
     render(<AgentMessagesTab node={node} path={[node]} />);
     expect(useConversationsMock).toHaveBeenCalledWith({ agent: "ada" });
     expect(screen.getByTestId("tab-agent-messages-empty")).toBeInTheDocument();
+    expect(screen.getByTestId("new-conversation-trigger")).toBeInTheDocument();
+  });
+
+  it("opens the composer targeted at this agent", () => {
+    searchParamsStateMock.value = "";
+    useConversationsMock.mockReturnValue({
+      data: [],
+      isLoading: false,
+      error: null,
+    });
+    render(<AgentMessagesTab node={node} path={[node]} />);
+    fireEvent.click(screen.getByTestId("new-conversation-trigger"));
+    const dialog = screen.getByTestId("new-conversation-dialog-stub");
+    expect(dialog.dataset.targetScheme).toBe("agent");
+    expect(dialog.dataset.targetPath).toBe("ada");
+  });
+
+  it("routes to the new thread when the composer reports success", () => {
+    searchParamsStateMock.value = "";
+    routerReplaceMock.mockReset();
+    useConversationsMock.mockReturnValue({
+      data: [],
+      isLoading: false,
+      error: null,
+    });
+    render(<AgentMessagesTab node={node} path={[node]} />);
+    fireEvent.click(screen.getByTestId("new-conversation-trigger"));
+    fireEvent.click(screen.getByTestId("stub-emit-created"));
+    expect(routerReplaceMock).toHaveBeenCalledWith(
+      expect.stringMatching(/conversation=conv-new/),
+      expect.any(Object),
+    );
   });
 
   it("mounts the detail pane when the URL carries ?conversation=<id>", () => {

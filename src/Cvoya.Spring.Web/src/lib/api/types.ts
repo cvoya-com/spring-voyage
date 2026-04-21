@@ -207,6 +207,12 @@ export type ConversationEvent = Schemas["ConversationEvent"];
 /** Request body for `POST /api/v1/conversations/{id}/messages`. */
 export type ConversationMessageRequest = Schemas["ConversationMessageRequest"];
 
+/** Request body for `POST /api/v1/messages` — free-form message routing. */
+export type SendMessageRequest = Schemas["SendMessageRequest"];
+
+/** Response body for `POST /api/v1/messages`. */
+export type MessageResponse = Schemas["MessageResponse"];
+
 /** Row in the awaiting-me queue (`GET /api/v1/inbox`). */
 export type InboxItem = Schemas["InboxItem"];
 

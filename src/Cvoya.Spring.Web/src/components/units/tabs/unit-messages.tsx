@@ -10,15 +10,20 @@
 // `/conversations/[id]` route.
 //
 // Mirrors the CLI `spring conversation {list,show,send} --unit <name>`
-// trio in one surface.
+// trio in one surface. A "+ New conversation" button (#980 item 2) lets
+// an operator open a fresh thread to this unit without leaving the
+// Explorer — the CLI has no matching verb today; portal is the
+// leading surface here.
 
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { MessagesSquare } from "lucide-react";
+import { MessagesSquare, Plus } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { ConversationDetailPane } from "@/components/conversation/conversation-detail-pane";
+import { NewConversationDialog } from "@/components/conversation/new-conversation-dialog";
 import { cn, timeAgo } from "@/lib/utils";
 import { useConversations } from "@/lib/api/queries";
 
@@ -32,6 +37,7 @@ function UnitMessagesTab({ node }: TabContentProps) {
   // this component renders. The belt-and-braces narrowing happens
   // after the hook calls so react-hooks/rules-of-hooks stays happy.
   const { data, isLoading, error } = useConversations({ unit: node.id });
+  const [composerOpen, setComposerOpen] = useState(false);
 
   const selectedId = searchParams.get("conversation");
 
@@ -79,45 +85,71 @@ function UnitMessagesTab({ node }: TabContentProps) {
 
   const conversations = data ?? [];
 
-  if (conversations.length === 0) {
-    return (
-      <p
-        className="text-sm text-muted-foreground"
-        data-testid="tab-unit-messages-empty"
+  const header = (
+    <div className="flex items-center justify-between gap-2">
+      <h2 className="text-sm font-medium text-muted-foreground">
+        {conversations.length === 0
+          ? "No conversations yet"
+          : `${conversations.length} conversation${conversations.length === 1 ? "" : "s"}`}
+      </h2>
+      <Button
+        size="sm"
+        onClick={() => setComposerOpen(true)}
+        data-testid="new-conversation-trigger"
       >
-        No conversations for this unit yet.
-      </p>
-    );
-  }
+        <Plus className="mr-1 h-4 w-4" aria-hidden="true" />
+        New conversation
+      </Button>
+    </div>
+  );
 
   return (
-    <div
-      className="grid gap-4 md:grid-cols-[minmax(0,18rem)_1fr]"
-      data-testid="tab-unit-messages"
-    >
-      <ConversationList
-        conversations={conversations}
-        selectedId={selectedId}
-        onSelect={setSelected}
-        label={`Conversations for unit ${node.name}`}
-      />
-      <div
-        className={cn(
-          "flex min-h-[24rem] flex-col rounded-md border border-border bg-background",
-        )}
-      >
-        {selectedId ? (
-          <ConversationDetailPane
-            conversationId={selectedId}
-            selfAddress={`unit://${node.id}`}
+    <div className="space-y-3" data-testid="tab-unit-messages">
+      {header}
+      {conversations.length === 0 ? (
+        <p
+          className="text-sm text-muted-foreground"
+          data-testid="tab-unit-messages-empty"
+        >
+          No conversations for this unit yet.
+        </p>
+      ) : (
+        <div className="grid gap-4 md:grid-cols-[minmax(0,18rem)_1fr]">
+          <ConversationList
+            conversations={conversations}
+            selectedId={selectedId}
+            onSelect={setSelected}
+            label={`Conversations for unit ${node.name}`}
           />
-        ) : (
-          <p className="m-3 text-sm text-muted-foreground">
-            Select a conversation from the list to see its events and
-            reply.
-          </p>
-        )}
-      </div>
+          <div
+            className={cn(
+              "flex min-h-[24rem] flex-col rounded-md border border-border bg-background",
+            )}
+          >
+            {selectedId ? (
+              <ConversationDetailPane
+                conversationId={selectedId}
+                selfAddress={`unit://${node.id}`}
+              />
+            ) : (
+              <p className="m-3 text-sm text-muted-foreground">
+                Select a conversation from the list to see its events and
+                reply.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+      <NewConversationDialog
+        open={composerOpen}
+        onClose={() => setComposerOpen(false)}
+        targetScheme="unit"
+        targetPath={node.id}
+        onCreated={(conversationId) => {
+          setComposerOpen(false);
+          setSelected(conversationId);
+        }}
+      />
     </div>
   );
 }

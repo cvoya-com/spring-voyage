@@ -23,6 +23,7 @@ import {
 } from "./aggregate";
 import { TabPlaceholder } from "./tab-placeholder";
 import { lookupTab } from "./tabs";
+import { UnitPaneActions } from "./unit-pane-actions";
 
 function tabSlug(tab: TabName): string {
   return tab.toLowerCase();
@@ -122,6 +123,9 @@ export function DetailPane({
           {node.kind === "Agent" && node.role ? (
             <Badge variant="secondary">{node.role}</Badge>
           ) : null}
+          <div className="ml-auto">
+            <UnitPaneActions node={node} />
+          </div>
         </div>
         <div className="-mb-3 mt-3 flex items-center gap-2 overflow-x-auto">
           <TabStrip

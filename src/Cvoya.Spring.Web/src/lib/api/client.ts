@@ -16,9 +16,11 @@ import type {
   DirectorySearchResponse,
   ExpertiseDomainDto,
   InitiativePolicy,
+  MessageResponse,
   PersistentAgentDeploymentResponse,
   PersistentAgentLogsResponse,
   ScalePersistentAgentRequest,
+  SendMessageRequest,
   SetBudgetRequest,
   UnitBoundaryResponse,
   UnitConnectorBindingRequest,
@@ -671,6 +673,20 @@ export const api = {
     unwrap(
       await fetchClient.POST("/api/v1/conversations/{id}/messages", {
         params: { path: { id } },
+        body,
+      }),
+    ),
+  /**
+   * Free-form message send (#985). POSTs to `/api/v1/messages` which
+   * routes through the MessageRouter and, for Domain messages without a
+   * supplied `conversationId`, auto-generates a fresh UUID that's
+   * returned on `MessageResponse.conversationId`. The portal's
+   * "+ New conversation" affordance (#980 item 2) uses this so the user
+   * lands on a brand-new thread after a successful send.
+   */
+  sendMessage: async (body: SendMessageRequest): Promise<MessageResponse> =>
+    unwrap(
+      await fetchClient.POST("/api/v1/messages", {
         body,
       }),
     ),
