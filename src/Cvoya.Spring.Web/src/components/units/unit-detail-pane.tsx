@@ -1,7 +1,13 @@
 "use client";
 
 import { Bot, ChevronRight, Globe, Layers } from "lucide-react";
-import { createElement, useEffect, useId } from "react";
+import {
+  createElement,
+  type KeyboardEvent,
+  useCallback,
+  useEffect,
+  useId,
+} from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -221,11 +227,62 @@ function TabStrip({
   ariaLabel: string;
   testId: string;
 }) {
+  // Automatic-activation keyboard flavour per the WAI-ARIA APG tabs
+  // pattern (https://www.w3.org/WAI/ARIA/apg/patterns/tabs/):
+  //   • ←/→ focus + activate the adjacent tab (wraps at the ends).
+  //   • Home/End focus + activate the first/last tab.
+  //   • Enter/Space are no-ops here (automatic activation already
+  //     selected on focus); we still intercept them so screen readers
+  //     that announce via Enter don't double-fire the click path.
+  //   • Tab/Shift+Tab move focus out of the tablist via the existing
+  //     roving tabIndex prep (inactive tabs carry `-1`).
+  // Activating a tab by keyboard goes through the same `onPick` callback
+  // as clicking, so the URL/state round-trip is identical.
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent<HTMLDivElement>) => {
+      const idx = tabs.indexOf(active);
+      if (idx === -1) return;
+      const n = tabs.length;
+      switch (e.key) {
+        case "ArrowLeft": {
+          e.preventDefault();
+          onPick(tabs[(idx - 1 + n) % n]);
+          return;
+        }
+        case "ArrowRight": {
+          e.preventDefault();
+          onPick(tabs[(idx + 1) % n]);
+          return;
+        }
+        case "Home": {
+          e.preventDefault();
+          onPick(tabs[0]);
+          return;
+        }
+        case "End": {
+          e.preventDefault();
+          onPick(tabs[n - 1]);
+          return;
+        }
+        case "Enter":
+        case " ": {
+          // Automatic activation: focus already selected. Swallow so the
+          // browser doesn't click the tab button a second time (which is
+          // a no-op but causes noisy screen-reader announcements).
+          e.preventDefault();
+          return;
+        }
+      }
+    },
+    [tabs, active, onPick],
+  );
+
   return (
     <div
       role="tablist"
       aria-label={ariaLabel}
       data-testid={testId}
+      onKeyDown={handleKeyDown}
       className="flex items-center gap-1"
     >
       {tabs.map((t) => {
