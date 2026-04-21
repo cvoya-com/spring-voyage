@@ -12,28 +12,22 @@ interface TabPlaceholderProps {
   /** The kind of node the tab belongs to. Drives the placeholder's affordance copy. */
   kind: NodeKind;
   /**
-   * Optional override body. Tabs that ship in a future PR can register a
-   * named, reason-aware placeholder ("Memory write API ships in v2.1") via
-   * the registry while still leaning on this component's chrome.
+   * Optional override body. A tab that needs a reason-aware placeholder
+   * ("Memory write API ships in v2.1") can register a stub component that
+   * wraps this chrome with a hand-written body.
    */
   children?: ReactNode;
   className?: string;
 }
 
 /**
- * Generic empty-state shown when the {@link tabsRegistry} has no entry
- * for the active `(kind, tab)` pair.
+ * Generic empty-state shown when the tab registry has no entry for the
+ * active `(kind, tab)` pair.
  *
- * Foundation issue `FOUND-tabscaffold` ships this component + an empty
- * registry; each `EXP-tab-*` issue then drops a one-line registration in
- * `tabs/index.ts` to replace this fallback. The placeholder's copy is
- * intentionally low-key — operators should never see it in production
- * because every visible tab has a registered component before merge.
- *
- * The component is exported standalone so EXP-tab-* issues that need to
- * stub their tab while waiting on a backend (e.g. memory write, traces
- * API) can re-use the chrome with a hand-written body — see the
- * `<TabPlaceholder>` re-render in `EXP-tab-unit-memory` once that lands.
+ * Operators should not see this copy in production — every visible tab has
+ * a registered component before merge. The component is exported so stub
+ * tabs that are waiting on a backend (memory write, traces API, …) can
+ * re-use the chrome with a hand-written body.
  */
 export function TabPlaceholder({
   tab,

@@ -42,10 +42,9 @@ interface UnitTreeProps {
  * without losing context.
  *
  * Keyboard navigation (arrow keys, Home/End, type-ahead) is intentionally
- * NOT wired in this PR. Per the foundation plan, those handlers ship in
- * `V21-tree-keyboard`; the static ARIA roles here let screen readers pick
- * up the structure today and form the contract the v2.1 keyboard work
- * will fulfil.
+ * NOT wired yet. The static ARIA roles here let screen readers pick up
+ * the structure today and form the contract a future keyboard-navigation
+ * pass will fulfil.
  */
 export function UnitTree({
   tree,
@@ -121,10 +120,9 @@ function TreeRow({
         data-kind={node.kind}
         data-status={node.status}
         onClick={() => onSelect(node.id)}
-        // Indentation is driven by aria-level — the inline style mirrors
-        // the design kit's 14px-per-level rule. Padded with 8px on the
-        // outside so the twisty has a comfortable hit target on the very
-        // first level.
+        // Indentation is driven by aria-level: 14px per level, plus 8px
+        // outside padding so the twisty has a comfortable hit target on
+        // the very first level.
         style={{ paddingLeft: 8 + depth * 14 }}
         className={cn(
           "group flex h-7 cursor-pointer items-center gap-1.5 rounded-md pr-2 text-xs transition-colors",

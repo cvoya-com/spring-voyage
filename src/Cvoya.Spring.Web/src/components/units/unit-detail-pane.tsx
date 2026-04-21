@@ -79,9 +79,8 @@ export function DetailPane({
   const panelId = `${idPrefix}-panel-${tabSlug(activeTab)}`;
 
   // The registry returns `null` when no per-tab component has been
-  // registered (the foundation PR ships zero registrations on purpose).
-  // Fall through to the generic `<TabPlaceholder>` so the pane still
-  // renders sensibly.
+  // registered; fall through to the generic `<TabPlaceholder>` so the
+  // pane still renders sensibly.
   //
   // `createElement` is used instead of `<TabComponent />` because the
   // `react-hooks/static-components` lint rule disallows capital-cased

@@ -99,9 +99,9 @@ export function TabChip({
       data-testid={`card-tab-chip-${tab.toLowerCase()}`}
       data-tab={tab}
       className={cn(
-        // Mirrors the design kit's `pv-btn ghost icon` rule: 28×28 hit
-        // target, ghost surface, accent on hover, focus ring picks up the
-        // brand colour via the Tailwind `--color-ring` token.
+        // 28×28 ghost icon button: ghost surface, accent on hover, focus
+        // ring picks up the brand colour via the Tailwind `--color-ring`
+        // token.
         "inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         className,
       )}

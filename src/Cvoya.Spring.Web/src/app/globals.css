@@ -32,7 +32,7 @@
  * --------------------------------------------------------------------------- */
 
 @theme {
-  /* ---- Tailwind colour palette (existing portal API — DO NOT rename) ---- */
+  /* ---- Tailwind colour palette (DO NOT rename — consumed across the portal) ---- */
   --color-background: #09090b;
   --color-foreground: #fafafa;
   --color-card: #0a0a0f;
@@ -53,9 +53,9 @@
   --color-ring: #3b82f6;
   --color-success: #22c55e;
   --color-warning: #eab308;
-  /* `--color-info` and `--color-debug` are new. Activity rows + log feeds
-   * grade severity beyond ok/warn/error; keeping them in the token namespace
-   * (instead of inline hexes) lets light-theme overrides relocate them. */
+  /* Activity rows + log feeds grade severity beyond ok/warn/error; keeping
+   * `info` and `debug` in the token namespace (instead of inline hexes) lets
+   * light-theme overrides relocate them. */
   --color-info: #3b82f6;
   --color-debug: #a1a1aa;
 
@@ -399,13 +399,12 @@ pre {
   border-radius: 3px;
 }
 
-/* Respect `prefers-reduced-motion` for every in-portal animation
- * (§ 7 of `docs/design/portal-exploration.md`). Includes Tailwind's
- * `animate-spin` (refresh buttons) and `animate-in slide-in-from-*`
- * (toasts / drawers / dialogs) utilities plus our own `transition-*`
- * classes. Setting the duration to a hair under 1ms instead of 0 keeps
- * `transitionend` listeners firing so React state machines that wait
- * for a transition don't hang. */
+/* Respect `prefers-reduced-motion` for every in-portal animation.
+ * Includes Tailwind's `animate-spin` (refresh buttons) and
+ * `animate-in slide-in-from-*` (toasts / drawers / dialogs) utilities
+ * plus our own `transition-*` classes. Setting the duration to a hair
+ * under 1ms instead of 0 keeps `transitionend` listeners firing so React
+ * state machines that wait for a transition don't hang. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

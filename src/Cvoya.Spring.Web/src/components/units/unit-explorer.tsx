@@ -38,25 +38,17 @@ interface UnitExplorerProps {
 
 /**
  * Two-pane Explorer surface — tree on the left, detail on the right.
- * Canonical `/units` route per the v2 plan §3 (Information Architecture).
+ * The canonical `/units` route mounts this component.
  *
- * The explorer is fully controllable via `selectedId` + `tab` so the
- * `EXP-route` issue can wire it to URL-driven state (`?node=…&tab=…`)
- * without forking. When `selectedId` is omitted the component manages
- * selection internally so dialogs / mock mounts keep working without
- * router wiring.
+ * The explorer is fully controllable via `selectedId` + `tab` so callers
+ * can wire URL-driven state (`?node=…&tab=…`) without forking. When
+ * `selectedId` is omitted the component manages selection internally so
+ * dialogs / mock mounts keep working without router wiring.
  *
- * Data shape, search semantics, and tab content come from sibling
- * issues:
- *   - `EXP-search`        adds the live tree-filter search.
- *   - `EXP-route`         wires URL ⇄ component state.
- *   - `EXP-tab-*`         registers per-tab content via the registry in
- *                         `units/tabs/index.ts`.
- *   - `V21-tree-keyboard` adds arrow-key navigation to the tree.
- *
- * Foundation `FOUND-explorer` ships the layout, ARIA tree roles, the
- * detail-pane chrome, and a placeholder body so the surface is testable
- * end-to-end before the data + tabs land.
+ * Per-tab content is registered via the shared registry in
+ * `units/tabs/index.ts`; an unregistered `(kind, tab)` pair falls through
+ * to `<TabPlaceholder>` so the surface is testable end-to-end even before
+ * every tab body lands.
  */
 export function UnitExplorer({
   tree,
@@ -90,9 +82,9 @@ export function UnitExplorer({
     [controlledSelectedId, onSelectProp],
   );
 
-  // EXP-cmdk-bridge: register `setSelected` with the shell-level
-  // selection bridge so the command palette can teleport the Explorer
-  // without a router round-trip. The bridge is a no-op outside an
+  // Register `setSelected` with the shell-level selection bridge so the
+  // command palette can teleport the Explorer without a router
+  // round-trip. The bridge is a no-op outside an
   // `<ExplorerSelectionProvider>`, so isolated component tests that
   // don't wrap the provider still work.
   const { registerListener } = useExplorerSelection();
@@ -108,9 +100,9 @@ export function UnitExplorer({
     [selectedId, onTabChange],
   );
 
-  // Search input lives in component state for now (the FOUND PR ships the
-  // affordance with no filtering wired). `EXP-search` replaces this with
-  // a fuzzy-match filter that hides non-matching nodes while keeping
+  // Search input lives in component state for now — the affordance is
+  // wired but the filter itself is not yet connected. The eventual
+  // fuzzy-match filter will hide non-matching nodes while keeping
   // ancestors visible so the tree stays navigable mid-search.
   const [query, setQuery] = useState("");
 

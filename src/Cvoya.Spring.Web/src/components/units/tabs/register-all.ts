@@ -2,13 +2,9 @@
 //
 // Each per-tab module registers itself at module top-level via
 // `registerTab(...)`. Importing this file once from the Explorer
-// route (`src/app/units/page.tsx`) wires every v2 tab into the
-// shared registry. Keeping the side-effect imports concentrated
-// here means individual tab bundles stay lazy until the Explorer
-// actually loads.
-//
-// Umbrella: #815. Per-tab issues: EXP-tab-unit-*, EXP-tab-agent-*,
-// EXP-tab-tenant.
+// route (`src/app/units/page.tsx`) wires every tab into the shared
+// registry. Keeping the side-effect imports concentrated here means
+// individual tab bundles stay lazy until the Explorer actually loads.
 
 // Unit tabs
 import "./unit-overview";
