@@ -18,7 +18,7 @@ github      GitHub         2026-04-20T05:30:12Z   2026-04-20T05:30:12Z
 websearch   Web Search     2026-04-20T05:30:12Z   2026-04-20T05:30:12Z
 ```
 
-`list` reads tenant-installed rows; on a fresh deployment that's every registered connector. For the full catalog of connector _types_ known to the host (installed or not), use `spring connector catalog` — that's the wizard's chooser surface.
+`list` reads tenant-installed rows; on a fresh deployment that's every registered connector. `spring connector catalog` returns the same install-scoped list — both verbs render exactly what the portal's connector chooser shows. Connector types registered with the host but **not** installed on the current tenant are intentionally invisible from both surfaces.
 
 Pipe through `-o json` for script-friendly output.
 
@@ -42,12 +42,14 @@ Install is idempotent. The CLI does not take typed config flags — each connect
 
 Per-unit config — the GitHub repo, organisation, webhook events — is set via `spring connector bind --unit <name> --type github ...`, **not** via this tenant-install verb.
 
-**Unknown slug** → `spring` exits 1 with: `Connector '<slug>' is not registered.` Valid slugs match projects under `src/Cvoya.Spring.Connector.*` in the host; `spring connector catalog` prints the full list.
+**Unknown slug** → `spring` exits 1 with: `Connector '<slug>' is not registered.` Valid slugs match projects under `src/Cvoya.Spring.Connector.*` in the host. `spring connector catalog` only lists what's already installed on the tenant, so for the registered superset inspect the source tree (or hit the host's DI registry directly while debugging).
 
 ## Checking credential health
 
+> **Validation rework in flight — [#941](https://github.com/cvoya-com/spring-voyage/issues/941).** The same dispatcher-side, in-container validation rework that affects agent-runtime credentials applies here: today's accept-time `validate-credential` runs on the API host, which can produce host-vs-container drift. The use-time watchdog half of this section stays as-is.
+
 The credential-health store feeds two paths:
-- **Accept-time validation** — hitting `POST /api/v1/connectors/{slug}/validate-credential` writes the outcome.
+- **Accept-time validation** — hitting `POST /api/v1/connectors/{slug}/validate-credential` writes the outcome. Subject to the rework banner above.
 - **Use-time watchdog** — HTTP middleware on the connector's outbound clients watches for 401/403 responses and updates the row (`401→Invalid`, `403→Revoked`). Other statuses don't flap the row.
 
 ```
@@ -95,5 +97,5 @@ Add `--force` to skip the prompt in scripts. Uninstall is soft-delete: re-instal
 ## See also
 
 - [Agent Runtimes operator guide](agent-runtimes.md) — parallel guide for per-tenant agent-runtime installs.
-- [Architecture: Agent Runtimes & Tenant Scoping](../architecture/agent-runtimes-and-tenant-scoping.md) — plugin model, credential-health state machine.
-- [Per-unit connector binding](../guide/units-and-agents.md) — wiring a unit to an installed connector.
+- [Architecture: Agent Runtimes & Tenant Scoping](../../architecture/agent-runtimes-and-tenant-scoping.md) — plugin model, credential-health state machine.
+- [Per-unit connector binding](../units-and-agents.md) — wiring a unit to an installed connector.

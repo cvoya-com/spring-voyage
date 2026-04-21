@@ -10,7 +10,7 @@
  * credential validation) ships through the `spring agent-runtime …`
  * CLI per the AGENTS.md carve-out.
  *
- * Cross-reference: `docs/user-guide/agent-runtimes.md` covers the CLI
+ * Cross-reference: `docs/guide/operator/agent-runtimes.md` covers the CLI
  * workflows the "Operator guide" link deep-links into.
  */
 
@@ -45,7 +45,7 @@ export default function AgentRuntimesAdminPage() {
 
       <CliCallout
         cliCommand="spring agent-runtime"
-        docsHref="/docs/user-guide/agent-runtimes.md"
+        docsHref="/docs/guide/operator/agent-runtimes.md"
         docsLabel="Operator guide"
       />
 

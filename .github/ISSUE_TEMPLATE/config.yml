@@ -1,11 +1,11 @@
 blank_issues_enabled: true
 contact_links:
   - name: Roadmap
-    url: https://github.com/savasp/spring-voyage/blob/main/docs/roadmap.md
-    about: Check the roadmap to see planned features and their OSS/Private split.
-  - name: Architecture Plan
-    url: https://github.com/savasp/spring-voyage/blob/main/docs/SpringVoyage-v2-plan.md
-    about: Full technical specification for Spring Voyage V2.
-  - name: Design Decisions
-    url: https://github.com/savasp/spring-voyage/blob/main/docs/design-decisions.md
+    url: https://github.com/cvoya-com/spring-voyage/blob/main/docs/roadmap/README.md
+    about: Forward-looking narrative about Spring Voyage; live progress lives on the V2 / V2.1 milestones.
+  - name: Architecture
+    url: https://github.com/cvoya-com/spring-voyage/blob/main/docs/architecture/README.md
+    about: Architecture index for Spring Voyage V2.
+  - name: Decision Records
+    url: https://github.com/cvoya-com/spring-voyage/blob/main/docs/decisions/README.md
     about: The "why" behind major architectural choices.

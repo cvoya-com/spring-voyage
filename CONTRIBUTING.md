@@ -42,7 +42,7 @@ Don't create a new release section in the changelog. Maintainers move entries fr
 All PRs require review before merging. Reviewers check:
 - Adherence to [CONVENTIONS.md](CONVENTIONS.md)
 - Test coverage
-- Architecture alignment with [the plan](docs/SpringVoyage-v2-plan.md)
+- Architecture alignment with [the architecture index](docs/architecture/README.md) and the [decision records](docs/decisions/README.md)
 - No breaking changes to Core interfaces without discussion
 
 ## Contributor License Agreement (CLA)
@@ -70,9 +70,9 @@ All conventions are in [CONVENTIONS.md](CONVENTIONS.md). Key points:
 ## Architecture
 
 - [Concepts](docs/concepts/overview.md) — the mental model
-- [Architecture](docs/architecture/overview.md) — how it's built
-- [Design Decisions](docs/design-decisions.md) — the "why"
-- [Roadmap](docs/roadmap.md) — phased plan with OSS/Private split
+- [Architecture](docs/architecture/README.md) — how it's built
+- [Decision Records](docs/decisions/README.md) — the "why" behind the major architectural choices
+- [Roadmap](docs/roadmap/README.md) — forward-looking narrative; live progress lives on the V2 / V2.1 milestones
 - [Releases and Versioning](docs/developer/releases.md) — SemVer, release process, CI/CD
 
 ## Labels
@@ -82,6 +82,5 @@ All conventions are in [CONVENTIONS.md](CONVENTIONS.md). Key points:
 | `bug` | Something is broken |
 | `enhancement` | New feature or improvement |
 | `oss-interface` | New interface/extension point |
-| `phase-1` through `phase-6` | Roadmap phase |
 | `breaking-change` | Requires coordinated updates |
 | `good first issue` | Suitable for new contributors |

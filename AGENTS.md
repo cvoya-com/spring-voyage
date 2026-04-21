@@ -42,8 +42,8 @@ This is the **public, open-source core** of the Spring Voyage platform. A privat
 
 The private repo extends the OSS platform through dependency injection:
 
-- **Tenant-scoped wrappers** around OSS repositories and services (the OSS codebase has no concept of tenants or `TenantId`)
-- **DI overrides** — the cloud host replaces OSS service registrations with tenant-aware implementations
+- **Tenant-aware overrides** — the OSS core models tenancy as a single contract (`ITenantContext` in `Cvoya.Spring.Core/Tenancy`) and ships a static, single-tenant implementation that reads `Secrets:DefaultTenantId` (defaulting to `"default"`). The cloud host swaps in a scoped implementation that resolves the tenant from the request principal; OSS code must not assume tenancy is unused or hardcode the default tenant id.
+- **DI overrides** — the cloud host replaces OSS service registrations with tenant-aware implementations and layers tenant middleware on top of the API host
 - **Additional actors, strategies, and connectors** that compose OSS building blocks
 - **Plugin contracts** — implement `IAgentRuntime` (LLM backend + execution tool + credential schema + model catalog) or `IConnectorType` (external-system binding) and register with `TryAdd*`; the host picks new implementations up via DI without any core code change. Each agent runtime ships as its own `Cvoya.Spring.AgentRuntimes.<Name>` project that references `Cvoya.Spring.Core` only, exposes a single `AddCvoyaSpringAgentRuntime<Name>()` DI extension, and bundles a seed catalogue at `agent-runtimes/<id>/seed.json` (see the built-in runtimes table below)
 - **Cloud API host** that layers middleware (auth, tenant context) on top of the OSS API host
@@ -64,7 +64,7 @@ The private repo extends the OSS platform through dependency injection:
 
 ### What NOT to Do
 
-- **Don't reference tenant concepts.** No `TenantId`, no multi-tenancy awareness. The private repo layers that on.
+- **Don't bypass `ITenantContext`.** Resolve the current tenant through `ITenantContext.CurrentTenantId`; never hardcode `"default"` or assume only one tenant exists. New persisted entities that should be tenant-scoped must implement `ITenantScopedEntity` so the cloud host can enforce isolation through its scoped overrides.
 - **Don't make services static or use singletons outside DI.** Everything must go through the container so the private repo can control lifetime and scoping.
 - **Don't create internal types that the private repo would need to access.** If a type is part of the extension contract, make it `public`. Use `internal` only for true implementation details.
 

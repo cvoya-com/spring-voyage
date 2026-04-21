@@ -14,7 +14,7 @@ Manage tenant-scoped agent runtime installs.
 $ spring agent-runtime list
 ```
 
-Lists every agent runtime installed on the current tenant. Distinct from "everything the host can serve" — use the host's registered package list if you need the superset.
+Lists every agent runtime installed on the current tenant. Distinct from "everything the host can serve" — to inspect the registered superset, hit `GET /api/v1/agent-runtimes` directly (or query the DI registry from a debug session).
 
 ### `show <id>`
 
@@ -79,14 +79,11 @@ claude / default → Valid (last checked 2026-04-20 09:03:12Z)
 
 Reads the shared credential-health store. 404 means no validation has been recorded — run the wizard's validate button or hit `POST /api/v1/agent-runtimes/{id}/validate-credential` directly to prime the row. Pass `--secret-name` for multi-credential runtimes.
 
-### `verify-baseline <id>`
+> **Validation rework — [#941](https://github.com/cvoya-com/spring-voyage/issues/941).** The accept-time `POST /validate-credential` endpoint runs host-side today, which means it probes whatever is installed on the API host instead of the chosen container image. Issue #941 moves validation behind a new `Validating` unit status, with image-pull / tool-verify / credential-validate / model-resolve probes executed dispatcher-side inside the chosen image, and a `/revalidate` endpoint plus `spring unit revalidate` verb for retries. When that lands, this row is fed by the new `RuntimeProbeActor`; the `credential-health` shape stays compatible.
 
-```
-$ spring agent-runtime verify-baseline claude
-Runtime 'claude' baseline: OK
-```
+### Baseline verification (HTTP only)
 
-Invokes the runtime's `VerifyContainerBaselineAsync`. Failures print one error per line and exit 1. Runtimes with no host-side tooling pass trivially.
+There is no `spring agent-runtime verify-baseline` CLI verb. Container-baseline checks are exposed as `POST /api/v1/agent-runtimes/{id}/verify-baseline`, which invokes the runtime's `VerifyContainerBaselineAsync` and returns the structured result. Operators typically run it from the wizard or via `curl` while debugging an image; runtimes with no host-side tooling pass trivially.
 
 ### `refresh-models <id> [--credential <value>]`
 
@@ -118,7 +115,7 @@ Manage tenant-scoped connector installs (alongside the existing per-unit binding
 $ spring connector list
 ```
 
-Tenant-installed connectors. For the registry superset (installed or not), use `spring connector catalog`.
+Tenant-installed connectors. `spring connector catalog` returns the same install-scoped list — both verbs render exactly what the portal shows in its connector chooser. Connector types registered with the host but **not** installed on the current tenant are intentionally invisible from both surfaces; inspect the DI registry directly if you need that superset.
 
 ### `show <slugOrId>`
 
@@ -161,12 +158,11 @@ Reads the shared credential-health store. For connectors without auth (Arxiv, We
 
 Orthogonal to the tenant-install surface:
 
-- `spring connector catalog` — every connector type known to the host.
 - `spring connector unit-binding --unit <name>` — show a unit's active binding.
 - `spring connector bind --unit <name> --type <slug> ...` — bind a unit (and set typed config).
 - `spring connector bindings <slug>` — units bound to a connector type.
 
-These predate the tenant-install surface and work for units whose tenant has the connector installed.
+These predate the tenant-install surface and work for units whose tenant has the connector installed. (`spring connector catalog`, despite its historical name, also lives here only as a tenant-install listing — see `list` above.)
 
 ## Top scenarios
 
@@ -174,7 +170,7 @@ These predate the tenant-install surface and work for units whose tenant has the
 2. **Add a new Claude model to the tenant.** `spring agent-runtime models add claude claude-opus-4-2`.
 3. **Reconcile the tenant's list with what the provider currently publishes.** `spring agent-runtime refresh-models openai --credential sk-proj-…` (closes #720 — replaces the refresh-script).
 4. **Retire a model from the catalog.** `spring agent-runtime models remove openai gpt-4o-mini` (existing units keep their pinned id per #674's pass-through rule).
-5. **Verify Claude CLI is on PATH in this image.** `spring agent-runtime verify-baseline claude`.
+5. **Verify Claude CLI is on PATH in this image.** `curl -X POST $SPRING_API/api/v1/agent-runtimes/claude/verify-baseline` (no CLI verb yet).
 6. **Install Ollama with a custom node URL.** `spring agent-runtime install ollama --base-url http://ollama.internal:11434`.
 7. **Hide OpenAI from a tenant.** `spring agent-runtime uninstall openai --force`.
 8. **Re-enable OpenAI later.** `spring agent-runtime install openai` — install is upsert-shaped; prior config is preserved where possible.
@@ -184,6 +180,6 @@ These predate the tenant-install surface and work for units whose tenant has the
 
 ## See also
 
-- [Agent Runtimes operator guide](user-guide/agent-runtimes.md) — prose walkthroughs for every verb.
-- [Connectors operator guide](user-guide/connectors.md) — prose walkthroughs for connector verbs.
+- [Agent Runtimes operator guide](guide/operator/agent-runtimes.md) — prose walkthroughs for every verb.
+- [Connectors operator guide](guide/operator/connectors.md) — prose walkthroughs for connector verbs.
 - [Architecture: Agent Runtimes & Tenant Scoping](architecture/agent-runtimes-and-tenant-scoping.md) — the plugin model these verbs manipulate.

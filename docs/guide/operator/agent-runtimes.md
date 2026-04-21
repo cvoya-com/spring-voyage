@@ -86,8 +86,10 @@ Supported keys: `defaultModel`, `baseUrl`. The model list is managed via `models
 
 ## Checking credential health
 
+> **Validation rework in flight — [#941](https://github.com/cvoya-com/spring-voyage/issues/941).** Today's accept-time validation runs host-side, which means probe outcomes depend on what the API host has installed (the wizard surfaces this as a leaky error in some cases — see #931 / PR #932). #941 moves validation onto the dispatcher and runs every probe inside the chosen container image, behind a new `Validating` unit status, with image-pull / tool-verify / credential-validate / model-resolve steps. When it lands, the `credential-health` row this guide reads is populated by the new `RuntimeProbeActor`; the operator-facing CLI shape (`spring agent-runtime credentials status`) stays compatible. Treat the watchdog half of this section as already accurate; treat the accept-time half as describing the surface that's about to be replaced.
+
 The credential-health store is fed by two paths:
-- **Accept-time validation** — the wizard's "Validate credential" button writes the full outcome (success flips `Valid`, 401 flips `Invalid`).
+- **Accept-time validation** — the wizard's "Validate credential" button writes the full outcome (success flips `Valid`, 401 flips `Invalid`). Subject to the rework banner above.
 - **Use-time watchdog** — HTTP middleware on the runtime's outbound clients watches for 401/403 responses and updates the row (`401→Invalid`, `403→Revoked`). Other statuses don't flap the row.
 
 ```
@@ -107,22 +109,19 @@ A 404 means no validation has been recorded yet — run the wizard's validate bu
 
 ## Verifying the container baseline
 
-Some runtimes need host-side tooling (e.g. the `claude` CLI on PATH). The runtime publishes its checklist via `IAgentRuntime.VerifyContainerBaselineAsync`; the CLI surfaces it:
+Some runtimes need host-side tooling (e.g. the `claude` CLI on PATH). The runtime publishes its checklist via `IAgentRuntime.VerifyContainerBaselineAsync`. There is no `spring agent-runtime verify-baseline` CLI verb yet — invoke the underlying HTTP endpoint directly when debugging an image:
 
 ```
-$ spring agent-runtime verify-baseline claude
-Runtime 'claude' baseline: OK
+$ curl -sS -X POST "$SPRING_API/api/v1/agent-runtimes/claude/verify-baseline" \
+       -H "Authorization: Bearer $SPRING_TOKEN" | jq
+{
+  "runtimeId": "claude",
+  "passed": true,
+  "errors": []
+}
 ```
 
-Failures print a bullet list of human-readable errors and exit 1:
-
-```
-$ spring agent-runtime verify-baseline claude
-Runtime 'claude' baseline: FAILED
-  - 'claude' CLI was not found on PATH (expected for ToolKind=claude-code-cli)
-```
-
-Runtimes that need no host-side tooling (the OpenAI-compatible set) pass trivially.
+A failing baseline returns `passed: false` with one structured error per missing prerequisite (for example, "'claude' CLI was not found on PATH"). Runtimes that need no host-side tooling (the OpenAI-compatible set) pass trivially.
 
 ## Refreshing the model catalog from the provider
 
@@ -160,7 +159,7 @@ Add `--force` to skip the prompt in scripts. Uninstall is soft-delete: re-instal
 ## Troubleshooting
 
 - **`validate-credential` returns `NetworkError`.** The runtime could not reach its backing service. `credentials status` will show the previous value (or `Unknown`) — the watchdog does not flap the row on transport failures. Check the container's outbound connectivity and rerun the wizard's validate button.
-- **`verify-baseline` reports a missing binary.** The runtime expects a host tool that isn't in this container image. Rebuild with the tool installed, or switch to a runtime that uses `dapr-agent` (no host binary required).
+- **`verify-baseline` reports a missing binary.** The runtime expects a host tool that isn't in this container image. Rebuild with the tool installed, or switch to a runtime that uses `dapr-agent` (no host binary required). The endpoint is `POST /api/v1/agent-runtimes/{id}/verify-baseline`.
 - **`credentials status` returns 404.** No validation row has been recorded for this (runtime, secret). Run the wizard's validate button once to prime the row, or if you're calling the HTTP API directly, hit `POST /api/v1/agent-runtimes/{id}/validate-credential`.
 - **`install` silently "succeeds" but `list` doesn't show the runtime.** Confirm the runtime package is registered in `src/Cvoya.Spring.Host.Api/Program.cs` (`AddCvoyaSpringAgentRuntime<Name>()` call); install writes to the current tenant only.
 - **A model you pinned is missing from the wizard dropdown.** Re-check `models list <id>`. If the model is present in the list but absent in the wizard, check that the portal is refreshed (the wizard caches the model list per session).
@@ -168,5 +167,5 @@ Add `--force` to skip the prompt in scripts. Uninstall is soft-delete: re-instal
 ## See also
 
 - [Connector operator guide](connectors.md) — parallel guide for per-tenant connector installs.
-- [Architecture: Agent Runtimes & Tenant Scoping](../architecture/agent-runtimes-and-tenant-scoping.md) — plugin model, install lifecycle, credential-health state machine.
+- [Architecture: Agent Runtimes & Tenant Scoping](../../architecture/agent-runtimes-and-tenant-scoping.md) — plugin model, install lifecycle, credential-health state machine.
 - Tracker issue [#674](https://github.com/cvoya-com/spring-voyage/issues/674) — the refactor this surface ships with.

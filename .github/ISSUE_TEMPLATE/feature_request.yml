@@ -22,7 +22,7 @@ body:
     id: roadmap-phase
     attributes:
       label: Roadmap Phase
-      description: Which phase does this belong to? See docs/roadmap.md.
+      description: Which phase does this belong to? See docs/roadmap/README.md.
       options:
         - "Phase 1: Platform Foundation"
         - "Phase 2: Observability + Multi-Human"
@@ -68,7 +68,7 @@ body:
       label: Proposed Design
       description: |
         How should this work? Include interfaces, types, or patterns if applicable.
-        Reference the architecture plan (docs/SpringVoyage-v2-plan.md) where relevant.
+        Reference the architecture docs (docs/architecture/README.md) and decision records (docs/decisions/README.md) where relevant.
     validations:
       required: false
 

@@ -1,6 +1,6 @@
 # Decision Records
 
-Short, dated records of decisions that lock in a specific trade-off — kept alongside the code so the reasoning survives contributor churn. These are intentionally narrow: one decision per file, one page per decision, with explicit revisit criteria when the decision is time-bound.
+Short, dated records of decisions that lock in a specific trade-off — kept alongside the code so the reasoning survives contributor churn. The lower-numbered records (0001–0014) capture narrow per-feature trade-offs that arrived alongside specific PRs / issues; the 0015+ block captures the foundational platform-stack decisions that frame everything else.
 
 Use these when:
 
@@ -8,7 +8,7 @@ Use these when:
 - The reasoning ("why not the obvious alternative?") will otherwise be forgotten.
 - The decision is deferred pending an ecosystem signal — the record captures the trigger conditions.
 
-For the high-level architectural "why" behind the platform as a whole, see [`../design-decisions.md`](../design-decisions.md). For open design questions that have **not** yet been decided, see [`../architecture/open-questions.md`](../architecture/open-questions.md).
+For open design questions that have **not** yet been decided, see [`../architecture/open-questions.md`](../architecture/open-questions.md).
 
 ## Index
 
@@ -28,6 +28,15 @@ For the high-level architectural "why" behind the platform as a whole, see [`../
 | [0012](0012-spring-dispatcher-service-extraction.md) | Extract container-runtime ownership into `spring-dispatcher` | Accepted — HTTP-fronted service; worker binds `DispatcherClientContainerRuntime` |
 | [0013](0013-hierarchy-aware-permission-resolution.md) | Hierarchy-aware permission resolution (inherit-by-default, nearest-grant-wins, fail-closed) | Accepted — `UnitPermissionInheritance` flag, `Isolated` opt-out |
 | [0014](0014-skill-invoker-seam.md) | `ISkillInvoker` seam between skill callers and the router | Accepted — protocol-agnostic seam; default routes via `IMessageRouter` |
+| [0015](0015-dapr-as-infrastructure-runtime.md) | Dapr as the infrastructure runtime for actors / pub-sub / state / workflows | Accepted — pluggable backends, virtual actors, sidecar pattern |
+| [0016](0016-net-for-infrastructure-layer.md) | .NET 10 / C# for the platform infrastructure layer | Accepted — type safety where it matters, mature Dapr SDK, language-agnostic agents |
+| [0017](0017-unit-is-an-agent-composite.md) | A Unit IS an Agent (composite pattern) | Accepted — recursive composition, single dispatch path |
+| [0018](0018-partitioned-mailbox.md) | Three-channel partitioned mailbox per agent (control / conversation / observation) | Accepted — platform-controlled priority by `MessageType` |
+| [0019](0019-workflow-as-container.md) | Domain workflows run as containers, not in-process | Accepted — decoupled releases, in-flight safety |
+| [0020](0020-tiered-cognition-for-initiative.md) | Two-tier cognition model for initiative | Accepted — Tier 1 screens, Tier 2 reflects only on `Act` verdicts |
+| [0021](0021-spring-voyage-is-not-an-agent-runtime.md) | Spring Voyage is not an agent runtime | Accepted — coordinate external runtimes, no in-platform tool-use loop |
+| [0022](0022-postgres-as-primary-store.md) | PostgreSQL as primary store; Dapr state store for actor runtime state | Accepted — relational data via EF Core; actor state via Dapr abstraction |
+| [0023](0023-flat-actor-ids.md) | Flat actor ids; single-hop routing with directory resolution | Accepted — O(path) permission walk, single dispatch hop |
 
 ## Format
 

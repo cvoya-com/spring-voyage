@@ -4,7 +4,8 @@ These conventions ensure that code from parallel agents merges cleanly. All agen
 
 ## Architecture Reference
 
-- **Architecture plan:** `docs/SpringVoyage-v2-plan.md` — the source of truth for all design decisions
+- **Architecture index:** [`docs/architecture/README.md`](docs/architecture/README.md) — the canonical entry point for the platform's architecture documents
+- **Decision records:** [`docs/decisions/README.md`](docs/decisions/README.md) — the "why" behind the major design choices
 - **Namespace root:** `Cvoya.Spring.*`
 - **Target framework:** .NET 10
 - **Runtime:** Dapr sidecar pattern

@@ -37,7 +37,7 @@ The strategy can be swapped independently of the unit's identity -- for example,
 
 ### AI-Orchestrated Routing
 
-When a unit uses the AI-orchestrated strategy, Spring Voyage makes a single lightweight LLM call (no tool loop — see [Why Spring Voyage Is Not an Agent Runtime](../design-decisions.md)) to decide which member should receive the incoming message. The LLM sees the message plus the unit's member directory and returns a target address. The member then runs in its own execution environment as usual.
+When a unit uses the AI-orchestrated strategy, Spring Voyage makes a single lightweight LLM call (no tool loop — see [ADR 0021 — Spring Voyage is not an agent runtime](../decisions/0021-spring-voyage-is-not-an-agent-runtime.md)) to decide which member should receive the incoming message. The LLM sees the message plus the unit's member directory and returns a target address. The member then runs in its own execution environment as usual.
 
 For workflow-based orchestration, the unit delegates to a workflow container that drives the sequence and may invoke agents as activities.
 

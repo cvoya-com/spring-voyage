@@ -23,7 +23,7 @@ The agent actor monitors the execution environment via streaming events and coll
 
 For non-agentic platform needs — routing decisions, classification, summarisation — Spring Voyage makes lightweight LLM calls directly (no tool loop) via `IAiProvider`. These are utilities internal to the platform, not an agent execution model.
 
-See [Why Spring Voyage Is Not an Agent Runtime](../design-decisions.md) for the rationale.
+See [ADR 0021 — Spring Voyage is not an agent runtime](../decisions/0021-spring-voyage-is-not-an-agent-runtime.md) for the rationale.
 
 ## Agent Lifecycle
 

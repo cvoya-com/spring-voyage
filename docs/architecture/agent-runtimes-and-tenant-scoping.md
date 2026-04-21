@@ -69,7 +69,7 @@ The filter lives on `SpringDbContext.OnModelCreating` rather than the per-entity
 
 **HTTP surface.** `/api/v1/agent-runtimes/…` — `GET /` (tenant list), `GET /{id}`, `GET /{id}/models`, `POST /{id}/install`, `DELETE /{id}`, `PATCH /{id}/config`, `POST /{id}/validate-credential`, `GET /{id}/credential-health`, `POST /{id}/verify-baseline`. Every route requires auth.
 
-**CLI surface.** `spring agent-runtime list / show / install / uninstall / models list/set/add/remove / config set / credentials status / verify-baseline`. CLI-only admin surface per the #674 carve-out — the portal may render read-only banners but mutation goes through the CLI.
+**CLI surface.** `spring agent-runtime list / show / install / uninstall / models list/set/add/remove / config set / credentials status / refresh-models`. CLI-only admin surface per the #674 carve-out — the portal may render read-only banners but mutation goes through the CLI. Container-baseline verification is HTTP-only today (`POST /api/v1/agent-runtimes/{id}/verify-baseline`); a `spring agent-runtime verify-baseline` verb is a tracked follow-up.
 
 ## Connector plugin model
 
@@ -77,10 +77,13 @@ Connectors existed before V2 (`IConnectorType` in `Cvoya.Spring.Connectors.Abstr
 
 - **Per-tenant install table** — `tenant_connector_installs (tenant_id, connector_id, config_json, installed_at, updated_at)`. `connector_id` is the connector `Slug`. `ConnectorInstallConfig` wraps an opaque `JsonElement?` because each connector's tenant-level config shape is its own concern.
 - **Credential hooks on `IConnectorType`** — optional default-`null` `ValidateCredentialAsync` + `VerifyContainerBaselineAsync` overrides. Connectors that don't carry auth (Arxiv, WebSearch) inherit the no-op; connectors that do (GitHub) override.
-- **HTTP surface** — `/api/v1/connectors/installed`, `/{slugOrId}/install`, `DELETE /{slugOrId}/install`, `POST /{slugOrId}/install`, `PATCH /{slugOrId}/install/config`, `POST /{slugOrId}/validate-credential`, `GET /{slugOrId}/credential-health`. The legacy `GET /api/v1/connectors` (list registered types) stays; a semantic pivot to list tenant-installed only is tracked as a follow-up.
-- **CLI surface** — `spring connector list / show / install / uninstall / credentials status` (tenant install) alongside the existing per-unit `catalog / unit-binding / bind / bindings` verbs.
+- **HTTP surface** — `GET /api/v1/connectors` already returns the tenant-installed list (the same data that backs the portal's connector chooser); `GET /{slugOrId}`, `POST /{slugOrId}/install`, `DELETE /{slugOrId}/install`, `PATCH /{slugOrId}/install/config`, `POST /{slugOrId}/validate-credential`, `GET /{slugOrId}/credential-health`. There is no separate `/installed` collection — the install scope is the catalog. The full registered superset is no longer surfaced over HTTP; inspect the DI registry from a debug session if you need it.
+- **CLI surface** — `spring connector list / show / install / uninstall / credentials status` (tenant install) alongside the existing per-unit `catalog / unit-binding / bind / bindings` verbs. `catalog` is currently a synonym of `list` (tenant-installed only) and shares the portal's chooser data.
 
 ## Credential-health lifecycle
+
+> **In-flight rework — [#941](https://github.com/cvoya-com/spring-voyage/issues/941).** The accept-time half of this lifecycle moves onto the dispatcher and runs validation **inside the chosen container image**, behind a new `Validating` unit status with four probe steps (`PullingImage` → `VerifyingTool` → `ValidatingCredential` → `ResolvingModel`). `IRuntimeProbeActor` and `RuntimeProbeActor` replace the host-side path; `UnitCreationService` is refactored to dispatch validation rather than run it inline; a `/units/{name}/revalidate` endpoint and `spring unit revalidate` verb provide the retry surface. The use-time watchdog described below is unaffected. When #941 lands, the diagram's `RecordAsync` writer for the accept-time path becomes the new actor; the credential-health table shape stays compatible.
+
 
 ```
 accept-time                                           use-time

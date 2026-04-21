@@ -25,19 +25,24 @@ This guide covers how to use Spring Voyage V2 through the `spring` CLI. It walks
 
 ```
 # Authenticate (skip for local dev mode)
-spring auth
+spring auth login
 
-# Create a unit with an agent
+# Create a unit and an agent inside it
 spring unit create my-team
-spring agent create my-agent --role engineer --ai-backend claude --execution delegated --tool claude-code
-spring unit members add my-team my-agent
+spring agent create my-agent \
+    --role engineer \
+    --unit my-team \
+    --tool claude-code \
+    --image ghcr.io/cvoya-com/spring-agent:latest
 
 # Send a message
 spring message send agent://my-team/my-agent "Hello, what can you do?"
 
-# Watch the activity stream
-spring activity stream --unit my-team
+# Watch the activity feed (no live-stream verb yet — re-run as needed)
+spring activity list --source unit:my-team --limit 20
 ```
+
+> `spring agent create` requires at least one `--unit`. Pick the agent's runtime via `--tool` (`claude-code`, `codex`, `gemini`, `dapr-agent`, `custom`) and supply richer execution config through `--definition-file` when needed; see [Managing Units and Agents](units-and-agents.md) for the full set.
 
 ## See it in action
 

@@ -50,8 +50,8 @@ How to use Spring Voyage V2 through the `spring` CLI.
 
 CLI workflows for managing the OSS admin surfaces (agent-runtime + connector installs, credential-health, tenant seeds).
 
-- [Agent Runtimes](user-guide/agent-runtimes.md) — install, configure, and check health of agent runtimes on a tenant.
-- [Connectors](user-guide/connectors.md) — install, configure, and check health of connectors on a tenant.
+- [Agent Runtimes](guide/operator/agent-runtimes.md) — install, configure, and check health of agent runtimes on a tenant.
+- [Connectors](guide/operator/connectors.md) — install, configure, and check health of connectors on a tenant.
 
 ### [Developer Guide](developer/overview.md)
 
@@ -65,7 +65,5 @@ For contributors to the Spring Voyage V2 platform.
 
 - [CLI Reference — `spring agent-runtime` / `spring connector`](cli-reference.md) -- concise verb reference for the admin surfaces introduced by the #674 refactor.
 - [Glossary](glossary.md) -- definitions of all key terms
-- [Design Decisions](design-decisions.md) -- the "why" behind major architectural choices
-- [Decision Records](decisions/README.md) -- narrow, dated records for trade-offs that lock in a specific approach
-- [Roadmap](roadmap/README.md) -- phased implementation plan
-- [Architecture Plan](SpringVoyage-v2-plan.md) -- original monolithic specification (deprecated, see `architecture/`)
+- [Decision Records](decisions/README.md) -- the "why" behind major architectural choices, captured as narrow ADRs
+- [Roadmap](roadmap/README.md) -- forward-looking narrative; live progress lives on the V2 / V2.1 milestones

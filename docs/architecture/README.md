@@ -1,7 +1,9 @@
 # Spring Voyage V2 — Architecture Plan
 
-**Status:** Draft
-**Last updated:** 2026-04-08
+**Status:** Living document — kept in sync with the V2 implementation.
+**Last reviewed:** 2026-04-21
+
+This document is the canonical architecture index for V2. The narrow, dated decisions behind each major choice live as Architecture Decision Records under [`docs/decisions/`](../decisions/README.md); reach for those when you want the "why" without re-reading the entire plan.
 
 ---
 

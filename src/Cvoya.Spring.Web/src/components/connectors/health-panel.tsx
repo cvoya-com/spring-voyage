@@ -10,7 +10,7 @@
  * read-out logic. Mutations still ride the `spring connector` CLI per
  * the AGENTS.md carve-out; this surface is visibility-only.
  *
- * Cross-reference: `docs/user-guide/connectors.md` covers the CLI
+ * Cross-reference: `docs/guide/operator/connectors.md` covers the CLI
  * workflows the "Operator guide" link deep-links into.
  */
 
@@ -44,7 +44,7 @@ export function ConnectorHealthPanel() {
     <div className="space-y-6">
       <CliCallout
         cliCommand="spring connector"
-        docsHref="/docs/user-guide/connectors.md"
+        docsHref="/docs/guide/operator/connectors.md"
         docsLabel="Operator guide"
       />
 

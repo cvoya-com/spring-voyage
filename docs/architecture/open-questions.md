@@ -6,23 +6,20 @@
 
 ## Resolved
 
-1. ~~**GitHub Connector**~~ — **Resolved: Rewrite in C#** for consistency with the .NET infrastructure layer. The Python v1 connector will not be carried forward.
-2. ~~**Second Connector**~~ — **Resolved: should serve the product-management domain** (Phase 3). Linear, Notion, or Jira — whichever best fits the product management workflow.
-3. ~~**Active Conversation Model**~~ — **Resolved: all agents use one-active-with-suspension.** The active period spans the full container-based agent run, which can be long. Uniform model, with performance optimizations possible later. See [Messaging](messaging.md).
-4. ~~**Prompt Assembly: Conversation Context**~~ — **Resolved: four-layer prompt model.** Conversation context (prior messages, checkpoints, partial results) is Layer 3, injected per invocation. See [Units & Agents](units.md).
+1. ~~**GitHub Connector language**~~ — Rewritten in C# for consistency with the .NET infrastructure layer. The Python v1 connector is not carried forward.
+2. ~~**Second Connector**~~ — Targets the product-management domain (Linear / Notion / Jira); concrete pick scheduled with the next product-management workstream.
+3. ~~**Active Conversation Model**~~ — All agents use one-active-with-suspension. The active period spans the full container-based agent run. See [Messaging](messaging.md).
+4. ~~**Prompt Assembly: Conversation Context**~~ — Four-layer prompt model. Conversation context (prior messages, checkpoints, partial results) is Layer 3, injected per invocation. See [Units & Agents](units.md).
+5. ~~**Web UI Technology**~~ — React + Next.js + TypeScript. Shipping in `src/Cvoya.Spring.Web`; the OpenAPI client codegen bridge to the .NET host is in place.
+6. ~~**Tier 1 LLM Hosting**~~ — Out-of-process via Ollama (no in-process ONNX runtime). The Tier 1 screening provider talks to the same Ollama deployment the host uses, on a separate `BaseUrl` knob. See [Local AI with Ollama](../developer/local-ai-ollama.md).
 
 ## Remaining
 
-1. **Web UI Technology** — Recommendation: React/Next.js + TypeScript. The testing ecosystem (React Testing Library, Vitest, Playwright, MSW, Storybook) is the most mature in frontend. TypeScript provides type safety. The gap with the .NET backend is bridgeable via OpenAPI codegen. Blazor stays in the .NET ecosystem and shares types, but has a smaller component library and testing ecosystem. Final decision pending evaluation.
-2. **Tier 1 LLM Hosting** — In-process (ONNX/llama.cpp) vs. separate container (Ollama). See [Initiative](initiative.md).
-3. **Testing Strategy** — Integration tests with Dapr sidecar in CI.
-4. **State Schema Evolution** — Versioned serialization for actor state changes. See [Security](security.md) (Platform Versioning & Migrations).
-5. **Rx.NET Version** — Pin to 6.x or track latest. See [Observability](observability.md).
-6. **A2A Protocol Version** — Which version to target; maturity assessment. See [Workflows](workflows.md).
-7. **Dapr Agents vs. Custom Python Loop** — Needs prototyping to evaluate fit. See [Infrastructure](infrastructure.md).
-8. **Streaming Hot Path** — Through actor (consistent) vs. direct to API host (fast). The dual-subscriber model (actor + API host both subscribe to the same Dapr pub/sub topic) is a candidate but needs validation. See [Messaging](messaging.md).
-9. **Initiative Policy Granularity** — Is `max_level` sufficient (each level implies capabilities), or should there be explicit per-capability flags? See [Initiative](initiative.md).
-10. **Event Stream Separation** — Whether to split `ActivityEvent` into a high-frequency execution stream and a lower-frequency activity summary stream. See [Observability](observability.md).
+1. **State Schema Evolution** — Versioned serialization for actor state changes. See [Security](security.md) (Platform Versioning & Migrations).
+2. **A2A Protocol Version** — Which version to target; maturity assessment. See [Workflows](workflows.md).
+3. **Streaming Hot Path** — Through actor (consistent) vs. direct to API host (fast). The dual-subscriber model (actor + API host both subscribe to the same Dapr pub/sub topic) is a candidate but needs validation. See [Messaging](messaging.md).
+4. **Initiative Policy Granularity** — Is `max_level` sufficient (each level implies capabilities), or should there be explicit per-capability flags? See [Initiative](initiative.md).
+5. **Event Stream Separation** — Whether to split `ActivityEvent` into a high-frequency execution stream and a lower-frequency activity summary stream. See [Observability](observability.md).
 
 ---
 
