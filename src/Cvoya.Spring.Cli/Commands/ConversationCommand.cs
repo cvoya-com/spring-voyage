@@ -25,7 +25,7 @@ public static class ConversationCommand
         new("status", c => c.Status),
         new("origin", c => c.Origin),
         new("participants", c => FormatParticipants(c.Participants)),
-        new("events", c => c.EventCount?.ToString()),
+        new("events", c => UntypedNodeFormatter.FormatScalar(c.EventCount)),
         new("lastActivity", c => FormatTimestamp(c.LastActivity)),
         new("summary", c => Truncate(c.Summary, 60)),
     };

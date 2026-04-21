@@ -8,6 +8,7 @@ using System.Text.Json;
 
 using Cvoya.Spring.Cli.Generated.Models;
 using Cvoya.Spring.Cli.Output;
+using Cvoya.Spring.Cli.Utilities;
 
 /// <summary>
 /// Builds the expertise command surface used by both <c>spring agent</c>
@@ -196,7 +197,7 @@ public static class ExpertiseCommand
 
             Console.WriteLine(OutputFormatter.FormatTable(rows, AggregatedColumns));
             Console.WriteLine();
-            Console.WriteLine($"Depth: {aggregated.Depth}   Computed: {aggregated.ComputedAt:O}");
+            Console.WriteLine($"Depth: {UntypedNodeFormatter.FormatScalar(aggregated.Depth)}   Computed: {aggregated.ComputedAt:O}");
         });
 
         return command;

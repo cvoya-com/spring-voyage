@@ -7,6 +7,7 @@ using System.CommandLine;
 
 using Cvoya.Spring.Cli.Generated.Models;
 using Cvoya.Spring.Cli.Output;
+using Cvoya.Spring.Cli.Utilities;
 
 /// <summary>
 /// Builds the "agent" command tree for agent management.
@@ -47,7 +48,7 @@ public static class AgentCommand
         new("agentId", d => d.AgentId),
         new("running", d => d.Running?.ToString().ToLowerInvariant()),
         new("health", d => d.HealthStatus),
-        new("replicas", d => d.Replicas?.ToString()),
+        new("replicas", d => UntypedNodeFormatter.FormatScalar(d.Replicas)),
         new("image", d => d.Image),
         new("endpoint", d => d.Endpoint),
         new("container", d => d.ContainerId),
