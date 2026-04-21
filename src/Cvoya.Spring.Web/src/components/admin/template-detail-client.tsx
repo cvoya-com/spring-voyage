@@ -65,8 +65,8 @@ export default function TemplateDetailClient({
   const detail = query.data;
 
   const crumbs = [
-    { label: "Packages", href: "/packages" },
-    { label: packageName, href: `/packages/${encodeURIComponent(packageName)}` },
+    { label: "Packages", href: "/settings/packages" },
+    { label: packageName, href: `/settings/packages/${encodeURIComponent(packageName)}` },
     { label: templateName },
   ];
 

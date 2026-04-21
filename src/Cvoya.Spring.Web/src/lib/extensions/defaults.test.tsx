@@ -46,7 +46,6 @@ describe("defaultRoutes (IA §2)", () => {
       "/agents",
       "/conversations",
       "/initiative",
-      "/skills",
       "/packages",
       "/system/configuration",
       "/admin/agent-runtimes",

@@ -86,7 +86,7 @@ export default function PackagesListPage() {
 }
 
 function PackageCard({ pkg }: { pkg: PackageSummary }) {
-  const href = `/packages/${encodeURIComponent(pkg.name ?? "")}`;
+  const href = `/settings/packages/${encodeURIComponent(pkg.name ?? "")}`;
   const name = pkg.name ?? "(unnamed package)";
   return (
     <Card

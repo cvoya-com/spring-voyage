@@ -11,7 +11,7 @@
 
 import { DollarSign } from "lucide-react";
 
-import { LifecyclePanel } from "@/app/agents/[id]/lifecycle-panel";
+import { LifecyclePanel } from "@/components/agents/tab-impls/lifecycle-panel";
 import {
   Card,
   CardContent,

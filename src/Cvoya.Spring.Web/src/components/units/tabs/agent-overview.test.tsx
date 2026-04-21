@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { AgentNode } from "../aggregate";
 
-vi.mock("@/app/agents/[id]/lifecycle-panel", () => ({
+vi.mock("@/components/agents/tab-impls/lifecycle-panel", () => ({
   LifecyclePanel: ({ agentId }: { agentId: string }) => (
     <div data-testid="legacy-lifecycle" data-agent-id={agentId} />
   ),

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { AgentNode } from "../aggregate";
 
-vi.mock("@/app/agents/[id]/execution-panel", () => ({
+vi.mock("@/components/agents/tab-impls/execution-panel", () => ({
   AgentExecutionPanel: ({
     agentId,
     parentUnitId,

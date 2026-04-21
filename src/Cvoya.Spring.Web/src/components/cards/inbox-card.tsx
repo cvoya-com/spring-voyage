@@ -14,17 +14,19 @@ import { cn, timeAgo } from "@/lib/utils";
 
 /**
  * Resolve a `scheme://path` sender address to a portal detail route
- * when one exists. `agent://` and `unit://` resolve to their detail
- * pages; `human://` has no detail page today, so the caller renders
- * the address as plain mono text. Mirrors the cross-link rules in
- * DESIGN.md § 7.14.
+ * when one exists. Post-v2-IA (DEL-agents #870, DEL-units-id #878) the
+ * legacy `/agents/<id>` and `/units/<id>` detail routes are retired;
+ * agents and units both surface in the Explorer and deep-link via
+ * `/units?node=<id>[&tab=Overview]`. `human://` has no detail page
+ * today, so the caller renders the address as plain mono text.
+ * Mirrors the cross-link rules in DESIGN.md § 7.14.
  */
 function fromHref(parsed: ParsedConversationSource): string | null {
   if (parsed.scheme === "agent") {
-    return `/agents/${encodeURIComponent(parsed.path)}`;
+    return `/units?node=${encodeURIComponent(parsed.path)}&tab=Overview`;
   }
   if (parsed.scheme === "unit") {
-    return `/units/${encodeURIComponent(parsed.path)}`;
+    return `/units?node=${encodeURIComponent(parsed.path)}`;
   }
   return null;
 }
@@ -44,7 +46,12 @@ export interface InboxCardProps {
  * `GET /api/v1/inbox`.
  */
 export function InboxCard({ item, className }: InboxCardProps) {
-  const href = `/conversations/${encodeURIComponent(item.conversationId)}`;
+  // Post-`DEL-conversations` (#871): the legacy `/conversations/<id>`
+  // detail route is gone. Until a replacement conversation-thread
+  // surface lands, the card navigates back to `/inbox` so the click
+  // is never a 404. The query string preserves the conversation id so
+  // future routing can scroll/highlight the corresponding row.
+  const href = `/inbox?conversation=${encodeURIComponent(item.conversationId)}`;
   const from = parseConversationSource(item.from);
   const fromLink = fromHref(from);
   const title = item.summary?.trim() || item.conversationId;

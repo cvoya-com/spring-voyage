@@ -9,7 +9,7 @@
 
 import { Settings } from "lucide-react";
 
-import { AgentExecutionPanel } from "@/app/agents/[id]/execution-panel";
+import { AgentExecutionPanel } from "@/components/agents/tab-impls/execution-panel";
 import { AgentExpertisePanel } from "@/components/expertise/agent-expertise-panel";
 import { useAgent } from "@/lib/api/queries";
 

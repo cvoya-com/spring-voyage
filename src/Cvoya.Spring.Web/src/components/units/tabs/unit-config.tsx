@@ -10,11 +10,11 @@
 
 import { Settings } from "lucide-react";
 
-import { BoundaryTab } from "@/app/units/[id]/boundary-tab";
-import { ConnectorTab } from "@/app/units/[id]/connector-tab";
-import { ExecutionTab } from "@/app/units/[id]/execution-tab";
-import { SecretsTab } from "@/app/units/[id]/secrets-tab";
-import { SkillsTab } from "@/app/units/[id]/skills-tab";
+import { BoundaryTab } from "@/components/units/tab-impls/boundary-tab";
+import { ConnectorTab } from "@/components/units/tab-impls/connector-tab";
+import { ExecutionTab } from "@/components/units/tab-impls/execution-tab";
+import { SecretsTab } from "@/components/units/tab-impls/secrets-tab";
+import { SkillsTab } from "@/components/units/tab-impls/skills-tab";
 
 import { registerTab, type TabContentProps } from "./index";
 

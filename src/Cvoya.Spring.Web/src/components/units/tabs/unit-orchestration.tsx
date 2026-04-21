@@ -5,7 +5,7 @@
 // surface and `/units/[id]` keep the same orchestration UI during the
 // V2 rollout. `DEL-units-id` retires the legacy host later.
 
-import { OrchestrationTab } from "@/app/units/[id]/orchestration-tab";
+import { OrchestrationTab } from "@/components/units/tab-impls/orchestration-tab";
 
 import { registerTab, type TabContentProps } from "./index";
 

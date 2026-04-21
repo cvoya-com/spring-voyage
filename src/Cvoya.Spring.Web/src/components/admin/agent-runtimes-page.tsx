@@ -1,13 +1,14 @@
 "use client";
 
 /**
- * /admin/agent-runtimes — read-only admin view (#691).
+ * Agent-runtimes admin surface (#691).
  *
- * Surfaces the tenant's installed agent runtimes, their model lists,
- * and the persistent credential-health row written by accept-time
- * validation and the watchdog middleware. Every mutation (install,
- * uninstall, configure, credential validation) ships through the
- * `spring agent-runtime …` CLI per the AGENTS.md carve-out.
+ * Rendered at `/settings/agent-runtimes`. Surfaces the tenant's
+ * installed agent runtimes, their model lists, and the persistent
+ * credential-health row written by accept-time validation and the
+ * watchdog middleware. Every mutation (install, uninstall, configure,
+ * credential validation) ships through the `spring agent-runtime …`
+ * CLI per the AGENTS.md carve-out.
  *
  * Cross-reference: `docs/user-guide/agent-runtimes.md` covers the CLI
  * workflows the "Operator guide" link deep-links into.
@@ -23,13 +24,9 @@ import {
 } from "@/lib/api/queries";
 import type { InstalledAgentRuntimeResponse } from "@/lib/api/types";
 
-import {
-  CliCallout,
-  CredentialHealthBadge,
-  Timestamp,
-} from "../admin-shared";
+import { CliCallout, CredentialHealthBadge, Timestamp } from "./shared";
 
-export default function AdminAgentRuntimesPage() {
+export default function AgentRuntimesAdminPage() {
   const query = useAgentRuntimes();
   const runtimes = query.data ?? [];
   const loading = query.isPending;
