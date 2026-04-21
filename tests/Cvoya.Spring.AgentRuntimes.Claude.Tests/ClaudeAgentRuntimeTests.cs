@@ -269,6 +269,38 @@ public class ClaudeAgentRuntimeTests
         result.Status.ShouldBe(FetchLiveModelsStatus.Unsupported);
     }
 
+    // --- IsCredentialFormatAccepted (#1003) ---
+
+    [Fact]
+    public void IsCredentialFormatAccepted_ApiKey_AcceptedOnBothPaths()
+    {
+        var runtime = CreateRuntime(out _);
+
+        runtime.IsCredentialFormatAccepted("sk-ant-api03-key", CredentialDispatchPath.Rest).ShouldBeTrue();
+        runtime.IsCredentialFormatAccepted("sk-ant-api03-key", CredentialDispatchPath.AgentRuntime).ShouldBeTrue();
+    }
+
+    [Fact]
+    public void IsCredentialFormatAccepted_OAuthToken_AcceptedOnAgentRuntime_RejectedOnRest()
+    {
+        var runtime = CreateRuntime(out _);
+
+        runtime.IsCredentialFormatAccepted("sk-ant-oat01-token", CredentialDispatchPath.AgentRuntime).ShouldBeTrue();
+        runtime.IsCredentialFormatAccepted("sk-ant-oat01-token", CredentialDispatchPath.Rest).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void IsCredentialFormatAccepted_Empty_AcceptedOnBothPaths()
+    {
+        // The "not configured" state is owned by the resolver; the
+        // pre-flight format check must not produce false positives on
+        // empty values.
+        var runtime = CreateRuntime(out _);
+
+        runtime.IsCredentialFormatAccepted(string.Empty, CredentialDispatchPath.Rest).ShouldBeTrue();
+        runtime.IsCredentialFormatAccepted("   ", CredentialDispatchPath.Rest).ShouldBeTrue();
+    }
+
     [Fact]
     public async Task FetchLiveModelsAsync_RestSuccess_ReturnsModels()
     {

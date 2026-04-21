@@ -188,4 +188,38 @@ public interface IAgentRuntime
     /// <param name="credential">The raw credential to present to the backing service. Empty when the runtime requires no credential.</param>
     /// <param name="cancellationToken">A token to cancel the fetch.</param>
     Task<FetchLiveModelsResult> FetchLiveModelsAsync(string credential, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Reports whether the runtime's <paramref name="dispatchPath"/> will
+    /// accept the shape of the supplied <paramref name="credential"/>
+    /// <b>before</b> any network call. This is the pre-flight format check
+    /// consulted by the credential-status probe so the wizard can warn
+    /// operators when a stored credential would be rejected by the
+    /// dispatch path that will consume it (see #1003).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A return of <c>false</c> means the credential cannot possibly work
+    /// on the named path — e.g. a Claude.ai OAuth token dispatched through
+    /// the Anthropic Platform REST endpoint (which rejects OAuth tokens
+    /// with a 401 indistinguishable from an expired key). A return of
+    /// <c>true</c> means the shape is plausible; it does not mean the
+    /// credential is authenticated — full validation happens later in the
+    /// in-container probe plan or on the first REST call.
+    /// </para>
+    /// <para>
+    /// Empty or whitespace credentials must return <c>true</c> — the
+    /// "not configured" state is reported upstream by the resolver; this
+    /// check is only concerned with format when a value is present.
+    /// </para>
+    /// <para>
+    /// Runtimes whose <see cref="CredentialSchema"/> is
+    /// <see cref="AgentRuntimeCredentialKind.None"/> always return
+    /// <c>true</c> — there is no credential format to reject.
+    /// </para>
+    /// </remarks>
+    /// <param name="credential">The raw credential to inspect. May be empty.</param>
+    /// <param name="dispatchPath">The dispatch path that will consume the credential.</param>
+    /// <returns><c>true</c> when the format is plausible for the path; <c>false</c> when the path is known to reject it.</returns>
+    bool IsCredentialFormatAccepted(string credential, CredentialDispatchPath dispatchPath);
 }

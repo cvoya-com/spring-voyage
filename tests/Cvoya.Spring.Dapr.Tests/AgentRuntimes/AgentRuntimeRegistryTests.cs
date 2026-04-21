@@ -121,5 +121,7 @@ public class AgentRuntimeRegistryTests
             string credential,
             CancellationToken cancellationToken = default) =>
             Task.FromResult(FetchLiveModelsResult.Unsupported("Fake runtime does not expose a live catalog."));
+
+        public bool IsCredentialFormatAccepted(string credential, CredentialDispatchPath dispatchPath) => true;
     }
 }

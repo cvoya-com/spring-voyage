@@ -279,6 +279,13 @@ public class GoogleAgentRuntime : IAgentRuntime
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Google AI Studio credentials have a single accepted shape across
+    /// both dispatch paths; there is nothing to pre-reject here.
+    /// </remarks>
+    public bool IsCredentialFormatAccepted(string credential, CredentialDispatchPath dispatchPath) => true;
+
+    /// <inheritdoc />
     public async Task<FetchLiveModelsResult> FetchLiveModelsAsync(
         string credential,
         CancellationToken cancellationToken = default)

@@ -5,10 +5,12 @@ namespace Cvoya.Spring.Host.Api.Endpoints;
 
 using System.Text.Json.Serialization;
 
+using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Dapr.Execution;
 
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 
 // Note: this endpoint group previously hosted `POST /api/v1/system/credentials/{provider}/validate`,
@@ -56,6 +58,19 @@ public static class SystemEndpoints
     private const string ReasonNotConfigured = "not-configured";
     private const string ReasonUnreadable = "unreadable";
     private const string ReasonUnreachable = "unreachable";
+    // Reported when the stored credential is present and decrypts
+    // cleanly, but its shape is known-incompatible with the dispatch
+    // path that will consume it (e.g. a Claude.ai OAuth token routed
+    // through the Anthropic Platform REST endpoint — see #1003).
+    private const string ReasonFormatRejected = "format-rejected";
+
+    // Accepted query-parameter values for `?dispatchPath=…` — mirrors
+    // Cvoya.Spring.Core.AgentRuntimes.CredentialDispatchPath. Kept as
+    // strings at the wire because enum JSON binding for minimal APIs
+    // is still case-sensitive and awkward; a hand-rolled switch is
+    // both smaller and gives us a clear 400 surface for bad values.
+    private const string DispatchPathRest = "rest";
+    private const string DispatchPathAgentRuntime = "agent-runtime";
 
     /// <summary>
     /// Registers the system-level endpoints on <paramref name="app"/>.
@@ -67,7 +82,7 @@ public static class SystemEndpoints
 
         group.MapGet("/credentials/{provider}/status", GetCredentialStatusAsync)
             .WithName("GetProviderCredentialStatus")
-            .WithSummary("Report whether an LLM provider's credentials / endpoint are configured")
+            .WithSummary("Report whether an LLM provider's credentials / endpoint are configured and usable on the named dispatch path")
             .Produces<ProviderCredentialStatusResponse>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status400BadRequest);
 
@@ -77,11 +92,26 @@ public static class SystemEndpoints
     private static async Task<IResult> GetCredentialStatusAsync(
         string provider,
         ILlmCredentialResolver credentialResolver,
+        IAgentRuntimeRegistry agentRuntimeRegistry,
         IHttpClientFactory httpClientFactory,
         IOptions<OllamaOptions> ollamaOptions,
+        [FromQuery] string? dispatchPath,
         CancellationToken cancellationToken)
     {
         var normalized = (provider ?? string.Empty).Trim().ToLowerInvariant();
+
+        // Conservative default: when the caller does not name a dispatch
+        // path we evaluate against the strictest one (REST). Callers that
+        // only ever run the in-container path can opt into the more
+        // lenient evaluation explicitly.
+        if (!TryParseDispatchPath(dispatchPath, out var path))
+        {
+            return Results.BadRequest(new
+            {
+                error = "unknown-dispatch-path",
+                message = $"dispatchPath must be '{DispatchPathRest}' or '{DispatchPathAgentRuntime}' when supplied.",
+            });
+        }
 
         switch (normalized)
         {
@@ -112,6 +142,22 @@ public static class SystemEndpoints
                     var suggestion = resolvable
                         ? null
                         : BuildCredentialSuggestion(normalized, resolution.SecretName, resolution.Source);
+
+                    // Pre-flight format check against the dispatch path the
+                    // caller named. When the stored value has a known-bad
+                    // shape for that path we downgrade Resolvable to false
+                    // and surface `format-rejected` so the wizard does not
+                    // show a green badge for a credential that will fail
+                    // dispatch on the first message. (#1003)
+                    if (resolvable
+                        && agentRuntimeRegistry.Get(runtimeId) is { } runtime
+                        && !runtime.IsCredentialFormatAccepted(resolution.Value!, path))
+                    {
+                        resolvable = false;
+                        source = null;
+                        reason = ReasonFormatRejected;
+                        suggestion = BuildFormatRejectedSuggestion(normalized, path);
+                    }
 
                     // NEVER include `resolution.Value` in the response —
                     // the endpoint is read-by-anyone (within the tenant)
@@ -209,6 +255,59 @@ public static class SystemEndpoints
             $"or create a unit-scoped override of the same name.";
     }
 
+    private static string BuildFormatRejectedSuggestion(string provider, CredentialDispatchPath path)
+    {
+        // Only Anthropic exercises this today (Claude.ai OAuth tokens on
+        // the REST path), but keep the copy generic so other runtimes
+        // inheriting this signal later don't need a second branch.
+        if (provider == ProviderAnthropic && path == CredentialDispatchPath.Rest)
+        {
+            return "The stored Anthropic credential is a Claude.ai OAuth token (sk-ant-oat…), " +
+                "which the Anthropic Platform REST endpoint rejects. " +
+                "OAuth tokens are only usable through the `claude` CLI running inside a unit container. " +
+                "Either replace the tenant-default 'anthropic-api-key' with an Anthropic Platform API key " +
+                "(sk-ant-api…), or pin the unit to a runtime that dispatches via the in-container path.";
+        }
+
+        var displayName = provider switch
+        {
+            ProviderAnthropic => "Anthropic",
+            ProviderOpenAi => "OpenAI",
+            ProviderGoogle => "Google",
+            _ => provider,
+        };
+        var pathLabel = path == CredentialDispatchPath.Rest
+            ? "the host-side REST path"
+            : "the in-container agent-runtime path";
+        return $"The stored {displayName} credential's format is rejected by {pathLabel}. " +
+            "Replace it with a credential shape the path accepts, or dispatch through the other path.";
+    }
+
+    private static bool TryParseDispatchPath(string? raw, out CredentialDispatchPath path)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            // Conservative default: the strictest path. A legacy caller
+            // that does not pass the param still gets the right answer
+            // for the wizard's current "will this work?" question.
+            path = CredentialDispatchPath.Rest;
+            return true;
+        }
+
+        switch (raw.Trim().ToLowerInvariant())
+        {
+            case DispatchPathRest:
+                path = CredentialDispatchPath.Rest;
+                return true;
+            case DispatchPathAgentRuntime:
+                path = CredentialDispatchPath.AgentRuntime;
+                return true;
+            default:
+                path = CredentialDispatchPath.Rest;
+                return false;
+        }
+    }
+
     private static async Task<(bool Reachable, string Reason)> ProbeOllamaAsync(
         IHttpClientFactory factory,
         string baseUrl,
@@ -246,10 +345,13 @@ public static class SystemEndpoints
 /// </summary>
 /// <param name="Provider">Echoes the requested provider id.</param>
 /// <param name="Resolvable">
-/// <c>true</c> when the platform can obtain the credential (for
+/// <c>true</c> when the platform can obtain the credential <b>and</b>
+/// its format is accepted by the dispatch path selected via the
+/// <c>?dispatchPath</c> query parameter (for
 /// Anthropic/OpenAI/Google: a non-empty secret exists at unit or
-/// tenant scope AND its ciphertext authenticates). For Ollama:
-/// <c>true</c> when the configured base URL responded to a health probe.
+/// tenant scope, its ciphertext authenticates, and the runtime's
+/// pre-flight format check clears). For Ollama: <c>true</c> when the
+/// configured base URL responded to a health probe.
 /// </param>
 /// <param name="Source">
 /// Which tier produced the credential — <c>"unit"</c> or <c>"tenant"</c>
@@ -265,10 +367,13 @@ public static class SystemEndpoints
 /// Machine-readable reason code when <see cref="Resolvable"/> is
 /// <c>false</c>. Stable values: <c>"not-configured"</c> (no slot
 /// exists), <c>"unreadable"</c> (slot exists but ciphertext did not
-/// decrypt — typically an at-rest key rotation), and <c>"unreachable"</c>
-/// (Ollama health probe failed). <c>null</c> when resolvable. The portal
-/// uses this to pick a specific banner copy; additional codes may be
-/// appended in later waves.
+/// decrypt — typically an at-rest key rotation), <c>"unreachable"</c>
+/// (Ollama health probe failed), and <c>"format-rejected"</c> (the
+/// stored value decrypts but its shape is known-incompatible with the
+/// dispatch path that will consume it — for example a Claude.ai OAuth
+/// token resolved for the Anthropic REST path). <c>null</c> when
+/// resolvable. The portal uses this to pick a specific banner copy;
+/// additional codes may be appended in later waves.
 /// </param>
 public record ProviderCredentialStatusResponse(
     [property: JsonPropertyName("provider")] string Provider,

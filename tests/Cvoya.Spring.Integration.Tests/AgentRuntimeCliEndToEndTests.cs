@@ -444,6 +444,7 @@ public sealed class AgentRuntimeCliEndToEndTests : IDisposable
         public Task<FetchLiveModelsResult> FetchLiveModelsAsync(
             string credential, CancellationToken cancellationToken = default)
             => Task.FromResult(FetchLiveModelsResult.Unsupported("mock runtime has no live catalog"));
+        public bool IsCredentialFormatAccepted(string credential, CredentialDispatchPath dispatchPath) => true;
     }
 
     /// <summary>

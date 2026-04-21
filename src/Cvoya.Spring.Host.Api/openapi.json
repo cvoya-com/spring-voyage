@@ -7216,13 +7216,20 @@
         "tags": [
           "System"
         ],
-        "summary": "Report whether an LLM provider's credentials / endpoint are configured",
+        "summary": "Report whether an LLM provider's credentials / endpoint are configured and usable on the named dispatch path",
         "operationId": "GetProviderCredentialStatus",
         "parameters": [
           {
             "name": "provider",
             "in": "path",
             "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dispatchPath",
+            "in": "query",
             "schema": {
               "type": "string"
             }

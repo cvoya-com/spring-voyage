@@ -395,6 +395,38 @@ public class ClaudeAgentRuntime : IAgentRuntime
         }
     }
 
+    /// <inheritdoc />
+    /// <remarks>
+    /// The Claude runtime accepts two credential shapes:
+    /// Anthropic Platform API keys (<c>sk-ant-api…</c>) and Claude.ai
+    /// OAuth tokens (<c>sk-ant-oat…</c>). The
+    /// <see cref="CredentialDispatchPath.AgentRuntime"/> path (the
+    /// <c>claude</c> CLI inside a unit container) accepts both — the CLI
+    /// branches on the prefix and populates either
+    /// <c>ANTHROPIC_API_KEY</c> or <c>CLAUDE_CODE_OAUTH_TOKEN</c>. The
+    /// <see cref="CredentialDispatchPath.Rest"/> path (the Anthropic
+    /// Messages API used by <see cref="Cvoya.Spring.Core.Execution.IAiProvider"/>)
+    /// accepts only API keys — OAuth tokens are rejected with a 401
+    /// (see #981 / the fail-fast guard in <c>AnthropicProvider</c>).
+    /// </remarks>
+    public bool IsCredentialFormatAccepted(string credential, CredentialDispatchPath dispatchPath)
+    {
+        if (string.IsNullOrWhiteSpace(credential))
+        {
+            // Empty is "not configured" — the resolver owns that state;
+            // pre-flight format check is only concerned with real values.
+            return true;
+        }
+
+        if (dispatchPath == CredentialDispatchPath.Rest
+            && credential.StartsWith(OAuthTokenPrefix, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
     private static IReadOnlyList<ModelDescriptor> BuildModels(AnthropicModelsResponse? payload)
     {
         if (payload?.Data is null || payload.Data.Length == 0)

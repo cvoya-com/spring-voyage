@@ -220,6 +220,121 @@ public class SystemEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }
 
+    [Fact]
+    public async Task Status_Anthropic_OAuthToken_RestPath_ReportsFormatRejected()
+    {
+        // Regression guard for #1003: an OAuth token stored as the
+        // tenant-default credential decrypts cleanly, so the resolver
+        // returns it with Source=Tenant. But the Anthropic Platform REST
+        // endpoint (the IAiProvider dispatch path) rejects OAuth tokens
+        // with a 401 indistinguishable from a bad key — see #981.
+        // The probe must surface that mismatch pre-dispatch so the
+        // wizard does not show a green badge for a credential that
+        // will fail on the first message.
+        var ct = TestContext.Current.CancellationToken;
+        await SeedTenantSecretAsync("anthropic-api-key", "sk-ant-oat-fake-token", ct);
+
+        var response = await _client.GetAsync(
+            "/api/v1/system/credentials/anthropic/status?dispatchPath=rest", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var raw = await response.Content.ReadAsStringAsync(ct);
+        raw.ShouldNotContain("sk-ant-oat-fake-token");
+
+        var body = await response.Content.ReadFromJsonAsync<ProviderCredentialStatusResponse>(ct);
+        body.ShouldNotBeNull();
+        body!.Provider.ShouldBe("anthropic");
+        body.Resolvable.ShouldBeFalse();
+        body.Source.ShouldBeNull();
+        body.Reason.ShouldBe("format-rejected");
+        body.Suggestion.ShouldNotBeNullOrWhiteSpace();
+        body.Suggestion!.ShouldContain("OAuth token");
+    }
+
+    [Fact]
+    public async Task Status_Anthropic_OAuthToken_AgentRuntimePath_ReportsResolvable()
+    {
+        // The in-container `claude` CLI accepts both API keys and
+        // Claude.ai OAuth tokens — the ClaudeAgentRuntime branches on
+        // prefix and populates ANTHROPIC_API_KEY vs CLAUDE_CODE_OAUTH_TOKEN.
+        // So the same OAuth token that fails the REST probe must succeed
+        // when the caller names the agent-runtime path.
+        var ct = TestContext.Current.CancellationToken;
+        await SeedTenantSecretAsync("anthropic-api-key", "sk-ant-oat-fake-token", ct);
+
+        var response = await _client.GetAsync(
+            "/api/v1/system/credentials/anthropic/status?dispatchPath=agent-runtime", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var body = await response.Content.ReadFromJsonAsync<ProviderCredentialStatusResponse>(ct);
+        body.ShouldNotBeNull();
+        body!.Provider.ShouldBe("anthropic");
+        body.Resolvable.ShouldBeTrue();
+        body.Source.ShouldBe("tenant");
+        body.Reason.ShouldBeNull();
+        body.Suggestion.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task Status_Anthropic_ApiKey_AnyPath_ReportsResolvable()
+    {
+        // API keys (sk-ant-api…) are accepted by both paths, so the
+        // endpoint returns the same positive answer regardless of the
+        // requested dispatchPath.
+        var ct = TestContext.Current.CancellationToken;
+        await SeedTenantSecretAsync("anthropic-api-key", "sk-ant-api-fake-key", ct);
+
+        foreach (var path in new[] { "rest", "agent-runtime" })
+        {
+            var response = await _client.GetAsync(
+                $"/api/v1/system/credentials/anthropic/status?dispatchPath={path}", ct);
+
+            response.StatusCode.ShouldBe(HttpStatusCode.OK);
+            var body = await response.Content.ReadFromJsonAsync<ProviderCredentialStatusResponse>(ct);
+            body.ShouldNotBeNull();
+            body!.Resolvable.ShouldBeTrue();
+            body.Source.ShouldBe("tenant");
+            body.Reason.ShouldBeNull();
+        }
+    }
+
+    [Fact]
+    public async Task Status_Anthropic_OAuthToken_NoDispatchPathParam_DefaultsToConservativeRest()
+    {
+        // Legacy callers that do not pass `?dispatchPath=…` get the
+        // strictest evaluation (REST) — the wizard's existing call
+        // pattern therefore surfaces the same format-rejected answer
+        // without needing to migrate.
+        var ct = TestContext.Current.CancellationToken;
+        await SeedTenantSecretAsync("anthropic-api-key", "sk-ant-oat-fake-token", ct);
+
+        var response = await _client.GetAsync(
+            "/api/v1/system/credentials/anthropic/status", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var body = await response.Content.ReadFromJsonAsync<ProviderCredentialStatusResponse>(ct);
+        body.ShouldNotBeNull();
+        body!.Resolvable.ShouldBeFalse();
+        body.Reason.ShouldBe("format-rejected");
+    }
+
+    [Fact]
+    public async Task Status_UnknownDispatchPath_ReturnsBadRequest()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await ClearSecretsAsync(ct);
+
+        var response = await _client.GetAsync(
+            "/api/v1/system/credentials/anthropic/status?dispatchPath=not-a-path", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        var body = await response.Content.ReadAsStringAsync(ct);
+        body.ShouldContain("unknown-dispatch-path");
+    }
+
     /// <summary>
     /// Seeds a tenant-scoped registry entry without configuring the
     /// store's plaintext response. Returns the generated opaque store

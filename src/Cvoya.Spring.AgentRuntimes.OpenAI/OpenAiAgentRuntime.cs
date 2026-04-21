@@ -259,6 +259,16 @@ public class OpenAiAgentRuntime : IAgentRuntime
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// OpenAI does not issue distinct credential prefixes that need
+    /// per-path gating. Both dispatch paths (REST host-side completions
+    /// and the in-container <c>dapr-agent</c> runtime) accept whatever
+    /// API key shape OpenAI issues; invalid values surface at the
+    /// network layer rather than as a pre-flight format rejection.
+    /// </remarks>
+    public bool IsCredentialFormatAccepted(string credential, CredentialDispatchPath dispatchPath) => true;
+
+    /// <inheritdoc />
     public async Task<FetchLiveModelsResult> FetchLiveModelsAsync(
         string credential,
         CancellationToken cancellationToken = default)

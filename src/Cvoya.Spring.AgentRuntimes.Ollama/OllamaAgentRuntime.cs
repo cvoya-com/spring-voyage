@@ -282,6 +282,13 @@ public class OllamaAgentRuntime : IAgentRuntime
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Ollama runs locally and requires no credential — there is
+    /// nothing to reject on either dispatch path.
+    /// </remarks>
+    public bool IsCredentialFormatAccepted(string credential, CredentialDispatchPath dispatchPath) => true;
+
+    /// <inheritdoc />
     public async Task<FetchLiveModelsResult> FetchLiveModelsAsync(
         string credential,
         CancellationToken cancellationToken = default)
