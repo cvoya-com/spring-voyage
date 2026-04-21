@@ -28,7 +28,7 @@ overlay.
 | Field | Default | Purpose |
 |-------|---------|---------|
 | `BaseUrl` | `http://spring-ollama:11434` | URL of the Ollama server. macOS hosts running Ollama natively for GPU passthrough should override this to `http://host.containers.internal:11434`. |
-| `HealthCheckTimeoutSeconds` | `5` | Cap applied to the `/api/tags` reachability probe used by both `ValidateCredentialAsync` and `VerifyContainerBaselineAsync`. |
+| `HealthCheckTimeoutSeconds` | `5` | Cap applied to the `/api/tags` reachability probe dispatched by the `UnitValidationWorkflow`'s `VerifyingTool` step. |
 
 Example `appsettings.json` snippet:
 
@@ -79,16 +79,24 @@ Tenants may extend the list per-install — this property is the
 out-of-the-box default only. The schema is documented in
 [`src/Cvoya.Spring.Core/AgentRuntimes/README.md`](../Cvoya.Spring.Core/AgentRuntimes/README.md#seed-file-schema).
 
-## Container baseline
+## In-container probe plan
 
-`VerifyContainerBaselineAsync` issues a `GET {BaseUrl}/api/tags` probe
-through the runtime's named `HttpClient`. The Ollama server responds with
-its installed-tag list when reachable; any non-2xx status (or transport
-failure) is reported as a non-fatal error in the
-`ContainerBaselineCheckResult.Errors` list so the wizard can surface a
-"retry" affordance without aborting boot. The dapr-agent binary itself is
-supplied by the host's container image — operators that build a slimmer
-image without the binary should layer an additional check on top.
+`OllamaAgentRuntime.GetProbeSteps` returns an ordered plan the
+`UnitValidationWorkflow` dispatches inside the unit's container:
+
+- `VerifyingTool` — `curl -sS -m <timeout> <BaseUrl>/api/tags` checks
+  reachability of the Ollama server from inside the chosen image. Any
+  non-2xx status (or transport failure) is reported as a
+  `UnitValidationError` with code `ToolUnavailable`.
+- `ResolvingModel` — `curl` against `/api/show` resolves the requested
+  model id and surfaces `ModelNotFound` when the provider does not
+  publish it.
+
+No `ValidatingCredential` step is emitted because Ollama has no secret
+concept. Runtime images that lack `curl` fail the probe at
+`VerifyingTool` with a clear "missing runnable HTTP client" error — see
+the runtime-image contract in
+[`docs/guide/operator/agent-runtimes.md`](../../docs/guide/operator/agent-runtimes.md#runtime-image-contract).
 
 ## Local-Ollama setup
 

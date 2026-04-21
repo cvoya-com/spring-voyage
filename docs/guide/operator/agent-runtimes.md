@@ -84,13 +84,51 @@ $ spring agent-runtime config set ollama baseUrl=        # clears the field
 
 Supported keys: `defaultModel`, `baseUrl`. The model list is managed via `models` verbs; config-set for any other key rejects with a friendly error.
 
+## Unit validation lifecycle
+
+> **Backend-side validation — [#941](https://github.com/cvoya-com/spring-voyage/issues/941) landed in V2.** The accept-time host-side probe was removed in #941. Credential / tool / model checks now run inside the chosen container image via `UnitValidationWorkflow`, a Dapr Workflow dispatched when a unit enters `Validating`. The operator-facing surface is the unit lifecycle and `spring unit revalidate` — not a per-runtime "validate credential" button.
+
+A new unit walks through:
+
+```
+Draft → Validating → Stopped           (success — ready for `spring unit start`)
+         │
+         └──────── → Error              (any probe step failed)
+```
+
+`Validating` runs four ordered steps; the first failure short-circuits:
+
+1. `PullingImage` — the dispatcher pulls the unit's configured image.
+2. `VerifyingTool` — runs the runtime's tool-presence probe (e.g. `claude --version` / `curl --version`).
+3. `ValidatingCredential` — runs the runtime's credential probe (e.g. `GET /v1/models` via `curl`).
+4. `ResolvingModel` — confirms the requested model id exists in the provider's catalog.
+
+Each step emits a `ValidationProgress` activity event (live in the portal's Validation panel and the CLI's progress stream). On failure the unit's `LastValidationError` carries a structured `{code, message, details}` for operators; the raw credential is never included in the error.
+
+Retry after fixing the underlying issue with:
+
+```
+$ spring unit revalidate my-unit
+```
+
+Allowed only from `Error` or `Stopped`. See [`cli-reference.md` → Validation exit codes](../../cli-reference.md#validation-exit-codes) for the exit-code table (20 – 27 map to `UnitValidationCodes`).
+
+## Runtime-image contract
+
+The in-container probe interpreters shell out to a small toolset; every image used as a unit runtime must include the runnable binary the probe needs. Failing to satisfy this surfaces cleanly as `ToolMissing` (exit 22) — never as a cryptic credential-validation failure.
+
+| Runtime | Required binary in the image | Why |
+|---------|------------------------------|-----|
+| `claude` | `claude` | Credential and model probes invoke the Claude Code CLI directly. |
+| `openai` | `curl` | Credential + model probes call `api.openai.com` via `curl`. |
+| `google` | `curl` | Credential + model probes call `generativelanguage.googleapis.com` via `curl`. |
+| `ollama` | `curl` | Reachability + model probes call the configured Ollama URL via `curl`. |
+
+The OSS runtime images shipped by the default Worker deployment already satisfy this contract. Operators building custom images should keep the appropriate binary on `PATH` — `curl` is typically the smallest addition (an `apk add curl` or `apt-get install -y curl` step).
+
 ## Checking credential health
 
-> **Validation rework in flight — [#941](https://github.com/cvoya-com/spring-voyage/issues/941).** Today's accept-time validation runs host-side, which means probe outcomes depend on what the API host has installed (the wizard surfaces this as a leaky error in some cases — see #931 / PR #932). #941 moves validation onto the dispatcher and runs every probe inside the chosen container image, behind a new `Validating` unit status, with image-pull / tool-verify / credential-validate / model-resolve steps. When it lands, the `credential-health` row this guide reads is populated by the new `RuntimeProbeActor`; the operator-facing CLI shape (`spring agent-runtime credentials status`) stays compatible. Treat the watchdog half of this section as already accurate; treat the accept-time half as describing the surface that's about to be replaced.
-
-The credential-health store is fed by two paths:
-- **Accept-time validation** — the wizard's "Validate credential" button writes the full outcome (success flips `Valid`, 401 flips `Invalid`). Subject to the rework banner above.
-- **Use-time watchdog** — HTTP middleware on the runtime's outbound clients watches for 401/403 responses and updates the row (`401→Invalid`, `403→Revoked`). Other statuses don't flap the row.
+The credential-health store is now fed by a single path — the **use-time watchdog**. HTTP middleware on the runtime's outbound clients watches for 401/403 responses and updates the row (`401 → Invalid`, `403 → Revoked`). Other statuses don't flap the row. The accept-time host-side endpoint the wizard used to drive was removed in #941; credential checks for a specific unit now run inside its container via `UnitValidationWorkflow` (see above).
 
 ```
 $ spring agent-runtime credentials status claude
@@ -105,23 +143,7 @@ openai / default → Revoked (last checked 2026-04-20 10:45:02Z)
   reason: Forbidden
 ```
 
-A 404 means no validation has been recorded yet — run the wizard's validate button or, for runtimes with multi-credential setups, use `--secret-name <name>`.
-
-## Verifying the container baseline
-
-Some runtimes need host-side tooling (e.g. the `claude` CLI on PATH). The runtime publishes its checklist via `IAgentRuntime.VerifyContainerBaselineAsync`. There is no `spring agent-runtime verify-baseline` CLI verb yet — invoke the underlying HTTP endpoint directly when debugging an image:
-
-```
-$ curl -sS -X POST "$SPRING_API/api/v1/agent-runtimes/claude/verify-baseline" \
-       -H "Authorization: Bearer $SPRING_TOKEN" | jq
-{
-  "runtimeId": "claude",
-  "passed": true,
-  "errors": []
-}
-```
-
-A failing baseline returns `passed: false` with one structured error per missing prerequisite (for example, "'claude' CLI was not found on PATH"). Runtimes that need no host-side tooling (the OpenAI-compatible set) pass trivially.
+A 404 means no watchdog observation has landed yet — exercise the runtime once (create a unit, or run `spring unit revalidate <name>`) to prime the row. For runtimes with multi-credential setups, use `--secret-name <name>`.
 
 ## Refreshing the model catalog from the provider
 
@@ -158,9 +180,11 @@ Add `--force` to skip the prompt in scripts. Uninstall is soft-delete: re-instal
 
 ## Troubleshooting
 
-- **`validate-credential` returns `NetworkError`.** The runtime could not reach its backing service. `credentials status` will show the previous value (or `Unknown`) — the watchdog does not flap the row on transport failures. Check the container's outbound connectivity and rerun the wizard's validate button.
-- **`verify-baseline` reports a missing binary.** The runtime expects a host tool that isn't in this container image. Rebuild with the tool installed, or switch to a runtime that uses `dapr-agent` (no host binary required). The endpoint is `POST /api/v1/agent-runtimes/{id}/verify-baseline`.
-- **`credentials status` returns 404.** No validation row has been recorded for this (runtime, secret). Run the wizard's validate button once to prime the row, or if you're calling the HTTP API directly, hit `POST /api/v1/agent-runtimes/{id}/validate-credential`.
+- **Unit stays in `Validating` forever.** The `UnitValidationWorkflow` dispatched but the dispatcher sidecar is unhealthy. Check the worker / dispatcher logs and confirm the Dapr sidecar responds on `/healthz`. `spring unit revalidate <name>` restarts the workflow cleanly once the underlying issue is fixed.
+- **Unit is in `Error` with `LastValidationError.Code == "ToolMissing"`.** The image does not carry the binary the probe needs (`curl`, `claude`, etc.). Rebuild the image per the runtime-image contract above.
+- **Unit is in `Error` with `LastValidationError.Code == "CredentialInvalid"`.** The provider rejected the credential (401 / 403). Update the secret (`spring secret …`) and run `spring unit revalidate <name>`.
+- **Unit is in `Error` with `LastValidationError.Code == "ModelNotFound"`.** The requested model id is not in the provider's live catalog. Refresh the catalog (`spring agent-runtime refresh-models <id>`) or switch the unit to a listed model via `spring unit patch <name> --model <id>` + `spring unit revalidate`.
+- **`credentials status` returns 404.** No watchdog observation has landed yet. Exercise the runtime (run a unit or `spring unit revalidate <name>`) to prime the row.
 - **`install` silently "succeeds" but `list` doesn't show the runtime.** Confirm the runtime package is registered in `src/Cvoya.Spring.Host.Api/Program.cs` (`AddCvoyaSpringAgentRuntime<Name>()` call); install writes to the current tenant only.
 - **A model you pinned is missing from the wizard dropdown.** Re-check `models list <id>`. If the model is present in the list but absent in the wizard, check that the portal is refreshed (the wizard caches the model list per session).
 

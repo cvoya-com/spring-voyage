@@ -59,17 +59,18 @@ The filter lives on `SpringDbContext.OnModelCreating` rather than the per-entity
 **`IAgentRuntime`** bundles:
 - `Id` (stable, e.g. `claude`), `DisplayName`, `ToolKind` (`claude-code-cli`, `dapr-agent`, …).
 - `CredentialSchema` — what credential the runtime expects.
-- `ValidateCredentialAsync(credential, ct)` — used by accept-time validation and the credential-health watchdog.
+- `CredentialSecretName` — canonical secret-store key (stable; persisted).
 - `DefaultModels` — seed catalog loaded from `agent-runtimes/<id>/seed.json`.
-- `VerifyContainerBaselineAsync(ct)` — probes whether the runtime's required host-side tooling is present (CLI binary, reachable sidecar, …).
+- `GetProbeSteps(config, credential)` — declarative plan of in-container probe commands the `UnitValidationWorkflow` executes inside the unit's chosen image (see [Unit validation workflow](units.md#unit-validation-workflow)). Host-side shelling out was retired in #941.
+- `FetchLiveModelsAsync(credential, ct)` — best-effort catalog refresh from the provider's live API.
 
 **`IAgentRuntimeRegistry`** is the DI singleton every API layer / wizard / CLI consumes. Lookups are case-insensitive on `Id`.
 
 **Per-tenant installs.** `tenant_agent_runtime_installs (tenant_id, runtime_id, config_json, installed_at, updated_at)` — one row per (tenant, runtime) pair; `config_json` stores `{ Models, DefaultModel, BaseUrl }`. The `ITenantAgentRuntimeInstallService` exposes `Install / Uninstall / List / Get / UpdateConfig`; `AgentRuntimeInstallSeedProvider` (priority 20) auto-installs every registered runtime onto the default tenant at bootstrap.
 
-**HTTP surface.** `/api/v1/agent-runtimes/…` — `GET /` (tenant list), `GET /{id}`, `GET /{id}/models`, `POST /{id}/install`, `DELETE /{id}`, `PATCH /{id}/config`, `POST /{id}/validate-credential`, `GET /{id}/credential-health`, `POST /{id}/verify-baseline`. Every route requires auth.
+**HTTP surface.** `/api/v1/agent-runtimes/…` — `GET /` (tenant list), `GET /{id}`, `GET /{id}/models`, `POST /{id}/install`, `DELETE /{id}`, `PATCH /{id}/config`, `GET /{id}/credential-health`, `POST /{id}/refresh-models`. Every route requires auth. (The host-side `POST /{id}/validate-credential` and `POST /{id}/verify-baseline` endpoints were removed in #941; unit-scoped validation runs in-container via `UnitValidationWorkflow` — see [`units.md`](units.md#unit-validation-workflow).)
 
-**CLI surface.** `spring agent-runtime list / show / install / uninstall / models list/set/add/remove / config set / credentials status / refresh-models`. CLI-only admin surface per the #674 carve-out — the portal may render read-only banners but mutation goes through the CLI. Container-baseline verification is HTTP-only today (`POST /api/v1/agent-runtimes/{id}/verify-baseline`); a `spring agent-runtime verify-baseline` verb is a tracked follow-up.
+**CLI surface.** `spring agent-runtime list / show / install / uninstall / models list/set/add/remove / config set / credentials status / refresh-models`. CLI-only admin surface per the #674 carve-out — the portal may render read-only banners but mutation goes through the CLI. Unit-level validation is exposed via the unit lifecycle: `spring unit create` (default `--wait`) and `spring unit revalidate <name>`.
 
 ## Connector plugin model
 
@@ -82,22 +83,19 @@ Connectors existed before V2 (`IConnectorType` in `Cvoya.Spring.Connectors.Abstr
 
 ## Credential-health lifecycle
 
-> **In-flight rework — [#941](https://github.com/cvoya-com/spring-voyage/issues/941).** The accept-time half of this lifecycle moves onto the dispatcher and runs validation **inside the chosen container image**, behind a new `Validating` unit status with four probe steps (`PullingImage` → `VerifyingTool` → `ValidatingCredential` → `ResolvingModel`). `IRuntimeProbeActor` and `RuntimeProbeActor` replace the host-side path; `UnitCreationService` is refactored to dispatch validation rather than run it inline; a `/units/{name}/revalidate` endpoint and `spring unit revalidate` verb provide the retry surface. The use-time watchdog described below is unaffected. When #941 lands, the diagram's `RecordAsync` writer for the accept-time path becomes the new actor; the credential-health table shape stays compatible.
-
+> **Backend-side validation landed in #941.** The accept-time host-side probe for agent runtimes is gone. Per-unit credential checks now run inside the chosen container image as part of `UnitValidationWorkflow`. Connectors continue to use accept-time validation (no container contract for them yet). The credential-health store below is now fed by the watchdog path only — see [`units.md` → Unit validation workflow](units.md#unit-validation-workflow) for the in-container probe flow.
 
 ```
-accept-time                                           use-time
------------                                           --------
-POST /…/validate-credential                           HttpClient(some-runtime) --> backend
-         |                                                |
-         v                                                v   (on 401/403)
-ValidateCredentialAsync ----,                     DelegatingHandler inspects
-         |                  |                        response status
-         v                  |                              |
-CredentialValidationResult  |                              v
-         |                  |             CredentialHealthWatchdogHandler
-         v                  |                              |
-RecordAsync(status, error)--+------------------------------+
+use-time (all subjects)                    in-container (units only)
+------------------------                   ----------------------------
+HttpClient(some-runtime) -> backend        UnitValidationWorkflow
+         |                                 (PullingImage → VerifyingTool
+         v   (on 401/403)                   → ValidatingCredential
+DelegatingHandler inspects                  → ResolvingModel)
+response status                                   |
+         |                                        v
+         v                             writes UnitDefinition.LastValidationError
+CredentialHealthWatchdogHandler           (structured, redacted)
          |
          v
 +--------------------------------+
@@ -106,7 +104,7 @@ RecordAsync(status, error)--+------------------------------+
 +--------------------------------+       and `spring … credentials status`
 ```
 
-`CredentialHealthStatus` is a persistent state machine (`Unknown | Valid | Invalid | Expired | Revoked`) distinct from the per-attempt `CredentialValidationStatus`. Accept-time validation writes the full status (success flips `Valid`, 401 flips `Invalid`); the watchdog handler writes only on auth failures (`401 → Invalid`, `403 → Revoked`) so a flaky upstream doesn't flap the operator-facing status. Runtimes and connectors opt into the watchdog by calling `.AddCredentialHealthWatchdog(kind, subjectId, secretName)` on their `IHttpClientBuilder` — see `CONVENTIONS.md` § 16.
+`CredentialHealthStatus` is a persistent state machine (`Unknown | Valid | Invalid | Expired | Revoked`). The watchdog handler writes on auth failures (`401 → Invalid`, `403 → Revoked`) so a flaky upstream doesn't flap the operator-facing status. Runtimes and connectors opt into the watchdog by calling `.AddCredentialHealthWatchdog(kind, subjectId, secretName)` on their `IHttpClientBuilder` — see `CONVENTIONS.md` § 16. For the in-container side, the unit's `LastValidationError` (surfaced on `GET /api/v1/units/{name}`) is authoritative for the most recent validation run, and the `/revalidate` endpoint re-dispatches the workflow after an operator-side fix.
 
 ## Admin surface policy
 
@@ -114,7 +112,8 @@ Every admin/operator mutation is **CLI-only**. The portal MAY expose read-only v
 
 - Agent-runtime install/config → `spring agent-runtime …`
 - Connector install/config → `spring connector …`
-- Credential health → `spring … credentials status` (reads only; writes come from accept-time validation + watchdog)
+- Unit validation → `spring unit create` (default `--wait`) / `spring unit revalidate <name>`
+- Credential health → `spring … credentials status` (reads only; writes come from the watchdog + the unit-scoped `UnitValidationWorkflow`)
 - Tenant seeds → Worker bootstrap (no HTTP / CLI re-seed in V2)
 - Skill-bundle bindings → Worker bootstrap in V2; `spring skill-bundle …` mutation CLI deferred to V2.1
 
@@ -125,10 +124,11 @@ This is ADDITIVE to `CONVENTIONS.md` § 14 (UI / CLI parity for user-facing feat
 1. Create `src/Cvoya.Spring.AgentRuntimes.<Name>/` (e.g. `Cvoya.Spring.AgentRuntimes.Foo`). Reference `Cvoya.Spring.Core` only — no Dapr, no ASP.NET.
 2. Implement `IAgentRuntime`. Pick a stable lower-case `Id`; pick a `ToolKind` (reuse `claude-code-cli` / `dapr-agent` / `codex-cli` where it fits).
 3. Ship a `seed.json` at `agent-runtimes/<id>/seed.json` carrying the default model catalog.
-4. Add `AddCvoyaSpringAgentRuntime<Name>()` DI extension that registers via `TryAddEnumerable(ServiceDescriptor.Singleton<IAgentRuntime, FooRuntime>())` so cloud overlays can pre-register variants.
-5. If the runtime authenticates via `HttpClient`, wire `.AddCredentialHealthWatchdog(CredentialHealthKind.AgentRuntime, "<id>", "api-key")` on the named HttpClient builder.
-6. Ship a per-project `README.md` documenting id, tool kind, credential schema, and host-side baseline.
-7. Append a row to the "Built-in agent runtimes" table in `AGENTS.md` and register `AddCvoyaSpringAgentRuntime<Name>()` from `src/Cvoya.Spring.Host.Api/Program.cs`.
+4. Implement `GetProbeSteps(config, credential)` returning an ordered in-container probe plan — typically `VerifyingTool`, `ValidatingCredential`, `ResolvingModel` (omit `ValidatingCredential` when `CredentialKind.None`). Each step must have a bounded `Timeout` and an `InterpretOutput` delegate that never leaks the raw credential into the returned `UnitValidationError`. Do **not** emit `PullingImage` — the dispatcher owns that step.
+5. Add `AddCvoyaSpringAgentRuntime<Name>()` DI extension that registers via `TryAddEnumerable(ServiceDescriptor.Singleton<IAgentRuntime, FooRuntime>())` so cloud overlays can pre-register variants.
+6. If the runtime authenticates via `HttpClient`, wire `.AddCredentialHealthWatchdog(CredentialHealthKind.AgentRuntime, "<id>", "api-key")` on the named HttpClient builder.
+7. Ship a per-project `README.md` documenting id, tool kind, credential schema, and the runtime-image contract (which binaries the probe plan needs — typically `curl`).
+8. Append a row to the "Built-in agent runtimes" table in `AGENTS.md` and register `AddCvoyaSpringAgentRuntime<Name>()` from `src/Cvoya.Spring.Host.Api/Program.cs`.
 
 Bootstrap picks it up automatically: `AgentRuntimeInstallSeedProvider` enumerates the registry on every Worker start and calls `InstallAsync(id, config: null, …)` per runtime.
 

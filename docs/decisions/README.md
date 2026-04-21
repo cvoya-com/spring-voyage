@@ -37,6 +37,7 @@ For open design questions that have **not** yet been decided, see [`../architect
 | [0021](0021-spring-voyage-is-not-an-agent-runtime.md) | Spring Voyage is not an agent runtime | Accepted — coordinate external runtimes, no in-platform tool-use loop |
 | [0022](0022-postgres-as-primary-store.md) | PostgreSQL as primary store; Dapr state store for actor runtime state | Accepted — relational data via EF Core; actor state via Dapr abstraction |
 | [0023](0023-flat-actor-ids.md) | Flat actor ids; single-hop routing with directory resolution | Accepted — O(path) permission walk, single dispatch hop |
+| [0024](0024-unit-validation-as-dapr-workflow.md) | Unit validation runs as a Dapr Workflow, not as an actor | Accepted — `UnitValidationWorkflow` + in-container probe activities ship in #941 |
 
 ## Format
 

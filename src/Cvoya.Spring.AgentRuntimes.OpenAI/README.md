@@ -19,20 +19,25 @@ The runtime expects a single OpenAI Platform API key
 (`AgentRuntimeCredentialKind.ApiKey`). Keys typically start with `sk-` and
 are issued at <https://platform.openai.com/api-keys>.
 
-`ValidateCredentialAsync` issues `GET /v1/models` against
-`https://api.openai.com` (or the `baseUrl` declared in the seed file) with
-the supplied key in an `Authorization: Bearer` header:
+`GetProbeSteps` emits a `ValidatingCredential` step that the
+`UnitValidationWorkflow` dispatches inside the unit container: a
+`curl -sS -H "Authorization: Bearer <key>" <baseUrl>/v1/models` call
+against `https://api.openai.com` (or the `baseUrl` declared in the
+seed / install config). The step's `InterpretOutput` maps the exit
+code / HTTP status onto `UnitValidationError`:
 
-| Outcome                | Status                                 |
-|------------------------|----------------------------------------|
-| HTTP 2xx               | `Valid`                                |
-| HTTP 4xx (any 4xx)     | `Invalid` (response body surfaced)     |
-| HTTP 5xx               | `NetworkError` (transient — retryable) |
-| Network/DNS/timeout    | `NetworkError`                         |
-| Empty / whitespace key | `Invalid` ("Supply an OpenAI API key…")|
+| Outcome                | Error code                           |
+|------------------------|--------------------------------------|
+| HTTP 2xx               | success                              |
+| HTTP 401 / 403         | `CredentialInvalid`                  |
+| HTTP 4xx (other)       | `CredentialInvalid`                  |
+| HTTP 5xx               | `NetworkError` (transient)           |
+| Network / DNS / timeout| `NetworkError`                       |
+| Empty / whitespace key | `CredentialInvalid`                  |
 
-The runtime never throws on transport-level failures; everything is
-returned as a `CredentialValidationResult`.
+Everything is surfaced as a `UnitValidationError` on the unit's
+persisted `LastValidationError`; the interpreter never bubbles raw
+credential bytes into the error message.
 
 ## Model catalog
 
@@ -52,15 +57,17 @@ To add or remove a model, edit the seed file and ship a new build of this
 project. Tenants may further override or extend this list at install time —
 that path is owned by the install service, not the runtime.
 
-## Container baseline
+## Runtime-image contract
 
-`VerifyContainerBaselineAsync` confirms that the runtime's tool dependency
-(`dapr-agent`, implemented in `Cvoya.Spring.Dapr.Execution.DaprAgentLauncher`)
-can be dispatched in the current process. Concretely it checks that the
-`Dapr.Actors` assembly is loaded into the host — the marker for a fully
-wired Dapr stack. Network reachability to `api.openai.com` and Dapr
-sidecar health are host-wide concerns surfaced by other probes
-(startup-configuration report, Dapr health endpoints).
+The OpenAI runtime's probe plan shells out to `curl` against
+`api.openai.com`. Every container image used to host a unit bound to this
+runtime MUST include a runnable HTTP client on `PATH` — typically
+`curl`. The `VerifyingTool` step fails fast with
+`UnitValidationCodes.ToolUnavailable` when the image lacks this
+dependency, so operators hit a precise error instead of a
+credential-validation failure downstream. See the runtime-image
+contract in
+[`docs/guide/operator/agent-runtimes.md`](../../docs/guide/operator/agent-runtimes.md#runtime-image-contract).
 
 ## Wiring
 

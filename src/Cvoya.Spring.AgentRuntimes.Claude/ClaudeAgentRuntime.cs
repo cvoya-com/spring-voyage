@@ -440,10 +440,9 @@ internal partial class AnthropicRestJsonContext : JsonSerializerContext;
 
 /// <summary>
 /// Subset of the <c>claude --output-format json</c> response that the
-/// credential / model-resolution probes parse. Moved here from the now-removed
-/// <c>Internal.ClaudeCliInvoker</c> so the in-container probe interpreter
-/// remains in-process next to its caller. Other fields the envelope carries
-/// are ignored.
+/// credential / model-resolution probes parse. Lives next to its caller so
+/// the in-container probe interpreter stays in-process. Other fields the
+/// envelope carries are ignored.
 /// </summary>
 internal sealed record ClaudeCliResult(
     [property: JsonPropertyName("type")] string? Type,

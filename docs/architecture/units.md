@@ -19,7 +19,7 @@ agent:
   
   ai:
     agent: claude                       # registered AI agent provider
-    model: claude-sonnet-4-20250514
+    model: claude-sonnet-4-6
     tool: claude-code                   # registered agent tool
     environment:                        # container definition
       image: spring-agent:latest
@@ -308,7 +308,7 @@ unit:
   name: research-cell
   ai:
     agent: claude
-    model: claude-sonnet-4-20250514
+    model: claude-sonnet-4-6
     prompt: |
       You coordinate a research team. Route papers
       to the most relevant researcher by expertise.
@@ -723,6 +723,45 @@ agent:
 ## Unit Lifecycle: From Definition to Operation
 
 Two paths to a running unit: **imperative** (CLI, build up step-by-step) and **declarative** (YAML, apply all at once). Both produce the same actor state. Use imperative for exploration and prototyping; declarative for reproducibility and version control.
+
+### Unit status & validation
+
+A unit's status transitions form a DAG:
+
+```
+Draft → Validating → Stopped → Starting → Running → Stopping → Stopped
+         │               ^
+         └──→ Error ─────┘  (via POST /units/{name}/revalidate)
+```
+
+- **Draft** — unit persisted but never validated. Rare in normal flow; the API's `POST /units` creates in `Validating` directly.
+- **Validating** — `UnitValidationWorkflow` is executing against the unit's chosen image. Terminal on the first probe failure or a successful model resolution.
+- **Error** — the workflow recorded a structured `LastValidationError` on `UnitDefinition`. `POST /units/{name}/revalidate` (and `spring unit revalidate <name>`) dispatch a fresh workflow run from here or from `Stopped`.
+- **Stopped** — validation passed (or the unit was stopped after running). Ready for `spring unit start`.
+- **Starting / Running / Stopping** — the normal runtime-container lifecycle, unchanged by #941.
+
+#### Unit validation workflow
+
+`UnitValidationWorkflow` (source: [`src/Cvoya.Spring.Dapr/Workflows/UnitValidationWorkflow.cs`](../../src/Cvoya.Spring.Dapr/Workflows/UnitValidationWorkflow.cs)) is a Dapr Workflow dispatched by `UnitActor.TransitionAsync(Validating)`. Rationale for "workflow, not actor" in [ADR 0024](../decisions/0024-unit-validation-as-dapr-workflow.md).
+
+The workflow runs four ordered activity steps; the first failure short-circuits:
+
+1. **PullingImage** — the dispatcher pulls the unit's configured image via `PullImageActivity`. The image pull is always workflow-owned; runtimes never emit a `PullingImage` step themselves.
+2. **VerifyingTool** — `RunContainerProbeActivity` runs the runtime's declared tool check inside the image (e.g. `claude --version`, `curl --version`).
+3. **ValidatingCredential** — a second `RunContainerProbeActivity` runs the credential probe (e.g. `curl` against `/v1/models`). Skipped for credential-less runtimes (Ollama).
+4. **ResolvingModel** — a third `RunContainerProbeActivity` confirms the requested model id exists in the provider's catalog.
+
+After each step the workflow calls `EmitValidationProgressActivity` (SSE for the portal, activity event for the CLI `--wait` poll loop). The terminal `CompleteUnitValidationActivity` writes `LastValidationError` (or clears it on success) on the `UnitDefinition` row, and calls `IUnitActor.CompleteValidationAsync` to flip status to `Stopped` or `Error`.
+
+The probe plan is built by `IAgentRuntime.GetProbeSteps(config, credential)`. Each step carries:
+
+- `Args` — the in-container command line.
+- `Timeout` — bounded step duration (all shipped steps cap well below 5 minutes).
+- `Env` — additional environment variables (including the credential, which the probe command typically reads from `$SPRING_CREDENTIAL`).
+- `InterpretOutput` — a delegate that maps `(exitCode, stdout, stderr)` onto a `StepResult` carrying either success-extras or a structured `UnitValidationError`. **The interpreter MUST NOT echo the raw credential into the error** — the workflow's `RunContainerProbeActivity` also redacts the captured `stdout` / `stderr` before persisting or emitting them.
+
+**Retry surface.** `POST /api/v1/units/{name}/revalidate` (allowed only from `Error` / `Stopped`) flips the unit back into `Validating` and dispatches a fresh workflow instance. The CLI (`spring unit revalidate <name>`) wraps this and polls the terminal state.
+
 
 ### Path A: Imperative (CLI)
 

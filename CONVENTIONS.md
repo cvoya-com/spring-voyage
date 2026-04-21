@@ -397,7 +397,7 @@ Both plugin kinds sit behind a **tenant install table** (`tenant_agent_runtime_i
 
 ### Credential-health wiring
 
-Plugins that authenticate via `HttpClient` MUST wire `AddCredentialHealthWatchdog(kind, subjectId, secretName)` onto their named client (see `CONVENTIONS.md` § 16). Without it, revoked or expired tokens surface only on unit failure, not on accumulating signal. The accept-time path is the `/validate-credential` endpoint — `ValidateCredentialAsync` on the plugin contract is the single hook the host invokes for both the wizard accept button and (future) the `spring … credentials validate` CLI verb.
+Plugins that authenticate via `HttpClient` MUST wire `AddCredentialHealthWatchdog(kind, subjectId, secretName)` onto their named client (see `CONVENTIONS.md` § 16). Without it, revoked or expired tokens surface only on unit failure, not on accumulating signal. For **agent runtimes**, credential probing was moved into the container as of #941 — runtimes expose `GetProbeSteps(config, credential)` and the Dapr `UnitValidationWorkflow` runs every probe inside the unit's chosen image (see `docs/architecture/units.md#unit-validation-workflow`). For **connectors**, the accept-time path remains `POST /validate-credential` → `IConnectorType.ValidateCredentialAsync`.
 
 ### Adding a new plugin
 

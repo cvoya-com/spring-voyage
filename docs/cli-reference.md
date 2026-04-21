@@ -77,13 +77,9 @@ $ spring agent-runtime credentials status claude
 claude / default → Valid (last checked 2026-04-20 09:03:12Z)
 ```
 
-Reads the shared credential-health store. 404 means no validation has been recorded — run the wizard's validate button or hit `POST /api/v1/agent-runtimes/{id}/validate-credential` directly to prime the row. Pass `--secret-name` for multi-credential runtimes.
+Reads the shared credential-health store, which is now fed by the **use-time** watchdog only — the host-side accept-time `POST /validate-credential` endpoint was removed in #941. A 404 means no watchdog observation has landed yet; exercise the runtime once (create a unit, or run `spring unit revalidate <name>`) to prime the row. Pass `--secret-name` for multi-credential runtimes.
 
-> **Validation rework — [#941](https://github.com/cvoya-com/spring-voyage/issues/941).** The accept-time `POST /validate-credential` endpoint runs host-side today, which means it probes whatever is installed on the API host instead of the chosen container image. Issue #941 moves validation behind a new `Validating` unit status, with image-pull / tool-verify / credential-validate / model-resolve probes executed dispatcher-side inside the chosen image, and a `/revalidate` endpoint plus `spring unit revalidate` verb for retries. When that lands, this row is fed by the new `RuntimeProbeActor`; the `credential-health` shape stays compatible.
-
-### Baseline verification (HTTP only)
-
-There is no `spring agent-runtime verify-baseline` CLI verb. Container-baseline checks are exposed as `POST /api/v1/agent-runtimes/{id}/verify-baseline`, which invokes the runtime's `VerifyContainerBaselineAsync` and returns the structured result. Operators typically run it from the wizard or via `curl` while debugging an image; runtimes with no host-side tooling pass trivially.
+> **Backend-side validation — [#941](https://github.com/cvoya-com/spring-voyage/issues/941) landed in V2.** Accept-time probes now run inside the chosen container image via `UnitValidationWorkflow`, a Dapr Workflow dispatched when a unit enters `Validating`. Four steps (image pull → tool verify → credential validate → model resolve) run in order; the first failure short-circuits with a structured `UnitValidationError`. The CLI surfaces progress via `spring unit create` (default `--wait`) and exposes `spring unit revalidate <name>` for retries. Exit codes 20–27 map one-to-one onto `UnitValidationCodes`.
 
 ### `refresh-models <id> [--credential <value>]`
 
@@ -104,6 +100,50 @@ The command exits 1 when:
 - The runtime is not installed on the current tenant (404).
 - The provider rejects the supplied credential (401).
 - The runtime cannot enumerate live models — e.g. Claude.ai OAuth tokens against the Anthropic Platform REST surface, or an unreachable Ollama endpoint (502). The stored model list is left untouched in every failure case.
+
+## `spring unit` (validation surface)
+
+The `unit` verb family carries many subcommands (see `spring unit --help`); the two that interact directly with the backend validation flow are covered below.
+
+### `create [--wait | --no-wait]`
+
+```
+$ spring unit create --name my-unit --image ghcr.io/example/claude:1 --tool claude-code-cli
+$ spring unit create --from-template example/scratch --no-wait
+```
+
+On success the CLI returns 201 and then **polls** the unit's terminal state. `--wait` is the **default**; the command blocks until the `UnitValidationWorkflow` finishes and exits with a validation-code-derived exit code (see the table below). `--no-wait` returns immediately after the 201, leaving the unit in `Validating` — useful for scripts that kick off many units in parallel and reconcile later via `spring unit status`.
+
+### `revalidate <name> [--wait | --no-wait]`
+
+```
+$ spring unit revalidate my-unit
+$ spring unit revalidate my-unit --no-wait
+```
+
+Calls `POST /api/v1/units/{name}/revalidate`, which is allowed only from `Error` or `Stopped`. The handler flips the unit into `Validating` and dispatches a fresh `UnitValidationWorkflow` run; the CLI polls the same way `create` does.
+
+Exits `2` (usage error) when the unit is not in an allowed state — the server returns 409 with the current status in the problem-details `extensions.currentStatus`.
+
+### Validation exit codes
+
+Shared by `spring unit create` and `spring unit revalidate` (stable, additive-only):
+
+| Exit | `UnitValidationCodes` | Meaning |
+|------|-----------------------|---------|
+| 0  | — | Success (terminal passing state) |
+| 1  | — | Unknown / transport error |
+| 2  | — | Usage error or illegal state for the op |
+| 20 | `ImagePullFailed` | Image could not be pulled |
+| 21 | `ImageStartFailed` | Image pulled but refused to start |
+| 22 | `ToolMissing` | Required binary absent from the image (see the runtime-image contract) |
+| 23 | `CredentialInvalid` | Backend rejected the credential (401/403) |
+| 24 | `CredentialFormatRejected` | Credential shape rejected before the network call |
+| 25 | `ModelNotFound` | Provider does not publish the requested model id |
+| 26 | `ProbeTimeout` | Step exceeded its timeout |
+| 27 | `ProbeInternalError` | Probe interpreter crashed on the output |
+
+Operators script against these numbers — the contract is additive-only (no renumbering).
 
 ## `spring connector`
 
@@ -170,7 +210,7 @@ These predate the tenant-install surface and work for units whose tenant has the
 2. **Add a new Claude model to the tenant.** `spring agent-runtime models add claude claude-opus-4-2`.
 3. **Reconcile the tenant's list with what the provider currently publishes.** `spring agent-runtime refresh-models openai --credential sk-proj-…` (closes #720 — replaces the refresh-script).
 4. **Retire a model from the catalog.** `spring agent-runtime models remove openai gpt-4o-mini` (existing units keep their pinned id per #674's pass-through rule).
-5. **Verify Claude CLI is on PATH in this image.** `curl -X POST $SPRING_API/api/v1/agent-runtimes/claude/verify-baseline` (no CLI verb yet).
+5. **Re-run backend validation on a failed unit.** `spring unit revalidate my-unit` — dispatches a fresh `UnitValidationWorkflow` run; exits 20–27 map onto the underlying `UnitValidationCodes`.
 6. **Install Ollama with a custom node URL.** `spring agent-runtime install ollama --base-url http://ollama.internal:11434`.
 7. **Hide OpenAI from a tenant.** `spring agent-runtime uninstall openai --force`.
 8. **Re-enable OpenAI later.** `spring agent-runtime install openai` — install is upsert-shaped; prior config is preserved where possible.

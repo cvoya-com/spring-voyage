@@ -304,11 +304,14 @@ targeting one of those tools has no runtime effect.
   tools because the contract is undefined.
 - Credentials for the `dapr-agent` launcher's provider flow through the
   tier-2 tenant-default resolver (`ILlmCredentialResolver`, #615). The
-  portal's create wizard shows an inline credential-status banner under
-  the Provider dropdown so operators learn at wizard time whether the
-  selected provider is actually usable — tenant-default inherited, unit
-  override set, or not configured. For Ollama the banner is a reachability
-  probe (the endpoint has no secret concept, only a base URL).
+  portal's create wizard no longer gates on credential validation at
+  accept time (removed in #941 — the inline banner went with it); unit
+  creation now flows straight into `Validating`, and the detail page's
+  Validation panel (`src/Cvoya.Spring.Web/src/components/units/detail/validation-panel.tsx`)
+  owns the operator-facing feedback. Tenant-default vs unit-override
+  resolution for credentials is still authoritative and surfaces
+  verbatim on the Execution / Secrets tabs; see
+  [docs/guide/portal.md](../guide/portal.md) for the detail page walkthrough.
 
 Future changes to this matrix — e.g. a "Claude Code with Vertex AI
 backend" tool that legitimately takes a provider axis — should update

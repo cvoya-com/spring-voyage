@@ -4,11 +4,19 @@
 namespace Cvoya.Spring.Core.AgentRuntimes;
 
 /// <summary>
-/// Outcome of
-/// <see cref="IAgentRuntime.VerifyContainerBaselineAsync(System.Threading.CancellationToken)"/>.
-/// Reports whether the runtime's required tooling (CLI binaries, network
-/// reachability, etc.) is present in the current process/container.
+/// Outcome of a container-baseline probe. Reports whether a subject's
+/// required tooling (CLI binaries, network reachability, etc.) is present
+/// in the target container image.
 /// </summary>
+/// <remarks>
+/// Used today by
+/// <see cref="Cvoya.Spring.Connectors.IConnectorType.VerifyContainerBaselineAsync(System.Threading.CancellationToken)"/>.
+/// Agent runtimes no longer expose a separate baseline probe; their
+/// in-container tool verification runs as the
+/// <see cref="Cvoya.Spring.Core.Units.UnitValidationStep.VerifyingTool"/>
+/// step of the <c>UnitValidationWorkflow</c> probe plan returned by
+/// <see cref="IAgentRuntime.GetProbeSteps(AgentRuntimeInstallConfig, string)"/>.
+/// </remarks>
 /// <param name="Passed">
 /// <c>true</c> when every baseline check succeeded. <c>false</c> when at
 /// least one check failed — see <paramref name="Errors"/> for details.

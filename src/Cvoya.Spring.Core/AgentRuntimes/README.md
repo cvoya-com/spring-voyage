@@ -14,14 +14,14 @@ impl lives in `Cvoya.Spring.Dapr/AgentRuntimes/`.
 
 | Type | Purpose |
 |------|---------|
-| `IAgentRuntime` | The runtime itself: `Id`, `DisplayName`, `ToolKind`, `CredentialSchema`, `ValidateCredentialAsync`, `DefaultModels`, `VerifyContainerBaselineAsync`, `FetchLiveModelsAsync`. |
+| `IAgentRuntime` | The runtime itself: `Id`, `DisplayName`, `ToolKind`, `CredentialSchema`, `CredentialSecretName`, `DefaultModels`, `GetProbeSteps`, `FetchLiveModelsAsync`. |
 | `IAgentRuntimeRegistry` | Singleton enumeration + case-insensitive `Get(id)` lookup over every DI-registered runtime. |
 | `AgentRuntimeCredentialSchema` | Record describing the expected credential shape (kind + optional display hint). |
 | `AgentRuntimeCredentialKind` | `None` / `ApiKey` / `OAuthToken`. |
-| `CredentialValidationResult` | Outcome record: `Valid`, `ErrorMessage`, `Status`. |
+| `ProbeStep` | One in-container probe command the `UnitValidationWorkflow` dispatches for this runtime: `Step`, `Args`, `Timeout`, `Env`, `InterpretOutput`. |
+| `CredentialValidationResult` | Outcome record consumed by the credential-health store + connector validate path: `Valid`, `ErrorMessage`, `Status`. |
 | `CredentialValidationStatus` | `Unknown` / `Valid` / `Invalid` / `NetworkError`. |
 | `ModelDescriptor` | One entry in a runtime's catalog: `Id`, `DisplayName`, `ContextWindow`. |
-| `ContainerBaselineCheckResult` | Outcome of the container-baseline probe: `Passed`, `Errors`. |
 | `FetchLiveModelsResult` | Outcome of `FetchLiveModelsAsync`: `Status`, `Models`, `ErrorMessage`. |
 | `FetchLiveModelsStatus` | `Unknown` / `Success` / `InvalidCredential` / `NetworkError` / `Unsupported`. |
 
@@ -53,10 +53,10 @@ impl lives in `Cvoya.Spring.Dapr/AgentRuntimes/`.
    pre-register a replacement.
 5. Add unit tests under
    `tests/Cvoya.Spring.AgentRuntimes.<Name>.Tests/`. Cover
-   `ValidateCredentialAsync` (valid / invalid / network-error paths),
+   `GetProbeSteps` shape (step order, bounded timeouts, interpreter
+   coverage for each exit-code path the probe produces),
    `FetchLiveModelsAsync` (success / unsupported / network-error paths),
-   seed deserialization round-trip, and
-   `VerifyContainerBaselineAsync`.
+   and the seed deserialization round-trip.
 6. Update any user-facing docs: `docs/guide/` for install/config,
    `docs/architecture/` if the runtime introduces a novel pattern.
 
@@ -92,14 +92,18 @@ When you add or change an agent runtime, confirm:
 
 - [ ] `Id` is stable, lowercase, and persisted-safe.
 - [ ] `CredentialSchema.Kind` matches how the backend actually authenticates.
-- [ ] `ValidateCredentialAsync` never throws — transport failures are reported as `CredentialValidationStatus.NetworkError`.
+- [ ] `CredentialSecretName` returns the canonical secret name (or
+      `string.Empty` for `AgentRuntimeCredentialKind.None`).
 - [ ] `DefaultModels` mirrors the seed file exactly (no drift between
       source code defaults and the seed).
-- [ ] `VerifyContainerBaselineAsync` checks every binary / network
-      dependency the runtime needs at execution time.
+- [ ] `GetProbeSteps` returns an ordered plan with bounded timeouts,
+      covers `VerifyingTool` + `ValidatingCredential` + `ResolvingModel`
+      (omit `ValidatingCredential` when `CredentialKind.None`), and
+      never emits a `PullingImage` step (the dispatcher owns that).
+- [ ] Each step's `InterpretOutput` maps every exit-code path the probe
+      can produce to a `UnitValidationError` or success with no canary
+      content leaking through into the error message.
 - [ ] The DI extension uses `TryAdd*` so downstream hosts can override.
-- [ ] Tests cover all three `ValidateCredentialAsync` outcomes plus the
-      seed round-trip.
 - [ ] User guide updated. CLI `--help` examples updated. No drift.
 
 ## Scope note

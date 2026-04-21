@@ -13,7 +13,7 @@ execution tool to the Google AI (Generative Language) API.
 | `IAgentRuntime.DisplayName` | `Google AI (dapr-agent + Google AI API)` |
 | `IAgentRuntime.ToolKind` | `dapr-agent` |
 | `CredentialSchema.Kind` | `ApiKey` |
-| Validation endpoint | `GET https://generativelanguage.googleapis.com/v1beta/models?key=…` |
+| In-container probe | `curl -sS "https://generativelanguage.googleapis.com/v1beta/models?key=…"` (via `GetProbeSteps`) |
 | Seed catalogue | [`agent-runtimes/google/seed.json`](agent-runtimes/google/seed.json) |
 
 The seed file lists the curated default model ids
@@ -39,31 +39,24 @@ The extension uses `TryAddEnumerable` on `IAgentRuntime`, so a downstream
 host (e.g. the private cloud repo) can register a replacement runtime
 before this call without being silently shadowed by the default.
 
-## Credential validation
+## In-container probe plan
 
-`ValidateCredentialAsync` issues a single read-only request against
-`/v1beta/models` using the supplied API key. The result mapping follows
-the [contract on the interface](../Cvoya.Spring.Core/AgentRuntimes/IAgentRuntime.cs):
+`GetProbeSteps` returns an ordered plan the `UnitValidationWorkflow`
+executes inside the unit's container image:
 
-| Outcome | Status |
-|---------|--------|
-| HTTP 2xx | `Valid` |
-| HTTP 4xx (401, 403, 400, …) | `Invalid` (with the body excerpt in `ErrorMessage`) |
-| HTTP 5xx | `NetworkError` (transient — caller may retry) |
-| Transport failure (DNS / TLS / timeout) | `NetworkError` |
-| Empty / whitespace credential | `Invalid` |
+- `VerifyingTool` — `curl --version`, confirming the image ships a
+  runnable HTTP client (see
+  [runtime-image contract](../../docs/guide/operator/agent-runtimes.md#runtime-image-contract)).
+- `ValidatingCredential` — `GET /v1beta/models?key=<credential>` against
+  the configured base URL. Exit 0 with a 2xx status → success;
+  401/403 → `CredentialInvalid`; other 4xx → `CredentialInvalid`;
+  5xx / transport failure → `NetworkError` (transient — the workflow's
+  caller may retry via `POST /units/{name}/revalidate`).
+- `ResolvingModel` — a second `curl` probe against `/v1beta/models/<id>`
+  surfacing `ModelNotFound` when the provider does not list the model.
 
-The validator never throws for transport failures — they always surface as
-`NetworkError`. Cancellation propagates as expected.
-
-## Container baseline
-
-`VerifyContainerBaselineAsync` reports `Passed = true` when the
-`Dapr.Actors` assembly is loaded into the host process — that is the
-runtime's only host-side dependency. Outbound HTTPS reachability to
-`generativelanguage.googleapis.com` and the Dapr sidecar's health are
-covered by the host-wide startup configuration report and Dapr's own
-health probes; duplicating those checks here would lie about scope.
+The interpreters never bubble the raw credential into
+`UnitValidationError.Details`.
 
 ## Seed file format
 

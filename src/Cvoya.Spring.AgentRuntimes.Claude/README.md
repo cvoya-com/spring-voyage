@@ -2,9 +2,10 @@
 
 Claude (Anthropic Claude Code CLI + Anthropic Platform API) agent
 runtime. Pluggable `IAgentRuntime` implementation that ships as part of
-the Spring Voyage open-source core. Migrated from the hardcoded
-`Cvoya.Spring.Dapr.Execution.ClaudeCliInvoker` path under issue #679 (which
-also folds the host-CLI dependency fix from #668).
+the Spring Voyage open-source core. Originally migrated under issue #679
+(which folded in the host-CLI dependency fix from #668); since #941 the
+runtime's validation runs as an in-container probe plan via
+`GetProbeSteps` — host-side shelling out is forbidden.
 
 ## What this project is
 
@@ -19,9 +20,10 @@ in [`src/Cvoya.Spring.Core/AgentRuntimes/`](../Cvoya.Spring.Core/AgentRuntimes/R
   Claude.ai OAuth tokens from `claude setup-token` (`sk-ant-oat…`).
 - Defaults its model catalog from the embedded
   [`agent-runtimes/claude/seed.json`](agent-runtimes/claude/seed.json).
-- `VerifyContainerBaselineAsync` runs `claude --version` in the runtime
-  container and returns a precise error if the binary is missing — no
-  host CLI dependency.
+- `GetProbeSteps` emits a `VerifyingTool` step that runs
+  `claude --version` inside the chosen container image; a missing
+  binary produces a precise `ToolUnavailable` error without shelling
+  out on the host.
 
 ## Supported credential formats
 
@@ -37,14 +39,17 @@ the core contract:
 - `Invalid` — Anthropic returned 401 / 403, or the credential format is unrecognized.
 - `NetworkError` — DNS / TLS / timeout / 5xx, or the CLI itself was not reachable when validating an OAuth token.
 
-## Container baseline
+## Runtime-image contract
 
-The runtime requires the `claude` CLI binary on PATH inside its own
-container image. `VerifyContainerBaselineAsync` runs `claude --version`
-and reports any failure with a human-readable error string. The host's
-install flow consults this hook before letting tenants enable the
-runtime; a missing CLI produces a clear install-time error instead of a
-cryptic credential-validation failure later. **This closes #668.**
+The runtime requires the `claude` CLI binary on `PATH` inside its own
+container image. The `UnitValidationWorkflow`'s `VerifyingTool` step
+runs `claude --version` and reports any failure as a
+`UnitValidationError` with code `ToolUnavailable`, so a missing CLI
+produces a clear validation-time error rather than a cryptic
+credential-validation failure downstream. Unlike the other OSS runtimes
+(OpenAI, Google, Ollama) the Claude runtime uses the `claude` CLI —
+not `curl` — for the `ValidatingCredential` step, so an image that
+includes `claude` satisfies the contract. **This closes #668.**
 
 ## Updating the model list
 

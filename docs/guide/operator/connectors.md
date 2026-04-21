@@ -46,7 +46,7 @@ Per-unit config — the GitHub repo, organisation, webhook events — is set via
 
 ## Checking credential health
 
-> **Validation rework in flight — [#941](https://github.com/cvoya-com/spring-voyage/issues/941).** The same dispatcher-side, in-container validation rework that affects agent-runtime credentials applies here: today's accept-time `validate-credential` runs on the API host, which can produce host-vs-container drift. The use-time watchdog half of this section stays as-is.
+> **Connector credential validation — scope note for [#941](https://github.com/cvoya-com/spring-voyage/issues/941).** The in-container validation rework in V2 retired the host-side probe for **agent runtimes** only; connector `POST /validate-credential` still runs on the API host (connectors don't yet have a container-image contract). The use-time watchdog described below remains the durable source of `Invalid` / `Revoked` signals for connectors. Rework tracked separately if/when connector probes move in-container.
 
 The credential-health store feeds two paths:
 - **Accept-time validation** — hitting `POST /api/v1/connectors/{slug}/validate-credential` writes the outcome. Subject to the rework banner above.
