@@ -13,6 +13,8 @@ using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Initiative;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Policies;
+using Cvoya.Spring.Dapr.Actors;
+using Cvoya.Spring.Host.Api.Auth;
 using Cvoya.Spring.Host.Api.Models;
 
 using NSubstitute;
@@ -56,6 +58,14 @@ public class UnitPolicyEndpointsTests : IClassFixture<CustomWebApplicationFactor
         _factory.DirectoryService
             .ResolveAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
             .Returns((DirectoryEntry?)null);
+
+        // The UnitViewer gate runs before the handler; arrange a permissive
+        // grant so the test observes the handler's 404 (the declared
+        // behaviour under test) rather than the gate's 403.
+        _factory.PermissionService
+            .ResolveEffectivePermissionAsync(
+                AuthConstants.DefaultLocalUserId, "ghost", Arg.Any<CancellationToken>())
+            .Returns(PermissionLevel.Owner);
 
         var response = await _client.GetAsync($"/api/v1/units/ghost/policy", ct);
 
@@ -237,6 +247,14 @@ public class UnitPolicyEndpointsTests : IClassFixture<CustomWebApplicationFactor
             .ResolveAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
             .Returns((DirectoryEntry?)null);
 
+        // The UnitOwner gate runs before the handler; arrange a permissive
+        // grant so the test observes the handler's 404 (the declared
+        // behaviour under test) rather than the gate's 403.
+        _factory.PermissionService
+            .ResolveEffectivePermissionAsync(
+                AuthConstants.DefaultLocalUserId, "ghost", Arg.Any<CancellationToken>())
+            .Returns(PermissionLevel.Owner);
+
         var response = await _client.PutAsJsonAsync(
             $"/api/v1/units/ghost/policy",
             new UnitPolicyResponse(new SkillPolicy(Blocked: new[] { "x" })),
@@ -272,5 +290,13 @@ public class UnitPolicyEndpointsTests : IClassFixture<CustomWebApplicationFactor
                 "Engineering unit",
                 null,
                 DateTimeOffset.UtcNow));
+
+        // The endpoints are gated by UnitOwner / UnitViewer policies (#1001).
+        // The happy-path tests in this file write then read the policy, so
+        // arrange Owner on the LocalDev caller so both verbs are allowed.
+        _factory.PermissionService
+            .ResolveEffectivePermissionAsync(
+                AuthConstants.DefaultLocalUserId, unitName, Arg.Any<CancellationToken>())
+            .Returns(PermissionLevel.Owner);
     }
 }

@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Host.Api.Endpoints;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Policies;
+using Cvoya.Spring.Host.Api.Auth;
 using Cvoya.Spring.Host.Api.Models;
 
 using Microsoft.AspNetCore.Mvc;
@@ -35,12 +36,14 @@ public static class UnitPolicyEndpoints
         group.MapGet("/", GetPolicyAsync)
             .WithName("GetUnitPolicy")
             .WithSummary("Get the unit's governance policy")
+            .RequireAuthorization(PermissionPolicies.UnitViewer)
             .Produces<UnitPolicyResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapPut("/", SetPolicyAsync)
             .WithName("SetUnitPolicy")
             .WithSummary("Upsert the unit's governance policy")
+            .RequireAuthorization(PermissionPolicies.UnitOwner)
             .Produces<UnitPolicyResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound);
