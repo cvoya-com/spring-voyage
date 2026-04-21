@@ -9,9 +9,11 @@ import { cn } from "@/lib/utils";
 import {
   type NodeKind,
   type NodeStatus,
+  overflowTabsFor,
   type TabName,
-  type TreeNode,
   tabsFor,
+  type TreeNode,
+  visibleTabsFor,
 } from "./aggregate";
 import { TabPlaceholder } from "./tab-placeholder";
 import { lookupTab } from "./tabs";
@@ -34,15 +36,23 @@ interface DetailPaneProps {
  * registered-tab content (or a {@link TabPlaceholder} fallback).
  *
  * The pane is intentionally dumb about *which* tab catalog applies — it
- * derives the strip from `tabsFor(node.kind)` so adding a tab to the
- * source-of-truth catalog (`UNIT_TABS`, etc.) automatically widens the
- * strip everywhere the pane renders.
+ * derives the strip from `visibleTabsFor(node.kind)` (plus an overflow
+ * strip from `overflowTabsFor(node.kind)` when the kind has overflow
+ * tabs) so adding a tab to the source-of-truth catalog (`UNIT_TABS`,
+ * etc.) automatically widens the strip everywhere the pane renders.
+ *
+ * Overflow tabs (today: Unit's `Config`) render as a second tablist
+ * after a visual separator. They're still `role="tab"` buttons wired to
+ * the same `onTabChange` callback, so activating one behaves identically
+ * to activating a visible tab — the URL carries the same `tab` value
+ * either way, and a stale `?tab=Config` URL snaps the pane to the
+ * overflow tab.
  *
  * If the active `tab` prop is not in the kind's catalog (e.g. a stale URL
  * fragment that says `tab=Skills` while the user navigated to a unit),
- * the pane snaps to the kind's first tab via the `useEffect` below. This
- * keeps the URL → state sync one-directional: the URL drives `tab`,
- * the pane drives the URL via `onTabChange`.
+ * the pane snaps to the kind's first visible tab via the `useEffect`
+ * below. This keeps the URL → state sync one-directional: the URL
+ * drives `tab`, the pane drives the URL via `onTabChange`.
  */
 export function DetailPane({
   node,
@@ -51,18 +61,20 @@ export function DetailPane({
   onTabChange,
   onSelectNode,
 }: DetailPaneProps) {
-  const tabs = tabsFor(node.kind);
-  const isValidTab = tabs.includes(tab);
+  const visibleTabs = visibleTabsFor(node.kind);
+  const overflowTabs = overflowTabsFor(node.kind);
+  const allTabs = tabsFor(node.kind);
+  const isValidTab = allTabs.includes(tab);
   // Stable, hydration-safe prefix per DetailPane mount. Combined with the
   // tab slug it yields the unique `id`s the WAI-ARIA tabs pattern requires
   // so a screen reader can tie the tab button to the panel it controls.
   const idPrefix = useId();
 
   useEffect(() => {
-    if (!isValidTab) onTabChange(tabs[0]);
-  }, [isValidTab, tabs, onTabChange]);
+    if (!isValidTab) onTabChange(visibleTabs[0]);
+  }, [isValidTab, visibleTabs, onTabChange]);
 
-  const activeTab: TabName = isValidTab ? tab : tabs[0];
+  const activeTab: TabName = isValidTab ? tab : visibleTabs[0];
   const tabId = (t: TabName) => `${idPrefix}-tab-${tabSlug(t)}`;
   const panelId = `${idPrefix}-panel-${tabSlug(activeTab)}`;
 
@@ -106,13 +118,35 @@ export function DetailPane({
             <Badge variant="secondary">{node.role}</Badge>
           ) : null}
         </div>
-        <TabStrip
-          tabs={tabs}
-          active={activeTab}
-          onPick={onTabChange}
-          tabId={tabId}
-          panelId={panelId}
-        />
+        <div className="-mb-3 mt-3 flex items-center gap-2 overflow-x-auto">
+          <TabStrip
+            tabs={visibleTabs}
+            active={activeTab}
+            onPick={onTabChange}
+            tabId={tabId}
+            panelId={panelId}
+            ariaLabel="Detail tabs"
+            testId="detail-tabstrip"
+          />
+          {overflowTabs.length > 0 ? (
+            <>
+              <span
+                aria-hidden="true"
+                data-testid="detail-tabstrip-separator"
+                className="h-5 w-px shrink-0 bg-border"
+              />
+              <TabStrip
+                tabs={overflowTabs}
+                active={activeTab}
+                onPick={onTabChange}
+                tabId={tabId}
+                panelId={panelId}
+                ariaLabel="More detail tabs"
+                testId="detail-tabstrip-overflow"
+              />
+            </>
+          ) : null}
+        </div>
       </header>
       <div
         role="tabpanel"
@@ -177,19 +211,23 @@ function TabStrip({
   onPick,
   tabId,
   panelId,
+  ariaLabel,
+  testId,
 }: {
   tabs: readonly TabName[];
   active: TabName;
   onPick: (tab: TabName) => void;
   tabId: (tab: TabName) => string;
   panelId: string;
+  ariaLabel: string;
+  testId: string;
 }) {
   return (
     <div
       role="tablist"
-      aria-label="Detail tabs"
-      data-testid="detail-tabstrip"
-      className="-mb-3 mt-3 flex items-center gap-1 overflow-x-auto"
+      aria-label={ariaLabel}
+      data-testid={testId}
+      className="flex items-center gap-1"
     >
       {tabs.map((t) => {
         const selected = t === active;

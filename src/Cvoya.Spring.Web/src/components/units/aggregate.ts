@@ -149,48 +149,76 @@ export function findIndex(tree: TreeNode): {
 }
 
 /**
- * Tab catalogs by node kind. The order here is the order the tab strip
- * renders.
+ * Tab catalogs by node kind. Each catalog is split into `visible` (the
+ * primary tab strip) and `overflow` (tabs that render through a secondary
+ * affordance — e.g. a trailing separator + strip, or a "more" popover).
+ *
+ * The split is structural on purpose: consumers can read the contract
+ * ("Config is the Unit overflow tab") from the type, without parsing
+ * labels or re-reading the plan. `tabsFor` still returns the flat
+ * concatenation so any consumer that only cares about "every tab this
+ * kind supports" keeps working unchanged.
+ *
+ * The order inside each bucket is the order the respective strip
+ * renders. Overflow tabs follow visible ones.
  */
-export const UNIT_TABS = [
-  "Overview",
-  "Agents",
-  "Orchestration",
-  "Activity",
-  "Messages",
-  "Memory",
-  "Policies",
-  "Config",
-] as const;
+export const UNIT_TABS = {
+  visible: [
+    "Overview",
+    "Agents",
+    "Orchestration",
+    "Activity",
+    "Messages",
+    "Memory",
+    "Policies",
+  ] as const,
+  overflow: ["Config"] as const,
+};
 
-export const AGENT_TABS = [
-  "Overview",
-  "Activity",
-  "Messages",
-  "Memory",
-  "Skills",
-  "Traces",
-  "Clones",
-  "Config",
-] as const;
+export const AGENT_TABS = {
+  visible: [
+    "Overview",
+    "Activity",
+    "Messages",
+    "Memory",
+    "Skills",
+    "Traces",
+    "Clones",
+    "Config",
+  ] as const,
+  overflow: [] as const,
+};
 
-export const TENANT_TABS = [
-  "Overview",
-  "Activity",
-  "Policies",
-  "Budgets",
-  "Memory",
-] as const;
+export const TENANT_TABS = {
+  visible: [
+    "Overview",
+    "Activity",
+    "Policies",
+    "Budgets",
+    "Memory",
+  ] as const,
+  overflow: [] as const,
+};
 
-export type UnitTabName = (typeof UNIT_TABS)[number];
-export type AgentTabName = (typeof AGENT_TABS)[number];
-export type TenantTabName = (typeof TENANT_TABS)[number];
+export type UnitTabName =
+  | (typeof UNIT_TABS.visible)[number]
+  | (typeof UNIT_TABS.overflow)[number];
+export type AgentTabName =
+  | (typeof AGENT_TABS.visible)[number]
+  | (typeof AGENT_TABS.overflow)[number];
+export type TenantTabName =
+  | (typeof TENANT_TABS.visible)[number]
+  | (typeof TENANT_TABS.overflow)[number];
 export type TabName = UnitTabName | AgentTabName | TenantTabName;
 
 /**
  * Conditional type linking a node kind to its tab catalog. Lets generic
  * registry APIs (`registerTab`, `lookupTab`, `tabKey`) reject nonsense
  * `(kind, tab)` pairs like `("Tenant", "Skills")` at compile time.
+ *
+ * The type covers *both* visible and overflow tabs — overflow tabs stay
+ * first-class citizens of the registry; the visible/overflow split only
+ * affects how the Detail Pane surfaces them, not the runtime dispatch.
  */
 export type TabsFor<K extends NodeKind> = K extends "Tenant"
   ? TenantTabName
@@ -200,14 +228,54 @@ export type TabsFor<K extends NodeKind> = K extends "Tenant"
       ? AgentTabName
       : never;
 
-export function tabsFor<K extends NodeKind>(kind: K): readonly TabsFor<K>[] {
+function catalogFor<K extends NodeKind>(
+  kind: K,
+): { visible: readonly TabsFor<K>[]; overflow: readonly TabsFor<K>[] } {
   switch (kind) {
     case "Agent":
-      return AGENT_TABS as unknown as readonly TabsFor<K>[];
+      return AGENT_TABS as unknown as {
+        visible: readonly TabsFor<K>[];
+        overflow: readonly TabsFor<K>[];
+      };
     case "Tenant":
-      return TENANT_TABS as unknown as readonly TabsFor<K>[];
+      return TENANT_TABS as unknown as {
+        visible: readonly TabsFor<K>[];
+        overflow: readonly TabsFor<K>[];
+      };
     case "Unit":
     default:
-      return UNIT_TABS as unknown as readonly TabsFor<K>[];
+      return UNIT_TABS as unknown as {
+        visible: readonly TabsFor<K>[];
+        overflow: readonly TabsFor<K>[];
+      };
   }
+}
+
+/**
+ * Flat catalog of every tab a kind supports — visible tabs first, then
+ * overflow tabs. This is the union used by consumers that only need
+ * "does this kind have this tab?" semantics (URL ⇄ tab validation, the
+ * `register-all` completeness test, etc.).
+ */
+export function tabsFor<K extends NodeKind>(kind: K): readonly TabsFor<K>[] {
+  const c = catalogFor(kind);
+  return [...c.visible, ...c.overflow];
+}
+
+/** Visible tabs for the kind — the primary tab strip. */
+export function visibleTabsFor<K extends NodeKind>(
+  kind: K,
+): readonly TabsFor<K>[] {
+  return catalogFor(kind).visible;
+}
+
+/**
+ * Overflow tabs for the kind — rendered via a secondary affordance (the
+ * Detail Pane currently uses a trailing, visually-separated `<TabStrip>`).
+ * Kinds with no overflow return an empty readonly array.
+ */
+export function overflowTabsFor<K extends NodeKind>(
+  kind: K,
+): readonly TabsFor<K>[] {
+  return catalogFor(kind).overflow;
 }

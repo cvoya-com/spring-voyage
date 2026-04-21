@@ -1,10 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import {
-  AGENT_TABS,
-  TENANT_TABS,
-  UNIT_TABS,
-} from "../aggregate";
+import { tabsFor } from "../aggregate";
 import {
   __resetTabRegistryForTesting,
   lookupTab,
@@ -23,28 +19,32 @@ describe("tabs/register-all — every v2 slot has a component", () => {
     // covers HMR.
     await import("./register-all");
 
-    for (const tab of UNIT_TABS) {
+    const unitTabs = tabsFor("Unit");
+    const agentTabs = tabsFor("Agent");
+    const tenantTabs = tabsFor("Tenant");
+
+    for (const tab of unitTabs) {
       expect(
         lookupTab("Unit", tab),
         `Unit.${tab} should be registered`,
       ).not.toBeNull();
     }
-    for (const tab of AGENT_TABS) {
+    for (const tab of agentTabs) {
       expect(
         lookupTab("Agent", tab),
         `Agent.${tab} should be registered`,
       ).not.toBeNull();
     }
-    for (const tab of TENANT_TABS) {
+    for (const tab of tenantTabs) {
       expect(
         lookupTab("Tenant", tab),
         `Tenant.${tab} should be registered`,
       ).not.toBeNull();
     }
 
-    // Sanity: registry size equals the sum of all catalog sizes.
-    const expected =
-      UNIT_TABS.length + AGENT_TABS.length + TENANT_TABS.length;
+    // Sanity: registry size equals the sum of all catalog sizes
+    // (including overflow tabs — they're first-class registry citizens).
+    const expected = unitTabs.length + agentTabs.length + tenantTabs.length;
     expect(registeredTabs().length).toBe(expected);
   });
 });

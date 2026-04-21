@@ -5,9 +5,11 @@ import {
   AGENT_TABS,
   findIndex,
   flattenTree,
+  overflowTabsFor,
   tabsFor,
   TENANT_TABS,
   UNIT_TABS,
+  visibleTabsFor,
   type TreeNode,
 } from "./aggregate";
 
@@ -136,14 +138,23 @@ describe("flattenTree / findIndex", () => {
 });
 
 describe("tabsFor", () => {
-  it("returns the locked v2.0 tab catalog for each kind", () => {
-    expect(tabsFor("Tenant")).toBe(TENANT_TABS);
-    expect(tabsFor("Unit")).toBe(UNIT_TABS);
-    expect(tabsFor("Agent")).toBe(AGENT_TABS);
+  it("returns the flat concat of visible + overflow for each kind", () => {
+    expect(tabsFor("Tenant")).toEqual([
+      ...TENANT_TABS.visible,
+      ...TENANT_TABS.overflow,
+    ]);
+    expect(tabsFor("Unit")).toEqual([
+      ...UNIT_TABS.visible,
+      ...UNIT_TABS.overflow,
+    ]);
+    expect(tabsFor("Agent")).toEqual([
+      ...AGENT_TABS.visible,
+      ...AGENT_TABS.overflow,
+    ]);
   });
 
-  it("locks the unit tab order and count (per plan §3 — v2.0 disposition)", () => {
-    expect(UNIT_TABS).toEqual([
+  it("locks the unit tab order and count (per plan §4 — 7 visible + Config overflow)", () => {
+    expect([...UNIT_TABS.visible, ...UNIT_TABS.overflow]).toEqual([
       "Overview",
       "Agents",
       "Orchestration",
@@ -153,10 +164,12 @@ describe("tabsFor", () => {
       "Policies",
       "Config",
     ]);
+    expect(UNIT_TABS.visible).toHaveLength(7);
+    expect(UNIT_TABS.overflow).toEqual(["Config"]);
   });
 
-  it("locks the agent tab order and count", () => {
-    expect(AGENT_TABS).toEqual([
+  it("locks the agent tab order and count (all visible in v2.0)", () => {
+    expect([...AGENT_TABS.visible, ...AGENT_TABS.overflow]).toEqual([
       "Overview",
       "Activity",
       "Messages",
@@ -166,15 +179,51 @@ describe("tabsFor", () => {
       "Clones",
       "Config",
     ]);
+    expect(AGENT_TABS.overflow).toEqual([]);
   });
 
-  it("locks the tenant tab order and count", () => {
-    expect(TENANT_TABS).toEqual([
+  it("locks the tenant tab order and count (all visible in v2.0)", () => {
+    expect([...TENANT_TABS.visible, ...TENANT_TABS.overflow]).toEqual([
       "Overview",
       "Activity",
       "Policies",
       "Budgets",
       "Memory",
     ]);
+    expect(TENANT_TABS.overflow).toEqual([]);
+  });
+});
+
+describe("visibleTabsFor / overflowTabsFor", () => {
+  it("splits the Unit catalog into 7 visible + 1 overflow", () => {
+    expect(visibleTabsFor("Unit")).toEqual([
+      "Overview",
+      "Agents",
+      "Orchestration",
+      "Activity",
+      "Messages",
+      "Memory",
+      "Policies",
+    ]);
+    expect(overflowTabsFor("Unit")).toEqual(["Config"]);
+  });
+
+  it("surfaces the full Agent catalog as visible with no overflow in v2.0", () => {
+    expect(visibleTabsFor("Agent")).toHaveLength(8);
+    expect(overflowTabsFor("Agent")).toEqual([]);
+  });
+
+  it("surfaces the full Tenant catalog as visible with no overflow in v2.0", () => {
+    expect(visibleTabsFor("Tenant")).toHaveLength(5);
+    expect(overflowTabsFor("Tenant")).toEqual([]);
+  });
+
+  it("keeps `tabsFor` = [...visible, ...overflow] for every kind", () => {
+    for (const kind of ["Tenant", "Unit", "Agent"] as const) {
+      expect(tabsFor(kind)).toEqual([
+        ...visibleTabsFor(kind),
+        ...overflowTabsFor(kind),
+      ]);
+    }
   });
 });
