@@ -98,4 +98,23 @@ describe("InboxCard", () => {
       "Awaiting you",
     );
   });
+
+  // v2 design-system reskin (CARD-inbox-refresh, #850): the `from://`
+  // header is mono-typed, the pendingSince timestamp is a pill, and
+  // the card surface uses the shared `bg-card` + `border-border`
+  // tokens. Assert markup, not raw Tailwind class strings.
+  it("renders the `from://` header in Geist mono", () => {
+    render(<InboxCard item={baseItem} />);
+    const fromRow = screen.getByTestId("inbox-from");
+    expect(fromRow.className).toMatch(/font-mono/);
+  });
+
+  it("renders the pendingSince timestamp as a pill badge", () => {
+    render(<InboxCard item={baseItem} />);
+    const pendingSince = screen.getByTestId("inbox-pending-since");
+    expect(pendingSince).toHaveTextContent(/ago/);
+    // Badge primitive renders as a `<span>` with the pill class set.
+    expect(pendingSince.tagName).toBe("SPAN");
+    expect(pendingSince.className).toMatch(/rounded-full/);
+  });
 });

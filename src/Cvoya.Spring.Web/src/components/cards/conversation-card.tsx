@@ -3,7 +3,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn, timeAgo } from "@/lib/utils";
-import { Clock, ExternalLink, MessagesSquare, Users } from "lucide-react";
+import { ExternalLink } from "lucide-react";
 import Link from "next/link";
 
 /**
@@ -43,9 +43,12 @@ const statusVariant: Record<
 };
 
 /**
- * Reusable conversation card primitive. The `/conversations/[id]` route
- * is not yet implemented — see #410 — but cards still render the link so
- * they become live as soon as that route ships.
+ * Reusable conversation card primitive. Reskinned for the v2 design
+ * system (plan §7 / CARD-conversation-refresh): participants render
+ * as a mono address list, the status pill sits top-right, and the
+ * timestamp collapses into an outline badge. The `/conversations/[id]`
+ * route is not yet implemented — see #410 — but cards still render
+ * the link so they become live as soon as that route ships.
  */
 export function ConversationCard({
   conversation,
@@ -59,8 +62,9 @@ export function ConversationCard({
     `Conversation ${conversation.id}`;
 
   const statusKey = conversation.status?.toLowerCase() ?? "";
-  const statusBadgeVariant =
-    statusVariant[statusKey] ?? "outline";
+  const statusBadgeVariant = statusVariant[statusKey] ?? "outline";
+  const visibleParticipants = participants.slice(0, 3);
+  const extraParticipants = participants.length - visibleParticipants.length;
 
   return (
     <Card
@@ -72,26 +76,19 @@ export function ConversationCard({
     >
       <CardContent className="p-4">
         {/*
-          Full-card overlay link (#593). See the agent/unit cards for the
-          overlay pattern — the primary link's `::after` pseudo covers the
-          whole card, and any descendant interactive controls are promoted
-          to `relative z-[1]` so they stay clickable and focusable.
+          Full-card overlay link (#593). The primary link's `::after`
+          pseudo covers the whole card; any descendant interactive
+          controls are promoted to `relative z-[1]`.
         */}
         <Link
           href={href}
           aria-label={`Open conversation ${title}`}
           data-testid={`conversation-card-link-${conversation.id}`}
-          className="flex items-start justify-between gap-2 rounded-sm focus-visible:outline-none after:absolute after:inset-0 after:content-['']"
+          className="flex items-start justify-between gap-3 rounded-sm focus-visible:outline-none after:absolute after:inset-0 after:content-['']"
         >
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <MessagesSquare
-                aria-hidden="true"
-                className="h-4 w-4 shrink-0 text-muted-foreground"
-              />
-              <h3 className="truncate font-semibold">{title}</h3>
-            </div>
-            <p className="mt-0.5 truncate text-xs text-muted-foreground">
+            <h3 className="truncate text-sm font-semibold">{title}</h3>
+            <p className="mt-0.5 truncate text-xs text-muted-foreground font-mono">
               {conversation.id}
             </p>
           </div>
@@ -99,53 +96,59 @@ export function ConversationCard({
             <Badge
               variant={statusBadgeVariant}
               data-testid="conversation-status-badge"
+              className="shrink-0"
             >
               {conversation.status}
             </Badge>
           )}
         </Link>
 
-        <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+        {/* Participants — mono address list. Plan §7 conversation
+            pattern: addresses are identity and render in Geist mono
+            so `agent://ada`, `unit://eng`, `human://savas` read as
+            distinct sources at a glance. Keeps the single testid +
+            comma-separated text so existing callers' snapshots and
+            fallback messaging continue to work. */}
+        <div className="mt-3">
           {participants.length > 0 ? (
-            <span
-              className="flex items-center gap-1"
+            <div
+              className="flex flex-wrap items-center gap-1 text-xs font-mono text-muted-foreground"
               data-testid="conversation-participants"
             >
-              <Users className="h-3 w-3" />
               <span className="truncate">
-                {participants.slice(0, 3).join(", ")}
-                {participants.length > 3 &&
-                  ` +${participants.length - 3} more`}
+                {visibleParticipants.join(", ")}
+                {extraParticipants > 0 && ` +${extraParticipants} more`}
               </span>
-            </span>
+            </div>
           ) : (
-            <span
-              className="flex items-center gap-1"
+            <p
+              className="text-xs text-muted-foreground"
               data-testid="conversation-participants-empty"
             >
-              <Users className="h-3 w-3" />
               No participants
-            </span>
-          )}
-          {conversation.lastActivityAt && (
-            <span
-              className="flex items-center gap-1"
-              data-testid="conversation-last-activity"
-            >
-              <Clock className="h-3 w-3" />
-              {timeAgo(conversation.lastActivityAt)}
-            </span>
+            </p>
           )}
         </div>
 
-        <div className="relative z-[1] mt-3 flex items-center justify-end">
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs">
+          {conversation.lastActivityAt ? (
+            <Badge
+              variant="outline"
+              className="font-mono"
+              data-testid="conversation-last-activity"
+            >
+              {timeAgo(conversation.lastActivityAt)}
+            </Badge>
+          ) : (
+            <span />
+          )}
           <Link
             href={href}
-            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-primary hover:underline"
+            className="relative z-[1] inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-primary hover:underline"
             data-testid={`conversation-open-${conversation.id}`}
           >
             Open
-            <ExternalLink className="h-3 w-3" />
+            <ExternalLink className="h-3 w-3" aria-hidden="true" />
           </Link>
         </div>
       </CardContent>

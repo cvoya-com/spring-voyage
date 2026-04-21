@@ -37,10 +37,11 @@ vi.mock("next/link", () => ({
 
 import {
   CostSummaryCard,
+  SpendStatTile,
   resolveCostWindows,
 } from "./cost-summary-card";
 
-function renderCard() {
+function renderCard(props: { thirtyDaySeries?: number[] } = {}) {
   const client = new QueryClient({
     defaultOptions: {
       queries: { retry: false, gcTime: 0, staleTime: 0 },
@@ -49,7 +50,7 @@ function renderCard() {
   const Wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={client}>{children}</QueryClientProvider>
   );
-  return render(<CostSummaryCard />, { wrapper: Wrapper });
+  return render(<CostSummaryCard {...props} />, { wrapper: Wrapper });
 }
 
 function makeSummary(
@@ -85,24 +86,70 @@ describe("resolveCostWindows", () => {
   });
 });
 
+describe("SpendStatTile", () => {
+  it("renders label + value in mono tabular-nums", () => {
+    render(
+      <SpendStatTile
+        label="Today"
+        value={12.5}
+        pending={false}
+        testId="stat-today"
+      />,
+    );
+    expect(screen.getByText("Today")).toBeInTheDocument();
+    const value = screen.getByTestId("stat-today-value");
+    expect(value).toHaveTextContent("$12.50");
+    expect(value.className).toMatch(/font-mono/);
+    expect(value.className).toMatch(/tabular-nums/);
+  });
+
+  it("renders a Skeleton when pending", () => {
+    const { container } = render(
+      <SpendStatTile
+        label="Today"
+        value={null}
+        pending
+        testId="stat-today"
+      />,
+    );
+    // Skeleton primitive has `animate-pulse` — reach for it via class
+    // since the primitive doesn't carry a stable testid.
+    expect(container.querySelector(".animate-pulse")).not.toBeNull();
+  });
+
+  it("renders a sparkline when a series is provided", () => {
+    render(
+      <SpendStatTile
+        label="Last 30d"
+        value={42}
+        pending={false}
+        series={[1, 2, 4, 3, 6]}
+        testId="stat-30d"
+      />,
+    );
+    expect(screen.getByTestId("stat-30d-sparkline")).toBeInTheDocument();
+  });
+
+  it("omits the sparkline when no series is provided", () => {
+    render(
+      <SpendStatTile
+        label="Today"
+        value={1}
+        pending={false}
+        testId="stat-today"
+      />,
+    );
+    expect(screen.queryByTestId("stat-today-sparkline")).toBeNull();
+  });
+});
+
 describe("CostSummaryCard", () => {
   beforeEach(() => {
     getTenantCost.mockReset();
   });
 
   it("renders the three window tiles with formatted totals", async () => {
-    // Distinguish windows by the `from` param the card passes; today
-    // is always the smallest delta against `to`.
-    getTenantCost.mockImplementation((range) => {
-      const from = range?.from ?? "";
-      if (from.includes("T00:00:00.000Z") && from.split("T")[0].endsWith("17")) {
-        // Actually this is fragile; map by window size instead below.
-        return Promise.resolve(makeSummary({ totalCost: 1 }));
-      }
-      return Promise.resolve(makeSummary({ totalCost: 0 }));
-    });
-
-    // Simpler impl: reply with totals indexed by call order (3 queries).
+    // Reply with totals indexed by call order (3 queries).
     let call = 0;
     getTenantCost.mockImplementation(() => {
       call += 1;
@@ -140,5 +187,31 @@ describe("CostSummaryCard", () => {
     await waitFor(() => {
       expect(today.textContent).toContain("—");
     });
+  });
+
+  it("renders a sparkline on the 30d tile when thirtyDaySeries is provided", async () => {
+    getTenantCost.mockResolvedValue(makeSummary({ totalCost: 1 }));
+
+    renderCard({ thirtyDaySeries: [1, 2, 3, 5, 4, 7] });
+
+    const thirty = await screen.findByTestId("cost-summary-30d");
+    await waitFor(() => {
+      expect(
+        within(thirty).getByTestId("cost-summary-30d-sparkline"),
+      ).toBeInTheDocument();
+    });
+    // Today + 7d get no sparkline series by default.
+    expect(screen.queryByTestId("cost-summary-today-sparkline")).toBeNull();
+    expect(screen.queryByTestId("cost-summary-7d-sparkline")).toBeNull();
+  });
+
+  it("renders tile values in mono tabular-nums (v2 design system)", async () => {
+    getTenantCost.mockResolvedValue(makeSummary({ totalCost: 3.5 }));
+
+    renderCard();
+
+    const value = await screen.findByTestId("cost-summary-today-value");
+    expect(value.className).toMatch(/font-mono/);
+    expect(value.className).toMatch(/tabular-nums/);
   });
 });

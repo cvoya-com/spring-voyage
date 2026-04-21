@@ -1,6 +1,6 @@
 "use client";
 
-import { Clock, ExternalLink, Inbox, User } from "lucide-react";
+import { ExternalLink } from "lucide-react";
 import Link from "next/link";
 
 import { Badge } from "@/components/ui/badge";
@@ -16,8 +16,8 @@ import { cn, timeAgo } from "@/lib/utils";
  * Resolve a `scheme://path` sender address to a portal detail route
  * when one exists. `agent://` and `unit://` resolve to their detail
  * pages; `human://` has no detail page today, so the caller renders
- * the badge as plain text. Mirrors the cross-link rules in DESIGN.md
- * § 7.14.
+ * the address as plain mono text. Mirrors the cross-link rules in
+ * DESIGN.md § 7.14.
  */
 function fromHref(parsed: ParsedConversationSource): string | null {
   if (parsed.scheme === "agent") {
@@ -36,12 +36,12 @@ export interface InboxCardProps {
 
 /**
  * Reusable card primitive for an inbox row — one conversation awaiting
- * a response from the current human. The shape matches the payload
- * returned by `GET /api/v1/inbox` (the same data feeding the CLI's
- * `spring inbox list`). Rendering stays consistent with the other
- * entity cards in DESIGN.md § 7.11: title on the top row, meta row
- * with `from` + `timeAgo(pendingSince)`, and a trailing "Open thread"
- * affordance that deep-links to `/conversations/{id}`.
+ * a response from the current human. Reskinned for the v2 design
+ * system (plan §7 / CARD-inbox-refresh): the `from://` address is the
+ * card's lead line in Geist mono, the status pill sits top-right, and
+ * a timestamp pill sits in the footer. The summary (one-line excerpt)
+ * is the primary overlay link target. Data shape matches
+ * `GET /api/v1/inbox`.
  */
 export function InboxCard({ item, className }: InboxCardProps) {
   const href = `/conversations/${encodeURIComponent(item.conversationId)}`;
@@ -58,30 +58,29 @@ export function InboxCard({ item, className }: InboxCardProps) {
       )}
     >
       <CardContent className="p-4">
-        {/*
-          Full-card overlay link (#593). See the agent/unit cards for the
-          overlay pattern — the primary link's `::after` pseudo covers the
-          whole card, and descendant interactive controls (`From` sender
-          link, the footer "Open thread" link) are promoted to
-          `relative z-[1]` so they stay clickable and focusable.
-        */}
-        <Link
-          href={href}
-          aria-label={`Open conversation ${title}`}
-          data-testid={`inbox-card-link-${item.conversationId}`}
-          className="flex items-start justify-between gap-2 rounded-sm focus-visible:outline-none after:absolute after:inset-0 after:content-['']"
-        >
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <Inbox
-                aria-hidden="true"
-                className="h-4 w-4 shrink-0 text-muted-foreground"
-              />
-              <h3 className="truncate font-semibold">{title}</h3>
-            </div>
-            <p className="mt-0.5 truncate text-xs text-muted-foreground">
-              {item.conversationId}
-            </p>
+        {/* Mono `from://` identity line — plan §7 inbox pattern. Sits
+            above the primary overlay link in DOM order so its own
+            anchor (agent/unit detail) does not nest inside the card
+            overlay `<a>` (which would be invalid HTML). The status
+            pill sits alongside so the reader gets the "from + state"
+            pair up top. Interactive descendants are promoted via
+            `relative z-[1]` so they click through the overlay. */}
+        <div className="flex items-start justify-between gap-3">
+          <div
+            className="relative z-[1] min-w-0 flex-1 truncate text-xs font-mono text-muted-foreground"
+            data-testid="inbox-from"
+          >
+            {fromLink ? (
+              <Link
+                href={fromLink}
+                className="hover:text-foreground hover:underline"
+                data-testid={`inbox-from-link-${item.conversationId}`}
+              >
+                {item.from}
+              </Link>
+            ) : (
+              <span>{item.from}</span>
+            )}
           </div>
           <Badge
             variant="warning"
@@ -90,42 +89,36 @@ export function InboxCard({ item, className }: InboxCardProps) {
           >
             Awaiting you
           </Badge>
-        </Link>
-
-        <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-          <span
-            className="flex items-center gap-1 min-w-0"
-            data-testid="inbox-from"
-          >
-            <User className="h-3 w-3 shrink-0" aria-hidden="true" />
-            <span className="truncate">
-              From{" "}
-              {fromLink ? (
-                <Link
-                  href={fromLink}
-                  className="relative z-[1] font-mono hover:text-foreground hover:underline"
-                  data-testid={`inbox-from-link-${item.conversationId}`}
-                >
-                  {item.from}
-                </Link>
-              ) : (
-                <span className="font-mono">{item.from}</span>
-              )}
-            </span>
-          </span>
-          <span
-            className="flex items-center gap-1"
-            data-testid="inbox-pending-since"
-          >
-            <Clock className="h-3 w-3" aria-hidden="true" />
-            {timeAgo(item.pendingSince)}
-          </span>
         </div>
 
-        <div className="relative z-[1] mt-3 flex items-center justify-end">
+        {/* Primary overlay link (#593). The `::after` pseudo covers
+            the whole card; the `from://` link above and the
+            "Open thread" link below are `relative z-[1]` to stay
+            clickable. Tab focus lands on this link; Enter activates
+            it. */}
+        <Link
+          href={href}
+          aria-label={`Open conversation ${title}`}
+          data-testid={`inbox-card-link-${item.conversationId}`}
+          className="mt-2 block rounded-sm focus-visible:outline-none after:absolute after:inset-0 after:content-['']"
+        >
+          <h3 className="truncate text-sm font-semibold">{title}</h3>
+          <p className="mt-0.5 truncate text-xs text-muted-foreground font-mono">
+            {item.conversationId}
+          </p>
+        </Link>
+
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs">
+          <Badge
+            variant="outline"
+            className="font-mono"
+            data-testid="inbox-pending-since"
+          >
+            {timeAgo(item.pendingSince)}
+          </Badge>
           <Link
             href={href}
-            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-primary hover:underline"
+            className="relative z-[1] inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-primary hover:underline"
             data-testid={`inbox-open-${item.conversationId}`}
           >
             Open thread
