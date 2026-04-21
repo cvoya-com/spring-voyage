@@ -1,452 +1,534 @@
 # Spring Voyage Portal — Design System
 
-> **Scope:** `src/Cvoya.Spring.Web/` (the Next.js 16 / React 19 / Tailwind 4 web portal).
+> **Status.** v2.0 — describes the portal as shipped on `main`. Every retained surface now speaks the v2 design language; no route ships tokens-only. Capability follow-ups (keyboard tree navigation, write API on the Memory tabs, real traces endpoint, lazy tenant-tree expansion) are scoped to v2.1 and noted where relevant.
 >
-> **Authority.** This file is the single source of visual truth for the portal. Treat it the same way `AGENTS.md` and `CONVENTIONS.md` are treated — required reading for any change under `src/Cvoya.Spring.Web/`, and something you update in the same PR that changes a visual pattern.
+> **Scope.** `src/Cvoya.Spring.Web/` — the Next.js 16 / React 19 / Tailwind 4 portal. The CLI and marketing surfaces consume the same token catalog (`--sv-*`) but are out of scope for this document.
 >
-> **Format.** Plain, agent-readable markdown following the [Google Stitch `DESIGN.md` spec](https://stitch.withgoogle.com/docs/design-md/overview/). No embedded images; tokens are explicit strings so an agent can paste them.
->
-> **Grounded in reality.** Every token and pattern below reflects what is actually in the code today (`src/app/globals.css`, `src/components/ui/*`, `src/app/**`). When the code drifts, update this file — do not invent values that the code does not use.
+> **Authority.** Read alongside `AGENTS.md` and `CONVENTIONS.md`. This file describes *what the code paints today*; update it in the same PR that changes a visual pattern.
 
 ---
 
 ## 1. Overview
 
-The portal is a dark-first operations console for a platform engineer watching agents and units run. The ethos is **calm, terse, and information-dense**:
+The portal is a dark-first operations console for a platform engineer watching agents and units run. Ethos: **calm, terse, information-dense**.
 
-- A neutral slate/zinc canvas so coloured signals (status, severity, cost) pop without fighting each other.
-- A single blue accent (`#3b82f6`) used sparingly — primary actions, active nav, links, focus rings.
-- Short lines of copy. No marketing voice. Empty states explain the next action in one sentence.
-- Cards and tables over hero sections; lucide line icons at 4×4 or 5×5 for context, never decoration.
+- A neutral slate/zinc canvas so coloured signals (status, severity, cost) stay legible without fighting each other.
+- A single blue accent (`--color-primary`, same as `--sv-primary`) for primary actions, active nav, links, and focus rings.
+- A small brand-extension palette (voyage cyan, blossom pink, starfield / hull) used exclusively for marketing-derived chrome — logo, halo, brand-forward highlights.
+- Short copy. No marketing voice. Empty states explain the next action in one sentence.
+- Cards, tables, and tree rows over hero sections; lucide line icons at 3.5–5×5 for context.
 
-The portal is **shadcn-flavoured** (class-variance-authority variants, `cn()` helper, `components/ui/*` primitives) but deliberately trimmed — the platform doesn't pull in Radix for every primitive; a dialog is a focus-trapped `<div>` not a Radix portal. Bias toward the minimal thing that reads well and is keyboard-accessible.
+The portal is **shadcn-flavoured** (class-variance-authority variants, `cn()` helper, `components/ui/*` primitives) but deliberately trimmed — no Radix-for-every-primitive. Dialogs are focus-trapped `<div>`s, tabs are an in-house ARIA-compliant implementation, and sidebar chrome is custom.
 
----
+Canonical surfaces:
 
-## 2. Color palette
-
-Defined as CSS custom properties in [`src/app/globals.css`](src/app/globals.css) under the Tailwind 4 `@theme` block. Dark is the default (root `<body>` carries `dark`; `<html>` gets `"dark"` or `"light"` from `ThemeProvider`). Use the tokens via Tailwind utilities (`bg-background`, `text-muted-foreground`, etc.) — never paste raw hexes into components.
-
-### 2.1 Dark (default)
-
-| Token                           | Hex       | Role                                                                                     |
-| ------------------------------- | --------- | ---------------------------------------------------------------------------------------- |
-| `--color-background`            | `#09090b` | Page canvas. Also the `themeColor` meta.                                                 |
-| `--color-foreground`            | `#fafafa` | Default text.                                                                            |
-| `--color-card`                  | `#0a0a0f` | Card, dialog, toast, sidebar surfaces.                                                   |
-| `--color-card-foreground`       | `#fafafa` | Text on cards and dialogs.                                                               |
-| `--color-popover`               | `#0a0a0f` | Popovers / floating panels (reserved — no popover primitive today).                      |
-| `--color-popover-foreground`    | `#fafafa` | Text on popovers.                                                                        |
-| `--color-primary`               | `#3b82f6` | Primary brand/action — default buttons, links, active nav, focus ring.                   |
-| `--color-primary-foreground`    | `#fafafa` | Text on primary surfaces.                                                                |
-| `--color-secondary`             | `#1e1e2e` | Secondary button background, secondary badges.                                           |
-| `--color-secondary-foreground`  | `#fafafa` | Text on secondary surfaces.                                                              |
-| `--color-muted`                 | `#18181b` | Skeleton loaders, tab list background, inline `<pre>` blocks.                            |
-| `--color-muted-foreground`      | `#a1a1aa` | Labels, helper copy, inactive nav, timestamps.                                           |
-| `--color-accent`                | `#1e1e2e` | Hover background for ghost / outline buttons and nav items.                              |
-| `--color-accent-foreground`     | `#fafafa` | Text on accent hover.                                                                    |
-| `--color-destructive`           | `#ef4444` | Destructive button, error badge/severity, delete icon.                                   |
-| `--color-border`                | `#27272a` | Borders on cards, inputs, dividers, scrollbar thumb.                                     |
-| `--color-input`                 | `#27272a` | Input / select border.                                                                   |
-| `--color-ring`                  | `#3b82f6` | Focus ring (same hue as primary).                                                        |
-| `--color-success`               | `#22c55e` | Running / healthy / success badges.                                                      |
-| `--color-warning`               | `#eab308` | Starting / stopping / degraded / warning severity.                                       |
-
-### 2.2 Light
-
-Applied when `<html>` carries the `.light` class (set by `ThemeProvider` from `localStorage`; SSR defaults to dark). Same token names, re-pointed:
-
-| Token                           | Hex       |
-| ------------------------------- | --------- |
-| `--color-background`            | `#ffffff` |
-| `--color-foreground`            | `#09090b` |
-| `--color-card`                  | `#ffffff` |
-| `--color-card-foreground`       | `#09090b` |
-| `--color-popover`               | `#ffffff` |
-| `--color-popover-foreground`    | `#09090b` |
-| `--color-primary`               | `#2563eb` |
-| `--color-primary-foreground`    | `#ffffff` |
-| `--color-secondary`             | `#f4f4f5` |
-| `--color-secondary-foreground`  | `#18181b` |
-| `--color-muted`                 | `#f4f4f5` |
-| `--color-muted-foreground`      | `#71717a` |
-| `--color-accent`                | `#f4f4f5` |
-| `--color-accent-foreground`     | `#18181b` |
-| `--color-destructive`           | `#dc2626` |
-| `--color-border`                | `#e4e4e7` |
-| `--color-input`                 | `#e4e4e7` |
-| `--color-ring`                  | `#2563eb` |
-| `--color-success`               | `#16a34a` |
-| `--color-warning`               | `#ca8a04` |
-
-### 2.3 Status & severity palette (applied, not tokenised)
-
-Some visual signals use Tailwind's built-in palette directly rather than semantic tokens (see `src/app/page.tsx`). Keep the mapping consistent when you add new status indicators:
-
-| Concept                                      | Applied colour                                     | Example                                 |
-| -------------------------------------------- | -------------------------------------------------- | --------------------------------------- |
-| Unit status — `Running`                      | `bg-green-500` dot / `text-green-500` icon         | Dashboard unit card.                    |
-| Unit status — `Starting` / `Stopping`        | `bg-yellow-500` dot                                | Dashboard unit card.                    |
-| Unit status — `Error`                        | `bg-red-500` dot / `text-amber-500` "Degraded" icon | Dashboard health stat + unit row.       |
-| Unit status — `Draft` / `Stopped`            | `bg-muted-foreground` dot / `secondary` badge      | Dashboard unit card.                    |
-| Activity severity — `Info`                   | `bg-blue-500` / `text-blue-500`                    | Activity feed, dashboard timeline.      |
-| Activity severity — `Warning`                | `bg-amber-500` / `text-amber-500` (or `warning`)   | Activity feed.                          |
-| Activity severity — `Error`                  | `bg-red-500` / `text-red-500` (or `destructive`)   | Activity feed.                          |
-| Activity severity — `Debug`                  | `bg-muted-foreground` / `text-muted-foreground`    | Activity feed.                          |
-
-Prefer the semantic `success` / `warning` / `destructive` tokens on Badge / Button. Use the raw Tailwind palette only for small non-interactive indicators (dots, icons) where the semantic token would look muddy.
+- **`/units`** — the Explorer. The single place to browse units, agents, and tenant-level rollups. Selection and active tab live in the URL.
+- **`/settings`** — a dedicated hub route. Tenant-panel cards plus tile links into the catalog/admin subpages.
+- **`/inbox`**, **`/discovery`**, **`/analytics`** and the Control surfaces (`/connectors`, `/policies`, `/budgets`) stay top-level. See § 3.
 
 ---
 
-## 3. Typography
+## 2. Tokens and Tailwind 4 `@theme` mapping
 
-### 3.1 Font family
+Defined in [`src/app/globals.css`](src/app/globals.css). Two token families coexist:
 
-Declared in `src/app/globals.css`:
+1. **Tailwind utility tokens** (`--color-*`, `--font-*`, `--radius-*`) inside a `@theme` block. Tailwind 4 derives its utility classes from these — every `--color-X` generates `bg-X`, `text-X`, `border-X`, `ring-X`, `from-X`, etc.; `--font-sans` drives `font-sans`; `--radius-lg` drives `rounded-lg`.
+2. **Spring Voyage design-system tokens** (`--sv-*`) — a mirror catalog used by surfaces that can't reach through Tailwind (hand-written CSS for the terminal skin, marketing pages, CLI-adjacent chrome). Values are identical to the `@theme` palette so `bg-background` and `background: var(--sv-bg)` paint the same pixel.
 
-```css
-body {
-  font-family: system-ui, -apple-system, sans-serif;
-  -webkit-font-smoothing: antialiased; /* via `antialiased` class on <body> */
-}
+### 2.1 Surface + action palette (dark default)
+
+| Tailwind token                 | `--sv-*` mirror    | Hex       | Role                                                                 |
+| ------------------------------ | ------------------ | --------- | -------------------------------------------------------------------- |
+| `--color-background`           | `--sv-bg`          | `#09090b` | Page canvas. Pinned as the `themeColor` meta.                        |
+| `--color-foreground`           | `--sv-fg`          | `#fafafa` | Default text.                                                        |
+| `--color-card`                 | `--sv-card`        | `#0a0a0f` | Card, dialog, toast, sidebar surface.                                |
+| `--color-card-foreground`      | `--sv-card-fg`     | `#fafafa` | Text on cards.                                                       |
+| `--color-popover`              | `--sv-popover`     | `#0a0a0f` | Floating panel reserve — no popover primitive ships today.           |
+| `--color-primary`              | `--sv-primary`     | `#3b82f6` | Primary action — buttons, active nav, links.                         |
+| `--color-primary-foreground`   | `--sv-primary-fg`  | `#fafafa` | Text on primary surfaces.                                            |
+| `--color-secondary`            | `--sv-secondary`   | `#1e1e2e` | Secondary buttons and badges.                                        |
+| `--color-muted`                | `--sv-muted`       | `#18181b` | Skeleton loaders, tab-list background, inline `<pre>`.               |
+| `--color-muted-foreground`     | `--sv-muted-fg`    | `#a1a1aa` | Labels, helper copy, inactive nav.                                   |
+| `--color-accent`               | `--sv-accent`      | `#1e1e2e` | Hover surface for ghost / outline affordances.                       |
+| `--color-destructive`          | `--sv-destructive` | `#ef4444` | Destructive button, error badge.                                     |
+| `--color-border`               | `--sv-border`      | `#27272a` | Card borders, dividers, inputs, scrollbar thumb.                     |
+| `--color-input`                | `--sv-input`       | `#27272a` | Input / select border.                                               |
+| `--color-ring`                 | `--sv-ring`        | `#3b82f6` | Focus ring (matches primary).                                        |
+| `--color-success`              | `--sv-success`     | `#22c55e` | Running / healthy badge.                                             |
+| `--color-warning`              | `--sv-warning`     | `#eab308` | Starting / degraded badge.                                           |
+| `--color-info`                 | `--sv-info`        | `#3b82f6` | Info-severity log rows.                                              |
+| `--color-debug`                | `--sv-debug`       | `#a1a1aa` | Debug-severity log rows.                                             |
+| `--color-brand`                | `--sv-primary`     | `#3b82f6` | Intent alias — `bg-brand` reads as "paint this brand-action blue".   |
+| `--color-brand-fg`             | `--sv-primary-fg`  | `#fafafa` | Text on brand surfaces.                                              |
+
+### 2.2 Brand-extension palette
+
+Marketing-derived hues named after the design assets they originated from — `voyage` (halo cyan), `blossom` (cherry-blossom sail), `starfield` / `hull` (logo backdrop). Exposed both as Tailwind utilities (`bg-voyage`, `text-blossom-deep`) and as `--sv-*` variables.
+
+| Tailwind token          | `--sv-*` mirror          | Hex       |
+| ----------------------- | ------------------------ | --------- |
+| `--color-voyage`        | `--sv-voyage-cyan`       | `#5ee8ee` |
+| `--color-voyage-soft`   | `--sv-voyage-cyan-soft`  | `#8ff4f7` |
+| `--color-blossom`       | `--sv-blossom`           | `#f4b6c9` |
+| `--color-blossom-soft`  | `--sv-blossom-soft`      | `#ffd7e1` |
+| `--color-blossom-deep`  | `--sv-blossom-deep`      | `#d87a9a` |
+| `--color-starfield`     | `--sv-starfield`         | `#0b1028` |
+| `--color-starfield-mid` | `--sv-starfield-mid`     | `#182044` |
+| `--color-hull`          | `--sv-hull`              | `#0f1530` |
+
+Brand hues carry the same values across themes on purpose — the halo and sail are identity, not chrome. Use them sparingly: the mark's backdrop, a one-off brand-forward highlight. Never substitute for `--color-primary` in interactive UI.
+
+### 2.3 Light theme
+
+Re-points the `--color-*` utilities and `--sv-*` mirrors together. The brand-extension hues stay; only the dark hulls keep their dark values so the logo still paints correctly on a light canvas.
+
+| Token                          | Light hex |
+| ------------------------------ | --------- |
+| `--color-background`           | `#ffffff` |
+| `--color-foreground`           | `#09090b` |
+| `--color-card`                 | `#ffffff` |
+| `--color-primary`              | `#2563eb` |
+| `--color-secondary` / `muted`  | `#f4f4f5` |
+| `--color-muted-foreground`     | `#71717a` |
+| `--color-destructive`          | `#dc2626` |
+| `--color-border` / `input`     | `#e4e4e7` |
+| `--color-success`              | `#16a34a` |
+| `--color-warning`              | `#ca8a04` |
+
+### 2.4 Theme switching
+
+Two conventions coexist and are kept in lockstep:
+
+- **`<html class="dark|light">`** — the portal's `ThemeProvider` hydrates from `localStorage` (`spring-voyage-theme`). The root layout ships `class="dark"` as the SSR default so tokens paint consistently before hydration.
+- **`[data-theme=dark|light]`** — the design-kit convention used by marketing/docs. The `globals.css` selectors `[data-theme="dark"]` and `[data-theme="light"]` mirror the class selectors so both mechanisms reach the same cascade.
+
+A terminal-skin opt-in exists: `[data-theme="light"][data-term="light"]` swaps the `--sv-term-*` tokens to the Solarized-light palette. Default in light mode is still the dark terminal — teams keep their consoles dark.
+
+### 2.5 Status + severity palette (applied, not tokenised)
+
+Small non-interactive signals use Tailwind palette colours directly for visual punch where semantic tokens would look muddy. Keep this mapping consistent when adding indicators:
+
+| Concept                                      | Applied colour                                                 |
+| -------------------------------------------- | -------------------------------------------------------------- |
+| Unit status — `running`                      | `bg-success` dot / `text-success` icon                         |
+| Unit status — `starting`                     | `bg-warning` dot                                               |
+| Unit status — `paused`                       | `bg-warning/70` dot                                            |
+| Unit status — `error`                        | `bg-destructive` dot                                           |
+| Unit status — `stopped`                      | `bg-debug` dot                                                 |
+| Activity severity — `Info`                   | `bg-info` / `text-info`                                        |
+| Activity severity — `Warning`                | `bg-warning` / `text-warning`                                  |
+| Activity severity — `Error`                  | `bg-destructive` / `text-destructive`                          |
+| Activity severity — `Debug`                  | `bg-debug` / `text-debug`                                      |
+
+Prefer the semantic `success` / `warning` / `destructive` tokens for badges and buttons. Use the brand-extension palette only for brand-facing chrome.
+
+---
+
+## 3. Geist typography
+
+The portal ships `next/font`-hosted Geist Sans and Geist Mono via the [`geist`](https://vercel.com/font) package.
+
+### 3.1 Wiring
+
+`src/app/layout.tsx` imports `GeistSans` and `GeistMono` from `geist/font/{sans,mono}` and attaches their CSS-variable wrappers to `<html>`:
+
+```tsx
+<html className={`dark ${GeistSans.variable} ${GeistMono.variable}`}>
 ```
 
-**No `next/font` import today** — the portal deliberately uses the platform system stack for zero layout shift and zero fetch. If the design later calls for a branded typeface, introduce it through `next/font` and document it here before shipping.
+That registers `--font-geist-sans` and `--font-geist-mono` on the element. The `@theme` block in `globals.css` then maps them to the Tailwind family tokens, each with a full system-stack fallback so the portal still renders if the Geist payload is blocked:
 
-### 3.2 Scale
+```css
+--font-sans: var(--font-geist-sans), system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+--font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+```
 
-The portal uses the default Tailwind 4 type scale. Observed sizes, in order of frequency:
+The `--sv-font-sans` / `--sv-font-mono` / `--sv-font-display` mirrors carry the same stacks for non-Tailwind consumers.
 
-| Utility       | Size / line-height          | Typical use                                                      |
-| ------------- | --------------------------- | ---------------------------------------------------------------- |
-| `text-xs`     | 12px / 16px                 | Helper text, timestamps, nav version, badge contents, empty-state body. |
-| `text-sm`     | 14px / 20px                 | Body text, table cells, button label, description under H1.       |
-| `text-base`   | 16px / 24px                 | Reserved — almost never used directly.                            |
-| `text-lg`     | 18px / 28px                 | Sidebar brand, dialog title (`text-lg font-semibold`), section H2s. |
-| `text-2xl`    | 24px / 32px                 | Page H1s (`text-2xl font-bold`), stat-card values.                |
-| `text-[10px]` | 10px (literal)              | Compact pill badges on the activity timeline.                     |
+### 3.2 Default application
 
-### 3.3 Weight
+`<body>` sets `font-family: var(--font-sans)` directly (plus the `font-sans` utility class, so Tailwind-aware children inherit through the utility namespace as well). Monospace is opt-in via `font-mono` — used for code, addresses (`agent://`, `unit://`, `from://`), env pills, and numeric columns that want tabular-nums rhythm.
 
-Only three weights used: `font-medium` (500), `font-semibold` (600), `font-bold` (700). Regular (400) is the default. Do not introduce heavier weights (`font-extrabold`, `font-black`).
+### 3.3 Scale and weight
 
-### 3.4 Line height & tracking
+Tailwind 4 defaults are unchanged; `--sv-*` mirrors carry named sizes for non-Tailwind callers.
 
-- Cards and list rows rely on default line heights — no bespoke `leading-*` except `leading-none` on `CardTitle`.
-- `CardTitle` uses `tracking-tight` for the tighter heading rhythm. No other tracking overrides.
+| Utility       | Size / line-height | Typical use                                                       |
+| ------------- | ------------------ | ----------------------------------------------------------------- |
+| `text-[10px]` | 10px               | Env pill, sidebar section labels, timestamp pills.                |
+| `text-xs`     | 12px / 16px        | Helper text, card footers, meta rows, badge contents.             |
+| `text-sm`     | 14px / 20px        | Body text, table cells, buttons, description under H1.            |
+| `text-lg`     | 18px / 28px        | Sidebar brand, section H2s, dialog titles.                        |
+| `text-2xl`    | 24px / 32px        | Page H1s (`text-2xl font-bold`), stat-card values.                |
 
----
+Weights used: `font-medium` (500), `font-semibold` (600), `font-bold` (700). `font-regular` is the default. Do not introduce heavier weights.
 
-## 4. Spacing
-
-Tailwind 4 defaults — no customisation. Observed vocabulary (use these; avoid pulling in fresh values):
-
-| Utility         | Pixels | Typical use                                              |
-| --------------- | ------ | -------------------------------------------------------- |
-| `gap-1` / `p-1` | 4      | Icon–label gap inside badges, tab list padding.          |
-| `gap-2` / `p-2` | 8      | Icon–label gap on nav items, buttons, list row padding.  |
-| `p-3`           | 12     | Table cell, list row content padding.                    |
-| `gap-3` / `p-4` | 16     | Card padding (`p-4`), dashboard grid gutters (`gap-4`).  |
-| `gap-6` / `p-6` | 24     | Dialog body padding, section spacing (`space-y-6`), empty-state card. |
-| `p-8`           | 32     | "Create your first unit" CTA card padding.               |
-| `pt-14`         | 56     | Mobile main pane top padding (clear fixed menu button).  |
-
-Primitives:
-
-- **Page shell.** `<main>` from `AppShell` is `p-4 md:p-6 pt-14 md:pt-6`.
-- **Page sections.** `<div className="space-y-6">` wraps the H1 + subsequent content blocks.
-- **Sidebar width.** Fixed at `w-56` (224px) on `md+`.
-- **Dashboard grids.** `grid-cols-2 gap-4 sm:grid-cols-4` for stats; `grid-cols-1 gap-6 lg:grid-cols-3` for main sections; `grid-cols-1 gap-3 sm:grid-cols-2` for card lists.
+The `.sv-h1` / `.sv-h2` / `.sv-h3` / `.sv-body` / `.sv-helper` / `.sv-code` helper classes in `globals.css` provide the same roles for hand-written non-Tailwind surfaces (CLI-adjacent marketing copy).
 
 ---
 
-## 5. Radii
+## 4. Information architecture
 
-Defined in `globals.css` `@theme`:
+Ten items, three groups. The sidebar groups them visually; a hosted `settings` cluster is reserved for tenant-management surfaces that the hosted build layers on via `registerExtension(...)` — empty in the OSS build.
 
-| Token          | Value     | Typical use                                       |
-| -------------- | --------- | ------------------------------------------------- |
-| `--radius-sm`  | `0.25rem` (4px) | Scrollbar thumb, inline chips.              |
-| `--radius-md`  | `0.375rem` (6px) | Buttons, inputs, nav items, tabs triggers. |
-| `--radius-lg`  | `0.5rem` (8px)  | Cards, dialogs, toasts.                     |
-| `rounded-full` | —         | Badges, status dots.                              |
+```mermaid
+flowchart LR
+  subgraph OVERVIEW
+    Dashboard["Dashboard /"]
+    Activity["Activity /activity"]
+    Analytics["Analytics /analytics"]
+  end
+  subgraph ORCHESTRATE
+    Units["Units Explorer /units"]
+    Inbox["Inbox /inbox"]
+    Discovery["Discovery /discovery"]
+  end
+  subgraph CONTROL
+    Connectors["Connectors /connectors"]
+    Policies["Policies /policies"]
+    Budgets["Budgets /budgets"]
+    Settings["Settings /settings"]
+  end
+```
 
-No extra-large radii. If a primitive asks for something rounder than `rounded-lg`, it's almost certainly a `rounded-full` pill.
+The `NavSection` union (`src/lib/extensions/types.ts`) declares the four groups (`overview | orchestrate | control | settings`) and `NAV_SECTION_ORDER` fixes their render order. Every route registers its membership via `navSection`; the sidebar groups routes by section, sorts within a section by `orderHint`, and renders the group header from `NAV_SECTION_LABEL`.
+
+**Why the groups split this way.**
+
+- **Overview** answers "what's happening?" — at-a-glance and deep-dive views.
+- **Orchestrate** answers "what do I need to act on right now?" — the Explorer (the single surface where units and agents are acted on), Inbox (conversations awaiting a response), Discovery (the expertise directory).
+- **Control** answers "what's the long-lived configuration?" — Connectors, Policies, Budgets, Settings. These are deliberately top-level because they're high-touch admin surfaces checked daily; burying them inside `/settings` would add friction.
+
+`/inbox` lives with Orchestrate (not Overview) because it reads better next to the surface where the operator takes the next action. `/analytics` stays in Overview as the canonical deep-dive surface: the Tenant Budgets and Tenant Activity tabs inside the Explorer carry *summary* rollups; `/analytics`, `/analytics/costs`, `/analytics/throughput`, and `/analytics/waits` carry the full charts, filters, and per-axis breakdowns.
+
+### 4.1 Route manifest
+
+The OSS manifest lives in `src/lib/extensions/defaults.tsx` as `defaultRoutes`. Every entry carries `{ path, label, icon, navSection, orderHint?, permission?, keywords?, description? }`. Hosted extensions layer in additional entries through `registerExtension({ routes })` without patching OSS files — the sidebar reads the merged registry.
+
+Palette actions (`defaultActions`) live next to the route manifest and use the same type shape, plus an optional `explorerNodeId`. When that field is set, activating the entry dispatches into a mounted `<UnitExplorer>` via the `<ExplorerSelectionProvider>` bridge; when no Explorer is mounted it falls through to `router.push("/units?node={id}")` so the Explorer picks the node up on first render.
 
 ---
 
-## 6. Shadows
+## 5. Brand mark
 
-The portal leans on the Tailwind defaults without custom values:
+A theme-aware sailboat mark. Assets ship at `public/brand/sailboat-dark.png` (white-on-transparent, rendered in dark mode) and `public/brand/sailboat-light.png` (black-on-transparent, rendered in light mode).
 
-| Utility      | Where it shows up                                            |
-| ------------ | ------------------------------------------------------------ |
-| `shadow-sm`  | Card surface, input affordance, tabs trigger active state.   |
-| `shadow-lg`  | Toast.                                                       |
-| `shadow-xl`  | Dialog panel.                                                |
+`<BrandMark>` (`src/components/brand-mark.tsx`) reads the active theme from `useTheme()` and switches assets via an exhaustive `switch` over the `Theme` union:
 
-Elevation is kept flat on purpose: a card has a tiny shadow to separate it from the canvas, and only modal-class surfaces (toast, dialog) get a heavier one.
+```tsx
+const src = (() => {
+  switch (theme) {
+    case "light": return "/brand/sailboat-light.png";
+    case "dark":  return "/brand/sailboat-dark.png";
+  }
+})();
+```
+
+The exhaustive form — no `default:` branch — means adding a third theme value to the `Theme` union produces a compile error here, so the asset set is forced to keep up with the union. The component forwards `size`, `label` (default `"Spring Voyage"` for the alt text), and `className`.
+
+The mark appears in the sidebar header at `size={24}`. Do not use it as a decorative flourish — it's identity, not chrome.
 
 ---
 
-## 7. Component patterns
+## 6. Sidebar chrome
 
-The portal's primitive library lives in `src/components/ui/`. Shared composites live in `src/components/`. When you extend or create a new primitive, add a subsection here.
+`src/components/sidebar.tsx` renders the fixed left nav at **224px** expanded / **56px** collapsed. The collapse preference persists in `localStorage` under `spring-voyage-sidebar-collapsed`.
 
-### 7.1 Buttons — `src/components/ui/button.tsx`
+Layout:
 
-- `class-variance-authority` variants: `default`, `destructive`, `outline`, `secondary`, `ghost`, `link`.
-- Sizes: `default` (`h-9 px-4`), `sm` (`h-8 px-3`), `lg` (`h-10 px-8`), `icon` (`h-9 w-9`).
-- Always `rounded-md`, `text-sm`, `font-medium`, and a visible focus ring (`focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2`).
-- Leading icons are `h-4 w-4` followed by `mr-1`; trailing icons flip the margin.
-- Example: `src/app/units/page.tsx` (`<Button><Plus className="h-4 w-4 mr-1" /> New unit</Button>`).
+- **Header** — `<BrandMark size={24}>` + wordmark ("Spring Voyage") + monospace env pill (`env · local-dev` in the OSS build). Collapses to the mark alone.
+- **Nav** — one `<SidebarSection>` per populated group in `NAV_SECTION_ORDER`. Each section carries a `text-[10px] uppercase tracking-wider` label (hidden when collapsed) above its links. Active route uses `bg-primary/10 text-primary font-medium`; inactive uses `text-muted-foreground hover:bg-accent`.
+- **Footer** — user block (initial avatar + display name + email + success dot), theme toggle (`Sun` / `Moon` at `h-3.5 w-3.5`), version pill (`v{version}` from `/platform/info`), collapse toggle. A `sidebarFooter` shell slot lets extensions render content above the user block.
 
-### 7.2 Inputs — `src/components/ui/input.tsx`
+Mobile (`<md`): the sidebar becomes a slide-over drawer triggered from a fixed `Menu` button at `top-3 left-3`. Backdrop is `bg-black/50`; drawer closes on route change.
 
-- Fixed `h-9`, full width, `rounded-md`, `border border-input bg-background`, `text-sm`.
-- Placeholder uses `placeholder:text-muted-foreground`.
-- Focus: `focus-visible:ring-1 focus-visible:ring-ring` (thinner than buttons on purpose — inputs live in denser forms).
-- Disabled: `disabled:cursor-not-allowed disabled:opacity-50`.
-- `<select>` needs no custom primitive — inline it with `h-9 rounded-md border border-input bg-background px-3 text-sm` (see unit detail's scheme picker).
+A11y:
 
-### 7.3 Cards — `src/components/ui/card.tsx`
+- `role="tree"`-style landmarks aren't used for the sidebar — it's a list of links with `aria-current="page"` on the active entry.
+- Skip link (`Skip to main content`) sits first in DOM order; visible on focus via `focus:not-sr-only`.
+- The mobile trigger sets `aria-expanded` + `aria-controls="mobile-sidebar"`.
+- Theme toggle and collapse toggle both ship `aria-label` describing the action (`"Switch to dark mode"`, `"Collapse sidebar"`).
 
-- `Card`: `rounded-lg border border-border bg-card text-card-foreground shadow-sm`.
-- `CardHeader` is `p-4 space-y-1.5`. `CardContent` is `p-4 pt-0`. `CardTitle` is `text-sm font-semibold leading-none tracking-tight`.
-- Cards are the default container for every page section. Interactive cards (e.g., unit tile) add `hover:bg-accent/50` or `hover:border-primary/50 hover:bg-muted/30` and wrap the card in a `<Link>`.
-- Empty-state pattern: use a Card with `p-6 text-center` (or `p-8 text-center` for the primary-CTA variant), `mx-auto` on the icon, one sentence of body copy, and an optional button or link (`src/app/page.tsx` — "Create your first unit", "Start a unit to see activity here").
-
-### 7.4 Badges — `src/components/ui/badge.tsx`
-
-- Always `rounded-full`, `px-2 py-0.5`, `text-xs font-medium`.
-- Variants: `default` (primary-tinted), `success`, `warning`, `destructive`, `secondary`, `outline`.
-- Semantic badges (`success`, `warning`, `destructive`) use a 15%-opacity tint of the token as the background with the full-strength token as the text — this keeps them legible on the dark canvas.
-- For very tight timelines use `className="text-[10px] px-1.5 py-0"` (see dashboard activity timeline source badge).
-
-### 7.4a Inline alert banners (not a component — a shared pattern)
-
-Used for "this thing needs operator attention" callouts inside wizard steps and tab bodies — e.g. the GitHub install-link banner on `src/Cvoya.Spring.Connector.GitHub/web/connector-wizard-step.tsx` (PR #610) and the LLM provider credential-status indicator on `src/Cvoya.Spring.Web/src/app/units/create/page.tsx` (PR-S2 / #598, extended by #626). Reuse the same token palette so a single axe-clean configuration covers them:
-
-- **Warning** (not-configured, unreachable, deprecated, etc.): `rounded-md border border-warning/50 bg-warning/15 px-3 py-2 text-sm text-warning`, inner text in `text-foreground` for the body copy. `role="alert"`. Include an actionable control inside the banner whenever possible — either a deep-link, an inline form (the #626 credential input), or a primary button.
-- **Success** (configured, inherited, healthy): `rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-900 dark:text-emerald-200`. `role="status"`. A success banner may carry a secondary "Override" button (see `src/Cvoya.Spring.Web/src/app/units/create/page.tsx` `CredentialSection`) rendered as a `<button>` with `underline underline-offset-2` — never a div with `onClick` (axe catches that in the a11y smoke).
-- Prefix with the matching lucide icon at `h-4 w-4` (`AlertTriangle` for warning, `CheckCircle2` for success); mark the icon `aria-hidden` since the `role` already conveys the status.
-
-Don't invent new token pairs for these — PR #599 pinned the current tokens as axe AA-clean and the wizard a11y regression tests exercise them directly.
-
-#### 7.4b Inline credential input (#626)
-
-The credential input that appears inside the #626 banner is NOT a generic reusable component — it is tightly coupled to the credential surface. When copying the pattern elsewhere, preserve these invariants:
-
-- The text field defaults to `type="password"` and is paired with a `<Button type="button" variant="outline" size="sm">` that flips it to `text`. The button uses `aria-label="Show <Provider> API key"` / `"Hide ..."` (not icon-only) and sets `aria-pressed` to reflect state. Keyboard focus reaches it via the natural tab order; never build this as a pure-icon div.
-- The "Save as tenant default" toggle is a real `<input type="checkbox">` with a matching `<label htmlFor>`, not a custom switch — the simpler primitive avoids the `aria-checked` / keyboard traps that "switch" role implementations tend to collect.
-- Plaintext values live in React state only long enough to be POSTed; never persist them, never send them to the status endpoint, never interpolate them into log messages.
-- There is **no standalone "Validate" button** (#655). Validation fires automatically on the input's `onBlur` — the operator types/pastes a key, tabs or clicks away, and the wizard posts the key to `POST /api/v1/system/credentials/{provider}/validate`. If the operator pastes and clicks Next before blur settles, the Next handler races the same mutation: while it is pending the Next button disables; when it fails, the wizard stays on Step 1 with the inline error.
-- Validation result lives directly under the input, not inside the outer banner. In-flight is `text-xs text-muted-foreground` ("Validating &lt;Provider&gt; API key…"). Success is `text-xs text-emerald-700 dark:text-emerald-300` with a `CheckCircle2` lead. Failure is `text-xs text-destructive` with an `AlertTriangle` lead and the server-supplied operator message verbatim. Editing the key clears the verdict so the next blur re-validates.
-- **The Model dropdown is hidden until a live model source exists** (#655). Sources, in priority order: Ollama's local catalog (when the tool is `dapr-agent` + provider `ollama`), the freshly-validated model list from the wizard's validation call, or `providerModels` fetched with a resolvable tenant/unit credential. Before the operator supplies and validates a key — or inherits one from the tenant — the dropdown does not render at all, so operators are never asked to pick from a stale static fallback.
-
-### 7.5 Dialogs — `src/components/ui/dialog.tsx`, `confirm-dialog.tsx`
-
-- In-house modal (no Radix). `role="dialog"`, `aria-modal="true"`, focus trap, ESC closes, backdrop mousedown closes, body scroll locked.
-- Panel: `w-full max-w-lg rounded-lg border border-border bg-card p-6 shadow-xl`, with `max-h-[calc(100vh-2rem)] overflow-y-auto`.
-- Backdrop: `bg-black/50` at `z-50`.
-- `ConfirmDialog` is the canonical wrapper for destructive confirmation — pass `onConfirm`, `onCancel`, `pending`; the destructive button variant is the default.
-
-### 7.6 Tables — `src/components/ui/table.tsx`
-
-- Wrapped in `<div className="relative w-full overflow-auto">` so a narrow viewport scrolls the table horizontally instead of breaking the layout.
-- `TableRow` has `border-b border-border transition-colors hover:bg-muted/50`.
-- `TableHead`: `h-10 px-3 text-left align-middle font-medium text-muted-foreground`.
-- For simple lists (dashboard unit list, members list) use a `<ul className="divide-y divide-border">` inside a Card instead of a full Table.
-
-### 7.7 Tabs — `src/components/ui/tabs.tsx`
-
-- Controlled via `TabsContext` — no Radix. `TabsList` is `inline-flex h-9 rounded-lg bg-muted p-1`. `TabsTrigger` is `rounded-md px-3 py-1 text-sm font-medium`; active state flips to `bg-background text-foreground shadow-sm`.
-- Used for unit detail's Agents / Sub-units / Skills / Connector / Secrets / Activity sections and the agent detail page's Interaction / Runtime / Settings / Advanced split (#604).
-- **Optional controlled mode.** `<Tabs>` accepts `value` + `onValueChange` for pages that need to reflect the active tab in the URL (e.g. agent detail's `?tab=<interaction|runtime|settings|advanced>` — the caller mirrors `useSearchParams` into the prop and pushes a `router.replace` on change so deep links and browser back/forward stay honest). Omit the props to fall back to the uncontrolled `defaultValue` path used by unit detail.
-- **Entity detail pages follow the same pattern.** `/units/[id]` (`unit-config-client.tsx`) and `/agents/[id]` (`agent-detail-client.tsx`) both group their Cards into `<TabsContent>` blocks with a single `<TabsList>` directly below the page header. New entity detail pages should mirror this shape rather than invent a new layout; pick Runtime as the default tab when the page has a "what's happening now?" surface to lead with.
-
-### 7.8 Toast — `src/components/ui/toast.tsx`
-
-- `ToastProvider` at the root. `useToast()` returns a `toast({ title, description?, variant? })` function; variants are `default` and `destructive`.
-- Stack: `fixed bottom-4 right-4 z-50 flex flex-col gap-2`.
-- Auto-dismiss at 4s; animation `animate-in slide-in-from-bottom-2`.
-- Use for every async result that isn't a full page reload — destructive actions especially.
-
-### 7.9 Skeleton — `src/components/ui/skeleton.tsx`
-
-- `animate-pulse rounded-md bg-muted`. Size via `className` (e.g. `h-24`, `h-8 w-32`).
-- Pattern: mirror the post-load layout so the page doesn't shift — see `DashboardSkeleton` in `src/app/page.tsx`.
-
-### 7.10 Sidebar & app shell — `src/components/sidebar.tsx`, `src/components/app-shell.tsx`
-
-- Fixed left nav on `md+` (`w-56`, `border-r border-border bg-card`). Mobile slides over a `bg-black/50` backdrop via a `fixed top-3 left-3` menu trigger.
-- Nav item: `flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors`. Active: `bg-primary/10 text-primary font-medium`. Inactive: `text-muted-foreground hover:bg-accent hover:text-accent-foreground`.
-- Brand wordmark is `text-lg font-bold` ("Spring Voyage"). Version chip is `text-xs text-muted-foreground` in the footer, paired with the theme toggle (`Sun` / `Moon` at `h-3.5 w-3.5`).
-
-### 7.11 Cards for domain entities — `stat-card.tsx`, `unit-card.tsx`, `agent-card.tsx`, `conversation-card.tsx`, `inbox-card.tsx`, `activity-feed.tsx`
-
-- Stat card: label (`text-xs text-muted-foreground`) + value (`text-2xl font-bold`) + trailing icon (`text-muted-foreground`).
-- Unit / agent / conversation / inbox cards compose the base `Card` with a status dot + name + registered-at row. They are the **only** card layouts allowed for these entity types — pages must not invent bespoke unit/agent/conversation/inbox layouts. Every detail page (`/units/[id]`, `/agents/[id]`, `/conversations/[id]`) must reuse the matching primitive at the top of its summary block (PR-R2 / #392).
-- **Whole-card click target (#593).** Every entity card is navigable from any dead-space surface — the primary card `<Link>` stretches across the card via an `::after` absolute overlay on a `relative` `<Card>`. Descendant interactive controls (cross-link icon buttons, delete buttons, footer "Open" links, from-sender links) are promoted to `relative z-[1]` so they keep their own click targets and stay reachable by keyboard. The primary link carries an `aria-label` that names the entity, and the `Card` shows a visible `focus-within` ring so keyboard users see which card holds focus.
-- `<AgentCard>` accepts an `actions` prop — a React node rendered next to the card's "Open" link. Use it to surface row-scoped quick actions (edit, remove, mute) without duplicating the card chrome. Membership editor in `app/units/[id]/agents-tab.tsx` is the canonical example (#472).
-- Activity feed row: `flex items-start gap-2 text-sm` with a 2×2 severity dot at `mt-1.5`, message on top, meta (`text-xs text-muted-foreground`) below.
-- Conversation card (`components/cards/conversation-card.tsx`): MessagesSquare icon + title + status badge on the top row; truncated participants (max 3, `+N more` overflow) and `timeAgo(lastActivityAt)` on the meta row; trailing "Open" link to `/conversations/[id]`.
-- Inbox card (`components/cards/inbox-card.tsx`): Inbox icon + summary + `Awaiting you` warning badge on the top row; `From <address>` (cross-linked to `/agents/[id]` or `/units/[id]` when the scheme is `agent://` or `unit://`; `human://` renders as plain monospace) and `timeAgo(pendingSince)` on the meta row; trailing "Open thread" link to `/conversations/[id]`. Drives `/inbox` (#447), which is the portal counterpart of `spring inbox list`.
-
-### 7.11b Multi-rule config tab — `app/units/[id]/boundary-tab.tsx`
-
-Unit boundary configuration (#495) is the canonical **multi-rule editor** layout for tabs that wrap a set of declarative rules. Every new config surface that has the same "N rules across M dimensions" shape should copy this chrome before inventing its own.
-
-- **Summary card on top.** A single card holds the dimension's status (`Transparent` vs `Configured` outline/solid badge), a one-line description, the primary **Save** button, a **Clear all rules** destructive-outline button, and an inline "Unsaved changes" hint.
-- **One sub-card per dimension.** Each sub-card carries a lucide icon, the dimension name (`text-sm` title), and a `text-xs text-muted-foreground` pill describing the effect ("hide matching entries", "rewrite matching entries", "collapse matches into a unit-level entry").
-- **Rule list as `divide-y` `ul` with monospace rows.** Existing rules render as `font-mono text-xs` single-line summaries so the relevant shape — "domain: X · origin: Y" — is glanceable. Per-row **Trash** icon button (`variant="outline"`, `size="sm"`) removes locally; nothing is persisted until the outer **Save** fires.
-- **Add-rule form inside each sub-card.** A nested `rounded-md border border-border p-3` block carries the per-dimension input grid (`grid-cols-1 sm:grid-cols-2`) and a trailing **Add** button that appends to local state and clears the inputs. Required fields are marked with a `text-destructive` asterisk (Synthesis' `name`).
-- **Local edits, one PUT.** The entire set is held in local `useState` so the user can stage multiple changes before pressing **Save boundary**; that PUT replaces the whole boundary (matches the CLI's `set` semantics). **Clear all rules** opens the shared `ConfirmDialog` and DELETEs.
-
-### 7.11d Inherit-from-parent indicator — `app/agents/[id]/execution-panel.tsx`
-
-The Agent Execution panel (#601 B-wide — PR landed alongside this entry) introduced a reusable indicator shape for form fields whose blank value is resolved to a parent entity's default at save time. Use this pattern anywhere an editor lets an operator override an inherited value and needs to show what the default currently is:
-
-- **Italic grey placeholder** on the field itself: `placeholder="inherited from unit: ghcr.io/acme/spring-agent:v1"` plus `className="italic text-muted-foreground placeholder:italic placeholder:text-muted-foreground"`. On `<select>`, the first `<option>` carries the same `inherited: …` prefix and the select itself drops into italic grey while the value is null.
-- **Help copy below the control** duplicates the value in plain text prefixed with `inherited from unit:` (or the equivalent parent noun). The help row carries `data-testid="inherit-indicator"` so the unit-tests can assert coverage without scraping placeholders out of shadow DOM.
-- **No visual lock.** The control stays fully editable — clicking into the field clears the indicator and lets the operator type their own value. Leaving the field blank on save persists `null` on the child; the backend resolves to the parent default at runtime.
-- **Server trip.** The indicator needs the parent's own config, so the component fetches both the child and parent blocks via TanStack Query (`useAgentExecution(agentId)` + `useUnitExecution(parentUnitId)`) — keyed by the parent's id so cached reads are shared across any other surface that renders the same parent.
-- **A11y.** The placeholder is decorative (contrast is intentionally low so the override intent reads as "not my own value"); the help copy below carries the real text so assistive tech never depends on the placeholder. The card header carries an `Inherits` outline badge when the child has no own declarations, flipping to a solid `Configured` badge once any override is persisted.
-
-Don't reach for this pattern for fields that **must** be filled (e.g. required connector configs) — those use a bordered warning banner like §7.4a. The inherit indicator is specifically for the "blank means inherit" editor contract.
-
-### 7.11c Orchestration tab — `app/units/[id]/orchestration-tab.tsx`
-
-Unit orchestration configuration (#602) follows the multi-card tab pattern from §7.11b but renders two slices rather than N peer dimensions — a read-only strategy selector and an editable label-routing card.
-
-- **Strategy card (read-only today).** Lucide `Workflow` icon + title + `manifest`/`inferred` badge indicating the resolver source. The select renders every key from `ORCHESTRATION_STRATEGIES` (`ai`, `workflow`, `label-routed`) but stays `disabled` until the `/api/v1/units/{id}/orchestration` endpoint lands (#606); a bordered `bg-muted/40` footnote names the manifest-apply workaround and cross-links the follow-up issue.
-- **Effective-strategy card.** Single monospace chip for the resolved key followed by a `text-xs text-muted-foreground` explanation of how the resolver got there (manifest key / policy inference / platform default) — mirrors the CLI's one-line "effective policy" output. A second muted line restates the ADR-0010 precedence ladder so operators always know why a given key is active.
-- **Label-routing card.** Same row primitives as the boundary tab: `divide-y` `ul` with inline-editable `Input` pairs per rule, per-row trash `Button` (`variant="outline"`, `size="sm"`), and an add-rule grid inside a nested `rounded-md border border-border p-3` block. Two comma-separated inputs below the rule list cover the `AddOnAssign` / `RemoveOnAssign` status-label roundtrip hooks. **Save label routing** and **Clear** ride the existing `/api/v1/units/{id}/policy` endpoint so the CLI (`spring unit policy label-routing set|clear`) and portal round-trip identical payloads.
-
-### 7.12 Conversation thread — `app/conversations/[id]/`, `components/conversation/`
-
-The conversation surface (#410) renders a chat-style thread with role-attributed bubbles and a CLI-shaped composer. Layout primitives:
-
-- **Role bubbles** (`components/conversation/conversation-event-row.tsx`): `human://` is right-aligned in `bg-primary text-primary-foreground`; `agent://` left-aligned in `bg-muted`; `unit://` left-aligned in `bg-muted/60`; `tool` (events of type `DecisionMade`) left-aligned with an amber outline (`bg-amber-50 text-amber-900 border border-amber-200`); `system` left-aligned in `bg-muted/40 italic`.
-- **Tool calls and lifecycle events** (`StateChanged`, `WorkflowStepCompleted`, `ReflectionCompleted`) collapse by default with a chevron toggle; messages stay expanded so the thread reads like a chat. The collapsed call-out shows the event type and its summary on a single truncated line.
-- **Bubble meta**: role pill (`Badge variant="outline"` at `h-5 px-1.5 text-[10px]`) + monospace source + relative time, mirrored to the same alignment as the bubble.
-- **Composer** (`components/conversation/conversation-composer.tsx`): recipient input (monospace, `scheme://path` placeholder) above a textarea. Quick-pick participant pills sit above the input so users can re-target without typing. Submit on click or `⌘/Ctrl+Enter`. Mirrors the two CLI arguments `spring conversation send` takes.
-- **Thread shell** (`app/conversations/[id]/conversation-detail-client.tsx`): scrollable thread (`max-h-[60vh] overflow-y-auto`) with `aria-live="polite"` so screen readers announce new events as the SSE stream lands them. Auto-scrolls to the bottom on new event.
-- **Cross-links**: the conversation header's `Origin` is a link to `/activity?source=…`, and the activity row's correlation id renders an "Open thread" pill that deep-links to `/conversations/[id]`.
-
-### 7.13a Expertise editor — `src/components/expertise/`
-
-The expertise panels on `/agents/[id]`, `/units/[id]` (Expertise tab) and the tenant-wide `/directory` page share the same list-shaped editor (#486):
-
-- **Editor rows** (`expertise-editor.tsx`) are `rounded-md border border-border p-3` blocks with a four-column grid on `sm+`: name `Input`, level `<select>` (values: `beginner` / `intermediate` / `advanced` / `expert`, or blank for "unspecified"), description `Input`, and a trash `Button variant="ghost" size="icon"`. The level whitelist is defined once in `lib/api/types.ts` (`EXPERTISE_LEVELS`) so the CLI and portal can't drift.
-- **Save / Revert** sit at the bottom right, always-visible; they are disabled until the draft differs from the persisted list. Save issues a single full-replacement `PUT` — the server is the source of truth for the new list and we re-seed the cache from its response.
-- **Aggregated list** (`unit-expertise-panel.tsx` / `AggregatedExpertiseList`) renders the read-only composition as the same bordered row shape, but each row carries a `depth` outline badge and a `from agent://…` / `from unit://…` link-back in the meta row.
-- **Deep-links** follow the cross-link rules in §7.14: `agent://` and `unit://` origins resolve to the matching detail page; other schemes render as plain monospace text.
-
-### 7.13 Breadcrumbs — `src/components/breadcrumbs.tsx`
-
-- Mandatory on any page that is two or more levels deep (`/units/[id]`, `/agents/[id]`, `/conversations/[id]`, `/packages/[name]/templates/[name]`). The crumb trail starts at `Dashboard` (`/`) and ends with the current entity (no `href`, rendered as `aria-current="page"`).
-- Use the singular section name as the intermediate label (`Units`, `Agents`, `Conversations`, `Packages`). Intermediate crumbs link to the matching list page.
-- Any new top-level destination needs an entry in `src/lib/extensions/defaults.ts` so the sidebar and command palette mirror the breadcrumb hierarchy (PR-R2 / #392).
-
-### 7.14 Cross-link rules
-
-- Activity rows (dashboard timeline + activity feed) deep-link to the most specific destination available, in priority order: conversation (when `correlationId` is set), then `agent://`/`unit://` source detail page, otherwise plain text.
-- Conversation participant pills are clickable and resolve to the matching `/agents/{id}` or `/units/{id}` page. Schemes without a portal page (`human://`) render as plain badges.
-- See `docs/design/portal-exploration.md` § 3.3 for the full cross-link contract.
-
-### 7.17b Agents lens — `app/agents/page.tsx`
-
-The `/agents` lens (PR-S1 Sub-PR C / #450) is the tenant-wide roster view for agents; a peer surface to `/units` and `/conversations`. It wraps the `GET /api/v1/agents` roster in a filter bar and grouping toggle — there is no new endpoint and the per-agent detail chrome lives on `/agents/[id]` as before.
-
-- **Layout.** Three stacked cards: page header (H1 + Refresh), filter bar, results. The results card renders either a single flat grid of `<AgentCard>` (grouping = flat) or one `section` per owning unit (grouping = unit), each with a `Network` icon, link to `/units/<unit>`, and a count pill.
-- **Filter bar.** Free-text search, owning-unit substring, status (`enabled` / `disabled` / any), expertise free-text (runs `POST /api/v1/directory/search` server-side), and grouping toggle. Every control is keyboard-accessible and writes to `?q=…&unit=…&status=…&expertise=…&group=…` via `router.replace`; the CLI round-trips the same view through `spring agent list`, `spring unit members list <unit>`, and `spring directory search <text>`.
-- **Quick actions on each card.** The shared `<AgentCard>` (§ 7.11) stays the visual primitive — the lens only passes `actions` to append two cross-links: **Conversation** (`/conversations?participant=agent://<name>`, mirrors `spring conversation list --participant`) and **Deployment** (`/agents/<name>#deployment` anchor on the lifecycle panel, mirrors `spring agent deploy|scale|undeploy|logs`). Both render every card and surface the server's verdict on empty/ephemeral state rather than hiding the affordance.
-- **Empty states.** Two variants per § 7.3: a compact "No agents match these filters" text block with a cross-link to `/directory` when the fleet exists, and the full-card "No agents yet" CTA with Units / Directory / Packages buttons plus a `spring agent list · spring unit members add` monospace footer when the fleet is empty.
-- **Dropped filters.** Hosting-mode (`ephemeral` / `persistent`) and initiative-level filters are deliberately out of scope until the API surfaces those on the list response and the CLI grows matching flags. Tracked as parity follow-ups (#572 hosting mode, #573 initiative level) — the lens's bar stays "every filter maps to a CLI verb".
-
-### 7.18 Settings hub — `app/settings/page.tsx`, `components/settings/*`
-
-Settings live on a dedicated `/settings` route (SET-hub #862). The legacy in-shell right-aligned drawer (`components/settings-drawer.tsx`) was retired in IA-appshell (#896) and deleted in SET-drop-drawer (#867). The extension seam carries over: every tenant panel still comes from the drawer-panel registry, so the hosted build can add tenant secrets, members / RBAC, SSO, etc. without patching OSS files — only the surface changed.
-
-- **Surface.** `/settings` renders the four tenant-panel cards (Tenant budget, Tenant defaults, Account, About) inline inside `<Card>`s plus a tile grid of links into the Settings subpages (`/settings/skills`, `/settings/packages`, `/settings/agent-runtimes`, `/settings/system-configuration`).
-- **Panel card.** Each panel renders as a `rounded-lg border border-border bg-background p-4` section with a `text-sm font-semibold` title (icon + label), optional `text-xs text-muted-foreground` description, and the panel's own body below. Panels stack vertically with `space-y-4`.
-- **Extension contract.** Panels register via `registerExtension({ drawerPanels: [...] })` (see `src/lib/extensions/README.md`) and are consumed on the hub via `useDrawerPanels()`. Each panel declares `id`, `label`, `icon`, `orderHint`, optional `permission`, optional `description`, and a `component: ReactNode`. OSS ships Budget / Auth / About as defaults in `src/lib/extensions/defaults.tsx`. Panels with a `permission` that the active auth adapter rejects disappear silently — OSS's default adapter grants every permission. A hosted extension can replace a default panel by re-using its `id`. The registry key stays `drawerPanels` for backwards compatibility with hosted extensions; the name no longer implies a drawer surface.
-- **CLI parity rule.** Every interactive control in any panel MUST have a matching CLI verb. Budget panel ↔ `spring cost set-budget`; About panel ↔ `spring platform info`; Auth panel's token list ↔ `spring auth token list`. Panels whose interactive controls lack a CLI are dropped and a CLI follow-up is filed first.
-- **Follow-up ADR.** The drawer-panel extension slot pattern (contract, ordering, CLI-parity rule) will be recorded in a forthcoming ADR (#556).
-
-### 7.15 Icons
-
-- [`lucide-react`](https://lucide.dev). Sizes: `h-3 w-3` (inline meta), `h-3.5 w-3.5` (theme toggle), `h-4 w-4` (button icon, card section icon, severity dot wrapper), `h-5 w-5` (sidebar mobile menu, page H1 icon), `h-10 w-10` (empty-state icon).
-- Icons in CTAs never carry colour — they inherit `currentColor` from the surrounding text.
-- **Decorative icons carry `aria-hidden="true"`.** Any `lucide-react` glyph that sits next to its own text label (card title icons, severity dots, H1 icons, button leading/trailing icons) should be hidden from the accessibility tree so screen readers don't announce "graphic + label". Icon-only buttons still need a visible-but-hidden `aria-label` on the `<button>` / `<Link>`.
-
-### 7.16 Accessibility — `src/app/globals.css`, `src/components/sidebar.tsx`, `src/test/a11y.ts`
-
-The portal targets **WCAG 2.1 AA** (§ 7 of `docs/design/portal-exploration.md`). Add new surfaces with these constraints already satisfied:
-
-- **Skip link.** Every page starts with a visually-hidden "Skip to main content" anchor that targets `#main-content` — the `<main>` landmark in `AppShell`. The link pops back on-screen on focus (see `src/components/sidebar.tsx`); don't remove or re-parent it.
-- **Landmarks.** `AppShell` renders `<main id="main-content" tabIndex={-1}>`. Page roots should not introduce a second `<main>`; they use `<section>` / `<nav>` as appropriate.
-- **One `<h1>` per page.** The H1 matches the sidebar label. Section titles are `<h2>`; card titles use `<h3>` via `CardTitle`. Do not re-use `<h1>` for sub-sections.
-- **Icon-only buttons need `aria-label`.** The sidebar theme toggle, the sidebar open / close buttons, every `<Button size="icon">`, and the breadcrumb close / remove affordances all carry a concise label describing the action (`"Switch to dark mode"`, `"Remove agent://alpha/one"`). The icon glyph itself is `aria-hidden="true"`.
-- **`aria-expanded` / `aria-controls` on disclosures.** The mobile sidebar trigger uses `aria-expanded` against its drawer; settings opener uses `aria-haspopup="dialog"`. Mirror this on any new toggle.
-- **Tab primitives.** `src/components/ui/tabs.tsx` exposes WAI-ARIA roles (`tablist` / `tab` / `tabpanel`) with `aria-selected`, `aria-controls`, roving `tabindex`, and arrow-key / Home / End navigation. Callers get this for free by composing `<Tabs>` / `<TabsList>` / `<TabsTrigger>` / `<TabsContent>`.
-- **Live regions.** The shared `<ActivityFeed>` renders with `role="log" aria-live="polite" aria-relevant="additions"` so screen readers announce new SSE entries without re-announcing the whole feed. Conversation threads use the same pattern (`aria-live="polite"` on the scroll container).
-- **Focus management.** `Dialog` and other modal overlays move focus into the panel on open, trap `Tab` / `Shift+Tab` inside, and return focus to the opener on close. New overlays must preserve this contract.
-- **Forms.** Every `<input>` / `<select>` / `<textarea>` has either a wrapping `<label>` or an explicit `aria-label`. Placeholders are never the only label. The create-unit wizard and the activity page are the canonical examples.
-- **Reduced motion.** `src/app/globals.css` ships a `@media (prefers-reduced-motion: reduce)` block that drops animation / transition durations to ≈0. Never override `animate-*` classes on critical-path elements with inline styles that bypass this guard.
-- **Regression harness.** Smoke specs in `src/test/a11y-routes.test.tsx` run axe-core (via `vitest-axe`) against every top-level route and the shared shell primitives. Any new sidebar entry needs a matching `it(…)` that calls `expectNoAxeViolations(container)`. Contrast + rendered-geometry rules (`color-contrast`, `scrollable-region-focusable`) are disabled because JSDOM cannot compute styles — the DESIGN.md § 2 token locks plus the responsive pass cover those manually.
+Cross-cutting accessibility rules (landmarks, one `<h1>` per page, `aria-label` on every icon-only button, `aria-live` regions on streaming surfaces, reduced-motion guard) stay as documented in § 12 below.
 
 ---
 
-## 8. Voice & tone
+## 7. The Explorer surface
 
-Match the copy voice already in the product:
+`/units` *is* the Explorer. `src/app/units/page.tsx` mounts `<UnitExplorer>` (`src/components/units/unit-explorer.tsx`) inside a Suspense boundary. The Explorer is the canonical surface for browsing units and agents; there is no separate `/agents`, `/conversations`, or `/units/[id]` route.
 
-- **Imperative, not descriptive.** "Create your first unit." "Start a unit to see activity here." Not "You can create units…".
-- **No marketing.** No emoji in UI strings, no exclamation marks, no adjectives like "powerful" / "beautiful" / "seamless".
+### 7.1 URL contract
+
+Selection and active tab live in the query string:
+
+- `?node=<id>` — the selected node. Defaults to the tenant root.
+- `?tab=<TabName>` — the active tab (one of the kind's catalog entries; see § 9). A stale `tab` value snaps to the kind's first visible tab.
+
+The route writes both via `router.replace(?${qs}, { scroll: false })` so deep-links round-trip without a history push.
+
+### 7.2 Shape
+
+Two panes in a `grid-cols-[280px_minmax(0,1fr)]`:
+
+- **Left** — a search input (`aria-label="Search units & agents"`, filter wiring follows in v2.1) above a scrollable `<UnitTree>`.
+- **Right** — a `<DetailPane>` with breadcrumb + status dot + kind icon + title + status badge, the per-kind tab strip (visible tabs + an optional separator-prefixed overflow strip), and a `role="tabpanel"` body that renders the registered tab component (or a `<TabPlaceholder>` fallback).
+
+### 7.3 ARIA contract
+
+- The tree container carries `role="tree"` with an `aria-label`.
+- Every row is `role="treeitem"` with `aria-level`, `aria-selected`, and (for branches) `aria-expanded`.
+- The detail tab strip is `role="tablist"` (with a second tablist `aria-label="More detail tabs"` for overflow tabs). Each trigger is a `role="tab"` `<button>` with `aria-selected`, `aria-controls`, and a roving `tabIndex` (`0` on the selected tab, `-1` on the rest).
+- The tab body is `role="tabpanel"` with `aria-labelledby` pointing to the active trigger's id, and `tabIndex={0}` so keyboard focus can land on the panel itself.
+
+Arrow-key / Home / End navigation on the tree is intentionally deferred to v2.1 — the static roles ship now so screen readers work in v2.0.
+
+### 7.4 Tree data — single-payload budget
+
+`GET /api/v1/tenant/tree` returns the entire synthesized tenant tree in one response (no pagination, no lazy expand). The frontend calls it via `useTenantTree()` (`src/lib/api/queries.ts`) and pipes the result through `validateTenantTreeResponse` so stray `kind` / `status` values from the server coerce to safe defaults before the Explorer renders.
+
+Budget for v2.0: **≤500 nodes per tenant** (units + agent membership rows). Above that the endpoint must keep working but the Explorer degrades — server-side flattening plus `?expand=<unitId>` lazy loading will land as a v2.1 follow-up. The endpoint pins `Cache-Control: private, max-age=15` to absorb Cmd-K bursts.
+
+### 7.5 Cmd-K teleport bridge
+
+`<ExplorerSelectionProvider>` (`src/components/units/explorer-selection-context.tsx`) sits inside the shell and exposes a ref-backed `registerListener` / `dispatchSelect` pair. When the Explorer mounts, it registers its `setSelected` callback in a `useEffect`; the callback unsubscribes on unmount.
+
+The command palette routes node-targeted entries as follows:
+
+- If `hasListener()` returns true (an Explorer is mounted on the current route), the palette calls `dispatchSelect(id)` — the Explorer snaps to the node without a navigation.
+- Otherwise it pushes `/units?node=<id>` and lets the Explorer read the URL on first render.
+
+Ref-backed, not React state — the palette reads the current listener synchronously at dispatch time without triggering re-renders on Explorer mount / unmount.
+
+---
+
+## 8. Agent membership rules
+
+The backend contract that lets the Explorer be the canonical agent surface:
+
+1. **Every agent has at least one parent unit.** The agent create / update API rejects empty `unitIds` with a 400. Multi-parent membership is allowed — an agent can belong to several units simultaneously.
+2. **Membership is a first-class many-to-many.** Agents register via `unitIds[]: string[]` (non-empty). The persistence side is a dedicated `agent_unit_membership` table (`agent_id`, `unit_id`, `created_at`, `is_primary`); there is no `unitId` legacy alias on the agent row — the column was dropped in the membership migration and the CLI / OpenAPI / DTOs all speak the array shape.
+3. **Tenant root is synthesized, not persisted.** A tenant can have many top-level units. `GET /api/v1/tenant/tree` builds a synthesized `kind: "Tenant"` root whose children are the tenant's top-level units. The Explorer renders the tree verbatim — it never synthesizes a root itself.
+4. **`primaryParentId` disambiguates multi-parent aggregation.** When an agent belongs to multiple units, its `primaryParentId` marks the canonical parent whose subtree roll-ups count it. The response also includes alias edges so the same agent can surface under each parent in the tree, and selection by agent id always opens the single canonical detail regardless of which alias was clicked.
+
+The aggregator (`src/components/units/aggregate.ts`) walks the tree along the canonical parent set only, so cost / message-volume roll-ups don't double-count multi-parent agents. `NodeStatus` is ranked `error > starting > paused > running > stopped`, and a collapsed branch paints its status dot with the *worst* descendant status — a failing agent buried four levels deep still paints the root row red.
+
+---
+
+## 9. Tab catalog
+
+Per-kind tab sets are declared in `src/components/units/aggregate.ts` as `TENANT_TABS`, `UNIT_TABS`, and `AGENT_TABS`. Each catalog carries a `visible` strip and an `overflow` strip. The `TabsFor<K>` conditional type binds tabs to their kind, so every registry call (`registerTab`, `lookupTab`, card tab-row entry) is checked at compile time — `("Tenant", "Skills")` won't typecheck.
+
+### 9.1 Per-kind disposition
+
+**Tenant** — 5 visible, 0 overflow. Synthesized root only.
+
+| Tab        | Content                                                                                                                         |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Overview   | Tenant-wide stat tiles + top-level units grid.                                                                                  |
+| Activity   | Tenant-wide event feed. Deep-link to `/analytics/throughput` for the filterable view.                                           |
+| Policies   | Tenant-wide policy rollup.                                                                                                      |
+| Budgets    | Tenant-wide cost summary card (today / 7d / 30d + sparkline). Deep-link to `/analytics/costs`.                                  |
+| Memory     | Cross-cutting tenant memory (empty in v2.0 — see § 10).                                                                          |
+
+**Unit** — 7 visible + 1 overflow (`Config`).
+
+| Tab           | Content                                                                                                                          |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Overview      | Stat tiles (cost 24h, msgs 24h, skills, expertise card) + subtree roll-up.                                                       |
+| Agents        | Child agents + child units in one grid; units carry an outlined card variant and a "unit" pill so they read distinct from agents. |
+| Orchestration | Strategy selector (read-only today) + effective-strategy card + label-routing rule editor.                                        |
+| Activity      | Unit-scoped event feed.                                                                                                          |
+| Messages      | Unit-scoped conversation feed.                                                                                                   |
+| Memory        | Unit-scoped read-only memory inspector (see § 10).                                                                               |
+| Policies      | Unit policies including the Initiative section.                                                                                  |
+| **Config** (overflow) | Collapsible sections covering General, Skills, Connector, Secrets, Boundary, Execution. Cross-links out to `/settings/skills` and `/connectors?unit=…`. |
+
+**Agent** — 8 visible, 0 overflow.
+
+| Tab       | Content                                                                                                                      |
+| --------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Overview  | Lifecycle + cost summary tiles.                                                                                              |
+| Activity  | Cost-over-time + per-slice breakdown.                                                                                        |
+| Messages  | Per-agent conversation feed.                                                                                                 |
+| Memory    | Agent-scoped read-only memory inspector (see § 10).                                                                          |
+| Skills    | Read from `/api/v1/agents/{id}/skills`.                                                                                      |
+| Traces    | Mock-backed in v2.0; a real `/api/v1/traces?agent=…` endpoint is a v2.1 follow-up.                                           |
+| Clones    | Per-agent clones table.                                                                                                      |
+| Config    | Merged info + daily budget + expertise + execution + initiative editors, plus a collapsible Debug section with the status JSON. |
+
+### 9.2 Registry
+
+Each tab implementation is a dedicated module under `src/components/units/tabs/` (`unit-overview.tsx`, `agent-config.tsx`, etc.). Every module calls `registerTab(kind, tab, Component)` at top-level, and `src/components/units/tabs/register-all.ts` imports each module so the Explorer route mounts with every tab wired. `lookupTab(kind, tab)` returns the registered component or `null`; the `DetailPane` substitutes `<TabPlaceholder>` for the `null` case so the surface stays testable.
+
+The overflow strip (Unit's `Config`) renders as a second `role="tablist"` after a `bg-border` separator. Triggers are functionally identical to visible tabs — same `onTabChange` callback, same URL shape — so a deep-link to `?tab=Config` just snaps to the overflow trigger.
+
+---
+
+## 10. Memory tab contract
+
+The `GET /api/v1/units/{id}/memories` and `GET /api/v1/agents/{id}/memories` endpoints ship in v2.0 with the full read contract and a stub backing store that returns empty short-term + long-term lists. The frontend calls them via `useMemories(scope, id)` (`src/lib/api/queries.ts`).
+
+The Memory tab bodies render a populated empty state in v2.0:
+
+> No memory entries yet — write API ships in v2.1.
+
+Read-only on purpose — no add / edit / evict / pin controls. The write API plus the editor UI are scoped as a v2.1 follow-up; the v2.0 contract exists so the tab's wiring is complete and the follow-up ships as a pure backend-plus-UI promotion.
+
+---
+
+## 11. Dashboard, Settings, and the Control cluster
+
+### 11.1 Dashboard — `app/page.tsx`
+
+Header, a four-card stat grid (Units, Agents, Running, Cost 24h), a two-column split with the **Top-level units** widget and the **Activity** card, and a **Budget (24h)** card at the bottom. Top-level unit cards come from the shared `<UnitCard>` primitive and deep-link into the Explorer via both a primary "Open" affordance and the `CardTabRow` footer chips. The "Open explorer →" header button routes to `/units`.
+
+The standalone agent grid is not part of the dashboard — operators reach agents through the Explorer.
+
+### 11.2 Settings hub — `app/settings/page.tsx`
+
+`/settings` is the Control hub. No in-shell drawer; the hub is a plain page.
+
+Layout:
+
+1. **Tenant panels** — a responsive grid (`grid-cols-1 md:grid-cols-2`) of `<Card>`s, one per registered drawer-panel. The merged registry is read via `useDrawerPanels()`, so hosted extensions that register additional panels (tenant secrets, Members / RBAC, SSO) surface here too. OSS ships **Tenant budget**, **Tenant defaults**, **Account**, **About**.
+2. **Catalog & admin tiles** — a `grid-cols-1 sm:grid-cols-2` tile set linking to the Settings subpages: `/settings/skills`, `/settings/packages`, `/settings/agent-runtimes`, `/settings/system-configuration`.
+
+Each subpage hosts the content that used to live at the retired top-level `/skills`, `/packages`, `/admin/agent-runtimes`, and `/system/configuration` routes. The admin surfaces follow the AGENTS.md "admin is CLI-only" carve-out: the portal renders visibility-only tables plus a credential-health badge; install / configure / credential-validate ride `spring`. Shared chrome (CLI callout, credential-health badge, tables) lives in `src/components/admin/shared.tsx`; the page bodies live in `src/components/admin/agent-runtimes-page.tsx`, `packages-page.tsx`, `package-detail-client.tsx`, `template-detail-client.tsx`, and `system-configuration-page.tsx`.
+
+### 11.3 Drawer-panel extension contract
+
+Panels register via `registerExtension({ drawerPanels: [...] })`. Each `DrawerPanel` declares `{ id, label, icon, orderHint?, permission?, description?, component }`; OSS's defaults live in `src/lib/extensions/defaults.tsx` (`defaultDrawerPanels`).
+
+- **Ordering.** `orderHint` alone; hosted panels conventionally use `>= 100` to sit after OSS defaults.
+- **Permission gating.** Panels with a `permission` the active auth adapter rejects disappear silently. OSS's default adapter grants every permission, so OSS panels omit the field.
+- **CLI parity rule.** Every interactive control in a panel must have a matching CLI verb. Budget ↔ `spring cost set-budget`; About ↔ `spring platform info`; Account's token list ↔ `spring auth token list`. Panels whose controls lack CLI parity are dropped and a CLI follow-up is filed first.
+
+The registry key stays `drawerPanels` for backwards compatibility with hosted extensions — the name no longer implies a drawer surface.
+
+### 11.4 Connectors, Policies, Budgets
+
+All three stay at top-level under Control:
+
+- **`/connectors`** — connector catalog + bindings. The credential-health content surfaces via an internal Health tab (`?tab=health`).
+- **`/policies`** — tenant-wide policy rollup across every unit.
+- **`/budgets`** — tenant-wide and per-unit spend caps, rendered with the same budget-bar + sparkline pattern as the Tenant Budgets tab.
+
+### 11.5 Analytics as deep-dive
+
+`/analytics` and its sub-routes (`/analytics/costs`, `/analytics/throughput`, `/analytics/waits`) are the canonical deep-dive surfaces. Charts adopt the brand palette and the brand-extension hues; KPIs use `<StatCard>`; tables match the Explorer chrome; filter chips replace the legacy chrome.
+
+The Tenant Budgets and Tenant Activity tabs render *summary* rollups and cross-link into the matching `/analytics/*` view for the filterable version. Deep-dive lives in Analytics on purpose — the Explorer tabs are for "what do I see for this node right now?", not for per-axis breakdowns.
+
+---
+
+## 12. Component patterns
+
+Primitive library: `src/components/ui/`. Composites: `src/components/`. Entity cards: `src/components/cards/`. Explorer bits: `src/components/units/` with per-tab modules under `src/components/units/tabs/`.
+
+### 12.1 Core primitives
+
+- **`button.tsx`** — CVA variants `default` / `destructive` / `outline` / `secondary` / `ghost` / `link`. Sizes `default` (`h-9 px-4`), `sm` (`h-8 px-3`), `lg` (`h-10 px-8`), `icon` (`h-9 w-9`). Always `rounded-md`, `text-sm`, `font-medium`, visible focus ring via `focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2`.
+- **`input.tsx`** — Fixed `h-9`, `rounded-md`, `border border-input bg-background`, `text-sm`, thinner focus ring (`ring-1`) on purpose — inputs live in dense forms.
+- **`card.tsx`** — `Card` is `rounded-lg border border-border bg-card text-card-foreground shadow-sm`. `CardHeader` is `p-4 space-y-1.5`, `CardContent` is `p-4 pt-0`, `CardTitle` is `text-sm font-semibold leading-none tracking-tight`.
+- **`badge.tsx`** — `rounded-full px-2 py-0.5 text-xs font-medium`. Variants `default` / `success` / `warning` / `destructive` / `secondary` / `outline`. Semantic badges tint the background at 15 % opacity and paint text at full strength for legibility on dark.
+- **`dialog.tsx`** / **`confirm-dialog.tsx`** — In-house modal (no Radix). `role="dialog" aria-modal="true"`, focus trap, ESC closes, backdrop mousedown closes, body scroll locked. Panel is `w-full max-w-lg rounded-lg border border-border bg-card p-6 shadow-xl`; backdrop is `bg-black/50 z-50`.
+- **`table.tsx`** — Wrapped in `<div className="relative w-full overflow-auto">`; rows are `border-b border-border transition-colors hover:bg-muted/50`. For simple lists, prefer a `<ul className="divide-y divide-border">` inside a `Card`.
+- **`tabs.tsx`** — In-house `Tabs` / `TabsList` / `TabsTrigger` / `TabsContent` with full WAI-ARIA roles, `aria-selected`, `aria-controls`, roving `tabindex`, and arrow-key / Home / End navigation. Controlled mode (`value` + `onValueChange`) is available for pages that mirror tab state into the URL.
+- **`toast.tsx`** — `ToastProvider` at the root; `useToast()` returns `toast({ title, description?, variant })`. Stack at `fixed bottom-4 right-4 z-50`; auto-dismiss at 4 s; `animate-in slide-in-from-bottom-2`.
+- **`skeleton.tsx`** — `animate-pulse rounded-md bg-muted`. Mirror the post-load layout so the page doesn't shift.
+
+### 12.2 Entity cards — `src/components/cards/`
+
+Every card in this directory composes the base `<Card>` chrome. Whole-card click targets stretch across the card via an `::after` overlay on a `relative` card; descendant interactive controls promote to `relative z-[1]` to stay reachable.
+
+- **`<UnitCard>`** — Name + display name, registered-at, status dot, optional cost badge + sparkline. Tab-chip footer via `<CardTabRow>` with `UNIT_CARD_TABS = [Agents, Messages, Activity, Memory, Orchestration, Policies]` when `onOpenTab` is provided; the legacy cross-link strip renders as a fallback when the prop is omitted so non-dashboard callers keep working.
+- **`<AgentCard>`** — Same chrome; tab set is `AGENT_CARD_TABS = [Messages, Activity, Memory, Skills, Traces, Clones, Config]`. `actions` prop appends caller-supplied controls (edit, remove, mute) alongside the primary "Open" link.
+- **`<CostSummaryCard>`** — Three `<StatCard>` tiles (Today / 7 d / 30 d) with a sparkline on the 30 d tile by default. Read-only; "Open analytics" cross-links to `/analytics/costs`. Used on the dashboard, the Tenant Budgets tab, and `/budgets`.
+- **`<InboxCard>`** — Inbox icon + summary + `Awaiting you` warning badge on the top row; **monospace `from://` address** on the meta row (cross-linked to `/units?node=<id>` when the scheme is `agent://` or `unit://`; `human://` stays plain mono). Drives `/inbox`, which is the portal counterpart of `spring inbox list`.
+- **`<ConversationCard>`** — Title + status pill (status variant map: `open` → `default`, `active` → `success`, `waiting-on-human` / `waiting` / `blocked` → `warning`, `completed` → `secondary`, `error` → `destructive`), mono participants list, `timeAgo(lastActivityAt)` outline badge.
+
+### 12.3 `<CardTabRow>` / `<TabChip>` — `src/components/cards/card-tab-row.tsx`
+
+Icon-only footer chip row used by `<UnitCard>` / `<AgentCard>` (and the Explorer's `<ChildCard>`). Each chip renders a 28×28 ghost button with a lucide glyph; clicking dispatches `onOpenTab(id, tab)`. Chips `stopPropagation` so the chip click never also triggers the card's whole-card primary action.
+
+Every chip carries an `aria-label` (default: `"Open {tab} tab"`) so screen readers hear the verb; the icon itself is `aria-hidden`. The chip `tab` type aliases `TabName`, so adding a tab to any per-kind catalog forces a matching entry in `TAB_ICON` — an unknown tab name fails type-checking rather than silently rendering an iconless chip.
+
+### 12.4 Alert banners (shared pattern, not a component)
+
+Shared banner styling for "this thing needs operator attention" callouts inside wizard steps and tab bodies. Same token pairs everywhere so one axe pass covers them:
+
+- **Warning** — `rounded-md border border-warning/50 bg-warning/15 px-3 py-2 text-sm text-warning`, body copy in `text-foreground`. `role="alert"`. Prefix with `AlertTriangle` at `h-4 w-4 aria-hidden`. Include an actionable control when possible.
+- **Success** — `rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-900 dark:text-emerald-200`. `role="status"`. Prefix with `CheckCircle2`. A success banner may carry a secondary "Override" `<button>` with `underline underline-offset-2` — never a `div` with `onClick` (axe catches that).
+
+### 12.5 Multi-rule config editor
+
+The canonical "N rules across M dimensions" chrome used inside `Config` tab sections (Unit Boundary, Unit Orchestration label-routing): a summary card on top with a `Transparent` / `Configured` badge and the primary Save / Clear buttons; one sub-card per dimension with a lucide icon + dimension name + effect pill; a `divide-y` `ul` of monospace rule rows with per-row `outline` trash buttons; a nested `rounded-md border border-border p-3` add-rule form below the list. Local edits are staged in `useState` and committed via one PUT; Clear rides the shared `<ConfirmDialog>` and DELETEs.
+
+### 12.6 Inherit-from-parent indicator
+
+Editors that resolve a blank value to a parent default at save time carry a reusable indicator shape:
+
+- **Italic grey placeholder** on the field — `placeholder="inherited from unit: …"` plus `italic text-muted-foreground placeholder:italic`.
+- **Help copy below** duplicates the value with `inherited from unit:` prefix and carries `data-testid="inherit-indicator"` for tests.
+- **No visual lock** — the control stays editable. Leaving blank on save persists `null`; the backend resolves the parent default at runtime.
+- **A11y** — placeholder is decorative (intentionally low-contrast); the help copy carries the real text so assistive tech never depends on the placeholder.
+
+The card header carries an `Inherits` outline badge when no own declarations exist, flipping to a solid `Configured` badge once any override is persisted.
+
+---
+
+## 13. Icons, layout primitives, and spacing
+
+- **Icons.** [`lucide-react`](https://lucide.dev) at `h-3 w-3` (inline meta), `h-3.5 w-3.5` (theme toggle, tab chip), `h-4 w-4` (button icons, card section icons), `h-5 w-5` (mobile menu, page H1 icon, kind icon), `h-10 w-10` (empty-state hero). Icons inherit `currentColor`; decorative glyphs carry `aria-hidden="true"`. Icon-only buttons carry an `aria-label`.
+- **Radii.** `--radius-sm` (4 px) for chips / scrollbar thumbs, `--radius-md` (6 px) for buttons / inputs / nav items / tab triggers, `--radius-lg` (8 px) for cards / dialogs / toasts, `rounded-full` for badges and status dots. Nothing rounder than `lg` except `full`.
+- **Shadows.** `shadow-sm` on cards + active tab triggers, `shadow-lg` on toasts, `shadow-xl` on dialog panels. Elevation stays flat otherwise.
+- **Spacing vocabulary.** Tailwind defaults. Card padding is `p-4`; page sections use `space-y-6`; dashboard grids use `gap-4` (stats) and `gap-6` (main columns). Sidebar width is `224` / `56`. Fixed-menu mobile top padding is `pt-14`.
+
+---
+
+## 14. Accessibility
+
+The portal targets **WCAG 2.1 AA**. Regression harness lives in `src/test/a11y-routes.test.tsx` (axe-core via `vitest-axe`); contrast + rendered-geometry rules that JSDOM can't compute are handled manually through the § 2 token locks + a responsive review pass.
+
+Contract:
+
+- **Skip link** — every page starts with a visually-hidden "Skip to main content" anchor; the `<main id="main-content" tabIndex={-1}>` landmark in `AppShell` is the target.
+- **Landmarks** — one `<main>` per page. Pages use `<section>` / `<nav>` / `<aside>` for sub-landmarks.
+- **One `<h1>` per page**, matching the sidebar label. Section titles are `<h2>`; card titles are `<h3>` via `CardTitle`.
+- **Icon-only buttons** carry a concise `aria-label` describing the action; the icon itself is `aria-hidden`.
+- **Disclosures** — mobile sidebar trigger uses `aria-expanded` + `aria-controls`; modal triggers use `aria-haspopup="dialog"`.
+- **Tab primitives** expose full WAI-ARIA roles (`tablist` / `tab` / `tabpanel`) with keyboard support. New callers get the contract for free by composing the primitives.
+- **Live regions** — `<ActivityFeed>` is `role="log" aria-live="polite" aria-relevant="additions"`; streaming surfaces (conversation threads, tree loading state) use `aria-live="polite"`.
+- **Focus management** — dialogs move focus into the panel on open, trap Tab / Shift+Tab, and return focus to the opener on close. New overlays must preserve this.
+- **Forms** — every `<input>` / `<select>` / `<textarea>` has either a wrapping `<label>` or an explicit `aria-label`. Placeholders are never the only label.
+- **Reduced motion** — `globals.css` ships a `@media (prefers-reduced-motion: reduce)` block that drops animation / transition durations to ~0. Never override this with inline styles on critical-path elements.
+
+---
+
+## 15. Voice and tone
+
+- **Imperative, not descriptive.** "Create your first unit." "Start a unit to see activity here."
+- **No marketing copy.** No emoji in UI strings, no exclamation marks, no adjectives like "powerful" / "seamless".
 - **Be short.** H1s are two words when possible. Empty-state body copy is one sentence.
-- **Be literal.** Use domain nouns verbatim (`unit`, `agent`, `connector`, `skill`, `initiative`, `budget`). Never euphemise — "delete" is "Delete", not "Remove" (unless the semantics are actually "remove from list"). Never invent synonyms for concepts that are documented in `docs/architecture/`.
-- **Units in UI match CLI vocabulary.** When naming a portal action, check `spring <verb>` in the CLI first; parity is mandatory (`AGENTS.md` UI/CLI parity rule).
-
-Example approvals (already in the product):
-
-- ✅ "Registered units in this environment."
-- ✅ "No members"
-- ✅ "Agents appear when you create a unit from a template."
-
-Example rejections:
-
-- ❌ "Welcome to your Spring Voyage dashboard! Get started by creating a powerful new unit."
-- ❌ "Oh no! Something went wrong. 😢"
+- **Be literal.** Use domain nouns verbatim (`unit`, `agent`, `connector`, `skill`, `initiative`, `budget`). Never euphemise; "delete" is "Delete", not "Remove" — unless the semantics are actually "remove from list".
+- **Portal actions match CLI vocabulary.** When naming a portal action, check `spring <verb>` first; UI / CLI parity is mandatory.
 
 ---
 
-## 9. Dark mode
-
-Dark mode is the default and the canonical look. `src/app/layout.tsx` renders `<body className="… dark">`; `ThemeProvider` hydrates from `localStorage` (`spring-voyage-theme`, values `dark` or `light`) and keeps `<html>` in sync via `document.documentElement.className`. The toggle lives in the sidebar footer.
-
-Implications:
-
-- Every token in §2.1 has a §2.2 counterpart. Never hardcode a hex in a component — always reach through a token so the light theme also works.
-- When you add a raw Tailwind palette colour (e.g. `bg-red-500`), the same value is used in both themes. Check that it passes contrast in both (this is fine for the dots and icons we use today).
-- `<meta name="theme-color">` is pinned to the dark canvas (`#09090b`) — keep it in sync with `--color-background` (dark) rather than the current theme.
-
----
-
-## 10. Updating this file
+## 16. Updating this file
 
 Update `DESIGN.md` in the same PR that introduces, modifies, or removes a visual pattern in `src/Cvoya.Spring.Web/`. Examples that require an update:
 
-- A new colour token, or an existing token re-pointing.
+- A new token or an existing token re-pointing.
 - A new component variant (a new Button variant, a new Badge variant).
-- A new composite (empty state, data table) that other pages should copy.
-- A radius, shadow, or spacing change that affects multiple surfaces.
+- A new composite (an empty-state pattern, a new editor chrome) other pages should copy.
+- A new top-level route, tab, or Settings panel.
+- A radius / shadow / spacing change that affects multiple surfaces.
 
 Examples that do **not** require an update:
 
-- Copy tweaks within an existing voice/tone pattern.
+- Copy tweaks inside an existing tone pattern.
 - Swapping one existing token for another semantically equivalent one in a single file.
-- Per-page layout changes that don't define a new reusable shape.
+- Per-page layout tweaks that don't define a new reusable shape.
 
-If you're unsure, err on the side of recording the pattern. This file is meant to be edited.
+If in doubt, record the pattern. This file is meant to be edited.
