@@ -26,14 +26,14 @@ trap 'e2e::cleanup_unit "${unit}" "${guard_unit}"; e2e::cleanup_agent "${agent}"
 
 # --- Setup: create unit and agent ---------------------------------------------
 e2e::log "spring unit create ${unit}"
-response="$(e2e::cli --output json unit create "${unit}")"
+response="$(e2e::cli_unit_create --output json "${unit}")"
 code="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "0" "${code}" "unit create succeeds"
 e2e::expect_contains "\"name\": \"${unit}\"" "${body}" "unit create carries the unit name"
 
-e2e::log "spring agent create ${agent}"
-response="$(e2e::cli --output json agent create "${agent}")"
+e2e::log "spring agent create ${agent} --unit ${unit}"
+response="$(e2e::cli_agent_create --output json "${agent}" --unit "${unit}")"
 code="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "0" "${code}" "agent create succeeds"
@@ -104,7 +104,7 @@ e2e::expect_contains "purged" "${body}" "purge output mentions success"
 # Create a second throw-away unit so the refusal path has something to protect.
 # The EXIT trap cascades it; the main ${unit} is already gone and that purge
 # no-ops cleanly.
-e2e::cli unit create "${guard_unit}" >/dev/null
+e2e::cli_unit_create "${guard_unit}" >/dev/null
 e2e::log "spring unit purge ${guard_unit} (without --confirm — must refuse)"
 response="$(e2e::cli unit purge "${guard_unit}")"
 code="${response##*$'\n'}"

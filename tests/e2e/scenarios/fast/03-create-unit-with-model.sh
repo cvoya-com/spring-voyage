@@ -19,7 +19,7 @@ name="$(e2e::unit_name with-model)"
 trap 'e2e::cleanup_unit "${name}"' EXIT
 
 e2e::log "spring unit create ${name} --model claude-sonnet-4-6 --color #6366f1"
-response="$(e2e::cli --output json unit create "${name}" --model claude-sonnet-4-6 --color "#6366f1")"
+response="$(e2e::cli_unit_create --output json "${name}" --model claude-sonnet-4-6 --color "#6366f1")"
 code="${response##*$'\n'}"
 body="${response%$'\n'*}"
 

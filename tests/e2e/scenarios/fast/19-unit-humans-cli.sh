@@ -27,7 +27,7 @@ trap cleanup EXIT
 
 # software-engineering/engineering-team.
 e2e::log "spring unit create-from-template software-engineering/engineering-team --name ${eng_unit}"
-response="$(e2e::cli --output json unit create-from-template software-engineering/engineering-team --name "${eng_unit}")"
+response="$(e2e::cli_unit_create_from_template --output json software-engineering/engineering-team --name "${eng_unit}")"
 code="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "0" "${code}" "create-from-template (software-engineering) succeeds"
@@ -54,7 +54,7 @@ if [[ -z "${pm_template}" ]]; then
     e2e::log "No product-management template found; skipping product-management half of #460 acceptance."
 else
     e2e::log "spring unit create-from-template product-management/${pm_template} --name ${pm_unit}"
-    response="$(e2e::cli --output json unit create-from-template "product-management/${pm_template}" --name "${pm_unit}")"
+    response="$(e2e::cli_unit_create_from_template --output json "product-management/${pm_template}" --name "${pm_unit}")"
     code="${response##*$'\n'}"
     body="${response%$'\n'*}"
     e2e::expect_status "0" "${code}" "create-from-template (product-management) succeeds"
@@ -66,7 +66,7 @@ e2e::log "spring unit create --from-template software-engineering/engineering-te
 # We purge the previous unit in the trap; for the deprecation test we use a
 # different suffix so it does not collide.
 legacy_unit="${eng_unit}-legacy"
-response="$(e2e::cli --output json unit create --from-template software-engineering/engineering-team --name "${legacy_unit}" 2>&1 || true)"
+response="$(e2e::cli_unit_create --output json --from-template software-engineering/engineering-team --name "${legacy_unit}" 2>&1 || true)"
 code="${response##*$'\n'}"
 e2e::expect_status "0" "${code}" "legacy --from-template still exits 0"
 e2e::expect_contains "deprecated" "${response}" "legacy path prints deprecation warning"
@@ -75,7 +75,7 @@ e2e::cleanup_unit "${legacy_unit}" || true
 # --- humans add / list / remove (#454) ---------------------------------------
 
 e2e::log "spring unit create ${humans_unit}"
-response="$(e2e::cli --output json unit create "${humans_unit}")"
+response="$(e2e::cli_unit_create --output json "${humans_unit}")"
 code="${response##*$'\n'}"
 e2e::expect_status "0" "${code}" "unit create (humans scenario) succeeds"
 

@@ -20,15 +20,18 @@ child="$(e2e::unit_name child)"
 trap 'e2e::cleanup_unit "${parent}" "${child}"' EXIT
 
 # --- Setup: create parent and child via CLI -----------------------------------
-e2e::log "spring unit create ${parent}"
-response="$(e2e::cli --output json unit create "${parent}")"
+e2e::log "spring unit create ${parent} --top-level"
+response="$(e2e::cli_unit_create --output json "${parent}")"
 code="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "0" "${code}" "parent unit create succeeds"
 e2e::expect_contains "\"name\": \"${parent}\"" "${body}" "parent create response carries the unit name"
 
-e2e::log "spring unit create ${child}"
-response="$(e2e::cli --output json unit create "${child}")"
+# Child binds to the parent via --parent-unit — this exercises the
+# non-top-level code path added by #744 alongside the parent's top-level
+# path above.
+e2e::log "spring unit create ${child} --parent-unit ${parent}"
+response="$(e2e::cli_unit_create --output json "${child}" --parent-unit "${parent}")"
 code="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "0" "${code}" "child unit create succeeds"

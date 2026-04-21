@@ -25,12 +25,20 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${HERE}/../../_lib.sh"
 
 agent="$(e2e::agent_name persist-cli)"
+unit="$(e2e::unit_name persist-cli-unit)"
 
-trap 'e2e::cleanup_agent "${agent}"' EXIT
+trap 'e2e::cleanup_unit "${unit}"; e2e::cleanup_agent "${agent}"' EXIT
 
 # --- Setup -------------------------------------------------------------------
-e2e::log "spring agent create ${agent}"
-response="$(e2e::cli --output json agent create "${agent}")"
+# #744 requires every agent to be born into ≥1 unit — create a throwaway
+# carrier unit first.
+e2e::log "spring unit create ${unit}"
+response="$(e2e::cli_unit_create --output json "${unit}")"
+code="${response##*$'\n'}"
+e2e::expect_status "0" "${code}" "carrier unit create succeeds"
+
+e2e::log "spring agent create ${agent} --unit ${unit}"
+response="$(e2e::cli_agent_create --output json "${agent}" --unit "${unit}")"
 code="${response##*$'\n'}"
 e2e::expect_status "0" "${code}" "agent create succeeds"
 

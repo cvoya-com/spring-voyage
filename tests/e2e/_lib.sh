@@ -86,6 +86,124 @@ e2e::cli() {
     printf '%s\n%d' "${out}" "${code}"
 }
 
+# _e2e_split_root_args — partitions a flat arg list into "root-level
+# options that must appear BEFORE the subcommand" and "everything else".
+# The CLI's System.CommandLine setup declares --output / -o on the root
+# command; options bound to the root do NOT propagate to subcommand
+# positions reliably, so helpers that re-assemble a command line must
+# hoist them to the front (`spring --output json unit create <name>`,
+# NOT `spring unit create <name> --output json`, which prints help).
+#
+# Emits two arrays on stdout as NUL-separated records so the caller can
+# read them back into real arrays without word-splitting surprises.
+#
+# Usage: mapfile -t root_args rest_args < <(_e2e_split_root_args "$@")
+# is awkward; instead the helpers below just rebuild both arrays inline.
+#
+# The predicate list is intentionally narrow — only options the scenarios
+# actually pass today. Add more here if new root options appear.
+_e2e_is_root_option() {
+    case "$1" in
+        --output|-o|--output=*|-o=*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# e2e::cli_unit_create ARGS... — wraps `spring unit create` and injects
+# --top-level when the caller hasn't already supplied either --top-level or
+# --parent-unit. Mirrors the CLI's #744 contract: every unit needs exactly
+# one of those two flags. Keeps scenarios free of parent-bookkeeping noise
+# when they just want a standalone unit, and lets the nested-units scenario
+# opt in to --parent-unit explicitly without the helper second-guessing it.
+#
+# Root-level options (`--output` / `-o`) embedded in ARGS are hoisted to
+# before the `unit create` subcommand — the System.CommandLine parser does
+# not accept them after the subcommand name (see _e2e_is_root_option).
+# Exit code / stdout shape matches e2e::cli so callers can keep the
+# `"${response##*$'\n'}"` split pattern.
+e2e::cli_unit_create() {
+    local has_parent=0 has_top=0
+    local -a root_args=() sub_args=()
+    local i=1 arg
+    while (( i <= $# )); do
+        arg="${!i}"
+        if _e2e_is_root_option "${arg}"; then
+            root_args+=("${arg}")
+            # `--output json` takes a value; `--output=json` does not.
+            if [[ "${arg}" == "--output" || "${arg}" == "-o" ]]; then
+                i=$((i+1))
+                if (( i <= $# )); then root_args+=("${!i}"); fi
+            fi
+        else
+            sub_args+=("${arg}")
+            case "${arg}" in
+                --parent-unit|--parent-unit=*) has_parent=1 ;;
+                --top-level) has_top=1 ;;
+            esac
+        fi
+        i=$((i+1))
+    done
+    if (( has_parent == 0 && has_top == 0 )); then
+        sub_args+=(--top-level)
+    fi
+    e2e::cli "${root_args[@]}" unit create "${sub_args[@]}"
+}
+
+# e2e::cli_unit_create_from_template ARGS... — same contract as
+# e2e::cli_unit_create, for the first-class `spring unit create-from-template`
+# verb. The CLI enforces the same parent-or-top-level rule here, so the
+# helper injects --top-level by default.
+e2e::cli_unit_create_from_template() {
+    local has_parent=0 has_top=0
+    local -a root_args=() sub_args=()
+    local i=1 arg
+    while (( i <= $# )); do
+        arg="${!i}"
+        if _e2e_is_root_option "${arg}"; then
+            root_args+=("${arg}")
+            if [[ "${arg}" == "--output" || "${arg}" == "-o" ]]; then
+                i=$((i+1))
+                if (( i <= $# )); then root_args+=("${!i}"); fi
+            fi
+        else
+            sub_args+=("${arg}")
+            case "${arg}" in
+                --parent-unit|--parent-unit=*) has_parent=1 ;;
+                --top-level) has_top=1 ;;
+            esac
+        fi
+        i=$((i+1))
+    done
+    if (( has_parent == 0 && has_top == 0 )); then
+        sub_args+=(--top-level)
+    fi
+    e2e::cli "${root_args[@]}" unit create-from-template "${sub_args[@]}"
+}
+
+# e2e::cli_agent_create ARGS... — wraps `spring agent create`. The #744
+# contract requires ≥1 `--unit <id>` flag; this helper does no injection
+# (there is no sensible default) but exists so scenario call sites go
+# through a single name, making future drift trivial to fix in one place.
+# Same root-option hoisting as the unit helpers.
+e2e::cli_agent_create() {
+    local -a root_args=() sub_args=()
+    local i=1 arg
+    while (( i <= $# )); do
+        arg="${!i}"
+        if _e2e_is_root_option "${arg}"; then
+            root_args+=("${arg}")
+            if [[ "${arg}" == "--output" || "${arg}" == "-o" ]]; then
+                i=$((i+1))
+                if (( i <= $# )); then root_args+=("${!i}"); fi
+            fi
+        else
+            sub_args+=("${arg}")
+        fi
+        i=$((i+1))
+    done
+    e2e::cli "${root_args[@]}" agent create "${sub_args[@]}"
+}
+
 e2e::expect_status() {
     local expected="$1" actual="$2" desc="$3"
     if [[ "${actual}" == "${expected}" ]]; then e2e::ok "${desc} (status ${actual})"; else e2e::fail "${desc} — expected ${expected}, got ${actual}"; fi

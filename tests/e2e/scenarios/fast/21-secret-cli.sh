@@ -18,7 +18,7 @@ secret_name="pr432-roundtrip"
 trap 'e2e::cleanup_unit "${unit}"' EXIT
 
 e2e::log "spring unit create ${unit}"
-response="$(e2e::cli --output json unit create "${unit}")"
+response="$(e2e::cli_unit_create --output json "${unit}")"
 code="${response##*$'\n'}"
 e2e::expect_status "0" "${code}" "unit create succeeds"
 

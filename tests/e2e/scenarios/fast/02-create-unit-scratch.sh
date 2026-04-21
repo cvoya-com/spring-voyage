@@ -17,7 +17,7 @@ name="$(e2e::unit_name scratch)"
 trap 'e2e::cleanup_unit "${name}"' EXIT
 
 e2e::log "spring unit create ${name} --output json"
-response="$(e2e::cli --output json unit create "${name}")"
+response="$(e2e::cli_unit_create --output json "${name}")"
 code="${response##*$'\n'}"
 body="${response%$'\n'*}"
 

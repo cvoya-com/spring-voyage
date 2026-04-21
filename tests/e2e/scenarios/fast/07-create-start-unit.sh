@@ -10,7 +10,7 @@ trap 'e2e::cleanup_unit "${name}"' EXIT
 
 # Create from template (starts in Stopped per #369 since template provides model)
 e2e::log "spring unit create --from-template software-engineering/engineering-team --name ${name}"
-response="$(e2e::cli --output json unit create --from-template software-engineering/engineering-team --name "${name}")"
+response="$(e2e::cli_unit_create --output json --from-template software-engineering/engineering-team --name "${name}")"
 code="${response##*$'\n'}"
 e2e::expect_status "0" "${code}" "unit create from template succeeds"
 

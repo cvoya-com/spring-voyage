@@ -20,12 +20,12 @@ trap 'e2e::cleanup_unit "${unit}"; e2e::cleanup_agent "${agent}"' EXIT
 
 # --- Setup -------------------------------------------------------------------
 e2e::log "spring unit create ${unit}"
-response="$(e2e::cli --output json unit create "${unit}")"
+response="$(e2e::cli_unit_create --output json "${unit}")"
 code="${response##*$'\n'}"
 e2e::expect_status "0" "${code}" "unit create succeeds"
 
-e2e::log "spring agent create ${agent}"
-response="$(e2e::cli --output json agent create "${agent}")"
+e2e::log "spring agent create ${agent} --unit ${unit}"
+response="$(e2e::cli_agent_create --output json "${agent}" --unit "${unit}")"
 code="${response##*$'\n'}"
 e2e::expect_status "0" "${code}" "agent create succeeds"
 

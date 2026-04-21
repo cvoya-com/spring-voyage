@@ -38,7 +38,7 @@ e2e::expect_contains 'engineering-team' "${body}" "engineering-team template is 
 # Exercise the CLI path (#316). The command maps to
 # POST /api/v1/units/from-template with UnitName=${template_unit} (#325).
 e2e::log "spring unit create --from-template software-engineering/engineering-team --name ${template_unit}"
-response="$(e2e::cli --output json unit create --from-template software-engineering/engineering-team --name "${template_unit}")"
+response="$(e2e::cli_unit_create --output json --from-template software-engineering/engineering-team --name "${template_unit}")"
 code="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "0" "${code}" "from-template CLI create succeeds"
