@@ -27,8 +27,17 @@ export function BrandMark({
   className,
 }: BrandMarkProps) {
   const { theme } = useTheme();
-  const src =
-    theme === "light" ? "/brand/sailboat-light.png" : "/brand/sailboat-dark.png";
+  // Exhaustive switch over the `Theme` union so adding a third value in
+  // `theme.tsx` forces an update here at build time — a plain ternary
+  // would silently collapse new values into the dark branch.
+  const src = (() => {
+    switch (theme) {
+      case "light":
+        return "/brand/sailboat-light.png";
+      case "dark":
+        return "/brand/sailboat-dark.png";
+    }
+  })();
   return (
     <Image
       src={src}

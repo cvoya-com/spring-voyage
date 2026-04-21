@@ -59,4 +59,18 @@ describe("BrandMark", () => {
     expect(img).toHaveAttribute("height", "40");
     expect(img).toHaveAttribute("alt", "Spring Voyage logo");
   });
+
+  // Parameterised coverage that pins the src-per-theme contract — if a new
+  // `Theme` value ever appears, the exhaustive switch in `brand-mark.tsx`
+  // will fail to compile and this table will need a new row.
+  it.each([
+    ["dark", "/brand/sailboat-dark.png"],
+    ["light", "/brand/sailboat-light.png"],
+  ] as const)("maps the %s theme to %s", (theme, expectedSrc) => {
+    themeRef.current = theme;
+    render(<BrandMark />);
+    const img = screen.getByTestId("brand-mark") as HTMLImageElement;
+    expect(img).toHaveAttribute("src", expectedSrc);
+    expect(img).toHaveAttribute("data-theme", theme);
+  });
 });
