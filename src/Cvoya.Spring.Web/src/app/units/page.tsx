@@ -20,6 +20,14 @@ import type { TabName, TreeNode } from "@/components/units/aggregate";
 import { useTenantTree } from "@/lib/api/queries";
 import type { ValidatedTenantTreeNode } from "@/lib/api/validate-tenant-tree";
 
+// Side-effect import — each tab module calls `registerTab(...)` at
+// module top-level (see `src/components/units/tabs/register-all.ts`),
+// so importing the barrel here is what wires the EXP-tab-* content
+// into the registry consumed by `<DetailPane>`. Keeping the import
+// local to the Explorer route means hosted tab bundles stay lazy
+// until a user actually browses to `/units`.
+import "@/components/units/tabs/register-all";
+
 function UnitExplorerRoute() {
   const router = useRouter();
   const searchParams = useSearchParams();
