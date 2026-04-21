@@ -64,24 +64,17 @@ public static class AgentRuntimeEndpoints
             .Produces<InstalledAgentRuntimeResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
-        group.MapPost("/{id}/validate-credential", ValidateCredentialAsync)
-            .WithName("ValidateAgentRuntimeCredential")
-            .WithSummary("Validate a candidate credential against the runtime's backing service; records the outcome in the credential-health store")
-            .Produces<CredentialValidateResponse>(StatusCodes.Status200OK)
-            .ProducesProblem(StatusCodes.Status404NotFound);
-
         group.MapGet("/{id}/credential-health", GetCredentialHealthAsync)
             .WithName("GetAgentRuntimeCredentialHealth")
             .WithSummary("Get the current credential-health row for a runtime on the current tenant")
             .Produces<CredentialHealthResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
-        group.MapPost("/{id}/verify-baseline", VerifyBaselineAsync)
-            .WithName("VerifyAgentRuntimeBaseline")
-            .WithSummary("Invoke the runtime's VerifyContainerBaselineAsync and return the result")
-            .Produces<ContainerBaselineCheckResponse>(StatusCodes.Status200OK)
-            .ProducesProblem(StatusCodes.Status404NotFound);
-
+        // T-03 (#945) removed POST /{id}/validate-credential and
+        // POST /{id}/verify-baseline. Per-unit validation now runs as a
+        // backend Dapr workflow against the unit's container image; the
+        // runtime no longer exposes a host-side credential / baseline
+        // probe for the wizard to call at accept-time.
         group.MapPost("/{id}/refresh-models", RefreshModelsAsync)
             .WithName("RefreshAgentRuntimeModels")
             .WithSummary("Best-effort live-catalog lookup; replaces the tenant's configured model list on success")
@@ -235,47 +228,6 @@ public static class AgentRuntimeEndpoints
         }
     }
 
-    private static async Task<IResult> ValidateCredentialAsync(
-        string id,
-        [FromBody] CredentialValidateRequest body,
-        [FromServices] IAgentRuntimeRegistry registry,
-        [FromServices] ICredentialHealthStore credentialHealthStore,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(body);
-
-        var runtime = registry.Get(id);
-        if (runtime is null)
-        {
-            return Results.Problem(
-                detail: $"Agent runtime '{id}' is not registered with the host.",
-                statusCode: StatusCodes.Status404NotFound);
-        }
-
-        var secretName = string.IsNullOrWhiteSpace(body.SecretName) ? "default" : body.SecretName;
-        var result = await runtime.ValidateCredentialAsync(body.Credential ?? string.Empty, cancellationToken);
-        var persistent = MapToHealth(result.Status);
-
-        // NetworkError is a per-attempt signal; don't flip the persistent
-        // row on transient transport failures. Every other outcome writes
-        // so the accept-time record reflects the latest check.
-        if (result.Status != CredentialValidationStatus.NetworkError)
-        {
-            await credentialHealthStore.RecordAsync(
-                CredentialHealthKind.AgentRuntime,
-                runtime.Id,
-                secretName,
-                persistent,
-                lastError: result.ErrorMessage,
-                cancellationToken);
-        }
-
-        return Results.Ok(new CredentialValidateResponse(
-            Valid: result.Valid,
-            Status: persistent,
-            ErrorMessage: result.ErrorMessage));
-    }
-
     private static async Task<IResult> GetCredentialHealthAsync(
         string id,
         [FromServices] IAgentRuntimeRegistry registry,
@@ -306,34 +258,6 @@ public static class AgentRuntimeEndpoints
             Status: row.Status,
             LastError: row.LastError,
             LastChecked: row.LastChecked));
-    }
-
-    private static CredentialHealthStatus MapToHealth(CredentialValidationStatus status) => status switch
-    {
-        CredentialValidationStatus.Valid => CredentialHealthStatus.Valid,
-        CredentialValidationStatus.Invalid => CredentialHealthStatus.Invalid,
-        CredentialValidationStatus.NetworkError => CredentialHealthStatus.Unknown,
-        _ => CredentialHealthStatus.Unknown,
-    };
-
-    private static async Task<IResult> VerifyBaselineAsync(
-        string id,
-        [FromServices] IAgentRuntimeRegistry registry,
-        CancellationToken cancellationToken)
-    {
-        var runtime = registry.Get(id);
-        if (runtime is null)
-        {
-            return Results.Problem(
-                detail: $"Agent runtime '{id}' is not registered with the host.",
-                statusCode: StatusCodes.Status404NotFound);
-        }
-
-        var result = await runtime.VerifyContainerBaselineAsync(cancellationToken);
-        return Results.Ok(new ContainerBaselineCheckResponse(
-            RuntimeId: runtime.Id,
-            Passed: result.Passed,
-            Errors: result.Errors));
     }
 
     private static async Task<IResult> RefreshModelsAsync(

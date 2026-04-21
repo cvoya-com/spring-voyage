@@ -28,22 +28,19 @@ namespace Cvoya.Spring.Core.AgentRuntimes;
 /// </para>
 /// <para>
 /// Implementations declare the expected credential shape via
-/// <see cref="CredentialSchema"/> and validate a candidate credential with
-/// <see cref="ValidateCredentialAsync"/>. The host uses both at wizard
-/// accept-time and again at runtime via the credential-health store.
+/// <see cref="CredentialSchema"/>. V2 has moved unit-validation to the
+/// backend: the runtime produces a declarative list of in-container probe
+/// commands via
+/// <see cref="GetProbeSteps(AgentRuntimeInstallConfig, string)"/> and the
+/// Dapr <c>UnitValidationWorkflow</c> runs them inside the unit's chosen
+/// container image. The runtime never shells out on the host for
+/// credential or tool-baseline checks.
 /// </para>
 /// <para>
 /// <see cref="DefaultModels"/> is the seed catalog shipped with the runtime
 /// (loaded from the runtime's <c>agent-runtimes/&lt;id&gt;/seed.json</c>
 /// file). Tenants may override or extend this list via per-tenant install
 /// configuration; this contract only exposes the out-of-the-box defaults.
-/// </para>
-/// <para>
-/// <see cref="VerifyContainerBaselineAsync"/> checks whether the runtime's
-/// required tooling is available in the current process/container (for
-/// example, that the <c>claude</c> CLI binary is on PATH). The wizard and
-/// install flow call this to surface environment drift before a unit tries
-/// to run.
 /// </para>
 /// </remarks>
 public interface IAgentRuntime
@@ -104,17 +101,6 @@ public interface IAgentRuntime
     string CredentialSecretName { get; }
 
     /// <summary>
-    /// Validates a candidate credential against the runtime's backing
-    /// service. Used at wizard accept-time and by the credential-health
-    /// store. Implementations should surface transport-level failures as
-    /// <see cref="CredentialValidationStatus.NetworkError"/> rather than
-    /// throwing.
-    /// </summary>
-    /// <param name="credential">The raw credential to validate (API key, OAuth token, or empty when the schema requires no credential).</param>
-    /// <param name="cancellationToken">A token to cancel the validation.</param>
-    Task<CredentialValidationResult> ValidateCredentialAsync(string credential, CancellationToken cancellationToken = default);
-
-    /// <summary>
     /// The seed model catalog shipped with the runtime. Tenants may override
     /// or extend this list via per-tenant install configuration; this
     /// property only exposes the out-of-the-box defaults (loaded from the
@@ -123,13 +109,54 @@ public interface IAgentRuntime
     IReadOnlyList<ModelDescriptor> DefaultModels { get; }
 
     /// <summary>
-    /// Checks whether the runtime's required tooling is present in the
-    /// current process/container — for example, that the <c>claude</c> CLI
-    /// binary is on PATH. Surfaced in the wizard and install flow so
-    /// environment drift is visible before a unit tries to run.
+    /// Builds the declarative list of in-container probe commands the
+    /// Dapr <c>UnitValidationWorkflow</c> should execute against the unit's
+    /// chosen container image, after pulling the image and starting it.
     /// </summary>
-    /// <param name="cancellationToken">A token to cancel the check.</param>
-    Task<ContainerBaselineCheckResult> VerifyContainerBaselineAsync(CancellationToken cancellationToken = default);
+    /// <remarks>
+    /// <para>
+    /// Called by the workflow to produce the list of in-container probe
+    /// commands. The workflow pulls the image, then executes each returned
+    /// step inside the image and invokes
+    /// <see cref="ProbeStep.InterpretOutput"/> on the
+    /// <c>(exitCode, stdout, stderr)</c> triple. The returned list is
+    /// ordered — the workflow runs the steps in sequence and stops on the
+    /// first failure so later steps (for example,
+    /// <see cref="Cvoya.Spring.Core.Units.UnitValidationStep.ResolvingModel"/>)
+    /// do not run against a credential that has already been rejected.
+    /// </para>
+    /// <para>
+    /// <see cref="Cvoya.Spring.Core.Units.UnitValidationStep.PullingImage"/>
+    /// is the dispatcher's concern and MUST NOT appear in the returned
+    /// list. Every step is an in-container exec; host-side shelling out is
+    /// forbidden.
+    /// </para>
+    /// <para>
+    /// Runtimes whose <see cref="CredentialSchema"/> is
+    /// <see cref="AgentRuntimeCredentialKind.None"/> (for example Ollama)
+    /// SHOULD omit the
+    /// <see cref="Cvoya.Spring.Core.Units.UnitValidationStep.ValidatingCredential"/>
+    /// step from the returned list rather than emitting a no-op; skipping
+    /// is cleaner for workflow logs.
+    /// </para>
+    /// </remarks>
+    /// <param name="config">
+    /// The tenant's stored install configuration. Implementations typically
+    /// read <see cref="AgentRuntimeInstallConfig.DefaultModel"/> to target
+    /// the model that the unit's binding will run, and
+    /// <see cref="AgentRuntimeInstallConfig.BaseUrl"/> to override the
+    /// provider endpoint.
+    /// </param>
+    /// <param name="credential">
+    /// The raw credential to inject into the probe environment. Empty when
+    /// <see cref="CredentialSchema"/> is
+    /// <see cref="AgentRuntimeCredentialKind.None"/>.
+    /// </param>
+    /// <returns>
+    /// An ordered list of <see cref="ProbeStep"/> values. Never <c>null</c>;
+    /// an empty list means the runtime has nothing to probe.
+    /// </returns>
+    IReadOnlyList<ProbeStep> GetProbeSteps(AgentRuntimeInstallConfig config, string credential);
 
     /// <summary>
     /// Best-effort fetch of the runtime's live model catalog from its

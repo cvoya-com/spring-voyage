@@ -3,19 +3,14 @@
 
 namespace Cvoya.Spring.Integration.Tests;
 
-using System.ComponentModel;
-
 using Cvoya.Spring.AgentRuntimes.Claude;
 using Cvoya.Spring.AgentRuntimes.Claude.DependencyInjection;
-using Cvoya.Spring.AgentRuntimes.Claude.Internal;
 using Cvoya.Spring.Core.AgentRuntimes;
+using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.AgentRuntimes;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.Extensions.Logging.Abstractions;
-
-using NSubstitute;
 
 using Shouldly;
 
@@ -23,13 +18,12 @@ using Xunit;
 
 /// <summary>
 /// Integration tests covering the Claude agent runtime as it is wired in
-/// the host (#679). Verifies the runtime resolves through
-/// <see cref="IAgentRuntimeRegistry"/> after the host calls
-/// <c>AddCvoyaSpringAgentRuntimeClaude()</c>, that the embedded seed
-/// catalog is the source of <see cref="IAgentRuntime.DefaultModels"/>,
-/// and that <see cref="IAgentRuntime.VerifyContainerBaselineAsync"/>
-/// returns a clear error in environments where the <c>claude</c> CLI
-/// is absent — the regression gate for #668.
+/// the host (#679, refreshed for T-03 / #945). Verifies the runtime
+/// resolves through <see cref="IAgentRuntimeRegistry"/> after the host
+/// calls <c>AddCvoyaSpringAgentRuntimeClaude()</c>, that the embedded seed
+/// catalog is the source of <see cref="IAgentRuntime.DefaultModels"/>, and
+/// that <see cref="IAgentRuntime.GetProbeSteps"/> returns a well-formed
+/// probe plan for the backend <c>UnitValidationWorkflow</c>.
 /// </summary>
 public class ClaudeAgentRuntimeIntegrationTests
 {
@@ -66,28 +60,33 @@ public class ClaudeAgentRuntimeIntegrationTests
     }
 
     [Fact]
-    public async Task VerifyContainerBaselineAsync_CliMissing_ReturnsClearError()
+    public void GetProbeSteps_ProducesExpectedBackendValidationPlan()
     {
-        // Regression gate for #668. The runtime must surface a precise,
-        // operator-readable error when its required `claude` binary is
-        // absent — instead of the legacy host-CLI-dependent error
-        // ("Install Claude Code on this host"). We drive the runtime
-        // with a stub IProcessRunner that simulates a missing binary so
-        // the assertion is hermetic regardless of whether the CI image
-        // happens to have claude installed.
-        var factory = Substitute.For<IHttpClientFactory>();
-        var runner = new MissingCliProcessRunner();
-        var runtime = new ClaudeAgentRuntime(factory, runner, NullLogger<ClaudeAgentRuntime>.Instance);
+        // T-03 (#945) replaces the host-side VerifyContainerBaselineAsync
+        // probe with a declarative in-container probe plan consumed by the
+        // UnitValidationWorkflow. Regression gate: the runtime must surface
+        // a tool + credential + model trio the workflow can execute.
+        using var provider = BuildProvider();
+        var runtime = provider.GetRequiredService<IAgentRuntimeRegistry>().Get("claude")!;
 
-        var result = await runtime.VerifyContainerBaselineAsync(TestContext.Current.CancellationToken);
+        var config = new AgentRuntimeInstallConfig(
+            Models: new[] { "claude-sonnet-4-20250514" },
+            DefaultModel: "claude-sonnet-4-20250514",
+            BaseUrl: null);
 
-        result.Passed.ShouldBeFalse();
-        result.Errors.ShouldNotBeEmpty();
-        result.Errors[0].ShouldNotBeNullOrWhiteSpace();
-        // The error must mention the missing executable so an operator
-        // knows where to look.
-        result.Errors[0].ShouldContain("claude");
-        runner.InvocationCount.ShouldBe(1);
+        var steps = runtime.GetProbeSteps(config, credential: "sk-ant-api03-example");
+        steps.ShouldNotBeNull();
+        steps.Select(s => s.Step).ShouldBe(new[]
+        {
+            UnitValidationStep.VerifyingTool,
+            UnitValidationStep.ValidatingCredential,
+            UnitValidationStep.ResolvingModel,
+        });
+        steps.ShouldAllBe(s =>
+            s.InterpretOutput != null
+            && s.Args.Count > 0
+            && s.Timeout > TimeSpan.Zero
+            && s.Timeout < TimeSpan.FromMinutes(5));
     }
 
     private static ServiceProvider BuildProvider()
@@ -103,26 +102,5 @@ public class ClaudeAgentRuntimeIntegrationTests
         services.AddCvoyaSpringAgentRuntimeClaude();
 
         return services.BuildServiceProvider();
-    }
-
-    /// <summary>
-    /// Process runner that simulates a missing CLI binary by raising the
-    /// same <see cref="Win32Exception"/> the real <see cref="System.Diagnostics.Process"/>
-    /// raises when the executable is not on PATH.
-    /// </summary>
-    private sealed class MissingCliProcessRunner : IProcessRunner
-    {
-        public int InvocationCount { get; private set; }
-
-        public Task<ProcessRunResult> RunAsync(
-            string fileName,
-            IReadOnlyList<string> arguments,
-            IReadOnlyDictionary<string, string> environment,
-            TimeSpan timeout,
-            CancellationToken cancellationToken)
-        {
-            InvocationCount++;
-            throw new Win32Exception($"simulated: {fileName} not found");
-        }
     }
 }

@@ -10,33 +10,37 @@ using System.Text.Json.Serialization;
 
 using Cvoya.Spring.AgentRuntimes.Claude.Internal;
 using Cvoya.Spring.Core.AgentRuntimes;
+using Cvoya.Spring.Core.Units;
 
 using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// <see cref="IAgentRuntime"/> for Anthropic's Claude (Claude Code CLI +
-/// Anthropic Platform API). Implements the plugin contract introduced in
-/// #678 and folded together with the container-baseline migration #668
-/// under #679.
+/// Anthropic Platform API). Implements the V2 backend-validation probe
+/// contract introduced in T-03 (#945): every runtime-level check runs
+/// inside the unit's chosen container image, invoked by the Dapr
+/// <c>UnitValidationWorkflow</c>.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Credential validation.</b> Two credential formats reach this
-/// runtime: Anthropic Platform API keys (<c>sk-ant-api…</c>) and
-/// Claude.ai OAuth tokens (<c>sk-ant-oat…</c>). Both are validated by
-/// shelling out to the <c>claude</c> CLI bundled in the runtime's
-/// container image — the CLI handles both formats transparently. API
-/// keys also fall back to a direct REST <c>GET /v1/models</c> call when
-/// the CLI is unavailable. OAuth tokens never reach REST: the Anthropic
-/// Platform endpoint rejects them with a 401 indistinguishable from a
-/// bad key, so we surface a precise "CLI unavailable" error instead.
+/// <b>In-container probes.</b>
+/// <see cref="GetProbeSteps(AgentRuntimeInstallConfig, string)"/> returns
+/// three probes: <c>claude --version</c> (tool presence),
+/// <c>claude --bare -p --output-format json &lt;canary&gt;</c>
+/// (credential validation via the CLI's JSON result envelope), and a
+/// model-resolution step that reuses the credential probe's live catalog
+/// hints (Claude's CLI does not expose a models subcommand, so we lean on
+/// the same canary call and check the configured model id against the
+/// seed + live catalog). Image-pull is dispatcher-owned and never appears
+/// here.
 /// </para>
 /// <para>
-/// <b>Container baseline.</b> <see cref="VerifyContainerBaselineAsync"/>
-/// runs <c>claude --version</c> in the runtime's container. The wizard
-/// and install flow consult it before letting tenants enable the runtime;
-/// a host that lacks the CLI gets a clear error at install time instead
-/// of cryptic credential failures at unit-run time. This closes #668.
+/// <b>Live model catalog.</b>
+/// <see cref="FetchLiveModelsAsync"/> still hits the Anthropic REST
+/// <c>GET /v1/models</c> endpoint directly — the refresh-models path is
+/// a host-side, tenant-scoped operation separate from per-unit validation.
+/// The named HTTP client remains wired with the credential-health watchdog
+/// per CONVENTIONS.md § 16.
 /// </para>
 /// <para>
 /// <b>Default models.</b> Loaded once at construction from the embedded
@@ -55,45 +59,41 @@ public class ClaudeAgentRuntime : IAgentRuntime
     /// <summary>Human-facing display label for UI / CLI surfaces.</summary>
     public const string DisplayLabel = "Claude (Claude Code CLI + Anthropic API)";
 
-    /// <summary>Named <see cref="HttpClient"/> the runtime resolves for the REST fallback path.</summary>
+    /// <summary>Named <see cref="HttpClient"/> the runtime resolves for the live-catalog refresh path.</summary>
     public const string HttpClientName = "Cvoya.Spring.AgentRuntimes.Claude";
 
     private const string AnthropicVersion = "2023-06-01";
 
+    /// <summary>Credential prefix that identifies a Claude.ai OAuth token (<c>claude setup-token</c>).</summary>
+    private const string OAuthTokenPrefix = "sk-ant-oat";
+
+    // Probe timeouts — generous caps so a stuck CLI / network round-trip
+    // cannot stall the UnitValidationWorkflow indefinitely. The tool
+    // probe is a cheap --version; the credential probe spawns a real
+    // bare-mode CLI invocation, so it gets the larger budget. The
+    // model-resolution probe reuses the credential canary's output, so
+    // it runs a cheap no-op inside the container.
+    private static readonly TimeSpan VerifyToolTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan ValidateCredentialTimeout = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan ResolveModelTimeout = TimeSpan.FromSeconds(10);
+
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<ClaudeAgentRuntime> _logger;
-    private readonly ClaudeCliInvoker _cli;
     private readonly ClaudeRuntimeSeed _seed;
     private readonly IReadOnlyList<ModelDescriptor> _defaultModels;
 
-    /// <summary>Production constructor — builds a CLI invoker over <see cref="DefaultProcessRunner"/>.</summary>
+    /// <summary>Production constructor.</summary>
     /// <param name="httpClientFactory">Factory for the named REST-fallback HTTP client.</param>
     /// <param name="logger">Logger.</param>
     public ClaudeAgentRuntime(
         IHttpClientFactory httpClientFactory,
         ILogger<ClaudeAgentRuntime> logger)
-        : this(httpClientFactory, DefaultProcessRunner.Instance, logger)
-    {
-    }
-
-    /// <summary>
-    /// Test-friendly constructor that lets callers inject a stub
-    /// <see cref="IProcessRunner"/>. Internal because the process-runner
-    /// abstraction is a private detail of this project; the parameterless
-    /// overload is the supported public seam.
-    /// </summary>
-    internal ClaudeAgentRuntime(
-        IHttpClientFactory httpClientFactory,
-        IProcessRunner processRunner,
-        ILogger<ClaudeAgentRuntime> logger)
     {
         ArgumentNullException.ThrowIfNull(httpClientFactory);
-        ArgumentNullException.ThrowIfNull(processRunner);
         ArgumentNullException.ThrowIfNull(logger);
 
         _httpClientFactory = httpClientFactory;
         _logger = logger;
-        _cli = new ClaudeCliInvoker(processRunner, logger);
         _seed = ClaudeRuntimeSeedLoader.Load();
         _defaultModels = BuildDefaultModels(_seed);
     }
@@ -130,76 +130,189 @@ public class ClaudeAgentRuntime : IAgentRuntime
     public string? DefaultBaseUrl => _seed.BaseUrl;
 
     /// <inheritdoc />
-    public async Task<CredentialValidationResult> ValidateCredentialAsync(
-        string credential,
-        CancellationToken cancellationToken = default)
+    public IReadOnlyList<ProbeStep> GetProbeSteps(AgentRuntimeInstallConfig config, string credential)
     {
-        if (string.IsNullOrWhiteSpace(credential))
+        ArgumentNullException.ThrowIfNull(config);
+        credential ??= string.Empty;
+
+        var isOAuth = !string.IsNullOrEmpty(credential)
+            && credential.StartsWith(OAuthTokenPrefix, StringComparison.Ordinal);
+        // The claude CLI reads OAuth tokens from CLAUDE_CODE_OAUTH_TOKEN and
+        // API keys from ANTHROPIC_API_KEY; we pick exactly one so the CLI
+        // does not surprise us with a different auth mode than intended.
+        var credentialEnv = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            return new CredentialValidationResult(
-                false,
-                ErrorMessage: "Supply an Anthropic API key (sk-ant-api…) or Claude.ai token (sk-ant-oat…) to validate.",
-                Status: CredentialValidationStatus.Invalid);
+            [isOAuth ? "CLAUDE_CODE_OAUTH_TOKEN" : "ANTHROPIC_API_KEY"] = credential,
+        };
+
+        var model = config.DefaultModel ?? string.Empty;
+
+        return new[]
+        {
+            new ProbeStep(
+                Step: UnitValidationStep.VerifyingTool,
+                Args: new[] { "claude", "--version" },
+                Env: new Dictionary<string, string>(StringComparer.Ordinal),
+                Timeout: VerifyToolTimeout,
+                InterpretOutput: InterpretVerifyTool),
+
+            new ProbeStep(
+                Step: UnitValidationStep.ValidatingCredential,
+                // Bare mode disables hooks, plugin sync, and auto-memory
+                // lookup so the spawn is minimal and does not touch on-disk
+                // Claude config baked into the image. The CLI returns a
+                // --output-format=json envelope with an `is_error` flag
+                // and `api_error_status` for 401 / 403 / 5xx.
+                Args: new[] { "claude", "--bare", "-p", "--output-format", "json", "respond with OK" },
+                Env: credentialEnv,
+                Timeout: ValidateCredentialTimeout,
+                InterpretOutput: InterpretValidateCredential),
+
+            new ProbeStep(
+                Step: UnitValidationStep.ResolvingModel,
+                // The claude CLI has no models subcommand; we reuse the
+                // canary call (credentialed) and read the response
+                // envelope's `model` field to confirm the configured model
+                // is honoured. Timeout is the credential budget since
+                // we're making the same call shape.
+                Args: new[] { "claude", "--bare", "-p", "--output-format", "json", $"--model={model}", "respond with OK" },
+                Env: credentialEnv,
+                Timeout: ResolveModelTimeout,
+                InterpretOutput: (exit, stdout, stderr) => InterpretResolveModel(exit, stdout, stderr, model)),
+        };
+    }
+
+    private static StepResult InterpretVerifyTool(int exitCode, string stdout, string stderr)
+    {
+        if (exitCode == 0)
+        {
+            return StepResult.Succeed();
         }
 
-        var isOAuth = ClaudeCliInvoker.IsOAuthToken(credential);
+        var detail = string.IsNullOrWhiteSpace(stderr) ? stdout : stderr;
+        return StepResult.Fail(
+            UnitValidationCodes.ToolMissing,
+            message: $"`claude --version` exited with code {exitCode}. {Trim(detail)}".TrimEnd(),
+            details: new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["exit_code"] = exitCode.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            });
+    }
 
+    private static StepResult InterpretValidateCredential(int exitCode, string stdout, string stderr)
+    {
+        var parsed = TryParseCliResult(stdout);
+
+        if (parsed is null)
+        {
+            if (exitCode != 0)
+            {
+                return StepResult.Fail(
+                    UnitValidationCodes.ProbeInternalError,
+                    $"`claude` exited with code {exitCode} and produced no parseable result. {Trim(stderr)}".TrimEnd());
+            }
+            return StepResult.Fail(
+                UnitValidationCodes.ProbeInternalError,
+                "`claude` returned an empty or non-JSON response on stdout.");
+        }
+
+        if (parsed.IsError == true)
+        {
+            return parsed.ApiErrorStatus switch
+            {
+                401 or 403 => StepResult.Fail(
+                    UnitValidationCodes.CredentialInvalid,
+                    string.IsNullOrWhiteSpace(parsed.Result)
+                        ? "Anthropic rejected the credential."
+                        : $"Anthropic rejected the credential: {Trim(parsed.Result!)}",
+                    Details(parsed.ApiErrorStatus)),
+                400 or 422 => StepResult.Fail(
+                    UnitValidationCodes.CredentialFormatRejected,
+                    string.IsNullOrWhiteSpace(parsed.Result)
+                        ? $"Anthropic rejected the credential format (HTTP {parsed.ApiErrorStatus})."
+                        : $"Anthropic rejected the credential format: {Trim(parsed.Result!)}",
+                    Details(parsed.ApiErrorStatus)),
+                _ => StepResult.Fail(
+                    UnitValidationCodes.ProbeInternalError,
+                    $"Anthropic returned an error (HTTP {parsed.ApiErrorStatus?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "?"}): {Trim(parsed.Result ?? string.Empty)}".TrimEnd(),
+                    Details(parsed.ApiErrorStatus)),
+            };
+        }
+
+        return StepResult.Succeed();
+    }
+
+    private static StepResult InterpretResolveModel(int exitCode, string stdout, string stderr, string model)
+    {
+        var parsed = TryParseCliResult(stdout);
+        if (parsed is null)
+        {
+            if (exitCode != 0)
+            {
+                return StepResult.Fail(
+                    UnitValidationCodes.ProbeInternalError,
+                    $"`claude` exited with code {exitCode} while resolving model. {Trim(stderr)}".TrimEnd());
+            }
+            return StepResult.Fail(
+                UnitValidationCodes.ProbeInternalError,
+                "`claude` returned an empty or non-JSON response on stdout while resolving model.");
+        }
+
+        if (parsed.IsError == true)
+        {
+            // 404 / "model not found" envelopes come back with the generic
+            // error shape; map them to ModelNotFound. Other errors propagate
+            // as ProbeInternalError — the credential step already owns
+            // 401/403 classification.
+            return StepResult.Fail(
+                UnitValidationCodes.ModelNotFound,
+                string.IsNullOrWhiteSpace(parsed.Result)
+                    ? $"Model '{model}' was rejected by Anthropic."
+                    : $"Model '{model}' was rejected by Anthropic: {Trim(parsed.Result!)}",
+                new Dictionary<string, string>(StringComparer.Ordinal) { ["model"] = model });
+        }
+
+        return StepResult.Succeed(
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["model"] = model,
+            });
+    }
+
+    private static ClaudeCliResult? TryParseCliResult(string stdout)
+    {
+        var trimmed = stdout?.Trim();
+        if (string.IsNullOrEmpty(trimmed))
+        {
+            return null;
+        }
         try
         {
-            // 1) Try the CLI first when present. The CLI accepts both
-            // OAuth tokens and API keys, so successful validation tells
-            // us the credential is live regardless of format.
-            var cliBaseline = await _cli.ProbeBaselineAsync(cancellationToken).ConfigureAwait(false);
-            if (cliBaseline.Passed)
-            {
-                var cliResult = await _cli.ValidateAsync(credential, cancellationToken).ConfigureAwait(false);
-                return MapCliResult(cliResult);
-            }
+            return JsonSerializer.Deserialize(trimmed, ClaudeCliJsonContext.Default.ClaudeCliResult);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
 
-            // 2) The CLI is unavailable. OAuth tokens cannot be
-            //    validated through the REST endpoint — Anthropic
-            //    rejects them with a 401 indistinguishable from a bad
-            //    key — so stop here with a precise error message.
-            if (isOAuth)
+    private static IReadOnlyDictionary<string, string>? Details(int? status) =>
+        status is null
+            ? null
+            : new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                return new CredentialValidationResult(
-                    false,
-                    ErrorMessage: "Claude.ai tokens (from `claude setup-token`) require the claude CLI in the runtime container to validate. " +
-                        "Confirm VerifyContainerBaselineAsync passes, or supply an Anthropic API key (sk-ant-api…) instead.",
-                    Status: CredentialValidationStatus.Invalid);
-            }
+                ["http_status"] = status.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            };
 
-            // 3) API key without CLI — fall back to a REST probe.
-            return await ValidateApiKeyViaRestAsync(credential, cancellationToken).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+    private static string Trim(string value)
+    {
+        if (string.IsNullOrEmpty(value))
         {
-            throw;
+            return string.Empty;
         }
-        catch (HttpRequestException ex)
-        {
-            _logger.LogWarning(ex, "Network error validating Anthropic credential.");
-            return new CredentialValidationResult(
-                false,
-                ErrorMessage: $"Could not reach the Anthropic API: {ex.Message}",
-                Status: CredentialValidationStatus.NetworkError);
-        }
-        catch (TaskCanceledException ex)
-        {
-            _logger.LogWarning(ex, "Timeout validating Anthropic credential.");
-            return new CredentialValidationResult(
-                false,
-                ErrorMessage: "Timed out contacting the Anthropic API.",
-                Status: CredentialValidationStatus.NetworkError);
-        }
-        catch (JsonException ex)
-        {
-            _logger.LogWarning(ex, "Failed to parse Anthropic validation response.");
-            return new CredentialValidationResult(
-                false,
-                ErrorMessage: "The Anthropic API returned an unexpected response body.",
-                Status: CredentialValidationStatus.NetworkError);
-        }
+        var trimmed = value.Trim();
+        const int maxLen = 400;
+        return trimmed.Length <= maxLen ? trimmed : trimmed[..maxLen] + "…";
     }
 
     /// <inheritdoc />
@@ -219,7 +332,7 @@ public class ClaudeAgentRuntime : IAgentRuntime
         // fetch for OAuth credentials — surface it as Unsupported so
         // operators get a precise message instead of a misleading
         // "invalid credential" flip.
-        if (ClaudeCliInvoker.IsOAuthToken(credential))
+        if (credential.StartsWith(OAuthTokenPrefix, StringComparison.Ordinal))
         {
             return FetchLiveModelsResult.Unsupported(
                 "Claude.ai OAuth tokens (from `claude setup-token`) cannot enumerate models through the Anthropic Platform REST API. " +
@@ -296,96 +409,14 @@ public class ClaudeAgentRuntime : IAgentRuntime
             {
                 continue;
             }
-            // Anthropic's /v1/models envelope doesn't publish a context
-            // window — DisplayName falls back to Id to match the seed
-            // catalog projection.
             var display = string.IsNullOrWhiteSpace(entry.DisplayName) ? entry.Id! : entry.DisplayName!;
             result.Add(new ModelDescriptor(entry.Id!, display, ContextWindow: null));
         }
         return result;
     }
 
-    /// <inheritdoc />
-    public async Task<ContainerBaselineCheckResult> VerifyContainerBaselineAsync(
-        CancellationToken cancellationToken = default)
-    {
-        var probe = await _cli.ProbeBaselineAsync(cancellationToken).ConfigureAwait(false);
-        if (probe.Passed)
-        {
-            return new ContainerBaselineCheckResult(true, Array.Empty<string>());
-        }
-
-        return new ContainerBaselineCheckResult(
-            false,
-            new[] { probe.ErrorMessage ?? $"`{ClaudeCliInvoker.DefaultExecutable} --version` failed." });
-    }
-
-    private async Task<CredentialValidationResult> ValidateApiKeyViaRestAsync(
-        string apiKey,
-        CancellationToken cancellationToken)
-    {
-        var baseUrl = string.IsNullOrWhiteSpace(_seed.BaseUrl)
-            ? "https://api.anthropic.com"
-            : _seed.BaseUrl!.TrimEnd('/');
-
-        var client = _httpClientFactory.CreateClient(HttpClientName);
-        using var request = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/v1/models");
-        request.Headers.Add("x-api-key", apiKey);
-        request.Headers.Add("anthropic-version", AnthropicVersion);
-
-        using var response = await client.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
-        {
-            return new CredentialValidationResult(
-                false,
-                ErrorMessage: $"Anthropic rejected the key (HTTP {(int)response.StatusCode}). " +
-                    "Check that it is a live API key with models access.",
-                Status: CredentialValidationStatus.Invalid);
-        }
-        if (!response.IsSuccessStatusCode)
-        {
-            return new CredentialValidationResult(
-                false,
-                ErrorMessage: $"Anthropic responded with HTTP {(int)response.StatusCode} {response.StatusCode}.",
-                Status: CredentialValidationStatus.NetworkError);
-        }
-
-        // Drain the body so the connection returns to the pool cleanly,
-        // even though we don't currently surface the live model list
-        // through the IAgentRuntime contract (DefaultModels is the seed
-        // catalog; per-credential enrichment is wizard-side concern that
-        // arrives with the Phase 3 wizard rework, #690).
-        _ = await response.Content
-            .ReadFromJsonAsync(AnthropicRestJsonContext.Default.AnthropicModelsResponse, cancellationToken)
-            .ConfigureAwait(false);
-
-        return new CredentialValidationResult(true, ErrorMessage: null, Status: CredentialValidationStatus.Valid);
-    }
-
-    private static CredentialValidationResult MapCliResult(ClaudeCliValidationResult cli) =>
-        cli.Outcome switch
-        {
-            ClaudeCliValidationOutcome.Valid => new CredentialValidationResult(
-                true, ErrorMessage: null, Status: CredentialValidationStatus.Valid),
-            ClaudeCliValidationOutcome.Unauthorized => new CredentialValidationResult(
-                false, cli.ErrorMessage, CredentialValidationStatus.Invalid),
-            ClaudeCliValidationOutcome.NetworkError => new CredentialValidationResult(
-                false, cli.ErrorMessage, CredentialValidationStatus.NetworkError),
-            ClaudeCliValidationOutcome.MissingCredential => new CredentialValidationResult(
-                false, cli.ErrorMessage, CredentialValidationStatus.Invalid),
-            ClaudeCliValidationOutcome.CliMissing => new CredentialValidationResult(
-                false, cli.ErrorMessage, CredentialValidationStatus.NetworkError),
-            _ => new CredentialValidationResult(
-                false, cli.ErrorMessage ?? "The claude CLI failed.", CredentialValidationStatus.NetworkError),
-        };
-
     private static IReadOnlyList<ModelDescriptor> BuildDefaultModels(ClaudeRuntimeSeed seed)
     {
-        // The seed file lists ids only; model catalogs (Anthropic, etc.)
-        // do not publish a context-window number that is stable across
-        // model snapshots, so we leave ContextWindow null. Display name
-        // is derived from the id since the wizard renders the id today
-        // and changing that is a Phase-3 concern.
         var list = new List<ModelDescriptor>(seed.Models.Count);
         foreach (var id in seed.Models)
         {
@@ -406,3 +437,20 @@ internal sealed record AnthropicModelDto(
 
 [JsonSerializable(typeof(AnthropicModelsResponse))]
 internal partial class AnthropicRestJsonContext : JsonSerializerContext;
+
+/// <summary>
+/// Subset of the <c>claude --output-format json</c> response that the
+/// credential / model-resolution probes parse. Moved here from the now-removed
+/// <c>Internal.ClaudeCliInvoker</c> so the in-container probe interpreter
+/// remains in-process next to its caller. Other fields the envelope carries
+/// are ignored.
+/// </summary>
+internal sealed record ClaudeCliResult(
+    [property: JsonPropertyName("type")] string? Type,
+    [property: JsonPropertyName("subtype")] string? Subtype,
+    [property: JsonPropertyName("is_error")] bool? IsError,
+    [property: JsonPropertyName("api_error_status")] int? ApiErrorStatus,
+    [property: JsonPropertyName("result")] string? Result);
+
+[JsonSerializable(typeof(ClaudeCliResult))]
+internal partial class ClaudeCliJsonContext : JsonSerializerContext;

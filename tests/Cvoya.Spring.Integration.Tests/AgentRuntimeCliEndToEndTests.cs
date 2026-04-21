@@ -83,7 +83,6 @@ using Xunit;
 public sealed class AgentRuntimeCliEndToEndTests : IDisposable
 {
     private readonly StubHttpHandler _openAiHandler = new();
-    private readonly StubContainerBaselineProbe _baselineProbe = new();
     private readonly StubAuthConnectorType _stubAuthConnector = new();
     private readonly MutableTenantContext _tenantContext = new("default");
     private readonly E2EFactory _factory;
@@ -101,7 +100,6 @@ public sealed class AgentRuntimeCliEndToEndTests : IDisposable
     {
         _factory = new E2EFactory(
             _openAiHandler,
-            _baselineProbe,
             _stubAuthConnector,
             _tenantContext);
         _client = _factory.CreateClient();
@@ -190,82 +188,13 @@ public sealed class AgentRuntimeCliEndToEndTests : IDisposable
         afterRemove!.Select(m => m.Id).ShouldBe(new[] { "gpt-4o", "o4-mini" });
     }
 
-    // ─── Scenario 3: validate-credential 200 → Valid ────────────────
-
-    /// <summary>
-    /// <c>spring agent-runtime validate-credential</c> with a mock
-    /// provider returning 200 → the endpoint reports Valid and the
-    /// credential-health store records a <c>Valid</c> row.
-    /// </summary>
-    [Fact]
-    public async Task ValidateCredential_MockProviderReturns200_HealthFlipsToValid()
-    {
-        var ct = TestContext.Current.CancellationToken;
-        await _client.PostAsJsonAsync(
-            "/api/v1/agent-runtimes/openai/install",
-            new AgentRuntimeInstallRequest(null, null, null), ct);
-
-        // OpenAI's ValidateCredentialAsync issues GET /v1/models — we
-        // answer with a 200 + minimal catalog so the runtime reports Valid.
-        _openAiHandler.Respond(HttpStatusCode.OK, """{"data":[{"id":"gpt-4o"}]}""");
-
-        var secretName = $"probe-valid-{Guid.NewGuid():N}";
-        var validateResponse = await _client.PostAsJsonAsync(
-            "/api/v1/agent-runtimes/openai/validate-credential",
-            new CredentialValidateRequest("sk-test-valid", secretName), ct);
-        validateResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
-
-        var validateBody = await validateResponse.Content
-            .ReadFromJsonAsync<CredentialValidateResponse>(JsonOptions, ct);
-        validateBody.ShouldNotBeNull();
-        validateBody!.Valid.ShouldBeTrue();
-        validateBody.Status.ShouldBe(CredentialHealthStatus.Valid);
-
-        // `spring agent-runtime credentials status openai` —
-        // GET .../credential-health — reflects the recorded row.
-        var status = await _client.GetFromJsonAsync<CredentialHealthResponse>(
-            $"/api/v1/agent-runtimes/openai/credential-health?secretName={secretName}",
-            JsonOptions, ct);
-        status.ShouldNotBeNull();
-        status!.Status.ShouldBe(CredentialHealthStatus.Valid);
-        status.SubjectId.ShouldBe("openai");
-    }
-
-    // ─── Scenario 4: validate-credential 401 → Invalid ──────────────
-
-    /// <summary>
-    /// <c>spring agent-runtime validate-credential</c> with a mock
-    /// provider returning 401 → the endpoint reports Invalid and
-    /// <c>credentials status</c> reflects the invalid row.
-    /// </summary>
-    [Fact]
-    public async Task ValidateCredential_MockProviderReturns401_HealthFlipsToInvalid()
-    {
-        var ct = TestContext.Current.CancellationToken;
-        await _client.PostAsJsonAsync(
-            "/api/v1/agent-runtimes/openai/install",
-            new AgentRuntimeInstallRequest(null, null, null), ct);
-
-        _openAiHandler.Respond(
-            HttpStatusCode.Unauthorized,
-            """{"error":{"message":"Incorrect API key provided."}}""");
-
-        var secretName = $"probe-invalid-{Guid.NewGuid():N}";
-        var validate = await _client.PostAsJsonAsync(
-            "/api/v1/agent-runtimes/openai/validate-credential",
-            new CredentialValidateRequest("sk-bad", secretName), ct);
-        validate.StatusCode.ShouldBe(HttpStatusCode.OK);
-        var validateBody = await validate.Content
-            .ReadFromJsonAsync<CredentialValidateResponse>(JsonOptions, ct);
-        validateBody!.Valid.ShouldBeFalse();
-        validateBody.Status.ShouldBe(CredentialHealthStatus.Invalid);
-
-        var status = await _client.GetFromJsonAsync<CredentialHealthResponse>(
-            $"/api/v1/agent-runtimes/openai/credential-health?secretName={secretName}",
-            JsonOptions, ct);
-        status!.Status.ShouldBe(CredentialHealthStatus.Invalid);
-        status.LastError.ShouldNotBeNull();
-    }
+    // T-03 (#945) removed Scenarios 3 & 4. The
+    // POST /{id}/validate-credential endpoint was deleted when the
+    // corresponding IAgentRuntime.ValidateCredentialAsync method was
+    // retired in favour of the backend UnitValidationWorkflow probe
+    // plan (GetProbeSteps). Credential-health rows for agent runtimes
+    // still flow via the watchdog's refresh-models path and connector
+    // scenario below.
 
     // ─── Scenario 5: connector install + watchdog flips to Revoked ─
 
@@ -327,48 +256,12 @@ public sealed class AgentRuntimeCliEndToEndTests : IDisposable
         statusAfterWatchdog!.Status.ShouldBe(CredentialHealthStatus.Revoked);
     }
 
-    // ─── Scenario 6: verify-baseline pass / fail (regression gate #668)
-
-    /// <summary>
-    /// <c>spring agent-runtime verify-baseline</c> against a registered
-    /// test runtime: the baseline check passes when the mock container
-    /// reports the tool binary; the same verb against the same id fails
-    /// with a clear, non-empty error list when the mock reports the
-    /// binary missing. Regression gate for #668 (missing <c>claude</c>
-    /// CLI must surface before a unit tries to run).
-    /// </summary>
-    [Fact]
-    public async Task VerifyBaseline_MockReportsBinary_PassesAndFailsOnAbsence()
-    {
-        var ct = TestContext.Current.CancellationToken;
-
-        // Pass path.
-        _baselineProbe.NextResult = new ContainerBaselineCheckResult(true, Array.Empty<string>());
-        var pass = await _client.PostAsync(
-            $"/api/v1/agent-runtimes/{MockBaselineRuntime.RuntimeId}/verify-baseline",
-            content: null, ct);
-        pass.StatusCode.ShouldBe(HttpStatusCode.OK);
-        var passBody = await pass.Content.ReadFromJsonAsync<ContainerBaselineCheckResponse>(JsonOptions, ct);
-        passBody.ShouldNotBeNull();
-        passBody!.RuntimeId.ShouldBe(MockBaselineRuntime.RuntimeId);
-        passBody.Passed.ShouldBeTrue();
-        passBody.Errors.ShouldBeEmpty();
-
-        // Fail path — mock reports the binary missing. The endpoint
-        // returns 200 with Passed=false + a clear non-empty error list;
-        // the CLI maps Passed=false to exit code 1.
-        _baselineProbe.NextResult = new ContainerBaselineCheckResult(
-            false,
-            new[] { "mock-tool CLI not found on PATH" });
-        var fail = await _client.PostAsync(
-            $"/api/v1/agent-runtimes/{MockBaselineRuntime.RuntimeId}/verify-baseline",
-            content: null, ct);
-        fail.StatusCode.ShouldBe(HttpStatusCode.OK);
-        var failBody = await fail.Content.ReadFromJsonAsync<ContainerBaselineCheckResponse>(JsonOptions, ct);
-        failBody!.Passed.ShouldBeFalse();
-        failBody.Errors.ShouldNotBeEmpty();
-        failBody.Errors.ShouldContain(e => e.Contains("mock-tool CLI not found", StringComparison.OrdinalIgnoreCase));
-    }
+    // T-03 (#945) removed Scenario 6. The
+    // POST /{id}/verify-baseline endpoint was deleted when the
+    // corresponding IAgentRuntime.VerifyContainerBaselineAsync method
+    // was retired — the tool-presence check now runs in-container as
+    // the VerifyingTool step of the UnitValidationWorkflow probe plan
+    // (per-unit, not per-runtime).
 
     // ─── Scenario 7: skill-bundle tenant binding after bootstrap ──
 
@@ -530,28 +423,14 @@ public sealed class AgentRuntimeCliEndToEndTests : IDisposable
     }
 
     /// <summary>
-    /// Stub <see cref="IAgentRuntime"/> that returns whatever
-    /// <see cref="NextResult"/> is set to — used by scenario 6 to flip
-    /// <c>verify-baseline</c> between pass and fail without mocking an
-    /// entire runtime package.
-    /// </summary>
-    private sealed class StubContainerBaselineProbe
-    {
-        public ContainerBaselineCheckResult NextResult { get; set; } =
-            new(true, Array.Empty<string>());
-    }
-
-    /// <summary>
-    /// Test-only <see cref="IAgentRuntime"/> registered alongside the
-    /// OSS runtimes. Delegates <c>VerifyContainerBaselineAsync</c> to
-    /// <see cref="StubContainerBaselineProbe.NextResult"/> so scenario 6
-    /// can flip the outcome per-call.
+    /// Test-only <see cref="IAgentRuntime"/> registered alongside the OSS
+    /// runtimes. Retained after T-03 (#945) as a placeholder so the DI
+    /// graph still exposes a mock runtime id — scenario 6 (baseline
+    /// verification) was removed along with the host-side endpoint.
     /// </summary>
     private sealed class MockBaselineRuntime : IAgentRuntime
     {
         public const string RuntimeId = "mock-baseline-runtime";
-        private readonly StubContainerBaselineProbe _probe;
-        public MockBaselineRuntime(StubContainerBaselineProbe probe) { _probe = probe; }
         public string Id => RuntimeId;
         public string DisplayName => "Mock Baseline Runtime (test-only)";
         public string ToolKind => "mock-tool";
@@ -560,12 +439,8 @@ public sealed class AgentRuntimeCliEndToEndTests : IDisposable
         public string CredentialSecretName => "";
         public IReadOnlyList<ModelDescriptor> DefaultModels { get; } =
             new[] { new ModelDescriptor("mock-model", "Mock Model", ContextWindow: null) };
-        public Task<CredentialValidationResult> ValidateCredentialAsync(
-            string credential, CancellationToken cancellationToken = default)
-            => Task.FromResult(new CredentialValidationResult(true, null, CredentialValidationStatus.Valid));
-        public Task<ContainerBaselineCheckResult> VerifyContainerBaselineAsync(
-            CancellationToken cancellationToken = default)
-            => Task.FromResult(_probe.NextResult);
+        public IReadOnlyList<ProbeStep> GetProbeSteps(AgentRuntimeInstallConfig config, string credential)
+            => Array.Empty<ProbeStep>();
         public Task<FetchLiveModelsResult> FetchLiveModelsAsync(
             string credential, CancellationToken cancellationToken = default)
             => Task.FromResult(FetchLiveModelsResult.Unsupported("mock runtime has no live catalog"));
@@ -633,19 +508,16 @@ public sealed class AgentRuntimeCliEndToEndTests : IDisposable
     {
         public const string SeededSkillBundleId = "e2e-skill-bundle";
         private readonly StubHttpHandler _openAiHandler;
-        private readonly StubContainerBaselineProbe _baselineProbe;
         private readonly StubAuthConnectorType _stubAuthConnector;
         private readonly MutableTenantContext _tenantContext;
         private readonly string _packagesRoot;
 
         public E2EFactory(
             StubHttpHandler openAiHandler,
-            StubContainerBaselineProbe baselineProbe,
             StubAuthConnectorType stubAuthConnector,
             MutableTenantContext tenantContext)
         {
             _openAiHandler = openAiHandler;
-            _baselineProbe = baselineProbe;
             _stubAuthConnector = stubAuthConnector;
             _tenantContext = tenantContext;
 
@@ -788,7 +660,7 @@ public sealed class AgentRuntimeCliEndToEndTests : IDisposable
                 // OSS runtimes. IAgentRuntimeRegistry enumerates every
                 // IAgentRuntime in DI at construction time, so appending a
                 // singleton here suffices.
-                services.AddSingleton<IAgentRuntime>(_ => new MockBaselineRuntime(_baselineProbe));
+                services.AddSingleton<IAgentRuntime>(_ => new MockBaselineRuntime());
 
                 // Scenario 5 — register the mock connector alongside the
                 // OSS connectors. TryAddEnumerable preserves whatever the

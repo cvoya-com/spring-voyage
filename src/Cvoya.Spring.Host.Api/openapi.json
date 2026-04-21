@@ -5927,57 +5927,6 @@
         }
       }
     },
-    "/api/v1/agent-runtimes/{id}/validate-credential": {
-      "post": {
-        "tags": [
-          "AgentRuntimes"
-        ],
-        "summary": "Validate a candidate credential against the runtime's backing service; records the outcome in the credential-health store",
-        "operationId": "ValidateAgentRuntimeCredential",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CredentialValidateRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CredentialValidateResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not Found",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/agent-runtimes/{id}/credential-health": {
       "get": {
         "tags": [
@@ -6009,47 +5958,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/CredentialHealthResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not Found",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/agent-runtimes/{id}/verify-baseline": {
-      "post": {
-        "tags": [
-          "AgentRuntimes"
-        ],
-        "summary": "Invoke the runtime's VerifyContainerBaselineAsync and return the result",
-        "operationId": "VerifyAgentRuntimeBaseline",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ContainerBaselineCheckResponse"
                 }
               }
             }
@@ -8122,28 +8030,6 @@
           },
           "actionsBaseUrl": {
             "type": "string"
-          }
-        }
-      },
-      "ContainerBaselineCheckResponse": {
-        "required": [
-          "runtimeId",
-          "passed",
-          "errors"
-        ],
-        "type": "object",
-        "properties": {
-          "runtimeId": {
-            "type": "string"
-          },
-          "passed": {
-            "type": "boolean"
-          },
-          "errors": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
           }
         }
       },

@@ -1162,17 +1162,22 @@ export const api = {
       }),
     ) as import("./types").AgentRuntimeModelResponse[],
 
+  // T-03 (#945) retired the host-side `/validate-credential` endpoint;
+  // per-unit validation now runs as a backend Dapr workflow against the
+  // unit's container image (see UnitValidationWorkflow). The wizard still
+  // has a blur-time "validate" affordance wired to this function — we
+  // short-circuit to a success verdict so the UI doesn't block accepting
+  // the key. T-07 will remove this call site entirely and redesign the
+  // wizard around the backend verdict.
   validateAgentRuntimeCredential: async (
-    id: string,
-    credential: string,
-    secretName = "api-key",
-  ): Promise<import("./types").CredentialValidateResponse> =>
-    unwrap(
-      await fetchClient.POST("/api/v1/agent-runtimes/{id}/validate-credential", {
-        params: { path: { id } },
-        body: { credential, secretName },
-      }),
-    ) as import("./types").CredentialValidateResponse,
+    _id: string,
+    _credential: string,
+    _secretName = "api-key",
+  ): Promise<import("./types").CredentialValidateResponse> => ({
+    valid: true,
+    status: "Valid",
+    errorMessage: null,
+  }) as unknown as import("./types").CredentialValidateResponse,
 
   // Credential health (#691). Read-only inspection of the persistent
   // credential status the watchdog + accept-time validation write to. The

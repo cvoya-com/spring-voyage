@@ -59,47 +59,12 @@ public class CredentialHealthEndpointsTests : IClassFixture<CustomWebApplication
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
-    [Fact]
-    public async Task ValidateAgentRuntimeCredential_RecordsHealthRow()
-    {
-        var ct = TestContext.Current.CancellationToken;
-        // Ollama's ValidateCredentialAsync returns Valid for any string
-        // when OLLAMA_URL is reachable; but we can't rely on that in
-        // tests. Instead hit Claude — its validator should at least
-        // return a deterministic non-NetworkError outcome when passed a
-        // fake credential (Claude runtime maps invalid shape to
-        // Invalid). Use a distinct secretName so the row is isolated.
-        var secretName = $"probe-{Guid.NewGuid():N}";
-        var postResponse = await _client.PostAsJsonAsync(
-            "/api/v1/agent-runtimes/claude/validate-credential",
-            new CredentialValidateRequest("sk-ant-definitely-not-valid", secretName),
-            ct);
-
-        postResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
-        var postBody = await postResponse.Content
-            .ReadFromJsonAsync<CredentialValidateResponse>(JsonOptions, ct);
-        postBody.ShouldNotBeNull();
-
-        // Whether the runtime returned NetworkError (no internet during
-        // tests) or Invalid depends on the sandbox; the endpoint MUST
-        // return a parseable body either way. Only a non-NetworkError
-        // outcome persists a row.
-        if (postBody!.Status == CredentialHealthStatus.Unknown)
-        {
-            return;
-        }
-
-        var getResponse = await _client.GetAsync(
-            $"/api/v1/agent-runtimes/claude/credential-health?secretName={secretName}",
-            ct);
-        getResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
-        var getBody = await getResponse.Content
-            .ReadFromJsonAsync<CredentialHealthResponse>(JsonOptions, ct);
-        getBody.ShouldNotBeNull();
-        getBody!.SubjectId.ShouldBe("claude");
-        getBody.SecretName.ShouldBe(secretName);
-        getBody.Status.ShouldBe(postBody.Status);
-    }
+    // T-03 (#945) removed the per-runtime validate-credential endpoint.
+    // The credential-health row for an agent runtime is now populated
+    // by the backend UnitValidationWorkflow (T-04) and the
+    // refresh-models watchdog path; neither is exercised from this
+    // endpoint test. The connector validate-credential path below still
+    // covers the write + read round-trip against the shared store.
 
     [Fact]
     public async Task ValidateConnectorCredential_NoAuthConnector_ReturnsUnknown()

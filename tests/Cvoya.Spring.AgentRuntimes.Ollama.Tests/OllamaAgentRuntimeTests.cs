@@ -7,6 +7,7 @@ using System.Net;
 
 using Cvoya.Spring.AgentRuntimes.Ollama;
 using Cvoya.Spring.Core.AgentRuntimes;
+using Cvoya.Spring.Core.Units;
 
 using Microsoft.Extensions.Options;
 
@@ -14,6 +15,12 @@ using Shouldly;
 
 using Xunit;
 
+/// <summary>
+/// Behaviour tests for <see cref="OllamaAgentRuntime"/> after the T-03
+/// probe-contract migration (#945). Ollama is credential-less, so the
+/// probe plan only contains <see cref="UnitValidationStep.VerifyingTool"/>
+/// and <see cref="UnitValidationStep.ResolvingModel"/>.
+/// </summary>
 public class OllamaAgentRuntimeTests
 {
     [Fact]
@@ -38,195 +45,136 @@ public class OllamaAgentRuntimeTests
         runtime.DefaultModels.ShouldContain(d => d.Id == "llama3.2:3b");
     }
 
+    // --- GetProbeSteps plan shape ---
+
     [Fact]
-    public async Task ValidateCredentialAsync_ReachableEndpoint_ReturnsValid()
+    public void GetProbeSteps_OmitsCredentialStep()
     {
-        var handler = new StubHttpMessageHandler((req, _) =>
+        var runtime = BuildRuntime(new StubHttpMessageHandler((_, _) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK))));
+
+        var steps = runtime.GetProbeSteps(StandardConfig(), credential: string.Empty);
+
+        steps.Select(s => s.Step).ShouldBe(new[]
         {
-            req.RequestUri!.AbsolutePath.ShouldBe("/api/tags");
-            req.Method.ShouldBe(HttpMethod.Get);
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
+            UnitValidationStep.VerifyingTool,
+            UnitValidationStep.ResolvingModel,
         });
-
-        var runtime = BuildRuntime(handler);
-
-        var result = await runtime.ValidateCredentialAsync(string.Empty, TestContext.Current.CancellationToken);
-
-        result.Status.ShouldBe(CredentialValidationStatus.Valid);
-        result.Valid.ShouldBeTrue();
-        result.ErrorMessage.ShouldBeNull();
-        handler.Requests.Count.ShouldBe(1);
+        // Credential step intentionally skipped: Ollama is credential-less.
+        steps.Select(s => s.Step).ShouldNotContain(UnitValidationStep.ValidatingCredential);
+        steps.Select(s => s.Step).ShouldNotContain(UnitValidationStep.PullingImage);
     }
 
     [Fact]
-    public async Task ValidateCredentialAsync_NetworkFailure_ReturnsNetworkError()
+    public void GetProbeSteps_AllTimeouts_AreBounded()
     {
-        var handler = new StubHttpMessageHandler((_, _) =>
-            throw new HttpRequestException("connection refused"));
+        var runtime = BuildRuntime(new StubHttpMessageHandler((_, _) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK))));
+        var steps = runtime.GetProbeSteps(StandardConfig(), credential: string.Empty);
 
-        var runtime = BuildRuntime(handler);
-
-        var result = await runtime.ValidateCredentialAsync(string.Empty, TestContext.Current.CancellationToken);
-
-        result.Status.ShouldBe(CredentialValidationStatus.NetworkError);
-        result.Valid.ShouldBeFalse();
-        result.ErrorMessage.ShouldNotBeNull();
-        result.ErrorMessage!.ShouldContain("connection refused");
-    }
-
-    [Fact]
-    public async Task ValidateCredentialAsync_ProxyAuthRequired_ReturnsInvalid()
-    {
-        // 401/403 against /api/tags is unusual but we deliberately surface
-        // it as Invalid so the wizard's message says "the proxy rejected
-        // the request" rather than "the network is down".
-        var handler = new StubHttpMessageHandler((_, _) =>
-            Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized)));
-
-        var runtime = BuildRuntime(handler);
-
-        var result = await runtime.ValidateCredentialAsync(string.Empty, TestContext.Current.CancellationToken);
-
-        result.Status.ShouldBe(CredentialValidationStatus.Invalid);
-        result.Valid.ShouldBeFalse();
-    }
-
-    [Fact]
-    public async Task ValidateCredentialAsync_ServerError_ReturnsNetworkError()
-    {
-        var handler = new StubHttpMessageHandler((_, _) =>
-            Task.FromResult(new HttpResponseMessage(HttpStatusCode.InternalServerError)));
-
-        var runtime = BuildRuntime(handler);
-
-        var result = await runtime.ValidateCredentialAsync(string.Empty, TestContext.Current.CancellationToken);
-
-        result.Status.ShouldBe(CredentialValidationStatus.NetworkError);
-        result.Valid.ShouldBeFalse();
-    }
-
-    [Fact]
-    public async Task ValidateCredentialAsync_EmptyBaseUrl_ReturnsInvalid()
-    {
-        var handler = new StubHttpMessageHandler((_, _) =>
-            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)));
-
-        var runtime = BuildRuntime(handler, options =>
+        foreach (var step in steps)
         {
-            options.BaseUrl = string.Empty;
-        });
+            step.Timeout.ShouldBeGreaterThan(TimeSpan.Zero);
+            step.Timeout.ShouldBeLessThan(TimeSpan.FromMinutes(5));
+        }
+    }
 
-        var result = await runtime.ValidateCredentialAsync(string.Empty, TestContext.Current.CancellationToken);
+    // --- VerifyingTool ---
 
-        result.Status.ShouldBe(CredentialValidationStatus.Invalid);
-        result.ErrorMessage.ShouldNotBeNull();
-        result.ErrorMessage!.ShouldContain("BaseUrl is empty");
-        handler.Requests.ShouldBeEmpty();
+    [Fact]
+    public void InterpretVerifyTool_Ok200_Succeeds()
+    {
+        var result = OllamaAgentRuntime.InterpretVerifyTool(0, "200", string.Empty);
+        result.Outcome.ShouldBe(StepOutcome.Succeeded);
     }
 
     [Fact]
-    public async Task ValidateCredentialAsync_MalformedBaseUrl_ReturnsInvalid()
+    public void InterpretVerifyTool_CurlMissing_MapsToToolMissing()
     {
-        var handler = new StubHttpMessageHandler((_, _) =>
-            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)));
-
-        var runtime = BuildRuntime(handler, options =>
-        {
-            options.BaseUrl = "not-a-uri";
-        });
-
-        var result = await runtime.ValidateCredentialAsync(string.Empty, TestContext.Current.CancellationToken);
-
-        result.Status.ShouldBe(CredentialValidationStatus.Invalid);
-        result.ErrorMessage.ShouldNotBeNull();
-        result.ErrorMessage!.ShouldContain("not a valid absolute URI");
+        var result = OllamaAgentRuntime.InterpretVerifyTool(127, string.Empty, "sh: curl: not found");
+        result.Outcome.ShouldBe(StepOutcome.Failed);
+        result.Code.ShouldBe(UnitValidationCodes.ToolMissing);
     }
 
     [Fact]
-    public async Task ValidateCredentialAsync_IgnoresSuppliedCredential()
+    public void InterpretVerifyTool_ServerDown_MapsToToolMissing()
     {
-        var handler = new StubHttpMessageHandler((req, _) =>
-        {
-            req.Headers.Authorization.ShouldBeNull();
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
-        });
+        var result = OllamaAgentRuntime.InterpretVerifyTool(0, "503", string.Empty);
+        result.Outcome.ShouldBe(StepOutcome.Failed);
+        result.Code.ShouldBe(UnitValidationCodes.ToolMissing);
+    }
 
-        var runtime = BuildRuntime(handler);
+    // --- ResolvingModel ---
 
-        var result = await runtime.ValidateCredentialAsync("sk-ignored", TestContext.Current.CancellationToken);
+    [Fact]
+    public void InterpretResolveModel_ModelPresent_SucceedsWithExtras()
+    {
+        var body = """{"models":[{"name":"llama3.2:3b"},{"name":"qwen2.5:7b"}]}""";
+        var stdout = body + "\n200";
 
-        result.Status.ShouldBe(CredentialValidationStatus.Valid);
+        var result = OllamaAgentRuntime.InterpretResolveModel(0, stdout, string.Empty, "llama3.2:3b");
+
+        result.Outcome.ShouldBe(StepOutcome.Succeeded);
+        result.Extras!["model"].ShouldBe("llama3.2:3b");
+        result.Extras["models"].ShouldContain("llama3.2:3b");
     }
 
     [Fact]
-    public async Task VerifyContainerBaselineAsync_ReachableEndpoint_Passes()
+    public void InterpretResolveModel_ModelMissing_MapsToModelNotFound()
     {
-        var handler = new StubHttpMessageHandler((_, _) =>
-            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)));
+        var body = """{"models":[{"name":"llama3.2:3b"}]}""";
+        var stdout = body + "\n200";
 
-        var runtime = BuildRuntime(handler);
+        var result = OllamaAgentRuntime.InterpretResolveModel(0, stdout, string.Empty, "ghost-model");
 
-        var result = await runtime.VerifyContainerBaselineAsync(TestContext.Current.CancellationToken);
-
-        result.Passed.ShouldBeTrue();
-        result.Errors.ShouldBeEmpty();
+        result.Outcome.ShouldBe(StepOutcome.Failed);
+        result.Code.ShouldBe(UnitValidationCodes.ModelNotFound);
+        result.Details!["models"].ShouldContain("llama3.2:3b");
     }
 
     [Fact]
-    public async Task VerifyContainerBaselineAsync_UnreachableEndpoint_FailsWithMessage()
+    public void InterpretResolveModel_NonZeroExit_MapsToProbeInternalError()
     {
-        var handler = new StubHttpMessageHandler((_, _) =>
-            throw new HttpRequestException("connection refused"));
+        var result = OllamaAgentRuntime.InterpretResolveModel(6, string.Empty, "connection refused", "llama3.2:3b");
+        result.Outcome.ShouldBe(StepOutcome.Failed);
+        result.Code.ShouldBe(UnitValidationCodes.ProbeInternalError);
+    }
 
-        var runtime = BuildRuntime(handler);
+    // --- FetchLiveModelsAsync (still host-side) ---
 
-        var result = await runtime.VerifyContainerBaselineAsync(TestContext.Current.CancellationToken);
+    [Fact]
+    public async Task FetchLiveModelsAsync_Ok_ReturnsModels()
+    {
+        var runtime = BuildRuntime(new StubHttpMessageHandler((_, _) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"models":[{"name":"llama3.2:3b"}]}"""),
+            })));
 
-        result.Passed.ShouldBeFalse();
-        result.Errors.ShouldNotBeEmpty();
-        result.Errors[0].ShouldContain("not reachable");
-        result.Errors[0].ShouldContain("connection refused");
+        var result = await runtime.FetchLiveModelsAsync(string.Empty, TestContext.Current.CancellationToken);
+
+        result.Status.ShouldBe(FetchLiveModelsStatus.Success);
+        result.Models.Select(m => m.Id).ShouldContain("llama3.2:3b");
     }
 
     [Fact]
-    public async Task ValidateCredentialAsync_HitsConfiguredBaseUrl()
+    public async Task FetchLiveModelsAsync_ServerUnreachable_ReturnsNetworkError()
     {
-        var handler = new StubHttpMessageHandler((req, _) =>
-        {
-            req.RequestUri!.Host.ShouldBe("custom-host");
-            req.RequestUri.Port.ShouldBe(11434);
-            req.RequestUri.AbsolutePath.ShouldBe("/api/tags");
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
-        });
+        var runtime = BuildRuntime(new StubHttpMessageHandler((_, _) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable))));
 
-        var runtime = BuildRuntime(handler, options =>
-        {
-            options.BaseUrl = "http://custom-host:11434";
-        });
+        var result = await runtime.FetchLiveModelsAsync(string.Empty, TestContext.Current.CancellationToken);
 
-        var result = await runtime.ValidateCredentialAsync(string.Empty, TestContext.Current.CancellationToken);
-
-        result.Status.ShouldBe(CredentialValidationStatus.Valid);
-        handler.Requests.Count.ShouldBe(1);
+        result.Status.ShouldBe(FetchLiveModelsStatus.NetworkError);
     }
 
-    [Fact]
-    public async Task ValidateCredentialAsync_CallerCancelled_PropagatesCancellation()
-    {
-        var handler = new StubHttpMessageHandler(async (_, ct) =>
-        {
-            await Task.Delay(TimeSpan.FromSeconds(5), ct);
-            return new HttpResponseMessage(HttpStatusCode.OK);
-        });
+    // --- Helpers ---
 
-        var runtime = BuildRuntime(handler);
-
-        using var cts = new CancellationTokenSource();
-        cts.Cancel();
-
-        await Should.ThrowAsync<OperationCanceledException>(
-            () => runtime.ValidateCredentialAsync(string.Empty, cts.Token));
-    }
+    private static AgentRuntimeInstallConfig StandardConfig() =>
+        new(
+            Models: new[] { "llama3.2:3b" },
+            DefaultModel: "llama3.2:3b",
+            BaseUrl: "http://localhost:11434");
 
     private static OllamaAgentRuntime BuildRuntime(
         HttpMessageHandler handler,

@@ -8,6 +8,7 @@ using System.Text;
 
 using Cvoya.Spring.AgentRuntimes.OpenAI;
 using Cvoya.Spring.Core.AgentRuntimes;
+using Cvoya.Spring.Core.Units;
 
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -17,6 +18,12 @@ using Shouldly;
 
 using Xunit;
 
+/// <summary>
+/// Behaviour tests for <see cref="OpenAiAgentRuntime"/> after the T-03
+/// probe-contract migration (#945). Covers the returned
+/// <see cref="ProbeStep"/> plan shape + each step's InterpretOutput
+/// delegate, plus the still-host-side FetchLiveModels path.
+/// </summary>
 public class OpenAiAgentRuntimeTests
 {
     private static readonly OpenAiAgentRuntimeSeed TestSeed = new(
@@ -49,177 +56,165 @@ public class OpenAiAgentRuntimeTests
         var runtime = CreateRuntime(new StubHandler());
 
         runtime.DefaultModels.Select(m => m.Id).ShouldBe(new[] { "gpt-4o", "gpt-4o-mini", "o3-mini" });
-        // The seed does not declare per-model context windows today.
         runtime.DefaultModels.ShouldAllBe(m => m.ContextWindow == null);
     }
 
-    [Fact]
-    public async Task ValidateCredentialAsync_BlankCredential_ReturnsInvalid_NoHttpCall()
-    {
-        var handler = new StubHandler();
-        var runtime = CreateRuntime(handler);
-
-        var result = await runtime.ValidateCredentialAsync("   ", TestContext.Current.CancellationToken);
-
-        result.Valid.ShouldBeFalse();
-        result.Status.ShouldBe(CredentialValidationStatus.Invalid);
-        result.ErrorMessage.ShouldNotBeNullOrWhiteSpace();
-        handler.CallCount.ShouldBe(0);
-    }
+    // --- GetProbeSteps plan shape ---
 
     [Fact]
-    public async Task ValidateCredentialAsync_200_ReturnsValid()
+    public void GetProbeSteps_ReturnsToolCredentialModel_InOrder()
     {
-        var handler = new StubHandler();
-        handler.Add("api.openai.com", HttpStatusCode.OK, "{\"data\":[]}");
-        var runtime = CreateRuntime(handler);
-
-        var result = await runtime.ValidateCredentialAsync("sk-good", TestContext.Current.CancellationToken);
-
-        result.Valid.ShouldBeTrue();
-        result.Status.ShouldBe(CredentialValidationStatus.Valid);
-        result.ErrorMessage.ShouldBeNull();
-
-        handler.LastRequest!.RequestUri!.AbsolutePath.ShouldBe("/v1/models");
-        handler.LastRequest!.Headers.GetValues("Authorization").ShouldContain("Bearer sk-good");
-    }
-
-    [Fact]
-    public async Task ValidateCredentialAsync_401_ReturnsInvalid_WithBodySurfaced()
-    {
-        const string body = "{\"error\":{\"message\":\"Incorrect API key provided.\",\"code\":\"invalid_api_key\"}}";
-        var handler = new StubHandler();
-        handler.Add("api.openai.com", HttpStatusCode.Unauthorized, body);
-        var runtime = CreateRuntime(handler);
-
-        var result = await runtime.ValidateCredentialAsync("sk-bad", TestContext.Current.CancellationToken);
-
-        result.Valid.ShouldBeFalse();
-        result.Status.ShouldBe(CredentialValidationStatus.Invalid);
-        result.ErrorMessage.ShouldNotBeNull();
-        result.ErrorMessage!.ShouldContain("401");
-        result.ErrorMessage.ShouldContain("Incorrect API key provided.");
-    }
-
-    [Fact]
-    public async Task ValidateCredentialAsync_403_ReturnsInvalid()
-    {
-        var handler = new StubHandler();
-        handler.Add("api.openai.com", HttpStatusCode.Forbidden, "{}");
-        var runtime = CreateRuntime(handler);
-
-        var result = await runtime.ValidateCredentialAsync("sk-restricted", TestContext.Current.CancellationToken);
-
-        result.Status.ShouldBe(CredentialValidationStatus.Invalid);
-        result.ErrorMessage.ShouldNotBeNullOrWhiteSpace();
-    }
-
-    [Fact]
-    public async Task ValidateCredentialAsync_500_ReturnsNetworkError()
-    {
-        var handler = new StubHandler();
-        handler.Add("api.openai.com", HttpStatusCode.InternalServerError, "upstream blew up");
-        var runtime = CreateRuntime(handler);
-
-        var result = await runtime.ValidateCredentialAsync("sk-anything", TestContext.Current.CancellationToken);
-
-        result.Status.ShouldBe(CredentialValidationStatus.NetworkError);
-        result.ErrorMessage.ShouldNotBeNull();
-        result.ErrorMessage!.ShouldContain("500");
-    }
-
-    [Fact]
-    public async Task ValidateCredentialAsync_503_ReturnsNetworkError()
-    {
-        var handler = new StubHandler();
-        handler.Add("api.openai.com", HttpStatusCode.ServiceUnavailable, "");
-        var runtime = CreateRuntime(handler);
-
-        var result = await runtime.ValidateCredentialAsync("sk-anything", TestContext.Current.CancellationToken);
-
-        result.Status.ShouldBe(CredentialValidationStatus.NetworkError);
-    }
-
-    [Fact]
-    public async Task ValidateCredentialAsync_NetworkException_ReturnsNetworkError()
-    {
-        var runtime = CreateRuntime(new ThrowingHandler(new HttpRequestException("DNS lookup failed")));
-
-        var result = await runtime.ValidateCredentialAsync("sk-anything", TestContext.Current.CancellationToken);
-
-        result.Status.ShouldBe(CredentialValidationStatus.NetworkError);
-        result.ErrorMessage.ShouldNotBeNullOrWhiteSpace();
-        result.ErrorMessage!.ShouldContain("DNS lookup failed");
-    }
-
-    [Fact]
-    public async Task ValidateCredentialAsync_TimeoutException_ReturnsNetworkError()
-    {
-        var runtime = CreateRuntime(new ThrowingHandler(new TaskCanceledException("timeout")));
-
-        var result = await runtime.ValidateCredentialAsync("sk-anything", TestContext.Current.CancellationToken);
-
-        result.Status.ShouldBe(CredentialValidationStatus.NetworkError);
-    }
-
-    [Fact]
-    public async Task ValidateCredentialAsync_RespectsExternalCancellation()
-    {
-        var runtime = CreateRuntime(new ThrowingHandler(
-            new TaskCanceledException("the caller cancelled")));
-
-        using var cts = new CancellationTokenSource();
-        cts.Cancel();
-
-        await Should.ThrowAsync<OperationCanceledException>(async () =>
-            await runtime.ValidateCredentialAsync("sk-x", cts.Token));
-    }
-
-    [Fact]
-    public async Task ValidateCredentialAsync_HonoursSeedBaseUrl()
-    {
-        var seed = TestSeed with { BaseUrl = "https://openai.proxy.example/v1-prefix" };
-        var handler = new StubHandler();
-        // The base URL host is the only routing key for the stub, so
-        // a 200 from openai.proxy.example proves the runtime did not
-        // hardcode api.openai.com when the seed pinned a different value.
-        handler.Add("openai.proxy.example", HttpStatusCode.OK, "{\"data\":[]}");
-        var runtime = CreateRuntime(handler, seed);
-
-        var result = await runtime.ValidateCredentialAsync("sk-good", TestContext.Current.CancellationToken);
-
-        result.Status.ShouldBe(CredentialValidationStatus.Valid);
-        handler.LastRequest!.RequestUri!.Host.ShouldBe("openai.proxy.example");
-        handler.LastRequest.RequestUri.AbsolutePath.ShouldBe("/v1-prefix/v1/models");
-    }
-
-    [Fact]
-    public async Task VerifyContainerBaselineAsync_FailsWhenDaprActorsAbsent()
-    {
-        // This test project does not reference Dapr.Actors, so the
-        // baseline check must surface the missing dependency rather
-        // than silently passing. The pass-path is exercised by the
-        // sibling test in Cvoya.Spring.Integration.Tests, which
-        // transitively loads Dapr.Actors via Cvoya.Spring.Dapr.
-        AppDomain.CurrentDomain
-            .GetAssemblies()
-            .Any(a => string.Equals(a.GetName().Name, "Dapr.Actors", StringComparison.OrdinalIgnoreCase))
-            .ShouldBeFalse(
-                "Test invariant: this project must not transitively reference Dapr.Actors. " +
-                "If it does, the baseline-failure assertion below is no longer valid.");
-
         var runtime = CreateRuntime(new StubHandler());
+        var steps = runtime.GetProbeSteps(StandardConfig(), credential: "sk-test");
 
-        var result = await runtime.VerifyContainerBaselineAsync(TestContext.Current.CancellationToken);
-
-        result.Passed.ShouldBeFalse();
-        result.Errors.Count.ShouldBe(1);
-        result.Errors[0].ShouldContain("Dapr.Actors");
+        steps.Select(s => s.Step).ShouldBe(new[]
+        {
+            UnitValidationStep.VerifyingTool,
+            UnitValidationStep.ValidatingCredential,
+            UnitValidationStep.ResolvingModel,
+        });
+        steps.Select(s => s.Step).ShouldNotContain(UnitValidationStep.PullingImage);
     }
 
-    private static OpenAiAgentRuntime CreateRuntime(
-        HttpMessageHandler handler,
-        OpenAiAgentRuntimeSeed? seed = null)
+    [Fact]
+    public void GetProbeSteps_CredentialStep_PopulatesEnvVar()
+    {
+        var runtime = CreateRuntime(new StubHandler());
+        var steps = runtime.GetProbeSteps(StandardConfig(), credential: "sk-test-123");
+
+        var credentialStep = steps.Single(s => s.Step == UnitValidationStep.ValidatingCredential);
+        credentialStep.Env.ShouldContainKeyAndValue("OPENAI_API_KEY", "sk-test-123");
+    }
+
+    [Fact]
+    public void GetProbeSteps_AllTimeouts_AreBounded()
+    {
+        var runtime = CreateRuntime(new StubHandler());
+        var steps = runtime.GetProbeSteps(StandardConfig(), credential: "sk-test");
+
+        foreach (var step in steps)
+        {
+            step.Timeout.ShouldBeGreaterThan(TimeSpan.Zero);
+            step.Timeout.ShouldBeLessThan(TimeSpan.FromMinutes(5));
+        }
+    }
+
+    // --- VerifyingTool ---
+
+    [Fact]
+    public void InterpretVerifyTool_ExitZero_Succeeds()
+    {
+        var result = OpenAiAgentRuntime.InterpretVerifyTool(0, "curl 8.4.0", string.Empty);
+        result.Outcome.ShouldBe(StepOutcome.Succeeded);
+    }
+
+    [Fact]
+    public void InterpretVerifyTool_NonZero_MapsToToolMissing()
+    {
+        var result = OpenAiAgentRuntime.InterpretVerifyTool(127, string.Empty, "sh: curl: not found");
+        result.Outcome.ShouldBe(StepOutcome.Failed);
+        result.Code.ShouldBe(UnitValidationCodes.ToolMissing);
+    }
+
+    // --- ValidatingCredential ---
+
+    [Fact]
+    public void InterpretValidateCredential_200_Succeeds()
+    {
+        var result = OpenAiAgentRuntime.InterpretValidateCredentialFromHttpStatus(0, "200", string.Empty);
+        result.Outcome.ShouldBe(StepOutcome.Succeeded);
+    }
+
+    [Fact]
+    public void InterpretValidateCredential_401_MapsToCredentialInvalid()
+    {
+        var result = OpenAiAgentRuntime.InterpretValidateCredentialFromHttpStatus(0, "401", string.Empty);
+        result.Outcome.ShouldBe(StepOutcome.Failed);
+        result.Code.ShouldBe(UnitValidationCodes.CredentialInvalid);
+        result.Details!["http_status"].ShouldBe("401");
+    }
+
+    [Fact]
+    public void InterpretValidateCredential_400_MapsToCredentialFormatRejected()
+    {
+        var result = OpenAiAgentRuntime.InterpretValidateCredentialFromHttpStatus(0, "400", string.Empty);
+        result.Outcome.ShouldBe(StepOutcome.Failed);
+        result.Code.ShouldBe(UnitValidationCodes.CredentialFormatRejected);
+    }
+
+    [Fact]
+    public void InterpretValidateCredential_UnparseableStatus_MapsToProbeInternalError()
+    {
+        var result = OpenAiAgentRuntime.InterpretValidateCredentialFromHttpStatus(6, "curl exit 6 connection refused", "");
+        result.Outcome.ShouldBe(StepOutcome.Failed);
+        result.Code.ShouldBe(UnitValidationCodes.ProbeInternalError);
+    }
+
+    // --- ResolvingModel ---
+
+    [Fact]
+    public void InterpretResolveModel_200_SucceedsWithModelExtra()
+    {
+        var stdout = "{\"id\":\"gpt-4o\"}\n200";
+        var result = OpenAiAgentRuntime.InterpretResolveModel(0, stdout, string.Empty, "gpt-4o");
+        result.Outcome.ShouldBe(StepOutcome.Succeeded);
+        result.Extras!["model"].ShouldBe("gpt-4o");
+    }
+
+    [Fact]
+    public void InterpretResolveModel_404_MapsToModelNotFound()
+    {
+        var stdout = "{\"error\":{\"message\":\"model not found\"}}\n404";
+        var result = OpenAiAgentRuntime.InterpretResolveModel(0, stdout, string.Empty, "gpt-ghost");
+        result.Outcome.ShouldBe(StepOutcome.Failed);
+        result.Code.ShouldBe(UnitValidationCodes.ModelNotFound);
+    }
+
+    // --- FetchLiveModelsAsync (HTTP-backed, host-side) ---
+
+    [Fact]
+    public async Task FetchLiveModelsAsync_Empty_ReturnsInvalidCredential()
+    {
+        var handler = new StubHandler();
+        var runtime = CreateRuntime(handler);
+        var result = await runtime.FetchLiveModelsAsync("   ", TestContext.Current.CancellationToken);
+        result.Status.ShouldBe(FetchLiveModelsStatus.InvalidCredential);
+    }
+
+    [Fact]
+    public async Task FetchLiveModelsAsync_HttpOk_ReturnsModels()
+    {
+        var handler = new StubHandler();
+        handler.Add("api.openai.com", HttpStatusCode.OK, """{"data":[{"id":"gpt-4o"},{"id":"gpt-4o-mini"}]}""");
+        var runtime = CreateRuntime(handler);
+
+        var result = await runtime.FetchLiveModelsAsync("sk-test", TestContext.Current.CancellationToken);
+
+        result.Status.ShouldBe(FetchLiveModelsStatus.Success);
+        result.Models.Select(m => m.Id).ShouldBe(new[] { "gpt-4o", "gpt-4o-mini" });
+    }
+
+    [Fact]
+    public async Task FetchLiveModelsAsync_401_MapsToInvalidCredential()
+    {
+        var handler = new StubHandler();
+        handler.Add("api.openai.com", HttpStatusCode.Unauthorized, """{"error":{"message":"Incorrect API key."}}""");
+        var runtime = CreateRuntime(handler);
+
+        var result = await runtime.FetchLiveModelsAsync("bad", TestContext.Current.CancellationToken);
+
+        result.Status.ShouldBe(FetchLiveModelsStatus.InvalidCredential);
+    }
+
+    // --- Helpers ---
+
+    private static AgentRuntimeInstallConfig StandardConfig() =>
+        new(
+            Models: new[] { "gpt-4o" },
+            DefaultModel: "gpt-4o",
+            BaseUrl: null);
+
+    private static OpenAiAgentRuntime CreateRuntime(HttpMessageHandler handler, OpenAiAgentRuntimeSeed? seed = null)
     {
         var factory = Substitute.For<IHttpClientFactory>();
         factory.CreateClient(Arg.Any<string>())
@@ -261,17 +256,6 @@ public class OpenAiAgentRuntimeTests
             {
                 Content = new StringContent(r.Body, Encoding.UTF8, "application/json"),
             });
-        }
-    }
-
-    private sealed class ThrowingHandler(Exception exception) : HttpMessageHandler
-    {
-        protected override Task<HttpResponseMessage> SendAsync(
-            HttpRequestMessage request,
-            CancellationToken cancellationToken)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            throw exception;
         }
     }
 }

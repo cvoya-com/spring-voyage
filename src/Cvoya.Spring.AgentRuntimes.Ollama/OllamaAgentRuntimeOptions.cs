@@ -41,10 +41,11 @@ public class OllamaAgentRuntimeOptions
     public string BaseUrl { get; set; } = "http://spring-ollama:11434";
 
     /// <summary>
-    /// Timeout (in seconds) applied to the <c>/api/tags</c> reachability
-    /// probe used by both <c>ValidateCredentialAsync</c> and
-    /// <c>VerifyContainerBaselineAsync</c>. The endpoint is cheap; a slow
-    /// response usually means the server is not reachable.
+    /// Timeout (in seconds) applied to the host-side <c>/api/tags</c>
+    /// reachability probe invoked by
+    /// <see cref="OllamaAgentRuntime.FetchLiveModelsAsync(string, System.Threading.CancellationToken)"/>.
+    /// The endpoint is cheap; a slow response usually means the server is
+    /// not reachable.
     /// </summary>
     public int HealthCheckTimeoutSeconds { get; set; } = 5;
 }

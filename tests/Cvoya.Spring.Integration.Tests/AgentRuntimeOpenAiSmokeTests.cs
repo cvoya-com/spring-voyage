@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Integration.Tests;
 using Cvoya.Spring.AgentRuntimes.OpenAI;
 using Cvoya.Spring.AgentRuntimes.OpenAI.DependencyInjection;
 using Cvoya.Spring.Core.AgentRuntimes;
+using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.AgentRuntimes;
 
 using Microsoft.Extensions.DependencyInjection;
@@ -65,14 +66,11 @@ public class AgentRuntimeOpenAiSmokeTests
     }
 
     [Fact]
-    public async Task VerifyContainerBaselineAsync_PassesWhenDaprActorsLoaded()
+    public void GetProbeSteps_EmitsExpectedBackendPlan()
     {
-        // The integration test project references Dapr.Actors directly,
-        // so the assembly is loaded into the AppDomain by the time the
-        // baseline check runs. This is the regression gate for the dapr-
-        // agent baseline declared by #680.
-        _ = typeof(global::Dapr.Actors.ActorId);
-
+        // Smoke test for the T-03 probe-contract (#945). The OpenAI runtime
+        // should surface a VerifyingTool → ValidatingCredential →
+        // ResolvingModel triple the UnitValidationWorkflow can execute.
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddCvoyaSpringAgentRuntimeOpenAI();
@@ -81,9 +79,22 @@ public class AgentRuntimeOpenAiSmokeTests
         using var provider = services.BuildServiceProvider();
         var runtime = provider.GetRequiredService<IAgentRuntimeRegistry>().Get("openai")!;
 
-        var result = await runtime.VerifyContainerBaselineAsync(TestContext.Current.CancellationToken);
+        var config = new AgentRuntimeInstallConfig(
+            Models: new[] { "gpt-4o" },
+            DefaultModel: "gpt-4o",
+            BaseUrl: null);
 
-        result.Passed.ShouldBeTrue();
-        result.Errors.ShouldBeEmpty();
+        var steps = runtime.GetProbeSteps(config, credential: "sk-test");
+        steps.Select(s => s.Step).ShouldBe(new[]
+        {
+            UnitValidationStep.VerifyingTool,
+            UnitValidationStep.ValidatingCredential,
+            UnitValidationStep.ResolvingModel,
+        });
+        steps.ShouldAllBe(s =>
+            s.InterpretOutput != null
+            && s.Args.Count > 0
+            && s.Timeout > TimeSpan.Zero
+            && s.Timeout < TimeSpan.FromMinutes(5));
     }
 }

@@ -114,14 +114,8 @@ public class AgentRuntimeRegistryTests
 
         public IReadOnlyList<ModelDescriptor> DefaultModels { get; } = Array.Empty<ModelDescriptor>();
 
-        public Task<CredentialValidationResult> ValidateCredentialAsync(
-            string credential,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult(new CredentialValidationResult(true, null, CredentialValidationStatus.Valid));
-
-        public Task<ContainerBaselineCheckResult> VerifyContainerBaselineAsync(
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult(new ContainerBaselineCheckResult(true, Array.Empty<string>()));
+        public IReadOnlyList<ProbeStep> GetProbeSteps(AgentRuntimeInstallConfig config, string credential) =>
+            Array.Empty<ProbeStep>();
 
         public Task<FetchLiveModelsResult> FetchLiveModelsAsync(
             string credential,

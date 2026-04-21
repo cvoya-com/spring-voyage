@@ -9,24 +9,26 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 
 using Cvoya.Spring.Core.AgentRuntimes;
+using Cvoya.Spring.Core.Units;
 
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// <see cref="IAgentRuntime"/> for the OpenAI Platform API combined with the
-/// in-process <c>dapr-agent</c> execution tool. The runtime advertises
-/// itself as <see cref="Id"/>=<c>openai</c> and <see cref="ToolKind"/>=
-/// <c>dapr-agent</c>, validates credentials by issuing a read-only
-/// <c>GET /v1/models</c> against <see cref="DefaultBaseUrl"/>, and seeds
-/// its model catalog from the runtime's <c>agent-runtimes/openai/seed.json</c>
-/// file (see <see cref="OpenAiAgentRuntimeSeed"/>).
+/// <see cref="IAgentRuntime"/> for the OpenAI Platform API combined with
+/// the in-process <c>dapr-agent</c> execution tool. Updated in T-03 (#945)
+/// to produce in-container probe plans for the Dapr
+/// <c>UnitValidationWorkflow</c>.
 /// </summary>
 /// <remarks>
 /// <para>
-/// The runtime is registered as a singleton and is safe to share across
-/// concurrent requests. The per-request HTTP client is taken from
-/// <see cref="HttpClientName"/> on the injected <see cref="IHttpClientFactory"/>
-/// so the host-wide handler lifecycle is honoured.
+/// <b>In-container probes.</b> The runtime image ships <c>curl</c>; probes
+/// issue <c>curl -H 'Authorization: Bearer …'</c> against
+/// <see cref="DefaultBaseUrl"/>. The host never shells out.
+/// </para>
+/// <para>
+/// <b>Live model catalog.</b> <see cref="FetchLiveModelsAsync"/> still
+/// uses the named HTTP client (wired with the credential-health watchdog
+/// per CONVENTIONS.md § 16) for host-side refresh-models calls.
 /// </para>
 /// </remarks>
 public class OpenAiAgentRuntime : IAgentRuntime
@@ -37,6 +39,14 @@ public class OpenAiAgentRuntime : IAgentRuntime
     /// <summary>The OpenAI Platform API base URL used when the seed does not pin a value.</summary>
     public const string DefaultBaseUrl = "https://api.openai.com";
 
+    private const string CredentialEnvVar = "OPENAI_API_KEY";
+
+    // Probe timeouts — conservative caps for an HTTP round-trip inside the
+    // unit container.
+    private static readonly TimeSpan VerifyToolTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan ValidateCredentialTimeout = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan ResolveModelTimeout = TimeSpan.FromSeconds(15);
+
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<OpenAiAgentRuntime> _logger;
     private readonly Lazy<OpenAiAgentRuntimeSeed> _seed;
@@ -46,7 +56,7 @@ public class OpenAiAgentRuntime : IAgentRuntime
     /// Creates a runtime that loads its seed from the assembly directory
     /// (the standard production path).
     /// </summary>
-    /// <param name="httpClientFactory">Factory for the outbound HTTP client used to validate credentials.</param>
+    /// <param name="httpClientFactory">Factory for the outbound HTTP client used by refresh-models.</param>
     /// <param name="logger">Logger for diagnostic output.</param>
     public OpenAiAgentRuntime(
         IHttpClientFactory httpClientFactory,
@@ -59,9 +69,6 @@ public class OpenAiAgentRuntime : IAgentRuntime
     /// Test/advanced-composition constructor. Accepts a seed factory so
     /// tests can supply an in-memory seed without touching the file system.
     /// </summary>
-    /// <param name="httpClientFactory">Factory for the outbound HTTP client used to validate credentials.</param>
-    /// <param name="logger">Logger for diagnostic output.</param>
-    /// <param name="seedFactory">Factory invoked once on first access to produce the seed payload.</param>
     internal OpenAiAgentRuntime(
         IHttpClientFactory httpClientFactory,
         ILogger<OpenAiAgentRuntime> logger,
@@ -111,81 +118,144 @@ public class OpenAiAgentRuntime : IAgentRuntime
             : _seed.Value.BaseUrl!.TrimEnd('/');
 
     /// <inheritdoc />
-    public async Task<CredentialValidationResult> ValidateCredentialAsync(
-        string credential,
-        CancellationToken cancellationToken = default)
+    public IReadOnlyList<ProbeStep> GetProbeSteps(AgentRuntimeInstallConfig config, string credential)
     {
-        if (string.IsNullOrWhiteSpace(credential))
+        ArgumentNullException.ThrowIfNull(config);
+        credential ??= string.Empty;
+
+        var baseUrl = string.IsNullOrWhiteSpace(config.BaseUrl)
+            ? EffectiveBaseUrl
+            : config.BaseUrl!.TrimEnd('/');
+        var model = config.DefaultModel ?? string.Empty;
+
+        var credentialEnv = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            return new CredentialValidationResult(
-                Valid: false,
-                ErrorMessage: "Supply an OpenAI API key to validate.",
-                Status: CredentialValidationStatus.Invalid);
+            [CredentialEnvVar] = credential,
+        };
+
+        var validateCmd = $"curl -sS -o /dev/null -w '%{{http_code}}' -H \"Authorization: Bearer ${CredentialEnvVar}\" '{baseUrl}/v1/models'";
+        var resolveModelCmd = $"curl -sS -w '\\n%{{http_code}}' -H \"Authorization: Bearer ${CredentialEnvVar}\" '{baseUrl}/v1/models/{Uri.EscapeDataString(model)}'";
+
+        return new[]
+        {
+            new ProbeStep(
+                Step: UnitValidationStep.VerifyingTool,
+                Args: new[] { "sh", "-c", "curl --version" },
+                Env: new Dictionary<string, string>(StringComparer.Ordinal),
+                Timeout: VerifyToolTimeout,
+                InterpretOutput: InterpretVerifyTool),
+
+            new ProbeStep(
+                Step: UnitValidationStep.ValidatingCredential,
+                Args: new[] { "sh", "-c", validateCmd },
+                Env: credentialEnv,
+                Timeout: ValidateCredentialTimeout,
+                InterpretOutput: InterpretValidateCredentialFromHttpStatus),
+
+            new ProbeStep(
+                Step: UnitValidationStep.ResolvingModel,
+                Args: new[] { "sh", "-c", resolveModelCmd },
+                Env: credentialEnv,
+                Timeout: ResolveModelTimeout,
+                InterpretOutput: (exit, stdout, stderr) => InterpretResolveModel(exit, stdout, stderr, model)),
+        };
+    }
+
+    internal static StepResult InterpretVerifyTool(int exitCode, string stdout, string stderr)
+    {
+        if (exitCode == 0)
+        {
+            return StepResult.Succeed();
         }
-
-        var client = _httpClientFactory.CreateClient(HttpClientName);
-        using var request = new HttpRequestMessage(HttpMethod.Get, $"{EffectiveBaseUrl}/v1/models");
-        request.Headers.Add("Authorization", $"Bearer {credential}");
-
-        try
-        {
-            using var response = await client.SendAsync(request, cancellationToken).ConfigureAwait(false);
-
-            if (response.IsSuccessStatusCode)
+        var detail = string.IsNullOrWhiteSpace(stderr) ? stdout : stderr;
+        return StepResult.Fail(
+            UnitValidationCodes.ToolMissing,
+            $"`curl --version` exited with code {exitCode}. {Trim(detail)}".TrimEnd(),
+            new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                return new CredentialValidationResult(
-                    Valid: true,
-                    ErrorMessage: null,
-                    Status: CredentialValidationStatus.Valid);
-            }
+                ["exit_code"] = exitCode.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            });
+    }
 
-            // Read the response body so the operator gets a precise reason
-            // (OpenAI returns a JSON envelope with `error.message` for most
-            // failure modes). The body can be empty — in that case fall back
-            // to the status text.
-            var body = await SafeReadBodyAsync(response, cancellationToken).ConfigureAwait(false);
+    internal static StepResult InterpretValidateCredentialFromHttpStatus(int exitCode, string stdout, string stderr)
+    {
+        var statusText = stdout?.Trim() ?? string.Empty;
+        if (!int.TryParse(statusText, System.Globalization.CultureInfo.InvariantCulture, out var status))
+        {
+            return StepResult.Fail(
+                UnitValidationCodes.ProbeInternalError,
+                $"Could not parse HTTP status from curl output (exit {exitCode}). stdout='{Trim(statusText)}' stderr='{Trim(stderr)}'.");
+        }
 
-            // 5xx is treated as a transient transport problem, not a key
-            // rejection — the credential's validity is unknown until the
-            // service recovers.
-            if ((int)response.StatusCode >= 500)
-            {
-                _logger.LogWarning(
-                    "OpenAI /v1/models returned {StatusCode} during credential validation; treating as NetworkError. Body: {Body}",
-                    response.StatusCode, body);
-                return new CredentialValidationResult(
-                    Valid: false,
-                    ErrorMessage: BuildErrorMessage(response.StatusCode, body, transientPrefix: true),
-                    Status: CredentialValidationStatus.NetworkError);
-            }
+        var details = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["http_status"] = status.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        };
 
-            return new CredentialValidationResult(
-                Valid: false,
-                ErrorMessage: BuildErrorMessage(response.StatusCode, body, transientPrefix: false),
-                Status: CredentialValidationStatus.Invalid);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        return status switch
         {
-            throw;
-        }
-        catch (HttpRequestException ex)
+            >= 200 and < 300 => StepResult.Succeed(),
+            401 or 403 => StepResult.Fail(
+                UnitValidationCodes.CredentialInvalid,
+                $"OpenAI rejected the credential (HTTP {status}).",
+                details),
+            400 or 422 => StepResult.Fail(
+                UnitValidationCodes.CredentialFormatRejected,
+                $"OpenAI rejected the credential format (HTTP {status}).",
+                details),
+            _ => StepResult.Fail(
+                UnitValidationCodes.ProbeInternalError,
+                $"OpenAI returned HTTP {status}.",
+                details),
+        };
+    }
+
+    internal static StepResult InterpretResolveModel(int exitCode, string stdout, string stderr, string model)
+    {
+        var trimmed = stdout?.TrimEnd() ?? string.Empty;
+        var lastNewline = trimmed.LastIndexOf('\n');
+        var statusText = lastNewline >= 0 ? trimmed[(lastNewline + 1)..] : trimmed;
+        if (!int.TryParse(statusText.Trim(), System.Globalization.CultureInfo.InvariantCulture, out var status))
         {
-            _logger.LogWarning(ex,
-                "Network error contacting OpenAI /v1/models during credential validation.");
-            return new CredentialValidationResult(
-                Valid: false,
-                ErrorMessage: $"Could not reach the OpenAI API: {ex.Message}",
-                Status: CredentialValidationStatus.NetworkError);
+            return StepResult.Fail(
+                UnitValidationCodes.ProbeInternalError,
+                $"Could not parse HTTP status from curl output (exit {exitCode}). stderr='{Trim(stderr)}'.");
         }
-        catch (TaskCanceledException ex)
+
+        var details = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            _logger.LogWarning(ex,
-                "Timeout contacting OpenAI /v1/models during credential validation.");
-            return new CredentialValidationResult(
-                Valid: false,
-                ErrorMessage: "Timed out contacting the OpenAI API.",
-                Status: CredentialValidationStatus.NetworkError);
+            ["http_status"] = status.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["model"] = model,
+        };
+
+        return status switch
+        {
+            >= 200 and < 300 => StepResult.Succeed(
+                new Dictionary<string, string>(StringComparer.Ordinal) { ["model"] = model }),
+            404 => StepResult.Fail(
+                UnitValidationCodes.ModelNotFound,
+                $"Model '{model}' was not found (HTTP 404).",
+                details),
+            401 or 403 => StepResult.Fail(
+                UnitValidationCodes.CredentialInvalid,
+                $"OpenAI rejected the credential while resolving model (HTTP {status}).",
+                details),
+            _ => StepResult.Fail(
+                UnitValidationCodes.ProbeInternalError,
+                $"OpenAI returned HTTP {status} while resolving model '{model}'.",
+                details),
+        };
+    }
+
+    private static string Trim(string value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return string.Empty;
         }
+        var trimmed = value.Trim();
+        const int maxLen = 400;
+        return trimmed.Length <= maxLen ? trimmed : trimmed[..maxLen] + "…";
     }
 
     /// <inheritdoc />
@@ -287,54 +357,6 @@ public class OpenAiAgentRuntime : IAgentRuntime
             result.Add(new ModelDescriptor(entry.Id, entry.Id, ContextWindow: null));
         }
         return result;
-    }
-
-    /// <inheritdoc />
-    public Task<ContainerBaselineCheckResult> VerifyContainerBaselineAsync(
-        CancellationToken cancellationToken = default)
-    {
-        // The dapr-agent execution tool is implemented in-process by
-        // Cvoya.Spring.Dapr.Execution.DaprAgentLauncher and depends on the
-        // host having a Dapr sidecar reachable for Conversation API calls
-        // and on outbound HTTPS reachability to api.openai.com. Both are
-        // host-wide concerns that are checked elsewhere (Dapr health probes
-        // / startup configuration report). At the runtime level we only
-        // need to confirm the Dapr Actors SDK is loaded into the runtime
-        // process, which is the dependency that uniquely belongs to this
-        // tool kind.
-        var errors = new List<string>();
-
-        if (!IsDaprActorsAssemblyLoaded())
-        {
-            errors.Add(
-                "dapr-agent baseline check: the 'Dapr.Actors' assembly is not loaded in the host process. " +
-                "Reference 'Dapr.Actors' (or call 'AddCvoyaSpringDapr') so the dapr-agent launcher can dispatch agent invocations.");
-        }
-
-        var result = errors.Count == 0
-            ? new ContainerBaselineCheckResult(true, Array.Empty<string>())
-            : new ContainerBaselineCheckResult(false, errors);
-
-        return Task.FromResult(result);
-    }
-
-    private static bool IsDaprActorsAssemblyLoaded()
-    {
-        // Intentionally loaded by name (not via a typeof) so this project
-        // doesn't have to take a hard NuGet dependency on Dapr.Actors. The
-        // dapr-agent launcher lives in Cvoya.Spring.Dapr, which references
-        // Dapr.Actors — when that assembly is present in the host's load
-        // context, the baseline is satisfied.
-        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
-        {
-            var name = assembly.GetName().Name;
-            if (string.Equals(name, "Dapr.Actors", StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private static async Task<string> SafeReadBodyAsync(HttpResponseMessage response, CancellationToken cancellationToken)

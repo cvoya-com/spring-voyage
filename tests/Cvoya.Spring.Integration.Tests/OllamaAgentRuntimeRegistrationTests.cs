@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Integration.Tests;
 using Cvoya.Spring.AgentRuntimes.Ollama;
 using Cvoya.Spring.AgentRuntimes.Ollama.DependencyInjection;
 using Cvoya.Spring.Core.AgentRuntimes;
+using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.AgentRuntimes;
 
 using Microsoft.Extensions.Configuration;
@@ -19,7 +20,8 @@ using Xunit;
 /// Integration coverage for the Ollama runtime as a participant in the
 /// platform's <see cref="IAgentRuntimeRegistry"/>. Exercises the full DI
 /// composition path the API host uses (extension method →
-/// <see cref="AgentRuntimeRegistry"/> enumeration → registry lookup).
+/// <see cref="AgentRuntimeRegistry"/> enumeration → registry lookup), and
+/// the T-03 probe-contract (#945) surface.
 /// </summary>
 public class OllamaAgentRuntimeRegistrationTests
 {
@@ -59,67 +61,30 @@ public class OllamaAgentRuntimeRegistrationTests
     }
 
     [Fact]
-    public async Task ValidateCredentialAsync_UnreachableEndpoint_ReportsNetworkErrorWithoutThrowing()
+    public void GetProbeSteps_SkipsValidatingCredential_ForCredentialLessRuntime()
     {
-        // Acceptance criteria: integration smoke for the unreachable case.
-        // We point the runtime at a guaranteed-unbound port on the loopback
-        // interface and confirm the contract is honoured: no exception
-        // escapes, status is NetworkError, and the message names the URL so
-        // the wizard can surface it.
+        // T-03 (#945): Ollama is credential-less, so its probe plan must
+        // skip the ValidatingCredential step rather than emit a no-op.
         var services = new ServiceCollection();
         services.AddSingleton<IAgentRuntimeRegistry, AgentRuntimeRegistry>();
-
-        // Port 1 is reserved + privileged; an outbound connect from a
-        // non-root process gets refused immediately on every supported
-        // platform, which is exactly the shape of the failure we want to
-        // exercise.
-        var configuration = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["AgentRuntimes:Ollama:BaseUrl"] = "http://127.0.0.1:1",
-                ["AgentRuntimes:Ollama:HealthCheckTimeoutSeconds"] = "2",
-            })
-            .Build();
-
-        services.AddCvoyaSpringAgentRuntimeOllama(configuration);
+        services.AddCvoyaSpringAgentRuntimeOllama(EmptyConfiguration());
 
         using var provider = services.BuildServiceProvider();
-        var registry = provider.GetRequiredService<IAgentRuntimeRegistry>();
+        var runtime = provider.GetRequiredService<IAgentRuntimeRegistry>().Get("ollama")!;
 
-        var runtime = registry.Get("ollama")!;
+        var config = new AgentRuntimeInstallConfig(
+            Models: new[] { "llama3.2:3b" },
+            DefaultModel: "llama3.2:3b",
+            BaseUrl: "http://localhost:11434");
 
-        var result = await runtime.ValidateCredentialAsync(string.Empty, TestContext.Current.CancellationToken);
+        var steps = runtime.GetProbeSteps(config, credential: string.Empty);
 
-        result.Status.ShouldBe(CredentialValidationStatus.NetworkError);
-        result.Valid.ShouldBeFalse();
-        result.ErrorMessage.ShouldNotBeNull();
-    }
-
-    [Fact]
-    public async Task VerifyContainerBaselineAsync_UnreachableEndpoint_FailsBaseline()
-    {
-        var services = new ServiceCollection();
-        services.AddSingleton<IAgentRuntimeRegistry, AgentRuntimeRegistry>();
-
-        var configuration = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["AgentRuntimes:Ollama:BaseUrl"] = "http://127.0.0.1:1",
-                ["AgentRuntimes:Ollama:HealthCheckTimeoutSeconds"] = "2",
-            })
-            .Build();
-
-        services.AddCvoyaSpringAgentRuntimeOllama(configuration);
-
-        using var provider = services.BuildServiceProvider();
-        var registry = provider.GetRequiredService<IAgentRuntimeRegistry>();
-
-        var runtime = registry.Get("ollama")!;
-        var result = await runtime.VerifyContainerBaselineAsync(TestContext.Current.CancellationToken);
-
-        result.Passed.ShouldBeFalse();
-        result.Errors.ShouldNotBeEmpty();
-        result.Errors[0].ShouldContain("not reachable");
+        steps.Select(s => s.Step).ShouldBe(new[]
+        {
+            UnitValidationStep.VerifyingTool,
+            UnitValidationStep.ResolvingModel,
+        });
+        steps.Select(s => s.Step).ShouldNotContain(UnitValidationStep.ValidatingCredential);
     }
 
     private static IConfiguration EmptyConfiguration()

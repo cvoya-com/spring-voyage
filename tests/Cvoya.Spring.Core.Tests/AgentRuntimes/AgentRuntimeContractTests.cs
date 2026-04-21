@@ -71,6 +71,56 @@ public class AgentRuntimeContractTests
         result.Errors.Count.ShouldBe(1);
         result.Errors[0].ShouldBe("missing binary: claude");
     }
+
+    // --- T-03 (#945) probe-contract shape ---
+
+    [Fact]
+    public void StepResult_Succeed_DefaultsExtras()
+    {
+        var result = StepResult.Succeed();
+        result.Outcome.ShouldBe(StepOutcome.Succeeded);
+        result.Code.ShouldBeNull();
+        result.Extras.ShouldBeNull();
+    }
+
+    [Fact]
+    public void StepResult_Succeed_WithExtras_RoundTripsExtras()
+    {
+        var extras = new Dictionary<string, string>(StringComparer.Ordinal) { ["models"] = "a,b,c" };
+        var result = StepResult.Succeed(extras);
+        result.Outcome.ShouldBe(StepOutcome.Succeeded);
+        result.Extras!["models"].ShouldBe("a,b,c");
+    }
+
+    [Fact]
+    public void StepResult_Fail_CarriesCodeAndMessage()
+    {
+        var result = StepResult.Fail(
+            Cvoya.Spring.Core.Units.UnitValidationCodes.CredentialInvalid,
+            "rejected",
+            new Dictionary<string, string>(StringComparer.Ordinal) { ["http_status"] = "401" });
+
+        result.Outcome.ShouldBe(StepOutcome.Failed);
+        result.Code.ShouldBe(Cvoya.Spring.Core.Units.UnitValidationCodes.CredentialInvalid);
+        result.Message.ShouldBe("rejected");
+        result.Details!["http_status"].ShouldBe("401");
+        result.Extras.ShouldBeNull();
+    }
+
+    [Fact]
+    public void ProbeStep_IsConstructibleWithInterpreterDelegate()
+    {
+        var step = new ProbeStep(
+            Step: Cvoya.Spring.Core.Units.UnitValidationStep.VerifyingTool,
+            Args: new[] { "claude", "--version" },
+            Env: new Dictionary<string, string>(StringComparer.Ordinal),
+            Timeout: TimeSpan.FromSeconds(10),
+            InterpretOutput: (_, _, _) => StepResult.Succeed());
+
+        step.InterpretOutput.ShouldNotBeNull();
+        step.Args[0].ShouldBe("claude");
+        step.Timeout.ShouldBe(TimeSpan.FromSeconds(10));
+    }
 }
 
 /// <summary>
