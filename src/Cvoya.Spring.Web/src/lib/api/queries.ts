@@ -291,6 +291,26 @@ export function useAgentExecution(
   });
 }
 
+/**
+ * Read a single unit's wire envelope (name, displayName, status, model, …)
+ * from `GET /api/v1/units/{id}`. The detail page at `/units/[name]` rides
+ * this hook; scaffolded as part of T-06 (#948) so the forthcoming
+ * Validation panel (T-07) has a ready home plus live cache invalidation
+ * from `useActivityStream`.
+ */
+export function useUnit(
+  id: string,
+  opts?: SliceOptions<UnitResponse>,
+): UseQueryResult<UnitResponse, Error> {
+  return useQuery({
+    queryKey: queryKeys.units.detail(id),
+    queryFn: () => api.getUnit(id),
+    enabled: opts?.enabled ?? Boolean(id),
+    refetchInterval: opts?.refetchInterval,
+    staleTime: opts?.staleTime,
+  });
+}
+
 export function useUnitCost(
   id: string,
   opts?: SliceOptions<CostSummaryResponse | null>,
