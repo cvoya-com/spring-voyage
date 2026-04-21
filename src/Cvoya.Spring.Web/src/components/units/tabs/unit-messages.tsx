@@ -1,27 +1,54 @@
 "use client";
 
-// Unit Messages tab (EXP-tab-unit-messages, umbrella #815 §4).
+// Unit Messages tab (EXP-tab-unit-messages, umbrella #815 §2 + §4,
+// issue #937).
 //
-// Lists conversations filtered to this unit. Mirrors the CLI's
-// `spring conversation list --unit <name>`. Each row links straight
-// into the dedicated `/conversations/<id>` surface — this tab is a
-// quick-access jump list, not a full conversation inspector.
+// Master/detail layout: conversation list on the left, selected
+// thread's events + reply composer on the right. Selection lives in
+// the URL as `?conversation=<id>` so deep-links survive refresh. This
+// replaces the old list-only view whose rows linked out to the retired
+// `/conversations/[id]` route.
+//
+// Mirrors the CLI `spring conversation {list,show,send} --unit <name>`
+// trio in one surface.
 
+import { useCallback } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { MessagesSquare } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { ConversationDetailPane } from "@/components/conversation/conversation-detail-pane";
+import { cn, timeAgo } from "@/lib/utils";
 import { useConversations } from "@/lib/api/queries";
-import { timeAgo } from "@/lib/utils";
 
 import { registerTab, type TabContentProps } from "./index";
 
 function UnitMessagesTab({ node }: TabContentProps) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   // `node.kind === "Unit"` is guaranteed by the registry — `<DetailPane>`
   // dispatches to `lookupTab(kind, tab)` with `kind` narrowed before
   // this component renders. The belt-and-braces narrowing happens
-  // after the hook call so react-hooks/rules-of-hooks stays happy.
+  // after the hook calls so react-hooks/rules-of-hooks stays happy.
   const { data, isLoading, error } = useConversations({ unit: node.id });
+
+  const selectedId = searchParams.get("conversation");
+
+  const setSelected = useCallback(
+    (id: string | null) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (id) {
+        params.set("conversation", id);
+      } else {
+        params.delete("conversation");
+      }
+      const qs = params.toString();
+      router.replace(qs ? `?${qs}` : "?", { scroll: false });
+    },
+    [router, searchParams],
+  );
+
   if (node.kind !== "Unit") return null;
 
   if (isLoading) {
@@ -64,38 +91,111 @@ function UnitMessagesTab({ node }: TabContentProps) {
   }
 
   return (
-    <ul
-      className="divide-y divide-border rounded-md border border-border text-sm"
+    <div
+      className="grid gap-4 md:grid-cols-[minmax(0,18rem)_1fr]"
       data-testid="tab-unit-messages"
-      aria-label={`Conversations for unit ${node.name}`}
     >
-      {conversations.map((c) => (
-        <li
-          key={c.id}
-          className="flex items-center gap-3 px-3 py-2"
-        >
-          <MessagesSquare
-            className="h-4 w-4 shrink-0 text-muted-foreground"
-            aria-hidden="true"
+      <ConversationList
+        conversations={conversations}
+        selectedId={selectedId}
+        onSelect={setSelected}
+        label={`Conversations for unit ${node.name}`}
+      />
+      <div
+        className={cn(
+          "flex min-h-[24rem] flex-col rounded-md border border-border bg-background",
+        )}
+      >
+        {selectedId ? (
+          <ConversationDetailPane
+            conversationId={selectedId}
+            selfAddress={`unit://${node.id}`}
           />
-          <Link
-            href={`/conversations/${encodeURIComponent(c.id)}`}
-            className="min-w-0 flex-1 truncate hover:underline"
-          >
-            {c.summary || c.id}
-          </Link>
-          {c.status ? (
-            <Badge variant="outline" className="shrink-0">
-              {c.status}
-            </Badge>
-          ) : null}
-          {c.lastActivity ? (
-            <span className="shrink-0 text-xs text-muted-foreground">
-              {timeAgo(c.lastActivity)}
-            </span>
-          ) : null}
-        </li>
-      ))}
+        ) : (
+          <p className="m-3 text-sm text-muted-foreground">
+            Select a conversation from the list to see its events and
+            reply.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+interface ConversationListProps {
+  conversations: ReadonlyArray<{
+    id: string;
+    summary?: string | null;
+    status?: string | null;
+    lastActivity?: string | null;
+  }>;
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  label: string;
+}
+
+/**
+ * Shared master-column renderer. Used by both the Unit and Agent
+ * Messages tabs so selection affordance, keyboard focus, and deep-link
+ * semantics stay identical.
+ */
+export function ConversationList({
+  conversations,
+  selectedId,
+  onSelect,
+  label,
+}: ConversationListProps) {
+  return (
+    <ul
+      className="max-h-[28rem] divide-y divide-border overflow-auto rounded-md border border-border text-sm"
+      aria-label={label}
+    >
+      {conversations.map((c) => {
+        const isSelected = c.id === selectedId;
+        const href = `?conversation=${encodeURIComponent(c.id)}`;
+        return (
+          <li key={c.id}>
+            <Link
+              href={href}
+              scroll={false}
+              replace
+              onClick={(e) => {
+                e.preventDefault();
+                onSelect(c.id);
+              }}
+              aria-current={isSelected ? "true" : undefined}
+              className={cn(
+                "flex items-center gap-3 px-3 py-2",
+                isSelected
+                  ? "bg-muted/60"
+                  : "hover:bg-muted/30 focus-visible:bg-muted/30",
+              )}
+              data-testid={
+                isSelected ? "conversation-row-selected" : "conversation-row"
+              }
+              data-conversation-id={c.id}
+            >
+              <MessagesSquare
+                className="h-4 w-4 shrink-0 text-muted-foreground"
+                aria-hidden="true"
+              />
+              <span className="min-w-0 flex-1 truncate">
+                {c.summary || c.id}
+              </span>
+              {c.status ? (
+                <Badge variant="outline" className="shrink-0">
+                  {c.status}
+                </Badge>
+              ) : null}
+              {c.lastActivity ? (
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  {timeAgo(c.lastActivity)}
+                </span>
+              ) : null}
+            </Link>
+          </li>
+        );
+      })}
     </ul>
   );
 }

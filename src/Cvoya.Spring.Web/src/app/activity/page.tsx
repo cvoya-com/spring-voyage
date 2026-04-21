@@ -33,12 +33,30 @@ function sourceHref(source: string): string | null {
   const [, scheme, path] = m;
   switch (scheme.toLowerCase()) {
     case "agent":
-      return `/agents/${encodeURIComponent(path)}`;
     case "unit":
-      return `/units/${encodeURIComponent(path)}`;
+      // The legacy `/agents/[id]` and `/units/[id]` routes were retired
+      // by the v2 Explorer migration (#815); the canonical surface is
+      // the unified `/units?node=<id>` Explorer.
+      return `/units?node=${encodeURIComponent(path)}`;
     default:
       return null;
   }
+}
+
+/**
+ * Build a deep-link into the Messages tab of the event's source node
+ * with the correlation-id selected. Falls back to `null` when the
+ * source is not a unit/agent (e.g. `human://`, `system://`) — in that
+ * case the UI still surfaces the correlation id, just without an
+ * "open thread" affordance.
+ */
+function conversationHref(source: string, correlationId: string): string | null {
+  const m = source.match(/^([a-z]+):\/\/(.+)$/i);
+  if (!m) return null;
+  const [, scheme, path] = m;
+  const s = scheme.toLowerCase();
+  if (s !== "agent" && s !== "unit") return null;
+  return `/units?node=${encodeURIComponent(path)}&tab=Messages&conversation=${encodeURIComponent(correlationId)}`;
 }
 
 const severityVariant: Record<
@@ -190,14 +208,22 @@ function EventRow({
             <div className="flex items-center gap-2">
               <span className="text-muted-foreground">Correlation ID:</span>
               <span className="font-mono text-xs">{event.correlationId}</span>
-              <Link
-                href={`/conversations/${encodeURIComponent(event.correlationId)}`}
-                className="inline-flex items-center gap-1 rounded border border-input bg-background px-2 py-0.5 text-xs text-primary hover:bg-accent"
-                aria-label="Open conversation thread"
-              >
-                <MessagesSquare className="h-3 w-3" />
-                Open thread
-              </Link>
+              {(() => {
+                const threadHref = conversationHref(
+                  event.source,
+                  event.correlationId,
+                );
+                return threadHref ? (
+                  <Link
+                    href={threadHref}
+                    className="inline-flex items-center gap-1 rounded border border-input bg-background px-2 py-0.5 text-xs text-primary hover:bg-accent"
+                    aria-label="Open conversation thread"
+                  >
+                    <MessagesSquare className="h-3 w-3" />
+                    Open thread
+                  </Link>
+                ) : null;
+              })()}
             </div>
           )}
           {(() => {

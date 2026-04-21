@@ -15,6 +15,7 @@ import { StatCard } from "@/components/stat-card";
 import { formatCost } from "@/lib/utils";
 
 import { aggregate, type UnitNode } from "../aggregate";
+import { UnitOverviewExpertiseCard } from "../unit-overview-expertise-card";
 
 import { registerTab, type TabContentProps } from "./index";
 
@@ -60,6 +61,8 @@ function UnitOverviewTab({ node }: TabContentProps) {
         <Badge variant="outline">Agents</Badge> and{" "}
         <Badge variant="outline">Activity</Badge> tabs for drill-downs.
       </div>
+
+      <UnitOverviewExpertiseCard unitId={unit.id} />
     </div>
   );
 }

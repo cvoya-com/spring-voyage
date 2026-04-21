@@ -341,27 +341,28 @@ Per-kind tab sets are declared in `src/components/units/aggregate.ts` as `TENANT
 
 | Tab           | Content                                                                                                                          |
 | ------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| Overview      | Stat tiles (cost 24h, msgs 24h, skills, expertise card) + subtree roll-up.                                                       |
+| Overview      | Stat tiles (cost 24h, msgs 24h, skills) + read-only Expertise card (own + deduped subtree chips, "Manage" deep-links to Config → Expertise). |
 | Agents        | Child agents + child units in one grid; units carry an outlined card variant and a "unit" pill so they read distinct from agents. |
 | Orchestration | Strategy selector (read-only today) + effective-strategy card + label-routing rule editor.                                        |
 | Activity      | Unit-scoped event feed.                                                                                                          |
-| Messages      | Unit-scoped conversation feed.                                                                                                   |
+| Messages      | Inline master/detail: conversation list on the left; selecting a row mounts the thread + composer inline on the right. Selection is URL-owned via `?conversation=<id>`. |
 | Memory        | Unit-scoped read-only memory inspector (see § 10).                                                                               |
 | Policies      | Unit policies including the Initiative section.                                                                                  |
-| **Config** (overflow) | Collapsible sections covering General, Skills, Connector, Secrets, Boundary, Execution. Cross-links out to `/settings/skills` and `/connectors?unit=…`. |
+| **Config** (overflow) | Six sub-tabs: Boundary, Execution, Connector, Skills, Secrets, Expertise. Sub-tab selection is URL-owned via `?subtab=<name>`. Cross-links out to `/settings/skills` and `/connectors?unit=…`. |
 
-**Agent** — 8 visible, 0 overflow.
+**Agent** — 9 visible, 0 overflow.
 
 | Tab       | Content                                                                                                                      |
 | --------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | Overview  | Lifecycle + cost summary tiles.                                                                                              |
 | Activity  | Cost-over-time + per-slice breakdown.                                                                                        |
-| Messages  | Per-agent conversation feed.                                                                                                 |
+| Messages  | Inline master/detail (same layout as the unit Messages tab); URL-owned via `?conversation=<id>`.                             |
 | Memory    | Agent-scoped read-only memory inspector (see § 10).                                                                          |
 | Skills    | Read from `/api/v1/agents/{id}/skills`.                                                                                      |
 | Traces    | Mock-backed in v2.0; a real `/api/v1/traces?agent=…` endpoint is a v2.1 follow-up.                                           |
 | Clones    | Per-agent clones table.                                                                                                      |
-| Config    | Merged info + daily budget + expertise + execution + initiative editors, plus a collapsible Debug section with the status JSON. |
+| Policies  | Agent Policies (symmetric with Unit Policies). Hosts the per-agent Initiative editor; other dimensions (cost, model, skill) are declared on the owning unit. |
+| Config    | Merged info + daily-budget editor + execution editor, plus a collapsible Debug section with the status JSON. Initiative lives on the Policies tab; expertise lives on the owning unit. |
 
 ### 9.2 Registry
 

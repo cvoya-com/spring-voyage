@@ -24,6 +24,7 @@ import "./agent-memory";
 import "./agent-skills";
 import "./agent-traces";
 import "./agent-clones";
+import "./agent-policies";
 import "./agent-config";
 
 // Tenant tabs

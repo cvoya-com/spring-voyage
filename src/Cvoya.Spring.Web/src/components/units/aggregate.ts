@@ -184,6 +184,7 @@ export const AGENT_TABS = {
     "Skills",
     "Traces",
     "Clones",
+    "Policies",
     "Config",
   ] as const,
   overflow: [] as const,

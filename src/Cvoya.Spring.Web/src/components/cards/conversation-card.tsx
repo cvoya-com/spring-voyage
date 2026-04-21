@@ -46,16 +46,39 @@ const statusVariant: Record<
  * Reusable conversation card primitive. Reskinned for the v2 design
  * system (plan §7 / CARD-conversation-refresh): participants render
  * as a mono address list, the status pill sits top-right, and the
- * timestamp collapses into an outline badge. The `/conversations/[id]`
- * route is not yet implemented — see #410 — but cards still render
- * the link so they become live as soon as that route ships.
+ * timestamp collapses into an outline badge.
+ *
+ * The `/conversations/[id]` route was retired by `DEL-conversations-
+ * routes` (umbrella #815 §2) — every node has a Messages tab now. The
+ * card synthesises a deep-link into the first `unit://` or `agent://`
+ * participant's Messages tab with the selection carried in the URL
+ * query, falling back to a plain `/inbox?conversation=<id>` shortcut
+ * when no unit/agent anchor is available.
  */
+function resolveMessagesHref(
+  conversationId: string,
+  participants: readonly string[],
+): string {
+  for (const p of participants) {
+    const idx = p.indexOf("://");
+    if (idx <= 0) continue;
+    const scheme = p.slice(0, idx).toLowerCase();
+    const path = p.slice(idx + 3);
+    if (scheme === "unit" || scheme === "agent") {
+      return `/units?node=${encodeURIComponent(path)}&tab=Messages&conversation=${encodeURIComponent(conversationId)}`;
+    }
+  }
+  // No unit/agent anchor — send the user to inbox with the selection
+  // carried as a hint; the inbox card already renders a matching URL.
+  return `/inbox?conversation=${encodeURIComponent(conversationId)}`;
+}
+
 export function ConversationCard({
   conversation,
   className,
 }: ConversationCardProps) {
-  const href = `/conversations/${encodeURIComponent(conversation.id)}`;
   const participants = conversation.participants ?? [];
+  const href = resolveMessagesHref(conversation.id, participants);
   const title =
     conversation.title?.trim() ||
     participants[0] ||

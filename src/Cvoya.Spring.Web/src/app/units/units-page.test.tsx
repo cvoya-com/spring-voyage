@@ -64,6 +64,14 @@ const useTenantTreeMock = vi.fn();
 
 vi.mock("@/lib/api/queries", () => ({
   useTenantTree: () => useTenantTreeMock(),
+  // The Unit Overview tab now mounts the Expertise card (#936), which
+  // reads these hooks. Stub them with permanent "empty" data so the
+  // Explorer page tests don't have to model expertise.
+  useUnitOwnExpertise: () => ({ data: [], isPending: false }),
+  useUnitAggregatedExpertise: () => ({
+    data: { entries: [] },
+    isPending: false,
+  }),
 }));
 
 function wrap(node: ReactNode) {

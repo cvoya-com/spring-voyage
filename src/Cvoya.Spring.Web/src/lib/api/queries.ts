@@ -333,6 +333,56 @@ export function useUnitCost(
   });
 }
 
+/**
+ * Read a unit's own declared expertise. Mirrors
+ * `spring unit expertise get`. Used by the Unit Config → Expertise
+ * subsection to populate the editor. Surfaces `[]` on 404 so the
+ * editor can render the empty state without error boundary trips.
+ */
+export function useUnitOwnExpertise(
+  id: string,
+  opts?: SliceOptions<ExpertiseDomainDto[]>,
+): UseQueryResult<ExpertiseDomainDto[], Error> {
+  return useQuery({
+    queryKey: queryKeys.units.ownExpertise(id),
+    queryFn: async () => {
+      try {
+        return await api.getUnitOwnExpertise(id);
+      } catch {
+        return [] as ExpertiseDomainDto[];
+      }
+    },
+    enabled: opts?.enabled ?? Boolean(id),
+    refetchInterval: opts?.refetchInterval,
+    staleTime: opts?.staleTime,
+  });
+}
+
+/**
+ * Read a unit's aggregated (rolled-up) expertise — own declarations
+ * plus contributions from descendant units and agents. Powers the
+ * read-only "Expertise" summary card on the Unit Overview tab.
+ * Surfaces `null` on 404 so callers can render an empty state.
+ */
+export function useUnitAggregatedExpertise(
+  id: string,
+  opts?: SliceOptions<AggregatedExpertiseResponse | null>,
+): UseQueryResult<AggregatedExpertiseResponse | null, Error> {
+  return useQuery({
+    queryKey: queryKeys.units.aggregatedExpertise(id),
+    queryFn: async () => {
+      try {
+        return await api.getUnitAggregatedExpertise(id);
+      } catch {
+        return null;
+      }
+    },
+    enabled: opts?.enabled ?? Boolean(id),
+    refetchInterval: opts?.refetchInterval,
+    staleTime: opts?.staleTime,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Agents
 // ---------------------------------------------------------------------------
@@ -344,6 +394,81 @@ export function useAgent(
   return useQuery({
     queryKey: queryKeys.agents.detail(id),
     queryFn: () => api.getAgent(id),
+    enabled: opts?.enabled ?? Boolean(id),
+    refetchInterval: opts?.refetchInterval,
+    staleTime: opts?.staleTime,
+  });
+}
+
+/**
+ * Read the agent's persisted daily-budget envelope. Mirrors
+ * `spring agent budget get`. Surfaces `null` when no budget has been
+ * set so the Config-tab editor can render the empty state without
+ * trapping the page error boundary.
+ */
+export function useAgentBudget(
+  id: string,
+  opts?: SliceOptions<BudgetResponse | null>,
+): UseQueryResult<BudgetResponse | null, Error> {
+  return useQuery({
+    queryKey: queryKeys.agents.budget(id),
+    queryFn: async () => {
+      try {
+        return await api.getAgentBudget(id);
+      } catch {
+        return null;
+      }
+    },
+    enabled: opts?.enabled ?? Boolean(id),
+    refetchInterval: opts?.refetchInterval,
+    staleTime: opts?.staleTime,
+  });
+}
+
+/**
+ * Current computed initiative level for an agent. Mirrors
+ * `spring agent initiative level get`. Surfaces `null` on 404 (the
+ * actor is cold / has never reported a level) so the Policies tab can
+ * render a muted "(unknown)" state instead of exploding.
+ */
+export function useAgentInitiativeLevel(
+  id: string,
+  opts?: SliceOptions<InitiativeLevelResponse | null>,
+): UseQueryResult<InitiativeLevelResponse | null, Error> {
+  return useQuery({
+    queryKey: queryKeys.agents.initiativeLevel(id),
+    queryFn: async () => {
+      try {
+        return await api.getAgentInitiativeLevel(id);
+      } catch {
+        return null;
+      }
+    },
+    enabled: opts?.enabled ?? Boolean(id),
+    refetchInterval: opts?.refetchInterval,
+    staleTime: opts?.staleTime,
+  });
+}
+
+/**
+ * Read the agent's initiative policy record. Mirrors
+ * `spring agent initiative policy get`. Surfaces `null` when no policy
+ * is set so the Policies tab can render the "use defaults" empty
+ * state.
+ */
+export function useAgentInitiativePolicy(
+  id: string,
+  opts?: SliceOptions<InitiativePolicy | null>,
+): UseQueryResult<InitiativePolicy | null, Error> {
+  return useQuery({
+    queryKey: queryKeys.agents.initiativePolicy(id),
+    queryFn: async () => {
+      try {
+        return (await api.getAgentInitiativePolicy(id)) as InitiativePolicy;
+      } catch {
+        return null;
+      }
+    },
     enabled: opts?.enabled ?? Boolean(id),
     refetchInterval: opts?.refetchInterval,
     staleTime: opts?.staleTime,
@@ -605,6 +730,34 @@ export function useConversations(
     ),
     queryFn: () => api.listConversations(filters),
     ...opts,
+  });
+}
+
+/**
+ * Read one conversation thread — events + participants + status.
+ * Mirrors `spring conversation show`. Surfaces a 404 as `null` so the
+ * Messages-tab detail pane can render a clean "not found / deleted"
+ * state instead of bubbling an ApiError.
+ */
+export function useConversation(
+  id: string,
+  opts?: SliceOptions<ConversationDetail | null>,
+): UseQueryResult<ConversationDetail | null, Error> {
+  return useQuery({
+    queryKey: queryKeys.conversations.detail(id),
+    queryFn: async () => {
+      try {
+        return await api.getConversation(id);
+      } catch (err) {
+        if (err instanceof Error && /API error 404/.test(err.message)) {
+          return null;
+        }
+        throw err;
+      }
+    },
+    enabled: opts?.enabled ?? Boolean(id),
+    refetchInterval: opts?.refetchInterval,
+    staleTime: opts?.staleTime,
   });
 }
 

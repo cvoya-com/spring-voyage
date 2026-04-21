@@ -215,7 +215,7 @@ describe("tabsFor", () => {
     expect(UNIT_TABS.overflow).toEqual(["Config"]);
   });
 
-  it("locks the agent tab order and count (all visible in v2.0)", () => {
+  it("locks the agent tab order and count (#934 adds a Policies tab symmetric to Unit)", () => {
     expect([...AGENT_TABS.visible, ...AGENT_TABS.overflow]).toEqual([
       "Overview",
       "Activity",
@@ -224,6 +224,7 @@ describe("tabsFor", () => {
       "Skills",
       "Traces",
       "Clones",
+      "Policies",
       "Config",
     ]);
     expect(AGENT_TABS.overflow).toEqual([]);
@@ -255,8 +256,8 @@ describe("visibleTabsFor / overflowTabsFor", () => {
     expect(overflowTabsFor("Unit")).toEqual(["Config"]);
   });
 
-  it("surfaces the full Agent catalog as visible with no overflow in v2.0", () => {
-    expect(visibleTabsFor("Agent")).toHaveLength(8);
+  it("surfaces the full Agent catalog as visible with no overflow in v2.0 (#934 added Policies → 9)", () => {
+    expect(visibleTabsFor("Agent")).toHaveLength(9);
     expect(overflowTabsFor("Agent")).toEqual([]);
   });
 

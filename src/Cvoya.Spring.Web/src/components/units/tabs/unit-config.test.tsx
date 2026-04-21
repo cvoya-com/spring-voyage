@@ -90,6 +90,13 @@ vi.mock("@/components/units/tab-impls/skills-tab", () => ({
     </div>
   ),
 }));
+vi.mock("@/components/expertise/unit-expertise-panel", () => ({
+  UnitExpertisePanel: ({ unitId }: { unitId: string }) => (
+    <div data-testid="legacy-expertise" data-unit-id={unitId}>
+      Expertise panel
+    </div>
+  ),
+}));
 
 import UnitConfigTab from "./unit-config";
 
@@ -111,19 +118,33 @@ describe("UnitConfigTab — sub-tab layout (QUALITY-unit-config-subtabs)", () =>
     subscribers.clear();
   });
 
-  it("renders the Config container + five sub-tabs", () => {
+  it("renders the Config container + six sub-tabs (Expertise added by #936)", () => {
     render(<UnitConfigTab node={unit} path={[unit]} />);
 
     expect(screen.getByTestId("tab-unit-config")).toBeInTheDocument();
     const tabs = screen.getAllByRole("tab");
-    expect(tabs).toHaveLength(5);
+    expect(tabs).toHaveLength(6);
     expect(tabs.map((t) => t.textContent)).toEqual([
       "Boundary",
       "Execution",
       "Connector",
       "Skills",
       "Secrets",
+      "Expertise",
     ]);
+  });
+
+  it("activates the Expertise sub-tab when ?subtab=Expertise is on first render", () => {
+    act(() => {
+      setSearchParams(new URLSearchParams("subtab=Expertise"));
+    });
+    render(<UnitConfigTab node={unit} path={[unit]} />);
+    expect(
+      screen.getByRole("tab", { name: "Expertise" }),
+    ).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("legacy-expertise").dataset.unitId).toBe(
+      "engineering",
+    );
   });
 
   it("defaults to the first sub-tab (Boundary) when no ?subtab= is set", () => {

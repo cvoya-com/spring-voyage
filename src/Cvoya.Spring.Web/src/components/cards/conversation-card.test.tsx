@@ -40,18 +40,35 @@ describe("ConversationCard", () => {
     expect(screen.getByTestId("conversation-last-activity")).toBeInTheDocument();
   });
 
-  it("links to /conversations/[id] even though the route is not yet live", () => {
+  it("links into the first unit/agent participant's Messages tab (issue #937)", () => {
     render(
       <ConversationCard
         conversation={{
           id: "conv-1",
           title: "PR review thread",
+          participants: ["human://alice", "agent://ada"],
         }}
       />,
     );
     expect(screen.getByTestId("conversation-open-conv-1")).toHaveAttribute(
       "href",
-      "/conversations/conv-1",
+      "/units?node=ada&tab=Messages&conversation=conv-1",
+    );
+  });
+
+  it("falls back to /inbox when no unit/agent participant is available", () => {
+    render(
+      <ConversationCard
+        conversation={{
+          id: "conv-2",
+          title: "Human-only thread",
+          participants: ["human://alice", "human://bob"],
+        }}
+      />,
+    );
+    expect(screen.getByTestId("conversation-open-conv-2")).toHaveAttribute(
+      "href",
+      "/inbox?conversation=conv-2",
     );
   });
 
@@ -76,7 +93,8 @@ describe("ConversationCard", () => {
       />,
     );
     const link = screen.getByTestId("conversation-card-link-conv-1");
-    expect(link).toHaveAttribute("href", "/conversations/conv-1");
+    // With no unit/agent participant the link falls back to inbox.
+    expect(link).toHaveAttribute("href", "/inbox?conversation=conv-1");
     expect(link).toHaveAttribute(
       "aria-label",
       "Open conversation PR review thread",

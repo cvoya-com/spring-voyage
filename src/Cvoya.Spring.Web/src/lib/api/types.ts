@@ -184,6 +184,9 @@ export type ConversationSummary = Schemas["ConversationSummary"];
 /** Conversation thread payload (`GET /api/v1/conversations/{id}`). */
 export type ConversationDetail = Schemas["ConversationDetail"];
 
+/** One event row inside a conversation thread (see ConversationDetail.events). */
+export type ConversationEvent = Schemas["ConversationEvent"];
+
 /** Request body for `POST /api/v1/conversations/{id}/messages`. */
 export type ConversationMessageRequest = Schemas["ConversationMessageRequest"];
 
@@ -479,6 +482,9 @@ export type ExpertiseDomainDto = Schemas["ExpertiseDomainDto"];
 
 /** GET /api/v1/units/{id}/expertise response body. */
 export type AggregatedExpertiseResponse = Schemas["AggregatedExpertiseResponse"];
+
+/** One row inside AggregatedExpertiseResponse.entries. */
+export type AggregatedExpertiseEntryDto = Schemas["AggregatedExpertiseEntryDto"];
 
 /** POST /api/v1/directory/search request body (#542). */
 export type DirectorySearchRequest = Schemas["DirectorySearchRequest"];

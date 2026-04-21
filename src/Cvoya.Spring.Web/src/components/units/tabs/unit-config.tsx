@@ -26,6 +26,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs";
+import { UnitExpertisePanel } from "@/components/expertise/unit-expertise-panel";
 import { BoundaryTab } from "@/components/units/tab-impls/boundary-tab";
 import { ConnectorTab } from "@/components/units/tab-impls/connector-tab";
 import { ExecutionTab } from "@/components/units/tab-impls/execution-tab";
@@ -36,13 +37,18 @@ import { registerTab, type TabContentProps } from "./index";
 
 // The ordered list of sub-tabs rendered inside the Config surface. The
 // first entry is the default (used when the URL has no `?subtab=` or
-// carries an unknown value).
+// carries an unknown value). "Expertise" lands here (not in its own
+// Overview slot) because editing the list is the lowest-frequency
+// Config action and the Overview tab hosts a read-only summary card
+// with a Manage link that deep-links straight to this sub-tab
+// (EXP-tab-unit-overview-expertise-card, #936).
 const SUBTABS = [
   "Boundary",
   "Execution",
   "Connector",
   "Skills",
   "Secrets",
+  "Expertise",
 ] as const;
 type SubTab = (typeof SUBTABS)[number];
 const DEFAULT_SUBTAB: SubTab = SUBTABS[0];
@@ -112,6 +118,9 @@ function UnitConfigTab({ node }: TabContentProps) {
         </TabsContent>
         <TabsContent value="Secrets" className="space-y-2">
           <SecretsTab unitId={node.id} />
+        </TabsContent>
+        <TabsContent value="Expertise" className="space-y-2">
+          <UnitExpertisePanel unitId={node.id} />
         </TabsContent>
       </Tabs>
     </div>
