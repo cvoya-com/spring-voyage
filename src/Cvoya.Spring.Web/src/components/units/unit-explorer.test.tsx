@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { TreeNode } from "./aggregate";
 import {
@@ -102,5 +102,87 @@ describe("UnitExplorer (foundation scaffold)", () => {
       "tabindex",
       "-1",
     );
+  });
+
+  it("falls back to the tree root when `selectedId` no longer maps to any node", () => {
+    // URL-stale node case: the operator bookmarked or pasted a link to a
+    // node that has since been deleted. The Explorer must keep working by
+    // rendering the tenant root rather than throwing (or bubbling to an
+    // error boundary).
+    render(<UnitExplorer tree={tree} selectedId="ghost-id" />);
+    expect(screen.getByTestId("unit-explorer")).toBeInTheDocument();
+    // Tenant root's breadcrumb button is present and `aria-current` — the
+    // detail pane resolved to the root, not to the stale id.
+    expect(screen.getByTestId("detail-crumb-tenant-acme")).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    // Tenant catalog is 5 tabs; Unit would be 8. Confirms the kind-specific
+    // catalog is driven by the fallback node, not the stale id.
+    expect(screen.getAllByRole("tab")).toHaveLength(5);
+  });
+
+  it("auto-snaps to the kind's first tab when the controlled `tab` is out of catalog", () => {
+    // Stale URL case: `?tab=Skills` is valid for Agent but not for Tenant.
+    // `<DetailPane>`'s useEffect should snap to `tabsFor("Tenant")[0]` —
+    // "Overview" — and dispatch onTabChange so the URL gets corrected.
+    const onTabChange = vi.fn();
+    // `Skills` isn't a TabName for Tenant, so we cast through unknown to
+    // stand in for a stale URL fragment the router would pass through.
+    render(
+      <UnitExplorer
+        tree={tree}
+        tab={"Skills" as unknown as never}
+        onTabChange={onTabChange}
+      />,
+    );
+    expect(onTabChange).toHaveBeenCalled();
+    // Second argument is the snapped-to tab; first is the selected id.
+    const call = onTabChange.mock.calls[0];
+    expect(call[0]).toBe("tenant-acme");
+    expect(call[1]).toBe("Overview");
+  });
+
+  it("remembers the per-node tab choice when the operator revisits a node", () => {
+    // Flow: Tenant → open Activity → click Engineering → click Tenant crumb.
+    // On return, Tenant's active tab should still be Activity, not snap
+    // back to Overview. Pins the `tabByNode` memory.
+    render(<UnitExplorer tree={tree} />);
+
+    // On the tenant root: switch to Activity.
+    fireEvent.click(screen.getByTestId("detail-tab-activity"));
+    expect(screen.getByTestId("detail-tab-activity")).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+
+    // Navigate to Engineering (a Unit → 8-tab catalog). First tab
+    // (Overview) should be active because Engineering has no remembered
+    // choice.
+    fireEvent.click(screen.getByTestId("tree-row-unit-eng"));
+    expect(screen.getAllByRole("tab")).toHaveLength(8);
+    expect(screen.getByTestId("detail-tab-overview")).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+
+    // Navigate back to the Tenant via the breadcrumb. The remembered
+    // Activity tab should come back — not Overview.
+    fireEvent.click(screen.getByTestId("detail-crumb-tenant-acme"));
+    expect(screen.getAllByRole("tab")).toHaveLength(5);
+    expect(screen.getByTestId("detail-tab-activity")).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+
+  it("dispatches `onTabChange` with both the selected node id and the new tab name", () => {
+    // Pins the two-argument callback signature so downstream route wiring
+    // (and any future refactor) can't silently drop `selectedId`.
+    const onTabChange = vi.fn();
+    render(<UnitExplorer tree={tree} onTabChange={onTabChange} />);
+
+    fireEvent.click(screen.getByTestId("detail-tab-activity"));
+    expect(onTabChange).toHaveBeenCalledWith("tenant-acme", "Activity");
   });
 });

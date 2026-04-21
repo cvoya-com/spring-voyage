@@ -179,4 +179,60 @@ describe("UnitTree", () => {
     const dot = screen.getByTestId("tree-status-dot-unit-eng");
     expect(dot).toHaveAttribute("data-status", "running");
   });
+
+  it("surfaces a worst-status buried four levels deep on the collapsed top-level row", () => {
+    // Fixture independent of the file-scoped `tree` above: a
+    // Tenant → Unit → Unit → Unit → Agent(error) chain where only the leaf
+    // agent is failing. When every branch is collapsed except the tenant
+    // root, the top-level unit's dot must surface `error` so operators can
+    // spot the buried failure without expanding.
+    const deepTree: TreeNode = {
+      id: "tenant-deep",
+      name: "Deep Tenant",
+      kind: "Tenant",
+      status: "running",
+      children: [
+        {
+          id: "unit-top",
+          name: "Top",
+          kind: "Unit",
+          status: "running",
+          children: [
+            {
+              id: "unit-mid",
+              name: "Mid",
+              kind: "Unit",
+              status: "running",
+              children: [
+                {
+                  id: "unit-inner",
+                  name: "Inner",
+                  kind: "Unit",
+                  status: "running",
+                  children: [
+                    {
+                      id: "agent-buried",
+                      name: "Buried",
+                      kind: "Agent",
+                      status: "error",
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    render(
+      <UnitTree
+        tree={deepTree}
+        selectedId="tenant-deep"
+        onSelect={vi.fn()}
+        defaultExpanded={{ "tenant-deep": true }}
+      />,
+    );
+    const dot = screen.getByTestId("tree-status-dot-unit-top");
+    expect(dot).toHaveAttribute("data-status", "error");
+  });
 });

@@ -107,6 +107,53 @@ describe("aggregate", () => {
     expect(sub.cost).toBe(1.5);
     expect(sub.msgs).toBe(0);
   });
+
+  it("surfaces a failure buried four levels deep at the root", () => {
+    // Tenant → Unit → Unit → Unit → Agent(error). The failing agent sits at
+    // depth 4 under the root; every intermediate node is "running". The
+    // root aggregate must still report `worst === "error"` so the collapsed
+    // top-level row can paint the danger severity without the operator
+    // expanding the subtree.
+    const sampleDeepTree: TreeNode = {
+      id: "tenant-deep",
+      name: "Deep Tenant",
+      kind: "Tenant",
+      status: "running",
+      children: [
+        {
+          id: "unit-l1",
+          name: "L1",
+          kind: "Unit",
+          status: "running",
+          children: [
+            {
+              id: "unit-l2",
+              name: "L2",
+              kind: "Unit",
+              status: "running",
+              children: [
+                {
+                  id: "unit-l3",
+                  name: "L3",
+                  kind: "Unit",
+                  status: "running",
+                  children: [
+                    {
+                      id: "agent-buried",
+                      name: "Buried",
+                      kind: "Agent",
+                      status: "error",
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    expect(aggregate(sampleDeepTree).worst).toBe("error");
+  });
 });
 
 describe("flattenTree / findIndex", () => {
