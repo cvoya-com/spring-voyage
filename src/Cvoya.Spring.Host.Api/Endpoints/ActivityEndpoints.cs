@@ -9,6 +9,7 @@ using System.Text.Json;
 using System.Threading.Channels;
 
 using Cvoya.Spring.Core.Capabilities;
+using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Observability;
 using Cvoya.Spring.Dapr.Actors;
@@ -64,10 +65,18 @@ public static class ActivityEndpoints
     private static async Task<IResult> QueryActivityAsync(
         [AsParameters] ActivityQueryParametersDto query,
         IActivityQueryService queryService,
+        IDirectoryService directoryService,
         CancellationToken cancellationToken)
     {
+        // #987: the portal tenant tree surfaces units/agents by slug, so the
+        // Activity tab queries with `source=unit:<slug>` / `agent:<slug>`.
+        // Events are persisted with `source={scheme}:{actorId}`, so without
+        // normalization every slug-based query returned an empty page.
+        var normalizedSource = await ActivitySourceNormalizer
+            .NormalizeQuerySourceAsync(query.Source, directoryService, cancellationToken);
+
         var parameters = new ActivityQueryParameters(
-            query.Source, query.EventType, query.Severity,
+            normalizedSource, query.EventType, query.Severity,
             query.From, query.To, query.Page ?? 1, query.PageSize ?? 50);
         var result = await queryService.QueryAsync(parameters, cancellationToken);
         return Results.Ok(result);
@@ -78,6 +87,7 @@ public static class ActivityEndpoints
         IActivityEventBus activityEventBus,
         IUnitActivityObservable unitActivityObservable,
         IPermissionService permissionService,
+        IDirectoryService directoryService,
         ILoggerFactory loggerFactory,
         string? source,
         string? severity,
@@ -127,8 +137,14 @@ public static class ActivityEndpoints
 
         if (!string.IsNullOrEmpty(source))
         {
+            // #987: accept `source=unit:<slug-or-uuid>` / `agent:<slug-or-uuid>`
+            // and rewrite to the `{scheme}://{actorId}` form the stream
+            // filter compares against — the stream emits the actor's
+            // Dapr id as `Source.Path`, not the slug.
+            var normalizedSource = await ActivitySourceNormalizer
+                .NormalizeStreamSourceAsync(source, directoryService, cancellationToken);
             stream = stream.Where(evt =>
-                $"{evt.Source.Scheme}://{evt.Source.Path}".Equals(source, StringComparison.OrdinalIgnoreCase));
+                $"{evt.Source.Scheme}://{evt.Source.Path}".Equals(normalizedSource, StringComparison.OrdinalIgnoreCase));
         }
 
         if (!string.IsNullOrEmpty(severity) &&
