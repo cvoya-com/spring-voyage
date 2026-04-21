@@ -21,7 +21,6 @@ import { expectNoAxeViolations } from "@/test/a11y";
 import type {
   ActivityQueryResult,
   AgentResponse,
-  ConversationSummary,
   DashboardSummary,
   InboxItem,
   UnitDashboardSummary,
@@ -88,32 +87,16 @@ const apiStub = {
   listAgents: vi.fn<() => Promise<AgentResponse[]>>(),
   listUnits: vi.fn<() => Promise<UnitDashboardSummary[]>>(),
   getDashboardUnits: vi.fn<() => Promise<UnitDashboardSummary[]>>(),
-  listConversations:
-    vi.fn<() => Promise<ConversationSummary[]>>(),
   listInbox: vi.fn<() => Promise<InboxItem[]>>(),
   queryActivity:
     vi.fn<() => Promise<ActivityQueryResult>>(),
   listConnectors: vi.fn<() => Promise<unknown[]>>(),
-  listAgentRuntimes: vi.fn<() => Promise<unknown[]>>(),
-  getAgentRuntimeCredentialHealth: vi.fn<() => Promise<unknown | null>>(),
   getConnectorCredentialHealth: vi.fn<() => Promise<unknown | null>>(),
-  listPackages: vi.fn<() => Promise<unknown[]>>(),
   searchDirectory: vi.fn<() => Promise<{ hits: unknown[]; totalCount: number }>>(),
   getTenantCost:
     vi.fn<() => Promise<{ totalCost: number; breakdowns: unknown[] }>>(),
   // Explorer surface at `/units` (EXP-route, umbrella #815).
   getTenantTree: vi.fn<() => Promise<unknown>>(),
-  // Agent detail tree (#604) — the tabbed detail page fans out to
-  // several panels; declaring the stubs up here keeps the mock surface
-  // in one place and lets `vi.clearAllMocks()` tidy them between tests.
-  getAgent: vi.fn<() => Promise<unknown>>(),
-  getAgentCost: vi.fn<() => Promise<unknown>>(),
-  getClones: vi.fn<() => Promise<unknown[]>>(),
-  getAgentBudget: vi.fn<() => Promise<unknown>>(),
-  getAgentExpertise: vi.fn<() => Promise<unknown[]>>(),
-  getAgentExecution: vi.fn<() => Promise<unknown>>(),
-  getUnitExecution: vi.fn<() => Promise<unknown>>(),
-  getPersistentAgentDeployment: vi.fn<() => Promise<unknown>>(),
 };
 
 vi.mock("@/lib/api/client", () => ({
@@ -233,7 +216,6 @@ describe("portal a11y smoke tests", () => {
         status: "Running",
       },
     ]);
-    apiStub.listConversations.mockResolvedValue([]);
     apiStub.listInbox.mockResolvedValue([]);
     apiStub.queryActivity.mockResolvedValue({
       items: [],
@@ -242,10 +224,7 @@ describe("portal a11y smoke tests", () => {
       totalCount: 0,
     } as unknown as ActivityQueryResult);
     apiStub.listConnectors.mockResolvedValue([]);
-    apiStub.listAgentRuntimes.mockResolvedValue([]);
-    apiStub.getAgentRuntimeCredentialHealth.mockResolvedValue(null);
     apiStub.getConnectorCredentialHealth.mockResolvedValue(null);
-    apiStub.listPackages.mockResolvedValue([]);
     apiStub.searchDirectory.mockResolvedValue({ hits: [], totalCount: 0 });
     apiStub.getTenantCost.mockResolvedValue({ totalCost: 0, breakdowns: [] });
     apiStub.getTenantTree.mockResolvedValue({
@@ -309,91 +288,6 @@ describe("portal a11y smoke tests", () => {
     await expectNoAxeViolations(container);
   });
 
-  it("/agents", async () => {
-    const { default: AgentsPage } = await import("@/app/agents/page");
-    const { container } = render(<AgentsPage />, {
-      wrapper: createWrapper(),
-    });
-    await screen.findByRole("heading", { level: 1, name: /agents/i });
-    await expectNoAxeViolations(container);
-  });
-
-  it("/agents/[id] (tabbed detail — #604)", async () => {
-    // Seed the detail response for the proxy'd `api.getAgent(…)` call so
-    // the page renders past its loading skeleton and the tab list lands
-    // in the axe sweep. The remaining panels reach for additional api
-    // surfaces; all of them are stubbed so the detail tree settles into
-    // its default Runtime tab without hitting the "Unstubbed api.…"
-    // rejection path.
-    apiStub.getAgent.mockResolvedValue({
-      agent: {
-        id: "agent-1",
-        name: "alpha/one",
-        displayName: "Agent One",
-        description: "Primary analyst agent",
-        role: "analyst",
-        registeredAt: "2026-04-01T00:00:00Z",
-        enabled: true,
-        parentUnit: "alpha",
-        executionMode: null,
-      },
-      deployment: null,
-      status: null,
-    });
-    apiStub.getAgentCost.mockResolvedValue({
-      totalCost: 0,
-      totalInputTokens: 0,
-      totalOutputTokens: 0,
-      recordCount: 0,
-      initiativeCost: 0,
-      workCost: 0,
-      breakdowns: [],
-    });
-    apiStub.getClones.mockResolvedValue([]);
-    apiStub.getAgentBudget.mockResolvedValue(null);
-    apiStub.getAgentExpertise.mockResolvedValue([]);
-    apiStub.getAgentExecution.mockResolvedValue({
-      image: null,
-      runtime: null,
-      tool: null,
-      provider: null,
-      model: null,
-      hosting: null,
-    });
-    apiStub.getUnitExecution.mockResolvedValue({
-      image: null,
-      runtime: null,
-      tool: null,
-      provider: null,
-      model: null,
-    });
-    apiStub.getPersistentAgentDeployment.mockResolvedValue({
-      agentId: "alpha/one",
-      running: false,
-      healthStatus: "unknown",
-      replicas: 0,
-      image: null,
-      endpoint: null,
-      containerId: null,
-      startedAt: null,
-      consecutiveFailures: 0,
-    });
-
-    const { default: AgentDetailClient } = await import(
-      "@/app/agents/[id]/agent-detail-client"
-    );
-    const { container } = render(<AgentDetailClient id="alpha/one" />, {
-      wrapper: createWrapper(),
-    });
-    await screen.findByRole("heading", { level: 1, name: /agent one/i });
-    // The tab list ships with `role="tablist"` — wait for it so the
-    // axe sweep runs against the post-hydration tree.
-    await screen.findByRole("tablist", {
-      name: /agent detail sections/i,
-    });
-    await expectNoAxeViolations(container);
-  });
-
   it("/units (Explorer — EXP-route)", async () => {
     const { default: UnitsPage } = await import("@/app/units/page");
     const { container } = render(<UnitsPage />, {
@@ -402,17 +296,6 @@ describe("portal a11y smoke tests", () => {
     // The Explorer's detail pane renders an <h1> with the active
     // node's name — the stubbed tenant tree seeds "Acme" at the root.
     await screen.findByRole("heading", { level: 1, name: /acme/i });
-    await expectNoAxeViolations(container);
-  });
-
-  it("/conversations", async () => {
-    const { default: ConversationsPage } = await import(
-      "@/app/conversations/page"
-    );
-    const { container } = render(<ConversationsPage />, {
-      wrapper: createWrapper(),
-    });
-    await screen.findByRole("heading", { level: 1, name: /conversations/i });
     await expectNoAxeViolations(container);
   });
 
@@ -431,26 +314,6 @@ describe("portal a11y smoke tests", () => {
       wrapper: createWrapper(),
     });
     await screen.findByRole("heading", { name: /discovery/i });
-    await expectNoAxeViolations(container);
-  });
-
-  it("/packages", async () => {
-    const { default: PackagesPage } = await import("@/app/packages/page");
-    const { container } = render(<PackagesPage />, {
-      wrapper: createWrapper(),
-    });
-    await screen.findByRole("heading", { name: /packages/i });
-    await expectNoAxeViolations(container);
-  });
-
-  it("/initiative", async () => {
-    const { default: InitiativePage } = await import(
-      "@/app/initiative/page"
-    );
-    const { container } = render(<InitiativePage />, {
-      wrapper: createWrapper(),
-    });
-    await screen.findByRole("heading", { level: 1, name: /initiative/i });
     await expectNoAxeViolations(container);
   });
 
@@ -501,33 +364,6 @@ describe("portal a11y smoke tests", () => {
     await expectNoAxeViolations(container);
   });
 
-  it("/admin/agent-runtimes (#691)", async () => {
-    const { default: AdminAgentRuntimesPage } = await import(
-      "@/app/admin/agent-runtimes/page"
-    );
-    const { container } = render(<AdminAgentRuntimesPage />, {
-      wrapper: createWrapper(),
-    });
-    await screen.findByRole("heading", {
-      level: 1,
-      name: /agent runtimes/i,
-    });
-    await expectNoAxeViolations(container);
-  });
-
-  it("/admin/connectors (#691)", async () => {
-    const { default: AdminConnectorsPage } = await import(
-      "@/app/admin/connectors/page"
-    );
-    const { container } = render(<AdminConnectorsPage />, {
-      wrapper: createWrapper(),
-    });
-    await screen.findByRole("heading", {
-      level: 1,
-      name: /connector health/i,
-    });
-    await expectNoAxeViolations(container);
-  });
 });
 
 // ---------------------------------------------------------------------------

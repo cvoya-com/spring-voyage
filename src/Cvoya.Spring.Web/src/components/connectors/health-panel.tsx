@@ -28,7 +28,7 @@ import {
   CliCallout,
   CredentialHealthBadge,
   Timestamp,
-} from "@/app/admin/admin-shared";
+} from "@/components/admin/shared";
 
 /**
  * Render the list of installed connectors with their persistent

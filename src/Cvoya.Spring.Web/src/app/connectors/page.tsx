@@ -155,14 +155,7 @@ function ConnectorCatalog() {
             <code className="rounded bg-muted px-1 py-0.5 text-xs">
               spring connector catalog
             </code>{" "}
-            from the CLI to see available types, or browse{" "}
-            <Link
-              href="/packages"
-              className="text-primary hover:underline"
-            >
-              Packages
-            </Link>{" "}
-            to install a connector-bearing package.
+            from the CLI to see available types.
           </p>
         </CardContent>
       </Card>

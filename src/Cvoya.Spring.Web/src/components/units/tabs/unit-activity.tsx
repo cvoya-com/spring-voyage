@@ -4,7 +4,7 @@
 // Adapter around the legacy `<ActivityTab>` — same feed, same hook,
 // reused from the Explorer surface.
 
-import { ActivityTab } from "@/app/units/[id]/activity-tab";
+import { ActivityTab } from "@/components/units/tab-impls/activity-tab";
 
 import { registerTab, type TabContentProps } from "./index";
 

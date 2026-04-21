@@ -1,9 +1,9 @@
 /**
  * /settings/packages — moved from `/packages` (#864 / SET-packages).
  *
- * Both routes render the same component until `DEL-packages-top`
- * removes the legacy `/packages` source. A pure re-export keeps the
- * two routes in lockstep without duplicating logic.
+ * Post-`DEL-packages-top` (#874) the implementation lives at
+ * `@/components/admin/packages-page`. A pure re-export keeps this
+ * route thin.
  */
 
-export { default } from "@/app/packages/page";
+export { default } from "@/components/admin/packages-page";

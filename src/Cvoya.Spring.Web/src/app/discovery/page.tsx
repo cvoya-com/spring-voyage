@@ -324,11 +324,14 @@ function DirectoryRow({ hit }: { hit: DirectorySearchHitResponse }) {
   const owner = hit.owner;
   const ownerScheme = owner?.scheme ?? "";
   const ownerPath = owner?.path ?? "";
+  // Post-v2-IA (DEL-agents #870, DEL-units-id #878): owner deep-links
+  // land in the Explorer (`/units?node=<id>[&tab=Overview]`) since the
+  // legacy `/agents/<id>` and `/units/<id>` detail routes are retired.
   const href =
     ownerScheme === "agent"
-      ? `/agents/${encodeURIComponent(ownerPath)}`
+      ? `/units?node=${encodeURIComponent(ownerPath)}&tab=Overview`
       : ownerScheme === "unit"
-        ? `/units/${encodeURIComponent(ownerPath)}`
+        ? `/units?node=${encodeURIComponent(ownerPath)}`
         : "#";
 
   // #553: when a hit surfaced via aggregation, render a compact

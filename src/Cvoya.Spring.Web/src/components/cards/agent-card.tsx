@@ -103,9 +103,19 @@ export function AgentCard({
   onOpenTab,
   className,
 }: AgentCardProps) {
-  const href = `/agents/${encodeURIComponent(agent.name)}`;
-  const conversationsHref = `${href}?tab=conversations`;
-  const costHref = `${href}?tab=costs`;
+  // Post-`DEL-agents` (#870): the legacy `/agents/<name>` detail route
+  // is gone. Agents render under their primary parent in the Explorer
+  // tree, so the card's primary affordance deep-links into
+  // `/units?node=<name>&tab=Overview`. Cross-link chips share the same
+  // base and swap the `tab` param.
+  const nodeParam = encodeURIComponent(agent.name);
+  const href = `/units?node=${nodeParam}&tab=Overview`;
+  // Legacy cross-link chips (Conversations, Cost) render only when the
+  // caller omits `onOpenTab` — Explorer usages always set it, so these
+  // are fallback links. The Agent card's Overview tab carries the cost
+  // summary post-v2, so the cost chip lands on Overview too.
+  const conversationsHref = `/units?node=${nodeParam}&tab=Messages`;
+  const costHref = `/units?node=${nodeParam}&tab=Overview`;
   const parent =
     parentUnit ?? ("parentUnit" in agent ? agent.parentUnit : undefined);
   const lastActivityText =
@@ -167,7 +177,7 @@ export function AgentCard({
         <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           {parent && (
             <Link
-              href={`/units/${encodeURIComponent(parent)}`}
+              href={`/units?node=${encodeURIComponent(parent)}`}
               data-testid="agent-parent-unit"
               aria-label={`Open parent unit ${parent}`}
               className="relative z-[1] flex items-center gap-1 rounded-sm transition-colors hover:text-foreground"

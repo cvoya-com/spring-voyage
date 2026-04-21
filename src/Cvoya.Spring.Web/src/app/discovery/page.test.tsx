@@ -131,11 +131,14 @@ describe("/discovery", () => {
 
     // Each row deep-links to the owning agent or unit page.
     const agentLink = screen.getByRole("link", { name: /agent:\/\/ada/i });
-    expect(agentLink).toHaveAttribute("href", "/agents/ada");
+    expect(agentLink).toHaveAttribute(
+      "href",
+      "/units?node=ada&tab=Overview",
+    );
     const unitLink = screen.getByRole("link", {
       name: /unit:\/\/engineering/i,
     });
-    expect(unitLink).toHaveAttribute("href", "/units/engineering");
+    expect(unitLink).toHaveAttribute("href", "/units?node=engineering");
   });
 
   it("submits the text query when the user hits Enter", async () => {

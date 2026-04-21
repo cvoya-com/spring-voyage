@@ -8,7 +8,7 @@
 // `unitId`. See `app/units/[id]/unit-config-client.tsx` for the
 // original usage.
 
-import { AgentsTab } from "@/app/units/[id]/agents-tab";
+import { AgentsTab } from "@/components/units/tab-impls/agents-tab";
 
 import { registerTab, type TabContentProps } from "./index";
 

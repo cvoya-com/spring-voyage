@@ -38,29 +38,29 @@ describe("InboxCard", () => {
     expect(screen.getByText(/m ago/)).toBeInTheDocument();
   });
 
-  it("deep-links 'Open thread' to /conversations/{id}", () => {
+  it("deep-links 'Open thread' back to /inbox with the conversation id", () => {
     render(<InboxCard item={baseItem} />);
     const link = screen.getByTestId("inbox-open-conv-42");
-    expect(link).toHaveAttribute("href", "/conversations/conv-42");
+    expect(link).toHaveAttribute("href", "/inbox?conversation=conv-42");
   });
 
-  it("links agent:// senders to the agent detail page", () => {
+  it("links agent:// senders to the Explorer Overview tab", () => {
     render(<InboxCard item={baseItem} />);
     const link = screen.getByTestId("inbox-from-link-conv-42");
     expect(link).toHaveAttribute(
       "href",
-      "/agents/engineering-team%2Fada",
+      "/units?node=engineering-team%2Fada&tab=Overview",
     );
   });
 
-  it("links unit:// senders to the unit detail page", () => {
+  it("links unit:// senders to the Explorer node", () => {
     render(
       <InboxCard
         item={{ ...baseItem, from: "unit://engineering-team" }}
       />,
     );
     const link = screen.getByTestId("inbox-from-link-conv-42");
-    expect(link).toHaveAttribute("href", "/units/engineering-team");
+    expect(link).toHaveAttribute("href", "/units?node=engineering-team");
   });
 
   it("does not link human:// senders (no portal detail page)", () => {
@@ -80,10 +80,10 @@ describe("InboxCard", () => {
     expect(screen.getAllByText("conv-42").length).toBeGreaterThan(0);
   });
 
-  it("exposes a full-card primary link that navigates to the conversation (#593)", () => {
+  it("exposes a full-card primary link that navigates to the inbox with the conversation id (#593)", () => {
     render(<InboxCard item={baseItem} />);
     const link = screen.getByTestId("inbox-card-link-conv-42");
-    expect(link).toHaveAttribute("href", "/conversations/conv-42");
+    expect(link).toHaveAttribute("href", "/inbox?conversation=conv-42");
     expect(link).toHaveAttribute(
       "aria-label",
       "Open conversation Need your call on the migration plan",

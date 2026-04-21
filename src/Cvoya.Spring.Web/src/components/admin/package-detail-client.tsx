@@ -50,7 +50,7 @@ export default function PackageDetailClient({ name }: Props) {
       <div className="space-y-4">
         <Breadcrumbs
           items={[
-            { label: "Packages", href: "/packages" },
+            { label: "Packages", href: "/settings/packages" },
             { label: name },
           ]}
         />
@@ -70,7 +70,7 @@ export default function PackageDetailClient({ name }: Props) {
       <div className="space-y-4">
         <Breadcrumbs
           items={[
-            { label: "Packages", href: "/packages" },
+            { label: "Packages", href: "/settings/packages" },
             { label: name },
           ]}
         />
@@ -100,7 +100,7 @@ export default function PackageDetailClient({ name }: Props) {
     <div className="space-y-6">
       <Breadcrumbs
         items={[
-          { label: "Packages", href: "/packages" },
+          { label: "Packages", href: "/settings/packages" },
           { label: pkg.name ?? name },
         ]}
       />
@@ -150,7 +150,7 @@ export default function PackageDetailClient({ name }: Props) {
               )}
             </div>
             <Link
-              href={`/packages/${encodeURIComponent(pkg.name ?? "")}/templates/${encodeURIComponent(t.name ?? "")}`}
+              href={`/settings/packages/${encodeURIComponent(pkg.name ?? "")}/templates/${encodeURIComponent(t.name ?? "")}`}
               className="ml-3 inline-flex items-center gap-1 text-xs text-primary hover:underline"
               aria-label={`Show template ${t.name}`}
             >

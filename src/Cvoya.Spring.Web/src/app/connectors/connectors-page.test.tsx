@@ -162,8 +162,11 @@ describe("ConnectorsListPage", () => {
         screen.getByText(/No connectors installed on this tenant\./i),
       ).toBeInTheDocument();
     });
-    const packagesLink = screen.getByRole("link", { name: /Packages/i });
-    expect(packagesLink).toHaveAttribute("href", "/packages");
+    // Post-`DEL-packages-top` (#874) the `/packages` link is gone;
+    // the empty-state copy now only mentions the CLI install verb.
+    expect(
+      screen.queryByRole("link", { name: /Packages/i }),
+    ).not.toBeInTheDocument();
   });
 
   it("renders a two-tab layout with Catalog as the default tab", async () => {

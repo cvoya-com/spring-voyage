@@ -4,7 +4,7 @@
 // Adapter around the legacy `<PoliciesTab>` so the Explorer surface and
 // `/units/[id]` use the same policy UI during the V2 rollout.
 
-import { PoliciesTab } from "@/app/units/[id]/policies-tab";
+import { PoliciesTab } from "@/components/units/tab-impls/policies-tab";
 
 import { registerTab, type TabContentProps } from "./index";
 

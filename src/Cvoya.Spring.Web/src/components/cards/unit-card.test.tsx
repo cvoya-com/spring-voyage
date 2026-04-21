@@ -34,7 +34,7 @@ describe("UnitCard", () => {
     expect(screen.getByText("Running")).toBeInTheDocument();
     expect(screen.getByTestId("unit-open-engineering")).toHaveAttribute(
       "href",
-      "/units/engineering",
+      "/units?node=engineering",
     );
   });
 
@@ -52,13 +52,13 @@ describe("UnitCard", () => {
 
     expect(
       screen.getByTestId("unit-link-activity-engineering"),
-    ).toHaveAttribute("href", "/units/engineering?tab=activity");
+    ).toHaveAttribute("href", "/units?node=engineering&tab=Activity");
     expect(
       screen.getByTestId("unit-link-costs-engineering"),
-    ).toHaveAttribute("href", "/units/engineering?tab=costs");
+    ).toHaveAttribute("href", "/units?node=engineering&tab=Overview");
     expect(
       screen.getByTestId("unit-link-policies-engineering"),
-    ).toHaveAttribute("href", "/units/engineering?tab=policies");
+    ).toHaveAttribute("href", "/units?node=engineering&tab=Policies");
   });
 
   it("defaults status to Draft and shows a sparkline placeholder when no data is available", () => {
@@ -108,7 +108,7 @@ describe("UnitCard", () => {
       />,
     );
     const link = screen.getByTestId("unit-card-link-engineering");
-    expect(link).toHaveAttribute("href", "/units/engineering");
+    expect(link).toHaveAttribute("href", "/units?node=engineering");
     expect(link).toHaveAttribute("aria-label", "Open unit Engineering");
     expect(link.className).toMatch(/after:absolute/);
     expect(link.className).toMatch(/after:inset-0/);

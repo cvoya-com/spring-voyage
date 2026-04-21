@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { UnitNode } from "../aggregate";
 
-vi.mock("@/app/units/[id]/activity-tab", () => ({
+vi.mock("@/components/units/tab-impls/activity-tab", () => ({
   ActivityTab: ({ unitId }: { unitId: string }) => (
     <div data-testid="legacy-activity-tab" data-unit-id={unitId} />
   ),

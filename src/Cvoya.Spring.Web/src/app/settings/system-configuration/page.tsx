@@ -2,10 +2,10 @@
  * /settings/system-configuration — moved from `/system/configuration`
  * (#866 / SET-system-config).
  *
- * Both routes render the same component until `DEL-system-top`
- * removes the legacy `/system/configuration` source. A pure
- * re-export keeps the two routes in lockstep without duplicating
- * logic — the legacy module still owns the `"use client"` directive.
+ * Post-`DEL-system-top` (#875) the implementation lives at
+ * `@/components/admin/system-configuration-page`. A pure re-export
+ * keeps this route thin — the shared component owns the
+ * `"use client"` directive and the data fetching.
  */
 
-export { default } from "@/app/system/configuration/page";
+export { default } from "@/components/admin/system-configuration-page";

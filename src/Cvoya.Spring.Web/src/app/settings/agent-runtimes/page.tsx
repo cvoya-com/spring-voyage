@@ -1,11 +1,10 @@
 /**
  * /settings/agent-runtimes — moved from `/admin/agent-runtimes` (#865 / SET-agent-runtimes).
  *
- * Both routes render the same component until `DEL-admin-top`
- * removes the legacy `/admin/agent-runtimes` source. A pure
- * re-export keeps the two routes in lockstep without duplicating
- * logic — the legacy module still owns the `"use client"` directive
- * and the `../admin-shared` imports.
+ * The implementation lives at `@/components/admin/agent-runtimes-page`
+ * after `DEL-admin-top` (#876) retired the `/admin/*` routes. A pure
+ * re-export keeps this route thin — the shared component owns the
+ * `"use client"` directive and the data fetching.
  */
 
-export { default } from "@/app/admin/agent-runtimes/page";
+export { default } from "@/components/admin/agent-runtimes-page";

@@ -33,7 +33,7 @@ describe("AgentCard", () => {
     expect(screen.getByTestId("agent-role-badge")).toHaveTextContent("backend");
     expect(screen.getByTestId("agent-open-ada")).toHaveAttribute(
       "href",
-      "/agents/ada",
+      "/units?node=ada&tab=Overview",
     );
   });
 
@@ -54,14 +54,14 @@ describe("AgentCard", () => {
 
     expect(screen.getByTestId("agent-parent-unit")).toHaveAttribute(
       "href",
-      "/units/engineering",
+      "/units?node=engineering",
     );
     expect(
       screen.getByTestId("agent-link-conversations-engineering/ada"),
-    ).toHaveAttribute("href", "/agents/engineering%2Fada?tab=conversations");
+    ).toHaveAttribute("href", "/units?node=engineering%2Fada&tab=Messages");
     expect(
       screen.getByTestId("agent-link-cost-engineering/ada"),
-    ).toHaveAttribute("href", "/agents/engineering%2Fada?tab=costs");
+    ).toHaveAttribute("href", "/units?node=engineering%2Fada&tab=Overview");
     expect(screen.getByTestId("agent-execution-mode-badge")).toHaveTextContent(
       "Auto",
     );
@@ -135,7 +135,7 @@ describe("AgentCard", () => {
       />,
     );
     const link = screen.getByTestId("agent-card-link-ada");
-    expect(link).toHaveAttribute("href", "/agents/ada");
+    expect(link).toHaveAttribute("href", "/units?node=ada&tab=Overview");
     expect(link).toHaveAttribute("aria-label", "Open agent Ada");
     // The full-card overlay is delivered via the ::after pseudo; the
     // stylesheet-level assertion is covered by the axe smoke tests.
