@@ -40,7 +40,6 @@ public class AgentRuntimeCommandTests
     [InlineData("agent-runtime models remove claude claude-opus-4-1")]
     [InlineData("agent-runtime config set claude defaultModel=claude-sonnet-4-5")]
     [InlineData("agent-runtime credentials status claude")]
-    [InlineData("agent-runtime verify-baseline claude")]
     [InlineData("agent-runtime refresh-models claude")]
     [InlineData("agent-runtime refresh-models claude --credential sk-ant-api-test")]
     [InlineData("agent-runtime refresh-models ollama")]
