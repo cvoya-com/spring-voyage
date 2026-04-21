@@ -13,7 +13,7 @@ All commands below assume you've authenticated the CLI (`spring auth login`). Ev
 ```
 $ spring agent-runtime list
 id       displayName  toolKind        defaultModel         models
-claude   Claude       claude-code-cli claude-sonnet-4-5    claude-sonnet-4-5,claude-opus-4-1
+claude   Claude       claude-code-cli claude-opus-4-7    claude-opus-4-7,claude-sonnet-4-6,claude-haiku-4-5
 google   Google       dapr-agent      gemini-2.0-flash     gemini-2.0-flash
 ollama   Ollama       dapr-agent      llama3.2             llama3.2
 openai   OpenAI       dapr-agent      gpt-4o               gpt-4o,gpt-4o-mini
@@ -26,7 +26,7 @@ openai   OpenAI       dapr-agent      gpt-4o               gpt-4o,gpt-4o-mini
 ```
 $ spring agent-runtime show claude
 id       displayName  toolKind        defaultModel       models
-claude   Claude       claude-code-cli claude-sonnet-4-5  claude-sonnet-4-5,claude-opus-4-1
+claude   Claude       claude-code-cli claude-opus-4-7  claude-opus-4-7,claude-sonnet-4-6,claude-haiku-4-5
 ```
 
 A 404 means the runtime is not installed on the current tenant — re-install with `spring agent-runtime install claude`.
@@ -58,9 +58,9 @@ $ spring agent-runtime install openai \
 Three sugar verbs over `PATCH /config`:
 
 ```
-$ spring agent-runtime models set claude claude-sonnet-4-5,claude-opus-4-1
-$ spring agent-runtime models add claude claude-opus-4-1
-$ spring agent-runtime models remove claude claude-opus-4-1
+$ spring agent-runtime models set claude claude-opus-4-7,claude-sonnet-4-6,claude-haiku-4-5
+$ spring agent-runtime models add claude claude-haiku-4-5
+$ spring agent-runtime models remove claude claude-haiku-4-5
 ```
 
 - `set` replaces the list.
@@ -70,14 +70,17 @@ $ spring agent-runtime models remove claude claude-opus-4-1
 ```
 $ spring agent-runtime models list claude
 id                  displayName        contextWindow
-claude-sonnet-4-5   Claude Sonnet 4.5  200000
-claude-opus-4-1     Claude Opus 4.1    200000
+claude-opus-4-7     Claude Opus 4.7 (1M context)  1000000
+claude-sonnet-4-6   Claude Sonnet 4.6             1000000
+claude-haiku-4-5    Claude Haiku 4.5              200000
 ```
+
+The upstream Claude Code CLI may show two Sonnet 4.6 presets (everyday vs 1M / long-context billing). Both use the same Anthropic API model id `claude-sonnet-4-6`; the OSS seed lists that id once.
 
 ## Setting non-model config
 
 ```
-$ spring agent-runtime config set claude defaultModel=claude-opus-4-1
+$ spring agent-runtime config set claude defaultModel=claude-opus-4-7
 $ spring agent-runtime config set ollama baseUrl=http://ollama.internal:11434
 $ spring agent-runtime config set ollama baseUrl=        # clears the field
 ```

@@ -99,8 +99,8 @@ function makeRuntime(
     toolKind: "claude-code-cli",
     installedAt: now,
     updatedAt: now,
-    models: ["claude-sonnet-4-20250514", "claude-opus-4-20250514"],
-    defaultModel: "claude-sonnet-4-20250514",
+    models: ["claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5"],
+    defaultModel: "claude-opus-4-7",
     baseUrl: null,
     credentialKind: "ApiKey",
     credentialDisplayHint: null,
@@ -115,11 +115,11 @@ function defaultRuntimes(): InstalledAgentRuntimeResponse[] {
       displayName: "Claude (Claude Code CLI + Anthropic API)",
       toolKind: "claude-code-cli",
       models: [
-        "claude-sonnet-4-20250514",
-        "claude-opus-4-20250514",
-        "claude-haiku-4-20250514",
+        "claude-opus-4-7",
+        "claude-sonnet-4-6",
+        "claude-haiku-4-5",
       ],
-      defaultModel: "claude-sonnet-4-20250514",
+      defaultModel: "claude-opus-4-7",
       credentialKind: "ApiKey",
     }),
     makeRuntime({
@@ -229,9 +229,9 @@ describe("CreateUnitPage — wizard reads tenant-installed agent runtimes (#690)
     });
 
     const options = Array.from(modelSelect.options).map((o) => o.value);
-    expect(options).toContain("claude-sonnet-4-20250514");
-    expect(options).toContain("claude-opus-4-20250514");
-    expect(options).toContain("claude-haiku-4-20250514");
+    expect(options).toContain("claude-sonnet-4-6");
+    expect(options).toContain("claude-opus-4-7");
+    expect(options).toContain("claude-haiku-4-5");
   });
 
   it("switches to the openai runtime catalog when Tool=Codex", async () => {
@@ -375,7 +375,7 @@ describe("CreateUnitPage — T-07 wizard simplification (#949)", () => {
       /^Model$/i,
     )) as HTMLSelectElement;
     const options = Array.from(modelSelect.options).map((o) => o.value);
-    expect(options).toContain("claude-sonnet-4-20250514");
+    expect(options).toContain("claude-sonnet-4-6");
   });
 
   it("advances Next without gating on credential validation", async () => {

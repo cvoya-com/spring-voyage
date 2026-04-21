@@ -1173,7 +1173,7 @@ public class UnitActorTests
     public async Task TransitionAsync_DraftToStarting_WithModel_Succeeds()
     {
         _stateManager.TryGetStateAsync<string>(StateKeys.UnitModel, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<string>(true, "claude-sonnet-4-20250514"));
+            .Returns(new ConditionalValue<string>(true, "claude-sonnet-4-6"));
 
         var result = await _actor.TransitionAsync(UnitStatus.Starting, TestContext.Current.CancellationToken);
 
@@ -1224,7 +1224,7 @@ public class UnitActorTests
     public async Task CheckReadinessAsync_WithModel_ReturnsReady()
     {
         _stateManager.TryGetStateAsync<string>(StateKeys.UnitModel, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<string>(true, "claude-sonnet-4-20250514"));
+            .Returns(new ConditionalValue<string>(true, "claude-sonnet-4-6"));
 
         var result = await _actor.CheckReadinessAsync(TestContext.Current.CancellationToken);
 

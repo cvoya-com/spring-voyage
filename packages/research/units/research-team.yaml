@@ -4,7 +4,7 @@ unit:
   structure: hierarchical
   ai:
     agent: claude
-    model: claude-sonnet-4-20250514
+    model: claude-sonnet-4-6
     prompt: |
       You coordinate a research team made up of a researcher, a literature
       reviewer, and a data analyst. Route incoming research asks to the

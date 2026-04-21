@@ -5,7 +5,7 @@ agent:
   capabilities: ["design", "design-review", "ux-research", "prototyping"]
   ai:
     agent: claude
-    model: claude-sonnet-4-20250514
+    model: claude-sonnet-4-6
     tool: claude-code
     environment:
       image: spring-agent:latest

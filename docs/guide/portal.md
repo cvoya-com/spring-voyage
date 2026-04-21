@@ -140,7 +140,7 @@ spring unit create <name> --tool dapr-agent \
 # matches the portal's Model dropdown (#644 parity fix). The tool
 # supplies the provider internally; --model picks within that provider's
 # model family and is treated as opaque by the CLI.
-spring unit create <name> --tool claude-code --model claude-sonnet-4-20250514
+spring unit create <name> --tool claude-code --model claude-sonnet-4-6
 spring unit create <name> --tool codex --model gpt-4o
 spring unit create <name> --tool gemini --model gemini-2.5-pro
 

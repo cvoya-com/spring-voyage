@@ -20,7 +20,7 @@ agent:
 
   ai:
     agent: claude
-    model: claude-sonnet-4-20250514
+    model: claude-sonnet-4-6
     execution: delegated
     tool: claude-code
     environment:

@@ -53,9 +53,9 @@ Soft-deletes the install row. Without `--force`, the CLI prompts for `y/N` confi
 
 ```
 $ spring agent-runtime models list claude
-$ spring agent-runtime models set claude claude-sonnet-4-5,claude-opus-4-1
-$ spring agent-runtime models add claude claude-opus-4-1
-$ spring agent-runtime models remove claude claude-opus-4-1
+$ spring agent-runtime models set claude claude-opus-4-7,claude-sonnet-4-6,claude-haiku-4-5
+$ spring agent-runtime models add claude claude-haiku-4-5
+$ spring agent-runtime models remove claude claude-haiku-4-5
 ```
 
 Sugar over `PATCH /config` that reshapes the tenant's model list. `add` is a no-op if the id is already present (case-insensitive).
@@ -63,7 +63,7 @@ Sugar over `PATCH /config` that reshapes the tenant's model list. `add` is a no-
 ### `config set <id> <key=value>`
 
 ```
-$ spring agent-runtime config set claude defaultModel=claude-sonnet-4-5
+$ spring agent-runtime config set claude defaultModel=claude-opus-4-7
 $ spring agent-runtime config set ollama baseUrl=http://ollama.internal:11434
 $ spring agent-runtime config set ollama baseUrl=        # clears
 ```
@@ -207,7 +207,7 @@ These predate the tenant-install surface and work for units whose tenant has the
 ## Top scenarios
 
 1. **Fresh tenant, Claude auth check.** `spring agent-runtime credentials status claude` → primes via the wizard if 404.
-2. **Add a new Claude model to the tenant.** `spring agent-runtime models add claude claude-opus-4-2`.
+2. **Add a new Claude model to the tenant.** `spring agent-runtime models add claude claude-haiku-4-5`.
 3. **Reconcile the tenant's list with what the provider currently publishes.** `spring agent-runtime refresh-models openai --credential sk-proj-…` (closes #720 — replaces the refresh-script).
 4. **Retire a model from the catalog.** `spring agent-runtime models remove openai gpt-4o-mini` (existing units keep their pinned id per #674's pass-through rule).
 5. **Re-run backend validation on a failed unit.** `spring unit revalidate my-unit` — dispatches a fresh `UnitValidationWorkflow` run; exits 20–27 map onto the underlying `UnitValidationCodes`.

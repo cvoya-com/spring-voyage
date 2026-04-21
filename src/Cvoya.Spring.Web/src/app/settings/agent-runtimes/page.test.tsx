@@ -61,8 +61,8 @@ function makeRuntime(
     toolKind: "claude-code-cli",
     installedAt: "2026-04-01T00:00:00Z",
     updatedAt: "2026-04-10T00:00:00Z",
-    models: ["claude-sonnet-4-5", "claude-opus-4-1"],
-    defaultModel: "claude-sonnet-4-5",
+    models: ["claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5"],
+    defaultModel: "claude-opus-4-7",
     baseUrl: null,
     credentialKind: "ApiKey",
     credentialDisplayHint: "ANTHROPIC_API_KEY",
@@ -111,7 +111,7 @@ describe("SettingsAgentRuntimesPage", () => {
       expect(screen.getByText("Claude")).toBeInTheDocument();
     });
     expect(screen.getByText("OpenAI")).toBeInTheDocument();
-    expect(screen.getByText("claude-sonnet-4-5 · default")).toBeInTheDocument();
+    expect(screen.getByText("claude-opus-4-7 · default")).toBeInTheDocument();
     expect(screen.getByText("gpt-4o · default")).toBeInTheDocument();
 
     await waitFor(() => {

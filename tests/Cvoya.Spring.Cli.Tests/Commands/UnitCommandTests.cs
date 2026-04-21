@@ -30,7 +30,7 @@ public class UnitCommandTests
     [Theory]
     [InlineData("dapr-agent", "openai", "gpt-4o")]
     [InlineData("dapr-agent", "anthropic", null)]
-    [InlineData("dapr-agent", null, "claude-sonnet-4-20250514")]
+    [InlineData("dapr-agent", null, "claude-sonnet-4-6")]
     [InlineData("dapr-agent", null, null)]
     public void ValidateProviderModelAgainstTool_DaprAgent_Accepts(
         string tool,
@@ -57,7 +57,7 @@ public class UnitCommandTests
 
     [Theory]
     [InlineData("claude-code", "anthropic", null)]
-    [InlineData("claude-code", "anthropic", "claude-sonnet-4-20250514")]
+    [InlineData("claude-code", "anthropic", "claude-sonnet-4-6")]
     [InlineData("codex", "openai", "gpt-4o")]
     [InlineData("codex", "openai", null)]
     [InlineData("gemini", "google", "gemini-2.5-pro")]
@@ -79,9 +79,9 @@ public class UnitCommandTests
     // a known provider family — the portal's wizard (PR #645) and
     // execution-tab (PR #643 follow-up) render the Model dropdown for
     // these tools, so the CLI must not be stricter than the portal.
-    [InlineData("claude-code", "claude-sonnet-4-20250514")]
-    [InlineData("claude-code", "claude-opus-4-20250514")]
-    [InlineData("claude-code", "claude-haiku-4-20250514")]
+    [InlineData("claude-code", "claude-sonnet-4-6")]
+    [InlineData("claude-code", "claude-opus-4-7")]
+    [InlineData("claude-code", "claude-haiku-4-5")]
     [InlineData("codex", "gpt-4o")]
     [InlineData("codex", "gpt-4o-mini")]
     [InlineData("gemini", "gemini-2.5-pro")]
@@ -138,7 +138,7 @@ public class UnitCommandTests
         UnitCommand.ValidateProviderModelAgainstTool(
             "Claude-Code",
             provider: null,
-            model: "claude-sonnet-4-20250514")
+            model: "claude-sonnet-4-6")
             .ShouldBeNull();
 
         UnitCommand.ValidateProviderModelAgainstTool(

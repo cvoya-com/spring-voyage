@@ -8,7 +8,7 @@ namespace Cvoya.Spring.Core.AgentRuntimes;
 /// </summary>
 /// <param name="Id">
 /// Stable model identifier passed to the backing service (e.g.
-/// <c>claude-sonnet-4-5</c>, <c>gpt-4o-mini</c>). Persisted on units — a
+/// <c>claude-sonnet-4-6</c>, <c>gpt-4o-mini</c>). Persisted on units — a
 /// unit's pinned model id survives catalog changes.
 /// </param>
 /// <param name="DisplayName">Human-facing label for UI/CLI surfaces.</param>

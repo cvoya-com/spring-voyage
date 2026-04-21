@@ -405,7 +405,7 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
                       e.target.value ? e.target.value : null,
                     )
                   }
-                  placeholder="e.g. claude-sonnet-4-20250514"
+                  placeholder="e.g. claude-sonnet-4-6"
                   aria-label="Execution model"
                   data-testid="execution-model-input"
                 />

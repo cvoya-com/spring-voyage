@@ -420,10 +420,35 @@ public class ClaudeAgentRuntime : IAgentRuntime
         var list = new List<ModelDescriptor>(seed.Models.Count);
         foreach (var id in seed.Models)
         {
-            list.Add(new ModelDescriptor(id, id, ContextWindow: null));
+            list.Add(DescribeSeedModel(id));
         }
         return list;
     }
+
+    /// <summary>
+    /// Maps seed ids to UI labels and approximate context limits. Unknown
+    /// ids fall back to the wire id as the display name (same as the REST
+    /// catalog path). Claude Code may list two Sonnet 4.6 presets (standard
+    /// vs 1M billing); both resolve to the same Anthropic model id
+    /// <c>claude-sonnet-4-6</c>.
+    /// </summary>
+    private static ModelDescriptor DescribeSeedModel(string id) =>
+        id switch
+        {
+            "claude-opus-4-7" => new ModelDescriptor(
+                id,
+                "Claude Opus 4.7 (1M context)",
+                ContextWindow: 1_000_000),
+            "claude-sonnet-4-6" => new ModelDescriptor(
+                id,
+                "Claude Sonnet 4.6",
+                ContextWindow: 1_000_000),
+            "claude-haiku-4-5" => new ModelDescriptor(
+                id,
+                "Claude Haiku 4.5",
+                ContextWindow: 200_000),
+            _ => new ModelDescriptor(id, id, ContextWindow: null),
+        };
 }
 
 /// <summary>Subset of Anthropic's <c>GET /v1/models</c> response we need to drain after a successful REST validation.</summary>

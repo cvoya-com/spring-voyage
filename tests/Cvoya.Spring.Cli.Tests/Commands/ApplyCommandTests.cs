@@ -27,7 +27,7 @@ public class ApplyCommandTests
           structure: hierarchical
           ai:
             agent: claude
-            model: claude-sonnet-4-20250514
+            model: claude-sonnet-4-6
             prompt: |
               You coordinate a software engineering team.
               Route incoming work to the most appropriate team member.
@@ -70,7 +70,7 @@ public class ApplyCommandTests
 
         manifest.Ai.ShouldNotBeNull();
         manifest.Ai!.Agent.ShouldBe("claude");
-        manifest.Ai.Model.ShouldBe("claude-sonnet-4-20250514");
+        manifest.Ai.Model.ShouldBe("claude-sonnet-4-6");
         manifest.Ai.Skills.ShouldNotBeNull();
         manifest.Ai.Skills!.Count.ShouldBe(1);
 

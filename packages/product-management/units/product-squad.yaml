@@ -4,7 +4,7 @@ unit:
   structure: hierarchical
   ai:
     agent: claude
-    model: claude-sonnet-4-20250514
+    model: claude-sonnet-4-6
     prompt: |
       You coordinate a product squad made up of a product manager and a
       product designer. Route incoming work to the most appropriate squad

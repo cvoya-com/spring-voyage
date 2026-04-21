@@ -452,7 +452,7 @@ export function AgentExecutionPanel({
                 placeholder={
                   inherited("model")
                     ? `inherited from unit: ${inherited("model")}`
-                    : "e.g. claude-sonnet-4-20250514"
+                    : "e.g. claude-sonnet-4-6"
                 }
                 aria-label="Agent execution model"
                 data-testid="agent-execution-model-input"

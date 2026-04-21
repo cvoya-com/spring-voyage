@@ -157,7 +157,7 @@ public class AiManifest
     [YamlMember(Alias = "agent")]
     public string? Agent { get; set; }
 
-    /// <summary>Model identifier (e.g. <c>claude-sonnet-4-20250514</c>).</summary>
+    /// <summary>Model identifier (e.g. <c>claude-sonnet-4-6</c>).</summary>
     [YamlMember(Alias = "model")]
     public string? Model { get; set; }
 

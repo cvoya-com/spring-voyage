@@ -34,7 +34,7 @@ public class AnthropicProviderTests
         _options = Options.Create(new AiProviderOptions
         {
             ApiKey = "test-api-key",
-            Model = "claude-sonnet-4-20250514",
+            Model = "claude-sonnet-4-6",
             MaxTokens = 1024,
             BaseUrl = "https://api.anthropic.com"
         });

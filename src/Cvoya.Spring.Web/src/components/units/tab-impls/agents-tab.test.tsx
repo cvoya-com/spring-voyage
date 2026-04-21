@@ -111,10 +111,10 @@ const DEFAULT_RUNTIMES = [
     id: "claude",
     displayName: "Anthropic Claude",
     models: [
-      "claude-sonnet-4-20250514",
-      "claude-opus-4-20250514",
+      "claude-sonnet-4-6",
+      "claude-opus-4-7",
     ],
-    defaultModel: "claude-sonnet-4-20250514",
+    defaultModel: "claude-sonnet-4-6",
   },
   {
     id: "openai",
@@ -164,7 +164,7 @@ describe("AgentsTab", () => {
     listUnitMemberships.mockResolvedValue([
       makeMembership({
         agentAddress: "ada",
-        model: "claude-sonnet-4-20250514",
+        model: "claude-sonnet-4-6",
         specialty: "reviewer",
         enabled: true,
       }),
@@ -176,7 +176,7 @@ describe("AgentsTab", () => {
       expect(screen.getByText("Ada")).toBeInTheDocument();
     });
     expect(screen.getByText(/reviewer/i)).toBeInTheDocument();
-    expect(screen.getByText(/claude-sonnet-4-20250514/)).toBeInTheDocument();
+    expect(screen.getByText(/claude-sonnet-4-6/)).toBeInTheDocument();
   });
 
   it("opens the Add dialog, submits the correct PUT payload, and refreshes the row", async () => {
@@ -186,7 +186,7 @@ describe("AgentsTab", () => {
 
     const saved = makeMembership({
       agentAddress: "hopper",
-      model: "claude-opus-4-20250514",
+      model: "claude-opus-4-7",
       specialty: "architect",
       enabled: true,
       executionMode: "OnDemand",
@@ -209,7 +209,7 @@ describe("AgentsTab", () => {
       target: { value: "hopper" },
     });
     fireEvent.change(within(dialog).getByLabelText(/^Model$/i), {
-      target: { value: "claude-opus-4-20250514" },
+      target: { value: "claude-opus-4-7" },
     });
     fireEvent.change(within(dialog).getByLabelText(/^Specialty$/i), {
       target: { value: "architect" },
@@ -225,7 +225,7 @@ describe("AgentsTab", () => {
         "engineering",
         "hopper",
         {
-          model: "claude-opus-4-20250514",
+          model: "claude-opus-4-7",
           specialty: "architect",
           enabled: true,
           executionMode: "OnDemand",
@@ -248,7 +248,7 @@ describe("AgentsTab", () => {
     listUnitMemberships.mockResolvedValue([
       makeMembership({
         agentAddress: "ada",
-        model: "claude-opus-4-20250514",
+        model: "claude-opus-4-7",
         specialty: "reviewer",
         enabled: false,
         executionMode: "OnDemand",
@@ -257,7 +257,7 @@ describe("AgentsTab", () => {
 
     const updated = makeMembership({
       agentAddress: "ada",
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-6",
       specialty: "reviewer",
       enabled: false,
       executionMode: "OnDemand",
@@ -277,7 +277,7 @@ describe("AgentsTab", () => {
     expect(within(dialog).getByText(/Edit membership/i)).toBeInTheDocument();
     expect(
       (within(dialog).getByLabelText(/^Model$/i) as HTMLSelectElement).value,
-    ).toBe("claude-opus-4-20250514");
+    ).toBe("claude-opus-4-7");
     expect(
       (within(dialog).getByLabelText(/^Specialty$/i) as HTMLInputElement)
         .value,
@@ -291,7 +291,7 @@ describe("AgentsTab", () => {
     ).toBe(false);
 
     fireEvent.change(within(dialog).getByLabelText(/^Model$/i), {
-      target: { value: "claude-sonnet-4-20250514" },
+      target: { value: "claude-sonnet-4-6" },
     });
     fireEvent.click(within(dialog).getByRole("button", { name: /^save$/i }));
 
@@ -299,7 +299,7 @@ describe("AgentsTab", () => {
       expect(upsertUnitMembership).toHaveBeenCalledWith(
         "engineering",
         "ada",
-        expect.objectContaining({ model: "claude-sonnet-4-20250514" }),
+        expect.objectContaining({ model: "claude-sonnet-4-6" }),
       );
     });
   });
@@ -478,6 +478,6 @@ describe("AgentsTab", () => {
     // The retired hardcoded catalog would have included Claude models;
     // the single-runtime mock above proves the dropdown no longer
     // inlines that static list.
-    expect(options).not.toContain("claude-sonnet-4-20250514");
+    expect(options).not.toContain("claude-sonnet-4-6");
   });
 });

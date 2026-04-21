@@ -21,7 +21,7 @@ public class AiProviderOptions
     /// <summary>
     /// The model identifier to use for completions.
     /// </summary>
-    public string Model { get; set; } = "claude-sonnet-4-20250514";
+    public string Model { get; set; } = "claude-sonnet-4-6";
 
     /// <summary>
     /// The maximum number of tokens to generate in a response.

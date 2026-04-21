@@ -77,7 +77,7 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
               description: A unit created via YAML.
               ai:
                 agent: claude
-                model: claude-sonnet-4-20250514
+                model: claude-sonnet-4-6
               members:
                 - agent: tech-lead
                 - agent: backend-engineer
@@ -96,7 +96,7 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
         using var doc = JsonDocument.Parse(body);
         doc.RootElement.GetProperty("unit").GetProperty("name").GetString().ShouldBe("from-yaml-unit");
         doc.RootElement.GetProperty("unit").GetProperty("displayName").GetString().ShouldBe("From YAML");
-        doc.RootElement.GetProperty("unit").GetProperty("model").GetString().ShouldBe("claude-sonnet-4-20250514");
+        doc.RootElement.GetProperty("unit").GetProperty("model").GetString().ShouldBe("claude-sonnet-4-6");
         // #324: the manifest declared two members; the service now calls the
         // unit actor directly (bypassing MessageRouter's permission gate) so
         // both adds should succeed and be reflected in membersAdded. Each
@@ -114,7 +114,7 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
             Arg.Is<DirectoryEntry>(e => e.Address.Path == "from-yaml-unit"),
             Arg.Any<CancellationToken>());
         await proxy.Received(1).SetMetadataAsync(
-            Arg.Is<UnitMetadata>(m => m.Model == "claude-sonnet-4-20250514"),
+            Arg.Is<UnitMetadata>(m => m.Model == "claude-sonnet-4-6"),
             Arg.Any<CancellationToken>());
         await proxy.Received(1).AddMemberAsync(
             Arg.Is<Address>(a => a.Scheme == "agent" && a.Path == "tech-lead"),
@@ -636,7 +636,7 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
             name = "scratch-skip-unit",
             displayName = "Scratch Skip Unit",
             description = "made via wizard scratch + skip",
-            model = "claude-sonnet-4-20250514",
+            model = "claude-sonnet-4-6",
             color = "#6366f1",
             isTopLevel = true,
             // No 'connector' field — the wizard omits it for the skip case.
@@ -656,7 +656,7 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
             Arg.Any<Address>(), Arg.Any<CancellationToken>());
         // The model hint reached the actor metadata write.
         await proxy.Received(1).SetMetadataAsync(
-            Arg.Is<UnitMetadata>(m => m.Model == "claude-sonnet-4-20250514"),
+            Arg.Is<UnitMetadata>(m => m.Model == "claude-sonnet-4-6"),
             Arg.Any<CancellationToken>());
     }
 

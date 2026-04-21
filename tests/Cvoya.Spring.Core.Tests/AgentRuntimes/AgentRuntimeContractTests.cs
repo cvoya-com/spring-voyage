@@ -146,8 +146,8 @@ public class AgentRuntimeSeedSchemaTests
     {
         const string json = """
         {
-          "models": ["claude-sonnet-4-5", "claude-haiku-4-5"],
-          "defaultModel": "claude-sonnet-4-5",
+          "models": ["claude-sonnet-4-6", "claude-haiku-4-5"],
+          "defaultModel": "claude-sonnet-4-6",
           "baseUrl": "https://api.anthropic.com",
           "extras": { "requiresCli": true }
         }
@@ -157,8 +157,8 @@ public class AgentRuntimeSeedSchemaTests
 
         seed.ShouldNotBeNull();
         seed!.Models.Count.ShouldBe(2);
-        seed.Models[0].ShouldBe("claude-sonnet-4-5");
-        seed.DefaultModel.ShouldBe("claude-sonnet-4-5");
+        seed.Models[0].ShouldBe("claude-sonnet-4-6");
+        seed.DefaultModel.ShouldBe("claude-sonnet-4-6");
         seed.BaseUrl.ShouldBe("https://api.anthropic.com");
         seed.Extras.ShouldNotBeNull();
         seed.Extras!.Value.GetProperty("requiresCli").GetBoolean().ShouldBeTrue();

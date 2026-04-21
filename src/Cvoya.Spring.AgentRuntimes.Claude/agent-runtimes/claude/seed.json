@@ -1,10 +1,10 @@
 {
   "models": [
-    "claude-sonnet-4-20250514",
-    "claude-opus-4-20250514",
-    "claude-haiku-4-20250514"
+    "claude-opus-4-7",
+    "claude-sonnet-4-6",
+    "claude-haiku-4-5"
   ],
-  "defaultModel": "claude-sonnet-4-20250514",
+  "defaultModel": "claude-opus-4-7",
   "baseUrl": "https://api.anthropic.com",
   "extras": {
     "requiresCli": true

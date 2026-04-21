@@ -53,9 +53,9 @@ public class ClaudeAgentRuntimeIntegrationTests
         var ids = runtime.DefaultModels.Select(m => m.Id).ToArray();
         ids.ShouldBe(new[]
         {
-            "claude-sonnet-4-20250514",
-            "claude-opus-4-20250514",
-            "claude-haiku-4-20250514",
+            "claude-opus-4-7",
+            "claude-sonnet-4-6",
+            "claude-haiku-4-5",
         });
     }
 
@@ -70,8 +70,8 @@ public class ClaudeAgentRuntimeIntegrationTests
         var runtime = provider.GetRequiredService<IAgentRuntimeRegistry>().Get("claude")!;
 
         var config = new AgentRuntimeInstallConfig(
-            Models: new[] { "claude-sonnet-4-20250514" },
-            DefaultModel: "claude-sonnet-4-20250514",
+            Models: new[] { "claude-sonnet-4-6" },
+            DefaultModel: "claude-sonnet-4-6",
             BaseUrl: null);
 
         var steps = runtime.GetProbeSteps(config, credential: "sk-ant-api03-example");

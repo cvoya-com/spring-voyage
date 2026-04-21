@@ -119,8 +119,8 @@ describe("ExecutionTab", () => {
     // can still pick a model family (e.g. claude-opus-4 for Claude Code).
     getUnitExecution.mockResolvedValue({ tool: "claude-code" });
     getAgentRuntimeModels.mockResolvedValue([
-      { id: "claude-sonnet-4-20250514", displayName: "claude-sonnet-4-20250514", contextWindow: null },
-      { id: "claude-opus-4-20250514", displayName: "claude-opus-4-20250514", contextWindow: null },
+      { id: "claude-sonnet-4-6", displayName: "claude-sonnet-4-6", contextWindow: null },
+      { id: "claude-opus-4-7", displayName: "claude-opus-4-7", contextWindow: null },
     ]);
 
     render(

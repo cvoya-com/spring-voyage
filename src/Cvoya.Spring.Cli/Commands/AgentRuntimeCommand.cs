@@ -100,7 +100,7 @@ public static class AgentRuntimeCommand
 
     private static Command CreateInstallCommand(Option<string> outputOption)
     {
-        // Example: `spring agent-runtime install claude --model claude-sonnet-4-5 --model claude-opus-4-1`
+        // Example: `spring agent-runtime install claude --model claude-opus-4-7 --model claude-sonnet-4-6`
         var idArg = new Argument<string>("id") { Description = "Runtime id to install." };
         var modelOption = new Option<string[]>("--model")
         {
@@ -223,7 +223,7 @@ public static class AgentRuntimeCommand
 
     private static Command CreateModelsSetCommand(Option<string> outputOption)
     {
-        // Example: `spring agent-runtime models set claude claude-sonnet-4-5,claude-opus-4-1`
+        // Example: `spring agent-runtime models set claude claude-opus-4-7,claude-sonnet-4-6,claude-haiku-4-5`
         var idArg = new Argument<string>("id") { Description = "Runtime id." };
         var modelsArg = new Argument<string>("models")
         {
@@ -292,7 +292,7 @@ public static class AgentRuntimeCommand
 
     private static Command CreateConfigSetCommand(Option<string> outputOption)
     {
-        // Example: `spring agent-runtime config set claude defaultModel=claude-sonnet-4-5`
+        // Example: `spring agent-runtime config set claude defaultModel=claude-opus-4-7`
         var idArg = new Argument<string>("id") { Description = "Runtime id." };
         var kvArg = new Argument<string>("key=value")
         {

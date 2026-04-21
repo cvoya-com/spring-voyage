@@ -38,8 +38,8 @@ public class TenantAgentRuntimeInstallServiceTests
 
         result.RuntimeId.ShouldBe("claude");
         result.TenantId.ShouldBe(TenantA);
-        result.Config.Models.ShouldBe(new[] { "claude-sonnet-4-5", "claude-opus-4-1" });
-        result.Config.DefaultModel.ShouldBe("claude-sonnet-4-5");
+        result.Config.Models.ShouldBe(new[] { "claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5" });
+        result.Config.DefaultModel.ShouldBe("claude-opus-4-7");
         result.Config.BaseUrl.ShouldBeNull();
     }
 
@@ -51,14 +51,14 @@ public class TenantAgentRuntimeInstallServiceTests
         var sut = CreateSut(context, TenantA, registry);
 
         var explicitConfig = new AgentRuntimeInstallConfig(
-            Models: new[] { "claude-opus-4-1" },
-            DefaultModel: "claude-opus-4-1",
+            Models: new[] { "claude-opus-4-7" },
+            DefaultModel: "claude-opus-4-7",
             BaseUrl: "https://proxy.example.com");
 
         var result = await sut.InstallAsync("claude", explicitConfig, ct);
 
-        result.Config.Models.ShouldBe(new[] { "claude-opus-4-1" });
-        result.Config.DefaultModel.ShouldBe("claude-opus-4-1");
+        result.Config.Models.ShouldBe(new[] { "claude-opus-4-7" });
+        result.Config.DefaultModel.ShouldBe("claude-opus-4-7");
         result.Config.BaseUrl.ShouldBe("https://proxy.example.com");
     }
 
@@ -73,13 +73,13 @@ public class TenantAgentRuntimeInstallServiceTests
         var sut = CreateSut(context, TenantA, registry);
 
         var operatorEdit = new AgentRuntimeInstallConfig(
-            Models: new[] { "claude-opus-4-1" }, DefaultModel: "claude-opus-4-1", BaseUrl: null);
+            Models: new[] { "claude-opus-4-7" }, DefaultModel: "claude-opus-4-7", BaseUrl: null);
         await sut.InstallAsync("claude", operatorEdit, ct);
 
         var refreshed = await sut.InstallAsync("claude", config: null, ct);
 
-        refreshed.Config.Models.ShouldBe(new[] { "claude-opus-4-1" });
-        refreshed.Config.DefaultModel.ShouldBe("claude-opus-4-1");
+        refreshed.Config.Models.ShouldBe(new[] { "claude-opus-4-7" });
+        refreshed.Config.DefaultModel.ShouldBe("claude-opus-4-7");
     }
 
     [Fact]
@@ -193,8 +193,9 @@ public class TenantAgentRuntimeInstallServiceTests
             toolKind: "claude-code-cli",
             models: new[]
             {
-                new ModelDescriptor("claude-sonnet-4-5", "Claude Sonnet 4.5", 200_000),
-                new ModelDescriptor("claude-opus-4-1", "Claude Opus 4.1", 200_000),
+                new ModelDescriptor("claude-opus-4-7", "Claude Opus 4.7 (1M context)", 1_000_000),
+                new ModelDescriptor("claude-sonnet-4-6", "Claude Sonnet 4.6", 1_000_000),
+                new ModelDescriptor("claude-haiku-4-5", "Claude Haiku 4.5", 200_000),
             });
         var openai = CreateRuntime(
             id: "openai",

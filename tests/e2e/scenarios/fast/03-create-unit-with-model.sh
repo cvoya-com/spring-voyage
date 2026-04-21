@@ -18,13 +18,13 @@ name="$(e2e::unit_name with-model)"
 # field we pass into the create call, so we don't need to parse the response.
 trap 'e2e::cleanup_unit "${name}"' EXIT
 
-e2e::log "spring unit create ${name} --model claude-sonnet-4-20250514 --color #6366f1"
-response="$(e2e::cli --output json unit create "${name}" --model claude-sonnet-4-20250514 --color "#6366f1")"
+e2e::log "spring unit create ${name} --model claude-sonnet-4-6 --color #6366f1"
+response="$(e2e::cli --output json unit create "${name}" --model claude-sonnet-4-6 --color "#6366f1")"
 code="${response##*$'\n'}"
 body="${response%$'\n'*}"
 
 e2e::expect_status "0" "${code}" "unit-with-model creation succeeds via CLI"
-e2e::expect_contains "\"model\": \"claude-sonnet-4-20250514\"" "${body}" "response carries the model"
+e2e::expect_contains "\"model\": \"claude-sonnet-4-6\"" "${body}" "response carries the model"
 e2e::expect_contains "\"color\": \"#6366f1\"" "${body}" "response carries the color"
 
 e2e::summary

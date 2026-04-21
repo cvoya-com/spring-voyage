@@ -22,8 +22,10 @@ public class ClaudeRuntimeSeedTests
         var seed = ClaudeRuntimeSeedLoader.Load();
 
         seed.Models.Count.ShouldBeGreaterThan(0);
-        seed.Models.ShouldContain("claude-sonnet-4-20250514");
-        seed.DefaultModel.ShouldBe("claude-sonnet-4-20250514");
+        seed.Models.ShouldContain("claude-opus-4-7");
+        seed.Models.ShouldContain("claude-sonnet-4-6");
+        seed.Models.ShouldContain("claude-haiku-4-5");
+        seed.DefaultModel.ShouldBe("claude-opus-4-7");
         seed.BaseUrl.ShouldBe("https://api.anthropic.com");
         // The seed advertises the runtime's CLI dependency for downstream
         // tooling that surfaces install requirements without parsing the

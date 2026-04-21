@@ -34,7 +34,7 @@ public class DataContractSerializationTests
         var original = new UnitMetadata(
             DisplayName: "Engineering",
             Description: "An engineering team",
-            Model: "claude-sonnet-4-20250514",
+            Model: "claude-sonnet-4-6",
             Color: "#6366f1");
 
         var roundTripped = RoundTrip(original);

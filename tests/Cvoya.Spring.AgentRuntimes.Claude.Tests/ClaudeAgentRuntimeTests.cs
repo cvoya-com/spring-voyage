@@ -44,10 +44,14 @@ public class ClaudeAgentRuntimeTests
 
         runtime.DefaultModels.Count.ShouldBeGreaterThan(0);
         var ids = runtime.DefaultModels.Select(m => m.Id).ToArray();
-        ids.ShouldContain("claude-sonnet-4-20250514");
-        ids.ShouldContain("claude-opus-4-20250514");
-        ids.ShouldContain("claude-haiku-4-20250514");
+        ids.ShouldContain("claude-sonnet-4-6");
+        ids.ShouldContain("claude-opus-4-7");
+        ids.ShouldContain("claude-haiku-4-5");
         runtime.DefaultBaseUrl.ShouldBe("https://api.anthropic.com");
+
+        var opus = runtime.DefaultModels.Single(m => m.Id == "claude-opus-4-7");
+        opus.DisplayName.ShouldBe("Claude Opus 4.7 (1M context)");
+        opus.ContextWindow.ShouldBe(1_000_000);
     }
 
     // --- GetProbeSteps plan shape ---
@@ -220,7 +224,7 @@ public class ClaudeAgentRuntimeTests
 
         result.Outcome.ShouldBe(StepOutcome.Succeeded);
         result.Extras.ShouldNotBeNull();
-        result.Extras!["model"].ShouldBe("claude-sonnet-4-20250514");
+        result.Extras!["model"].ShouldBe("claude-sonnet-4-6");
     }
 
     [Fact]
@@ -294,8 +298,8 @@ public class ClaudeAgentRuntimeTests
 
     private static AgentRuntimeInstallConfig StandardConfig() =>
         new(
-            Models: new[] { "claude-sonnet-4-20250514" },
-            DefaultModel: "claude-sonnet-4-20250514",
+            Models: new[] { "claude-sonnet-4-6" },
+            DefaultModel: "claude-sonnet-4-6",
             BaseUrl: null);
 
     private static ProbeStep GetStep(UnitValidationStep which)

@@ -297,11 +297,11 @@ public class CommandParsingTests
         rootCommand.Subcommands.Add(unitCommand);
 
         var parseResult = rootCommand.Parse(
-            "unit create eng-team --model claude-sonnet-4-20250514 --color #6366f1");
+            "unit create eng-team --model claude-sonnet-4-6 --color #6366f1");
 
         parseResult.Errors.ShouldBeEmpty();
         parseResult.GetValue<string>("name").ShouldBe("eng-team");
-        parseResult.GetValue<string>("--model").ShouldBe("claude-sonnet-4-20250514");
+        parseResult.GetValue<string>("--model").ShouldBe("claude-sonnet-4-6");
         parseResult.GetValue<string>("--color").ShouldBe("#6366f1");
     }
 

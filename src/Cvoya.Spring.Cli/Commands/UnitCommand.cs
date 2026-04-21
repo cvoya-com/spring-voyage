@@ -145,7 +145,7 @@ public static class UnitCommand
         var modelOption = new Option<string?>("--model")
         {
             Description =
-                "Optional LLM model identifier (e.g. claude-sonnet-4-20250514). " +
+                "Optional LLM model identifier (e.g. claude-sonnet-4-6). " +
                 "Accepted as opaque for every tool that carries a known provider " +
                 "(claude-code / codex / gemini / dapr-agent); validation happens at unit activation.",
         };
@@ -698,7 +698,7 @@ public static class UnitCommand
         var modelOption = new Option<string?>("--model")
         {
             Description =
-                "Optional LLM model identifier override (e.g. claude-sonnet-4-20250514). " +
+                "Optional LLM model identifier override (e.g. claude-sonnet-4-6). " +
                 "Accepted as opaque for every tool that carries a known provider " +
                 "(claude-code / codex / gemini / dapr-agent); validation happens at unit activation.",
         };
