@@ -76,6 +76,59 @@ public class AnthropicProviderTests
     }
 
     /// <summary>
+    /// Verifies that an Anthropic Platform API key (sk-ant-api…) routes through the
+    /// REST path with <c>x-api-key</c> unchanged. Guards the happy path for #981.
+    /// </summary>
+    [Fact]
+    public async Task CompleteAsync_AnthropicApiKey_UsesRestWithXApiKeyHeader()
+    {
+        var options = Options.Create(new AiProviderOptions
+        {
+            ApiKey = "sk-ant-api03-valid",
+            Model = "claude-sonnet-4-6",
+            MaxTokens = 1024,
+            BaseUrl = "https://api.anthropic.com"
+        });
+        var handler = new MockHttpMessageHandler(CreateSuccessResponse(), HttpStatusCode.OK);
+        var provider = new AnthropicProvider(new HttpClient(handler), options, _loggerFactory);
+
+        var result = await provider.CompleteAsync("test prompt", TestContext.Current.CancellationToken);
+
+        result.ShouldBe("Hello, world!");
+        handler.CallCount.ShouldBe(1);
+        handler.LastRequest!.Headers.GetValues("x-api-key").ShouldContain("sk-ant-api03-valid");
+    }
+
+    /// <summary>
+    /// Verifies that a Claude.ai OAuth token (sk-ant-oat…) surfaces a structured
+    /// <see cref="SpringException"/> at dispatch without hitting the REST endpoint,
+    /// replacing the silent-502 behaviour reported in #981. OAuth tokens are only
+    /// usable through the in-container <c>claude</c> CLI path exposed by
+    /// <see cref="Cvoya.Spring.Core.AgentRuntimes.IAgentRuntime"/>, so the REST
+    /// provider must fail fast with an operator-actionable message.
+    /// </summary>
+    [Fact]
+    public async Task CompleteAsync_OAuthToken_ThrowsCredentialFormatRejectedWithoutCallingRest()
+    {
+        var options = Options.Create(new AiProviderOptions
+        {
+            ApiKey = "sk-ant-oat01-example",
+            Model = "claude-sonnet-4-6",
+            MaxTokens = 1024,
+            BaseUrl = "https://api.anthropic.com"
+        });
+        var handler = new MockHttpMessageHandler(CreateSuccessResponse(), HttpStatusCode.OK);
+        var provider = new AnthropicProvider(new HttpClient(handler), options, _loggerFactory);
+
+        var act = () => provider.CompleteAsync("test prompt", TestContext.Current.CancellationToken);
+
+        var ex = await Should.ThrowAsync<SpringException>(act);
+        ex.Message.ShouldContain("CredentialFormatRejected");
+        ex.Message.ShouldContain("sk-ant-oat");
+        handler.CallCount.ShouldBe(0);
+    }
+
+    /// <summary>
     /// Verifies that cancellation is properly propagated to the HTTP request.
     /// </summary>
     [Fact]
