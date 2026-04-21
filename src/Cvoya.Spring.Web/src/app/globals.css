@@ -3,7 +3,36 @@
 @custom-variant dark (&:is(.dark *));
 @custom-variant light (&:is(.light *));
 
+/* ---------------------------------------------------------------------------
+ * Tailwind 4 theme tokens.
+ *
+ * Tailwind 4 derives its utility classes from CSS custom properties declared
+ * inside `@theme`. Every `--color-*` here generates a matching `bg-*`, `text-*`,
+ * `border-*`, `ring-*`, `from-*`, etc. utility; `--font-*` drives `font-sans`,
+ * `font-mono`, etc.; `--radius-*` drives `rounded-*`.
+ *
+ * Two distinct token families coexist:
+ *
+ *   1. Tailwind utility tokens (`--color-*`, `--font-*`, `--radius-*`). These
+ *      preserve the existing portal API so every `bg-background`, `text-muted-
+ *      foreground`, `border-border`, `font-sans` reference keeps working.
+ *
+ *   2. Spring Voyage design-system tokens (`--sv-*`). These mirror the design
+ *      project's `colors_and_type.css` one-for-one and are consumed by the
+ *      portal-canvas styles ported from the design kit (UnitExplorer,
+ *      CardTabRow, TabChip, etc.) plus by marketing/docs/CLI surfaces.
+ *
+ * The two families intentionally point at the same hex values so a Tailwind
+ * `bg-background` and a hand-written `background: var(--sv-bg)` paint the same
+ * pixel. Theming flips both — the `.dark` and `.light` blocks below redefine
+ * both families together. The `[data-theme="dark"]` and `[data-theme="light"]`
+ * mirror selectors are added so the design-kit conventions (which switch on
+ * `<html data-theme="…">`) stay valid alongside the portal's existing
+ * `<html class="dark|light">` mechanism.
+ * --------------------------------------------------------------------------- */
+
 @theme {
+  /* ---- Tailwind colour palette (existing portal API — DO NOT rename) ---- */
   --color-background: #09090b;
   --color-foreground: #fafafa;
   --color-card: #0a0a0f;
@@ -24,12 +53,199 @@
   --color-ring: #3b82f6;
   --color-success: #22c55e;
   --color-warning: #eab308;
+  /* `--color-info` and `--color-debug` are new. Activity rows + log feeds
+   * grade severity beyond ok/warn/error; keeping them in the token namespace
+   * (instead of inline hexes) lets light-theme overrides relocate them. */
+  --color-info: #3b82f6;
+  --color-debug: #a1a1aa;
+
+  /* ---- Brand-extension palette (logo + marketing) ----------------------
+   * Named after the design assets they came from so component code reads
+   * intent rather than hue. `bg-voyage`, `text-blossom-deep`, etc. all work
+   * via Tailwind 4's `--color-*` → utility synthesis. The `--sv-brand-*`
+   * mirrors below carry the same values for non-Tailwind consumers. */
+  --color-voyage: #5ee8ee;
+  --color-voyage-soft: #8ff4f7;
+  --color-blossom: #f4b6c9;
+  --color-blossom-soft: #ffd7e1;
+  --color-blossom-deep: #d87a9a;
+  --color-starfield: #0b1028;
+  --color-starfield-mid: #182044;
+  --color-hull: #0f1530;
+  /* `brand` aliases the primary action colour — `bg-brand` reads as intent
+   * ("paint this with the brand action colour") while `bg-primary` reads as
+   * function. Both compile to the same hex. */
+  --color-brand: #3b82f6;
+  --color-brand-fg: #fafafa;
+
+  /* ---- Type ------------------------------------------------------------
+   * `--font-geist-sans` and `--font-geist-mono` are produced by `next/font`
+   * in `app/layout.tsx`. Falling through to system stacks ensures the
+   * portal still renders sensibly if the Geist payload is blocked. */
+  --font-sans: var(--font-geist-sans), system-ui, -apple-system, "Segoe UI",
+    Roboto, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", Menlo,
+    Consolas, monospace;
+
+  /* ---- Radii ---- */
   --radius-sm: 0.25rem;
   --radius-md: 0.375rem;
   --radius-lg: 0.5rem;
+  --radius-full: 9999px;
 }
 
-.light {
+/* ---------------------------------------------------------------------------
+ * Spring Voyage `--sv-*` tokens — DARK theme (default).
+ *
+ * The triple selector covers every theming convention the portal supports:
+ *
+ *   - `:root`                — when no class/attribute has been set (SSR default)
+ *   - `.dark`                — applied by ThemeProvider
+ *   - `[data-theme="dark"]`  — design-kit convention for marketing surfaces
+ *
+ * The values are identical to the @theme palette above so any token can be
+ * reached from either the Tailwind utility namespace or the `--sv-*`
+ * namespace — `bg-background` and `background: var(--sv-bg)` paint the same
+ * colour.
+ * --------------------------------------------------------------------------- */
+
+:root,
+.dark,
+[data-theme="dark"] {
+  /* Surfaces */
+  --sv-bg: #09090b;
+  --sv-fg: #fafafa;
+  --sv-card: #0a0a0f;
+  --sv-card-fg: #fafafa;
+  --sv-popover: #0a0a0f;
+  --sv-popover-fg: #fafafa;
+  --sv-muted: #18181b;
+  --sv-muted-fg: #a1a1aa;
+  --sv-accent: #1e1e2e;
+  --sv-accent-fg: #fafafa;
+  --sv-secondary: #1e1e2e;
+  --sv-secondary-fg: #fafafa;
+
+  /* Brand + action */
+  --sv-primary: #3b82f6;
+  --sv-primary-fg: #fafafa;
+  --sv-ring: #3b82f6;
+
+  /* Borders + inputs */
+  --sv-border: #27272a;
+  --sv-input: #27272a;
+
+  /* Status / severity */
+  --sv-success: #22c55e;
+  --sv-warning: #eab308;
+  --sv-destructive: #ef4444;
+  --sv-info: #3b82f6;
+  --sv-debug: #a1a1aa;
+
+  /* Brand-extension palette (marketing + logo-derived) */
+  --sv-voyage-cyan: #5ee8ee;
+  --sv-voyage-cyan-soft: #8ff4f7;
+  --sv-blossom: #f4b6c9;
+  --sv-blossom-soft: #ffd7e1;
+  --sv-blossom-deep: #d87a9a;
+  --sv-starfield: #0b1028;
+  --sv-starfield-mid: #182044;
+  --sv-hull: #0f1530;
+
+  /* Terminal (CLI) skin */
+  --sv-term-bg: #09090b;
+  --sv-term-fg: #e7e7ea;
+  --sv-term-dim: #71717a;
+  --sv-term-prompt: #5ee8ee;
+  --sv-term-accent: #3b82f6;
+  --sv-term-success: #22c55e;
+  --sv-term-warning: #eab308;
+  --sv-term-error: #ef4444;
+  --sv-term-selection: rgba(94, 232, 238, 0.18);
+
+  /* Radii (mirrors Tailwind theme) */
+  --sv-radius-sm: 0.25rem;
+  --sv-radius-md: 0.375rem;
+  --sv-radius-lg: 0.5rem;
+  --sv-radius-full: 9999px;
+
+  /* Shadows */
+  --sv-shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --sv-shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.30),
+    0 4px 6px -4px rgb(0 0 0 / 0.25);
+  --sv-shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.40),
+    0 8px 10px -6px rgb(0 0 0 / 0.30);
+  --sv-shadow-glow: 0 0 32px rgb(94 232 238 / 0.35);
+
+  /* Spacing (Tailwind defaults, named for clarity) */
+  --sv-space-1: 0.25rem;
+  --sv-space-2: 0.5rem;
+  --sv-space-3: 0.75rem;
+  --sv-space-4: 1rem;
+  --sv-space-6: 1.5rem;
+  --sv-space-8: 2rem;
+  --sv-space-14: 3.5rem;
+
+  /* Type — mirrors the Tailwind --font-* tokens for non-Tailwind consumers */
+  --sv-font-sans: var(--font-geist-sans), system-ui, -apple-system, "Segoe UI",
+    Roboto, sans-serif;
+  --sv-font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", Menlo,
+    Consolas, monospace;
+  --sv-font-display: var(--font-geist-sans), system-ui, sans-serif;
+
+  --sv-text-10: 0.625rem;
+  --sv-text-xs: 0.75rem;
+  --sv-text-sm: 0.875rem;
+  --sv-text-base: 1rem;
+  --sv-text-lg: 1.125rem;
+  --sv-text-xl: 1.25rem;
+  --sv-text-2xl: 1.5rem;
+  --sv-text-3xl: 1.875rem;
+  --sv-text-5xl: 3rem;
+  --sv-text-7xl: 4.5rem;
+
+  --sv-weight-regular: 400;
+  --sv-weight-medium: 500;
+  --sv-weight-semibold: 600;
+  --sv-weight-bold: 700;
+
+  /* Semantic text roles */
+  --sv-h1-size: var(--sv-text-2xl);
+  --sv-h1-weight: var(--sv-weight-bold);
+  --sv-h1-tracking: -0.01em;
+
+  --sv-h2-size: var(--sv-text-lg);
+  --sv-h2-weight: var(--sv-weight-semibold);
+
+  --sv-h3-size: var(--sv-text-sm);
+  --sv-h3-weight: var(--sv-weight-semibold);
+
+  --sv-body-size: var(--sv-text-sm);
+  --sv-body-weight: var(--sv-weight-regular);
+  --sv-body-leading: 1.55;
+
+  --sv-helper-size: var(--sv-text-xs);
+  --sv-helper-color: var(--sv-muted-fg);
+
+  --sv-code-size: var(--sv-text-xs);
+  --sv-code-family: var(--sv-font-mono);
+}
+
+/* ---------------------------------------------------------------------------
+ * Spring Voyage `--sv-*` tokens — LIGHT theme.
+ *
+ * Re-points every surface, status, primary, and border token. Brand-extension
+ * hues stay the same in light mode (the cyan halo and cherry-blossom sail
+ * carry the brand identity across themes); only the dark hulls keep their
+ * dark values so logos painted on the light surface still work.
+ *
+ * The Tailwind `--color-*` overrides live alongside so utilities flip with
+ * the same selector switch.
+ * --------------------------------------------------------------------------- */
+
+.light,
+[data-theme="light"] {
+  /* ---- Tailwind utility overrides ---- */
   --color-background: #ffffff;
   --color-foreground: #09090b;
   --color-card: #ffffff;
@@ -50,12 +266,125 @@
   --color-ring: #2563eb;
   --color-success: #16a34a;
   --color-warning: #ca8a04;
+  --color-info: #2563eb;
+  --color-debug: #71717a;
+  --color-brand: #2563eb;
+  --color-brand-fg: #ffffff;
+
+  /* ---- `--sv-*` mirrors ---- */
+  --sv-bg: #ffffff;
+  --sv-fg: #09090b;
+  --sv-card: #ffffff;
+  --sv-card-fg: #09090b;
+  --sv-popover: #ffffff;
+  --sv-popover-fg: #09090b;
+  --sv-muted: #f4f4f5;
+  --sv-muted-fg: #71717a;
+  --sv-accent: #f4f4f5;
+  --sv-accent-fg: #18181b;
+  --sv-secondary: #f4f4f5;
+  --sv-secondary-fg: #18181b;
+
+  --sv-primary: #2563eb;
+  --sv-primary-fg: #ffffff;
+  --sv-ring: #2563eb;
+
+  --sv-border: #e4e4e7;
+  --sv-input: #e4e4e7;
+
+  --sv-success: #16a34a;
+  --sv-warning: #ca8a04;
+  --sv-destructive: #dc2626;
+  --sv-info: #2563eb;
+  --sv-debug: #71717a;
+
+  /* Brand hues stay; only the hulls keep their dark values */
+  --sv-starfield: #0b1028;
+  --sv-starfield-mid: #182044;
+  --sv-hull: #0f1530;
 }
+
+/* Most teams keep their terminal dark even when the rest of the app is
+ * light. Default in light mode = dark terminal (tokens untouched). Opt in
+ * to a light terminal skin with `<html data-theme="light" data-term="light">`. */
+[data-theme="light"][data-term="light"],
+.light[data-term="light"] {
+  --sv-term-bg: #fdf6e3;
+  --sv-term-fg: #073642;
+  --sv-term-dim: #93a1a1;
+  --sv-term-prompt: #2aa198;
+  --sv-term-accent: #268bd2;
+  --sv-term-success: #859900;
+  --sv-term-warning: #b58900;
+  --sv-term-error: #dc322f;
+  --sv-term-selection: rgba(38, 139, 210, 0.18);
+}
+
+/* ---------------------------------------------------------------------------
+ * Body + base element defaults.
+ * --------------------------------------------------------------------------- */
 
 body {
   background: var(--color-background);
   color: var(--color-foreground);
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family: var(--font-sans);
+  font-size: var(--sv-body-size);
+  line-height: var(--sv-body-leading);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Semantic helper classes — used by marketing/docs/CLI surfaces that don't
+ * have Tailwind. Portal components reach through Tailwind utilities. */
+.sv-h1 {
+  font-family: var(--sv-font-sans);
+  font-size: var(--sv-h1-size);
+  font-weight: var(--sv-h1-weight);
+  letter-spacing: var(--sv-h1-tracking);
+  line-height: 1.15;
+}
+.sv-h2 {
+  font-size: var(--sv-h2-size);
+  font-weight: var(--sv-h2-weight);
+  line-height: 1.25;
+}
+.sv-h3 {
+  font-size: var(--sv-h3-size);
+  font-weight: var(--sv-h3-weight);
+  line-height: 1;
+  letter-spacing: -0.005em;
+}
+.sv-body {
+  font-size: var(--sv-body-size);
+  font-weight: var(--sv-body-weight);
+  line-height: var(--sv-body-leading);
+}
+.sv-helper {
+  font-size: var(--sv-helper-size);
+  color: var(--sv-helper-color);
+}
+.sv-code,
+code,
+kbd,
+samp,
+pre {
+  font-family: var(--sv-code-family);
+  font-size: var(--sv-code-size);
+}
+
+/* Marketing-only display sizes (only used on spring-voyage.com pages). */
+.sv-display {
+  font-family: var(--sv-font-display);
+  font-size: clamp(2.5rem, 6vw, var(--sv-text-7xl));
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.02;
+}
+.sv-lede {
+  font-size: var(--sv-text-xl);
+  color: var(--sv-muted-fg);
+  line-height: 1.5;
+  max-width: 60ch;
 }
 
 ::-webkit-scrollbar {

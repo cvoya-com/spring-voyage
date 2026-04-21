@@ -26,7 +26,7 @@ import type {
   UnitBoundaryResponse,
 } from "@/lib/api/types";
 
-import { BoundaryYamlUpload } from "./boundary-yaml-upload";
+import { BoundaryYamlUpload } from "@/components/units/boundary-yaml-upload";
 
 interface BoundaryTabProps {
   unitId: string;

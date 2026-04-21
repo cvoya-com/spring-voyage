@@ -22,7 +22,7 @@ import type {
 import {
   MembershipDialog,
   type MembershipFormValues,
-} from "./membership-dialog";
+} from "@/components/units/membership-dialog";
 
 interface AgentsTabProps {
   unitId: string;

@@ -180,13 +180,19 @@ const baseAgent = {
   executionMode: null,
 };
 
-const baseDetail = {
+type AgentDetailFixture = {
+  agent: typeof baseAgent;
+  deployment: null;
+  status: { state: string; hostedOn: string } | null;
+};
+
+const baseDetail: AgentDetailFixture = {
   agent: baseAgent,
   deployment: null,
   status: null,
 };
 
-const detailWithStatus = {
+const detailWithStatus: AgentDetailFixture = {
   ...baseDetail,
   status: { state: "idle", hostedOn: "dapr" },
 };
@@ -242,7 +248,7 @@ async function renderDetail({
   detail = baseDetail,
 }: {
   initialTab?: string;
-  detail?: typeof baseDetail;
+  detail?: AgentDetailFixture;
 } = {}) {
   setSearchParams(
     new URLSearchParams(initialTab ? { tab: initialTab } : undefined),

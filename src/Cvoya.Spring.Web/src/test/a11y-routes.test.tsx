@@ -21,7 +21,7 @@ import { expectNoAxeViolations } from "@/test/a11y";
 import type {
   ActivityQueryResult,
   AgentResponse,
-  ConversationRecord,
+  ConversationSummary,
   DashboardSummary,
   InboxItem,
   UnitDashboardSummary,
@@ -89,7 +89,7 @@ const apiStub = {
   listUnits: vi.fn<() => Promise<UnitDashboardSummary[]>>(),
   getDashboardUnits: vi.fn<() => Promise<UnitDashboardSummary[]>>(),
   listConversations:
-    vi.fn<() => Promise<ConversationRecord[]>>(),
+    vi.fn<() => Promise<ConversationSummary[]>>(),
   listInbox: vi.fn<() => Promise<InboxItem[]>>(),
   queryActivity:
     vi.fn<() => Promise<ActivityQueryResult>>(),
@@ -205,12 +205,15 @@ describe("portal a11y smoke tests", () => {
         id: "agent-1",
         name: "alpha/one",
         displayName: "Agent One",
+        description: "",
         role: "backend",
         registeredAt: "2026-04-01T00:00:00Z",
+        model: null,
+        specialty: null,
         enabled: true,
         parentUnit: "alpha",
-        executionMode: null,
-      } as AgentResponse,
+        executionMode: "Auto",
+      } satisfies AgentResponse,
     ]);
     apiStub.listUnits.mockResolvedValue([
       {

@@ -47,10 +47,6 @@ function readStoredTheme(): Theme {
   return stored === "light" || stored === "dark" ? stored : "dark";
 }
 
-// Server snapshot: always "dark" so SSR output is deterministic and
-// matches the default `<html class="dark">` set in the root layout.
-// Any client-side divergence is reconciled on hydration via the external
-// store subscription.
 function serverSnapshot(): Theme {
   return "dark";
 }
@@ -62,11 +58,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     serverSnapshot,
   );
 
-  // Keep the DOM className in sync with the React-owned theme. This is a
-  // pure "React → external system" synchronization with no setState call,
-  // so it does not trigger `react-hooks/set-state-in-effect`.
+  // Additive class swap — the root element also carries the Geist font
+  // variable classes from `next/font`; overwriting `className` would strip
+  // them and collapse `--font-sans`/`--font-mono` to their fallback stacks.
   useEffect(() => {
-    document.documentElement.className = theme;
+    const root = document.documentElement;
+    root.classList.remove("dark", "light");
+    root.classList.add(theme);
   }, [theme]);
 
   const toggleTheme = useCallback(() => {
