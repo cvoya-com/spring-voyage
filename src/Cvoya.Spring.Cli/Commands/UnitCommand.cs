@@ -407,7 +407,7 @@ public static class UnitCommand
                 catch (Exception ex)
                 {
                     await Console.Error.WriteLineAsync(
-                        $"Failed to write tenant default '{credentialResolution.SecretName}': {ex.Message}");
+                        $"Failed to write tenant default '{credentialResolution.SecretName}': {Utilities.ProblemDetailsFormatter.Format(ex)}");
                     Environment.Exit(1);
                     return;
                 }
@@ -442,7 +442,7 @@ public static class UnitCommand
                 catch (Exception ex)
                 {
                     await Console.Error.WriteLineAsync(
-                        $"warning: unit secret '{credentialResolution.SecretName}' not written: {ex.Message}");
+                        $"warning: unit secret '{credentialResolution.SecretName}' not written: {Utilities.ProblemDetailsFormatter.Format(ex)}");
                 }
             }
 
@@ -542,7 +542,8 @@ public static class UnitCommand
             }
             catch (ApiException ex)
             {
-                await Console.Error.WriteLineAsync($"Failed to revalidate unit '{name}': {ex.Message}");
+                await Console.Error.WriteLineAsync(
+                    $"Failed to revalidate unit '{name}': {ExtractServerDetail(ex)}");
                 Environment.Exit(UnitValidationExitCodes.UnknownError);
                 return;
             }
@@ -653,14 +654,16 @@ public static class UnitCommand
 
     /// <summary>
     /// Best-effort extraction of the server's problem-detail message from a
-    /// Kiota <see cref="ApiException"/>. Kiota doesn't offer a strongly-
-    /// typed reader without a generated schema for every error body, so
-    /// we fall back to the exception's message (which includes the body
-    /// text) when present.
+    /// Kiota <see cref="ApiException"/>. When the server returned a
+    /// structured RFC-7807 ProblemDetails body the Kiota runtime throws a
+    /// <see cref="ProblemDetails"/>, whose default
+    /// <see cref="Exception.Message"/> is the type-name string. Route
+    /// through <see cref="Utilities.ProblemDetailsFormatter"/> so
+    /// operators see the server's Title/Detail/extensions instead.
     /// </summary>
     internal static string ExtractServerDetail(ApiException ex)
     {
-        var message = ex.Message;
+        var message = Utilities.ProblemDetailsFormatter.Format(ex);
         return string.IsNullOrWhiteSpace(message)
             ? "server rejected the request."
             : message;
@@ -912,7 +915,7 @@ public static class UnitCommand
             catch (Exception ex)
             {
                 await Console.Error.WriteLineAsync(
-                    $"Failed to write tenant default '{credential.SecretName}': {ex.Message}");
+                    $"Failed to write tenant default '{credential.SecretName}': {Utilities.ProblemDetailsFormatter.Format(ex)}");
                 return 1;
             }
         }
@@ -950,7 +953,7 @@ public static class UnitCommand
             catch (Exception ex)
             {
                 await Console.Error.WriteLineAsync(
-                    $"warning: unit secret '{credential.SecretName}' not written: {ex.Message}");
+                    $"warning: unit secret '{credential.SecretName}' not written: {Utilities.ProblemDetailsFormatter.Format(ex)}");
             }
         }
 
@@ -1064,7 +1067,8 @@ public static class UnitCommand
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
-                await Console.Error.WriteLineAsync($"Failed to start unit '{name}': {ex.Message}");
+                await Console.Error.WriteLineAsync(
+                    $"Failed to start unit '{name}': {ExtractServerDetail(ex)}");
                 Environment.Exit(1);
             }
         });
@@ -1090,7 +1094,8 @@ public static class UnitCommand
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
-                await Console.Error.WriteLineAsync($"Failed to stop unit '{name}': {ex.Message}");
+                await Console.Error.WriteLineAsync(
+                    $"Failed to stop unit '{name}': {ExtractServerDetail(ex)}");
                 Environment.Exit(1);
             }
         });
@@ -1142,7 +1147,8 @@ public static class UnitCommand
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
-                await Console.Error.WriteLineAsync($"Failed to get status for unit '{name}': {ex.Message}");
+                await Console.Error.WriteLineAsync(
+                    $"Failed to get status for unit '{name}': {ExtractServerDetail(ex)}");
                 Environment.Exit(1);
             }
         });
@@ -1324,7 +1330,7 @@ public static class UnitCommand
                     // message verbatim so operators see the offending chain
                     // rather than a generic Kiota error.
                     await Console.Error.WriteLineAsync(
-                        $"Failed to add unit '{childUnitId}' as a member of '{parentUnitId}': {ex.Message}");
+                        $"Failed to add unit '{childUnitId}' as a member of '{parentUnitId}': {ExtractServerDetail(ex)}");
                     Environment.Exit(1);
                     return;
                 }

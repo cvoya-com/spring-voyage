@@ -7,6 +7,7 @@ using System.CommandLine;
 
 using Cvoya.Spring.Cli.Generated.Models;
 using Cvoya.Spring.Cli.Output;
+using Cvoya.Spring.Cli.Utilities;
 
 /// <summary>
 /// Builds the <c>spring connector</c> verb family (#455 / Wave 1 CLI-parity
@@ -388,7 +389,7 @@ public static class ConnectorCommand
                 // events list). Surface the server's message verbatim so
                 // the operator can fix the request without guessing.
                 await Console.Error.WriteLineAsync(
-                    $"Failed to bind unit '{unitId}' to connector '{type}': {ex.Message}");
+                    $"Failed to bind unit '{unitId}' to connector '{type}': {ProblemDetailsFormatter.Format(ex)}");
                 Environment.Exit(1);
             }
         });

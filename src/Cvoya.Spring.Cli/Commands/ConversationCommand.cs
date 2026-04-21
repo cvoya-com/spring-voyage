@@ -7,6 +7,7 @@ using System.CommandLine;
 
 using Cvoya.Spring.Cli.Generated.Models;
 using Cvoya.Spring.Cli.Output;
+using Cvoya.Spring.Cli.Utilities;
 
 /// <summary>
 /// Builds the <c>spring conversation</c> verb family (#452). Three subcommands:
@@ -129,7 +130,7 @@ public static class ConversationCommand
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
-                await Console.Error.WriteLineAsync($"Failed to load conversation '{id}': {ex.Message}");
+                await Console.Error.WriteLineAsync($"Failed to load conversation '{id}': {ProblemDetailsFormatter.Format(ex)}");
                 Environment.Exit(1);
             }
         });
@@ -182,7 +183,7 @@ public static class ConversationCommand
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
                 await Console.Error.WriteLineAsync(
-                    $"Failed to send to conversation '{conversationId}': {ex.Message}");
+                    $"Failed to send to conversation '{conversationId}': {ProblemDetailsFormatter.Format(ex)}");
                 Environment.Exit(1);
             }
         });

@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 
 using Cvoya.Spring.Cli.Generated.Models;
 using Cvoya.Spring.Cli.Output;
+using Cvoya.Spring.Cli.Utilities;
 
 /// <summary>
 /// Builds the <c>spring secret &lt;verb&gt;</c> subtree (#432). The CLI
@@ -191,7 +192,7 @@ public static class SecretCommand
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
-                DieWith($"Failed to create secret '{name}': {ex.Message}");
+                DieWith($"Failed to create secret '{name}': {ProblemDetailsFormatter.Format(ex)}");
             }
         });
 
@@ -240,7 +241,7 @@ public static class SecretCommand
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
-                DieWith($"Failed to list secrets for scope '{scope}': {ex.Message}");
+                DieWith($"Failed to list secrets for scope '{scope}': {ProblemDetailsFormatter.Format(ex)}");
             }
         });
 
@@ -352,7 +353,7 @@ public static class SecretCommand
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
-                DieWith($"Failed to get secret '{name}': {ex.Message}");
+                DieWith($"Failed to get secret '{name}': {ProblemDetailsFormatter.Format(ex)}");
             }
         });
 
@@ -452,7 +453,7 @@ public static class SecretCommand
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
-                DieWith($"Failed to rotate secret '{name}': {ex.Message}");
+                DieWith($"Failed to rotate secret '{name}': {ProblemDetailsFormatter.Format(ex)}");
             }
         });
 
@@ -505,7 +506,7 @@ public static class SecretCommand
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
-                DieWith($"Failed to list versions for secret '{name}': {ex.Message}");
+                DieWith($"Failed to list versions for secret '{name}': {ProblemDetailsFormatter.Format(ex)}");
             }
         });
 
@@ -586,7 +587,7 @@ public static class SecretCommand
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
-                DieWith($"Failed to prune secret '{name}': {ex.Message}");
+                DieWith($"Failed to prune secret '{name}': {ProblemDetailsFormatter.Format(ex)}");
             }
         });
 
@@ -641,7 +642,7 @@ public static class SecretCommand
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
-                DieWith($"Failed to delete secret '{name}': {ex.Message}");
+                DieWith($"Failed to delete secret '{name}': {ProblemDetailsFormatter.Format(ex)}");
             }
         });
 

@@ -7,6 +7,7 @@ using System.CommandLine;
 
 using Cvoya.Spring.Cli.Generated.Models;
 using Cvoya.Spring.Cli.Output;
+using Cvoya.Spring.Cli.Utilities;
 
 /// <summary>
 /// Builds the <c>spring inbox</c> verb family (#456). The inbox is the
@@ -118,7 +119,7 @@ public static class InboxCommand
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
-                await Console.Error.WriteLineAsync($"Failed to load inbox item '{id}': {ex.Message}");
+                await Console.Error.WriteLineAsync($"Failed to load inbox item '{id}': {ProblemDetailsFormatter.Format(ex)}");
                 Environment.Exit(1);
             }
         });
@@ -188,7 +189,7 @@ public static class InboxCommand
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
-                await Console.Error.WriteLineAsync($"Failed to respond to '{id}': {ex.Message}");
+                await Console.Error.WriteLineAsync($"Failed to respond to '{id}': {ProblemDetailsFormatter.Format(ex)}");
                 Environment.Exit(1);
             }
         });

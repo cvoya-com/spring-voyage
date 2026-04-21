@@ -10,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 
 using Cvoya.Spring.Cli.Generated.Models;
+using Cvoya.Spring.Cli.Utilities;
 using Cvoya.Spring.Manifest;
 
 /// <summary>
@@ -62,7 +63,7 @@ public static class ApplyRunner
         }
         catch (System.Exception ex)
         {
-            stderr.WriteLine($"[error] failed to create unit '{unitName}': {ex.Message}");
+            stderr.WriteLine($"[error] failed to create unit '{unitName}': {ProblemDetailsFormatter.Format(ex)}");
             return 1;
         }
 
@@ -85,7 +86,7 @@ public static class ApplyRunner
             catch (System.Exception ex)
             {
                 stderr.WriteLine(
-                    $"[error] failed to add member {address.Value.Scheme}:{address.Value.Path} to unit '{unitName}': {ex.Message}");
+                    $"[error] failed to add member {address.Value.Scheme}:{address.Value.Path} to unit '{unitName}': {ProblemDetailsFormatter.Format(ex)}");
                 return 1;
             }
         }
@@ -107,7 +108,7 @@ public static class ApplyRunner
             catch (System.Exception ex)
             {
                 stderr.WriteLine(
-                    $"[error] failed to apply boundary for unit '{unitName}': {ex.Message}");
+                    $"[error] failed to apply boundary for unit '{unitName}': {ProblemDetailsFormatter.Format(ex)}");
                 return 1;
             }
         }

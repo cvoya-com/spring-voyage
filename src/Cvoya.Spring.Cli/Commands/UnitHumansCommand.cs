@@ -7,6 +7,7 @@ using System.CommandLine;
 
 using Cvoya.Spring.Cli.Generated.Models;
 using Cvoya.Spring.Cli.Output;
+using Cvoya.Spring.Cli.Utilities;
 
 /// <summary>
 /// Builds the <c>spring unit humans add|remove|list</c> subtree (#454).
@@ -134,7 +135,7 @@ public static class UnitHumansCommand
                 // error so an unauthorised operator / viewer sees the
                 // authorization failure, not a generic Kiota error.
                 await Console.Error.WriteLineAsync(
-                    $"Failed to set permission for human '{humanId}' on unit '{unitId}': {ex.Message}");
+                    $"Failed to set permission for human '{humanId}' on unit '{unitId}': {ProblemDetailsFormatter.Format(ex)}");
                 Environment.Exit(1);
             }
         });
@@ -171,7 +172,7 @@ public static class UnitHumansCommand
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
                 await Console.Error.WriteLineAsync(
-                    $"Failed to remove human '{humanId}' from unit '{unitId}': {ex.Message}");
+                    $"Failed to remove human '{humanId}' from unit '{unitId}': {ProblemDetailsFormatter.Format(ex)}");
                 Environment.Exit(1);
             }
         });
@@ -207,7 +208,7 @@ public static class UnitHumansCommand
                 // caller sees 401 / 403 here, which is exactly the failure
                 // mode the "unauthorised viewer" test case exercises.
                 await Console.Error.WriteLineAsync(
-                    $"Failed to list humans for unit '{unitId}': {ex.Message}");
+                    $"Failed to list humans for unit '{unitId}': {ProblemDetailsFormatter.Format(ex)}");
                 Environment.Exit(1);
             }
         });
