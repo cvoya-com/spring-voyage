@@ -113,6 +113,15 @@ export interface PaletteAction {
   href?: string;
   /** Imperative handler — invoked by the palette on enter / click. */
   onSelect?: () => void | Promise<void>;
+  /**
+   * Tenant-tree node id this action targets. When set, activating the
+   * entry teleports into a mounted `<UnitExplorer>` via the
+   * `<ExplorerSelectionProvider>` bridge; if no Explorer is mounted on
+   * the active route the palette navigates to `/units?node={id}` so
+   * the Explorer picks the node up on first render. Takes precedence
+   * over `onSelect` / `href` when present.
+   */
+  explorerNodeId?: string;
 }
 
 /**

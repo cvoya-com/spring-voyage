@@ -1,13 +1,18 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Plus, UserPlus } from "lucide-react";
+import { Bot, Plus, UserPlus } from "lucide-react";
 
 import { CommandPaletteProvider } from "./command-palette";
+import {
+  ExplorerSelectionProvider,
+  useExplorerSelection,
+} from "./units/explorer-selection-context";
 import { ExtensionProvider } from "@/lib/extensions";
 import { __resetExtensionsForTesting } from "@/lib/extensions/registry";
 import { registerExtension } from "@/lib/extensions";
 
 const pushMock = vi.fn();
+let currentPathname = "/";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
@@ -18,12 +23,13 @@ vi.mock("next/navigation", () => ({
     refresh: () => {},
     prefetch: () => {},
   }),
-  usePathname: () => "/",
+  usePathname: () => currentPathname,
 }));
 
 describe("CommandPalette", () => {
   beforeEach(() => {
     pushMock.mockReset();
+    currentPathname = "/";
     __resetExtensionsForTesting();
   });
 
@@ -34,9 +40,11 @@ describe("CommandPalette", () => {
   function renderPalette() {
     return render(
       <ExtensionProvider>
-        <CommandPaletteProvider>
-          <div>host</div>
-        </CommandPaletteProvider>
+        <ExplorerSelectionProvider>
+          <CommandPaletteProvider>
+            <div>host</div>
+          </CommandPaletteProvider>
+        </ExplorerSelectionProvider>
       </ExtensionProvider>,
     );
   }
@@ -196,5 +204,143 @@ describe("CommandPalette", () => {
   it("does not render when no shortcut has been pressed (OSS default load)", () => {
     renderPalette();
     expect(screen.queryByTestId("command-palette-input")).toBeNull();
+  });
+
+  describe("EXP-cmdk-bridge — node-kind action teleport", () => {
+    function ListenerHost() {
+      const { registerListener } = useExplorerSelection();
+      // Register a listener so `hasListener()` returns true, mirroring a
+      // mounted `<UnitExplorer>`.
+      registerListener(listenerMock);
+      return null;
+    }
+
+    const listenerMock = vi.fn();
+
+    beforeEach(() => {
+      listenerMock.mockReset();
+    });
+
+    it("teleports into the mounted Explorer when on /units", async () => {
+      currentPathname = "/units";
+      registerExtension({
+        id: "cmdk-test-node",
+        actions: [
+          {
+            id: "node.ada",
+            label: "Go to Ada",
+            icon: Bot,
+            section: "nodes",
+            explorerNodeId: "ada",
+          },
+        ],
+      });
+
+      render(
+        <ExtensionProvider>
+          <ExplorerSelectionProvider>
+            <ListenerHost />
+            <CommandPaletteProvider>
+              <div>host</div>
+            </CommandPaletteProvider>
+          </ExplorerSelectionProvider>
+        </ExtensionProvider>,
+      );
+      fireEvent.keyDown(window, { key: "k", metaKey: true });
+
+      const item = await screen.findByTestId(
+        "command-palette-item-action:node.ada",
+      );
+      fireEvent.click(item);
+
+      await waitFor(() => expect(listenerMock).toHaveBeenCalledWith("ada"));
+      expect(pushMock).not.toHaveBeenCalled();
+    });
+
+    it("navigates to /units?node=… when the Explorer is not mounted", async () => {
+      currentPathname = "/";
+      registerExtension({
+        id: "cmdk-test-node",
+        actions: [
+          {
+            id: "node.ada",
+            label: "Go to Ada",
+            icon: Bot,
+            section: "nodes",
+            explorerNodeId: "ada",
+          },
+        ],
+      });
+
+      renderPalette();
+      fireEvent.keyDown(window, { key: "k", metaKey: true });
+
+      const item = await screen.findByTestId(
+        "command-palette-item-action:node.ada",
+      );
+      fireEvent.click(item);
+
+      await waitFor(() =>
+        expect(pushMock).toHaveBeenCalledWith("/units?node=ada"),
+      );
+    });
+
+    it("navigates to /units?node=… when on /units but no Explorer is mounted", async () => {
+      currentPathname = "/units";
+      registerExtension({
+        id: "cmdk-test-node",
+        actions: [
+          {
+            id: "node.ada",
+            label: "Go to Ada",
+            icon: Bot,
+            section: "nodes",
+            explorerNodeId: "ada",
+          },
+        ],
+      });
+
+      // No `<ListenerHost>` — hasListener() is false, so the palette
+      // falls back to navigation even though the pathname matches.
+      renderPalette();
+      fireEvent.keyDown(window, { key: "k", metaKey: true });
+
+      const item = await screen.findByTestId(
+        "command-palette-item-action:node.ada",
+      );
+      fireEvent.click(item);
+
+      await waitFor(() =>
+        expect(pushMock).toHaveBeenCalledWith("/units?node=ada"),
+      );
+    });
+
+    it("URL-encodes node ids with special characters", async () => {
+      currentPathname = "/";
+      registerExtension({
+        id: "cmdk-test-node",
+        actions: [
+          {
+            id: "node.special",
+            label: "Special",
+            icon: Bot,
+            section: "nodes",
+            explorerNodeId: "alpha/one",
+          },
+        ],
+      });
+
+      renderPalette();
+      fireEvent.keyDown(window, { key: "k", metaKey: true });
+
+      const item = await screen.findByTestId(
+        "command-palette-item-action:node.special",
+      );
+      fireEvent.click(item);
+
+      await waitFor(() =>
+        expect(pushMock).toHaveBeenCalledWith("/units?node=alpha%2Fone"),
+      );
+    });
   });
 });

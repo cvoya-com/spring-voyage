@@ -13,11 +13,12 @@
 // rest of the portal's dialog styling.
 
 import { cn } from "@/lib/utils";
+import { useExplorerSelection } from "@/components/units/explorer-selection-context";
 import { usePaletteActions, useRoutes } from "@/lib/extensions";
 import type { PaletteAction, RouteEntry } from "@/lib/extensions";
 import { Command as CommandRoot } from "cmdk";
 import { ArrowRight, Search } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   createContext,
   useCallback,
@@ -169,10 +170,14 @@ interface PaletteItem {
   routePath?: string;
 }
 
+const EXPLORER_ROUTE = "/units";
+
 function CommandPalette({ onClose }: { onClose: () => void }) {
   const routes = useRoutes();
   const actions = usePaletteActions();
   const router = useRouter();
+  const pathname = usePathname();
+  const explorerSelection = useExplorerSelection();
   const [search, setSearch] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -180,8 +185,25 @@ function CommandPalette({ onClose }: { onClose: () => void }) {
   // Flatten routes + actions into a single item list. Grouped for
   // display; the filter still searches across every group.
   const items = useMemo<readonly PaletteItem[]>(
-    () => buildItems({ routes, actions, navigate: (path) => router.push(path), close: onClose }),
-    [routes, actions, router, onClose],
+    () =>
+      buildItems({
+        routes,
+        actions,
+        navigate: (path) => router.push(path),
+        close: onClose,
+        teleportToExplorer: (nodeId) => {
+          // EXP-cmdk-bridge: when a mounted Explorer is available on
+          // /units, dispatch the selection without navigating. In every
+          // other case, navigate to /units with the node pre-selected
+          // via the URL.
+          if (pathname === EXPLORER_ROUTE && explorerSelection.hasListener()) {
+            explorerSelection.dispatchSelect(nodeId);
+          } else {
+            router.push(`${EXPLORER_ROUTE}?node=${encodeURIComponent(nodeId)}`);
+          }
+        },
+      }),
+    [routes, actions, router, pathname, explorerSelection, onClose],
   );
 
   const groups = useMemo(() => {
@@ -335,11 +357,13 @@ function buildItems({
   actions,
   navigate,
   close,
+  teleportToExplorer,
 }: {
   routes: readonly RouteEntry[];
   actions: readonly PaletteAction[];
   navigate: (path: string) => void;
   close: () => void;
+  teleportToExplorer: (nodeId: string) => void;
 }): readonly PaletteItem[] {
   const result: PaletteItem[] = [];
 
@@ -360,6 +384,7 @@ function buildItems({
   }
 
   for (const action of actions) {
+    const nodeId = action.explorerNodeId;
     result.push({
       id: `action:${action.id}`,
       label: action.label,
@@ -370,6 +395,12 @@ function buildItems({
       routePath: action.href,
       onSelect: () => {
         close();
+        if (nodeId !== undefined) {
+          // Node-kind action: teleport into the Explorer (or navigate
+          // there first if the Explorer isn't mounted).
+          teleportToExplorer(nodeId);
+          return;
+        }
         if (action.onSelect) {
           void action.onSelect();
           return;

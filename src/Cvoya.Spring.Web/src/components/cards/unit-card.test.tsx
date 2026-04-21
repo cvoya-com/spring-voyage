@@ -135,4 +135,49 @@ describe("UnitCard", () => {
       displayName: "Engineering",
     });
   });
+
+  it("renders a CardTabRow footer and hides the legacy cross-links when onOpenTab is provided", () => {
+    const onOpenTab = vi.fn();
+    render(
+      <UnitCard
+        unit={{
+          name: "engineering",
+          displayName: "Engineering",
+          registeredAt: "2026-04-01T00:00:00Z",
+          status: "Running",
+        }}
+        onOpenTab={onOpenTab}
+      />,
+    );
+
+    // Legacy cross-links are suppressed.
+    expect(screen.queryByTestId("unit-link-activity-engineering")).toBeNull();
+    expect(screen.queryByTestId("unit-link-costs-engineering")).toBeNull();
+    expect(screen.queryByTestId("unit-link-policies-engineering")).toBeNull();
+
+    // Chip row renders and dispatches (id, tab) on click.
+    expect(
+      screen.getByTestId("unit-card-tabrow-engineering"),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("card-tab-chip-activity"));
+    expect(onOpenTab).toHaveBeenCalledWith("engineering", "Activity");
+  });
+
+  it("keeps the legacy cross-links as fallback when onOpenTab is omitted", () => {
+    render(
+      <UnitCard
+        unit={{
+          name: "engineering",
+          displayName: "Engineering",
+          registeredAt: "2026-04-01T00:00:00Z",
+          status: "Running",
+        }}
+      />,
+    );
+
+    expect(
+      screen.getByTestId("unit-link-activity-engineering"),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("unit-card-tabrow-engineering")).toBeNull();
+  });
 });

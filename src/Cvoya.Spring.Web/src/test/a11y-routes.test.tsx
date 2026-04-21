@@ -101,6 +101,8 @@ const apiStub = {
   searchDirectory: vi.fn<() => Promise<{ hits: unknown[]; totalCount: number }>>(),
   getTenantCost:
     vi.fn<() => Promise<{ totalCost: number; breakdowns: unknown[] }>>(),
+  // Explorer surface at `/units` (EXP-route, umbrella #815).
+  getTenantTree: vi.fn<() => Promise<unknown>>(),
   // Agent detail tree (#604) — the tabbed detail page fans out to
   // several panels; declaring the stubs up here keeps the mock surface
   // in one place and lets `vi.clearAllMocks()` tidy them between tests.
@@ -246,6 +248,22 @@ describe("portal a11y smoke tests", () => {
     apiStub.listPackages.mockResolvedValue([]);
     apiStub.searchDirectory.mockResolvedValue({ hits: [], totalCount: 0 });
     apiStub.getTenantCost.mockResolvedValue({ totalCost: 0, breakdowns: [] });
+    apiStub.getTenantTree.mockResolvedValue({
+      tree: {
+        id: "tenant://acme",
+        name: "Acme",
+        kind: "Tenant",
+        status: "running",
+        children: [
+          {
+            id: "alpha",
+            name: "Alpha",
+            kind: "Unit",
+            status: "running",
+          },
+        ],
+      },
+    });
   });
 
   afterEach(() => {
@@ -376,12 +394,14 @@ describe("portal a11y smoke tests", () => {
     await expectNoAxeViolations(container);
   });
 
-  it("/units", async () => {
+  it("/units (Explorer — EXP-route)", async () => {
     const { default: UnitsPage } = await import("@/app/units/page");
     const { container } = render(<UnitsPage />, {
       wrapper: createWrapper(),
     });
-    await screen.findByRole("heading", { level: 1, name: /units/i });
+    // The Explorer's detail pane renders an <h1> with the active
+    // node's name — the stubbed tenant tree seeds "Acme" at the root.
+    await screen.findByRole("heading", { level: 1, name: /acme/i });
     await expectNoAxeViolations(container);
   });
 

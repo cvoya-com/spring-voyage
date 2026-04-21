@@ -20,6 +20,8 @@ import {
 import Link from "next/link";
 import type { MouseEvent } from "react";
 
+import { CardTabRow, type CardTabName } from "./card-tab-row";
+
 /**
  * Minimal shape the UnitCard needs. `UnitDashboardSummary` satisfies this
  * today; the interface lets callers pass richer unit records once the API
@@ -51,9 +53,34 @@ interface UnitCardInput {
   activitySeries?: number[];
 }
 
+/**
+ * Tab chips rendered in the `<CardTabRow>` footer when `onOpenTab` is
+ * provided. Matches plan §7: a card-to-tab deeplink shortcut for the
+ * Explorer's Unit tab catalog, excluding Overview (already covered by
+ * the card's primary "Open" affordance).
+ */
+export const UNIT_CARD_TABS: readonly CardTabName[] = [
+  "Agents",
+  "Messages",
+  "Activity",
+  "Memory",
+  "Orchestration",
+  "Policies",
+] as const;
+
 interface UnitCardProps {
   unit: UnitCardInput | UnitCardUnit | UnitDashboardSummary;
   onDelete?: (unit: UnitCardUnit) => void;
+  /**
+   * When provided, the card renders a `<CardTabRow>` footer of
+   * icon-only tab-deeplink chips (plan §7). Clicking a chip dispatches
+   * `(unit.name, tabName)` — callers wire the handler to the Explorer
+   * selection bridge (`<ExplorerSelectionProvider>`) or to their own
+   * router.push. Legacy cross-link icons (Activity / Costs / Policies)
+   * render as the fallback when this prop is omitted so existing
+   * call sites keep working unchanged.
+   */
+  onOpenTab?: (unitName: string, tab: CardTabName) => void;
   className?: string;
 }
 
@@ -79,11 +106,18 @@ const statusDot: Record<string, string> = {
 };
 
 /**
- * Reusable unit card primitive. See `docs/design/portal-exploration.md`
- * § 3.3: every unit card links to its activity, costs, and policies, and
- * exposes a primary "open" affordance.
+ * Reusable unit card primitive. See plan §7 of the v2 design-system
+ * rollout (#815): each unit card ends in a `<CardTabRow>` of icon-only
+ * tab deeplinks that fire `onOpenTab(unit.name, tab)`. Dashboard and
+ * Explorer grid usages wire the handler to the Explorer bridge; list
+ * pages that want the legacy cross-link icons omit the prop.
  */
-export function UnitCard({ unit, onDelete, className }: UnitCardProps) {
+export function UnitCard({
+  unit,
+  onDelete,
+  onOpenTab,
+  className,
+}: UnitCardProps) {
   const status = unit.status ?? "Draft";
   const href = `/units/${encodeURIComponent(unit.name)}`;
   const activityHref = `${href}?tab=activity`;
@@ -113,7 +147,7 @@ export function UnitCard({ unit, onDelete, className }: UnitCardProps) {
     <Card
       data-testid={`unit-card-${unit.name}`}
       className={cn(
-        "relative h-full transition-colors hover:border-primary/50 hover:bg-muted/30 focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2",
+        "relative h-full overflow-hidden transition-colors hover:border-primary/50 hover:bg-muted/30 focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2",
         className,
       )}
     >
@@ -172,26 +206,35 @@ export function UnitCard({ unit, onDelete, className }: UnitCardProps) {
         </div>
 
         <div className="relative z-[1] mt-3 flex items-center justify-between">
-          {/* Cross-links: activity, costs, policies (see § 3.3) */}
-          <div className="flex items-center gap-1">
-            <CrossLinkButton
-              href={activityHref}
-              label={`View activity for ${unit.displayName}`}
-              icon={<Activity className="h-3.5 w-3.5" />}
-              testId={`unit-link-activity-${unit.name}`}
-            />
-            <CrossLinkButton
-              href={costsHref}
-              label={`View costs for ${unit.displayName}`}
-              icon={<DollarSign className="h-3.5 w-3.5" />}
-              testId={`unit-link-costs-${unit.name}`}
-            />
-            <CrossLinkButton
-              href={policiesHref}
-              label={`View policies for ${unit.displayName}`}
-              icon={<ShieldCheck className="h-3.5 w-3.5" />}
-              testId={`unit-link-policies-${unit.name}`}
-            />
+          {/* Cross-links: activity, costs, policies. Legacy fallback —
+              hidden when the `<CardTabRow>` footer is active via
+              `onOpenTab`; kept for callers that have not migrated. */}
+          <div
+            className="flex items-center gap-1"
+            data-testid={`unit-cross-links-${unit.name}`}
+          >
+            {onOpenTab ? null : (
+              <>
+                <CrossLinkButton
+                  href={activityHref}
+                  label={`View activity for ${unit.displayName}`}
+                  icon={<Activity className="h-3.5 w-3.5" />}
+                  testId={`unit-link-activity-${unit.name}`}
+                />
+                <CrossLinkButton
+                  href={costsHref}
+                  label={`View costs for ${unit.displayName}`}
+                  icon={<DollarSign className="h-3.5 w-3.5" />}
+                  testId={`unit-link-costs-${unit.name}`}
+                />
+                <CrossLinkButton
+                  href={policiesHref}
+                  label={`View policies for ${unit.displayName}`}
+                  icon={<ShieldCheck className="h-3.5 w-3.5" />}
+                  testId={`unit-link-policies-${unit.name}`}
+                />
+              </>
+            )}
           </div>
           <div className="flex items-center gap-1">
             <Link
@@ -217,6 +260,18 @@ export function UnitCard({ unit, onDelete, className }: UnitCardProps) {
           </div>
         </div>
       </CardContent>
+      {onOpenTab && (
+        <div
+          className="relative z-[1]"
+          data-testid={`unit-card-tabrow-${unit.name}`}
+        >
+          <CardTabRow
+            id={unit.name}
+            tabs={UNIT_CARD_TABS}
+            onOpenTab={(id, tab) => onOpenTab(id, tab)}
+          />
+        </div>
+      )}
     </Card>
   );
 }
