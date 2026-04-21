@@ -1121,6 +1121,125 @@ export default function CreateUnitPage() {
     modelIsSelected,
   ]);
 
+  // Issue #927-followup: explain *why* Next is disabled on Step 2.
+  // Without this hint the wizard can dead-end silently — the
+  // CredentialSection / Model dropdown only render when the
+  // agent-runtimes catalog returns a matching runtime, so an
+  // unreachable platform API or an uninstalled runtime collapses the
+  // whole credential+model surface and leaves the operator staring at
+  // a disabled button with no way to diagnose. We surface the most
+  // specific actionable reason, in priority order, mirroring the gates
+  // that `canGoNext` and `validateStep2` consult.
+  const nextDisabledReason = useMemo<string | null>(() => {
+    if (step !== 2) return null;
+    if (canGoNext) return null;
+    if (validateCredential.isPending) {
+      return "Validating the API key with the provider…";
+    }
+    if (form.tool === "custom") return null;
+    if (agentRuntimesQuery.isPending) {
+      return "Loading the agent-runtime catalog from the platform API…";
+    }
+    if (agentRuntimesQuery.isError) {
+      return "Could not load the agent-runtime catalog from the platform API. Check that the API host is reachable and reload the page.";
+    }
+    const toolLabel =
+      EXECUTION_TOOLS.find((t) => t.id === form.tool)?.label ?? form.tool;
+    if (agentRuntimes.length === 0) {
+      return `No agent runtimes are installed on this server. Install at least one runtime (Claude, Codex, Gemini, or Dapr Agent) — or pick "Custom" — to continue.`;
+    }
+    if (form.tool === "dapr-agent" && form.provider.trim() === "") {
+      return "Pick an LLM provider for the Dapr Agent runtime.";
+    }
+    if (form.tool !== "dapr-agent" && requiredCredentialRuntime === null) {
+      return `The "${toolLabel}" agent runtime is not installed on this server. Pick a different execution tool, or install the matching runtime.`;
+    }
+    if (isOllamaDapr && ollamaModelsLoading) {
+      return "Loading the model list from the Ollama server…";
+    }
+    if (requiredCredentialProvider !== null) {
+      const providerName = providerLabel(requiredCredentialProvider);
+      const trimmedKey = form.credentialKey.trim();
+      if (
+        trimmedKey.length === 0 &&
+        credentialStatus?.resolvable !== true
+      ) {
+        return `Enter a ${providerName} API key — the model list is loaded from your account once the key is validated.`;
+      }
+      if (effectiveValidation.status === "invalid") {
+        return (
+          effectiveValidation.error ??
+          `${providerName} rejected the API key. Edit the key and re-try.`
+        );
+      }
+      if (
+        trimmedKey.length > 0 &&
+        effectiveValidation.status === "idle"
+      ) {
+        return `Tab out of the ${providerName} API key field (or click Next) to validate it before continuing.`;
+      }
+    }
+    if (!showModelDropdown) {
+      return "A live model list isn't available yet — provide a valid API key (or wait for the catalog probe to finish) so the Model dropdown can render.";
+    }
+    if (!modelIsSelected) {
+      return "Select a model from the dropdown to continue.";
+    }
+    return null;
+  }, [
+    step,
+    canGoNext,
+    validateCredential.isPending,
+    form.tool,
+    form.provider,
+    form.credentialKey,
+    agentRuntimesQuery.isPending,
+    agentRuntimesQuery.isError,
+    agentRuntimes.length,
+    requiredCredentialRuntime,
+    requiredCredentialProvider,
+    credentialStatus?.resolvable,
+    effectiveValidation.status,
+    effectiveValidation.error,
+    isOllamaDapr,
+    ollamaModelsLoading,
+    showModelDropdown,
+    modelIsSelected,
+  ]);
+
+  // Truthy when the agent-runtime catalog itself is the cause of an
+  // empty Step 2 (no runtimes / fetch failure for a non-custom tool).
+  // Drives the in-card banner above the form so the operator sees the
+  // root cause, not just the "Next is disabled" symptom underneath.
+  const agentRuntimeCatalogIssue = useMemo<string | null>(() => {
+    if (form.tool === "custom") return null;
+    if (agentRuntimesQuery.isPending) return null;
+    if (agentRuntimesQuery.isError) {
+      const message =
+        agentRuntimesQuery.error instanceof Error
+          ? agentRuntimesQuery.error.message
+          : String(agentRuntimesQuery.error);
+      // The API client surfaces non-2xx responses as
+      // `API error <code>: <body>` and the body can be a large HTML
+      // error page (e.g. when the platform API isn't running and the
+      // dev server returns its 404 chrome). Truncate to the status
+      // prefix so the banner stays scannable; the full body is still
+      // visible in the network panel.
+      const concise = summariseApiError(message, 240);
+      return `Could not load the agent-runtime catalog: ${concise}`;
+    }
+    if (agentRuntimes.length === 0) {
+      return "No agent runtimes are installed on this server. Install one (Claude, Codex, Gemini, or Dapr Agent) — or switch the Execution tool to Custom — to populate the model and credential fields.";
+    }
+    return null;
+  }, [
+    form.tool,
+    agentRuntimesQuery.isPending,
+    agentRuntimesQuery.isError,
+    agentRuntimesQuery.error,
+    agentRuntimes.length,
+  ]);
+
   return (
     <div className="space-y-6">
       <Breadcrumbs
@@ -1227,6 +1346,20 @@ export default function CreateUnitPage() {
             <CardTitle>Execution tool &amp; model</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            {agentRuntimeCatalogIssue && (
+              <div
+                role="alert"
+                data-testid="agent-runtime-catalog-issue"
+                className="flex items-start gap-2 rounded-md border border-warning/50 bg-warning/15 px-3 py-2 text-sm text-foreground"
+              >
+                <AlertTriangle
+                  className="mt-0.5 h-4 w-4 shrink-0"
+                  aria-hidden
+                />
+                <p className="flex-1">{agentRuntimeCatalogIssue}</p>
+              </div>
+            )}
+
             {/* Issue #661 order: Tool → credential input → Model. */}
             <label className="block space-y-1">
               <span className="text-sm text-muted-foreground">
@@ -1949,24 +2082,40 @@ export default function CreateUnitPage() {
         </Card>
       )}
 
-      <div className="flex items-center justify-between">
-        <Button
-          variant="outline"
-          onClick={handleBack}
-          disabled={step === 1 || submitting}
-        >
-          Back
-        </Button>
-        {step < 6 && (
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between gap-3">
           <Button
-            onClick={() => {
-              void handleNext();
-            }}
-            disabled={!canGoNext}
+            variant="outline"
+            onClick={handleBack}
+            disabled={step === 1 || submitting}
           >
-            {step === 2 && validateCredential.isPending ? "Validating…" : "Next"}
+            Back
           </Button>
-        )}
+          {step < 6 && (
+            <div className="flex flex-1 items-center justify-end gap-3">
+              {nextDisabledReason && (
+                <p
+                  role="status"
+                  aria-live="polite"
+                  data-testid="next-disabled-reason"
+                  className="max-w-md text-right text-xs text-muted-foreground"
+                >
+                  {nextDisabledReason}
+                </p>
+              )}
+              <Button
+                onClick={() => {
+                  void handleNext();
+                }}
+                disabled={!canGoNext}
+              >
+                {step === 2 && validateCredential.isPending
+                  ? "Validating…"
+                  : "Next"}
+              </Button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -2454,6 +2603,28 @@ function OllamaReachabilityBanner({
       </p>
     </div>
   );
+}
+
+/**
+ * Trim an `API error <code>: <body>` message down to something that
+ * fits in a banner. The API client returns the response body verbatim,
+ * which for the dev server's 404 chrome is a multi-kilobyte HTML
+ * document — useless for a status banner and visually overwhelming.
+ *
+ * Strategy: keep the `API error <code>: <reason>` prefix (everything
+ * up to the first newline or the first `<`), strip any inline tags
+ * from what remains, collapse whitespace, and clip to `maxChars`.
+ * Non–API-error strings pass through with the same whitespace +
+ * length normalisation.
+ */
+export function summariseApiError(message: string, maxChars = 240): string {
+  const beforeBody = message.split(/\n|<\s*[a-z!]/i)[0] ?? message;
+  const stripped = beforeBody
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (stripped.length <= maxChars) return stripped;
+  return `${stripped.slice(0, maxChars - 1).trimEnd()}…`;
 }
 
 function providerLabel(providerId: string): string {

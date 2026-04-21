@@ -567,3 +567,64 @@ describe("CreateUnitPage — provider help links (#659)", () => {
     );
   });
 });
+
+// Regression: when Step 2 disables Next, the wizard must always
+// surface a human-readable reason. Previously an empty agent-runtime
+// catalog (e.g. platform API down, or no installed runtime matching
+// the selected tool) silently hid the credential + model surface and
+// the operator was stuck staring at a disabled Next button with no
+// clue what to do.
+describe("CreateUnitPage — Step 2 explains a disabled Next", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    seedDefaultMocks();
+  });
+
+  it("warns when no agent runtimes are installed and Claude Code is selected", async () => {
+    listAgentRuntimes.mockResolvedValue([]);
+    renderPage();
+    await advanceToExecution();
+
+    const banner = await screen.findByTestId("agent-runtime-catalog-issue");
+    expect(banner.textContent).toMatch(/no agent runtimes are installed/i);
+
+    const next = screen.getByRole("button", { name: /^next$/i });
+    expect(next).toBeDisabled();
+
+    const reason = await screen.findByTestId("next-disabled-reason");
+    expect(reason.textContent).toMatch(/no agent runtimes are installed/i);
+  });
+
+  it("explains the missing runtime when the selected tool's runtime isn't installed", async () => {
+    listAgentRuntimes.mockResolvedValue([
+      makeRuntime({
+        id: "openai",
+        displayName: "OpenAI",
+        toolKind: "dapr-agent",
+        models: ["gpt-4o"],
+        defaultModel: "gpt-4o",
+        credentialKind: "ApiKey",
+      }),
+    ]);
+    renderPage();
+    await advanceToExecution();
+
+    const reason = await screen.findByTestId("next-disabled-reason");
+    expect(reason.textContent).toMatch(
+      /Claude Code.*runtime is not installed/i,
+    );
+    expect(screen.getByRole("button", { name: /^next$/i })).toBeDisabled();
+  });
+
+  it("prompts for an API key when the credential probe says nothing is resolvable", async () => {
+    getProviderCredentialStatus.mockResolvedValue(
+      makeStatus({ provider: "anthropic", resolvable: false, source: null }),
+    );
+    renderPage();
+    await advanceToExecution();
+
+    const reason = await screen.findByTestId("next-disabled-reason");
+    expect(reason.textContent).toMatch(/Anthropic API key/i);
+    expect(screen.getByRole("button", { name: /^next$/i })).toBeDisabled();
+  });
+});
