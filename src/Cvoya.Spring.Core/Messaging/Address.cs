@@ -21,4 +21,7 @@ using System.Runtime.Serialization;
 [DataContract]
 public record Address(
     [property: DataMember] string Scheme,
-    [property: DataMember] string Path);
+    [property: DataMember] string Path)
+{
+    public sealed override string ToString() => $"{Scheme}:{Path}";
+}

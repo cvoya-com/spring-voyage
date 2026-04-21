@@ -49,6 +49,22 @@ public class AddressTests
 
         address1.GetHashCode().ShouldBe(address2.GetHashCode());
     }
+
+    [Fact]
+    public void ToString_ReturnsSchemeColonPath()
+    {
+        var address = new Address("human", "local-dev-user");
+
+        address.ToString().ShouldBe("human:local-dev-user");
+    }
+
+    [Fact]
+    public void ToString_InterpolatedIntoString_ReturnsSchemeColonPath()
+    {
+        var address = new Address("agent", "engineering-team/ada");
+
+        $"from {address}".ShouldBe("from agent:engineering-team/ada");
+    }
 }
 
 public class MessageTests
