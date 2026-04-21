@@ -9,8 +9,9 @@ namespace Cvoya.Spring.Core.Skills;
 /// </summary>
 /// <param name="TenantId">Tenant that owns the binding row.</param>
 /// <param name="BundleId">
-/// Stable bundle identifier (the package directory name under
-/// <c>Skills:PackagesRoot</c>, e.g. <c>software-engineering</c>).
+/// Stable bundle identifier (the package directory name under the
+/// configured packages root — <c>Skills:PackagesRoot</c> or the shared
+/// <c>Packages:Root</c> — e.g. <c>software-engineering</c>).
 /// </param>
 /// <param name="Enabled">
 /// <c>true</c> when the tenant can resolve and bind units against this

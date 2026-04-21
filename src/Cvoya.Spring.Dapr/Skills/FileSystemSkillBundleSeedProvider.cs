@@ -30,7 +30,8 @@ using Microsoft.Extensions.Options;
 /// </para>
 /// <para>
 /// <strong>Failure mode.</strong> A misconfigured packages root
-/// (missing directory, no <c>Skills:PackagesRoot</c> set) is logged at
+/// (missing directory, neither <c>Skills:PackagesRoot</c> nor the shared
+/// <c>Packages:Root</c> fallback set) is logged at
 /// <c>Warning</c> level and the provider returns without throwing — an
 /// OSS deployment that does not ship bundles must still bootstrap.
 /// </para>
@@ -70,7 +71,7 @@ public class FileSystemSkillBundleSeedProvider(
         if (string.IsNullOrWhiteSpace(root))
         {
             logger.LogWarning(
-                "Tenant '{TenantId}' skill-bundle seed: 'Skills:PackagesRoot' is not configured; skipping enumeration.",
+                "Tenant '{TenantId}' skill-bundle seed: packages root not configured ('Skills:PackagesRoot' and 'Packages:Root' both unset); skipping enumeration.",
                 tenantId);
             return;
         }

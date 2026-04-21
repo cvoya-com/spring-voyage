@@ -112,7 +112,10 @@ public class FileSystemSkillBundleSeedProviderTests : IDisposable
             () => sut.ApplySeedsAsync("default", TestContext.Current.CancellationToken));
 
         logger.Entries.ShouldContain(
-            e => e.Level == LogLevel.Warning && e.Message.Contains("not configured"));
+            e => e.Level == LogLevel.Warning
+                 && e.Message.Contains("not configured")
+                 && e.Message.Contains("Skills:PackagesRoot")
+                 && e.Message.Contains("Packages:Root"));
         await bindingService.DidNotReceive().BindAsync(
             Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
     }

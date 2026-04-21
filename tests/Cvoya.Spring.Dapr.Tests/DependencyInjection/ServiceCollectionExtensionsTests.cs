@@ -280,4 +280,90 @@ public class ServiceCollectionExtensionsTests
 
         options.Value.BootstrapDefaultTenant.ShouldBeTrue();
     }
+
+    /// <summary>
+    /// #969: when <c>Skills:PackagesRoot</c> is not set, the Dapr-level
+    /// post-configure must bridge <c>SkillBundleOptions.PackagesRoot</c>
+    /// to the shared <c>Packages:Root</c> key. Without this the Worker
+    /// host (which owns default-tenant bootstrap) runs
+    /// <see cref="Cvoya.Spring.Dapr.Skills.FileSystemSkillBundleSeedProvider"/>
+    /// with a null root and silently binds nothing.
+    /// </summary>
+    [Fact]
+    public void AddCvoyaSpringDapr_SkillBundlePackagesRoot_FallsBackToSharedPackagesRoot()
+    {
+        var services = new ServiceCollection();
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Packages:Root"] = "/packages",
+            })
+            .Build();
+        services.AddLogging();
+        services.AddSingleton<IConfiguration>(config);
+        services.AddSingleton(Substitute.For<IActorProxyFactory>());
+        services.AddDbContext<SpringDbContext>(options =>
+            options.UseInMemoryDatabase($"DiTest_{Guid.NewGuid():N}"));
+
+        services.AddCvoyaSpringDapr(config);
+
+        using var provider = services.BuildServiceProvider();
+        var options = provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<Cvoya.Spring.Dapr.Skills.SkillBundleOptions>>();
+
+        options.Value.PackagesRoot.ShouldBe("/packages");
+    }
+
+    /// <summary>
+    /// #969: the fallback must prefer an explicit
+    /// <c>Skills:PackagesRoot</c> over the shared <c>Packages:Root</c>
+    /// so operators who already set the specific key keep control.
+    /// </summary>
+    [Fact]
+    public void AddCvoyaSpringDapr_SkillBundlePackagesRoot_PrefersExplicitSkillsKey()
+    {
+        var services = new ServiceCollection();
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Skills:PackagesRoot"] = "/explicit",
+                ["Packages:Root"] = "/shared",
+            })
+            .Build();
+        services.AddLogging();
+        services.AddSingleton<IConfiguration>(config);
+        services.AddSingleton(Substitute.For<IActorProxyFactory>());
+        services.AddDbContext<SpringDbContext>(options =>
+            options.UseInMemoryDatabase($"DiTest_{Guid.NewGuid():N}"));
+
+        services.AddCvoyaSpringDapr(config);
+
+        using var provider = services.BuildServiceProvider();
+        var options = provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<Cvoya.Spring.Dapr.Skills.SkillBundleOptions>>();
+
+        options.Value.PackagesRoot.ShouldBe("/explicit");
+    }
+
+    /// <summary>
+    /// #969: when neither key is set and no env var is present, the
+    /// fallback leaves <c>PackagesRoot</c> null so the seed provider logs
+    /// its misconfiguration warning and returns instead of enumerating
+    /// a wrong path.
+    /// </summary>
+    [Fact]
+    public void AddCvoyaSpringDapr_SkillBundlePackagesRoot_NullWhenUnconfigured()
+    {
+        var previousEnv = System.Environment.GetEnvironmentVariable("SPRING_PACKAGES_ROOT");
+        System.Environment.SetEnvironmentVariable("SPRING_PACKAGES_ROOT", null);
+        try
+        {
+            using var provider = BuildProvider();
+            var options = provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<Cvoya.Spring.Dapr.Skills.SkillBundleOptions>>();
+
+            options.Value.PackagesRoot.ShouldBeNull();
+        }
+        finally
+        {
+            System.Environment.SetEnvironmentVariable("SPRING_PACKAGES_ROOT", previousEnv);
+        }
+    }
 }

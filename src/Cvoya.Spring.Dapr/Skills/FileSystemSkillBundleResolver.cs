@@ -124,7 +124,7 @@ public class FileSystemSkillBundleResolver : ISkillBundleResolver
         {
             throw new SkillBundlePackageNotFoundException(
                 packageName,
-                "(no packages root configured — set 'Skills:PackagesRoot' or provide SkillBundleOptions.PackagesRoot)");
+                "(no packages root configured — set 'Skills:PackagesRoot', 'Packages:Root', or provide SkillBundleOptions.PackagesRoot)");
         }
 
         if (!Directory.Exists(root))

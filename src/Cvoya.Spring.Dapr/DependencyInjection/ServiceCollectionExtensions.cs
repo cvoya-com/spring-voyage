@@ -225,6 +225,16 @@ public static class ServiceCollectionExtensions
         // cloud host can register a tenant-scoped bundle store or validator
         // without touching the API layer.
         services.AddOptions<SkillBundleOptions>().BindConfiguration(SkillBundleOptions.SectionName);
+        // Fall back to the shared `Packages:Root` (or `SPRING_PACKAGES_ROOT`
+        // env) when `Skills:PackagesRoot` is unset, so one deployment-level
+        // config key serves both the unit-template catalog and the skill-
+        // bundle resolver/seeder. Without this, the default-tenant bootstrap
+        // (which the Worker owns; see WorkerComposition) sees
+        // SkillBundleOptions.PackagesRoot as null and silently skips
+        // enumeration — leaving the tenant with zero bindings so every
+        // template-backed Create hits "Unknown skill package". See #969.
+        services.AddSingleton<IPostConfigureOptions<SkillBundleOptions>>(
+            new SkillBundlePackagesRootFallback(configuration));
         // #687: resolve `ISkillBundleResolver` through a tenant-filtering
         // decorator so bundles surface only when the current tenant has an
         // `enabled=true` binding. The inner file-system resolver stays a
@@ -836,5 +846,30 @@ public static class ServiceCollectionExtensions
         services.AddHostedService(sp => sp.GetRequiredService<StartupConfigurationValidator>());
 
         return services;
+    }
+
+    /// <summary>
+    /// Post-configure that bridges <see cref="SkillBundleOptions.PackagesRoot"/>
+    /// to the shared <c>Packages:Root</c> configuration key (or the
+    /// <c>SPRING_PACKAGES_ROOT</c> environment variable) when the operator
+    /// hasn't set <c>Skills:PackagesRoot</c> explicitly. Registered by
+    /// <see cref="AddCvoyaSpringDapr"/> so both the API host and the
+    /// Worker host (which owns the default-tenant bootstrap) agree on the
+    /// packages root without either having to know about the other's DI
+    /// graph. See #969.
+    /// </summary>
+    private sealed class SkillBundlePackagesRootFallback(IConfiguration configuration)
+        : IPostConfigureOptions<SkillBundleOptions>
+    {
+        public void PostConfigure(string? name, SkillBundleOptions options)
+        {
+            if (!string.IsNullOrWhiteSpace(options.PackagesRoot))
+            {
+                return;
+            }
+
+            options.PackagesRoot = configuration["Packages:Root"]
+                ?? System.Environment.GetEnvironmentVariable("SPRING_PACKAGES_ROOT");
+        }
     }
 }

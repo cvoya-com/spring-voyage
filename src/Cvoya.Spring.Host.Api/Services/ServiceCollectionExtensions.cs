@@ -47,6 +47,14 @@ public static class ServiceCollectionExtensions
         // PostConfigure resolves PackageCatalogOptions from the container at
         // bind time so tests that swap the options instance (see
         // UnitCreationEndpointTests) are honoured.
+        //
+        // Note: AddCvoyaSpringDapr also registers a configuration-level
+        // fallback that maps `Packages:Root` → SkillBundleOptions.PackagesRoot
+        // so the Worker host (which owns default-tenant bootstrap; see #969)
+        // gets the bridge without depending on Host.Api. This post-configure
+        // layers on top to cover the API-only advantages: the
+        // DiscoverPackagesRoot() auto-walk and test overrides of
+        // PackageCatalogOptions.Root.
         services.AddSingleton<IPostConfigureOptions<SkillBundleOptions>>(sp =>
             new SkillBundlePackagesRootPostConfigure(
                 sp.GetRequiredService<PackageCatalogOptions>()));

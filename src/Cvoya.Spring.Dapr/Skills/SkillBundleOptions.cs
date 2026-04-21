@@ -15,9 +15,14 @@ public class SkillBundleOptions
 
     /// <summary>
     /// Absolute or relative path to the <c>packages/</c> root that contains
-    /// <c>{package}/skills/{skill}.md</c> files. When <c>null</c> or missing,
-    /// the resolver throws <see cref="Core.Skills.SkillBundlePackageNotFoundException"/>
-    /// for every request — the operator sees the misconfiguration instead of a
+    /// <c>{package}/skills/{skill}.md</c> files. Configured via
+    /// <c>Skills:PackagesRoot</c>; when unset, a post-configure installed by
+    /// <c>AddCvoyaSpringDapr</c> falls back to the shared <c>Packages:Root</c>
+    /// (or the <c>SPRING_PACKAGES_ROOT</c> env var) so a single deployment-
+    /// level key serves the unit-template catalog and the skill-bundle
+    /// resolver/seeder alike. When both are missing the resolver throws
+    /// <see cref="Core.Skills.SkillBundlePackageNotFoundException"/> for
+    /// every request — the operator sees the misconfiguration instead of a
     /// silent fallback.
     /// </summary>
     public string? PackagesRoot { get; set; }
