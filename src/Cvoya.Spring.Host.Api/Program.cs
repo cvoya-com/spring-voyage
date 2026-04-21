@@ -244,6 +244,7 @@ try
     app.MapCloneEndpoints().RequireAuthorization();
     app.MapCloningPolicyEndpoints();
     app.MapCostEndpoints().RequireAuthorization();
+    app.MapTenantCostEndpoints().RequireAuthorization();
     app.MapBudgetEndpoints().RequireAuthorization();
     app.MapInitiativeEndpoints().RequireAuthorization();
     app.MapActivityEndpoints().RequireAuthorization();

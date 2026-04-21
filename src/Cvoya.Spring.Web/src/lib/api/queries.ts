@@ -55,6 +55,7 @@ import type {
   PersistentAgentLogsResponse,
   PlatformInfoResponse,
   SkillCatalogEntry,
+  TenantCostTimeseriesResponse,
   ThroughputRollupResponse,
   TokenResponse,
   UnitBoundaryResponse,
@@ -140,6 +141,35 @@ export function useTenantCost(
     queryFn: async () => {
       try {
         return await api.getTenantCost(range);
+      } catch {
+        return null;
+      }
+    },
+    ...opts,
+  });
+}
+
+/**
+ * Tenant cost time-series (V21-tenant-cost-timeseries, #916). Feeds the
+ * `/budgets` sparkline and — once #910 lands — the analytics stacked-area
+ * chart, so both surfaces dedupe against one cache slot. Valid windows
+ * are up to `90d`, valid buckets are `1h` / `1d` / `7d`; the server
+ * rejects anything else with a 400.
+ *
+ * Surfaces `null` on error so the `<CostSummaryCard>` sparkline renders
+ * the empty slot instead of trapping the page-level error boundary —
+ * mirrors {@link useTenantCost}.
+ */
+export function useTenantCostTimeseries(
+  window: string = "30d",
+  bucket: string = "1d",
+  opts?: SliceOptions<TenantCostTimeseriesResponse | null>,
+): UseQueryResult<TenantCostTimeseriesResponse | null, Error> {
+  return useQuery({
+    queryKey: queryKeys.tenant.costTimeseries(window, bucket),
+    queryFn: async () => {
+      try {
+        return await api.getTenantCostTimeseries({ window, bucket });
       } catch {
         return null;
       }

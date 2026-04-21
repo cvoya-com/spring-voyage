@@ -125,6 +125,16 @@ export const queryKeys = {
     cost: (from: string, to: string) =>
       ["tenant", "cost", from, to] as const,
     /**
+     * Tenant cost time-series (V21-tenant-cost-timeseries, #916). Keyed
+     * on `(window, bucket)` so the `/budgets` sparkline (30d / 1d) and
+     * the forthcoming analytics stacked-area chart (#910) can share the
+     * same cache slot without colliding. The key is the source-of-truth
+     * grain — two surfaces asking for the same window+bucket dedupe
+     * transparently.
+     */
+    costTimeseries: (window: string, bucket: string) =>
+      ["tenant", "costTimeseries", window, bucket] as const,
+    /**
      * Tenant tree payload served by `GET /api/v1/tenant/tree`. Consumed
      * by `<UnitExplorer>` — any unit/agent mutation should invalidate
      * this slice so the Explorer re-renders with the new shape.

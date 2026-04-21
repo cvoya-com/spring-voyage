@@ -521,6 +521,27 @@ export const api = {
       }),
     );
   },
+  /**
+   * Tenant cost time-series (V21-tenant-cost-timeseries, #916). Zero-filled,
+   * bucketed, shared by the `/budgets` sparkline and the forthcoming
+   * analytics chart (#910). Server defaults: `window=30d`, `bucket=1d`.
+   * Valid buckets are `1h`, `1d`, `7d`; window must be <= `90d`. The server
+   * emits an RFC 7807 400 on unparseable/unknown values — we surface those
+   * as ApiError verbatim so call sites treat the hook as "trust the
+   * server's validation".
+   */
+  getTenantCostTimeseries: async (
+    params?: { window?: string; bucket?: string },
+  ) => {
+    const query: Record<string, string> = {};
+    if (params?.window) query.window = params.window;
+    if (params?.bucket) query.bucket = params.bucket;
+    return unwrap(
+      await fetchClient.GET("/api/v1/tenant/cost/timeseries", {
+        params: { query: query as never },
+      }),
+    );
+  },
 
   // Clones
   getClones: async (agentId: string) =>

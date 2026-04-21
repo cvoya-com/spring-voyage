@@ -604,5 +604,14 @@ public class DefaultUnitPolicyEnforcerTests
 
         public Task<CostSummary> GetTenantCostAsync(string tenantId, DateTimeOffset from, DateTimeOffset to, CancellationToken cancellationToken = default) =>
             Task.FromResult(new CostSummary(0m, 0, 0, 0, 0m, 0m, from, to));
+
+        public Task<CostTimeseries> GetTenantCostTimeseriesAsync(
+            string tenantId,
+            DateTimeOffset from,
+            DateTimeOffset to,
+            TimeSpan bucket,
+            string bucketLabel,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new CostTimeseries(from, to, bucketLabel, Array.Empty<CostTimeseriesBucket>()));
     }
 }

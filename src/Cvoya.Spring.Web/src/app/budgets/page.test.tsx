@@ -15,6 +15,7 @@ import type {
   BudgetResponse,
   CostDashboardSummary,
   CostSummaryResponse,
+  TenantCostTimeseriesResponse,
   UnitDashboardSummary,
 } from "@/lib/api/types";
 
@@ -22,6 +23,8 @@ const getTenantBudget = vi.fn<() => Promise<BudgetResponse | null>>();
 const getDashboardCosts = vi.fn<() => Promise<CostDashboardSummary>>();
 const getDashboardUnits = vi.fn<() => Promise<UnitDashboardSummary[]>>();
 const getTenantCost = vi.fn<() => Promise<CostSummaryResponse | null>>();
+const getTenantCostTimeseries =
+  vi.fn<() => Promise<TenantCostTimeseriesResponse | null>>();
 
 vi.mock("@/lib/api/client", () => ({
   api: {
@@ -29,6 +32,7 @@ vi.mock("@/lib/api/client", () => ({
     getDashboardCosts: () => getDashboardCosts(),
     getDashboardUnits: () => getDashboardUnits(),
     getTenantCost: () => getTenantCost(),
+    getTenantCostTimeseries: () => getTenantCostTimeseries(),
   },
 }));
 
@@ -79,7 +83,16 @@ describe("/budgets", () => {
     getDashboardCosts.mockReset();
     getDashboardUnits.mockReset();
     getTenantCost.mockReset();
+    getTenantCostTimeseries.mockReset();
     getTenantCost.mockResolvedValue({ totalCost: 0, breakdowns: [] } as unknown as CostSummaryResponse);
+    // Default to the empty-series shape — the `/budgets` sparkline
+    // renders "no line" rather than a flat zero for empty tenants.
+    getTenantCostTimeseries.mockResolvedValue({
+      from: "2026-03-22T00:00:00Z",
+      to: "2026-04-21T00:00:00Z",
+      bucket: "1d",
+      series: [],
+    });
   });
 
   it("renders the tenant budget card with cap and utilisation", async () => {
@@ -170,5 +183,38 @@ describe("/budgets", () => {
       expect(screen.getAllByText(/\$42\.00/).length).toBeGreaterThan(0);
     });
     expect(screen.getAllByText(/\$12\.50/).length).toBeGreaterThan(0);
+  });
+
+  it("renders the sparkline from the tenant cost time-series endpoint", async () => {
+    // Non-empty series — the inline BudgetSparkline should render. The
+    // series length + contents don't matter for this assertion; we only
+    // need to confirm the hook data flows to the DOM via the
+    // `data-testid="budgets-sparkline"` selector.
+    getTenantBudget.mockResolvedValue({ dailyBudget: 50 } as BudgetResponse);
+    getDashboardCosts.mockResolvedValue({
+      totalCost: 20,
+      costsBySource: [],
+      periodStart: null,
+      periodEnd: null,
+    });
+    getDashboardUnits.mockResolvedValue([]);
+    getTenantCostTimeseries.mockResolvedValue({
+      from: "2026-03-22T00:00:00Z",
+      to: "2026-04-21T00:00:00Z",
+      bucket: "1d",
+      series: [
+        { t: "2026-03-22T00:00:00Z", cost: 0.1 },
+        { t: "2026-03-23T00:00:00Z", cost: 0.0 },
+        { t: "2026-03-24T00:00:00Z", cost: 0.25 },
+      ],
+    });
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("budgets-sparkline"),
+      ).toBeInTheDocument();
+    });
   });
 });

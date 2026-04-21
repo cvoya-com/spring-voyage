@@ -37,4 +37,32 @@ public interface ICostQueryService
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>The cost summary for the tenant.</returns>
     Task<CostSummary> GetTenantCostAsync(string tenantId, DateTimeOffset from, DateTimeOffset to, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gets a tenant-wide cost time-series bucketed by fixed-size UTC
+    /// intervals. Missing buckets are zero-filled so the returned series
+    /// is continuous from <paramref name="from"/> to <paramref name="to"/>
+    /// — consumers (the portal sparkline, analytics charts) can render a
+    /// connected line without inventing data.
+    /// </summary>
+    /// <remarks>
+    /// Buckets are anchored on <paramref name="from"/> and advance by
+    /// <paramref name="bucket"/> in UTC wall-clock time — DST transitions
+    /// do not shift bucket edges. The sum across every bucket equals
+    /// <see cref="GetTenantCostAsync"/> called with the same window.
+    /// </remarks>
+    /// <param name="tenantId">The tenant identifier.</param>
+    /// <param name="from">The inclusive UTC start of the window.</param>
+    /// <param name="to">The exclusive UTC end of the window.</param>
+    /// <param name="bucket">The bucket size; must be strictly positive and no larger than the window.</param>
+    /// <param name="bucketLabel">Canonical bucket label (e.g. <c>"1h"</c>, <c>"1d"</c>) persisted on the response.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The zero-filled time-series for the tenant.</returns>
+    Task<CostTimeseries> GetTenantCostTimeseriesAsync(
+        string tenantId,
+        DateTimeOffset from,
+        DateTimeOffset to,
+        TimeSpan bucket,
+        string bucketLabel,
+        CancellationToken cancellationToken = default);
 }

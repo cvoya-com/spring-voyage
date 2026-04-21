@@ -133,6 +133,23 @@ export type WorkflowSummary = Schemas["WorkflowSummary"];
 /** GET /api/v1/costs/agents/{id} or /units/{id} response. */
 export type CostSummaryResponse = Schemas["CostSummaryResponse"];
 
+/**
+ * One bucket inside a tenant cost time-series
+ * (<c>GET /api/v1/tenant/cost/timeseries</c>, #916). `t` is the UTC start
+ * of the bucket; `cost` the total USD accrued inside `[t, t + bucket)`.
+ * Emitted for every bucket — empty buckets carry <c>cost: 0</c> so
+ * consumers render a connected line.
+ */
+export type CostTimeseriesBucketResponse = Schemas["CostTimeseriesBucketResponse"];
+
+/**
+ * GET /api/v1/tenant/cost/timeseries response (V21-tenant-cost-timeseries,
+ * #916). Zero-filled tenant cost series bucketed by fixed UTC intervals.
+ * Shared between the `/budgets` sparkline and the forthcoming analytics
+ * time-series chart (#910).
+ */
+export type TenantCostTimeseriesResponse = Schemas["CostTimeseriesResponse"];
+
 /** GET /api/v1/agents/{agentId}/clones response item. */
 export type CloneResponse = Schemas["CloneResponse"];
 

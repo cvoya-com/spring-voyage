@@ -11,9 +11,11 @@
 // Design contract: plan §12 `SURF-reskin-budgets` — budget bar +
 // sparkline matching the `Pages.jsx` budget card; per-unit drill-down
 // via cross-link. Reuses the v2 `<CostSummaryCard>` for the today / 7d
-// / 30d trio (which already adopted the `StatCard` aesthetic) and
-// synthesises a 30d spend series from the per-source breakdown so the
-// bar+sparkline reads as a live window.
+// / 30d trio (which already adopted the `StatCard` aesthetic). The 30d
+// sparkline rides the real tenant cost time-series endpoint
+// (V21-tenant-cost-timeseries, #916) — the previous build synthesised
+// it from the per-source breakdown because that endpoint didn't exist
+// yet.
 
 import Link from "next/link";
 import { ArrowRight, DollarSign, ExternalLink, Wallet } from "lucide-react";
@@ -33,8 +35,9 @@ import {
   useDashboardCosts,
   useDashboardUnits,
   useTenantBudget,
+  useTenantCostTimeseries,
 } from "@/lib/api/queries";
-import type { CostBySource, UnitDashboardSummary } from "@/lib/api/types";
+import type { UnitDashboardSummary } from "@/lib/api/types";
 import { cn, formatCost } from "@/lib/utils";
 
 /**
@@ -49,23 +52,23 @@ function unitFromSource(source: string): string | null {
 }
 
 /**
- * Small 30d sparkline derived from the tenant cost breakdown. The
- * endpoint only returns totals, so we bucket the per-source rows into a
- * simple ascending step curve — enough for "is spend trending up or
- * down?" at a glance. The `CostSummaryCard` consumes the same series via
- * its `thirtyDaySeries` prop so the dashboard tile and this page agree.
+ * Projects the tenant cost time-series endpoint (V21-tenant-cost-timeseries,
+ * #916) down to the numeric array that `<CostSummaryCard>` and the
+ * inline `<BudgetSparkline>` both consume. The endpoint always emits a
+ * zero-filled, ordered series, so the projection is a trivial `.map` —
+ * no bucketing or cumulative running total is needed (the server is
+ * canonical for both). Returns `undefined` when the series is empty or
+ * the endpoint errored, which the card renders as "no sparkline" rather
+ * than a flat zero line.
  */
-function syntheticThirtyDaySeries(
-  breakdown: CostBySource[] | null | undefined,
+function seriesToCostPoints(
+  payload:
+    | { series: { cost: number }[] }
+    | null
+    | undefined,
 ): number[] | undefined {
-  if (!breakdown || breakdown.length === 0) return undefined;
-  const sorted = [...breakdown].sort((a, b) => a.totalCost - b.totalCost);
-  // Cumulative to read as "today's total is the end of the line".
-  let running = 0;
-  return sorted.map((row) => {
-    running += row.totalCost;
-    return running;
-  });
+  if (!payload || payload.series.length === 0) return undefined;
+  return payload.series.map((b) => b.cost);
 }
 
 /**
@@ -87,6 +90,11 @@ export default function BudgetsIndexPage() {
   const tenantBudget = useTenantBudget();
   const dashboardCosts = useDashboardCosts();
   const dashboardUnits = useDashboardUnits();
+  // Real 30d tenant cost sparkline — feeds both the `<CostSummaryCard>`
+  // footer and the budget-card's inline sparkline. Shares the cache slot
+  // with downstream consumers (#910 analytics chart, #902 tenant-budgets
+  // tile) via `queryKeys.tenant.costTimeseries(window, bucket)`.
+  const tenantTimeseries = useTenantCostTimeseries("30d", "1d");
 
   const tenantCap = tenantBudget.data?.dailyBudget ?? null;
   const totalCost = dashboardCosts.data?.totalCost ?? null;
@@ -96,8 +104,8 @@ export default function BudgetsIndexPage() {
       : null;
 
   const thirtyDaySeries = useMemo(
-    () => syntheticThirtyDaySeries(dashboardCosts.data?.costsBySource),
-    [dashboardCosts.data],
+    () => seriesToCostPoints(tenantTimeseries.data),
+    [tenantTimeseries.data],
   );
 
   const unitRows = useMemo(() => {
