@@ -18,7 +18,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { GraduationCap } from "lucide-react";
+import { Compass, GraduationCap, Search } from "lucide-react";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 
 import { Badge } from "@/components/ui/badge";
@@ -33,6 +33,49 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api/client";
 import type { DirectorySearchHitResponse } from "@/lib/api/types";
+import { cn } from "@/lib/utils";
+
+/**
+ * Filter chip — pill-styled wrapper matching the v2 activity surface
+ * (`/activity`). Active chips pick up the brand tint so the current
+ * filter set is legible at a glance.
+ */
+function FilterChip({
+  label,
+  active,
+  children,
+}: {
+  label: string;
+  active: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <label
+      className={cn(
+        "inline-flex min-w-0 items-center gap-2 rounded-full border px-3 py-1 text-xs transition-colors",
+        active
+          ? "border-primary/40 bg-primary/10 text-foreground"
+          : "border-border bg-muted/40 text-muted-foreground hover:text-foreground",
+      )}
+    >
+      <span className="shrink-0 font-medium uppercase tracking-wide text-[10px] text-muted-foreground">
+        {label}
+      </span>
+      {children}
+    </label>
+  );
+}
+
+/** Level pill variant. Expert is the brand hue; mid-tiers are softer. */
+const levelVariant: Record<
+  string,
+  "default" | "success" | "warning" | "destructive" | "secondary" | "outline"
+> = {
+  expert: "default",
+  advanced: "secondary",
+  intermediate: "outline",
+  basic: "outline",
+};
 
 const PAGE_SIZE = 50;
 
@@ -95,26 +138,35 @@ export default function DirectoryPage() {
     setQuery(searchInput);
   };
 
+  const anyFilter =
+    searchInput.length > 0 || ownerFilter !== "" || typedOnly;
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="flex items-center gap-2 text-2xl font-bold">
-          <GraduationCap className="h-5 w-5" /> Discovery
-        </h1>
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center gap-2">
+          <Compass className="h-5 w-5 text-primary" aria-hidden="true" />
+          <h1 className="text-2xl font-bold">Discovery</h1>
+        </div>
         <p className="text-sm text-muted-foreground">
-          Expertise domains declared by every agent and unit in the tenant.
-          Ranked by relevance; outside a unit boundary only projected
-          entries appear.
+          Expertise declared by every agent and unit in the tenant. Ranked
+          by relevance; outside a unit boundary only projected entries
+          appear.
         </p>
       </div>
 
+      {/* Filter bar — chip-style pills with inline controls, matching
+          the `/activity` surface. The big search Input remains visible
+          at the top so screen-readers (and existing tests keyed off
+          `Search expertise`) still find it; the chip row below collapses
+          the owner + typed-only toggles into pill controls. */}
       <Card>
-        {/* Directory filters stack on mobile (each input occupies the full
-            card width) and fan out to a 1fr + two 160px + button grid on
-            sm+. Keeps the "one line per field" rhythm on a 375px pane. */}
-        <CardContent className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-[1fr_160px_160px_auto]">
-          <label className="block space-y-1">
-            <span className="text-xs text-muted-foreground">Search</span>
+        <CardContent className="space-y-3 p-4">
+          <div className="flex items-center gap-2">
+            <Search
+              className="h-4 w-4 shrink-0 text-muted-foreground"
+              aria-hidden="true"
+            />
             <Input
               type="search"
               placeholder="Capability, description, domain…"
@@ -126,48 +178,64 @@ export default function DirectoryPage() {
                 }
               }}
               aria-label="Search expertise"
+              className="flex-1"
             />
-          </label>
-          <label className="block space-y-1">
-            <span className="text-xs text-muted-foreground">Owner</span>
-            <select
-              value={ownerFilter}
-              onChange={(e) => {
-                setOffset(0);
-                setOwnerFilter(
-                  e.target.value === ""
-                    ? ""
-                    : (e.target.value as "agent" | "unit"),
-                );
-              }}
-              className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            <Button
+              onClick={applySearch}
+              variant="default"
+              disabled={searchQuery.isFetching}
             >
-              <option value="">Any</option>
-              <option value="agent">Agents</option>
-              <option value="unit">Units</option>
-            </select>
-          </label>
-          <label className="flex items-end gap-2 text-xs">
-            <input
-              type="checkbox"
-              checked={typedOnly}
-              onChange={(e) => {
-                setOffset(0);
-                setTypedOnly(e.target.checked);
-              }}
-              aria-label="Typed contract only"
-              className="h-4 w-4"
-            />
-            <span className="text-muted-foreground">Typed only</span>
-          </label>
-          <Button
-            onClick={applySearch}
-            variant="default"
-            className="self-end"
-            disabled={searchQuery.isFetching}
-          >
-            Search
-          </Button>
+              Search
+            </Button>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <FilterChip label="Owner" active={ownerFilter !== ""}>
+              <select
+                value={ownerFilter}
+                onChange={(e) => {
+                  setOffset(0);
+                  setOwnerFilter(
+                    e.target.value === ""
+                      ? ""
+                      : (e.target.value as "agent" | "unit"),
+                  );
+                }}
+                aria-label="Owner"
+                className="h-6 rounded-full border-0 bg-transparent text-xs focus-visible:outline-none"
+              >
+                <option value="">Any</option>
+                <option value="agent">Agents</option>
+                <option value="unit">Units</option>
+              </select>
+            </FilterChip>
+            <FilterChip label="Typed" active={typedOnly}>
+              <input
+                type="checkbox"
+                checked={typedOnly}
+                onChange={(e) => {
+                  setOffset(0);
+                  setTypedOnly(e.target.checked);
+                }}
+                aria-label="Typed contract only"
+                className="h-3 w-3"
+              />
+              <span className="text-xs text-muted-foreground">Only</span>
+            </FilterChip>
+            {anyFilter && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchInput("");
+                  setOwnerFilter("");
+                  setTypedOnly(false);
+                  setOffset(0);
+                }}
+                className="ml-auto text-xs text-muted-foreground hover:text-foreground"
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
         </CardContent>
       </Card>
 
@@ -273,20 +341,24 @@ function DirectoryRow({ hit }: { hit: DirectorySearchHitResponse }) {
     .map((addr) => `${addr.scheme}://${addr.path}`)
     .join(" -> ");
 
+  const levelKey = (level ?? "").toLowerCase();
+  const levelPillVariant = levelVariant[levelKey] ?? "secondary";
+
   return (
     <li
-      className="flex flex-col gap-1 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between"
+      className="flex flex-col gap-2 px-4 py-3 text-sm transition-colors hover:bg-accent/30 sm:flex-row sm:items-center sm:justify-between"
       data-testid={`directory-row-${ownerScheme}-${ownerPath}-${name}`}
     >
       <div className="min-w-0 flex-1 space-y-1">
         <div className="flex flex-wrap items-center gap-2">
-          <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">
+          {/* Slug = identity; mono + outline badge for the v2 pattern. */}
+          <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
             {slug}
           </code>
           <span className="text-sm font-medium">{name}</span>
-          {level && <Badge variant="secondary">{level}</Badge>}
+          {level && <Badge variant={levelPillVariant}>{level}</Badge>}
           {hit.typedContract && (
-            <Badge variant="default" className="text-[10px]">
+            <Badge variant="default" className="text-[10px] font-mono">
               typed
             </Badge>
           )}
@@ -306,9 +378,18 @@ function DirectoryRow({ hit }: { hit: DirectorySearchHitResponse }) {
         )}
       </div>
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground sm:justify-end">
-        <Badge variant="outline">{ownerScheme}</Badge>
-        <Link href={href} className="font-mono text-primary hover:underline">
+        <Badge
+          variant={ownerScheme === "agent" ? "secondary" : "outline"}
+          className="font-mono text-[11px]"
+        >
+          {ownerScheme}
+        </Badge>
+        <Link
+          href={href}
+          className="inline-flex items-center gap-1 font-mono text-primary hover:underline"
+        >
           {ownerScheme}://{ownerPath}
+          <GraduationCap className="h-3 w-3" aria-hidden="true" />
         </Link>
       </div>
     </li>

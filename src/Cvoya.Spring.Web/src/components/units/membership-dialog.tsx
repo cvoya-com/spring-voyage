@@ -244,9 +244,21 @@ export function MembershipDialog({
           </select>
         </label>
       ) : (
-        <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
-          <span className="text-muted-foreground">Agent: </span>
-          <span className="font-medium">{headerLabel}</span>
+        <div
+          className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm"
+          data-testid="membership-dialog-agent-header"
+        >
+          <span className="text-xs uppercase tracking-wide text-muted-foreground">
+            Agent
+          </span>
+          <div className="mt-0.5 flex items-center gap-2">
+            <span className="font-medium">{headerLabel}</span>
+            {initial && (
+              <span className="truncate font-mono text-xs text-muted-foreground">
+                agent://{initial.agentAddress}
+              </span>
+            )}
+          </div>
         </div>
       )}
 

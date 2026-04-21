@@ -20,10 +20,12 @@
  * configure, credential validation) still ride `spring connector …`
  * per the AGENTS.md carve-out — the portal is visibility-only.
  *
- * Design contract: docs/design/portal-exploration.md § 3.2 lists
- * Connectors as a primary nav entry; the empty-state pattern matches
- * `/packages` so operators see the same "install more packages" hint
- * regardless of which catalog is empty.
+ * v2 reskin (SURF-reskin-connectors, #857): catalog cards adopt the
+ * `Pages.jsx` connector-card shape — brand-tinted icon chip on the
+ * left, mono `connector://{slug}` identifier under the display name,
+ * description line, ArrowRight affordance on the right. The Health tab
+ * ships in an extracted `<ConnectorHealthPanel>` (CTRL-connectors-health,
+ * #868) and is deliberately untouched here.
  */
 
 import { Suspense, useCallback } from "react";
@@ -31,6 +33,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowRight, Plug } from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -77,16 +80,17 @@ function ConnectorsContent() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="flex items-center gap-2 text-2xl font-bold">
-          <Plug className="h-5 w-5" aria-hidden="true" /> Connectors
-        </h1>
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center gap-2">
+          <Plug className="h-5 w-5 text-primary" aria-hidden="true" />
+          <h1 className="text-2xl font-bold">Connectors</h1>
+        </div>
         <p className="text-sm text-muted-foreground">
           Every connector installed on the current tenant. Mirrors{" "}
-          <code className="rounded bg-muted px-1 py-0.5 text-xs">
+          <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">
             spring connector catalog
           </code>
-          .
+          . Mutations run through the CLI.
         </p>
       </div>
 
@@ -179,20 +183,35 @@ function ConnectorCard({ connector }: { connector: InstalledConnectorResponse })
     <Card
       data-testid={`connector-card-${connector.typeSlug}`}
       className={cn(
-        "h-full transition-colors hover:border-primary/50 hover:bg-muted/30",
+        "relative h-full transition-colors hover:border-primary/50 hover:bg-muted/30 focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2",
       )}
     >
       <CardContent className="p-4">
-        <Link
-          href={href}
-          aria-label={`Open connector ${connector.displayName}`}
-          className="flex items-start justify-between gap-2"
-        >
+        {/* Brand-tinted icon chip on the left, connector identity stack
+            on the right. Matches the `Pages.jsx` connector card and the
+            Explorer's agent/unit header rhythm. The full card is an
+            overlay link (#593). */}
+        <div className="flex items-start gap-3">
+          <div
+            aria-hidden="true"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-primary/10 text-primary"
+          >
+            <Plug className="h-5 w-5" />
+          </div>
           <div className="min-w-0 flex-1">
-            <h3 className="truncate font-semibold">{connector.displayName}</h3>
-            <p className="mt-0.5 truncate font-mono text-xs text-muted-foreground">
-              {connector.typeSlug}
-            </p>
+            <Link
+              href={href}
+              aria-label={`Open connector ${connector.displayName}`}
+              data-testid={`connector-card-link-${connector.typeSlug}`}
+              className="block rounded-sm focus-visible:outline-none after:absolute after:inset-0 after:content-['']"
+            >
+              <h3 className="truncate text-sm font-semibold">
+                {connector.displayName}
+              </h3>
+              <p className="mt-0.5 truncate font-mono text-xs text-muted-foreground">
+                connector://{connector.typeSlug}
+              </p>
+            </Link>
             {connector.description && (
               <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">
                 {connector.description}
@@ -203,7 +222,13 @@ function ConnectorCard({ connector }: { connector: InstalledConnectorResponse })
             aria-hidden="true"
             className="h-4 w-4 flex-none text-muted-foreground"
           />
-        </Link>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px]">
+          <Badge variant="outline" className="font-mono">
+            {connector.typeSlug}
+          </Badge>
+          <Badge variant="secondary">installed</Badge>
+        </div>
       </CardContent>
     </Card>
   );

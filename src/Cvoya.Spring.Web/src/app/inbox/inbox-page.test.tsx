@@ -129,4 +129,18 @@ describe("InboxPage", () => {
       expect(screen.getByText("spring inbox list")).toBeInTheDocument();
     });
   });
+
+  it("shows the count badge when inbox items exist", async () => {
+    mockListInbox.mockResolvedValue(rows);
+    render(
+      <Wrapper>
+        <InboxPage />
+      </Wrapper>,
+    );
+    await waitFor(() => {
+      const badge = screen.getByTestId("inbox-count-badge");
+      expect(badge).toBeInTheDocument();
+      expect(badge).toHaveTextContent(String(rows.length));
+    });
+  });
 });

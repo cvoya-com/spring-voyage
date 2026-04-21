@@ -254,30 +254,53 @@ const INITIAL_FORM: FormState = {
   credentialOverrideOpen: false,
 };
 
+/**
+ * Wizard progress rail — v2 reskin (SURF-reskin-create-flows, #859).
+ * Styled as a sticky chip-row matching the Explorer's tab bar: brand
+ * tint on the active step, filled dot on completed steps, muted pill
+ * on the remaining ones. Each step advertises its state via
+ * `data-step-state` so tests can key off the new markup without
+ * snapshotting the exact class string.
+ */
 function StepIndicator({ current }: { current: Step }) {
   const steps: Step[] = [1, 2, 3, 4, 5, 6];
   return (
-    <div className="sticky top-0 z-10 -mx-4 md:-mx-6 bg-background/80 backdrop-blur border-b border-border px-4 md:px-6 py-3">
+    <nav
+      aria-label="Create unit progress"
+      className="sticky top-0 z-10 -mx-4 md:-mx-6 border-b border-border bg-background/85 px-4 py-3 backdrop-blur md:px-6"
+    >
       <ol className="flex items-center gap-2 overflow-x-auto">
         {steps.map((n, idx) => {
           const done = n < current;
           const active = n === current;
+          const state = done ? "done" : active ? "active" : "upcoming";
           return (
-            <li key={n} className="flex items-center gap-2 whitespace-nowrap">
+            <li
+              key={n}
+              data-step={n}
+              data-step-state={state}
+              aria-current={active ? "step" : undefined}
+              className="flex items-center gap-2 whitespace-nowrap"
+            >
               <span
                 className={cn(
-                  "flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold",
+                  "flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-semibold transition-colors",
                   done && "bg-primary text-primary-foreground",
-                  active && "bg-primary/20 text-primary ring-2 ring-primary",
+                  active &&
+                    "border border-primary bg-primary/10 text-primary",
                   !done && !active && "bg-muted text-muted-foreground",
                 )}
               >
-                {done ? <Check className="h-3.5 w-3.5" /> : n}
+                {done ? <Check className="h-3.5 w-3.5" aria-hidden /> : n}
               </span>
               <span
                 className={cn(
                   "text-sm",
-                  active ? "font-medium text-foreground" : "text-muted-foreground",
+                  active
+                    ? "font-medium text-foreground"
+                    : done
+                      ? "text-foreground/80"
+                      : "text-muted-foreground",
                 )}
               >
                 {STEP_LABELS[n]}
@@ -289,7 +312,7 @@ function StepIndicator({ current }: { current: Step }) {
           );
         })}
       </ol>
-    </div>
+    </nav>
   );
 }
 
@@ -1107,10 +1130,17 @@ export default function CreateUnitPage() {
         ]}
       />
 
-      <div>
-        <h1 className="text-2xl font-bold">Create a unit</h1>
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center gap-2">
+          <Rocket className="h-5 w-5 text-primary" aria-hidden="true" />
+          <h1 className="text-2xl font-bold">Create a unit</h1>
+        </div>
         <p className="text-sm text-muted-foreground">
-          Register a new unit and wire up its runtime configuration.
+          Register a new unit and wire up its runtime. Mirrors{" "}
+          <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">
+            spring unit create
+          </code>
+          .
         </p>
       </div>
 
@@ -1969,17 +1999,18 @@ function ModeCard({
     <button
       type="button"
       onClick={onSelect}
+      aria-pressed={selected}
       className={cn(
-        "flex w-full items-start gap-3 rounded-md border p-4 text-left transition-colors",
+        "flex w-full items-start gap-3 rounded-md border p-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
         selected
-          ? "border-primary bg-primary/5"
-          : "border-border hover:bg-accent/50",
+          ? "border-primary bg-primary/5 shadow-sm"
+          : "border-border hover:border-primary/40 hover:bg-accent/50",
       )}
     >
       <div
         className={cn(
-          "mt-0.5 rounded-md bg-muted p-2",
-          selected && "bg-primary/15 text-primary",
+          "mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground transition-colors",
+          selected && "border-primary/40 bg-primary/15 text-primary",
         )}
       >
         {icon}

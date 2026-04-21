@@ -125,11 +125,15 @@ export function BoundaryYamlUpload({
   return (
     <Card data-testid="boundary-yaml-upload">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-sm">
-          <FileUp className="h-4 w-4" /> Paste or upload YAML
-          <span className="text-xs text-muted-foreground">
-            parity with `spring unit boundary set -f`
-          </span>
+        <CardTitle className="flex flex-wrap items-center gap-2 text-sm">
+          <FileUp className="h-4 w-4 text-primary" aria-hidden="true" />
+          <span>Paste or upload YAML</span>
+          <Badge
+            variant="outline"
+            className="font-mono text-[10px] font-normal"
+          >
+            spring unit boundary set -f
+          </Badge>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3 text-sm">
