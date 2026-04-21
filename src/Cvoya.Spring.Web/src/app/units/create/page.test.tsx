@@ -30,6 +30,9 @@ const createUnitFromYaml = vi.fn();
 const createUnitSecret = vi.fn();
 const createTenantSecret = vi.fn();
 const rotateTenantSecret = vi.fn();
+const startUnit = vi.fn();
+const getUnit = vi.fn();
+const getUnitExecution = vi.fn();
 
 vi.mock("@/lib/api/client", () => ({
   api: {
@@ -47,7 +50,18 @@ vi.mock("@/lib/api/client", () => ({
     createTenantSecret: (body: unknown) => createTenantSecret(body),
     rotateTenantSecret: (name: string, body: unknown) =>
       rotateTenantSecret(name, body),
+    startUnit: (name: string) => startUnit(name),
+    getUnit: (name: string) => getUnit(name),
+    getUnitExecution: (name: string) => getUnitExecution(name),
+    revalidateUnit: vi.fn().mockResolvedValue(undefined),
   },
+}));
+
+// The Finalize step mounts ValidationPanel, which subscribes to
+// `useActivityStream`. Stub it so the test doesn't try to open a real
+// EventSource under JSDOM.
+vi.mock("@/lib/stream/use-activity-stream", () => ({
+  useActivityStream: () => ({ events: [], connected: true }),
 }));
 
 const toastMock = vi.fn();
@@ -532,6 +546,33 @@ describe("CreateUnitPage — T-07 wizard simplification (#949)", () => {
       name: "anthropic-api-key",
       version: "v1",
     });
+    // Default: start succeeds and the polled GET /units/{id} returns a
+    // terminal Running status on the first fetch. Tests that care about
+    // the intermediate Validating / Error branches override these.
+    startUnit.mockResolvedValue(undefined);
+    getUnit.mockResolvedValue({
+      id: "acme-id",
+      name: "acme",
+      displayName: "Acme",
+      description: "",
+      registeredAt: "2026-04-21T00:00:00Z",
+      status: "Running",
+      model: "claude-opus-4-7",
+      color: null,
+      tool: "claude-code",
+      provider: null,
+      hosting: null,
+      lastValidationError: null,
+      lastValidationRunId: null,
+    });
+    getUnitExecution.mockResolvedValue({
+      unitId: "acme-id",
+      image: null,
+      runtime: null,
+      model: null,
+      secrets: null,
+      updatedAt: null,
+    });
   });
 
   it("renders the Model dropdown even when credentials aren't resolvable", async () => {
@@ -629,9 +670,162 @@ describe("CreateUnitPage — T-07 wizard simplification (#949)", () => {
       name: "anthropic-api-key",
       value: "sk-ant-unit",
     });
+    // Wizard auto-starts the unit (#983) and waits for a terminal
+    // status before redirecting to the Explorer.
     await waitFor(() => {
-      expect(pushMock).toHaveBeenCalledWith("/units/acme");
+      expect(startUnit).toHaveBeenCalledWith("acme");
     });
+    await waitFor(() => {
+      expect(pushMock).toHaveBeenCalledWith(
+        "/units?node=acme&tab=Overview",
+      );
+    });
+  });
+});
+
+// #983 / #980 item 1: the wizard auto-starts the unit after create,
+// waits for validation to finish, and routes to the Explorer. On a
+// terminal Error it keeps the user on Finalize with a Back affordance.
+describe("CreateUnitPage — auto-start + validation (#983)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    seedDefaultMocks();
+    createUnit.mockResolvedValue({ name: "acme", id: "acme-id" });
+    createUnitSecret.mockResolvedValue({
+      name: "anthropic-api-key",
+      version: "v1",
+    });
+    startUnit.mockResolvedValue(undefined);
+    getUnitExecution.mockResolvedValue({
+      unitId: "acme-id",
+      image: null,
+      runtime: null,
+      model: null,
+      secrets: null,
+      updatedAt: null,
+    });
+  });
+
+  async function advanceWizardToFinalize() {
+    getProviderCredentialStatus.mockResolvedValue(
+      makeStatus({
+        provider: "anthropic",
+        resolvable: true,
+        source: "tenant",
+      }),
+    );
+    renderPage();
+    const nameInput = screen.getByPlaceholderText(
+      /engineering-team/i,
+    ) as HTMLInputElement;
+    await act(async () => {
+      fireEvent.change(nameInput, { target: { value: "acme" } });
+    });
+    const clickNext = async () => {
+      const next = screen.getByRole("button", { name: /^next$/i });
+      await act(async () => {
+        fireEvent.click(next);
+      });
+    };
+    await clickNext(); // → Execution
+    await waitFor(async () => {
+      const modelSelect = (await screen.findByLabelText(
+        /^Model$/i,
+      )) as HTMLSelectElement;
+      expect(modelSelect.value).not.toBe("");
+    });
+    await clickNext(); // → Mode
+    const scratch = screen.getByRole("button", { name: /scratch/i });
+    await act(async () => {
+      fireEvent.click(scratch);
+    });
+    await clickNext(); // → Connector
+    await clickNext(); // → Secrets
+    await clickNext(); // → Finalize
+  }
+
+  it("success path: POSTs /start, renders ValidationPanel, redirects on Running", async () => {
+    getUnit.mockResolvedValue({
+      id: "acme-id",
+      name: "acme",
+      displayName: "Acme",
+      description: "",
+      registeredAt: "2026-04-21T00:00:00Z",
+      status: "Running",
+      model: "claude-opus-4-7",
+      color: null,
+      tool: "claude-code",
+      provider: null,
+      hosting: null,
+      lastValidationError: null,
+      lastValidationRunId: null,
+    });
+
+    await advanceWizardToFinalize();
+
+    const createBtn = screen.getByTestId("create-unit-button");
+    await act(async () => {
+      fireEvent.click(createBtn);
+    });
+
+    await waitFor(() => {
+      expect(createUnit).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => {
+      expect(startUnit).toHaveBeenCalledWith("acme");
+    });
+    await waitFor(() => {
+      expect(pushMock).toHaveBeenCalledWith(
+        "/units?node=acme&tab=Overview",
+      );
+    });
+  });
+
+  it("error path: terminal Error keeps the user on Finalize with a Back affordance", async () => {
+    getUnit.mockResolvedValue({
+      id: "acme-id",
+      name: "acme",
+      displayName: "Acme",
+      description: "",
+      registeredAt: "2026-04-21T00:00:00Z",
+      status: "Error",
+      model: "claude-opus-4-7",
+      color: null,
+      tool: "claude-code",
+      provider: null,
+      hosting: null,
+      lastValidationError: {
+        step: "ValidatingCredential",
+        code: "CredentialInvalid",
+        message: "Credential rejected",
+      },
+      lastValidationRunId: "run-123",
+    });
+
+    await advanceWizardToFinalize();
+
+    const createBtn = screen.getByTestId("create-unit-button");
+    await act(async () => {
+      fireEvent.click(createBtn);
+    });
+
+    await waitFor(() => {
+      expect(startUnit).toHaveBeenCalledWith("acme");
+    });
+
+    // Error action row shows up; redirect must NOT happen.
+    await screen.findByTestId("wizard-validation-error-actions");
+    expect(pushMock).not.toHaveBeenCalled();
+
+    // Back affordance steps the wizard back to Execution (step 2).
+    const back = screen.getByTestId("wizard-validation-back");
+    await act(async () => {
+      fireEvent.click(back);
+    });
+
+    // Once the user steps back, the Execution step's Tool select is
+    // visible again.
+    expect(screen.getByLabelText("Execution tool")).toBeInTheDocument();
   });
 });
 

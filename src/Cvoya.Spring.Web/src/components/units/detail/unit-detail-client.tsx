@@ -30,6 +30,7 @@
  */
 
 import Link from "next/link";
+import { ExternalLink } from "lucide-react";
 
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { Badge } from "@/components/ui/badge";
@@ -210,6 +211,14 @@ export default function UnitDetailClient({ name }: Props) {
             <span data-testid="unit-detail-name">{unit.name}</span>
           </p>
         </div>
+        <Link
+          href={`/units?node=${encodeURIComponent(unit.name)}&tab=Overview`}
+          data-testid="unit-detail-open-explorer"
+          className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-md border border-input bg-background px-3 text-sm font-medium ring-offset-background transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        >
+          <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+          Open in Explorer
+        </Link>
       </header>
 
       <ValidationPanel unit={unit} image={image} runtime={runtime} />

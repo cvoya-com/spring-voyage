@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
+  ArrowLeft,
   Check,
   CheckCircle2,
   ExternalLink,
@@ -42,14 +43,18 @@ import {
   useConnectorTypes,
   useOllamaModels,
   useProviderCredentialStatus,
+  useUnit,
+  useUnitExecution,
   useUnitTemplates,
 } from "@/lib/api/queries";
 import { queryKeys } from "@/lib/api/query-keys";
 import type {
   InstalledAgentRuntimeResponse,
   UnitConnectorBindingRequest,
+  UnitStatus,
 } from "@/lib/api/types";
 import { EXECUTION_RUNTIMES } from "@/lib/api/types";
+import ValidationPanel from "@/components/units/detail/validation-panel";
 import {
   DEFAULT_EXECUTION_TOOL,
   DEFAULT_HOSTING_MODE,
@@ -331,6 +336,16 @@ export default function CreateUnitPage() {
   const [stepError, setStepError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitWarnings, setSubmitWarnings] = useState<string[]>([]);
+  // Post-create validation phase. When a unit is created successfully
+  // we transition the Finalize step into a Validating view that
+  // POST /start's the unit, polls until terminal, then either
+  // redirects to the Explorer (`Running` / `Stopped`) or keeps the
+  // operator on the step with a Back affordance (`Error`). Mirrors the
+  // CLI's `spring unit create --wait` default; the CLI contract is
+  // documented in the wizard copy. Tracked by #983 / #980.
+  const [createdUnitName, setCreatedUnitName] = useState<string | null>(null);
+  const [startError, setStartError] = useState<string | null>(null);
+  const [startRequested, setStartRequested] = useState(false);
 
   // Template catalog (#119): cached once per session so revisiting the
   // wizard doesn't round-trip. The key comes from `queryKeys.templates`.
@@ -829,6 +844,9 @@ export default function CreateUnitPage() {
     onMutate: () => {
       setSubmitError(null);
       setSubmitWarnings([]);
+      setStartError(null);
+      setStartRequested(false);
+      setCreatedUnitName(null);
     },
     onSuccess: ({ createdName, warnings }) => {
       if (warnings.length > 0) setSubmitWarnings(warnings);
@@ -838,7 +856,11 @@ export default function CreateUnitPage() {
         queryClient.invalidateQueries({ queryKey: queryKeys.units.all });
         queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
         toast({ title: "Unit created", description: createdName });
-        router.push(`/units/${encodeURIComponent(createdName)}`);
+        // Transition into the Validating view on the Finalize step.
+        // The unit is in `Draft` right now; the effect below POSTs to
+        // `/start` to kick off UnitValidationWorkflow, then polls until
+        // terminal. Redirect happens only on success. See #983 / #980.
+        setCreatedUnitName(createdName);
       }
     },
     onError: (err) => {
@@ -851,6 +873,62 @@ export default function CreateUnitPage() {
       });
     },
   });
+
+  // Post-create validation flow. Once `createdUnitName` is set, we
+  // POST /start exactly once and begin polling the unit envelope. The
+  // SSE stream inside ValidationPanel also invalidates the detail
+  // cache, so the polling interval is a fallback — short enough to
+  // feel responsive when SSE is unavailable but not so short that it
+  // hammers the API while a long image-pull is in flight.
+  const startMutation = useMutation({
+    mutationFn: (name: string) => api.startUnit(name),
+  });
+  useEffect(() => {
+    if (createdUnitName && !startRequested) {
+      setStartRequested(true);
+      startMutation.mutate(createdUnitName, {
+        onError: (err) => {
+          const message = err instanceof Error ? err.message : String(err);
+          setStartError(message);
+        },
+      });
+    }
+    // We only want to fire start once per created unit. `startMutation`
+    // identity is stable within a render cycle for our purposes; the
+    // guard is `startRequested`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [createdUnitName, startRequested]);
+
+  // Poll the newly-created unit until it reaches a terminal status.
+  const createdUnitQuery = useUnit(createdUnitName ?? "", {
+    enabled: createdUnitName !== null,
+    refetchInterval: 1000,
+  });
+  const createdUnit = createdUnitQuery.data ?? null;
+  const createdUnitExecution = useUnitExecution(createdUnitName ?? "", {
+    enabled: createdUnitName !== null,
+  });
+
+  // Terminal statuses from the validation workflow's perspective.
+  // `Running` = start-after-validate succeeded; `Stopped` = validated,
+  // awaiting a subsequent start; `Error` = validation failed. `Draft`
+  // and `Validating` are in-flight and keep the panel mounted.
+  const createdStatus: UnitStatus | null = createdUnit?.status ?? null;
+  const isTerminalSuccess =
+    createdStatus === "Running" || createdStatus === "Stopped";
+  const isTerminalError = createdStatus === "Error";
+  const isValidating = createdUnitName !== null && !isTerminalSuccess && !isTerminalError;
+
+  // On terminal success, redirect to the Explorer's Overview tab
+  // (#983). The tab query string matches the rest of the app
+  // (UnitCard, InboxCard); `node` is the unit name.
+  useEffect(() => {
+    if (createdUnitName && isTerminalSuccess) {
+      router.push(
+        `/units?node=${encodeURIComponent(createdUnitName)}&tab=Overview`,
+      );
+    }
+  }, [createdUnitName, isTerminalSuccess, router]);
 
   const submitting = createUnit.isPending;
 
@@ -1863,7 +1941,7 @@ export default function CreateUnitPage() {
               </div>
             )}
 
-            {missingCredential && missingCredentialMessage && (
+            {missingCredential && missingCredentialMessage && !createdUnitName && (
               <p
                 role="alert"
                 data-testid="missing-credential-message"
@@ -1873,13 +1951,89 @@ export default function CreateUnitPage() {
               </p>
             )}
 
-            <Button
-              onClick={handleCreate}
-              disabled={submitting || missingCredential}
-              data-testid="create-unit-button"
-            >
-              {submitting ? "Creating…" : "Create unit"}
-            </Button>
+            {startError && (
+              <p
+                role="alert"
+                data-testid="wizard-start-error"
+                className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+              >
+                Failed to start validation: {startError}
+              </p>
+            )}
+
+            {createdUnitName && !createdUnit && !createdUnitQuery.error && (
+              <p
+                role="status"
+                data-testid="wizard-validation-loading"
+                className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground"
+              >
+                Starting validation for {createdUnitName}…
+              </p>
+            )}
+
+            {createdUnit && (
+              <div data-testid="wizard-validation-view">
+                <ValidationPanel
+                  unit={createdUnit}
+                  image={createdUnitExecution.data?.image ?? null}
+                  runtime={createdUnitExecution.data?.runtime ?? null}
+                />
+              </div>
+            )}
+
+            {!createdUnitName && (
+              <Button
+                onClick={handleCreate}
+                disabled={submitting || missingCredential}
+                data-testid="create-unit-button"
+              >
+                {submitting ? "Creating…" : "Create unit"}
+              </Button>
+            )}
+
+            {isValidating && (
+              <p
+                role="status"
+                data-testid="wizard-validation-status"
+                className="text-xs text-muted-foreground"
+              >
+                Waiting for validation to finish. You&apos;ll be redirected to
+                the Explorer once the unit is ready.
+              </p>
+            )}
+
+            {isTerminalError && (
+              <div
+                data-testid="wizard-validation-error-actions"
+                className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2"
+              >
+                <p className="flex-1 text-sm text-foreground">
+                  Validation failed. Step back to adjust your inputs (for
+                  example, paste a new credential or pick a different tool) and
+                  try again.
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  data-testid="wizard-validation-back"
+                  onClick={() => {
+                    // Unwind the create-phase state so the wizard returns to a
+                    // pristine editable state. We don't reset the form itself —
+                    // the operator's choices are preserved so they can fix the
+                    // offending field without re-entering everything.
+                    setCreatedUnitName(null);
+                    setStartRequested(false);
+                    setStartError(null);
+                    setSubmitError(null);
+                    setSubmitWarnings([]);
+                    setStep(2);
+                  }}
+                >
+                  <ArrowLeft className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                  Back to Execution
+                </Button>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
@@ -1889,7 +2043,12 @@ export default function CreateUnitPage() {
           <Button
             variant="outline"
             onClick={handleBack}
-            disabled={step === 1 || submitting}
+            // Disable Back while the initial create mutation is in flight
+            // or while we're actively waiting for validation to finish —
+            // the unit exists at that point and the wizard form controls
+            // are decoupled from the backend state. Terminal-error state
+            // re-enables Back so the operator can fix a field and retry.
+            disabled={step === 1 || submitting || isValidating}
           >
             Back
           </Button>

@@ -141,6 +141,15 @@ describe("UnitDetailClient (T-06 scaffold)", () => {
     // Back link to /units
     const back = screen.getByTestId("unit-detail-back-link");
     expect(back).toHaveAttribute("href", "/units");
+
+    // Explorer handoff (#980 item 1): the scaffold exposes a prominent
+    // link to the canonical Explorer pane so operators can pivot off
+    // the scaffold without reaching for the address bar.
+    const explorerLink = screen.getByTestId("unit-detail-open-explorer");
+    expect(explorerLink).toHaveAttribute(
+      "href",
+      "/units?node=alpha&tab=Overview",
+    );
   });
 
   it("renders an empty description placeholder when the unit has no description", () => {
