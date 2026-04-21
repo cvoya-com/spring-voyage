@@ -13,7 +13,10 @@
  */
 
 import {
+  useMutation,
   useQuery,
+  useQueryClient,
+  type UseMutationResult,
   type UseQueryOptions,
   type UseQueryResult,
 } from "@tanstack/react-query";
@@ -30,6 +33,7 @@ import type {
   AgentDetailResponse,
   AgentExecutionResponse,
   AgentResponse,
+  AgentSkillsResponse,
   AggregatedExpertiseResponse,
   BudgetResponse,
   CloneResponse,
@@ -50,6 +54,7 @@ import type {
   PersistentAgentDeploymentResponse,
   PersistentAgentLogsResponse,
   PlatformInfoResponse,
+  SkillCatalogEntry,
   ThroughputRollupResponse,
   TokenResponse,
   UnitBoundaryResponse,
@@ -357,6 +362,68 @@ export function useAgent(
     enabled: opts?.enabled ?? Boolean(id),
     refetchInterval: opts?.refetchInterval,
     staleTime: opts?.staleTime,
+  });
+}
+
+/**
+ * Read an agent's currently-equipped skills (QUALITY-agent-skills-write,
+ * #900). The Explorer's Agent → Skills tab rides this hook; it mirrors
+ * `spring agent skills get` on the wire.
+ */
+export function useAgentSkills(
+  id: string,
+  opts?: SliceOptions<AgentSkillsResponse>,
+): UseQueryResult<AgentSkillsResponse, Error> {
+  return useQuery({
+    queryKey: queryKeys.agents.skills(id),
+    queryFn: () => api.getAgentSkills(id),
+    enabled: opts?.enabled ?? Boolean(id),
+    refetchInterval: opts?.refetchInterval,
+    staleTime: opts?.staleTime,
+  });
+}
+
+/**
+ * Tenant skill catalog (QUALITY-agent-skills-write, #900). Feeds the
+ * "Add skill" combobox on the Explorer Agent → Skills tab; matches
+ * `spring skills list` on the wire. Catalog is low-churn (changes only
+ * when a connector is installed or a registry updates) so the default
+ * staleness is long enough to dedupe repeat opens of the tab without
+ * trapping freshly-installed entries.
+ */
+export function useSkillsCatalog(
+  opts?: SliceOptions<SkillCatalogEntry[]>,
+): UseQueryResult<SkillCatalogEntry[], Error> {
+  return useQuery({
+    queryKey: queryKeys.skills.catalog(),
+    queryFn: () => api.listSkills(),
+    staleTime: opts?.staleTime ?? 5 * 60 * 1000,
+    refetchInterval: opts?.refetchInterval,
+    enabled: opts?.enabled ?? true,
+  });
+}
+
+/**
+ * Replace the agent's skill set (QUALITY-agent-skills-write, #900). The
+ * server PUT is a full replacement, so callers pass the complete
+ * post-mutation list (not a diff). Invalidates
+ * `queryKeys.agents.skills(id)` on success so the tab list refreshes.
+ *
+ * Mirrors `spring agent skills set <agent> -- <skill>…` on the CLI.
+ */
+export function useSetAgentSkills(
+  id: string,
+): UseMutationResult<AgentSkillsResponse, Error, string[]> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (skills: string[]) => api.setAgentSkills(id, skills),
+    onSuccess: (data) => {
+      // Seed the cache with the server's authoritative list (PUT is a
+      // full replacement), then invalidate so any other observer
+      // refetches if needed.
+      queryClient.setQueryData(queryKeys.agents.skills(id), data);
+      queryClient.invalidateQueries({ queryKey: queryKeys.agents.skills(id) });
+    },
   });
 }
 
