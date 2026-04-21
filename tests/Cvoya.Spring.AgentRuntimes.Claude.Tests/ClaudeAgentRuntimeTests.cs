@@ -191,7 +191,16 @@ public class ClaudeAgentRuntimeTests
         var result = await runtime.ValidateCredentialAsync("sk-ant-oat01-tok", TestContext.Current.CancellationToken);
 
         result.Status.ShouldBe(CredentialValidationStatus.Invalid);
-        result.ErrorMessage!.ShouldContain("claude CLI");
+        // #931: the message must stand on its own (no method names, no
+        // "confirm X passes" jargon). It mentions the missing CLI and a
+        // remediation the operator can act on.
+        var message = result.ErrorMessage.ShouldNotBeNull();
+        message.ShouldContain("claude");
+        message.ShouldContain("CLI");
+        message.ShouldNotContain("VerifyContainerBaselineAsync");
+        message.ShouldContain("Anthropic API key");
+        // Structured code lets the wizard substitute image-aware copy.
+        result.Code.ShouldBe(CredentialValidationCodes.BaselineUnavailable);
         handler.CallCount.ShouldBe(0);
     }
 

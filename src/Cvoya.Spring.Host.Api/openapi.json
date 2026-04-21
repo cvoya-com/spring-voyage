@@ -8905,6 +8905,12 @@
               "null",
               "string"
             ]
+          },
+          "code": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },

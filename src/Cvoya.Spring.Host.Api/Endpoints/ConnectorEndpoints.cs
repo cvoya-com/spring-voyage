@@ -423,7 +423,8 @@ public static class ConnectorEndpoints
         return Results.Ok(new CredentialValidateResponse(
             Valid: result.Valid,
             Status: persistent,
-            ErrorMessage: result.ErrorMessage));
+            ErrorMessage: result.ErrorMessage,
+            Code: result.Code));
     }
 
     private static async Task<IResult> GetConnectorCredentialHealthAsync(

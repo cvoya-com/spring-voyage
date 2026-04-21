@@ -101,6 +101,43 @@ const PROVIDER_KEY_HELP: Readonly<
   },
 };
 
+// #931: well-known string values for `CredentialValidateResponse.code`.
+// Mirrors `CredentialValidationCodes` in
+// `src/Cvoya.Spring.Core/AgentRuntimes/CredentialValidationResult.cs`.
+// The wizard owns the user-facing copy for these so it can include the
+// chosen agent image (which the runtime layer does not know about).
+const VALIDATION_CODE_BASELINE_UNAVAILABLE = "BaselineUnavailable";
+
+/**
+ * Compose the user-facing validation error for the Execution screen.
+ *
+ * The runtime returns a structured failure code alongside its generic
+ * `errorMessage`; when we recognise the code we replace the message with
+ * copy that names the wizard-side context the operator just chose
+ * (currently the agent image). For unknown codes — or successful
+ * validations — we passthrough the runtime's text unchanged so private
+ * runtimes added by the cloud host don't accidentally lose their
+ * messaging.
+ */
+function composeValidationError(
+  status: "idle" | "validating" | "valid" | "invalid",
+  code: string | null,
+  rawError: string | null,
+  image: string,
+): string | null {
+  if (status !== "invalid") return null;
+  if (code === VALIDATION_CODE_BASELINE_UNAVAILABLE) {
+    const trimmedImage = image.trim();
+    const imageLabel = trimmedImage.length > 0 ? trimmedImage : "agent";
+    return (
+      `The \`${imageLabel}\` image does not include the \`claude\` CLI. ` +
+      `The token cannot be verified. ` +
+      `Use an Anthropic API key (sk-ant-api…) instead, or rebuild the image with the \`claude\` CLI installed.`
+    );
+  }
+  return rawError;
+}
+
 interface PendingSecret {
   // `id` is only used for React list keys while the user edits the
   // form — it is never sent to the server and never persisted.
@@ -474,6 +511,12 @@ export default function CreateUnitPage() {
   type CredentialValidationState = {
     status: "idle" | "validating" | "valid" | "invalid";
     error: string | null;
+    // #931: machine-readable failure category from the runtime
+    // (`CredentialValidationResult.Code`). The wizard substitutes
+    // image-aware copy for known codes (e.g. `BaselineUnavailable` →
+    // "the `<image>` image does not include the `claude` CLI") instead
+    // of echoing the runtime's generic ErrorMessage.
+    code: string | null;
     models: string[] | null;
     validatedKey: string | null;
     validatedProvider: string | null;
@@ -482,6 +525,7 @@ export default function CreateUnitPage() {
     useState<CredentialValidationState>({
       status: "idle",
       error: null,
+      code: null,
       models: null,
       validatedKey: null,
       validatedProvider: null,
@@ -514,9 +558,20 @@ export default function CreateUnitPage() {
     }
     return {
       status: credentialValidation.status,
-      error: credentialValidation.error,
+      // #931: when the runtime reports a structured failure code we
+      // recognise, swap in copy that names the wizard-side context the
+      // operator just chose (the agent image) rather than echoing the
+      // runtime's generic message. The runtime's ErrorMessage stays the
+      // canonical CLI / API fallback — only this React surface knows
+      // which image the wizard is configuring.
+      error: composeValidationError(
+        credentialValidation.status,
+        credentialValidation.code,
+        credentialValidation.error,
+        form.image,
+      ),
     };
-  }, [credentialValidation, form.credentialKey, requiredCredentialProvider]);
+  }, [credentialValidation, form.credentialKey, form.image, requiredCredentialProvider]);
 
   // Auto-validation is triggered from `handleNext` — there is no
   // standalone Validate button on the wizard. We use `mutateAsync` so
@@ -543,6 +598,7 @@ export default function CreateUnitPage() {
         ...prev,
         status: "validating",
         error: null,
+        code: null,
       }));
     },
     onSuccess: (result) => {
@@ -550,6 +606,7 @@ export default function CreateUnitPage() {
       setCredentialValidation({
         status: result.valid ? "valid" : "invalid",
         error: result.valid ? null : (result.errorMessage ?? "Validation failed."),
+        code: result.valid ? null : (result.code ?? null),
         // The new endpoint doesn't return a model list; the wizard
         // reads models from GET /agent-runtimes/{id}/models instead.
         models: null,
@@ -563,6 +620,7 @@ export default function CreateUnitPage() {
         ...prev,
         status: "invalid",
         error: message,
+        code: null,
       }));
     },
   });

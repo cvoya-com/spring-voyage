@@ -645,4 +645,91 @@ describe("CreateUnitPage — Step 2 explains a disabled Next", () => {
     expect(reason.textContent).toMatch(/Anthropic API key/i);
     expect(screen.getByRole("button", { name: /^next$/i })).toBeDisabled();
   });
+
+  // #931: when the runtime reports `BaselineUnavailable` (Claude.ai
+  // OAuth token + missing `claude` CLI in the agent image) the wizard
+  // must NOT echo the runtime's generic message — it must substitute
+  // copy that names the chosen container image and the missing tool,
+  // so the operator knows what to fix.
+  it("rewrites BaselineUnavailable validation errors with the chosen image", async () => {
+    getProviderCredentialStatus.mockResolvedValue(
+      makeStatus({ provider: "anthropic", resolvable: false, source: null }),
+    );
+    validateAgentRuntimeCredential.mockResolvedValue({
+      valid: false,
+      status: "Invalid",
+      errorMessage:
+        "The agent-runtime container does not include the `claude` CLI, " +
+        "so Claude.ai OAuth tokens (sk-ant-oat…) cannot be verified. " +
+        "Use an Anthropic API key (sk-ant-api…) instead, or rebuild the agent image with the `claude` CLI installed.",
+      code: "BaselineUnavailable",
+    });
+
+    renderPage();
+    await advanceToExecution();
+
+    const imageInput = screen.getByLabelText(/image \(default\)/i) as HTMLInputElement;
+    await act(async () => {
+      fireEvent.change(imageInput, { target: { value: "spring-agent:latest" } });
+    });
+
+    const credentialInput = (await screen.findByTestId(
+      "credential-input",
+    )) as HTMLInputElement;
+    await act(async () => {
+      fireEvent.change(credentialInput, { target: { value: "sk-ant-oat01-tok" } });
+    });
+    await act(async () => {
+      fireEvent.blur(credentialInput);
+    });
+
+    await waitFor(() => {
+      expect(validateAgentRuntimeCredential).toHaveBeenCalled();
+    });
+
+    const reason = await screen.findByTestId("next-disabled-reason");
+    expect(reason.textContent).toContain("`spring-agent:latest`");
+    expect(reason.textContent).toContain("`claude` CLI");
+    expect(reason.textContent).not.toMatch(/VerifyContainerBaselineAsync/);
+    expect(reason.textContent).not.toMatch(/Confirm/);
+    expect(screen.getByRole("button", { name: /^next$/i })).toBeDisabled();
+  });
+
+  // Companion to the above: when the operator hasn't typed an image
+  // yet, the wizard falls back to a generic "agent" reference rather
+  // than printing an empty `` block — and still hides the C# method
+  // name the runtime's generic message used to leak.
+  it("falls back to a generic image label when none has been chosen", async () => {
+    getProviderCredentialStatus.mockResolvedValue(
+      makeStatus({ provider: "anthropic", resolvable: false, source: null }),
+    );
+    validateAgentRuntimeCredential.mockResolvedValue({
+      valid: false,
+      status: "Invalid",
+      errorMessage: "ignored — wizard substitutes its own copy",
+      code: "BaselineUnavailable",
+    });
+
+    renderPage();
+    await advanceToExecution();
+
+    const credentialInput = (await screen.findByTestId(
+      "credential-input",
+    )) as HTMLInputElement;
+    await act(async () => {
+      fireEvent.change(credentialInput, { target: { value: "sk-ant-oat01-tok" } });
+    });
+    await act(async () => {
+      fireEvent.blur(credentialInput);
+    });
+
+    await waitFor(() => {
+      expect(validateAgentRuntimeCredential).toHaveBeenCalled();
+    });
+
+    const reason = await screen.findByTestId("next-disabled-reason");
+    expect(reason.textContent).toContain("`agent`");
+    expect(reason.textContent).toContain("`claude` CLI");
+    expect(reason.textContent).not.toMatch(/VerifyContainerBaselineAsync/);
+  });
 });

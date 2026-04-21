@@ -160,13 +160,22 @@ public class ClaudeAgentRuntime : IAgentRuntime
             //    validated through the REST endpoint — Anthropic
             //    rejects them with a 401 indistinguishable from a bad
             //    key — so stop here with a precise error message.
+            //
+            // The wizard re-renders this with the chosen agent image
+            // when it sees Code == BaselineUnavailable, so keep the
+            // default ErrorMessage tool-focused (no method names, no
+            // "confirm X passes" — those are an implementation detail
+            // the operator cannot act on). The CLI catalogues this
+            // verbatim, so it must also stand on its own.
             if (isOAuth)
             {
                 return new CredentialValidationResult(
-                    false,
-                    ErrorMessage: "Claude.ai tokens (from `claude setup-token`) require the claude CLI in the runtime container to validate. " +
-                        "Confirm VerifyContainerBaselineAsync passes, or supply an Anthropic API key (sk-ant-api…) instead.",
-                    Status: CredentialValidationStatus.Invalid);
+                    Valid: false,
+                    ErrorMessage: "The agent-runtime container does not include the `claude` CLI, " +
+                        "so Claude.ai OAuth tokens (sk-ant-oat…) cannot be verified. " +
+                        "Use an Anthropic API key (sk-ant-api…) instead, or rebuild the agent image with the `claude` CLI installed.",
+                    Status: CredentialValidationStatus.Invalid,
+                    Code: CredentialValidationCodes.BaselineUnavailable);
             }
 
             // 3) API key without CLI — fall back to a REST probe.

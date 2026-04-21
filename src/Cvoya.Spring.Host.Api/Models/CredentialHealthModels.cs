@@ -56,7 +56,18 @@ public record CredentialValidateRequest(
 /// <c>Unknown</c> for fresh rows).
 /// </param>
 /// <param name="ErrorMessage">Human-readable error when not valid.</param>
+/// <param name="Code">
+/// Optional, machine-readable failure category. Mirrors
+/// <see cref="Cvoya.Spring.Core.AgentRuntimes.CredentialValidationResult.Code"/>
+/// so UI surfaces (the portal wizard, the CLI) can substitute a
+/// context-aware message — for example naming the chosen agent image —
+/// instead of echoing the runtime's generic <see cref="ErrorMessage"/>.
+/// <c>null</c> when the failure has no special UI treatment, on success,
+/// or when the underlying runtime is a connector (which does not yet
+/// surface structured codes).
+/// </param>
 public record CredentialValidateResponse(
     bool Valid,
     CredentialHealthStatus Status,
-    string? ErrorMessage);
+    string? ErrorMessage,
+    string? Code = null);
