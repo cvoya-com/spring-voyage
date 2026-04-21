@@ -9583,6 +9583,7 @@
       "MessageResponse": {
         "required": [
           "messageId",
+          "conversationId",
           "responsePayload"
         ],
         "type": "object",
@@ -9590,6 +9591,12 @@
           "messageId": {
             "type": "string",
             "format": "uuid"
+          },
+          "conversationId": {
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "responsePayload": {
             "oneOf": [

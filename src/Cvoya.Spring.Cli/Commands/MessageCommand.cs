@@ -45,9 +45,18 @@ public static class MessageCommand
 
             var result = await client.SendMessageAsync(scheme, path, text, conversationId, ct);
 
+            // #985: surface the resolved conversation id so operators can
+            // thread follow-up sends. The server auto-generates one when the
+            // caller omits `--conversation` on Domain messages to agent://
+            // targets; echo it either way so the CLI behaviour is uniform.
+            var messageIdText = result.MessageId?.ToString() ?? "n/a";
+            var conversationIdText = !string.IsNullOrWhiteSpace(result.ConversationId)
+                ? result.ConversationId
+                : "n/a";
+
             Console.WriteLine(output == "json"
                 ? OutputFormatter.FormatJson(result)
-                : $"Message sent to {address}. (id: {result.MessageId?.ToString() ?? "n/a"})");
+                : $"Sent message {messageIdText} to {address} in conversation {conversationIdText}.");
         });
 
         return command;

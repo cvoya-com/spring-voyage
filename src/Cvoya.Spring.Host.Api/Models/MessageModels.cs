@@ -29,7 +29,15 @@ public record SendMessageRequest(
 /// Response body after sending a message.
 /// </summary>
 /// <param name="MessageId">The unique identifier of the sent message.</param>
+/// <param name="ConversationId">
+/// The conversation identifier the message was routed under. If the caller supplied
+/// one on <see cref="SendMessageRequest.ConversationId"/>, it is echoed back; if the
+/// caller omitted it for a <c>Domain</c> message to an <c>agent://</c> target, the
+/// server auto-generates a fresh UUID (per #985) and surfaces it here so follow-up
+/// sends can thread under the same conversation.
+/// </param>
 /// <param name="ResponsePayload">The response payload from the target, if any.</param>
 public record MessageResponse(
     Guid MessageId,
+    string? ConversationId,
     JsonElement? ResponsePayload);

@@ -117,4 +117,200 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         // And it must NOT be the pre-#339 synthetic 'api' identity.
         observed.From.Path.ShouldNotBe(AuthenticatedCallerAccessor.FallbackHumanId);
     }
+
+    [Fact]
+    public async Task SendMessage_DomainToAgentWithoutConversationId_AutoGeneratesAndReturns()
+    {
+        // #985: AgentActor hard-requires a ConversationId on Domain messages
+        // and surfaces its exception as a raw 502 when missing. The schema
+        // marks the field optional, so the endpoint auto-generates a fresh
+        // UUID for Domain sends to agent:// targets when the caller omits
+        // one, and echoes the resolved id in the response so the operator
+        // can thread follow-up sends under the same conversation.
+        var ct = TestContext.Current.CancellationToken;
+
+        var entry = new DirectoryEntry(
+            new Address("agent", "conv-agent"),
+            "actor-conv",
+            "Conv Agent",
+            "A test agent",
+            null,
+            DateTimeOffset.UtcNow);
+        _factory.DirectoryService
+            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "agent" && a.Path == "conv-agent"),
+                Arg.Any<CancellationToken>())
+            .Returns(entry);
+
+        var agent = Substitute.For<IAgent>();
+        Message? observed = null;
+        agent.ReceiveAsync(Arg.Do<Message>(m => observed = m), Arg.Any<CancellationToken>())
+            .Returns((Message?)null);
+        _factory.AgentProxyResolver
+            .Resolve(Arg.Is<string>(s => string.Equals(s, "agent", StringComparison.OrdinalIgnoreCase)),
+                "actor-conv")
+            .Returns(agent);
+
+        var request = new SendMessageRequest(
+            new AddressDto("agent", "conv-agent"),
+            "Domain",
+            null,
+            JsonSerializer.SerializeToElement(new { Text = "hello" }));
+
+        var response = await _client.PostAsJsonAsync("/api/v1/messages", request, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<MessageResponse>(cancellationToken: ct);
+        body.ShouldNotBeNull();
+        body!.ConversationId.ShouldNotBeNullOrWhiteSpace();
+        Guid.TryParse(body.ConversationId, out _).ShouldBeTrue();
+
+        observed.ShouldNotBeNull();
+        // Same id must thread through to the actor call so AgentActor's
+        // ConversationId guard is satisfied.
+        observed!.ConversationId.ShouldBe(body.ConversationId);
+    }
+
+    [Fact]
+    public async Task SendMessage_DomainToAgentWithConversationId_IsPassedThrough()
+    {
+        // Caller-supplied conversation ids must pass through untouched so
+        // existing clients that thread under a known id keep working.
+        var ct = TestContext.Current.CancellationToken;
+
+        var entry = new DirectoryEntry(
+            new Address("agent", "passthrough-agent"),
+            "actor-pass",
+            "Passthrough Agent",
+            "A test agent",
+            null,
+            DateTimeOffset.UtcNow);
+        _factory.DirectoryService
+            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "agent" && a.Path == "passthrough-agent"),
+                Arg.Any<CancellationToken>())
+            .Returns(entry);
+
+        var agent = Substitute.For<IAgent>();
+        Message? observed = null;
+        agent.ReceiveAsync(Arg.Do<Message>(m => observed = m), Arg.Any<CancellationToken>())
+            .Returns((Message?)null);
+        _factory.AgentProxyResolver
+            .Resolve(Arg.Is<string>(s => string.Equals(s, "agent", StringComparison.OrdinalIgnoreCase)),
+                "actor-pass")
+            .Returns(agent);
+
+        const string suppliedId = "caller-supplied-conversation-1";
+        var request = new SendMessageRequest(
+            new AddressDto("agent", "passthrough-agent"),
+            "Domain",
+            suppliedId,
+            JsonSerializer.SerializeToElement(new { Text = "hello" }));
+
+        var response = await _client.PostAsJsonAsync("/api/v1/messages", request, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<MessageResponse>(cancellationToken: ct);
+        body.ShouldNotBeNull();
+        body!.ConversationId.ShouldBe(suppliedId);
+        observed.ShouldNotBeNull();
+        observed!.ConversationId.ShouldBe(suppliedId);
+    }
+
+    [Fact]
+    public async Task SendMessage_DomainToUnitWithoutConversationId_DoesNotAutoGenerate()
+    {
+        // The auto-gen is scoped to agent:// targets — unit:// routing goes
+        // through UnitActor which has its own conversation-opening behaviour
+        // and must not be short-circuited here.
+        var ct = TestContext.Current.CancellationToken;
+
+        var entry = new DirectoryEntry(
+            new Address("unit", "engineering-team"),
+            "unit-1",
+            "Engineering",
+            "Team",
+            null,
+            DateTimeOffset.UtcNow);
+        _factory.DirectoryService
+            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "unit" && a.Path == "engineering-team"),
+                Arg.Any<CancellationToken>())
+            .Returns(entry);
+
+        // Human-to-unit routing runs a Viewer permission check in
+        // MessageRouter; grant it on the mocked permission service so the
+        // message reaches the actor rather than bouncing at the gate.
+        var permissionService = (Cvoya.Spring.Dapr.Auth.IPermissionService)_factory.Services
+            .GetService(typeof(Cvoya.Spring.Dapr.Auth.IPermissionService))!;
+        permissionService.ResolveEffectivePermissionAsync(
+                Arg.Any<string>(), "unit-1", Arg.Any<CancellationToken>())
+            .Returns(Cvoya.Spring.Dapr.Actors.PermissionLevel.Viewer);
+
+        var unit = Substitute.For<IAgent>();
+        Message? observed = null;
+        unit.ReceiveAsync(Arg.Do<Message>(m => observed = m), Arg.Any<CancellationToken>())
+            .Returns((Message?)null);
+        _factory.AgentProxyResolver
+            .Resolve(Arg.Is<string>(s => string.Equals(s, "unit", StringComparison.OrdinalIgnoreCase)),
+                "unit-1")
+            .Returns(unit);
+
+        var request = new SendMessageRequest(
+            new AddressDto("unit", "engineering-team"),
+            "Domain",
+            null,
+            JsonSerializer.SerializeToElement(new { Text = "hello" }));
+
+        var response = await _client.PostAsJsonAsync("/api/v1/messages", request, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<MessageResponse>(cancellationToken: ct);
+        body.ShouldNotBeNull();
+        body!.ConversationId.ShouldBeNull();
+        observed.ShouldNotBeNull();
+        observed!.ConversationId.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task SendMessage_NonDomainTypeToAgentWithoutConversationId_DoesNotAutoGenerate()
+    {
+        // Control messages (HealthCheck, Cancel, StatusQuery, ...) don't need
+        // a conversation id — keep them untouched so the auto-gen is strictly
+        // scoped to the Domain path surfaced by #985.
+        var ct = TestContext.Current.CancellationToken;
+
+        var entry = new DirectoryEntry(
+            new Address("agent", "ping-agent"),
+            "actor-ping",
+            "Ping Agent",
+            "A test agent",
+            null,
+            DateTimeOffset.UtcNow);
+        _factory.DirectoryService
+            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "agent" && a.Path == "ping-agent"),
+                Arg.Any<CancellationToken>())
+            .Returns(entry);
+
+        var agent = Substitute.For<IAgent>();
+        Message? observed = null;
+        agent.ReceiveAsync(Arg.Do<Message>(m => observed = m), Arg.Any<CancellationToken>())
+            .Returns((Message?)null);
+        _factory.AgentProxyResolver
+            .Resolve(Arg.Is<string>(s => string.Equals(s, "agent", StringComparison.OrdinalIgnoreCase)),
+                "actor-ping")
+            .Returns(agent);
+
+        var request = new SendMessageRequest(
+            new AddressDto("agent", "ping-agent"),
+            "HealthCheck",
+            null,
+            JsonSerializer.SerializeToElement(new { }));
+
+        var response = await _client.PostAsJsonAsync("/api/v1/messages", request, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<MessageResponse>(cancellationToken: ct);
+        body.ShouldNotBeNull();
+        body!.ConversationId.ShouldBeNull();
+        observed.ShouldNotBeNull();
+        observed!.ConversationId.ShouldBeNull();
+    }
 }
