@@ -13,6 +13,7 @@ import { usePathname } from "next/navigation";
 import { useMemo, useState, type ReactNode } from "react";
 
 import { BrandMark } from "@/components/brand-mark";
+import { Tooltip } from "@/components/ui/tooltip";
 import {
   NAV_SECTION_LABEL,
   NAV_SECTION_ORDER,
@@ -298,10 +299,12 @@ function NavLink({
   item,
   pathname,
   collapsed,
+  badge,
 }: {
   item: RouteEntry;
   pathname: string;
   collapsed: boolean;
+  badge?: NavItemBadgeSpec;
 }) {
   const active =
     item.path === "/"
@@ -310,26 +313,107 @@ function NavLink({
 
   const Icon = item.icon;
 
-  return (
+  // On the collapsed rail the visible label is gone, so a hover/focus
+  // tooltip is how the user confirms a route without clicking. We ring
+  // the focus ring *inside* the 56 px rail (`focus-visible:ring-inset`)
+  // so the 2 px outline isn't clipped by the sidebar's right border.
+  const link = (
     <Link
       href={item.path}
       aria-current={active ? "page" : undefined}
-      title={collapsed ? item.label : undefined}
+      data-testid={`sidebar-nav-link-${item.path}`}
       className={cn(
-        "flex items-center gap-2 rounded-md text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        collapsed ? "justify-center px-2 py-2" : "px-3 py-2",
+        "relative flex items-center gap-2 rounded-md text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        collapsed
+          ? "justify-center px-2 py-2 focus-visible:ring-inset"
+          : "px-3 py-2",
         active
           ? "bg-primary/10 text-primary font-medium"
           : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
       )}
     >
-      <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+      <span className="relative inline-flex shrink-0" data-slot="nav-icon">
+        <Icon className="h-4 w-4" aria-hidden="true" />
+        {badge ? <NavItemBadge spec={badge} collapsed={collapsed} /> : null}
+      </span>
       {collapsed ? (
         <span className="sr-only">{item.label}</span>
       ) : (
         <span className="truncate">{item.label}</span>
       )}
     </Link>
+  );
+
+  return (
+    <Tooltip label={item.label} side="right" enabled={collapsed}>
+      {link}
+    </Tooltip>
+  );
+}
+
+/**
+ * Status-dot / unread-count pattern for sidebar nav items. When the
+ * rail is collapsed, badges anchor to the top-right of the icon box so
+ * they stay inside the 56 px rail and don't get clipped under the
+ * group divider. When the rail is expanded, they ride alongside the
+ * icon so the label has room to breathe.
+ *
+ * Callers describe the badge via {@link NavItemBadgeSpec}; this helper
+ * handles positioning + accessible labelling so nav code stays
+ * declarative. `ariaLabel` is wired onto the badge wrapper so assistive
+ * tech announces "3 unread, Inbox" instead of "Inbox".
+ */
+export interface NavItemBadgeSpec {
+  /**
+   * Accessible label describing the badge content (e.g. "3 unread"
+   * or "connector error"). Rendered as the badge's `aria-label`.
+   */
+  ariaLabel: string;
+  /** Tone — maps to one of the semantic color tokens. */
+  tone?: "primary" | "success" | "warning" | "destructive";
+  /**
+   * Optional visible count. When omitted the badge renders as a
+   * status dot; when present, a small numeric pill.
+   */
+  count?: number;
+}
+
+const BADGE_TONE: Record<NonNullable<NavItemBadgeSpec["tone"]>, string> = {
+  primary: "bg-primary text-primary-foreground",
+  success: "bg-success text-primary-foreground",
+  warning: "bg-warning text-primary-foreground",
+  destructive: "bg-destructive text-primary-foreground",
+};
+
+export function NavItemBadge({
+  spec,
+  collapsed,
+}: {
+  spec: NavItemBadgeSpec;
+  collapsed: boolean;
+}) {
+  const tone = spec.tone ?? "primary";
+  const hasCount = typeof spec.count === "number";
+  const displayCount =
+    hasCount && spec.count! > 99 ? "99+" : String(spec.count ?? "");
+
+  return (
+    <span
+      role="status"
+      aria-label={spec.ariaLabel}
+      data-slot="badge"
+      data-collapsed={collapsed || undefined}
+      className={cn(
+        // Anchor top-right of the icon box; a 2 px ring of card colour
+        // keeps the badge legible against both the rail and any hover
+        // background without clipping under the group divider.
+        "absolute -top-1 -right-1 inline-flex items-center justify-center rounded-full ring-2 ring-card",
+        hasCount ? "min-w-4 px-1 text-[10px] font-semibold leading-4" : "h-2 w-2",
+        BADGE_TONE[tone],
+      )}
+    >
+      {hasCount ? displayCount : null}
+    </span>
   );
 }
 
@@ -400,15 +484,18 @@ function UserBlock({
         collapsed && "justify-center",
       )}
     >
-      <div
-        aria-hidden="true"
-        className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent text-xs font-semibold text-accent-foreground"
-      >
-        {initial}
+      <div className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent text-xs font-semibold text-accent-foreground">
+        <span aria-hidden="true">{initial}</span>
+        {/* Uses the same slot/anchoring contract as `NavItemBadge`
+            (`data-slot="badge"`, ring in card colour) so future
+            per-nav status dots pick up identical visuals. A dedicated
+            testid keeps the existing sidebar-user assertions stable. */}
         <span
+          role="status"
+          aria-label="Connected"
           data-testid="sidebar-user-status"
-          className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border-2 border-card bg-success"
-          title="Connected"
+          data-slot="badge"
+          className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full bg-success ring-2 ring-card"
         />
       </div>
       {collapsed ? null : (
@@ -433,8 +520,7 @@ function ThemeToggle() {
   return (
     <button
       onClick={toggleTheme}
-      className="rounded-md p-1 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      title={`Switch to ${next} mode`}
+      className="rounded-md p-1 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
       aria-label={`Switch to ${next} mode`}
       data-testid="sidebar-theme-toggle"
     >
@@ -454,13 +540,18 @@ function CollapseToggle({
   collapsed: boolean;
   onToggle: () => void;
 }) {
+  // `aria-expanded` is the load-bearing state for AT; `aria-label`
+  // describes the action (expand vs. collapse) so screen readers
+  // announce the right verb. Focus ring is `ring-inset` so the 56 px
+  // rail doesn't clip the 2 px outline.
   return (
     <button
       onClick={onToggle}
       data-testid="sidebar-collapse-toggle"
       aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
       aria-expanded={!collapsed}
-      className="rounded-md p-1 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      aria-controls="mobile-sidebar"
+      className="rounded-md p-1 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
     >
       {collapsed ? (
         <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />

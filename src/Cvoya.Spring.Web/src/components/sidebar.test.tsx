@@ -1,10 +1,10 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { Building2 } from "lucide-react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { Sidebar } from "./sidebar";
+import { NavItemBadge, Sidebar } from "./sidebar";
 import { ExtensionProvider, registerExtension } from "@/lib/extensions";
 import { __resetExtensionsForTesting } from "@/lib/extensions/registry";
 
@@ -264,5 +264,200 @@ describe("Sidebar chrome (IA-sidebar-chrome)", () => {
   it("no longer surfaces the legacy Settings-drawer trigger", () => {
     renderSidebar();
     expect(screen.queryByTestId("sidebar-settings-trigger")).toBeNull();
+  });
+});
+
+describe("Sidebar collapsed-rail polish (V21-collapsed-rail-polish)", () => {
+  beforeEach(() => {
+    __resetExtensionsForTesting();
+    vi.stubGlobal("localStorage", stubStorage);
+    memoryStore.clear();
+    memoryStore.set("spring-voyage-sidebar-collapsed", "1");
+  });
+  afterEach(() => {
+    __resetExtensionsForTesting();
+    vi.unstubAllGlobals();
+  });
+
+  // The collapsed rail is the only surface where the hover tooltip
+  // fires, so every test in this block starts with the sidebar already
+  // collapsed via the storage preference.
+
+  it("renders a closed tooltip per nav link when collapsed; none when expanded", () => {
+    renderSidebar();
+    // Find the desktop Dashboard link and walk up to its Tooltip wrapper.
+    const dashboards = screen.getAllByRole("link", { name: "Dashboard" });
+    const desktopDashboard = dashboards[dashboards.length - 1];
+    const anchor = desktopDashboard.closest(
+      '[data-slot="tooltip-anchor"]',
+    ) as HTMLElement;
+    expect(anchor).not.toBeNull();
+    const tooltip = within(anchor).getByTestId("tooltip");
+    expect(tooltip).toHaveAttribute("data-state", "closed");
+    expect(tooltip).toHaveTextContent("Dashboard");
+
+    // Expand the rail — every tooltip disappears.
+    fireEvent.click(screen.getAllByTestId("sidebar-collapse-toggle")[0]);
+    expect(screen.queryAllByTestId("tooltip")).toHaveLength(0);
+  });
+
+  it("shows the tooltip on hover after the delay and dismisses on blur + Escape", () => {
+    vi.useFakeTimers();
+    try {
+      renderSidebar();
+
+      const dashboards = screen.getAllByRole("link", { name: "Dashboard" });
+      const desktopDashboard = dashboards[dashboards.length - 1];
+      const anchor = desktopDashboard.closest(
+        '[data-slot="tooltip-anchor"]',
+      ) as HTMLElement;
+      const tooltip = within(anchor).getByTestId("tooltip");
+
+      // Hover — still closed until the 200 ms delay elapses.
+      fireEvent.mouseEnter(desktopDashboard);
+      expect(tooltip).toHaveAttribute("data-state", "closed");
+      act(() => {
+        vi.advanceTimersByTime(200);
+      });
+      expect(tooltip).toHaveAttribute("data-state", "open");
+
+      // Leaving the link dismisses it.
+      fireEvent.mouseLeave(desktopDashboard);
+      expect(tooltip).toHaveAttribute("data-state", "closed");
+
+      // Focus shows immediately (no delay for keyboard users).
+      fireEvent.focus(desktopDashboard);
+      expect(tooltip).toHaveAttribute("data-state", "open");
+
+      // Escape dismisses, and blur dismisses too.
+      fireEvent.keyDown(desktopDashboard, { key: "Escape" });
+      expect(tooltip).toHaveAttribute("data-state", "closed");
+
+      fireEvent.focus(desktopDashboard);
+      fireEvent.blur(desktopDashboard);
+      expect(tooltip).toHaveAttribute("data-state", "closed");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("positions a badge inside the icon box with the badge slot hook", () => {
+    render(
+      <NavItemBadge
+        spec={{ ariaLabel: "3 unread", count: 3, tone: "destructive" }}
+        collapsed={true}
+      />,
+    );
+    // Badge is addressable by `data-slot` — the CSS contract every
+    // caller relies on. `role="status"` carries the accessible label.
+    const badge = screen.getByRole("status", { name: "3 unread" });
+    expect(badge).toHaveAttribute("data-slot", "badge");
+    expect(badge).toHaveTextContent("3");
+    // Anchor top-right of the icon box, not spilling past the rail.
+    expect(badge.className).toContain("-top-1");
+    expect(badge.className).toContain("-right-1");
+    // Ring-2 of card colour keeps it legible against any hover state.
+    expect(badge.className).toContain("ring-2");
+    expect(badge.className).toContain("ring-card");
+    // `collapsed` annotates the badge so CSS can diverge later if needed.
+    expect(badge).toHaveAttribute("data-collapsed", "true");
+  });
+
+  it("caps numeric badge counts at 99+", () => {
+    render(
+      <NavItemBadge
+        spec={{ ariaLabel: "lots", count: 150, tone: "warning" }}
+        collapsed={false}
+      />,
+    );
+    const badge = screen.getByRole("status", { name: "lots" });
+    expect(badge).toHaveTextContent("99+");
+    // When expanded the `data-collapsed` annotation is absent.
+    expect(badge).not.toHaveAttribute("data-collapsed");
+  });
+
+  it("renders a dotless status badge when no count is provided", () => {
+    render(
+      <NavItemBadge
+        spec={{ ariaLabel: "connector error", tone: "destructive" }}
+        collapsed={true}
+      />,
+    );
+    const dot = screen.getByRole("status", { name: "connector error" });
+    expect(dot).toBeEmptyDOMElement();
+    // Dot sizing — `h-2 w-2` — so the rail doesn't clip it.
+    expect(dot.className).toMatch(/h-2\s+w-2/);
+  });
+
+  it("keyboard focus order on the collapsed rail: skip link → nav links → footer controls → collapse toggle", () => {
+    const { container } = renderSidebar();
+
+    const desktopAside = container.querySelector(
+      'aside.hidden.md\\:flex',
+    ) as HTMLElement;
+    expect(desktopAside.dataset.collapsed).toBe("true");
+
+    const focusables = Array.from(
+      container.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled])',
+      ),
+    );
+    // BrandMark is rendered but must not pull tab focus on its own
+    // (it's decorative in the collapsed header). If it were a button
+    // or link it'd show up in the nodelist above — assert none of the
+    // focusables are the BrandMark host.
+    for (const el of focusables) {
+      expect(el.getAttribute("data-testid")).not.toBe("brand-mark");
+      expect(el.getAttribute("tabindex")).not.toBe("-1");
+    }
+
+    // Skip-to-main link leads; collapse toggle is the final focusable
+    // in the desktop aside.
+    const skip = container.querySelector(
+      '[data-testid="skip-to-main"]',
+    ) as HTMLElement;
+    expect(skip).toBe(focusables[0]);
+
+    const desktopFocusables = Array.from(
+      desktopAside.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled])',
+      ),
+    );
+    const last = desktopFocusables[desktopFocusables.length - 1];
+    expect(last).toBe(
+      within(desktopAside).getByTestId("sidebar-collapse-toggle"),
+    );
+
+    // The collapse toggle's aria-expanded reflects the collapsed state
+    // and its aria-label describes the action.
+    expect(last).toHaveAttribute("aria-expanded", "false");
+    expect(last).toHaveAttribute("aria-label", "Expand sidebar");
+  });
+
+  it("focused collapsed nav link shows its tooltip automatically (no pointer needed)", () => {
+    renderSidebar();
+    const dashboards = screen.getAllByRole("link", { name: "Dashboard" });
+    const desktopDashboard = dashboards[dashboards.length - 1];
+    const tooltip = within(
+      desktopDashboard.closest('[data-slot="tooltip-anchor"]') as HTMLElement,
+    ).getByTestId("tooltip");
+    expect(tooltip).toHaveAttribute("data-state", "closed");
+
+    act(() => {
+      desktopDashboard.focus();
+      fireEvent.focus(desktopDashboard);
+    });
+    expect(tooltip).toHaveAttribute("data-state", "open");
+    expect(desktopDashboard.getAttribute("aria-describedby")).toBe(tooltip.id);
+  });
+
+  it("collapsed nav link keeps a visible focus ring inside the 56px rail", () => {
+    renderSidebar();
+    const dashboards = screen.getAllByRole("link", { name: "Dashboard" });
+    const desktopDashboard = dashboards[dashboards.length - 1];
+    // `focus-visible:ring-inset` prevents the 2 px ring from being
+    // clipped by the sidebar's right border.
+    expect(desktopDashboard.className).toContain("focus-visible:ring-inset");
+    expect(desktopDashboard.className).toContain("focus-visible:ring-2");
   });
 });
