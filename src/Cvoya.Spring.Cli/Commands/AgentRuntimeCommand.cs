@@ -35,7 +35,7 @@ public static class AgentRuntimeCommand
     /// <summary>
     /// Creates the <c>agent-runtime</c> command root with list / show /
     /// install / uninstall / models / config / credentials /
-    /// verify-baseline subcommands.
+    /// refresh-models subcommands.
     /// </summary>
     public static Command Create(Option<string> outputOption)
     {
@@ -47,7 +47,6 @@ public static class AgentRuntimeCommand
         root.Subcommands.Add(CreateModelsCommand(outputOption));
         root.Subcommands.Add(CreateConfigCommand(outputOption));
         root.Subcommands.Add(CreateCredentialsCommand(outputOption));
-        root.Subcommands.Add(CreateVerifyBaselineCommand(outputOption));
         root.Subcommands.Add(CreateRefreshModelsCommand(outputOption));
         return root;
     }
@@ -374,52 +373,6 @@ public static class AgentRuntimeCommand
                 ? OutputFormatter.FormatJson(result)
                 : $"{result.SubjectId} / {result.SecretName} → {result.Status} (last checked {result.LastChecked:u})"
                     + (string.IsNullOrWhiteSpace(result.LastError) ? "" : $"\n  reason: {result.LastError}"));
-        });
-        return command;
-    }
-
-    private static Command CreateVerifyBaselineCommand(Option<string> outputOption)
-    {
-        // Example: `spring agent-runtime verify-baseline claude`
-        var idArg = new Argument<string>("id") { Description = "Runtime id." };
-        var command = new Command(
-            "verify-baseline",
-            "Invoke the runtime's container-baseline check (e.g. 'claude' CLI on PATH) and print the result.");
-        command.Arguments.Add(idArg);
-        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
-        {
-            var id = parseResult.GetValue(idArg)!;
-            var output = parseResult.GetValue(outputOption) ?? "table";
-            var client = ClientFactory.Create();
-            try
-            {
-                var result = await client.VerifyAgentRuntimeBaselineAsync(id, ct);
-                if (output == "json")
-                {
-                    Console.WriteLine(OutputFormatter.FormatJson(result));
-                    return;
-                }
-                Console.WriteLine(result.Passed == true
-                    ? $"Runtime '{id}' baseline: OK"
-                    : $"Runtime '{id}' baseline: FAILED");
-                if (result.Errors is { Count: > 0 })
-                {
-                    foreach (var err in result.Errors)
-                    {
-                        Console.WriteLine($"  - {err}");
-                    }
-                }
-                if (result.Passed != true)
-                {
-                    Environment.Exit(1);
-                }
-            }
-            catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode == 404)
-            {
-                await Console.Error.WriteLineAsync(
-                    $"Runtime '{id}' is not registered with the host.");
-                Environment.Exit(1);
-            }
         });
         return command;
     }

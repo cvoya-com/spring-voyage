@@ -1712,8 +1712,8 @@ public class SpringApiClient
     }
 
     // Agent runtimes (#688). Mirrors the /api/v1/agent-runtimes surface
-    // landed in #715: install / list / show / models / config / validate /
-    // credential-health / verify-baseline. The CLI `spring agent-runtime`
+    // landed in #715: install / list / show / models / config /
+    // credential-health / refresh-models. The CLI `spring agent-runtime`
     // verbs ride these wrappers so the command layer stays free of Kiota
     // ceremony.
 
@@ -1795,26 +1795,6 @@ public class SpringApiClient
     }
 
     /// <summary>
-    /// Validates a candidate credential against the runtime's backing service
-    /// and records the outcome in the credential-health store.
-    /// </summary>
-    public async Task<CredentialValidateResponse> ValidateAgentRuntimeCredentialAsync(
-        string id,
-        string credential,
-        string? secretName,
-        CancellationToken ct = default)
-    {
-        var request = new CredentialValidateRequest
-        {
-            Credential = credential,
-            SecretName = secretName,
-        };
-        var result = await _client.Api.V1.AgentRuntimes[id].ValidateCredential.PostAsync(request, cancellationToken: ct);
-        return result ?? throw new InvalidOperationException(
-            $"Server returned an empty validate-credential response for agent runtime '{id}'.");
-    }
-
-    /// <summary>
     /// Returns the current credential-health row for a runtime, or <c>null</c>
     /// when no validation has been recorded yet.
     /// </summary>
@@ -1833,15 +1813,6 @@ public class SpringApiClient
         {
             return null;
         }
-    }
-
-    /// <summary>Invokes the runtime's VerifyContainerBaselineAsync and returns the result.</summary>
-    public async Task<ContainerBaselineCheckResponse> VerifyAgentRuntimeBaselineAsync(
-        string id, CancellationToken ct = default)
-    {
-        var result = await _client.Api.V1.AgentRuntimes[id].VerifyBaseline.PostAsync(cancellationToken: ct);
-        return result ?? throw new InvalidOperationException(
-            $"Server returned an empty verify-baseline response for agent runtime '{id}'.");
     }
 
     /// <summary>
