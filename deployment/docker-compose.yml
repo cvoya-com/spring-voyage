@@ -12,10 +12,21 @@
 #   cd deployment/
 #   cp spring.env.example spring.env
 #   $EDITOR spring.env                 # fill in passwords + hostname
-#   ./spring-voyage-host.sh start      # host-process spring-dispatcher (#1063)
+#   ./spring-voyage-host.sh start      # host-process spring-dispatcher (#1063);
+#                                      # generates SPRING_DISPATCHER_WORKER_TOKEN
+#                                      # into ~/.spring-voyage/host/dispatcher.env
+#   set -a; . ~/.spring-voyage/host/dispatcher.env; set +a
 #   docker compose --env-file spring.env build
 #   docker compose --env-file spring.env up -d
 #   docker compose --env-file spring.env ps
+#
+# The `set -a; . dispatcher.env; set +a` step exports the bearer token
+# the dispatcher just generated into the shell's environment so the
+# `${SPRING_DISPATCHER_WORKER_TOKEN}` reference in spring-worker's
+# `Dispatcher__BearerToken` resolves to the same value the dispatcher
+# is enforcing. There is no fallback default — a missing token fails
+# the worker startup early rather than silently authenticating with a
+# weak literal.
 #
 # Scope: single-host only (same constraints as deploy.sh). Kubernetes /
 # cloud-scale deployments live in the private Spring Voyage Cloud repo.
@@ -226,7 +237,11 @@ services:
       # The dispatcher runs as a host process (#1063), so the URL targets
       # `host.docker.internal:<port>` rather than a sibling container.
       Dispatcher__BaseUrl: http://host.docker.internal:${SPRING_DISPATCHER_PORT:-8090}/
-      Dispatcher__BearerToken: ${SPRING_DISPATCHER_WORKER_TOKEN:-worker-token}
+      # No default — operators must source ${SPRING_HOST_STATE_DIR:-~/.spring-voyage/host}/dispatcher.env
+      # before running `docker compose up` (see header). A missing token
+      # surfaces as a startup failure in spring-worker rather than a
+      # silent authentication-with-weak-literal.
+      Dispatcher__BearerToken: ${SPRING_DISPATCHER_WORKER_TOKEN:?must be set; source ~/.spring-voyage/host/dispatcher.env after './spring-voyage-host.sh start'}
     command: ["dotnet", "/app/Cvoya.Spring.Host.Worker.dll"]
     volumes:
       - spring-dataprotection-keys:/home/app/.aspnet/DataProtection-Keys

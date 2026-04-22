@@ -61,6 +61,27 @@ SERVICES=(
 # directly when they want to bounce the dispatcher in isolation.
 HOST_SCRIPT="${SCRIPT_DIR}/spring-voyage-host.sh"
 
+# Path to the file the host script writes after `spring-voyage-host.sh
+# start` resolves the bearer token, port, and tenant. Sourced before
+# starting any container that needs to talk to the dispatcher so the
+# worker (and friends) see the *same* SPRING_DISPATCHER_WORKER_TOKEN
+# without it being checked into the repo or hardcoded here. Honors
+# SPRING_HOST_STATE_DIR exactly the way the host script does.
+DISPATCHER_ENV_FILE="${SPRING_HOST_STATE_DIR:-${HOME}/.spring-voyage/host}/dispatcher.env"
+
+# Source the dispatcher env file written by spring-voyage-host.sh.
+# Idempotent — silently skips when the file is missing (e.g. dispatcher
+# not yet started). Callers that strictly require the file should check
+# its existence themselves and fail loudly.
+load_dispatcher_env() {
+    if [[ -f "${DISPATCHER_ENV_FILE}" ]]; then
+        set -a
+        # shellcheck disable=SC1090
+        source "${DISPATCHER_ENV_FILE}"
+        set +a
+    fi
+}
+
 log()  { printf '[deploy] %s\n' "$*" >&2; }
 die()  { printf '[deploy][error] %s\n' "$*" >&2; exit 1; }
 
@@ -261,14 +282,18 @@ start_worker() {
     # `host.containers.internal` — Podman's stable host-loopback DNS name —
     # rather than a sibling container hostname. The bearer token is an opaque
     # shared secret; see spring.env.example.
+    load_dispatcher_env
     local dispatcher_port="${SPRING_DISPATCHER_PORT:-8090}"
+    if [[ -z "${SPRING_DISPATCHER_WORKER_TOKEN:-}" ]]; then
+        die "SPRING_DISPATCHER_WORKER_TOKEN is not set. The dispatcher must be started first ('${HOST_SCRIPT##${REPO_ROOT}/} start') so it can write the bearer token to ${DISPATCHER_ENV_FILE} for the worker to source."
+    fi
     run_container spring-worker \
         --env-file "${RESOLVED_ENV_FILE}" \
         -e "DAPR_APP_ID=spring-worker" \
         -e "DAPR_HTTP_ENDPOINT=http://spring-worker-dapr:3500" \
         -e "DAPR_GRPC_ENDPOINT=http://spring-worker-dapr:50001" \
         -e "Dispatcher__BaseUrl=http://host.containers.internal:${dispatcher_port}/" \
-        -e "Dispatcher__BearerToken=${SPRING_DISPATCHER_WORKER_TOKEN:-worker-token}" \
+        -e "Dispatcher__BearerToken=${SPRING_DISPATCHER_WORKER_TOKEN}" \
         -v spring-dataprotection-keys:/home/app/.aspnet/DataProtection-Keys \
         "${SPRING_PLATFORM_IMAGE:-localhost/spring-voyage:latest}" \
         dotnet /app/Cvoya.Spring.Host.Worker.dll

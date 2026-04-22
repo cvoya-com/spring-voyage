@@ -1,0 +1,188 @@
+name: Release spring-dispatcher
+
+# Tag-triggered self-contained publish for the host-process
+# dispatcher.
+#
+# A `dispatcher-vMAJOR.MINOR.PATCH` tag (e.g. `dispatcher-v0.1.0`)
+# fans out to a RID matrix and produces one self-contained,
+# single-file artifact per (linux-x64, linux-arm64, osx-x64,
+# osx-arm64, win-x64). Each artifact is uploaded as a release asset
+# so operators can run the dispatcher with zero `dotnet` runtime
+# dependency:
+#
+#   curl -L -o dispatcher.tar.gz \
+#     https://github.com/cvoya-com/spring-voyage/releases/download/dispatcher-v0.1.0/spring-dispatcher-0.1.0-linux-x64.tar.gz
+#   tar xf dispatcher.tar.gz
+#   SPRING_DISPATCHER_BIN="$PWD/Cvoya.Spring.Dispatcher" \
+#     ./deployment/spring-voyage-host.sh start
+#
+# spring-voyage-host.sh's discover_binary detects the native
+# executable and skips the `dotnet` invocation.
+
+on:
+  push:
+    tags:
+      - 'dispatcher-v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version label to bake into the artifact (e.g. 0.1.0). Defaults to the tag's SemVer suffix."
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-spring-dispatcher-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish ${{ matrix.rid }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: linux-x64
+            os: ubuntu-latest
+            archive: tar.gz
+            executable: Cvoya.Spring.Dispatcher
+          - rid: linux-arm64
+            os: ubuntu-latest
+            archive: tar.gz
+            executable: Cvoya.Spring.Dispatcher
+          - rid: osx-x64
+            os: macos-latest
+            archive: tar.gz
+            executable: Cvoya.Spring.Dispatcher
+          - rid: osx-arm64
+            os: macos-latest
+            archive: tar.gz
+            executable: Cvoya.Spring.Dispatcher
+          - rid: win-x64
+            os: windows-latest
+            archive: zip
+            executable: Cvoya.Spring.Dispatcher.exe
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+          cache: true
+          cache-dependency-path: |
+            **/*.csproj
+            Directory.Packages.props
+            global.json
+            NuGet.config
+
+      - name: Resolve version label
+        id: version
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [[ -n "${INPUT_VERSION}" ]]; then
+            label="${INPUT_VERSION}"
+          else
+            label="${REF_NAME#dispatcher-v}"
+          fi
+          if [[ ! "${label}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.\-]+)?$ ]]; then
+            echo "::error::resolved version label '${label}' is not a SemVer string"
+            exit 1
+          fi
+          echo "label=${label}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore dependencies
+        shell: bash
+        env:
+          RID: ${{ matrix.rid }}
+        run: dotnet restore src/Cvoya.Spring.Dispatcher/Cvoya.Spring.Dispatcher.csproj -r "${RID}"
+
+      - name: Publish self-contained
+        shell: bash
+        env:
+          VERSION_LABEL: ${{ steps.version.outputs.label }}
+          RID: ${{ matrix.rid }}
+        run: |
+          dotnet publish src/Cvoya.Spring.Dispatcher/Cvoya.Spring.Dispatcher.csproj \
+            -c Release \
+            -r "${RID}" \
+            --self-contained true \
+            -p:PublishSingleFile=true \
+            -p:DebugType=embedded \
+            -p:Version="${VERSION_LABEL}" \
+            -p:InformationalVersion="${VERSION_LABEL}" \
+            --no-restore \
+            -o "publish/${RID}"
+
+      - name: Verify the executable boots and reports its version
+        if: matrix.rid == 'linux-x64' || matrix.rid == 'osx-x64' || matrix.rid == 'osx-arm64'
+        shell: bash
+        env:
+          VERSION_LABEL: ${{ steps.version.outputs.label }}
+          RID: ${{ matrix.rid }}
+          EXECUTABLE: ${{ matrix.executable }}
+        run: |
+          out="$("./publish/${RID}/${EXECUTABLE}" --version)"
+          echo "version output: ${out}"
+          if [[ "${out}" != "${VERSION_LABEL}"* ]]; then
+            echo "::error::--version output '${out}' does not start with the published version '${VERSION_LABEL}'"
+            exit 1
+          fi
+
+      - name: Package artifact
+        id: package
+        shell: bash
+        env:
+          VERSION_LABEL: ${{ steps.version.outputs.label }}
+          RID: ${{ matrix.rid }}
+          ARCHIVE: ${{ matrix.archive }}
+          EXECUTABLE: ${{ matrix.executable }}
+        run: |
+          stage_dir="stage/${RID}"
+          rm -rf "${stage_dir}"
+          mkdir -p "${stage_dir}"
+          cp -R "publish/${RID}/." "${stage_dir}/"
+          cat >"${stage_dir}/README.txt" <<EOF
+          spring-dispatcher ${VERSION_LABEL} (${RID})
+
+          Run as a long-lived host process via deployment/spring-voyage-host.sh:
+
+              SPRING_DISPATCHER_BIN="\$PWD/${EXECUTABLE}" \\
+                ./spring-voyage-host.sh start
+
+          See https://github.com/cvoya-com/spring-voyage/blob/main/deployment/README.md.
+          EOF
+
+          archive_name="spring-dispatcher-${VERSION_LABEL}-${RID}.${ARCHIVE}"
+          if [[ "${ARCHIVE}" == "tar.gz" ]]; then
+            tar -C "${stage_dir}" -czf "${archive_name}" .
+          else
+            ( cd "${stage_dir}" && 7z a "../../${archive_name}" . >/dev/null )
+          fi
+          echo "archive_name=${archive_name}" >> "$GITHUB_OUTPUT"
+          ls -lh "${archive_name}"
+
+      - name: Upload archive to workflow artifacts
+        uses: actions/upload-artifact@v4
+        env:
+          ARCHIVE_NAME: ${{ steps.package.outputs.archive_name }}
+        with:
+          name: ${{ env.ARCHIVE_NAME }}
+          path: ${{ env.ARCHIVE_NAME }}
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Attach archive to the GitHub release
+        if: startsWith(github.ref, 'refs/tags/dispatcher-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.package.outputs.archive_name }}
+          fail_on_unmatched_files: true
+          generate_release_notes: true

@@ -1,6 +1,8 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
+using System.Reflection;
+
 using Cvoya.Spring.Core.Configuration;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Dapr.Configuration;
@@ -11,6 +13,20 @@ using Cvoya.Spring.Dispatcher;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+
+// `--version` short-circuit: deployment/spring-voyage-host.sh's `status`
+// subcommand calls this to display the running dispatcher's version next
+// to its PID and bind URL. Returning early avoids spinning up the web
+// host just to print a string. `-v` is accepted as the short alias.
+if (args.Length > 0 && (args[0] == "--version" || args[0] == "-v"))
+{
+    var info = typeof(Program).Assembly
+        .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+        ?? typeof(Program).Assembly.GetName().Version?.ToString()
+        ?? "unknown";
+    Console.WriteLine(info);
+    return;
+}
 
 var builder = WebApplication.CreateBuilder(args);
 

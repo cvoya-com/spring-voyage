@@ -1,0 +1,97 @@
+name: Dispatcher smoke (Tier 2 — full deploy.sh round-trip)
+
+# Tier-2 smoke is too expensive for every PR (it spins up the whole
+# data-plane via deployment/deploy.sh — Postgres, Redis, NATS, the
+# worker container — so each run takes 5-10 minutes on a hosted
+# runner and pulls a few hundred MB of images). It exists so the
+# pre-release gate exercises the same path the operator runs locally
+# with `./deploy.sh up`. The Tier-1 smoke in ci.yml covers the
+# dispatcher round-trip on every PR.
+#
+# Triggered manually before tagging a release:
+#   gh workflow run dispatcher-smoke-full.yml
+#
+# Or on the dispatcher release tag itself, gated on the matching
+# release workflow having succeeded.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref to test against (default: HEAD of the workflow's branch)."
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dispatcher-smoke-full
+  cancel-in-progress: false
+
+jobs:
+  full-roundtrip:
+    name: Full deploy.sh + dispatcher round-trip
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+          cache: true
+          cache-dependency-path: |
+            **/*.csproj
+            Directory.Packages.props
+            global.json
+            NuGet.config
+
+      - name: Verify required tooling is on PATH
+        shell: bash
+        run: |
+          for binary in podman curl python3; do
+            if ! command -v "${binary}" >/dev/null 2>&1; then
+              echo "::error::required tool '${binary}' is not on PATH"
+              exit 1
+            fi
+          done
+
+      - name: Bring the stack up via deploy.sh
+        shell: bash
+        run: |
+          cd deployment
+          ./deploy.sh up
+
+      - name: Run dispatcher smoke against the running stack
+        shell: bash
+        run: bash deployment/scripts/dispatcher-smoke.sh
+
+      - name: Capture stack logs on failure
+        if: failure()
+        shell: bash
+        run: |
+          cd deployment
+          ./deploy.sh logs > deploy-logs.txt 2>&1 || true
+
+      - name: Upload stack logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        env:
+          RUN_ID: ${{ github.run_id }}
+        with:
+          name: deploy-logs-${{ env.RUN_ID }}
+          path: |
+            deployment/deploy-logs.txt
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Tear the stack down
+        if: always()
+        shell: bash
+        run: |
+          cd deployment
+          ./deploy.sh down || true

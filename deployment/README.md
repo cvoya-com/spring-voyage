@@ -192,10 +192,72 @@ Defaults (override in `spring.env` or via env):
 | `SPRING_DISPATCHER_PORT` | `8090` | Bind port; matches `Dispatcher__BaseUrl` on every worker/API container. |
 | `SPRING_DISPATCHER_WORKSPACE_ROOT` | `~/.spring-voyage/workspaces` | Where the dispatcher materialises per-invocation agent workspaces (#1042). |
 | `SPRING_HOST_STATE_DIR` | `~/.spring-voyage/host` | Holds the dispatcher's PID file and log file. |
-| `SPRING_DISPATCHER_WORKER_TOKEN` | `worker-token` | Bearer token the worker presents to the dispatcher. **Change for any shared host.** |
+| `SPRING_DISPATCHER_WORKER_TOKEN` | _auto-generated_ | Bearer token the worker presents to the dispatcher. On the first `start`, `spring-voyage-host.sh` generates a 256-bit hex token (via `openssl rand -hex 32` or `xxd -l 32 -p /dev/urandom`) and persists it to `${SPRING_HOST_STATE_DIR}/dispatcher.env` (mode `0600`). Subsequent `start`/`restart` reuse the same token. Set this variable explicitly to override; delete `dispatcher.env` to rotate. |
 | `SPRING_DEFAULT_TENANT_ID` | `default` | Tenant the worker token is scoped to. |
 | `SPRING_DISPATCHER_PUBLISH_DIR` | `<repo>/.spring-voyage/dispatcher/publish` | Where `dotnet publish` writes the dispatcher binary. |
-| `SPRING_DISPATCHER_BIN` | _unset_ | Override the discovered dll path (e.g. for self-contained publishes). |
+| `SPRING_DISPATCHER_BIN` | _unset_ | Override the discovered binary path. `.dll` runs under `dotnet`; anything else (e.g. a self-contained release artifact such as `Cvoya.Spring.Dispatcher` on Linux/macOS or `Cvoya.Spring.Dispatcher.exe` on Windows) runs directly with no `dotnet` runtime dependency. |
+
+The state directory layout after `start`:
+
+```
+~/.spring-voyage/host/
+├── dispatcher.env             # mode 0600, sourced by deploy.sh
+├── spring-dispatcher.pid
+└── spring-dispatcher.log
+```
+
+`deploy.sh up` sources `dispatcher.env` before bringing the worker
+container up, so the worker's `Dispatcher__BearerToken` matches whatever
+the dispatcher is currently running with — no token literal in
+`docker-compose.yml` or `spring.env`. Operators bringing the stack up
+manually with `docker compose` should source the file the same way:
+
+```bash
+./spring-voyage-host.sh start
+set -a; . ~/.spring-voyage/host/dispatcher.env; set +a
+docker compose -f deployment/docker-compose.yml up
+```
+
+#### Self-contained release artifacts
+
+Each `dispatcher-vMAJOR.MINOR.PATCH` tag triggers
+[`.github/workflows/release-spring-dispatcher.yml`](../.github/workflows/release-spring-dispatcher.yml)
+which publishes a self-contained, single-file binary per RID
+(`linux-x64`, `linux-arm64`, `osx-x64`, `osx-arm64`, `win-x64`) and
+uploads each one as a release asset. The host script's binary
+discovery handles native executables transparently:
+
+```bash
+curl -L -o dispatcher.tar.gz \
+  https://github.com/cvoya-com/spring-voyage/releases/download/dispatcher-v0.1.0/spring-dispatcher-0.1.0-linux-x64.tar.gz
+tar xf dispatcher.tar.gz
+SPRING_DISPATCHER_BIN="$PWD/Cvoya.Spring.Dispatcher" \
+  ./spring-voyage-host.sh start
+./spring-voyage-host.sh status   # version: 0.1.0
+```
+
+Operators using release artifacts do **not** need `dotnet` on the
+host. The `--rebuild` flag still requires `dotnet` because it shells
+out to `dotnet publish`.
+
+#### Verifying the host pivot on macOS arm64
+
+Issue [#1063](https://github.com/cvoya-com/spring-voyage/issues/1063)
+existed because the in-container dispatcher could not reach the
+rootless Podman socket on macOS arm64 (libkrun + SELinux MCS
+labels). The host pivot is the fix; CI proves it on Linux but cannot
+exercise the libkrun code path. After any change to
+`spring-voyage-host.sh`, the dispatcher itself, or the smoke
+drivers, run both scripts on a macOS arm64 dev host:
+
+```bash
+bash deployment/scripts/test-spring-voyage-host.sh    # 8 idempotence cases
+bash deployment/scripts/dispatcher-smoke.sh           # alpine echo round-trip
+```
+
+A pass on both — together with `host-script-idempotence` and
+`dispatcher-smoke` jobs green on the PR — is the gate for #1063
+regressions.
 
 ### Startup configuration validation (#616)
 

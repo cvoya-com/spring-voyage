@@ -37,6 +37,7 @@ jobs:
       connectors_web: ${{ steps.filter.outputs.connectors_web }}
       web: ${{ steps.filter.outputs.web }}
       workflows: ${{ steps.filter.outputs.workflows }}
+      dispatcher_host: ${{ steps.filter.outputs.dispatcher_host }}
     steps:
       - uses: actions/checkout@v6
 
@@ -77,6 +78,13 @@ jobs:
               - 'package-lock.json'
             workflows:
               - '.github/workflows/**'
+            dispatcher_host:
+              - 'deployment/spring-voyage-host.sh'
+              - 'deployment/scripts/**'
+              - 'deployment/deploy.sh'
+              - 'deployment/docker-compose.yml'
+              - 'deployment/spring.env.example'
+              - 'src/Cvoya.Spring.Dispatcher/**'
 
   build:
     name: Build
@@ -727,6 +735,91 @@ jobs:
             exit 1
           fi
 
+  host-script-idempotence:
+    name: Host script idempotence
+    runs-on: ubuntu-latest
+    needs: changes
+    # Skipped in the merge queue: the host script is a static-input
+    # check (drives spring-voyage-host.sh through start/stop/restart
+    # against the PR's own sources). A pass on the pull_request run
+    # stays valid through the queue. Path-filtered to the dispatcher
+    # surface so unrelated PRs don't pay the build cost.
+    if: >
+      github.event_name != 'merge_group' &&
+      (needs.changes.outputs.dispatcher_host == 'true' || needs.changes.outputs.workflows == 'true')
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+          cache: true
+          cache-dependency-path: |
+            **/*.csproj
+            Directory.Packages.props
+            global.json
+            NuGet.config
+
+      # ubuntu-latest runners ship podman preinstalled; assert it
+      # so a runner-image regression is loud rather than mistaken
+      # for a host-script bug.
+      - name: Verify container runtime is on PATH
+        shell: bash
+        run: |
+          if ! command -v podman >/dev/null 2>&1 && ! command -v docker >/dev/null 2>&1; then
+            echo "::error::neither podman nor docker is on PATH on this runner image"
+            exit 1
+          fi
+          command -v podman && podman --version || true
+          command -v docker && docker --version || true
+
+      - name: Run idempotence test driver
+        shell: bash
+        run: bash deployment/scripts/test-spring-voyage-host.sh
+
+  dispatcher-smoke:
+    name: Dispatcher smoke (Tier 1)
+    runs-on: ubuntu-latest
+    needs: changes
+    # Skipped in the merge queue: same reasoning as host-script-idempotence
+    # — the smoke driver runs against the PR's own dispatcher sources and
+    # a Tier-1 alpine echo container, so a pass stays valid through the
+    # queue. Path-filtered to the dispatcher surface for the same cost
+    # reason. Tier-2 (full deploy.sh round-trip) lives in
+    # dispatcher-smoke-full.yml and is workflow_dispatch-only.
+    if: >
+      github.event_name != 'merge_group' &&
+      (needs.changes.outputs.dispatcher_host == 'true' || needs.changes.outputs.workflows == 'true')
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+          cache: true
+          cache-dependency-path: |
+            **/*.csproj
+            Directory.Packages.props
+            global.json
+            NuGet.config
+
+      - name: Verify podman is on PATH
+        shell: bash
+        run: |
+          if ! command -v podman >/dev/null 2>&1; then
+            echo "::error::podman is not on PATH; the dispatcher's PodmanRuntime always invokes 'podman' literally so the smoke test cannot run."
+            exit 1
+          fi
+          podman --version
+
+      - name: Run dispatcher smoke driver
+        shell: bash
+        run: bash deployment/scripts/dispatcher-smoke.sh
+
   required-checks:
     name: Required checks
     runs-on: ubuntu-latest
@@ -747,6 +840,8 @@ jobs:
       - openapi-drift
       - python-lint
       - python-test
+      - host-script-idempotence
+      - dispatcher-smoke
     # Always runs - branch protection depends on a single "Required checks"
     # context, so this job must report a status even when upstream jobs were
     # path-filtered out.
@@ -772,6 +867,8 @@ jobs:
           OPENAPI_RESULT: ${{ needs.openapi-drift.result }}
           PYTHON_LINT_RESULT: ${{ needs.python-lint.result }}
           PYTHON_TEST_RESULT: ${{ needs.python-test.result }}
+          HOST_IDEMPOTENCE_RESULT: ${{ needs.host-script-idempotence.result }}
+          DISPATCHER_SMOKE_RESULT: ${{ needs.dispatcher-smoke.result }}
           CHANGES_RESULT: ${{ needs.changes.result }}
         run: |
           echo "changes=$CHANGES_RESULT"
@@ -790,6 +887,8 @@ jobs:
           echo "openapi-drift=$OPENAPI_RESULT"
           echo "python-lint=$PYTHON_LINT_RESULT"
           echo "python-test=$PYTHON_TEST_RESULT"
+          echo "host-script-idempotence=$HOST_IDEMPOTENCE_RESULT"
+          echo "dispatcher-smoke=$DISPATCHER_SMOKE_RESULT"
 
           # The 'changes' gate itself must have run cleanly - if path detection
           # failed we can't trust the skip decisions downstream.
@@ -818,3 +917,5 @@ jobs:
           ok "$OPENAPI_RESULT"         || { echo "::error::openapi-drift failed"; exit 1; }
           ok "$PYTHON_LINT_RESULT"    || { echo "::error::python-lint failed"; exit 1; }
           ok "$PYTHON_TEST_RESULT"    || { echo "::error::python-test failed"; exit 1; }
+          ok "$HOST_IDEMPOTENCE_RESULT" || { echo "::error::host-script-idempotence failed"; exit 1; }
+          ok "$DISPATCHER_SMOKE_RESULT" || { echo "::error::dispatcher-smoke failed"; exit 1; }
