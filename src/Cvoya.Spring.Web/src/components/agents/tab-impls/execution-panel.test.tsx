@@ -303,6 +303,80 @@ describe("AgentExecutionPanel", () => {
     await expectNoAxeViolations(container);
   });
 
+  it("renders the Hosting selector with friendly labels and saves the chosen mode (#1088)", async () => {
+    // Issue #1088 — operators must be able to flip an agent's hosting
+    // mode after create. The panel surfaces the same `HOSTING_MODES`
+    // catalog the unit-create wizard uses (friendly "Ephemeral" /
+    // "Persistent" labels) and PUTs the change through the existing
+    // execution endpoint. The select is re-checked here to lock the
+    // CLI-parity behaviour: changing → Save → server sees `persistent`.
+    getAgentExecution.mockResolvedValue({});
+    getUnitExecution.mockResolvedValue({});
+    setAgentExecution.mockResolvedValue({ hosting: "persistent" });
+
+    render(
+      <Wrapper>
+        <AgentExecutionPanel agentId="alpha" parentUnitId="eng-team" />
+      </Wrapper>,
+    );
+
+    const hostingSelect = (await screen.findByTestId(
+      "agent-execution-hosting-select",
+    )) as HTMLSelectElement;
+    const optionLabels = Array.from(hostingSelect.options).map((o) => o.text);
+    // Default placeholder + the two friendly labels — never raw ids.
+    expect(optionLabels).toContain("(leave to default)");
+    expect(optionLabels).toContain("Ephemeral");
+    expect(optionLabels).toContain("Persistent");
+
+    fireEvent.change(hostingSelect, { target: { value: "persistent" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/i }));
+
+    await waitFor(() => {
+      expect(setAgentExecution).toHaveBeenCalledTimes(1);
+    });
+    const [id, body] = setAgentExecution.mock.calls[0];
+    expect(id).toBe("alpha");
+    expect(body?.hosting).toBe("persistent");
+  });
+
+  it("clears the Hosting field via the per-row Clear affordance (#1088)", async () => {
+    // CLI mirror: `spring agent execution clear --field hosting`. When
+    // the agent has its own hosting value alongside other declared
+    // fields, the FieldRow exposes a Clear button; clicking it PUTs the
+    // block back with `hosting: null` and leaves the other fields
+    // untouched.
+    getAgentExecution.mockResolvedValue({
+      image: "ghcr.io/agents/alpha:custom",
+      hosting: "persistent",
+    });
+    getUnitExecution.mockResolvedValue({});
+    setAgentExecution.mockResolvedValue({
+      image: "ghcr.io/agents/alpha:custom",
+    });
+
+    render(
+      <Wrapper>
+        <AgentExecutionPanel agentId="alpha" parentUnitId="eng-team" />
+      </Wrapper>,
+    );
+
+    const clearHostingBtn = await screen.findByTestId(
+      "agent-execution-clear-hosting",
+    );
+    fireEvent.click(clearHostingBtn);
+
+    await waitFor(() => {
+      expect(setAgentExecution).toHaveBeenCalledTimes(1);
+    });
+    const [id, body] = setAgentExecution.mock.calls[0];
+    expect(id).toBe("alpha");
+    expect(body?.hosting).toBeNull();
+    // Other declared fields ride through unchanged — clear-one-field
+    // semantics, not clear-all.
+    expect(body?.image).toBe("ghcr.io/agents/alpha:custom");
+  });
+
   it("falls back to DELETE when the operator clears every agent-owned field", async () => {
     getAgentExecution.mockResolvedValue({
       image: "ghcr.io/agents/alpha:custom",

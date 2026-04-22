@@ -29,12 +29,16 @@ import type {
   UnitExecutionResponse,
 } from "@/lib/api/types";
 import {
-  EXECUTION_HOSTING_MODES,
   EXECUTION_PROVIDERS,
   EXECUTION_RUNTIMES,
   EXECUTION_TOOL_KEYS,
 } from "@/lib/api/types";
-import { getToolRuntimeId, type ExecutionTool } from "@/lib/ai-models";
+import {
+  getToolRuntimeId,
+  HOSTING_MODES,
+  type ExecutionTool,
+  type HostingMode,
+} from "@/lib/ai-models";
 
 /**
  * #735: the Execution-surface Provider dropdown standardises on the
@@ -478,17 +482,21 @@ export function AgentExecutionPanel({
           )}
 
         {/* Hosting — agent-exclusive. Unit defaults don't carry a
-            hosting slot so there's nothing to inherit from. */}
+            hosting slot so there's nothing to inherit from. CLI parity:
+            `spring agent execution set <id> --hosting ephemeral|persistent`
+            (clear via `spring agent execution clear --field hosting`). */}
         <FieldRow
           label="Hosting"
-          help="Agent lifecycle — ephemeral launches per-message; persistent runs continuously."
+          help="Agent lifecycle — ephemeral launches per-message; persistent runs continuously. Mirrors `spring agent execution set <id> --hosting`."
           onClear={persisted?.hosting ? () => clearField("hosting") : undefined}
           busy={setMutation.isPending}
         >
           <SelectField
             value={form.hosting ?? null}
-            onChange={(next) => setField("hosting", next)}
-            options={EXECUTION_HOSTING_MODES}
+            onChange={(next) =>
+              setField("hosting", next as HostingMode | null)
+            }
+            options={HOSTING_MODES}
             inheritedLabel={null}
             ariaLabel="Agent hosting mode"
             testid="agent-execution-hosting-select"
@@ -559,10 +567,12 @@ function FieldRow({ label, help, onClear, busy, children }: FieldRowProps) {
   );
 }
 
+type SelectOption = string | { id: string; label: string };
+
 interface SelectFieldProps {
   value: string | null;
   onChange: (next: string | null) => void;
-  options: readonly string[];
+  options: readonly SelectOption[];
   inheritedLabel: string | null;
   ariaLabel: string;
   testid: string;
@@ -595,11 +605,15 @@ function SelectField({
       <option value={FIELD_UNSET}>
         {inheritedLabel ? `inherited: ${inheritedLabel}` : "(leave to default)"}
       </option>
-      {options.map((opt) => (
-        <option key={opt} value={opt}>
-          {opt}
-        </option>
-      ))}
+      {options.map((opt) => {
+        const id = typeof opt === "string" ? opt : opt.id;
+        const label = typeof opt === "string" ? opt : opt.label;
+        return (
+          <option key={id} value={id}>
+            {label}
+          </option>
+        );
+      })}
     </select>
   );
 }
