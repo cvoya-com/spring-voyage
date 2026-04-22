@@ -13,10 +13,14 @@ public class DispatcherClientOptions
     public const string SectionName = "Dispatcher";
 
     /// <summary>
-    /// Base URL of the <c>spring-dispatcher</c> service (e.g.
-    /// <c>http://spring-dispatcher:8080/</c>). When unset, the client throws
-    /// on the first call — which surfaces the misconfiguration at dispatch
-    /// time rather than silently falling back to an in-process runtime.
+    /// Base URL of the <c>spring-dispatcher</c> service. The dispatcher
+    /// runs as a host process (issue #1063) so workers reach it via the
+    /// container-runtime's host-loopback DNS name —
+    /// <c>http://host.containers.internal:8090/</c> on Podman or
+    /// <c>http://host.docker.internal:8090/</c> on Docker. When unset,
+    /// the client throws on the first call — which surfaces the
+    /// misconfiguration at dispatch time rather than silently falling
+    /// back to an in-process runtime.
     /// </summary>
     public string? BaseUrl { get; set; }
 

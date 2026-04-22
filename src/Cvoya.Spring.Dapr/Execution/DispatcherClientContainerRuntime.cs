@@ -163,7 +163,8 @@ public class DispatcherClientContainerRuntime(
             if (string.IsNullOrWhiteSpace(_options.BaseUrl))
             {
                 throw new InvalidOperationException(
-                    "Dispatcher:BaseUrl is not configured. Set it to the spring-dispatcher HTTP endpoint (e.g. http://spring-dispatcher:8080/). "
+                    "Dispatcher:BaseUrl is not configured. Set it to the spring-dispatcher HTTP endpoint "
+                    + "(e.g. http://host.containers.internal:8090/ — the dispatcher runs on the host, not in a container; see issue #1063). "
                     + "Startup configuration validation should have surfaced this before first call — see the /system/configuration report.");
             }
             client.BaseAddress = new Uri(_options.BaseUrl.EndsWith('/') ? _options.BaseUrl : _options.BaseUrl + "/");

@@ -7,12 +7,20 @@
 #   spring-api-dapr, spring-worker-dapr,           (per-app Dapr sidecars)
 #   spring-worker, spring-api, spring-web, spring-caddy
 #
+# In addition to the container stack, deploy.sh delegates to
+# `spring-voyage-host.sh` to start/stop the spring-dispatcher service as a
+# host process. The dispatcher is no longer containerised in the OSS
+# deployment because the rootless Podman socket cannot be reliably
+# bind-mounted into a container on macOS arm64 / libkrun (issue #1063);
+# moving the dispatcher to the host gives Linux/macOS/Windows a single,
+# stable topology and removes the podman CLI dependency from every image.
+#
 # Usage:
-#   ./deploy.sh up              # create network, pull/build, start stack
-#   ./deploy.sh down            # stop and remove containers (preserves volumes)
+#   ./deploy.sh up              # create network, pull/build, start stack + host services
+#   ./deploy.sh down            # stop containers + host services (preserves volumes)
 #   ./deploy.sh restart         # down + up
 #   ./deploy.sh logs [service]  # follow logs for one or all services
-#   ./deploy.sh status          # show container status
+#   ./deploy.sh status          # show container + host-service status
 #   ./deploy.sh build           # build Dockerfile + Dockerfile.agent images
 #   ./deploy.sh ensure-user-net <uid>  # create per-user bridge network for agent isolation
 #
@@ -40,13 +48,18 @@ SERVICES=(
     spring-scheduler
     spring-worker-dapr
     spring-api-dapr
-    spring-dispatcher
     spring-worker
     spring-api
     spring-web
     spring-caddy
     spring-ollama
 )
+
+# Wrapper around the host-process service manager. The dispatcher lives
+# outside the container stack (issue #1063); deploy.sh delegates to this
+# script so the lifecycle is observable and operators can manage it
+# directly when they want to bounce the dispatcher in isolation.
+HOST_SCRIPT="${SCRIPT_DIR}/spring-voyage-host.sh"
 
 log()  { printf '[deploy] %s\n' "$*" >&2; }
 die()  { printf '[deploy][error] %s\n' "$*" >&2; exit 1; }
@@ -243,60 +256,48 @@ start_worker() {
     # OAuth session tokens, anti-forgery tokens) survives deploys. See #337.
     #
     # Dispatcher wiring: the worker never holds the podman binary. It reaches
-    # spring-dispatcher over HTTP for every container op (#513). The bearer
-    # token is an opaque shared secret — see spring.env.example.
+    # spring-dispatcher over HTTP for every container op (#513). The dispatcher
+    # itself runs as a host process (#1063), so the worker resolves it via
+    # `host.containers.internal` — Podman's stable host-loopback DNS name —
+    # rather than a sibling container hostname. The bearer token is an opaque
+    # shared secret; see spring.env.example.
+    local dispatcher_port="${SPRING_DISPATCHER_PORT:-8090}"
     run_container spring-worker \
         --env-file "${RESOLVED_ENV_FILE}" \
         -e "DAPR_APP_ID=spring-worker" \
         -e "DAPR_HTTP_ENDPOINT=http://spring-worker-dapr:3500" \
         -e "DAPR_GRPC_ENDPOINT=http://spring-worker-dapr:50001" \
-        -e "Dispatcher__BaseUrl=http://spring-dispatcher:8080/" \
+        -e "Dispatcher__BaseUrl=http://host.containers.internal:${dispatcher_port}/" \
         -e "Dispatcher__BearerToken=${SPRING_DISPATCHER_WORKER_TOKEN:-worker-token}" \
         -v spring-dataprotection-keys:/home/app/.aspnet/DataProtection-Keys \
         "${SPRING_PLATFORM_IMAGE:-localhost/spring-voyage:latest}" \
         dotnet /app/Cvoya.Spring.Host.Worker.dll
 }
 
-# ---- spring-dispatcher ---------------------------------------------------
+# ---- spring-dispatcher (host process) ------------------------------------
 #
 # The dispatcher is the only process that holds the host container-runtime
 # (podman) credentials. Workers reach it over HTTP for every container op
 # — no worker ships podman on its own PATH. See
 # docs/architecture/deployment.md and #513.
 #
-# SPRING_DISPATCHER_PODMAN_SOCKET: host path to the rootless podman socket.
-#   Linux: `/run/user/$(id -u)/podman/podman.sock` (default on systemd hosts).
-#   macOS: the podman machine forwards to a host path — operators typically
-#   override this variable explicitly.
-# SPRING_DISPATCHER_WORKER_TOKEN: opaque bearer token the worker presents
-#   on every request. Generate per deployment; never commit.
-# SPRING_DEFAULT_TENANT_ID: tenant the worker token is scoped to.
-#
-# The socket mount uses `:Z` to trigger a per-mount SELinux relabel so the
-# dispatcher can read/write the socket on SELinux-enforcing hosts (Fedora
-# CoreOS Podman machines, RHEL/Fedora). `:Z` is a private relabel — safe
-# here because the socket is single-consumer, but it must NOT be applied
-# to shared data volumes.
+# Since #1063 the dispatcher runs as a long-lived host process owned by
+# `spring-voyage-host.sh`. Running on the host removes the rootless
+# podman-socket bind-mount entirely (which fails reliably on macOS arm64
+# under libkrun) and gives Linux/macOS/Windows a single topology. This
+# wrapper exists so the deploy.sh up/down lifecycle is one verb for the
+# operator; advanced workflows (bounce dispatcher only, tail dispatcher
+# logs without touching the stack) call the host script directly.
 start_dispatcher() {
-    local socket="${SPRING_DISPATCHER_PODMAN_SOCKET:-/run/podman/podman.sock}"
-    local token="${SPRING_DISPATCHER_WORKER_TOKEN:-worker-token}"
-    local tenant="${SPRING_DEFAULT_TENANT_ID:-default}"
-    # Per-invocation agent workspace root. The dispatcher writes the
-    # workspace materialised for each agent run here, then bind-mounts
-    # ${workspace_root}/<subdir> into the agent container. Workers no
-    # longer touch the local filesystem (#1042). The named volume is
-    # mounted at the same path so the host's podman can resolve the
-    # bind-mount source.
-    local workspace_root="${SPRING_DISPATCHER_WORKSPACE_ROOT:-/var/lib/spring-workspaces}"
+    [[ -x "${HOST_SCRIPT}" ]] || die "host-services script not found at ${HOST_SCRIPT} — run 'chmod +x ${HOST_SCRIPT}'"
+    log "starting spring-dispatcher via ${HOST_SCRIPT##${REPO_ROOT}/}"
+    "${HOST_SCRIPT}" start
+}
 
-    run_container spring-dispatcher \
-        --env-file "${RESOLVED_ENV_FILE}" \
-        -e "Dispatcher__Tokens__${token}__TenantId=${tenant}" \
-        -e "Dispatcher__WorkspaceRoot=${workspace_root}" \
-        -v "${socket}:/run/podman/podman.sock:Z" \
-        -v "spring-agent-workspaces:${workspace_root}" \
-        "${SPRING_DISPATCHER_IMAGE:-localhost/spring-dispatcher:latest}" \
-        dotnet /app/Cvoya.Spring.Dispatcher.dll
+stop_dispatcher() {
+    [[ -x "${HOST_SCRIPT}" ]] || return 0
+    log "stopping spring-dispatcher via ${HOST_SCRIPT##${REPO_ROOT}/}"
+    "${HOST_SCRIPT}" stop || true
 }
 
 start_api() {
@@ -497,7 +498,9 @@ cmd_up() {
 
     # Dispatcher must be up before the worker — the worker's only
     # IContainerRuntime binding is a DispatcherClientContainerRuntime that
-    # HTTP-calls spring-dispatcher on first use (#513).
+    # HTTP-calls spring-dispatcher on first use (#513). Since #1063 the
+    # dispatcher runs on the host, so this is a host-process start, not a
+    # container.
     start_dispatcher
 
     start_worker
@@ -510,6 +513,10 @@ cmd_up() {
 
 cmd_down() {
     require podman
+    # Stop the host-process dispatcher first so it can finish in-flight
+    # podman calls cleanly before the agent containers it owns disappear
+    # underneath it.
+    stop_dispatcher
     for svc in "${SERVICES[@]}"; do
         remove_container "${svc}"
     done
@@ -524,6 +531,10 @@ cmd_restart() {
 cmd_status() {
     require podman
     podman ps --filter "name=spring-" --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
+    if [[ -x "${HOST_SCRIPT}" ]]; then
+        echo
+        "${HOST_SCRIPT}" status || true
+    fi
 }
 
 cmd_logs() {
@@ -551,11 +562,12 @@ cmd_build() {
         -t "${SPRING_AGENT_IMAGE:-localhost/spring-voyage-agent:latest}" \
         "${REPO_ROOT}"
 
-    log "building dispatcher image: ${SPRING_DISPATCHER_IMAGE:-localhost/spring-dispatcher:latest}"
-    podman build \
-        -f "${SCRIPT_DIR}/Dockerfile.dispatcher" \
-        -t "${SPRING_DISPATCHER_IMAGE:-localhost/spring-dispatcher:latest}" \
-        "${REPO_ROOT}"
+    # spring-dispatcher is a host process (#1063); we publish its .NET binary
+    # via spring-voyage-host.sh build instead of producing an image.
+    if [[ -x "${HOST_SCRIPT}" ]]; then
+        log "publishing spring-dispatcher host binary"
+        "${HOST_SCRIPT}" build
+    fi
 
     log "building dapr-agent image: ${SPRING_DAPR_AGENT_IMAGE:-localhost/spring-dapr-agent:latest}"
     podman build \

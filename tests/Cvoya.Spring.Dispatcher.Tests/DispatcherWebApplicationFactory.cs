@@ -37,8 +37,8 @@ public class DispatcherWebApplicationFactory : WebApplicationFactory<Program>
     /// Per-fixture workspace root the dispatcher is configured to use. Lives
     /// under <see cref="Path.GetTempPath"/> so the workspace materialiser can
     /// write through the real filesystem during integration tests without
-    /// requiring the production default (<c>/var/lib/spring-workspaces</c>) to
-    /// exist.
+    /// requiring the production default
+    /// (<c>~/.spring-voyage/workspaces</c>) to exist on the host.
     /// </summary>
     public string WorkspaceRoot { get; } =
         Path.Combine(Path.GetTempPath(), "spring-dispatcher-tests-" + Guid.NewGuid().ToString("N"));

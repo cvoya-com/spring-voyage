@@ -8,18 +8,42 @@ namespace Cvoya.Spring.Dispatcher;
 /// <c>Dispatcher</c> configuration section.
 /// </summary>
 /// <remarks>
-/// The dispatcher is the standalone-deployment process that owns the host
-/// container runtime (podman for OSS). Workers reach it over HTTP — they never
-/// hold runtime credentials themselves. Authorisation is a per-worker bearer
-/// token mapped to a tenant scope; see <see cref="Tokens"/>.
+/// The dispatcher is the host-process service that owns the host container
+/// runtime (podman for OSS). Workers reach it over HTTP — they never hold
+/// runtime credentials themselves. Authorisation is a per-worker bearer token
+/// mapped to a tenant scope; see <see cref="Tokens"/>. The dispatcher runs as
+/// a long-lived host process across Linux/macOS/Windows (issue #1063); it is
+/// no longer packaged as a container in the OSS deployment, so its defaults
+/// resolve against the user's home directory rather than a fixed Linux FHS
+/// path.
 /// </remarks>
 public class DispatcherOptions
 {
     /// <summary>Configuration section name.</summary>
     public const string SectionName = "Dispatcher";
 
-    /// <summary>Default value for <see cref="WorkspaceRoot"/>.</summary>
-    public const string DefaultWorkspaceRoot = "/var/lib/spring-workspaces";
+    /// <summary>
+    /// Default value for <see cref="WorkspaceRoot"/>. Resolved at type init
+    /// against <see cref="Environment.SpecialFolder.UserProfile"/> so the
+    /// dispatcher works out-of-the-box on every dev machine without root.
+    /// Falls back to <c>/var/lib/spring-workspaces</c> on Unix and
+    /// <c>%TEMP%/spring-voyage/workspaces</c> on Windows when the user
+    /// profile cannot be resolved (e.g. some service-account contexts).
+    /// </summary>
+    public static readonly string DefaultWorkspaceRoot = ResolveDefaultWorkspaceRoot();
+
+    private static string ResolveDefaultWorkspaceRoot()
+    {
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (!string.IsNullOrEmpty(home))
+        {
+            return Path.Combine(home, ".spring-voyage", "workspaces");
+        }
+
+        return OperatingSystem.IsWindows()
+            ? Path.Combine(Path.GetTempPath(), "spring-voyage", "workspaces")
+            : "/var/lib/spring-workspaces";
+    }
 
     /// <summary>
     /// Per-worker bearer tokens. Keys are opaque token strings (issued at deploy
@@ -38,10 +62,11 @@ public class DispatcherOptions
     /// gets a unique subdirectory here, which the dispatcher then bind-mounts
     /// into the agent container. The directory must exist on the dispatcher
     /// process's filesystem AND be addressable by the host's container runtime
-    /// (the dispatcher's <c>podman</c> shells out against the host socket).
-    /// Defaults to <see cref="DefaultWorkspaceRoot"/>; the deployment scripts
-    /// pre-create this directory and bind-mount it into the dispatcher
-    /// container at the same path. See issue #1042.
+    /// (the dispatcher invokes podman against the host socket directly because
+    /// the dispatcher itself is a host process — issue #1063). Defaults to
+    /// <see cref="DefaultWorkspaceRoot"/>; <c>spring-voyage-host.sh</c>
+    /// pre-creates this directory before launching the dispatcher. See issue
+    /// #1042.
     /// </summary>
     public string WorkspaceRoot { get; set; } = DefaultWorkspaceRoot;
 }

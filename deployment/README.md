@@ -7,18 +7,27 @@ open-source single-host scenario.
 
 ## Contents
 
-| File                    | Purpose                                                           |
-| ----------------------- | ----------------------------------------------------------------- |
-| `deploy.sh`             | Local Podman deployment (network, containers, images).            |
-| `deploy-remote.sh`      | SSH + rsync wrapper that runs `deploy.sh` on a remote VPS.        |
-| `Dockerfile`            | Multi-stage platform image (.NET 10 API/Worker + Web + Dapr CLI). |
-| `Dockerfile.agent`      | Slim image for delegated agent execution containers.              |
-| `Dockerfile.dispatcher` | `spring-dispatcher` service image. Owns the host podman socket.    |
-| `Caddyfile`             | Single-host path-routed Caddy config (default).                   |
-| `Caddyfile.multi-host`  | Per-service hostnames variant (web / API / webhook each FQDN).    |
-| `relay.sh`              | Local-dev SSH reverse tunnel for webhook delivery to a laptop.    |
-| `spring.env.example`    | Documented env template. Copy to `spring.env` and fill in.        |
-| `examples/dockerfiles/` | Starter Dockerfiles showing how to extend `localhost/spring-voyage-agent:latest` (see **Custom agent images** below). |
+| File                     | Purpose                                                           |
+| ------------------------ | ----------------------------------------------------------------- |
+| `deploy.sh`              | Local Podman deployment (network, containers, images). Delegates the dispatcher lifecycle to `spring-voyage-host.sh`. |
+| `deploy-remote.sh`       | SSH + rsync wrapper that runs `deploy.sh` on a remote VPS.        |
+| `spring-voyage-host.sh`  | Manages host-process services (`spring-dispatcher`). Used directly when bouncing the dispatcher in isolation; called by `deploy.sh up/down`. |
+| `Dockerfile`             | Multi-stage platform image (.NET 10 API/Worker + Web + Dapr CLI). |
+| `Dockerfile.agent`       | Slim image for delegated agent execution containers.              |
+| `Caddyfile`              | Single-host path-routed Caddy config (default).                   |
+| `Caddyfile.multi-host`   | Per-service hostnames variant (web / API / webhook each FQDN).    |
+| `relay.sh`               | Local-dev SSH reverse tunnel for webhook delivery to a laptop.    |
+| `spring.env.example`     | Documented env template. Copy to `spring.env` and fill in.        |
+| `examples/dockerfiles/`  | Starter Dockerfiles showing how to extend `localhost/spring-voyage-agent:latest` (see **Custom agent images** below). |
+
+> `spring-dispatcher` is intentionally **not** packaged as a container image
+> in OSS. It runs as a long-lived host process owned by
+> `spring-voyage-host.sh` because the rootless Podman socket cannot be
+> reliably bind-mounted into a container on macOS arm64 / libkrun
+> (issue [#1063](https://github.com/cvoya-com/spring-voyage/issues/1063)),
+> and a single topology across Linux/macOS/Windows is the only way the
+> local dev experience stays predictable. Spring container images no
+> longer carry the `podman` CLI as a result.
 
 ## Custom agent images
 
@@ -53,11 +62,16 @@ own `execution.image` inherit the unit's default.
 
 ## Prerequisites
 
-- [Podman](https://podman.io/) 4.4+ (required for `podman network exists` and
-  modern rootless networking). Install via your distro's package manager.
+- [Podman](https://podman.io/) 4.4+ (required for `podman network exists`,
+  modern rootless networking, and the `host.containers.internal` DNS name
+  the worker uses to reach the host-process dispatcher). Install via your
+  distro's package manager.
+- The .NET 10 SDK on the host that runs `spring-voyage-host.sh start`. The
+  script publishes `Cvoya.Spring.Dispatcher` once on first start and reuses
+  the published binary on subsequent starts (`--rebuild` forces a republish).
 - `bash`, `rsync`, `ssh` for the remote workflow.
-- On the VPS: Podman installed, a non-root user able to run rootless Podman,
-  ports 80/443 available for Caddy.
+- On the VPS: Podman + .NET 10 SDK installed, a non-root user able to run
+  rootless Podman, ports 80/443 available for Caddy.
 
 No Docker Compose / Podman Compose dependency — the script uses `podman` directly
 so behavior is deterministic across Podman versions.
@@ -74,12 +88,17 @@ All platform containers attach to a shared Podman network called `spring-net`:
 | `spring-scheduler`   | `daprio/dapr:<tag>`       | Dapr actor reminder/scheduler service.     |
 | `spring-api-dapr`    | `daprio/dapr:<tag>`       | daprd sidecar paired with `spring-api`.    |
 | `spring-worker-dapr` | `daprio/dapr:<tag>`       | daprd sidecar paired with `spring-worker`. |
-| `spring-dispatcher`  | `spring-dispatcher:<tag>` | HTTP service that owns the host podman socket. Workers reach it over HTTP for every container op (#513). |
 | `spring-worker`      | `spring-voyage:<tag>`     | Dapr actor runtime (agents, units).        |
 | `spring-api`         | `spring-voyage:<tag>`     | ASP.NET Core REST API.                     |
 | `spring-web`         | `spring-voyage:<tag>`     | Next.js dashboard.                         |
 | `spring-caddy`       | `caddy:2`                 | Reverse proxy + automatic TLS.             |
 | `spring-ollama` *    | `ollama/ollama:latest`    | Local LLM backend (optional; see below).   |
+
+In addition to the container stack, one host-process service runs alongside:
+
+| Host service        | Owned by                  | Role                                       |
+| ------------------- | ------------------------- | ------------------------------------------ |
+| `spring-dispatcher` | `spring-voyage-host.sh`   | HTTP service that owns the local podman process. The container stack reaches it via `host.containers.internal:${SPRING_DISPATCHER_PORT:-8090}` (Podman) or `host.docker.internal:8090` (Docker). Issue [#1063](https://github.com/cvoya-com/spring-voyage/issues/1063) explains why this is a host process rather than a container. |
 
 \* Optional. Only started when `OLLAMA_MODE=container` (the default). Set
 `OLLAMA_MODE=host` on macOS to run Ollama on the host for Metal GPU access —
@@ -135,16 +154,48 @@ cd deployment/
 cp spring.env.example spring.env
 $EDITOR spring.env             # deploy-time config: hostname, DB password, image tags
 
-./deploy.sh build              # build platform + agent images from source
-./deploy.sh up                 # create network, start the full stack
-./deploy.sh status             # list running containers
-./deploy.sh logs spring-api    # tail a single service
-./deploy.sh down               # stop containers (volumes preserved)
+./deploy.sh build              # build platform + agent images, publish dispatcher binary
+./deploy.sh up                 # create network, start the stack + spring-dispatcher (host)
+./deploy.sh status             # list running containers + host services
+./deploy.sh logs spring-api    # tail a single container service
+./deploy.sh down               # stop containers + host services (volumes preserved)
 ```
 
 Volumes (`spring-postgres-data`, `spring-redis-data`, `spring-caddy-data`,
 `spring-caddy-config`) persist across `down`/`up` cycles. Remove them with
 `podman volume rm` when you need a clean slate.
+
+### Host-process services (`spring-voyage-host.sh`)
+
+`spring-dispatcher` runs as a long-lived host process, not inside a
+container — see [issue #1063](https://github.com/cvoya-com/spring-voyage/issues/1063)
+for the architectural rationale. `deploy.sh up` and `deploy.sh down` already
+manage it; the host script is also exposed directly so operators can bounce
+the dispatcher in isolation:
+
+```bash
+./spring-voyage-host.sh start              # publish-if-needed, then run in background
+./spring-voyage-host.sh start --rebuild    # force re-publish before starting
+./spring-voyage-host.sh status             # pid, url, workspace root
+./spring-voyage-host.sh logs               # cat dispatcher log
+./spring-voyage-host.sh logs -f            # follow
+./spring-voyage-host.sh restart            # SIGTERM, wait, then start again
+./spring-voyage-host.sh stop               # SIGTERM, then SIGKILL after 10s
+./spring-voyage-host.sh build              # publish only (no run)
+```
+
+Defaults (override in `spring.env` or via env):
+
+| Variable | Default | Purpose |
+| -------- | ------- | ------- |
+| `SPRING_DISPATCHER_HOST` | `0.0.0.0` | Bind address. Bind to `0.0.0.0` because container workloads reach the dispatcher through a bridge interface, not loopback. The bearer token is the trust boundary. |
+| `SPRING_DISPATCHER_PORT` | `8090` | Bind port; matches `Dispatcher__BaseUrl` on every worker/API container. |
+| `SPRING_DISPATCHER_WORKSPACE_ROOT` | `~/.spring-voyage/workspaces` | Where the dispatcher materialises per-invocation agent workspaces (#1042). |
+| `SPRING_HOST_STATE_DIR` | `~/.spring-voyage/host` | Holds the dispatcher's PID file and log file. |
+| `SPRING_DISPATCHER_WORKER_TOKEN` | `worker-token` | Bearer token the worker presents to the dispatcher. **Change for any shared host.** |
+| `SPRING_DEFAULT_TENANT_ID` | `default` | Tenant the worker token is scoped to. |
+| `SPRING_DISPATCHER_PUBLISH_DIR` | `<repo>/.spring-voyage/dispatcher/publish` | Where `dotnet publish` writes the dispatcher binary. |
+| `SPRING_DISPATCHER_BIN` | _unset_ | Override the discovered dll path (e.g. for self-contained publishes). |
 
 ### Startup configuration validation (#616)
 

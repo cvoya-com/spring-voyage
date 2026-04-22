@@ -12,12 +12,21 @@
 #   cd deployment/
 #   cp spring.env.example spring.env
 #   $EDITOR spring.env                 # fill in passwords + hostname
+#   ./spring-voyage-host.sh start      # host-process spring-dispatcher (#1063)
 #   docker compose --env-file spring.env build
 #   docker compose --env-file spring.env up -d
 #   docker compose --env-file spring.env ps
 #
 # Scope: single-host only (same constraints as deploy.sh). Kubernetes /
 # cloud-scale deployments live in the private Spring Voyage Cloud repo.
+#
+# Host services: `spring-dispatcher` is intentionally NOT a compose service.
+# It runs as a long-lived host process owned by `spring-voyage-host.sh`
+# because the rootless Podman/Docker socket cannot be reliably bind-mounted
+# into a container on macOS arm64 / libkrun (issue #1063), and a single
+# topology across Linux/macOS/Windows is the only way the local dev
+# experience stays predictable. The container stack reaches the dispatcher
+# via `host.docker.internal:${SPRING_DISPATCHER_PORT}`.
 #
 # Podman users: `podman compose` also understands this file, but the
 # Podman-native path is `deploy.sh` — it avoids the compose shim and exposes
@@ -38,11 +47,12 @@ volumes:
   spring-placement-data:
   spring-scheduler-data:
   spring-dataprotection-keys:
-  # Per-invocation agent workspaces materialised by the dispatcher and
-  # bind-mounted into the agent containers podman launches on its behalf
-  # (issue #1042). The dispatcher writes here; the host's podman uses the
-  # same path as the bind-mount source for each agent run.
-  spring-agent-workspaces:
+  # spring-dispatcher used to live in this stack as a container with a
+  # bind-mounted podman socket and a named volume for per-invocation
+  # workspaces (#1042). Issue #1063 moved it to a host process owned by
+  # `spring-voyage-host.sh`, so the container, its socket mount, and the
+  # named workspaces volume are all gone from compose. The dispatcher now
+  # writes workspaces under the host user's home directory directly.
 
 services:
   # -----------------------------------------------------------------
@@ -187,47 +197,17 @@ services:
       spring-redis:
         condition: service_healthy
 
-  # -----------------------------------------------------------------
-  # spring-dispatcher — owns the host's container runtime. Workers reach it
-  # over HTTP for every container operation; no worker holds the podman
-  # binary or its socket. See docs/architecture/deployment.md (#513).
-  # -----------------------------------------------------------------
-  spring-dispatcher:
-    image: ${SPRING_DISPATCHER_IMAGE:-localhost/spring-dispatcher:latest}
-    container_name: spring-dispatcher
-    restart: unless-stopped
-    env_file: spring.env
-    environment:
-      # Per-worker bearer tokens and their tenant scopes. In the single-host
-      # OSS deployment a single shared token is enough; multi-tenant K8s
-      # deployments belong in a downstream repo.
-      Dispatcher__Tokens__${SPRING_DISPATCHER_WORKER_TOKEN:-worker-token}__TenantId: ${SPRING_DEFAULT_TENANT_ID:-default}
-      # Where the dispatcher writes per-invocation agent workspaces. The
-      # path must be identical on the dispatcher container's filesystem AND
-      # on the host the podman socket targets — we satisfy that by mounting
-      # the named volume at the same path on both sides (issue #1042).
-      Dispatcher__WorkspaceRoot: ${SPRING_DISPATCHER_WORKSPACE_ROOT:-/var/lib/spring-workspaces}
-    command: ["dotnet", "/app/Cvoya.Spring.Dispatcher.dll"]
-    # The dispatcher needs a reachable podman socket. On Linux this is the
-    # rootless user-socket; on macOS the podman machine forwards the socket
-    # to the host. Operators override the mount source as needed.
-    #
-    # `:Z` triggers a per-mount SELinux relabel so the socket is accessible
-    # to the dispatcher on SELinux-enforcing hosts (Fedora CoreOS Podman
-    # machines, RHEL/Fedora). Private-relabel — safe here because the
-    # socket is single-consumer; must NOT be applied to shared volumes.
-    #
-    # spring-agent-workspaces is a named volume the dispatcher uses as the
-    # root for per-invocation agent workspaces. Agent containers receive
-    # their bind mount dynamically from the dispatcher at run-time — the
-    # mount only needs to be declared on the dispatcher itself.
-    volumes:
-      - ${SPRING_DISPATCHER_PODMAN_SOCKET:-/run/podman/podman.sock}:/run/podman/podman.sock:Z
-      - spring-agent-workspaces:${SPRING_DISPATCHER_WORKSPACE_ROOT:-/var/lib/spring-workspaces}
-    networks: [spring-net]
-    build:
-      context: ..
-      dockerfile: deployment/Dockerfile.dispatcher
+  # spring-dispatcher is intentionally NOT defined here. Issue #1063 moved
+  # it out of the container stack and into a long-lived host process
+  # managed by `./spring-voyage-host.sh`. Run it on the same host as
+  # `docker compose up`:
+  #
+  #   ./spring-voyage-host.sh start
+  #
+  # Worker / API containers reach it via `host.docker.internal` (see the
+  # spring-worker block below). Compose users on Linux need the
+  # `extra_hosts` entry to resolve that name on the bridge — Docker
+  # Desktop adds it automatically.
 
   # -----------------------------------------------------------------
   # .NET hosts — one image, three commands.
@@ -243,16 +223,21 @@ services:
       DAPR_HTTP_ENDPOINT: http://spring-worker-dapr:3500
       DAPR_GRPC_ENDPOINT: http://spring-worker-dapr:50001
       # Worker reaches the dispatcher over HTTP for every container op.
-      Dispatcher__BaseUrl: http://spring-dispatcher:8080/
+      # The dispatcher runs as a host process (#1063), so the URL targets
+      # `host.docker.internal:<port>` rather than a sibling container.
+      Dispatcher__BaseUrl: http://host.docker.internal:${SPRING_DISPATCHER_PORT:-8090}/
       Dispatcher__BearerToken: ${SPRING_DISPATCHER_WORKER_TOKEN:-worker-token}
     command: ["dotnet", "/app/Cvoya.Spring.Host.Worker.dll"]
     volumes:
       - spring-dataprotection-keys:/home/app/.aspnet/DataProtection-Keys
     networks: [spring-net]
+    # `host.docker.internal:host-gateway` makes the host reachable from
+    # the container on Linux, which Docker Desktop adds automatically on
+    # Mac/Windows but Linux needs explicitly. Harmless on Desktop hosts.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       spring-worker-dapr:
-        condition: service_started
-      spring-dispatcher:
         condition: service_started
     build:
       context: ..

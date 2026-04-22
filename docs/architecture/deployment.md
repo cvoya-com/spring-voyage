@@ -115,11 +115,12 @@ Selection of the dispatcher's own backend is driven by `ContainerRuntime:Runtime
 
 ### Host requirements
 
-- **Podman on the dispatcher host only.** The worker, API, and web hosts do NOT need `podman` on PATH — they speak to the dispatcher over HTTP.
-- **The dispatcher needs a reachable container socket.** In the OSS standalone deployment the dispatcher container bind-mounts the host's rootless podman socket (`/run/user/${UID}/podman/podman.sock`) at `/run/podman/podman.sock` and uses `podman-remote` against it.
-- **Network reachability** for `host.docker.internal` — Linux hosts need Podman 4.1+ or an explicit `--add-host=host.docker.internal:host-gateway` (which the dispatcher adds automatically). This is how the in-container agent tool reaches the host's MCP server.
+- **Podman on the dispatcher host only.** The worker, API, and web hosts do NOT need `podman` on PATH — they speak to the dispatcher over HTTP. Spring container images do not ship the `podman` CLI.
+- **The dispatcher runs as a host process** (issue [#1063](https://github.com/cvoya-com/spring-voyage/issues/1063)). It invokes the local `podman` binary directly rather than reaching a bind-mounted socket from inside a container. Running on the host removes the rootless-socket passthrough that fails on macOS arm64 / libkrun and gives Linux/macOS/Windows a single topology. The dispatcher is owned by [`deployment/spring-voyage-host.sh`](../../deployment/spring-voyage-host.sh).
+- **.NET 10 SDK on the dispatcher host.** The host script publishes `Cvoya.Spring.Dispatcher` once on first start and reuses the published binary on subsequent starts (`--rebuild` forces a republish).
+- **Network reachability** for `host.containers.internal` (Podman) / `host.docker.internal` (Docker) — Linux hosts need Podman 4.1+ or an explicit `--add-host=host.docker.internal:host-gateway` for the worker/API containers to reach the dispatcher process on the host. This is the same DNS name in-container agent tools use to reach the host's MCP server.
 - **TCP port 8999 free on `localhost`** — persistent agent containers publish their A2A endpoint on this port. (Future work will introduce per-agent port allocation; see `A2AExecutionDispatcher.SidecarPort`.)
-- **Writable workspace root on the dispatcher host** — the dispatcher materialises every per-invocation agent workspace under `Dispatcher:WorkspaceRoot` (default `/var/lib/spring-workspaces`) and bind-mounts it into the agent container. The OSS deployment scripts mount the named volume `spring-agent-workspaces` at this path so the host's podman can resolve the bind-mount source. Workers no longer write any workspace files of their own — see [Per-invocation workspace materialisation](#per-invocation-workspace-materialisation) below and issue #1042.
+- **Writable workspace root on the dispatcher host** — the dispatcher materialises every per-invocation agent workspace under `Dispatcher:WorkspaceRoot` (default `~/.spring-voyage/workspaces`) and bind-mounts it into the agent container. Because the dispatcher is a host process, the path it writes is the path the host's podman uses for the bind-mount — no shared volume is needed. Workers no longer write any workspace files of their own — see [Per-invocation workspace materialisation](#per-invocation-workspace-materialisation) below and issue #1042.
 
 ---
 
@@ -130,12 +131,15 @@ See [ADR 0012](../decisions/0012-spring-dispatcher-service-extraction.md) for th
 `spring-dispatcher` (project: `src/Cvoya.Spring.Dispatcher/`) owns the host container runtime in OSS deployments. The worker's `IContainerRuntime` binding is `DispatcherClientContainerRuntime` (project: `src/Cvoya.Spring.Dapr/Execution/DispatcherClientContainerRuntime.cs`) and nothing else — the worker cannot launch a sibling container without the dispatcher's cooperation.
 
 ```text
-spring-worker
+spring-worker (container)
 └── IContainerRuntime = DispatcherClientContainerRuntime    (only binding)
-    └── HTTP → spring-dispatcher
-        └── IContainerRuntime = PodmanRuntime               (OSS backend)
-            └── podman-remote → host podman socket
+    └── HTTP → host.containers.internal:${SPRING_DISPATCHER_PORT}
+        └── spring-dispatcher (host process — see #1063)
+            └── IContainerRuntime = PodmanRuntime           (OSS backend)
+                └── podman → local socket on the host
 ```
+
+The dispatcher is a host process rather than a container because the rootless Podman socket cannot be reliably bind-mounted into a container on macOS arm64 / libkrun, and a single topology across Linux/macOS/Windows is the only way the local dev experience stays predictable. See [issue #1063](https://github.com/cvoya-com/spring-voyage/issues/1063) for the architectural decision and [`deployment/spring-voyage-host.sh`](../../deployment/spring-voyage-host.sh) for the lifecycle script that owns the process. Whether the dispatcher could move *back* into a container reliably across hosts is tracked as a V2.1 `needs-thinking` task.
 
 ### HTTP contract
 
@@ -157,7 +161,7 @@ Agent launchers (`ClaudeCodeLauncher`, `CodexLauncher`, `GeminiLauncher`, `DaprA
 4. It defaults `workdir` to `mountPath` if the request did not specify one.
 5. For blocking runs (`detached=false`) it deletes the subdirectory after the runtime returns. For detached starts (`detached=true`) it tracks the subdirectory against the returned container id and deletes it when `DELETE /v1/containers/{id}` arrives.
 
-This is why workers no longer carry the workspace mount themselves: the worker's filesystem is private to the worker container, so any path the worker created would be invisible to the host's podman that the dispatcher actually shells out against. Issue #1042 captured the failure mode (`exit code 125, no such file or directory` on every Claude Code dispatch) and ADR'd into "the dispatcher owns workspace materialisation" because the dispatcher is the one process that already has the right filesystem view.
+This is why workers no longer carry the workspace mount themselves: the worker's filesystem is private to the worker container, so any path the worker created would be invisible to the host's podman that the dispatcher actually shells out against. Issue #1042 captured the failure mode (`exit code 125, no such file or directory` on every Claude Code dispatch) and ADR'd into "the dispatcher owns workspace materialisation" because the dispatcher is the one process that already has the right filesystem view. With the dispatcher running as a host process (#1063), the workspace root is a normal directory under the operator's home (`~/.spring-voyage/workspaces`) — no shared volume, no SELinux relabel, no socket mount.
 
 ### Authentication and tenant scoping
 

@@ -86,7 +86,8 @@ public sealed class DispatcherConfigurationRequirement(
                 reason: "Dispatcher:BaseUrl is not set — delegated execution will fail at first call.",
                 suggestion:
                     "Set Dispatcher:BaseUrl (environment variable Dispatcher__BaseUrl=...) to the spring-dispatcher HTTP endpoint " +
-                    "(e.g. http://spring-dispatcher:8080/). Required for agent deploy and workflow-orchestration features."));
+                    "(e.g. http://host.containers.internal:8090/ — the dispatcher runs on the host, not in a container; see issue #1063). " +
+                    "Required for agent deploy and workflow-orchestration features."));
         }
 
         if (!Uri.TryCreate(options.BaseUrl, UriKind.Absolute, out var parsed)
@@ -94,7 +95,7 @@ public sealed class DispatcherConfigurationRequirement(
         {
             var reason = $"Dispatcher:BaseUrl '{options.BaseUrl}' is not a valid absolute http(s) URI.";
             var suggestion =
-                "Provide an absolute URL such as http://spring-dispatcher:8080/.";
+                "Provide an absolute URL such as http://host.containers.internal:8090/ (Podman) or http://host.docker.internal:8090/ (Docker).";
             return Task.FromResult(ConfigurationRequirementStatus.Invalid(
                 reason: reason,
                 suggestion: suggestion,
