@@ -29,6 +29,7 @@ const deleteUnitMembership = vi.fn();
 // required whenever the dialog opens.
 const listAgentRuntimes =
   vi.fn<() => Promise<InstalledAgentRuntimeResponse[]>>();
+const createAgent = vi.fn();
 
 vi.mock("@/lib/api/client", () => ({
   api: {
@@ -39,6 +40,7 @@ vi.mock("@/lib/api/client", () => ({
     deleteUnitMembership: (...args: unknown[]) =>
       deleteUnitMembership(...args),
     listAgentRuntimes: () => listAgentRuntimes(),
+    createAgent: (body: unknown) => createAgent(body),
   },
 }));
 
@@ -131,6 +133,7 @@ describe("AgentsTab", () => {
     upsertUnitMembership.mockReset();
     deleteUnitMembership.mockReset();
     listAgentRuntimes.mockReset();
+    createAgent.mockReset();
     toastMock.mockReset();
     // Every dialog-opening test needs the runtimes list available; the
     // couple of tests that never open the dialog also benefit from a
@@ -479,5 +482,151 @@ describe("AgentsTab", () => {
     // the single-runtime mock above proves the dropdown no longer
     // inlines that static list.
     expect(options).not.toContain("claude-sonnet-4-6");
+  });
+
+  describe("inline-create (#1040)", () => {
+    it("renders the +New agent toggle inside the Add dialog", async () => {
+      listUnitMemberships.mockResolvedValue([]);
+      listAgents.mockResolvedValue([]);
+
+      renderAgentsTab("engineering");
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole("button", { name: /add agent/i }),
+        ).toBeEnabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /add agent/i }));
+
+      const dialog = await screen.findByRole("dialog");
+      expect(
+        within(dialog).getByTestId("membership-dialog-new-agent"),
+      ).toBeInTheDocument();
+    });
+
+    it("creates an agent against the current unit and refreshes the row", async () => {
+      listUnitMemberships
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([
+          makeMembership({ agentAddress: "ada", model: null }),
+        ]);
+      listAgents
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([
+          makeAgent({ name: "ada", displayName: "Ada Lovelace" }),
+        ]);
+      createAgent.mockResolvedValue(
+        makeAgent({ name: "ada", displayName: "Ada Lovelace" }),
+      );
+
+      renderAgentsTab("engineering");
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole("button", { name: /add agent/i }),
+        ).toBeEnabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /add agent/i }));
+
+      const dialog = await screen.findByRole("dialog");
+      fireEvent.click(
+        within(dialog).getByTestId("membership-dialog-new-agent"),
+      );
+
+      // Sub-mode swap: title flips, the create-id input appears.
+      await waitFor(() => {
+        expect(
+          within(screen.getByRole("dialog")).getByText(/Create new agent/i),
+        ).toBeInTheDocument();
+      });
+
+      const createDialog = screen.getByRole("dialog");
+      fireEvent.change(
+        within(createDialog).getByTestId(
+          "membership-dialog-inline-create-id",
+        ),
+        { target: { value: "ada" } },
+      );
+      fireEvent.change(
+        within(createDialog).getByTestId(
+          "membership-dialog-inline-create-display-name",
+        ),
+        { target: { value: "Ada Lovelace" } },
+      );
+
+      await act(async () => {
+        fireEvent.click(
+          within(createDialog).getByTestId(
+            "membership-dialog-inline-create-submit",
+          ),
+        );
+      });
+
+      await waitFor(() => {
+        expect(createAgent).toHaveBeenCalledTimes(1);
+      });
+      expect(createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "ada",
+          displayName: "Ada Lovelace",
+          unitIds: ["engineering"],
+        }),
+      );
+      await waitFor(() => {
+        expect(screen.queryByRole("dialog")).toBeNull();
+      });
+      // Memberships re-fetched: the new row appears.
+      expect(await screen.findByText("Ada Lovelace")).toBeInTheDocument();
+      expect(toastMock).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Agent created" }),
+      );
+    });
+
+    it("rejects invalid ids inline without calling the API", async () => {
+      listUnitMemberships.mockResolvedValue([]);
+      listAgents.mockResolvedValue([]);
+
+      renderAgentsTab("engineering");
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole("button", { name: /add agent/i }),
+        ).toBeEnabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /add agent/i }));
+
+      const dialog = await screen.findByRole("dialog");
+      fireEvent.click(
+        within(dialog).getByTestId("membership-dialog-new-agent"),
+      );
+
+      const createDialog = screen.getByRole("dialog");
+      fireEvent.change(
+        within(createDialog).getByTestId(
+          "membership-dialog-inline-create-id",
+        ),
+        { target: { value: "Has Spaces" } },
+      );
+      fireEvent.change(
+        within(createDialog).getByTestId(
+          "membership-dialog-inline-create-display-name",
+        ),
+        { target: { value: "Bad" } },
+      );
+      fireEvent.click(
+        within(createDialog).getByTestId(
+          "membership-dialog-inline-create-submit",
+        ),
+      );
+
+      await waitFor(() => {
+        expect(
+          within(screen.getByRole("dialog")).getByTestId(
+            "membership-dialog-inline-create-error",
+          ),
+        ).toHaveTextContent(/url-safe/i);
+      });
+      expect(createAgent).not.toHaveBeenCalled();
+    });
   });
 });

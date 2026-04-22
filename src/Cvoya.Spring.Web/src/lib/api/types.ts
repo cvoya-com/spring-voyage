@@ -65,6 +65,16 @@ export type PersistentAgentLogsResponse =
 /** PATCH /api/v1/agents/{id} request body. */
 export type UpdateAgentMetadataRequest = Schemas["UpdateAgentMetadataRequest"];
 
+/**
+ * POST /api/v1/agents request body. Mirrors the `spring agent create`
+ * CLI surface 1:1: the wire shape requires `name`, `displayName`,
+ * `description`, `unitIds` (≥1), and an optional `role` /
+ * `definitionJson`. The portal `/agents/create` page and the unit
+ * Agents-tab inline-create dialog both POST through this shape via the
+ * shared `createAgentFromForm` helper in `@/lib/agents/create-agent`.
+ */
+export type CreateAgentRequest = Schemas["CreateAgentRequest"];
+
 // ---------------------------------------------------------------------------
 // Platform metadata + Auth surface — consumed by the Settings drawer (#451).
 // ---------------------------------------------------------------------------

@@ -15,12 +15,14 @@ import {
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/api/client";
+import { buildCreateAgentRequest } from "@/lib/agents/create-agent";
 import type {
   AgentResponse,
   UnitMembershipResponse,
 } from "@/lib/api/types";
 import {
   MembershipDialog,
+  type InlineAgentCreateValues,
   type MembershipFormValues,
 } from "@/components/units/membership-dialog";
 
@@ -138,6 +140,27 @@ export function AgentsTab({ unitId }: AgentsTabProps) {
     setDialog({ mode: "closed" });
   };
 
+  // Inline create-and-assign flow (#1040). Creates the agent against
+  // the current unit through the shared helper, then refreshes the
+  // memberships list so the new row appears in place. The MembershipDialog
+  // close happens inside the dialog after `onSubmit` resolves; surfacing
+  // a toast here mirrors the standalone /agents/create page.
+  const handleInlineCreate = async (values: InlineAgentCreateValues) => {
+    const body = buildCreateAgentRequest({
+      id: values.id,
+      displayName: values.displayName,
+      role: values.role,
+      unitIds: [unitId],
+    });
+    const created = await api.createAgent(body);
+    await load();
+    toast({
+      title: "Agent created",
+      description: created.name,
+    });
+    setDialog({ mode: "closed" });
+  };
+
   const handleRemove = async () => {
     const target = confirmRemove;
     if (!target) return;
@@ -167,7 +190,10 @@ export function AgentsTab({ unitId }: AgentsTabProps) {
         <Button
           size="sm"
           onClick={() => setDialog({ mode: "add" })}
-          disabled={loading || allAgents.length === 0}
+          // #1040: inline create lives inside this dialog now, so the
+          // button stays enabled even when no agents exist yet — the
+          // operator can bootstrap the unit's first agent right here.
+          disabled={loading}
           aria-label="Add agent"
         >
           <Plus className="mr-1 h-4 w-4" />
@@ -276,6 +302,13 @@ export function AgentsTab({ unitId }: AgentsTabProps) {
         assignableAgents={assignableAgents}
         initial={dialog.mode === "edit" ? dialog.membership : null}
         agentDisplayNames={displayNameMap}
+        // Only the add flow exposes inline-create; editing an existing
+        // membership has nothing to do with creating a brand-new agent.
+        inlineCreate={
+          dialog.mode === "add"
+            ? { onSubmit: handleInlineCreate }
+            : undefined
+        }
         onCancel={() => setDialog({ mode: "closed" })}
         onSubmit={handleUpsert}
       />
