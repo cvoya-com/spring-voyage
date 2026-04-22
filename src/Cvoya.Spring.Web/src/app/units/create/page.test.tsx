@@ -315,6 +315,38 @@ describe("CreateUnitPage — wizard reads tenant-installed agent runtimes (#690)
     // The credential input is hidden on Ollama — no API key to validate.
     expect(screen.queryByTestId("credential-input")).not.toBeInTheDocument();
   });
+
+  // Issue #1072: with dapr-agent + ollama selected, the wizard's Next
+  // button stayed disabled because the model field was never seeded
+  // from the live Ollama catalog. The dropdown rendered the first
+  // option visually (the controlled <select> picks option[0] when
+  // `value=""`) but `form.model` stayed "" and `modelIsSelected`
+  // returned false. The fix auto-seeds `form.model` from the live
+  // Ollama list, mirroring how the catalog-driven branch works.
+  it("auto-seeds the model when dapr-agent + ollama is selected (#1072)", async () => {
+    listOllamaModels.mockResolvedValue([{ name: "llama3.2:3b" }]);
+
+    renderPage();
+    await advanceToExecution();
+    await selectTool("dapr-agent");
+
+    const providerSelect = screen.getByLabelText(
+      /^LLM provider$/i,
+    ) as HTMLSelectElement;
+    await act(async () => {
+      fireEvent.change(providerSelect, { target: { value: "ollama" } });
+    });
+
+    const modelSelect = (await screen.findByLabelText(
+      /^Model$/i,
+    )) as HTMLSelectElement;
+    await waitFor(() => {
+      expect(modelSelect.value).toBe("llama3.2:3b");
+    });
+
+    const next = screen.getByRole("button", { name: /^next$/i });
+    expect(next).not.toBeDisabled();
+  });
 });
 
 describe("CreateUnitPage — credential-status banner (#598, preserved post-T-07)", () => {

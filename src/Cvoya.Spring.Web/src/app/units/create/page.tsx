@@ -452,11 +452,24 @@ export default function CreateUnitPage() {
 
   const effectiveModel = useMemo(() => {
     if (form.tool === "custom") return form.model;
-    if (form.tool === "dapr-agent" && form.provider === "ollama") return form.model;
+    // Issue #1072: dapr-agent + ollama sources its model list from the
+    // live Ollama server (not the agent-runtimes catalog), so it needs
+    // its own auto-seed branch. Without it the controlled <select>
+    // shows the first option visually while `form.model` stays "" —
+    // `modelIsSelected` then returns false and Next is disabled with
+    // no way to advance, even though the dropdown only has one entry
+    // already on screen. Mirror the catalog branch below: keep the
+    // current value if it's still in the list, otherwise snap to the
+    // first available model.
+    if (form.tool === "dapr-agent" && form.provider === "ollama") {
+      if (!ollamaModels || ollamaModels.length === 0) return form.model;
+      if (ollamaModels.includes(form.model)) return form.model;
+      return ollamaModels[0];
+    }
     if (!providerModels || providerModels.length === 0) return form.model;
     if (providerModels.includes(form.model)) return form.model;
     return providerModels[0];
-  }, [form.tool, form.provider, form.model, providerModels]);
+  }, [form.tool, form.provider, form.model, providerModels, ollamaModels]);
   if (effectiveModel !== form.model) {
     setForm((prev) =>
       prev.model === effectiveModel ? prev : { ...prev, model: effectiveModel },
