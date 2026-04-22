@@ -17,9 +17,12 @@ pm_unit="$(e2e::unit_name from-tpl-pm)"
 humans_unit="$(e2e::unit_name humans)"
 
 cleanup() {
-    e2e::cleanup_unit "${eng_unit}" || true
-    e2e::cleanup_unit "${pm_unit}" || true
-    e2e::cleanup_unit "${humans_unit}" || true
+    # No `|| true` — the helpers swallow purge errors internally and preserve
+    # the caller's `$?` (#1030). Wrapping with `|| true` would reset $? to 0
+    # and mask a failing e2e::summary, defeating the #1030 fix (#1044).
+    e2e::cleanup_unit "${eng_unit}"
+    e2e::cleanup_unit "${pm_unit}"
+    e2e::cleanup_unit "${humans_unit}"
 }
 trap cleanup EXIT
 

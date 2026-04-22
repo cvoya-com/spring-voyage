@@ -98,6 +98,9 @@ body="${response%$'\n'*}"
 e2e::expect_status "0" "${code}" "status succeeds after extension"
 # The response carries an `agent` block and optionally a `deployment` slot.
 # When there is no persistent deployment the slot is explicitly null.
-e2e::expect_contains "\"id\": \"${agent}\"" "${body}" "status response carries agent.id"
+# `agent.id` is the actor GUID (per `tests/e2e/run.sh` convention notes); the
+# scenario's stable handle is `agent.name`, the address path we created above.
+e2e::expect_contains "\"agent\":" "${body}" "status response carries an agent block"
+e2e::expect_contains "\"name\": \"${agent}\"" "${body}" "status response carries agent.name"
 
 e2e::summary

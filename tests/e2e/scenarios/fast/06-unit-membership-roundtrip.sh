@@ -66,7 +66,7 @@ response="$(e2e::http GET "/api/v1/units/${unit}/memberships")"
 status="${response##*$'\n'}"
 mships_body="${response%$'\n'*}"
 e2e::expect_status "200" "${status}" "/memberships returns 200 for unit"
-e2e::expect_contains "\"agentAddress\": \"${agent}\"" "${mships_body}" "/memberships includes the added agent"
+e2e::expect_contains "\"agentAddress\":\"${agent}\"" "${mships_body}" "/memberships includes the added agent"
 
 e2e::log "GET /api/v1/units/${unit}/agents"
 response="$(e2e::http GET "/api/v1/units/${unit}/agents")"
@@ -83,15 +83,22 @@ body="${response%$'\n'*}"
 e2e::expect_status "0" "${code}" "unit members config succeeds"
 e2e::expect_contains "\"enabled\": false" "${body}" "config update flips enabled flag"
 
-# --- Remove membership --------------------------------------------------------
-e2e::log "spring unit members remove ${unit} --agent ${agent}"
+# --- Remove membership: last-unit guard refuses (#744 / #823) -----------------
+# The agent only belongs to ${unit}, so removing this membership would leave it
+# orphaned. Per the #744 / #823 contract the API refuses with a 409 and the
+# CLI surfaces a non-zero exit (#1026 routes the server detail through cleanly).
+# Asserting both the exit code AND the error text guards against silent regress
+# of either layer.
+e2e::log "spring unit members remove ${unit} --agent ${agent} (last-unit guard expected)"
 response="$(e2e::cli unit members remove "${unit}" --agent "${agent}")"
 code="${response##*$'\n'}"
-e2e::expect_status "0" "${code}" "unit members remove succeeds"
+body="${response%$'\n'*}"
+e2e::expect_status "1" "${code}" "unit members remove blocks last-unit removal"
+e2e::expect_contains "at least one unit" "${body}" "remove error mentions the last-unit guard"
 
 # --- Cascading purge (belt-and-braces) ----------------------------------------
-# Re-add membership so purge actually has something to cascade through.
-e2e::cli unit members add "${unit}" --agent "${agent}" >/dev/null
+# The membership is still in place (the guard refused), so the purge has the
+# membership to cascade through without any re-add step.
 
 e2e::log "spring unit purge ${unit} --confirm"
 response="$(e2e::cli unit purge "${unit}" --confirm)"
