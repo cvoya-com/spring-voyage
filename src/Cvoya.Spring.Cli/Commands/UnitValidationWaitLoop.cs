@@ -59,13 +59,19 @@ public readonly record struct UnitValidationSnapshot(
 /// <c>spring unit revalidate</c> verbs. Transitions the CLI from "create /
 /// revalidate accepted" to a terminal outcome by polling <c>GET
 /// /api/v1/units/{name}</c> every <c>pollInterval</c> until the status
-/// is one of <c>Stopped</c> or <c>Error</c>.
+/// is one of <c>Draft</c>, <c>Stopped</c>, or <c>Error</c>.
 ///
 /// T-08 / #950 — polling is the ratified UX (not SSE); SSE is reserved for
 /// the web portal which can render the richer per-step channel. The CLI's
 /// progress surface is therefore coarse-grained: a single "Validating…"
 /// indicator until terminal, then either a success line on stdout or a
 /// structured error block on stderr.
+///
+/// #1025 — <c>Draft</c> is terminal alongside <c>Stopped</c> / <c>Error</c>.
+/// A minimal unit (no model, no provider) has nothing to validate and never
+/// leaves <c>Draft</c>, so treating it as in-flight would poll forever. The
+/// gate is the server-side workflow: if it never ran, there is nothing to
+/// wait for.
 /// </summary>
 public static class UnitValidationWaitLoop
 {
@@ -170,7 +176,8 @@ public static class UnitValidationWaitLoop
 
     private static bool IsTerminal(string? status) =>
         string.Equals(status, "Stopped", StringComparison.Ordinal)
-        || string.Equals(status, "Error", StringComparison.Ordinal);
+        || string.Equals(status, "Error", StringComparison.Ordinal)
+        || string.Equals(status, "Draft", StringComparison.Ordinal);
 
     private static void EmitProgressLine(UnitValidationSnapshot snapshot, TextWriter stdout)
     {
@@ -185,17 +192,11 @@ public static class UnitValidationWaitLoop
                 : snapshot.ValidationRunId;
             stdout.WriteLine($"Validating... (run id: {runId})");
         }
-        else if (string.Equals(snapshot.Status, "Draft", StringComparison.Ordinal))
-        {
-            // Partial create returned Draft — the wait loop shouldn't really
-            // be entered, but if the caller chose to poll anyway we print a
-            // single line rather than returning silently.
-            stdout.WriteLine("Unit is in Draft; validation has not started.");
-        }
-        // Stopped/Error are handled by FinaliseAsync (emits the terminal line);
-        // every other state (Starting/Running/Stopping) is a pass-through
-        // observation — the loop prints the raw state so operators watching
-        // the terminal can see what the server is reporting.
+        // Stopped/Error/Draft are handled by FinaliseAsync (emits the
+        // terminal line); every other state (Starting/Running/Stopping) is
+        // a pass-through observation — the loop prints the raw state so
+        // operators watching the terminal can see what the server is
+        // reporting.
         else if (!IsTerminal(snapshot.Status))
         {
             stdout.WriteLine($"Status: {snapshot.Status}");
@@ -212,6 +213,19 @@ public static class UnitValidationWaitLoop
         {
             await stdout.WriteLineAsync(
                 $"Validation passed. Unit '{unitName}' is ready to start.").ConfigureAwait(false);
+            return UnitValidationExitCodes.Success;
+        }
+
+        if (string.Equals(snapshot.Status, "Draft", StringComparison.Ordinal))
+        {
+            // #1025 — a minimal unit (no model / no provider) lands in Draft
+            // and the server never schedules a workflow, so there's nothing
+            // to wait for. The unit was accepted; tell the operator what
+            // they're looking at and exit 0. The nudge points at the next
+            // concrete action rather than leaving them to guess.
+            await stdout.WriteLineAsync(
+                $"Unit '{unitName}' is in Draft; validation has not started. " +
+                "Add a model to validate (e.g. 'spring unit update' with --model).").ConfigureAwait(false);
             return UnitValidationExitCodes.Success;
         }
 
