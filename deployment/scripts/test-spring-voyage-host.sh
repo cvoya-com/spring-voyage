@@ -115,6 +115,19 @@ ok()   { printf '[ ok ] %s\n' "$*"; }
 
 read_pid() { cat "${PID_FILE}" 2>/dev/null || true; }
 
+# Portable octal-mode lookup. GNU stat (Linux) takes `-c '%a'`; BSD stat
+# (macOS) takes `-f '%Lp'`. We can't just chain them with `||` on `-f`
+# because GNU stat *also* accepts `-f` — there it means "display
+# filesystem status" and exits 0 with unrelated output, masking the BSD
+# fallback. Try GNU first (fails fast on macOS where `-c` is unknown),
+# then fall back to BSD.
+file_mode_octal() {
+    local path="$1"
+    stat -c '%a' "${path}" 2>/dev/null \
+        || stat -f '%Lp' "${path}" 2>/dev/null \
+        || echo '???'
+}
+
 probe_health_code() {
     # `curl -w '%{http_code}'` always emits a 3-digit code on stdout
     # (000 when the connection itself failed). Drop -f so a non-2xx
@@ -147,8 +160,8 @@ step "case 2 — first start writes pid + dispatcher.env (0600, 64 hex chars) an
 "${HOST_SCRIPT}" start >/dev/null
 [[ -f "${PID_FILE}" ]] || fail "start did not write ${PID_FILE}"
 [[ -f "${ENV_FILE}" ]] || fail "start did not write ${ENV_FILE}"
-ENV_MODE="$(stat -f '%Lp' "${ENV_FILE}" 2>/dev/null || stat -c '%a' "${ENV_FILE}" 2>/dev/null || echo '???')"
-[[ "${ENV_MODE}" == "600" ]] || fail "dispatcher.env mode is ${ENV_MODE}, expected 600"
+ENV_MODE="$(file_mode_octal "${ENV_FILE}")"
+[[ "${ENV_MODE}" == "600" ]] || fail "dispatcher.env mode is '${ENV_MODE}', expected '600'"
 TOKEN_LINE="$(grep -E '^SPRING_DISPATCHER_WORKER_TOKEN=' "${ENV_FILE}" | tail -n1)"
 TOKEN_VALUE="${TOKEN_LINE#SPRING_DISPATCHER_WORKER_TOKEN=}"
 [[ "${TOKEN_VALUE}" =~ ^[0-9a-fA-F]{64}$ ]] \
