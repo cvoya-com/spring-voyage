@@ -1,5 +1,6 @@
 "use client";
 
+import { Plus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -12,6 +13,11 @@ import type {
   InstalledAgentRuntimeResponse,
   UnitMembershipResponse,
 } from "@/lib/api/types";
+import {
+  AGENT_NAME_PATTERN,
+  describeAgentCreateError,
+  validateAgentCreateInput,
+} from "@/lib/agents/create-agent";
 
 const EXECUTION_MODES: AgentExecutionMode[] = ["Auto", "OnDemand"];
 
@@ -21,6 +27,28 @@ export interface MembershipFormValues {
   specialty: string | null;
   enabled: boolean;
   executionMode: AgentExecutionMode;
+}
+
+/**
+ * Form values collected by the inline-create sub-form (#1040). The
+ * caller is responsible for the actual create-and-assign mutation; the
+ * dialog only collects + validates input. Mirrors the minimum required
+ * fields the standalone `/agents/create` page surfaces.
+ */
+export interface InlineAgentCreateValues {
+  id: string;
+  displayName: string;
+  role: string;
+}
+
+export interface MembershipDialogInlineCreate {
+  /**
+   * Called when the operator clicks the inline-create submit button.
+   * The handler is expected to atomically create the agent + assign it
+   * to this unit (see `agents-tab.tsx`), then close the dialog. Errors
+   * thrown here surface inline and the dialog stays open.
+   */
+  onSubmit: (values: InlineAgentCreateValues) => Promise<void>;
 }
 
 interface MembershipDialogProps {
@@ -54,6 +82,15 @@ interface MembershipDialogProps {
    * header label.
    */
   agentDisplayNames?: Record<string, string>;
+  /**
+   * When supplied, the `add` flow gains a "+ New agent" affordance that
+   * swaps the picker for a small inline-create form. The handler owns
+   * the actual create + assign mutation (see `agents-tab.tsx`); the
+   * dialog only collects + validates input. Omitted in callers that
+   * shouldn't expose inline creation (none today, but the seam keeps
+   * the dialog reusable).
+   */
+  inlineCreate?: MembershipDialogInlineCreate;
   onCancel: () => void;
   onSubmit: (values: MembershipFormValues) => Promise<void>;
 }
@@ -78,6 +115,7 @@ export function MembershipDialog({
   assignableAgents = [],
   initial,
   agentDisplayNames = {},
+  inlineCreate,
   onCancel,
   onSubmit,
 }: MembershipDialogProps) {
@@ -114,6 +152,20 @@ export function MembershipDialog({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Inline-create sub-mode (#1040). Only meaningful when `inlineCreate`
+  // was passed AND the dialog is in `add` mode. The dialog body swaps
+  // the picker for a small create-form; on success the parent closes
+  // the dialog so we never need to merge the new agent back into
+  // `assignableAgents` ourselves.
+  const [creating, setCreating] = useState(false);
+  const [createForm, setCreateForm] = useState<InlineAgentCreateValues>({
+    id: "",
+    displayName: "",
+    role: "",
+  });
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [creatingSubmitting, setCreatingSubmitting] = useState(false);
+
   // Reset local form state whenever the dialog opens (add mode) or the
   // `initial` prop changes (edit mode). This matters because the Agents
   // tab re-uses a single <MembershipDialog /> across rows — without this
@@ -134,6 +186,10 @@ export function MembershipDialog({
       setSpecialty("");
       setEnabled(true);
       setExecutionMode("Auto");
+      setCreating(false);
+      setCreateForm({ id: "", displayName: "", role: "" });
+      setCreateError(null);
+      setCreatingSubmitting(false);
     }
   }, [open, mode, initial, defaultModel]);
 
@@ -195,6 +251,152 @@ export function MembershipDialog({
     }
   };
 
+  const handleInlineCreateSubmit = async () => {
+    if (!inlineCreate) return;
+    setCreateError(null);
+    const validation = validateAgentCreateInput({
+      id: createForm.id,
+      displayName: createForm.displayName,
+      // The inline form always assigns to the current unit; we feed a
+      // single placeholder unit id into the validator so the
+      // unit-required rule doesn't trip. The actual assignment happens
+      // in the caller's `onSubmit` against `unitLabel`.
+      unitIds: [unitLabel],
+    });
+    if (validation !== null) {
+      setCreateError(describeAgentCreateError(validation));
+      return;
+    }
+    setCreatingSubmitting(true);
+    try {
+      await inlineCreate.onSubmit({
+        id: createForm.id.trim(),
+        displayName: createForm.displayName.trim(),
+        role: createForm.role.trim(),
+      });
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCreatingSubmitting(false);
+    }
+  };
+
+  // Inline-create branch swaps the entire dialog body and footer so the
+  // operator can fill the create form without the assign-fields
+  // distracting them. The shared `Add agent to unit` shell stays the
+  // same — only the title and description shift to communicate the
+  // sub-mode.
+  if (mode === "add" && creating && inlineCreate) {
+    return (
+      <Dialog
+        open={open}
+        onClose={onCancel}
+        title="Create new agent"
+        description={`A new agent will be registered and assigned to ${unitLabel}.`}
+        footer={
+          <>
+            <Button
+              variant="outline"
+              onClick={() => {
+                if (creatingSubmitting) return;
+                setCreating(false);
+                setCreateError(null);
+              }}
+              disabled={creatingSubmitting}
+            >
+              Back
+            </Button>
+            <Button
+              onClick={() => {
+                void handleInlineCreateSubmit();
+              }}
+              disabled={creatingSubmitting}
+              data-testid="membership-dialog-inline-create-submit"
+            >
+              {creatingSubmitting ? "Creating…" : "Create and add"}
+            </Button>
+          </>
+        }
+      >
+        <label className="block space-y-1">
+          <span className="text-sm text-muted-foreground">
+            Agent id <span className="text-destructive">*</span>
+          </span>
+          <Input
+            value={createForm.id}
+            onChange={(e) =>
+              setCreateForm((f) => ({ ...f, id: e.target.value }))
+            }
+            placeholder="ada"
+            pattern={AGENT_NAME_PATTERN.source}
+            aria-label="Agent id"
+            aria-required="true"
+            autoComplete="off"
+            spellCheck={false}
+            disabled={creatingSubmitting}
+            data-testid="membership-dialog-inline-create-id"
+            required
+          />
+          <span className="block text-xs text-muted-foreground">
+            URL-safe — lowercase letters, digits, and hyphens only.
+          </span>
+        </label>
+
+        <label className="block space-y-1">
+          <span className="text-sm text-muted-foreground">
+            Display name <span className="text-destructive">*</span>
+          </span>
+          <Input
+            value={createForm.displayName}
+            onChange={(e) =>
+              setCreateForm((f) => ({ ...f, displayName: e.target.value }))
+            }
+            placeholder="Ada Lovelace"
+            aria-label="Display name"
+            aria-required="true"
+            disabled={creatingSubmitting}
+            data-testid="membership-dialog-inline-create-display-name"
+            required
+          />
+        </label>
+
+        <label className="block space-y-1">
+          <span className="text-sm text-muted-foreground">
+            Role (optional)
+          </span>
+          <Input
+            value={createForm.role}
+            onChange={(e) =>
+              setCreateForm((f) => ({ ...f, role: e.target.value }))
+            }
+            placeholder="reviewer"
+            aria-label="Role"
+            disabled={creatingSubmitting}
+          />
+        </label>
+
+        <p className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+          Defaults the execution image / runtime / model to whatever the
+          unit inherits. For finer control use the full{" "}
+          <a className="underline" href="/agents/create">
+            /agents/create
+          </a>{" "}
+          page.
+        </p>
+
+        {createError && (
+          <p
+            role="alert"
+            className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+            data-testid="membership-dialog-inline-create-error"
+          >
+            {createError}
+          </p>
+        )}
+      </Dialog>
+    );
+  }
+
   return (
     <Dialog
       open={open}
@@ -222,27 +424,46 @@ export function MembershipDialog({
       }
     >
       {mode === "add" ? (
-        <label className="block space-y-1">
-          <span className="text-sm text-muted-foreground">Agent</span>
-          <select
-            value={agentAddress}
-            onChange={(e) => setAgentAddress(e.target.value)}
-            aria-label="Agent"
-            disabled={submitting || assignableAgents.length === 0}
-            className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <option value="">
-              {assignableAgents.length === 0
-                ? "No agents available to add"
-                : "Pick an agent…"}
-            </option>
-            {assignableAgents.map((a) => (
-              <option key={a.name} value={a.name}>
-                {a.displayName || a.name}
+        <div className="space-y-2">
+          <label className="block space-y-1">
+            <span className="text-sm text-muted-foreground">Agent</span>
+            <select
+              value={agentAddress}
+              onChange={(e) => setAgentAddress(e.target.value)}
+              aria-label="Agent"
+              disabled={submitting || assignableAgents.length === 0}
+              className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <option value="">
+                {assignableAgents.length === 0
+                  ? "No agents available to add"
+                  : "Pick an agent…"}
               </option>
-            ))}
-          </select>
-        </label>
+              {assignableAgents.map((a) => (
+                <option key={a.name} value={a.name}>
+                  {a.displayName || a.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {inlineCreate && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setError(null);
+                setCreating(true);
+              }}
+              disabled={submitting}
+              data-testid="membership-dialog-new-agent"
+            >
+              <Plus className="mr-1 h-4 w-4" />
+              New agent
+            </Button>
+          )}
+        </div>
       ) : (
         <div
           className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm"
