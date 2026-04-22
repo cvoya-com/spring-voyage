@@ -427,6 +427,13 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IAgentToolLauncher, GeminiLauncher>();
         services.AddSingleton<IAgentToolLauncher, DaprAgentLauncher>();
         services.TryAddSingleton<PersistentAgentRegistry>();
+        // Per-conversation registry for ephemeral agent containers. PR 5 of
+        // the #1087 series: the unified A2A dispatch path starts ephemeral
+        // containers in detached mode and tears them down when the turn
+        // drains. The registry exists so the host has a single place to
+        // observe and stop ephemeral containers (and so graceful shutdown
+        // sweeps anything still tracked).
+        services.TryAddSingleton<EphemeralAgentRegistry>();
         // Imperative lifecycle service powering the persistent-agent CLI surface
         // (spring agent deploy/status/scale/logs/undeploy — #396). Kept separate
         // from A2AExecutionDispatcher so the turn-dispatch path stays focused on
@@ -445,6 +452,7 @@ public static class ServiceCollectionExtensions
         if (!isDocGen)
         {
             services.AddHostedService(sp => sp.GetRequiredService<PersistentAgentRegistry>());
+            services.AddHostedService(sp => sp.GetRequiredService<EphemeralAgentRegistry>());
             services.AddHostedService(sp => sp.GetRequiredService<McpServer>());
         }
 

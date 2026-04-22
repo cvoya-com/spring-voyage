@@ -77,12 +77,22 @@ AgentActor.ExecuteTurn()
      → IAgentDefinitionProvider.GetByIdAsync(agentId)
      → IPromptAssembler.AssembleAsync(message, context)
      → IMcpServer.IssueSession(agentId, conversationId)
-     → launcher.PrepareAsync(launchContext)          ── env + mounts + workdir
-     → IContainerRuntime.RunAsync / StartAsync        ── the container runs
-     → (persistent only) A2A client SendMessageAsync  ── talk to the container
-     → launcher.CleanupAsync(workdir)                 ── scrub the workdir
-     → BuildResponseMessage(…)
+     → launcher.PrepareAsync(launchContext)          ── argv + env + mounts + workdir + stdin
+     → ContainerConfigBuilder.Build(image, spec)     ── single seam to ContainerConfig
+     → IContainerRuntime.StartAsync (detached)        ── ephemeral OR persistent: same call
+     → poll GET /.well-known/agent.json on :A2APort  ── readiness probe (60s budget, 200ms backoff)
+     → A2AClient.SendMessageAsync(SendMessageRequest) ── A2A roundtrip, both modes
+     → MapA2AResponseToMessage(...)                   ── A2A response → Spring message
+     → ephemeral: EphemeralAgentRegistry.ReleaseAsync ── teardown on turn drain
+       persistent: leave running, registered in PersistentAgentRegistry
 ```
+
+Both hosting modes share a single dispatch path. The only branch is the
+post-roundtrip lifecycle decision: ephemeral tears down, persistent stays
+running. PR 5 of the #1087 series collapsed the legacy "ephemeral goes
+through `RunAsync + harvest stdout`" branch onto this unified path; the
+container's PID 1 is now the agent-base bridge (path 1) or the agent runtime
+itself (path 3 native A2A), never `sleep infinity`.
 
 `AgentLaunchContext` — the record the dispatcher hands to the launcher — now
 carries `Provider` and `Model` (both `string?`). The dispatcher reads them

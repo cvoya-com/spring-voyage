@@ -73,6 +73,7 @@ public class PersistentDispatchIntegrationTests
             _mcpServer,
             [_launcher],
             _persistentRegistry,
+            new EphemeralAgentRegistry(_containerRuntime, _loggerFactory),
             _httpClientFactory,
             _loggerFactory);
     }

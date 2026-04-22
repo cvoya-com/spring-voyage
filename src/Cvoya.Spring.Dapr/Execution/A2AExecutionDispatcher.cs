@@ -18,19 +18,23 @@ using SvMessage = Cvoya.Spring.Core.Messaging.Message;
 
 /// <summary>
 /// <see cref="IExecutionDispatcher"/> implementation that communicates with
-/// agents via the A2A (Agent-to-Agent) protocol. For ephemeral agents the
-/// dispatcher starts a container (which bundles the A2A sidecar), waits for
-/// the A2A endpoint to become ready, sends a task via the A2A client SDK,
-/// streams results back, and cleans up the container. For persistent agents
-/// it looks up the running service in the <see cref="PersistentAgentRegistry"/>.
+/// agents via the A2A (Agent-to-Agent) protocol. PR 5 of the #1087 series
+/// collapsed the legacy "ephemeral agents go through
+/// <c>RunAsync + harvest stdout</c>" branch onto the same A2A path that
+/// persistent agents have always used:
+/// <list type="number">
+///   <item>Resolve image and <see cref="AgentLaunchSpec"/> via the launcher.</item>
+///   <item>Build the container config via <see cref="ContainerConfigBuilder"/>.</item>
+///   <item>Start the container in detached mode (<see cref="IContainerRuntime.StartAsync"/>).</item>
+///   <item>Wait for the in-container A2A endpoint to become ready (<c>GET /.well-known/agent.json</c>).</item>
+///   <item>Send the platform message via <see cref="SendA2AMessageAsync"/>.</item>
+///   <item>Map the A2A response back to a Spring Voyage <see cref="SvMessage"/>.</item>
+///   <item><b>Ephemeral</b>: tear down the container; <b>persistent</b>: leave it running.</item>
+/// </list>
+/// This is the change that fixes the symptom in #1087 — ephemeral agents no
+/// longer get stuck on <c>sleep infinity</c> because the dispatcher no longer
+/// waits for the container's stdout to terminate.
 /// </summary>
-/// <remarks>
-/// This replaces <c>DelegatedExecutionDispatcher</c>. The container still
-/// runs the same agent tool (Claude Code, Codex, etc.) but now behind an A2A
-/// sidecar that translates the CLI stdin/stdout protocol into A2A streaming
-/// events. The dispatcher consumes those events and maps them to the
-/// platform's <see cref="StreamEvent"/> pipeline.
-/// </remarks>
 public class A2AExecutionDispatcher(
     IContainerRuntime containerRuntime,
     IPromptAssembler promptAssembler,
@@ -38,6 +42,7 @@ public class A2AExecutionDispatcher(
     IMcpServer mcpServer,
     IEnumerable<IAgentToolLauncher> launchers,
     PersistentAgentRegistry persistentAgentRegistry,
+    EphemeralAgentRegistry ephemeralAgentRegistry,
     IHttpClientFactory httpClientFactory,
     ILoggerFactory loggerFactory) : IExecutionDispatcher
 {
@@ -46,19 +51,22 @@ public class A2AExecutionDispatcher(
         launchers.ToDictionary(l => l.Tool, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Default port the A2A sidecar listens on inside the container.
+    /// Default port the in-container A2A endpoint listens on. Mirrors the
+    /// agent-base bridge's default and the Dapr Agent's <c>AGENT_PORT</c>.
     /// </summary>
     internal const int SidecarPort = 8999;
 
     /// <summary>
-    /// Maximum time to wait for the A2A sidecar to become ready.
+    /// Maximum time to wait for the in-container A2A endpoint to become ready.
+    /// The bridge starts in well under a second; 60s is generous and tolerates
+    /// slow-pull cold starts.
     /// </summary>
     internal static readonly TimeSpan ReadinessTimeout = TimeSpan.FromSeconds(60);
 
     /// <summary>
     /// Interval between readiness probe attempts.
     /// </summary>
-    internal static readonly TimeSpan ReadinessProbeInterval = TimeSpan.FromMilliseconds(500);
+    internal static readonly TimeSpan ReadinessProbeInterval = TimeSpan.FromMilliseconds(200);
 
     /// <inheritdoc />
     public async Task<SvMessage?> DispatchAsync(
@@ -104,7 +112,19 @@ public class A2AExecutionDispatcher(
     {
         var agentId = definition.AgentId;
 
-        if (!_launchersByTool.TryGetValue(definition.Execution!.Tool, out var launcher))
+        if (definition.Execution!.Image is null)
+        {
+            // #601 B-wide: image resolution chain is agent → unit → fail. The
+            // provider merges unit defaults before we see the definition here,
+            // so a null image at this point means neither surface declared one.
+            throw new SpringException(
+                $"Ephemeral agent '{agentId}' requires a container image. " +
+                "Set execution.image on the agent (spring agent execution set --image) " +
+                "or on the parent unit as a default (spring unit execution set --image), " +
+                "or switch the agent to hosting: persistent.");
+        }
+
+        if (!_launchersByTool.TryGetValue(definition.Execution.Tool, out var launcher))
         {
             throw new SpringException(
                 $"No IAgentToolLauncher registered for tool '{definition.Execution.Tool}' (agent '{agentId}').");
@@ -130,49 +150,61 @@ public class A2AExecutionDispatcher(
             Model: definition.Execution.Model);
 
         var spec = await launcher.PrepareAsync(launchContext, cancellationToken);
+        var config = ContainerConfigBuilder.Build(definition.Execution.Image, spec);
 
+        string? containerId = null;
+        EphemeralAgentLease? lease = null;
         try
         {
-            if (definition.Execution.Image is null)
+            // Detached start: the container runs until we stop it, regardless
+            // of what the agent process inside does. This is the seam that
+            // fixes #1087 — the dispatcher no longer waits for the agent's
+            // stdout to terminate, it talks A2A to the in-container bridge
+            // and tears the container down explicitly when the turn drains.
+            containerId = await containerRuntime.StartAsync(config, cancellationToken);
+            lease = ephemeralAgentRegistry.Register(agentId, conversationId, containerId);
+
+            var endpoint = new Uri($"http://localhost:{spec.A2APort}/");
+
+            var ready = await WaitForA2AReadyAsync(
+                endpoint, ReadinessTimeout, cancellationToken);
+
+            if (!ready)
             {
-                // #601 B-wide: image resolution chain is agent → unit →
-                // fail. The provider merges unit defaults before we see
-                // the definition here, so a null image at this point
-                // means neither surface declared one.
+                _logger.LogWarning(
+                    "Ephemeral agent {AgentId} (container {ContainerId}) did not become ready within {Timeout}",
+                    agentId, containerId, ReadinessTimeout);
                 throw new SpringException(
-                    $"Ephemeral agent '{agentId}' requires a container image. " +
-                    "Set execution.image on the agent (spring agent execution set --image) " +
-                    "or on the parent unit as a default (spring unit execution set --image), " +
-                    "or switch the agent to hosting: persistent.");
+                    $"Ephemeral agent '{agentId}' did not become A2A-ready within {ReadinessTimeout}.");
             }
 
-            var config = ContainerConfigBuilder.Build(definition.Execution.Image, spec);
-
-            string? containerName = null;
-            await using var cancellationRegistration = cancellationToken.Register(() =>
-            {
-                if (containerName is not null)
-                {
-                    _logger.LogWarning(
-                        "Cancellation requested, stopping container {ContainerName}", containerName);
-                    _ = containerRuntime.StopAsync(containerName, CancellationToken.None);
-                }
-            });
-
-            var result = await containerRuntime.RunAsync(config, cancellationToken);
-            containerName = result.ContainerId;
-
-            _logger.LogInformation(
-                "Container {ContainerId} (agent {AgentId}) completed with exit code {ExitCode}",
-                result.ContainerId, agentId, result.ExitCode);
-
-            return BuildResponseMessage(message, result);
+            return await SendA2AMessageAsync(endpoint, agentId, message, prompt, cancellationToken);
         }
         finally
         {
             mcpServer.RevokeSession(session.Token);
-            // No CleanupAsync call — workspace materialisation/cleanup lives in
-            // the dispatcher service now (issue #1042).
+            if (lease.HasValue)
+            {
+                // Detached from the caller's cancellation token — even if the
+                // turn was cancelled we still want to tear the container down,
+                // and the registry's release path is idempotent.
+                await ephemeralAgentRegistry.ReleaseAsync(lease.Value, CancellationToken.None);
+            }
+            else if (containerId is not null)
+            {
+                // Started but never registered (extremely narrow race window
+                // — Register is synchronous after StartAsync). Best-effort
+                // stop so we don't leak the container.
+                try
+                {
+                    await containerRuntime.StopAsync(containerId, CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "Failed to stop unregistered ephemeral container {ContainerId}", containerId);
+                }
+            }
         }
     }
 
@@ -261,13 +293,9 @@ public class A2AExecutionDispatcher(
 
         var containerId = await containerRuntime.StartAsync(config, cancellationToken);
 
-        // Build the A2A endpoint — persistent containers expose the A2A sidecar port.
-        // Use localhost with a mapped port since the container name may not be DNS-resolvable.
-        var endpoint = new Uri($"http://localhost:{SidecarPort}/");
+        var endpoint = new Uri($"http://localhost:{spec.A2APort}/");
 
-        // Wait for the A2A endpoint to become ready.
-        var ready = await persistentAgentRegistry.WaitForA2AReadyAsync(
-            endpoint, ReadinessTimeout, cancellationToken);
+        var ready = await WaitForA2AReadyAsync(endpoint, ReadinessTimeout, cancellationToken);
 
         if (!ready)
         {
@@ -291,8 +319,8 @@ public class A2AExecutionDispatcher(
 
     /// <summary>
     /// Sends a message to a running A2A agent and collects the response.
-    /// Used by the persistent path and will be used by the ephemeral path
-    /// once the sidecar exposes the A2A endpoint from inside the container.
+    /// Used by both the ephemeral and persistent dispatch paths after the
+    /// in-container A2A endpoint has been observed ready.
     /// </summary>
     internal async Task<SvMessage?> SendA2AMessageAsync(
         Uri endpoint,
@@ -330,6 +358,63 @@ public class A2AExecutionDispatcher(
         var response = await a2aClient.SendMessageAsync(request, cancellationToken);
 
         return MapA2AResponseToMessage(originalMessage, response);
+    }
+
+    /// <summary>
+    /// Polls the in-container A2A Agent Card endpoint until it answers 200
+    /// or the timeout expires. Used by both dispatch paths so they cannot
+    /// drift on what "ready" means.
+    /// </summary>
+    internal async Task<bool> WaitForA2AReadyAsync(Uri endpoint, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(timeout);
+
+        var agentCardUri = new Uri(endpoint, ".well-known/agent.json");
+        var attempts = 0;
+        Exception? lastException = null;
+
+        while (!cts.Token.IsCancellationRequested)
+        {
+            attempts++;
+            try
+            {
+                using var probeClient = httpClientFactory.CreateClient("A2A-readiness");
+                probeClient.Timeout = TimeSpan.FromSeconds(5);
+                var response = await probeClient.GetAsync(agentCardUri, cts.Token);
+                if (response.IsSuccessStatusCode)
+                {
+                    _logger.LogDebug(
+                        "A2A endpoint {Endpoint} ready after {Attempts} attempt(s)",
+                        endpoint, attempts);
+                    return true;
+                }
+                _logger.LogDebug(
+                    "A2A readiness probe attempt {Attempt} for {Endpoint} returned {Status}",
+                    attempts, endpoint, (int)response.StatusCode);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                lastException = ex;
+                _logger.LogDebug(
+                    "A2A readiness probe attempt {Attempt} for {Endpoint} failed: {Reason}",
+                    attempts, endpoint, ex.Message);
+            }
+
+            try
+            {
+                await Task.Delay(ReadinessProbeInterval, cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+        }
+
+        _logger.LogWarning(
+            "A2A endpoint {Endpoint} did not become ready after {Attempts} attempt(s) within {Timeout}. Last error: {LastError}",
+            endpoint, attempts, timeout, lastException?.Message ?? "(none)");
+        return false;
     }
 
     internal static SvMessage? MapA2AResponseToMessage(
@@ -422,30 +507,5 @@ public class A2AExecutionDispatcher(
             .Where(p => p.ContentCase == PartContentCase.Text)
             .Select(p => p.Text)
             .Where(t => t is not null));
-    }
-
-    private static SvMessage BuildResponseMessage(SvMessage originalMessage, ContainerResult result)
-    {
-        var payload = result.ExitCode == 0
-            ? JsonSerializer.SerializeToElement(new
-            {
-                Output = result.StandardOutput,
-                ExitCode = result.ExitCode
-            })
-            : JsonSerializer.SerializeToElement(new
-            {
-                Error = result.StandardError,
-                Output = result.StandardOutput,
-                ExitCode = result.ExitCode
-            });
-
-        return new SvMessage(
-            Id: Guid.NewGuid(),
-            From: originalMessage.To,
-            To: originalMessage.From,
-            Type: MessageType.Domain,
-            ConversationId: originalMessage.ConversationId,
-            Payload: payload,
-            Timestamp: DateTimeOffset.UtcNow);
     }
 }

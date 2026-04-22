@@ -3,7 +3,11 @@
 
 namespace Cvoya.Spring.Dapr.Tests.Execution;
 
+using System.Net;
+using System.Net.Http;
 using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
 
 using A2A;
 
@@ -26,6 +30,12 @@ using SvMessage = Cvoya.Spring.Core.Messaging.Message;
 
 /// <summary>
 /// Unit tests for <see cref="A2AExecutionDispatcher"/>.
+///
+/// PR 5 of the #1087 series collapsed ephemeral and persistent dispatch onto
+/// the same A2A path. These tests exercise the new flow:
+/// <see cref="ContainerConfigBuilder"/> builds the config, the dispatcher
+/// starts the container in detached mode, waits for A2A readiness, sends the
+/// message via A2A, and tears the ephemeral container down on completion.
 /// </summary>
 public class A2AExecutionDispatcherTests
 {
@@ -38,9 +48,11 @@ public class A2AExecutionDispatcherTests
     private readonly IHttpClientFactory _httpClientFactory = Substitute.For<IHttpClientFactory>();
     private readonly IContainerRuntime _persistentContainerRuntime = Substitute.For<IContainerRuntime>();
     private readonly PersistentAgentRegistry _persistentRegistry;
+    private readonly EphemeralAgentRegistry _ephemeralRegistry;
     private readonly A2AExecutionDispatcher _dispatcher;
     private const string AgentId = "my-agent";
     private const string Image = "spring-agent-claude:v1";
+    private const string ContainerId = "spring-ephemeral-abc";
 
     private static readonly AgentLaunchSpec DefaultSpec = new(
         WorkspaceFiles: new Dictionary<string, string> { ["CLAUDE.md"] = "prepared" },
@@ -49,9 +61,11 @@ public class A2AExecutionDispatcherTests
 
     public A2AExecutionDispatcherTests()
     {
+        _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
         _persistentRegistry = new PersistentAgentRegistry(
             _persistentContainerRuntime, _httpClientFactory, _loggerFactory);
-        _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
+        _ephemeralRegistry = new EphemeralAgentRegistry(
+            _containerRuntime, _loggerFactory);
         _launcher.Tool.Returns("claude-code");
         _launcher.PrepareAsync(Arg.Any<AgentLaunchContext>(), Arg.Any<CancellationToken>())
             .Returns(DefaultSpec);
@@ -67,7 +81,13 @@ public class A2AExecutionDispatcherTests
                 Instructions: "do things",
                 Execution: new AgentExecutionConfig("claude-code", Image)));
 
-        _httpClientFactory.CreateClient(Arg.Any<string>()).Returns(new HttpClient());
+        // Default: container starts and the readiness probe will fail (no real
+        // server) so the dispatch fails cleanly with a SpringException. Tests
+        // that need the full A2A roundtrip swap in a stub HttpClient that
+        // answers 200 on /.well-known/agent.json.
+        _containerRuntime.StartAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
+            .Returns(ContainerId);
+        _httpClientFactory.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient());
 
         _dispatcher = new A2AExecutionDispatcher(
             _containerRuntime,
@@ -76,6 +96,7 @@ public class A2AExecutionDispatcherTests
             _mcpServer,
             [_launcher],
             _persistentRegistry,
+            _ephemeralRegistry,
             _httpClientFactory,
             _loggerFactory);
     }
@@ -94,19 +115,61 @@ public class A2AExecutionDispatcherTests
             DateTimeOffset.UtcNow);
     }
 
+    /// <summary>
+    /// Wires the http client factory so the readiness probe and the A2A
+    /// SendMessage call see a stub responder. Returns the responder so tests
+    /// can inspect the requests it received.
+    /// </summary>
+    private StubA2AResponder InstallA2AStub(string responseText = "agent reply")
+    {
+        var responder = new StubA2AResponder(responseText);
+        _httpClientFactory.CreateClient(Arg.Any<string>())
+            .Returns(_ => new HttpClient(responder, disposeHandler: false));
+        return responder;
+    }
+
     [Fact]
-    public async Task DispatchAsync_EphemeralAgent_CallsContainerRuntime()
+    public async Task DispatchAsync_EphemeralAgent_StartsContainerInDetachedMode()
     {
         var message = CreateMessage();
         _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("assembled prompt");
-        _containerRuntime.RunAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
-            .Returns(new ContainerResult("spring-exec-123", 0, "output", ""));
+        InstallA2AStub();
 
         await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
 
-        await _containerRuntime.Received(1).RunAsync(
+        // PR 5 of #1087: ephemeral dispatch no longer goes through RunAsync;
+        // it starts the container detached, talks to it over A2A, and tears
+        // it down via the EphemeralAgentRegistry.
+        await _containerRuntime.Received(1).StartAsync(
             Arg.Any<ContainerConfig>(),
+            Arg.Any<CancellationToken>());
+        await _containerRuntime.DidNotReceive().RunAsync(
+            Arg.Any<ContainerConfig>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DispatchAsync_EphemeralAgent_BuildsContainerConfigViaContainerConfigBuilder()
+    {
+        // Issue #1042 + #1094: the dispatcher must hand the runtime exactly
+        // what the shared ContainerConfigBuilder would produce from the
+        // launcher's spec — no inline duplication of the construction.
+        var message = CreateMessage();
+        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns("p");
+        InstallA2AStub();
+
+        await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
+
+        var expected = ContainerConfigBuilder.Build(Image, DefaultSpec);
+        await _containerRuntime.Received(1).StartAsync(
+            Arg.Is<ContainerConfig>(c =>
+                c.Image == expected.Image &&
+                c.Workspace != null &&
+                c.Workspace.MountPath == expected.Workspace!.MountPath &&
+                c.Workspace.Files.ContainsKey("CLAUDE.md") &&
+                c.WorkingDirectory == expected.WorkingDirectory),
             Arg.Any<CancellationToken>());
     }
 
@@ -116,12 +179,11 @@ public class A2AExecutionDispatcherTests
         var message = CreateMessage();
         _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("assembled prompt");
-        _containerRuntime.RunAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
-            .Returns(new ContainerResult("spring-exec-img", 0, "", ""));
+        InstallA2AStub();
 
         await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
 
-        await _containerRuntime.Received(1).RunAsync(
+        await _containerRuntime.Received(1).StartAsync(
             Arg.Is<ContainerConfig>(c => c.Image == Image),
             Arg.Any<CancellationToken>());
     }
@@ -133,9 +195,7 @@ public class A2AExecutionDispatcherTests
         // YAML-only change on the AgentDefinition. The dispatcher reads
         // execution.provider / execution.model and forwards them through the
         // AgentLaunchContext so the launcher can pin the Conversation
-        // component by name. No live provider call needed — we verify the
-        // wiring by inspecting the context the dispatcher hands to the stub
-        // launcher.
+        // component by name.
         var message = CreateMessage();
         _agentProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
             .Returns(new AgentDefinition(
@@ -149,8 +209,7 @@ public class A2AExecutionDispatcherTests
                     Model: "gpt-4o-mini")));
         _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("p");
-        _containerRuntime.RunAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
-            .Returns(new ContainerResult("spring-exec-provider", 0, "", ""));
+        InstallA2AStub();
 
         await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
 
@@ -167,8 +226,7 @@ public class A2AExecutionDispatcherTests
         var message = CreateMessage();
         _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("the prompt");
-        _containerRuntime.RunAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
-            .Returns(new ContainerResult("spring-exec-mcp", 0, "", ""));
+        InstallA2AStub();
 
         await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
 
@@ -184,26 +242,53 @@ public class A2AExecutionDispatcherTests
     }
 
     [Fact]
-    public async Task DispatchAsync_EphemeralAgent_RevokesSession_OnSuccess()
+    public async Task DispatchAsync_EphemeralAgent_RevokesSessionAndStopsContainer_OnSuccess()
     {
         var message = CreateMessage();
         _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("p");
-        _containerRuntime.RunAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
-            .Returns(new ContainerResult("spring-exec", 0, "", ""));
+        InstallA2AStub();
 
         await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
 
         _mcpServer.Received(1).RevokeSession("test-token");
+        // The ephemeral path tears the container down via the registry, which
+        // delegates to IContainerRuntime.StopAsync.
+        await _containerRuntime.Received(1).StopAsync(ContainerId, Arg.Any<CancellationToken>());
+        _ephemeralRegistry.GetAllEntries().ShouldBeEmpty();
     }
 
     [Fact]
-    public async Task DispatchAsync_EphemeralAgent_RevokesSession_OnFailure()
+    public async Task DispatchAsync_EphemeralAgent_RevokesSessionAndStopsContainer_OnFailure()
     {
         var message = CreateMessage();
         _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("p");
-        _containerRuntime.RunAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
+        // No A2A stub — readiness probe will fail. Container was started so
+        // it must still be torn down.
+        _containerRuntime.StartAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
+            .Returns(ContainerId);
+
+        // Use a tight readiness budget via cancellation so we don't wait the
+        // full 60-second probe budget.
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(2));
+
+        var act = () => _dispatcher.DispatchAsync(message, context: null, cts.Token);
+        await Should.ThrowAsync<Exception>(act);
+
+        _mcpServer.Received(1).RevokeSession("test-token");
+        await _containerRuntime.Received(1).StopAsync(ContainerId, Arg.Any<CancellationToken>());
+        _ephemeralRegistry.GetAllEntries().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task DispatchAsync_EphemeralAgent_StartFails_StillRevokesSession()
+    {
+        var message = CreateMessage();
+        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns("p");
+        _containerRuntime.StartAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
             .ThrowsAsyncForAnyArgs(new InvalidOperationException("runtime boom"));
 
         var act = () => _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
@@ -213,43 +298,12 @@ public class A2AExecutionDispatcherTests
     }
 
     [Fact]
-    public async Task DispatchAsync_EphemeralAgent_ForwardsWorkspaceToContainerRuntime()
-    {
-        // Issue #1042: workspace materialisation moved to the dispatcher, so
-        // the dispatcher must thread the launcher's WorkspaceFiles +
-        // WorkspaceMountPath through ContainerConfig.Workspace (which the
-        // dispatcher-client serialises into the run request).
-        var message = CreateMessage();
-        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
-            .Returns("p");
-        _containerRuntime.RunAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
-            .Returns(new ContainerResult("spring-exec-ws", 0, "", ""));
-
-        await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
-
-        // Compare against ContainerConfigBuilder's output (PR 2 of #1087):
-        // the dispatcher must hand the runtime exactly what the shared
-        // builder would produce from the launcher's spec — no inline
-        // duplication of the construction, so the two sites cannot drift.
-        var expected = ContainerConfigBuilder.Build(Image, DefaultSpec);
-        await _containerRuntime.Received(1).RunAsync(
-            Arg.Is<ContainerConfig>(c =>
-                c.Workspace != null &&
-                c.Workspace.MountPath == expected.Workspace!.MountPath &&
-                c.Workspace.Files.ContainsKey("CLAUDE.md") &&
-                c.WorkingDirectory == expected.WorkingDirectory &&
-                c.Command == expected.Command),
-            Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task DispatchAsync_EphemeralAgent_ContainerSucceeds_ReturnsResponseMessage()
+    public async Task DispatchAsync_EphemeralAgent_A2ARoundtrip_ReturnsResponseTextInPayload()
     {
         var message = CreateMessage();
         _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
-            .Returns("test prompt");
-        _containerRuntime.RunAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
-            .Returns(new ContainerResult("spring-exec-456", 0, "success output", ""));
+            .Returns("the prompt");
+        InstallA2AStub("hello from agent");
 
         var result = await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
 
@@ -260,25 +314,8 @@ public class A2AExecutionDispatcherTests
         result.Type.ShouldBe(MessageType.Domain);
 
         var payload = result.Payload.Deserialize<JsonElement>();
-        payload.GetProperty("Output").GetString().ShouldBe("success output");
+        payload.GetProperty("Output").GetString().ShouldBe("hello from agent");
         payload.GetProperty("ExitCode").GetInt32().ShouldBe(0);
-    }
-
-    [Fact]
-    public async Task DispatchAsync_EphemeralAgent_ContainerFails_ReturnsErrorMessage()
-    {
-        var message = CreateMessage();
-        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
-            .Returns("prompt");
-        _containerRuntime.RunAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
-            .Returns(new ContainerResult("spring-exec-789", 1, "", "error occurred"));
-
-        var result = await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
-
-        result.ShouldNotBeNull();
-        var payload = result!.Payload.Deserialize<JsonElement>();
-        payload.GetProperty("ExitCode").GetInt32().ShouldBe(1);
-        payload.GetProperty("Error").GetString().ShouldBe("error occurred");
     }
 
     [Fact]
@@ -323,20 +360,45 @@ public class A2AExecutionDispatcherTests
         // waiting the full 60-second readiness timeout.
         _containerRuntime.StartAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
             .Returns("spring-persistent-abc");
-        _httpClientFactory.CreateClient(Arg.Any<string>())
-            .Returns(_ => new HttpClient());
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         cts.CancelAfter(TimeSpan.FromSeconds(2));
 
-        // The dispatcher will attempt auto-start, the readiness probe will fail,
-        // and cancellation will cut the wait short.
         var act = () => _dispatcher.DispatchAsync(message, context: null, cts.Token);
         await Should.ThrowAsync<Exception>(act);
 
-        // Verify StartAsync was called on the main container runtime (auto-start attempted).
         await _containerRuntime.Received(1).StartAsync(
             Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DispatchAsync_PersistentAgent_BuildsContainerConfigViaContainerConfigBuilder()
+    {
+        // The persistent path also flows through ContainerConfigBuilder so the
+        // two dispatch modes can't drift on what a container looks like.
+        var message = CreateMessage();
+        _agentProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
+            .Returns(new AgentDefinition(
+                AgentId, "My Agent", "instructions",
+                new AgentExecutionConfig("claude-code", Image, Hosting: AgentHostingMode.Persistent)));
+        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns("prompt");
+        _containerRuntime.StartAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
+            .Returns("spring-persistent-cc");
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(2));
+
+        try { await _dispatcher.DispatchAsync(message, context: null, cts.Token); }
+        catch { /* readiness probe will fail; assertion on the StartAsync call is what we want */ }
+
+        var expected = ContainerConfigBuilder.Build(Image, DefaultSpec);
+        await _containerRuntime.Received(1).StartAsync(
+            Arg.Is<ContainerConfig>(c =>
+                c.Image == expected.Image &&
+                c.Workspace != null &&
+                c.Workspace.MountPath == expected.Workspace!.MountPath),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -360,7 +422,8 @@ public class A2AExecutionDispatcherTests
     {
         // PR 1 of #1087: Pooled is reserved on the enum for #362 but not
         // implemented yet. The dispatcher must reject the value explicitly
-        // so it can't silently fall through to the ephemeral path.
+        // so it can't silently fall through to the ephemeral path. PR 5
+        // must preserve this guard.
         var message = CreateMessage();
         _agentProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
             .Returns(new AgentDefinition(
@@ -382,8 +445,7 @@ public class A2AExecutionDispatcherTests
 
         _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns(expectedPrompt);
-        _containerRuntime.RunAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
-            .Returns(new ContainerResult("spring-exec-env", 0, "output", ""));
+        InstallA2AStub();
 
         _launcher.PrepareAsync(Arg.Any<AgentLaunchContext>(), Arg.Any<CancellationToken>())
             .Returns(ci => new AgentLaunchSpec(
@@ -396,12 +458,45 @@ public class A2AExecutionDispatcherTests
 
         await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
 
-        await _containerRuntime.Received(1).RunAsync(
+        await _containerRuntime.Received(1).StartAsync(
             Arg.Is<ContainerConfig>(c =>
                 c.EnvironmentVariables != null &&
                 c.EnvironmentVariables.ContainsKey("SPRING_SYSTEM_PROMPT") &&
                 c.EnvironmentVariables["SPRING_SYSTEM_PROMPT"] == expectedPrompt),
             Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DispatchAsync_EphemeralAgent_Cancelled_TearsDownContainer()
+    {
+        // PR 5 of #1087: when the conversation is cancelled mid-turn the
+        // ephemeral container must still be torn down — the registry holds
+        // the lease and the dispatcher's finally block releases it on the
+        // way out (with CancellationToken.None so the teardown itself is
+        // not cancelled by the same token that triggered the cancel).
+        var message = CreateMessage();
+        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns("p");
+
+        // Build a stub that blocks on SendMessage so we can fire the cancel.
+        var responder = new BlockingA2AResponder();
+        _httpClientFactory.CreateClient(Arg.Any<string>())
+            .Returns(_ => new HttpClient(responder, disposeHandler: false));
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        var dispatchTask = _dispatcher.DispatchAsync(message, context: null, cts.Token);
+
+        // Wait until the readiness probe + SendMessage call has been issued,
+        // then cancel.
+        await responder.WaitForSendMessageAsync(TimeSpan.FromSeconds(5));
+        cts.Cancel();
+
+        try { await dispatchTask; } catch { /* expected — cancelled */ }
+
+        // Container teardown should fire exactly once via the registry, even
+        // though the caller's token was cancelled.
+        await _containerRuntime.Received(1).StopAsync(ContainerId, Arg.Any<CancellationToken>());
+        _ephemeralRegistry.GetAllEntries().ShouldBeEmpty();
     }
 
     [Fact]
@@ -509,11 +604,111 @@ public class A2AExecutionDispatcherTests
         var message = CreateMessage();
         _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns("prompt");
-        _containerRuntime.RunAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
-            .Returns(new ContainerResult("c1", 0, "ok", ""));
+        InstallA2AStub();
 
-        // Should route to ephemeral path and call container runtime
         await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
-        await _containerRuntime.Received(1).RunAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>());
+        await _containerRuntime.Received(1).StartAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>());
+    }
+}
+
+/// <summary>
+/// HttpMessageHandler that answers any GET <c>/.well-known/agent.json</c>
+/// request with 200 and any A2A <c>message/send</c> JSON-RPC POST with a
+/// completed task whose artifact carries the configured response text.
+/// </summary>
+internal sealed class StubA2AResponder(string responseText) : HttpMessageHandler
+{
+    private readonly string _responseText = responseText;
+
+    public int ReadinessProbes { get; private set; }
+    public int SendMessageCalls { get; private set; }
+
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        if (request.Method == HttpMethod.Get && request.RequestUri?.AbsolutePath.EndsWith("/.well-known/agent.json") == true)
+        {
+            ReadinessProbes++;
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"name\":\"stub\"}"),
+            };
+        }
+
+        if (request.Method == HttpMethod.Post)
+        {
+            SendMessageCalls++;
+            // SendMessageResponse on the wire is field-presence driven —
+            // either `task` or `message` is set on `result`. The bridge
+            // returns a Task because every CLI invocation is a task in the
+            // bridge's model (see deployment/agent-sidecar/src/a2a.ts).
+            var body = $$"""
+                {
+                  "jsonrpc": "2.0",
+                  "id": 1,
+                  "result": {
+                    "task": {
+                      "id": "task-1",
+                      "contextId": "ctx",
+                      "status": { "state": "TASK_STATE_COMPLETED" },
+                      "artifacts": [
+                        {
+                          "artifactId": "a-1",
+                          "parts": [ { "kind": "text", "text": "{{System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(_responseText)}}" } ]
+                        }
+                      ]
+                    }
+                  }
+                }
+                """;
+            await Task.Yield();
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json"),
+            };
+        }
+
+        return new HttpResponseMessage(HttpStatusCode.NotFound);
+    }
+}
+
+/// <summary>
+/// Like <see cref="StubA2AResponder"/> but the message/send POST blocks until
+/// the cancellation token fires. Used by the cancellation test to ensure the
+/// dispatcher is mid-flight when we cancel.
+/// </summary>
+internal sealed class BlockingA2AResponder : HttpMessageHandler
+{
+    private readonly TaskCompletionSource<bool> _sendStarted =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public Task WaitForSendMessageAsync(TimeSpan timeout)
+    {
+        return Task.WhenAny(_sendStarted.Task, Task.Delay(timeout))
+            .ContinueWith(t =>
+            {
+                if (!_sendStarted.Task.IsCompleted)
+                {
+                    throw new TimeoutException("SendMessage was not invoked within timeout.");
+                }
+            });
+    }
+
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        if (request.Method == HttpMethod.Get && request.RequestUri?.AbsolutePath.EndsWith("/.well-known/agent.json") == true)
+        {
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"name\":\"stub\"}"),
+            };
+        }
+
+        if (request.Method == HttpMethod.Post)
+        {
+            _sendStarted.TrySetResult(true);
+            await Task.Delay(Timeout.Infinite, cancellationToken);
+        }
+
+        return new HttpResponseMessage(HttpStatusCode.NotFound);
     }
 }
