@@ -820,6 +820,27 @@ jobs:
         shell: bash
         run: bash deployment/scripts/dispatcher-smoke.sh
 
+  audit-no-container-cli:
+    name: Audit (no worker-side podman/docker)
+    runs-on: ubuntu-latest
+    needs: changes
+    # Stage 2 of #522 / #1063: the worker container holds no
+    # podman/docker binding any more — every container operation routes
+    # through the host-process spring-dispatcher. This job greps src/
+    # for the worker-side CLI patterns we just removed so a future PR
+    # can't silently re-introduce one. Static-input check, so it stays
+    # valid through the merge queue; we only path-filter on dotnet/
+    # workflows changes since the audit is over .cs sources.
+    if: >
+      github.event_name != 'merge_group' &&
+      (needs.changes.outputs.dotnet == 'true' || needs.changes.outputs.workflows == 'true')
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - name: Run worker-side container CLI audit
+        shell: bash
+        run: bash scripts/audit-no-container-cli.sh
+
   required-checks:
     name: Required checks
     runs-on: ubuntu-latest
@@ -842,6 +863,7 @@ jobs:
       - python-test
       - host-script-idempotence
       - dispatcher-smoke
+      - audit-no-container-cli
     # Always runs - branch protection depends on a single "Required checks"
     # context, so this job must report a status even when upstream jobs were
     # path-filtered out.
@@ -869,6 +891,7 @@ jobs:
           PYTHON_TEST_RESULT: ${{ needs.python-test.result }}
           HOST_IDEMPOTENCE_RESULT: ${{ needs.host-script-idempotence.result }}
           DISPATCHER_SMOKE_RESULT: ${{ needs.dispatcher-smoke.result }}
+          AUDIT_RESULT: ${{ needs.audit-no-container-cli.result }}
           CHANGES_RESULT: ${{ needs.changes.result }}
         run: |
           echo "changes=$CHANGES_RESULT"
@@ -889,6 +912,7 @@ jobs:
           echo "python-test=$PYTHON_TEST_RESULT"
           echo "host-script-idempotence=$HOST_IDEMPOTENCE_RESULT"
           echo "dispatcher-smoke=$DISPATCHER_SMOKE_RESULT"
+          echo "audit-no-container-cli=$AUDIT_RESULT"
 
           # The 'changes' gate itself must have run cleanly - if path detection
           # failed we can't trust the skip decisions downstream.
@@ -919,3 +943,4 @@ jobs:
           ok "$PYTHON_TEST_RESULT"    || { echo "::error::python-test failed"; exit 1; }
           ok "$HOST_IDEMPOTENCE_RESULT" || { echo "::error::host-script-idempotence failed"; exit 1; }
           ok "$DISPATCHER_SMOKE_RESULT" || { echo "::error::dispatcher-smoke failed"; exit 1; }
+          ok "$AUDIT_RESULT"            || { echo "::error::audit-no-container-cli failed"; exit 1; }

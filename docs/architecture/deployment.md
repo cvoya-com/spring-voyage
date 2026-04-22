@@ -143,13 +143,18 @@ The dispatcher is a host process rather than a container because the rootless Po
 
 ### HTTP contract
 
-| Method | Path                        | Purpose |
-| ------ | --------------------------- | ------- |
-| POST   | `/v1/containers`            | Run (blocking) or start (detached) a container. `detached=true` returns as soon as the container is up; `detached=false` waits for exit and returns stdout/stderr/exitCode. |
-| DELETE | `/v1/containers/{id}`       | Stop and remove a running container. 404 is treated as a no-op (already gone) to keep parity with the in-process runtime. |
-| GET    | `/health`                   | Unauthenticated liveness. |
+| Method | Path                              | Purpose |
+| ------ | --------------------------------- | ------- |
+| POST   | `/v1/containers`                  | Run (blocking) or start (detached) a container. `detached=true` returns as soon as the container is up; `detached=false` waits for exit and returns stdout/stderr/exitCode. |
+| GET    | `/v1/containers/{id}/logs`        | Read combined stdout/stderr (tail-bounded). |
+| POST   | `/v1/containers/{id}/probe`       | Run a one-shot HTTP probe (`wget --spider`) inside the named container's network namespace. Returns `{ healthy: bool }`. Used by `DaprSidecarManager` to poll `/v1.0/healthz` on a sidecar without holding a worker-side container CLI binding. |
+| DELETE | `/v1/containers/{id}`             | Stop and remove a running container. 404 is treated as a no-op (already gone) to keep parity with the in-process runtime. |
+| POST   | `/v1/images/pull`                 | Pull an image into the dispatcher's local image store. 504 ↔ `TimeoutException`, 502 ↔ `InvalidOperationException` so `PullImageActivity`'s existing classification keeps working. |
+| POST   | `/v1/networks`                    | Create a container network. Idempotent: a second create with the same name returns 200, not 409. |
+| DELETE | `/v1/networks/{name}`             | Remove a container network. Idempotent: removing a missing network returns 204, not 404. |
+| GET    | `/health`                         | Unauthenticated liveness. |
 
-Request and response bodies are JSON. The request shape is close to `Cvoya.Spring.Core.Execution.ContainerConfig` — `image`, `command`, `env`, `mounts`, `workdir`, `timeoutSeconds`, `network`, `labels`, `extraHosts`, `detached`, plus an optional `workspace: { mountPath, files }` envelope (see below). The response is `{ id, exitCode?, stdout?, stderr? }`.
+Request and response bodies are JSON. The container request shape is close to `Cvoya.Spring.Core.Execution.ContainerConfig` — `image`, `command`, `env`, `mounts`, `workdir`, `timeoutSeconds`, `network`, `labels`, `extraHosts`, `detached`, plus an optional `workspace: { mountPath, files }` envelope (see below). The container response is `{ id, exitCode?, stdout?, stderr? }`. The probe surface is deliberately narrower than a generic `exec`: a URL string and a boolean answer, no shell expansion, no stdout capture — sufficient for sidecar health polling, no general-purpose RCE seam (see [ADR 0012](../decisions/0012-spring-dispatcher-service-extraction.md)).
 
 ### Per-invocation workspace materialisation
 
@@ -180,13 +185,13 @@ Extracting the runtime to a separate service means the worker's container-launch
 
 ### Dapr sidecar bootstrap
 
-Workflow containers (not agent containers) typically need their own Dapr sidecar. `ContainerLifecycleManager` + `DaprSidecarManager` (both in `Cvoya.Spring.Dapr.Execution`) compose this flow:
+Workflow containers (not agent containers) typically need their own Dapr sidecar. `ContainerLifecycleManager` + `DaprSidecarManager` (both in `Cvoya.Spring.Dapr.Execution`) compose this flow, with **every** container operation routed through the dispatcher (Stage 2 of [#522](https://github.com/cvoya-com/spring-voyage/issues/522) — the worker no longer holds any podman/docker binding of its own):
 
-1. Create a bridge network (`spring-net-<guid>`).
-2. Start the Dapr sidecar container (`daprio/daprd:latest`) with the app id, ports, and components path the workflow needs.
-3. Wait for the sidecar to report healthy.
-4. Start the workflow container on the same network so app-to-sidecar traffic stays in-network.
-5. Tear down sidecar and network when the app container exits.
+1. Create a bridge network (`spring-net-<guid>`) via `POST /v1/networks`.
+2. Start the Dapr sidecar container (`daprio/daprd:latest`) with the app id, ports, and components path the workflow needs (`POST /v1/containers`, detached). Image and health knobs (`Image`, `HealthTimeout`, `HealthPollInterval`, `ComponentsPath`) bind from the `Dapr:Sidecar` config section — see `DaprSidecarOptions`.
+3. Poll the sidecar's `/v1.0/healthz` from inside its container via `POST /v1/containers/{id}/probe` until healthy or the configured timeout elapses.
+4. Start the workflow container on the same network so app-to-sidecar traffic stays in-network (`POST /v1/containers`, detached).
+5. Tear down sidecar (`DELETE /v1/containers/{id}`), workflow container, and network (`DELETE /v1/networks/{name}`) when the app container exits.
 
 `WorkflowOrchestrationStrategy` drives this pattern for every workflow dispatch (see [Workflows](workflows.md#workflow-as-container-primary-model)). Agent containers, by contrast, do **not** get a per-container Dapr sidecar — they speak A2A directly to the dispatcher and reach platform services via the host-level MCP server.
 

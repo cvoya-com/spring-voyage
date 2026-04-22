@@ -30,6 +30,8 @@ public static class ContainersEndpoints
             new(6004, nameof(DispatcherRejected));
         public static readonly Microsoft.Extensions.Logging.EventId ContainerLogsRequested =
             new(6005, nameof(ContainerLogsRequested));
+        public static readonly Microsoft.Extensions.Logging.EventId ContainerProbeRequested =
+            new(6006, nameof(ContainerProbeRequested));
     }
 
     /// <summary>
@@ -41,6 +43,7 @@ public static class ContainersEndpoints
 
         group.MapPost("/", RunOrStartAsync);
         group.MapGet("/{id}/logs", GetLogsAsync);
+        group.MapPost("/{id}/probe", ProbeAsync);
         group.MapDelete("/{id}", StopAsync);
 
         return endpoints;
@@ -229,6 +232,49 @@ public static class ContainersEndpoints
                 Message = $"Container '{id}' is not known to the dispatcher.",
             });
         }
+    }
+
+    /// <summary>
+    /// <c>POST /v1/containers/{id}/probe</c> — run a one-shot HTTP probe
+    /// (<c>wget --spider</c>) inside the named container's network
+    /// namespace and return whether the URL answered 2xx. Used by the
+    /// worker-side <c>DaprSidecarManager</c> to poll
+    /// <c>/v1.0/healthz</c> on a sidecar without holding its own
+    /// container CLI binding (Stage 2 of #522 / #1063).
+    /// </summary>
+    internal static async Task<IResult> ProbeAsync(
+        string id,
+        [FromBody] ProbeContainerHttpRequest request,
+        IContainerRuntime runtime,
+        ILoggerFactory loggerFactory,
+        CancellationToken cancellationToken)
+    {
+        var logger = loggerFactory.CreateLogger("Cvoya.Spring.Dispatcher.Containers");
+
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return Results.BadRequest(new DispatcherErrorResponse
+            {
+                Code = "id_required",
+                Message = "Container id is required.",
+            });
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Url))
+        {
+            return Results.BadRequest(new DispatcherErrorResponse
+            {
+                Code = "url_required",
+                Message = "Field 'url' is required.",
+            });
+        }
+
+        logger.LogInformation(
+            EventIds.ContainerProbeRequested,
+            "Probing container id={ContainerId} url={Url}", id, request.Url);
+
+        var healthy = await runtime.ProbeContainerHttpAsync(id, request.Url, cancellationToken);
+        return Results.Ok(new ProbeContainerHttpResponse { Healthy = healthy });
     }
 
     /// <summary>

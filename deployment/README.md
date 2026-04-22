@@ -672,10 +672,38 @@ spring-user-<uid>     per-user network for that user's agent execution container
 ```
 
 `ContainerLifecycleManager` creates the per-user network on demand via
-`IContainerRuntime.EnsureNetworkAsync`. The `ensure-user-net` deploy command
-exists so operators can pre-create networks (e.g., when running a pre-warmed
-pool). Networks created by the script are safe to re-run — `podman network
-exists` gates the create call.
+`IContainerRuntime.CreateNetworkAsync`, which the worker resolves to
+`DispatcherClientContainerRuntime` and forwards to `POST /v1/networks`
+on the dispatcher (Stage 2 of [#522](https://github.com/cvoya-com/spring-voyage/issues/522) — the worker holds no
+container CLI binding of its own any more). Both `CreateNetworkAsync`
+and `RemoveNetworkAsync` are idempotent on the dispatcher side — re-creating
+an existing network returns 200, removing a missing one returns 204 — so
+the lifecycle manager's teardown sweep is safe after a partial-failure
+boot. The `ensure-user-net` deploy command exists so operators can
+pre-create networks (e.g., when running a pre-warmed pool); it shells out
+to `podman` directly because it runs on the dispatcher host outside the
+worker process.
+
+## Dapr sidecar configuration
+
+`DaprSidecarManager` launches the Dapr sidecar containers that workflow
+containers need; like the rest of the worker's container surface, it
+routes through the dispatcher (Stage 2 of #522). The image and health
+knobs bind from the **`Dapr:Sidecar`** configuration section
+(`DaprSidecarOptions`):
+
+| Key                              | Default                | Purpose                                                        |
+| -------------------------------- | ---------------------- | -------------------------------------------------------------- |
+| `Dapr:Sidecar:Image`             | `daprio/daprd:latest`  | Container image used to launch sidecars. Pin to a specific Dapr minor version (`daprio/daprd:1.14.4`) for production. |
+| `Dapr:Sidecar:HealthTimeout`     | `00:00:30`             | Maximum time the manager polls `/v1.0/healthz` before giving up. |
+| `Dapr:Sidecar:HealthPollInterval`| `00:00:00.500`         | Polling interval. Kept short so a sub-second daprd boot doesn't pay the full timeout. |
+| `Dapr:Sidecar:ComponentsPath`    | (unset)                | Optional host path to a Dapr components directory the sidecar bind-mounts at `/components`. Replaces the previous `ContainerRuntime:DaprComponentsPath` key — same file path, new section. |
+
+The migration note matters: hosts that previously bound
+`ContainerRuntime:DaprComponentsPath` should rebind to
+`Dapr:Sidecar:ComponentsPath` (or the env-var form
+`Dapr__Sidecar__ComponentsPath`). The worker no longer reads
+`ContainerRuntime:*` at all — that section is dispatcher-only now.
 
 ## Related documentation
 

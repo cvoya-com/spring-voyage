@@ -284,6 +284,20 @@ public sealed class UnitValidationCredentialLeakTests : IDisposable
 
         public Task<string> GetLogsAsync(string containerId, int tail = 200, CancellationToken ct = default)
             => Task.FromResult(string.Empty);
+
+        // Stage 2 (#522) added network + container-probe ops to
+        // IContainerRuntime. The canary doesn't use them, but the harness
+        // still has to satisfy the interface. Throw on the surfaces a
+        // future test could accidentally route through this stub so a
+        // silent no-op never masks a regression.
+        public Task CreateNetworkAsync(string name, CancellationToken ct = default)
+            => throw new NotSupportedException("canary harness does not create networks");
+
+        public Task RemoveNetworkAsync(string name, CancellationToken ct = default)
+            => Task.CompletedTask;
+
+        public Task<bool> ProbeContainerHttpAsync(string containerId, string url, CancellationToken ct = default)
+            => throw new NotSupportedException("canary harness does not probe containers");
     }
 
     /// <summary>

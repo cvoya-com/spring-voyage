@@ -139,4 +139,56 @@ if grep -E 'Exit code: 125|exit-125|exit code 125' "${LOG_FILE}" >/dev/null 2>&1
     exit 1
 fi
 
-echo "[smoke] dispatcher round-trip succeeded (exitCode=0, stdout='ok', no exit-125 in log)"
+# Stage 2 of #522 added /v1/networks and /v1/images/pull endpoints to
+# replace the worker-side podman/docker shellouts. We exercise both
+# round-trips here so a regression in their wiring (404 from a missing
+# route, 401 from auth misconfig) trips the smoke instead of waiting
+# for a full e2e run to surface it. Network ops are idempotent on the
+# dispatcher side — re-running the smoke against the same state dir
+# does not require manual cleanup.
+SMOKE_NET_NAME="spring-smoke-net-${RANDOM}-${RANDOM}"
+NET_URL="http://${TEST_HOST}:${TEST_PORT}/v1/networks"
+
+echo "[smoke] POST ${NET_URL} (create ${SMOKE_NET_NAME})"
+NET_CODE="$(curl -sS -o /dev/null -w '%{http_code}' \
+    --max-time 30 \
+    -H "Authorization: Bearer ${TOKEN}" \
+    -H 'Content-Type: application/json' \
+    -X POST \
+    -d "{\"name\":\"${SMOKE_NET_NAME}\"}" \
+    "${NET_URL}" || echo 000)"
+if [[ "${NET_CODE}" != "200" ]]; then
+    echo "[smoke] /v1/networks POST returned ${NET_CODE} (expected 200)"
+    exit 1
+fi
+
+echo "[smoke] DELETE ${NET_URL}/${SMOKE_NET_NAME}"
+NET_DEL_CODE="$(curl -sS -o /dev/null -w '%{http_code}' \
+    --max-time 30 \
+    -H "Authorization: Bearer ${TOKEN}" \
+    -X DELETE \
+    "${NET_URL}/${SMOKE_NET_NAME}" || echo 000)"
+if [[ "${NET_DEL_CODE}" != "204" ]]; then
+    echo "[smoke] /v1/networks DELETE returned ${NET_DEL_CODE} (expected 204)"
+    exit 1
+fi
+
+# Image pull through /v1/images/pull. We re-pull the same alpine image
+# the run step above used; podman/docker treat this as a no-op when
+# the image is already cached locally, so the round-trip is fast even
+# on the second invocation in a single CI job.
+PULL_URL="http://${TEST_HOST}:${TEST_PORT}/v1/images/pull"
+echo "[smoke] POST ${PULL_URL} (alpine:latest)"
+PULL_CODE="$(curl -sS -o /dev/null -w '%{http_code}' \
+    --max-time 180 \
+    -H "Authorization: Bearer ${TOKEN}" \
+    -H 'Content-Type: application/json' \
+    -X POST \
+    -d '{"image":"docker.io/library/alpine:latest","timeoutSeconds":120}' \
+    "${PULL_URL}" || echo 000)"
+if [[ "${PULL_CODE}" != "200" ]]; then
+    echo "[smoke] /v1/images/pull POST returned ${PULL_CODE} (expected 200)"
+    exit 1
+fi
+
+echo "[smoke] dispatcher round-trip succeeded (run + network create/remove + image pull, no exit-125 in log)"

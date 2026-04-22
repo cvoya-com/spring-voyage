@@ -218,6 +218,112 @@ public class ProcessContainerRuntime(
         return stdout + stderr;
     }
 
+    /// <inheritdoc />
+    public async Task CreateNetworkAsync(string name, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        _logger.LogInformation(
+            "Creating container network {NetworkName} using {Binary}", name, binaryName);
+
+        var (exitCode, _, stderr) = await RunProcessAsync(
+            binaryName, $"network create {name}", ct);
+
+        if (exitCode == 0)
+        {
+            return;
+        }
+
+        // Idempotency: both podman and docker emit "already exists" on stderr
+        // when the network is already present. Match that and treat as success
+        // so the lifecycle manager can call this once per boot without first
+        // doing a `network inspect` round-trip. Substring match (rather than
+        // an exact regex) because both runtimes pad the message slightly
+        // differently across versions ("network with name X already exists",
+        // "network X already exists", "Error response from daemon: network
+        // with name X already exists").
+        if (stderr.Contains("already exists", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogInformation(
+                "Container network {NetworkName} already exists; treating create as no-op", name);
+            return;
+        }
+
+        throw new InvalidOperationException(
+            $"Failed to create container network {name}. Exit code: {exitCode}. Stderr: {stderr}");
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> ProbeContainerHttpAsync(string containerId, string url, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(containerId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(url);
+
+        // wget exit codes worth knowing:
+        //   0 — request succeeded (2xx)
+        //   1..8 — request failed (DNS / connection / non-2xx)
+        // We map every non-zero into "false" because callers (sidecar health
+        // polling) treat the result as a single bit. The shell-out here is
+        // intentionally small: no flags beyond -q --spider so we don't
+        // accidentally widen the attack surface beyond what the original
+        // worker-side `podman exec ... wget` did.
+        var args = $"exec {containerId} wget -q --spider {url}";
+
+        try
+        {
+            var (exitCode, _, _) = await RunProcessAsync(binaryName, args, ct);
+            return exitCode == 0;
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            // Local timeout on the underlying RunProcessAsync — propagate
+            // false so the polling loop just waits and tries again.
+            return false;
+        }
+        catch (Exception ex)
+        {
+            // wget missing / container exited / runtime crashed — collapse
+            // to false so the caller's polling loop is the only place that
+            // owns timeout + retry semantics.
+            _logger.LogDebug(
+                ex,
+                "Probe of {Url} inside container {ContainerId} failed: {Message}",
+                url, containerId, ex.Message);
+            return false;
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task RemoveNetworkAsync(string name, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        _logger.LogInformation(
+            "Removing container network {NetworkName} using {Binary}", name, binaryName);
+
+        var (exitCode, _, stderr) = await RunProcessAsync(
+            binaryName, $"network rm {name}", ct);
+
+        if (exitCode == 0)
+        {
+            return;
+        }
+
+        // Idempotency mirrors CreateNetworkAsync: a missing network on remove
+        // is success. Both runtimes report "no such network" (docker) or
+        // "network not found" / "network <name> not found" (podman).
+        if (stderr.Contains("no such network", StringComparison.OrdinalIgnoreCase)
+            || stderr.Contains("not found", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogInformation(
+                "Container network {NetworkName} did not exist; treating remove as no-op", name);
+            return;
+        }
+
+        throw new InvalidOperationException(
+            $"Failed to remove container network {name}. Exit code: {exitCode}. Stderr: {stderr}");
+    }
+
     /// <summary>
     /// Builds the argument string for the container run command.
     /// </summary>

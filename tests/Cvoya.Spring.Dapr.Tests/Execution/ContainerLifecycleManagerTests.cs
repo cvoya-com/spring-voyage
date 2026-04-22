@@ -25,16 +25,20 @@ public class ContainerLifecycleManagerTests
     private readonly IDaprSidecarManager _sidecarManager = Substitute.For<IDaprSidecarManager>();
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
     private readonly ContainerLifecycleManager _manager;
-    private readonly ContainerRuntimeOptions _options;
+    private readonly DaprSidecarOptions _sidecarOptions;
 
     public ContainerLifecycleManagerTests()
     {
         _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
-        _options = new ContainerRuntimeOptions { RuntimeType = "docker" };
+        // Stage 2 of #522: ContainerLifecycleManager dropped its
+        // ContainerRuntimeOptions dependency (network ops now route through
+        // IContainerRuntime). The only options it still reads is the Dapr
+        // sidecar's components-path knob, which moved to DaprSidecarOptions.
+        _sidecarOptions = new DaprSidecarOptions();
         _manager = new ContainerLifecycleManager(
             _containerRuntime,
             _sidecarManager,
-            Options.Create(_options),
+            Options.Create(_sidecarOptions),
             _loggerFactory);
     }
 

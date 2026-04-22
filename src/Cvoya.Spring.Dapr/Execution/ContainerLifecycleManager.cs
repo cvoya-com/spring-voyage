@@ -3,8 +3,6 @@
 
 namespace Cvoya.Spring.Dapr.Execution;
 
-using System.Diagnostics;
-
 using Cvoya.Spring.Core.Execution;
 
 using Microsoft.Extensions.Logging;
@@ -13,17 +11,21 @@ using Microsoft.Extensions.Options;
 /// <summary>
 /// Composes <see cref="IContainerRuntime"/> and <see cref="IDaprSidecarManager"/> to manage
 /// the full lifecycle of an application container with its Dapr sidecar.
+/// Stage 2 of #522 / #1063 removed the worker-side <c>Process.Start</c>
+/// calls this class held for network create/remove; both now route through
+/// <see cref="IContainerRuntime.CreateNetworkAsync"/> and
+/// <see cref="IContainerRuntime.RemoveNetworkAsync"/> on the dispatcher.
 /// </summary>
 public class ContainerLifecycleManager(
     IContainerRuntime containerRuntime,
     IDaprSidecarManager sidecarManager,
-    IOptions<ContainerRuntimeOptions> options,
+    IOptions<DaprSidecarOptions> sidecarOptions,
     ILoggerFactory loggerFactory)
 {
     private static readonly TimeSpan DefaultHealthTimeout = TimeSpan.FromSeconds(30);
 
     private readonly ILogger _logger = loggerFactory.CreateLogger<ContainerLifecycleManager>();
-    private readonly ContainerRuntimeOptions _options = options.Value;
+    private readonly DaprSidecarOptions _sidecarOptions = sidecarOptions.Value;
 
     /// <summary>
     /// Launches an application container with a Dapr sidecar on a shared network.
@@ -58,7 +60,7 @@ public class ContainerLifecycleManager(
                 AppPort: appPort,
                 DaprHttpPort: daprHttpPort,
                 DaprGrpcPort: daprGrpcPort,
-                ComponentsPath: _options.DaprComponentsPath,
+                ComponentsPath: _sidecarOptions.ComponentsPath,
                 NetworkName: networkName);
 
             sidecarInfo = await sidecarManager.StartSidecarAsync(sidecarConfig, ct);
@@ -160,16 +162,19 @@ public class ContainerLifecycleManager(
             EventIds.NetworkCreating,
             "Creating container network {NetworkName}", networkName);
 
-        var (exitCode, _, stderr) = await RunProcessAsync(
-            _options.RuntimeType, $"network create {networkName}", ct);
-
-        if (exitCode != 0)
+        try
+        {
+            // Stage 2 of #522 routed network create through the dispatcher
+            // (idempotent: a pre-existing network is treated as success).
+            await containerRuntime.CreateNetworkAsync(networkName, ct);
+        }
+        catch (Exception ex)
         {
             _logger.LogError(
                 EventIds.NetworkCreateFailed,
-                "Failed to create network {NetworkName}. Stderr: {Stderr}", networkName, stderr);
-            throw new InvalidOperationException(
-                $"Failed to create network {networkName}. Stderr: {stderr}");
+                ex,
+                "Failed to create network {NetworkName}", networkName);
+            throw;
         }
     }
 
@@ -177,39 +182,16 @@ public class ContainerLifecycleManager(
     {
         try
         {
-            await RunProcessAsync(_options.RuntimeType, $"network rm {networkName}", ct);
+            // Idempotent on missing — the dispatcher swallows
+            // "no such network" and returns 204. The catch below covers the
+            // dispatcher itself being unreachable during teardown so a
+            // partial-failure boot can still complete its best-effort sweep.
+            await containerRuntime.RemoveNetworkAsync(networkName, ct);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to remove network {NetworkName}", networkName);
         }
-    }
-
-    private static async Task<(int ExitCode, string Stdout, string Stderr)> RunProcessAsync(
-        string fileName, string arguments, CancellationToken ct)
-    {
-        using var process = new Process();
-        process.StartInfo = new ProcessStartInfo
-        {
-            FileName = fileName,
-            Arguments = arguments,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-
-        process.Start();
-
-        var stdoutTask = process.StandardOutput.ReadToEndAsync(ct);
-        var stderrTask = process.StandardError.ReadToEndAsync(ct);
-
-        await process.WaitForExitAsync(ct);
-
-        var stdout = await stdoutTask;
-        var stderr = await stderrTask;
-
-        return (process.ExitCode, stdout, stderr);
     }
 
     /// <summary>
