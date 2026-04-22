@@ -32,27 +32,40 @@ public static class UnitCommand
     };
 
     /// <summary>
-    /// Unified member-list row emitted by <c>unit members list</c> (#352). Agent-
-    /// scheme rows carry per-membership config overrides; unit-scheme rows leave
-    /// those fields null because sub-unit memberships have no per-child config
-    /// today (deferred to #217). The explicit <c>Scheme</c> column lets scripts
-    /// filter with <c>jq '.[] | select(.scheme == "unit")'</c> without having to
-    /// reason about address-prefix conventions.
+    /// Unified member-list row emitted by <c>unit members list</c> (#352, #1028).
+    /// Field names now mirror the API's <c>UnitMembershipResponse</c> wire shape
+    /// (<c>unitId</c>, <c>agentAddress</c>, plus <c>createdAt</c> / <c>updatedAt</c>
+    /// / <c>isPrimary</c>) so scripts consuming <c>GET /memberships</c>, the
+    /// <c>members add</c> response, and <c>members list --output json</c> can
+    /// share one jq expression. Agent-scheme rows carry per-membership config
+    /// overrides; unit-scheme rows leave the agent-only fields null because
+    /// sub-unit memberships have no per-child config today (deferred to #217) —
+    /// their member identity is carried in <c>subUnitId</c> instead. The
+    /// explicit <c>Scheme</c> column lets scripts filter with
+    /// <c>jq '.[] | select(.scheme == "unit")'</c>.
     /// </summary>
     private sealed record MemberListRow(
         string Scheme,
-        string Member,
-        string Unit,
+        string UnitId,
+        string? AgentAddress,
+        string? SubUnitId,
         string? Model,
         string? Specialty,
         bool? Enabled,
-        string? ExecutionMode);
+        string? ExecutionMode,
+        DateTimeOffset? CreatedAt,
+        DateTimeOffset? UpdatedAt,
+        bool? IsPrimary);
 
+    // Table columns preserve the pre-#1028 "scheme / member / unit" human-readable
+    // layout so terminal output stays stable; `member` resolves to whichever id
+    // identifies the row (agent slug or sub-unit slug). The JSON shape carries
+    // the full API-aligned field set.
     private static readonly OutputFormatter.Column<MemberListRow>[] MemberListColumns =
     {
         new("scheme", r => r.Scheme),
-        new("member", r => r.Member),
-        new("unit", r => r.Unit),
+        new("member", r => r.AgentAddress ?? r.SubUnitId),
+        new("unit", r => r.UnitId),
         new("model", r => r.Model),
         new("specialty", r => r.Specialty),
         new("enabled", r => r.Enabled?.ToString().ToLowerInvariant()),
@@ -670,6 +683,27 @@ public static class UnitCommand
     }
 
     /// <summary>
+    /// #1027: detects the API's 409 "agent's last unit membership" response
+    /// (thrown by <c>MembershipEndpoints.DeleteMembershipAsync</c> when the
+    /// repository surfaces <c>AgentMembershipRequiredException</c>). Matched
+    /// on status + canonical title so the cascading purge in
+    /// <c>CreatePurgeCommand</c> can fall through to <c>DeleteAgentAsync</c>
+    /// to complete the #652 cascade contract without breaking the
+    /// every-agent-has-&#x2265;1-unit invariant.
+    /// </summary>
+    private const string LastMembershipConflictTitle = "Agent must belong to at least one unit";
+
+    private static bool IsLastMembershipConflict(ApiException ex)
+    {
+        if (ex.ResponseStatusCode != 409)
+        {
+            return false;
+        }
+        return ex is ProblemDetails problem
+            && string.Equals(problem.Title, LastMembershipConflictTitle, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// First-class <c>spring unit create-from-template &lt;package&gt;/&lt;template-name&gt;</c>
     /// verb (#460). Mirrors the legacy <c>--from-template</c> flag on
     /// <c>create</c> but surfaces template instantiation as a distinct verb
@@ -1026,24 +1060,49 @@ public static class UnitCommand
 
             var client = ClientFactory.Create();
 
-            // Step 1: enumerate memberships so the user sees exactly what is cascading.
-            var memberships = await client.ListUnitMembershipsAsync(id, ct);
-            Console.WriteLine(
-                $"Purging unit '{id}': {memberships.Count} membership(s) to remove before the unit itself.");
-
-            // Step 2: delete each membership row. We fail loud on the first error so
-            // the caller can investigate before the unit itself disappears.
-            foreach (var membership in memberships)
+            try
             {
-                var agentAddress = membership.AgentAddress ?? string.Empty;
-                Console.WriteLine($"  - removing membership for agent '{agentAddress}'");
-                await client.DeleteMembershipAsync(id, agentAddress, ct);
-            }
+                // Step 1: enumerate memberships so the user sees exactly what is cascading.
+                var memberships = await client.ListUnitMembershipsAsync(id, ct);
+                Console.WriteLine(
+                    $"Purging unit '{id}': {memberships.Count} membership(s) to remove before the unit itself.");
 
-            // Step 3: delete the unit.
-            Console.WriteLine($"  - deleting unit '{id}'");
-            await client.DeleteUnitAsync(id, ct);
-            Console.WriteLine($"Unit '{id}' purged.");
+                // Step 2: delete each membership row. When the API refuses the
+                // delete with 409 "agent's last unit membership" (#744 / #823),
+                // honour the #652 cascade contract by deleting the agent
+                // itself — that path cascades through the repository's
+                // DeleteAllForAgentAsync and removes the membership edge at
+                // the same time. Any other ApiException falls through to the
+                // outer catch so the operator sees the server's message
+                // verbatim instead of a Kiota stack trace (#1026).
+                foreach (var membership in memberships)
+                {
+                    var agentAddress = membership.AgentAddress ?? string.Empty;
+                    Console.WriteLine($"  - removing membership for agent '{agentAddress}'");
+                    try
+                    {
+                        await client.DeleteMembershipAsync(id, agentAddress, ct);
+                    }
+                    catch (ApiException ex) when (IsLastMembershipConflict(ex))
+                    {
+                        Console.WriteLine(
+                            $"    - last unit membership for agent '{agentAddress}'; deleting the agent to complete the cascade");
+                        await client.DeleteAgentAsync(agentAddress, ct);
+                    }
+                }
+
+                // Step 3: delete the unit.
+                Console.WriteLine($"  - deleting unit '{id}'");
+                await client.DeleteUnitAsync(id, ct);
+                Console.WriteLine($"Unit '{id}' purged.");
+            }
+            catch (ApiException ex)
+            {
+                await Console.Error.WriteLineAsync(
+                    $"Failed to purge unit '{id}': {ExtractServerDetail(ex)}");
+                Environment.Exit(1);
+                return;
+            }
         });
 
         return command;
@@ -1220,25 +1279,34 @@ public static class UnitCommand
                 {
                     rows.Add(new MemberListRow(
                         Scheme: "agent",
-                        Member: path,
-                        Unit: m.UnitId ?? unitId,
+                        UnitId: m.UnitId ?? unitId,
+                        AgentAddress: path,
+                        SubUnitId: null,
                         Model: m.Model,
                         Specialty: m.Specialty,
                         Enabled: m.Enabled,
-                        ExecutionMode: m.ExecutionMode?.AgentExecutionMode?.ToString()));
+                        ExecutionMode: m.ExecutionMode?.AgentExecutionMode?.ToString(),
+                        CreatedAt: m.CreatedAt,
+                        UpdatedAt: m.UpdatedAt,
+                        IsPrimary: m.IsPrimary));
                     seenAgents.Add(path);
                 }
                 else
                 {
+                    var isAgent = string.Equals(scheme, "agent", StringComparison.Ordinal);
                     rows.Add(new MemberListRow(
                         Scheme: scheme,
-                        Member: path,
-                        Unit: unitId,
+                        UnitId: unitId,
+                        AgentAddress: isAgent ? path : null,
+                        SubUnitId: isAgent ? null : path,
                         Model: null,
                         Specialty: null,
                         Enabled: null,
-                        ExecutionMode: null));
-                    if (string.Equals(scheme, "agent", StringComparison.Ordinal))
+                        ExecutionMode: null,
+                        CreatedAt: null,
+                        UpdatedAt: null,
+                        IsPrimary: null));
+                    if (isAgent)
                     {
                         seenAgents.Add(path);
                     }
@@ -1257,12 +1325,16 @@ public static class UnitCommand
                 }
                 rows.Add(new MemberListRow(
                     Scheme: "agent",
-                    Member: address,
-                    Unit: m.UnitId ?? unitId,
+                    UnitId: m.UnitId ?? unitId,
+                    AgentAddress: address,
+                    SubUnitId: null,
                     Model: m.Model,
                     Specialty: m.Specialty,
                     Enabled: m.Enabled,
-                    ExecutionMode: m.ExecutionMode?.AgentExecutionMode?.ToString()));
+                    ExecutionMode: m.ExecutionMode?.AgentExecutionMode?.ToString(),
+                    CreatedAt: m.CreatedAt,
+                    UpdatedAt: m.UpdatedAt,
+                    IsPrimary: m.IsPrimary));
             }
 
             Console.WriteLine(output == "json"
@@ -1408,7 +1480,21 @@ public static class UnitCommand
             var agentId = parseResult.GetValue(agentOption)!;
             var client = ClientFactory.Create();
 
-            await client.DeleteMembershipAsync(unitId, agentId, ct);
+            try
+            {
+                await client.DeleteMembershipAsync(unitId, agentId, ct);
+            }
+            catch (ApiException ex)
+            {
+                // #1026: route the 409 "last membership" ProblemDetails (and
+                // every other structured error) through the shared formatter
+                // so operators see the server's title/detail rather than the
+                // Kiota exception stack.
+                await Console.Error.WriteLineAsync(
+                    $"Failed to remove membership for agent '{agentId}' from unit '{unitId}': {ExtractServerDetail(ex)}");
+                Environment.Exit(1);
+                return;
+            }
             Console.WriteLine($"Membership for agent '{agentId}' removed from unit '{unitId}'.");
         });
 
@@ -1501,14 +1587,29 @@ public static class UnitCommand
         var output = parseResult.GetValue(outputOption) ?? "table";
         var client = ClientFactory.Create();
 
-        var result = await client.UpsertMembershipAsync(
-            unitId,
-            inputs.AgentId,
-            inputs.Model,
-            inputs.Specialty,
-            inputs.Enabled,
-            inputs.ExecutionMode,
-            ct);
+        UnitMembershipResponse result;
+        try
+        {
+            result = await client.UpsertMembershipAsync(
+                unitId,
+                inputs.AgentId,
+                inputs.Model,
+                inputs.Specialty,
+                inputs.Enabled,
+                inputs.ExecutionMode,
+                ct);
+        }
+        catch (ApiException ex)
+        {
+            // #1026: surface the server's ProblemDetails (title / detail /
+            // extensions) instead of letting the raw Kiota exception leak
+            // as an unformatted stack trace. Exit 1 so scripts can detect
+            // the failure without parsing stderr.
+            await Console.Error.WriteLineAsync(
+                $"Failed to upsert membership for agent '{inputs.AgentId}' in unit '{unitId}': {ExtractServerDetail(ex)}");
+            Environment.Exit(1);
+            return;
+        }
 
         Console.WriteLine(output == "json"
             ? OutputFormatter.FormatJson(result)
