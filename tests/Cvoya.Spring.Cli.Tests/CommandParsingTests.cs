@@ -18,7 +18,10 @@ public class CommandParsingTests
         return new Option<string>("--output", "-o")
         {
             Description = "Output format",
-            DefaultValueFactory = _ => "table"
+            DefaultValueFactory = _ => "table",
+            // #1067 — mirror the production binding so tests catch
+            // regressions if someone removes Recursive from Program.cs.
+            Recursive = true,
         };
     }
 
@@ -131,6 +134,59 @@ public class CommandParsingTests
 
         parseResult.Errors.ShouldBeEmpty();
         parseResult.GetValue(outputOption).ShouldBe("table");
+    }
+
+    // --- #1067: --output bound recursively, accepts placement after subcommand --
+
+    [Fact]
+    public void OutputOption_PlacedAfterSubcommand_ParsesCleanly()
+    {
+        // #1067: System.CommandLine rejected `unit create demo --output json`
+        // because --output was bound to the root only. With Recursive=true
+        // the same flag is recognised on every subcommand regardless of
+        // placement — the e2e helpers no longer need their `_e2e_split_root_args`
+        // hoist.
+        var outputOption = CreateOutputOption();
+        var unitCommand = UnitCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(unitCommand);
+
+        var parseResult = rootCommand.Parse("unit create demo --output json");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue(outputOption).ShouldBe("json");
+        parseResult.GetValue<string>("name").ShouldBe("demo");
+    }
+
+    [Fact]
+    public void OutputOption_PlacedAfterDeepSubcommand_ParsesCleanly()
+    {
+        // The recursive binding has to survive nested subcommand chains too
+        // — e.g. `unit members list eng-team --output json`. If the option
+        // recursion stops at the first level, this would regress.
+        var outputOption = CreateOutputOption();
+        var unitCommand = UnitCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(unitCommand);
+
+        var parseResult = rootCommand.Parse("unit members list eng-team --output json");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue(outputOption).ShouldBe("json");
+    }
+
+    [Fact]
+    public void OutputOption_ShortAliasAfterSubcommand_ParsesCleanly()
+    {
+        var outputOption = CreateOutputOption();
+        var unitCommand = UnitCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(unitCommand);
+
+        var parseResult = rootCommand.Parse("unit create demo -o json");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue(outputOption).ShouldBe("json");
     }
 
     // --- #320: unit membership management commands ---

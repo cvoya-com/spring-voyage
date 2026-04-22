@@ -5,9 +5,12 @@ namespace Cvoya.Spring.Cli.Commands;
 
 using System.CommandLine;
 
+using Cvoya.Spring.Cli.ErrorHandling;
 using Cvoya.Spring.Cli.Generated.Models;
 using Cvoya.Spring.Cli.Output;
 using Cvoya.Spring.Cli.Utilities;
+
+using Microsoft.Kiota.Abstractions;
 
 /// <summary>
 /// Builds the "agent" command tree for agent management.
@@ -362,25 +365,38 @@ public static class AgentCommand
             }
 
             var client = ClientFactory.Create();
+            var renderContext = RenderContextFactory.For(
+                parseResult, $"Failed to purge agent '{id}'");
 
-            // Step 1: enumerate memberships so users see exactly what is cascading.
-            var memberships = await client.ListAgentMembershipsAsync(id, ct);
-            Console.WriteLine(
-                $"Purging agent '{id}': {memberships.Count} membership(s) to remove before the agent itself.");
-
-            // Step 2: remove the agent from each unit it belongs to. Fail loud on the
-            // first error so the caller can investigate before the agent is deleted.
-            foreach (var membership in memberships)
+            try
             {
-                var unitId = membership.UnitId ?? string.Empty;
-                Console.WriteLine($"  - removing membership from unit '{unitId}'");
-                await client.DeleteMembershipAsync(unitId, id, ct);
-            }
+                // Step 1: enumerate memberships so users see exactly what is cascading.
+                var memberships = await client.ListAgentMembershipsAsync(id, ct);
+                Console.WriteLine(
+                    $"Purging agent '{id}': {memberships.Count} membership(s) to remove before the agent itself.");
 
-            // Step 3: delete the agent record.
-            Console.WriteLine($"  - deleting agent '{id}'");
-            await client.DeleteAgentAsync(id, ct);
-            Console.WriteLine($"Agent '{id}' purged.");
+                // Step 2: remove the agent from each unit it belongs to. Fail loud on the
+                // first error so the caller can investigate before the agent is deleted.
+                foreach (var membership in memberships)
+                {
+                    var unitId = membership.UnitId ?? string.Empty;
+                    Console.WriteLine($"  - removing membership from unit '{unitId}'");
+                    await client.DeleteMembershipAsync(unitId, id, ct);
+                }
+
+                // Step 3: delete the agent record.
+                Console.WriteLine($"  - deleting agent '{id}'");
+                await client.DeleteAgentAsync(id, ct);
+                Console.WriteLine($"Agent '{id}' purged.");
+            }
+            catch (ApiException ex)
+            {
+                // #1068: route through the central renderer so JSON mode
+                // surfaces the same operator hints that prose mode does
+                // (forceHint / hint extensions on the API's purge gates).
+                var exitCode = ApiExceptionRenderer.Instance.Render(ex, renderContext);
+                Environment.Exit(exitCode);
+            }
         });
 
         return command;

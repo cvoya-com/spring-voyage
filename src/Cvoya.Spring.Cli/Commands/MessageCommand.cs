@@ -40,6 +40,7 @@ public static class MessageCommand
             var text = parseResult.GetValue(textArg)!;
             var conversationId = parseResult.GetValue(conversationOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
+            var verbose = parseResult.GetValue<bool>("--verbose");
             var (scheme, path) = AddressParser.Parse(address);
             var client = ClientFactory.Create();
 
@@ -54,8 +55,11 @@ public static class MessageCommand
                 ? result.ConversationId
                 : "n/a";
 
+            // #1064: pass `verbose` so the Kiota → System.Text.Json fallback
+            // surfaces a one-line warning when it kicks in, while keeping
+            // scripted output clean by default.
             Console.WriteLine(output == "json"
-                ? OutputFormatter.FormatJson(result)
+                ? OutputFormatter.FormatJson(result, verbose)
                 : $"Sent message {messageIdText} to {address} in conversation {conversationIdText}.");
         });
 

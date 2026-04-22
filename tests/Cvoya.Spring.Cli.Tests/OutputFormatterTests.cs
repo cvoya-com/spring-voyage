@@ -85,4 +85,92 @@ public class OutputFormatterTests
         result.ShouldContain("a1");
         result.ShouldContain("NAME");
     }
+
+    [Fact]
+    public void FormatJson_KiotaWriterThrows_FallsBackToSystemTextJson()
+    {
+        // #1064: the bundled Kiota JSON writer trips on certain Untyped*
+        // payloads with `'}' is invalid following a property name`. The
+        // formatter must fall back to System.Text.Json so `--output json`
+        // never crashes a CLI invocation. We force the failure with a
+        // model whose Serialize method writes a property name without a
+        // value — the same shape the real Utf8JsonWriter rejects.
+        var faulty = new FaultyKiotaModel { Id = "test" };
+
+        var result = OutputFormatter.FormatJson(faulty);
+
+        // Fallback uses STJ with camelCase + indented options. The
+        // resulting JSON should be parseable and carry the model's Id.
+        var parsed = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(result);
+        parsed.GetProperty("id").GetString().ShouldBe("test");
+    }
+
+    [Fact]
+    public void FormatJson_KiotaWriterThrows_VerboseEmitsWarningToStderr()
+    {
+        // The fallback should be silent by default (don't pollute scripted
+        // output) but emit a one-line warning when --verbose is passed so
+        // operators know why the wire-format may differ.
+        var originalStderr = Console.Error;
+        try
+        {
+            using var stderr = new System.IO.StringWriter();
+            Console.SetError(stderr);
+
+            var faulty = new FaultyKiotaModel { Id = "x" };
+            _ = OutputFormatter.FormatJson(faulty, verbose: true);
+
+            stderr.ToString().ShouldContain("kiota serializer failed");
+            stderr.ToString().ShouldContain("System.Text.Json");
+        }
+        finally
+        {
+            Console.SetError(originalStderr);
+        }
+    }
+
+    [Fact]
+    public void FormatJson_KiotaWriterThrows_DefaultModeIsSilent()
+    {
+        var originalStderr = Console.Error;
+        try
+        {
+            using var stderr = new System.IO.StringWriter();
+            Console.SetError(stderr);
+
+            var faulty = new FaultyKiotaModel { Id = "x" };
+            _ = OutputFormatter.FormatJson(faulty);
+
+            stderr.ToString().ShouldBeEmpty();
+        }
+        finally
+        {
+            Console.SetError(originalStderr);
+        }
+    }
+
+    /// <summary>
+    /// Stands in for the Kiota model that triggered #1064 — directly
+    /// throws <see cref="InvalidOperationException"/> from
+    /// <c>Serialize</c> with the same message the real
+    /// <c>Utf8JsonWriter.WriteEndObject</c> validation throws. The
+    /// formatter only cares about catching the exception type and
+    /// falling back to STJ; the precise root cause inside Kiota is the
+    /// subject of #1064's investigation, not the CLI fix.
+    /// </summary>
+    private sealed class FaultyKiotaModel : Microsoft.Kiota.Abstractions.Serialization.IParsable
+    {
+        public string? Id { get; set; }
+
+        public IDictionary<string, Action<Microsoft.Kiota.Abstractions.Serialization.IParseNode>> GetFieldDeserializers()
+            => new Dictionary<string, Action<Microsoft.Kiota.Abstractions.Serialization.IParseNode>>();
+
+        public void Serialize(Microsoft.Kiota.Abstractions.Serialization.ISerializationWriter writer)
+        {
+            // Same exception type and message the Kiota JsonSerializationWriter
+            // surfaces when the underlying Utf8JsonWriter rejects a
+            // half-written object in production (see #1064 stack trace).
+            throw new InvalidOperationException("'}' is invalid following a property name.");
+        }
+    }
 }

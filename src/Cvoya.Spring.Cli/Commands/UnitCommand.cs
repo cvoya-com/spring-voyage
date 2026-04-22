@@ -1059,6 +1059,8 @@ public static class UnitCommand
             }
 
             var client = ClientFactory.Create();
+            var renderContext = ErrorHandling.RenderContextFactory.For(
+                parseResult, $"Failed to purge unit '{id}'");
 
             try
             {
@@ -1098,9 +1100,12 @@ public static class UnitCommand
             }
             catch (ApiException ex)
             {
-                await Console.Error.WriteLineAsync(
-                    $"Failed to purge unit '{id}': {ExtractServerDetail(ex)}");
-                Environment.Exit(1);
+                // #1068: route through the central renderer so the JSON
+                // path mirrors the prose path — both surface the
+                // forceHint/hint extensions the API emits on the
+                // "stop before purging" gate so scripts can auto-recover.
+                var exitCode = ErrorHandling.ApiExceptionRenderer.Instance.Render(ex, renderContext);
+                Environment.Exit(exitCode);
                 return;
             }
         });

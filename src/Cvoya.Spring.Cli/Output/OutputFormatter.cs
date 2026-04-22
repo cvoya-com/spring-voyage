@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 using Microsoft.Kiota.Abstractions.Serialization;
@@ -108,33 +109,77 @@ public static class OutputFormatter
     /// Serialises a Kiota <see cref="IParsable"/> model as wire-format JSON. Uses Kiota's
     /// own JSON writer so property names match the OpenAPI contract (camelCase) rather
     /// than the C# PascalCase that <c>System.Text.Json</c> would emit.
+    ///
+    /// #1064: certain Kiota models (notably the <c>POST /messages</c>
+    /// response, which carries an <c>UntypedNode</c> payload slot) trip
+    /// the bundled <c>JsonSerializationWriter</c> with
+    /// <c>InvalidOperationException: '}' is invalid following a property name</c>.
+    /// Rather than fail the whole CLI invocation we fall back to
+    /// <see cref="JsonSerializer"/> with the same casing/indentation; the
+    /// resulting JSON is functionally equivalent for scripted consumers
+    /// (camelCase, indented, no <c>additionalData</c> wrapping). Pass
+    /// <paramref name="verbose"/> to surface the underlying writer error
+    /// to stderr so operators can see why the fallback fired.
     /// </summary>
-    public static string FormatJson<T>(T value) where T : IParsable
+    public static string FormatJson<T>(T value, bool verbose = false) where T : IParsable
     {
-        using var writer = JsonWriterFactory.GetSerializationWriter("application/json");
-        writer.WriteObjectValue(null, value);
-        using var stream = writer.GetSerializedContent();
-        return ReadIndented(stream);
+        try
+        {
+            using var writer = JsonWriterFactory.GetSerializationWriter("application/json");
+            writer.WriteObjectValue(null, value);
+            using var stream = writer.GetSerializedContent();
+            return ReadIndented(stream);
+        }
+        catch (Exception ex) when (IsRetryableSerializerFailure(ex))
+        {
+            if (verbose)
+            {
+                Console.Error.WriteLine(
+                    $"warn: kiota serializer failed, fell back to System.Text.Json: {ex.Message}");
+            }
+            return JsonSerializer.Serialize(value, value?.GetType() ?? typeof(T), PlainJsonOptions);
+        }
     }
 
     /// <summary>Serialises a sequence of Kiota models as a wire-format JSON array.</summary>
-    public static string FormatJson<T>(IEnumerable<T> values) where T : IParsable
+    public static string FormatJson<T>(IEnumerable<T> values, bool verbose = false) where T : IParsable
     {
-        using var writer = JsonWriterFactory.GetSerializationWriter("application/json");
-        writer.WriteCollectionOfObjectValues(null, values);
-        using var stream = writer.GetSerializedContent();
-        return ReadIndented(stream);
+        try
+        {
+            using var writer = JsonWriterFactory.GetSerializationWriter("application/json");
+            writer.WriteCollectionOfObjectValues(null, values);
+            using var stream = writer.GetSerializedContent();
+            return ReadIndented(stream);
+        }
+        catch (Exception ex) when (IsRetryableSerializerFailure(ex))
+        {
+            if (verbose)
+            {
+                Console.Error.WriteLine(
+                    $"warn: kiota serializer failed, fell back to System.Text.Json: {ex.Message}");
+            }
+            return JsonSerializer.Serialize(values, PlainJsonOptions);
+        }
     }
+
+    // The Kiota writer surfaces malformed-output errors as
+    // InvalidOperationException from the underlying Utf8JsonWriter (see
+    // #1064). Out-of-memory and cancellation are NOT retryable; we let
+    // them bubble unchanged so the host can decide what to do.
+    private static bool IsRetryableSerializerFailure(Exception ex)
+        => ex is InvalidOperationException
+            || ex is JsonException
+            || ex is NotSupportedException;
 
     // System.Text.Json options shared by the plain-object overloads below. camelCase
     // keeps CLI JSON indistinguishable from the OpenAPI wire shape for consumers
     // that pipe `--output json` into jq or a scripting layer. Null values are
     // preserved so callers can tell "field is absent" from "field is null".
-    private static readonly System.Text.Json.JsonSerializerOptions PlainJsonOptions =
+    private static readonly JsonSerializerOptions PlainJsonOptions =
         new()
         {
             WriteIndented = true,
-            PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         };
 
     /// <summary>
@@ -144,16 +189,16 @@ public static class OutputFormatter
     /// because it doesn't come from a single typed endpoint).
     /// </summary>
     public static string FormatJsonPlain(object? value)
-        => System.Text.Json.JsonSerializer.Serialize(value, PlainJsonOptions);
+        => JsonSerializer.Serialize(value, PlainJsonOptions);
 
     private static string ReadIndented(Stream stream)
     {
         using var reader = new StreamReader(stream);
         var raw = reader.ReadToEnd();
         // Kiota emits compact JSON; reindent for human readability.
-        using var doc = System.Text.Json.JsonDocument.Parse(raw);
-        return System.Text.Json.JsonSerializer.Serialize(
+        using var doc = JsonDocument.Parse(raw);
+        return JsonSerializer.Serialize(
             doc.RootElement,
-            new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+            new JsonSerializerOptions { WriteIndented = true });
     }
 }
