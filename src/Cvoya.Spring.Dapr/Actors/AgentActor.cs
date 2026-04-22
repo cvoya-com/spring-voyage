@@ -18,6 +18,7 @@ using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Routing;
 
 using global::Dapr.Actors;
+using global::Dapr.Actors.Client;
 using global::Dapr.Actors.Runtime;
 
 using Microsoft.Extensions.Logging;
@@ -42,7 +43,8 @@ public class AgentActor(
     IUnitPolicyEnforcer unitPolicyEnforcer,
     IAgentInitiativeEvaluator initiativeEvaluator,
     ILoggerFactory loggerFactory,
-    IExpertiseSeedProvider? expertiseSeedProvider = null) : Actor(host), IAgentActor, IRemindable
+    IExpertiseSeedProvider? expertiseSeedProvider = null,
+    IActorProxyFactory? actorProxyFactory = null) : Actor(host), IAgentActor, IRemindable
 {
     /// <summary>
     /// Name of the Dapr reminder that drives periodic initiative checks.
@@ -897,7 +899,12 @@ public class AgentActor(
     /// <summary>
     /// Runs the dispatcher and routes its response message. Runs outside the
     /// actor turn, so it MUST NOT touch <see cref="Actor.StateManager"/>. All
-    /// failures are logged and surfaced as activity events.
+    /// failures are logged and surfaced as activity events. When the dispatch
+    /// terminates abnormally (non-zero container exit per #1036, or an
+    /// exception inside the dispatcher), the active conversation is cleared
+    /// via a Dapr self-call to <see cref="ClearActiveConversationAsync"/> so
+    /// the state mutation runs on the actor turn — see #1036/#1038 for why a
+    /// failed dispatch must not leave the agent permanently active.
     /// </summary>
     private async Task RunDispatchAsync(
         Message message, PromptAssemblyContext context, CancellationToken cancellationToken)
@@ -913,13 +920,40 @@ public class AgentActor(
                 return;
             }
 
-            var routingResult = await messageRouter.RouteAsync(response, cancellationToken);
-            if (!routingResult.IsSuccess)
+            var dispatchExit = TryReadDispatchExit(response);
+            if (dispatchExit is { ExitCode: not 0 } failure)
             {
                 _logger.LogWarning(
-                    "Failed to route dispatcher response for conversation {ConversationId}: {Error}",
-                    message.ConversationId, routingResult.Error);
+                    "Dispatch for actor {ActorId} conversation {ConversationId} exited with code {ExitCode}: {StdErrFirstLine}",
+                    Id.GetId(), message.ConversationId, failure.ExitCode, failure.StdErrFirstLine);
+
+                var details = JsonSerializer.SerializeToElement(new
+                {
+                    exitCode = failure.ExitCode,
+                    stderr = failure.StdErr,
+                    agentId = Id.GetId(),
+                    conversationId = message.ConversationId,
+                });
+
+                await EmitActivityEventAsync(
+                    ActivityEventType.ErrorOccurred,
+                    $"Container exit code {failure.ExitCode}: {failure.StdErrFirstLine}",
+                    CancellationToken.None,
+                    details: details,
+                    correlationId: message.ConversationId);
+
+                // Best-effort: still surface the failure to the caller so an
+                // upstream agent / human sees the error response. We do this
+                // BEFORE clearing the active conversation so the response is
+                // ordered correctly in the conversation event log.
+                await TryRouteResponseAsync(response, message.ConversationId, cancellationToken);
+
+                await ClearActiveConversationViaSelfAsync(
+                    $"dispatch exit code {failure.ExitCode}");
+                return;
             }
+
+            await TryRouteResponseAsync(response, message.ConversationId, cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -937,8 +971,237 @@ public class AgentActor(
                 ActivityEventType.ErrorOccurred,
                 $"Dispatch failed: {ex.Message}",
                 CancellationToken.None,
+                details: JsonSerializer.SerializeToElement(new
+                {
+                    error = ex.Message,
+                    agentId = Id.GetId(),
+                    conversationId = message.ConversationId,
+                }),
                 correlationId: message.ConversationId);
+
+            await ClearActiveConversationViaSelfAsync($"dispatch exception: {ex.GetType().Name}");
         }
+    }
+
+    private async Task TryRouteResponseAsync(Message response, string? conversationId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var routingResult = await messageRouter.RouteAsync(response, cancellationToken);
+            if (!routingResult.IsSuccess)
+            {
+                _logger.LogWarning(
+                    "Failed to route dispatcher response for conversation {ConversationId}: {Error}",
+                    conversationId, routingResult.Error);
+            }
+        }
+        catch (Exception routeEx)
+        {
+            _logger.LogWarning(routeEx,
+                "Routing dispatcher response failed for conversation {ConversationId}.",
+                conversationId);
+        }
+    }
+
+    private readonly record struct DispatchExit(int ExitCode, string? StdErr, string StdErrFirstLine);
+
+    private static DispatchExit? TryReadDispatchExit(Message response)
+    {
+        try
+        {
+            if (response.Payload.ValueKind != JsonValueKind.Object)
+            {
+                return null;
+            }
+
+            if (!response.Payload.TryGetProperty("ExitCode", out var exitProp) ||
+                exitProp.ValueKind != JsonValueKind.Number ||
+                !exitProp.TryGetInt32(out var exitCode))
+            {
+                return null;
+            }
+
+            string? stderr = null;
+            if (response.Payload.TryGetProperty("Error", out var errProp) &&
+                errProp.ValueKind == JsonValueKind.String)
+            {
+                stderr = errProp.GetString();
+            }
+
+            var firstLine = stderr is null
+                ? string.Empty
+                : stderr.Split('\n', 2)[0].TrimEnd('\r').Trim();
+
+            return new DispatchExit(exitCode, stderr, firstLine);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private async Task ClearActiveConversationViaSelfAsync(string reason)
+    {
+        // RunDispatchAsync runs outside the actor turn, so we can't touch
+        // StateManager directly — see the docstring. When an actor proxy
+        // factory was injected (always the case in production wiring) we
+        // self-call the actor through Dapr remoting, which queues the call
+        // on the actor's turn queue. In tests where no proxy factory is
+        // wired up we fall back to invoking the helper directly; the test
+        // harness mocks StateManager so the race the comment is guarding
+        // against doesn't apply.
+        try
+        {
+            if (actorProxyFactory is not null)
+            {
+                var self = actorProxyFactory.CreateActorProxy<IAgentActor>(Id, nameof(AgentActor));
+                await self.ClearActiveConversationAsync(reason, CancellationToken.None);
+            }
+            else
+            {
+                await ClearActiveConversationAsync(reason, CancellationToken.None);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Failed to clear active conversation for actor {ActorId} after dispatch failure (reason: {Reason}).",
+                Id.GetId(), reason);
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task ClearActiveConversationAsync(
+        string? reason,
+        CancellationToken cancellationToken = default)
+    {
+        var activeConversation = await StateManager
+            .TryGetStateAsync<ConversationChannel>(StateKeys.ActiveConversation, cancellationToken);
+
+        if (!activeConversation.HasValue)
+        {
+            _logger.LogDebug(
+                "Actor {ActorId} ClearActiveConversationAsync called with no active conversation (reason: {Reason}).",
+                Id.GetId(), reason);
+            return;
+        }
+
+        if (_activeWorkCancellation is not null)
+        {
+            await _activeWorkCancellation.CancelAsync();
+            _activeWorkCancellation.Dispose();
+            _activeWorkCancellation = null;
+        }
+
+        var conversationId = activeConversation.Value.ConversationId;
+        await StateManager.TryRemoveStateAsync(StateKeys.ActiveConversation, cancellationToken);
+
+        _logger.LogInformation(
+            "Actor {ActorId} cleared active conversation {ConversationId} (reason: {Reason}).",
+            Id.GetId(), conversationId, reason);
+
+        await EmitActivityEventAsync(
+            ActivityEventType.StateChanged,
+            $"State changed from Active to Idle ({reason ?? "unspecified"})",
+            cancellationToken,
+            details: JsonSerializer.SerializeToElement(new
+            {
+                from = "Active",
+                to = "Idle",
+                reason,
+                conversationId,
+            }),
+            correlationId: conversationId);
+
+        await PromoteNextPendingAsync(cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task CloseConversationAsync(
+        string conversationId,
+        string? reason,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(conversationId))
+        {
+            return;
+        }
+
+        var active = await StateManager
+            .TryGetStateAsync<ConversationChannel>(StateKeys.ActiveConversation, cancellationToken);
+
+        if (active.HasValue && active.Value.ConversationId == conversationId)
+        {
+            if (_activeWorkCancellation is not null)
+            {
+                await _activeWorkCancellation.CancelAsync();
+                _activeWorkCancellation.Dispose();
+                _activeWorkCancellation = null;
+            }
+
+            await StateManager.TryRemoveStateAsync(StateKeys.ActiveConversation, cancellationToken);
+
+            _logger.LogInformation(
+                "Actor {ActorId} closed active conversation {ConversationId} (reason: {Reason}).",
+                Id.GetId(), conversationId, reason);
+
+            await EmitActivityEventAsync(
+                ActivityEventType.ConversationClosed,
+                $"Conversation {conversationId} closed ({reason ?? "no reason given"})",
+                cancellationToken,
+                details: JsonSerializer.SerializeToElement(new
+                {
+                    conversationId,
+                    reason,
+                    wasActive = true,
+                }),
+                correlationId: conversationId);
+
+            await PromoteNextPendingAsync(cancellationToken);
+            return;
+        }
+
+        var pending = await StateManager
+            .TryGetStateAsync<List<ConversationChannel>>(StateKeys.PendingConversations, cancellationToken);
+
+        if (pending.HasValue)
+        {
+            var list = pending.Value;
+            var idx = list.FindIndex(c => c.ConversationId == conversationId);
+            if (idx >= 0)
+            {
+                list.RemoveAt(idx);
+                if (list.Count > 0)
+                {
+                    await StateManager.SetStateAsync(StateKeys.PendingConversations, list, cancellationToken);
+                }
+                else
+                {
+                    await StateManager.TryRemoveStateAsync(StateKeys.PendingConversations, cancellationToken);
+                }
+
+                _logger.LogInformation(
+                    "Actor {ActorId} closed pending conversation {ConversationId} (reason: {Reason}).",
+                    Id.GetId(), conversationId, reason);
+
+                await EmitActivityEventAsync(
+                    ActivityEventType.ConversationClosed,
+                    $"Conversation {conversationId} closed ({reason ?? "no reason given"})",
+                    cancellationToken,
+                    details: JsonSerializer.SerializeToElement(new
+                    {
+                        conversationId,
+                        reason,
+                        wasActive = false,
+                    }),
+                    correlationId: conversationId);
+                return;
+            }
+        }
+
+        _logger.LogDebug(
+            "Actor {ActorId} CloseConversationAsync no-op for unknown conversation {ConversationId} (reason: {Reason}).",
+            Id.GetId(), conversationId, reason);
     }
 
     /// <summary>

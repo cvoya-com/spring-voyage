@@ -4414,6 +4414,57 @@
         }
       }
     },
+    "/api/v1/conversations/{id}/close": {
+      "post": {
+        "tags": [
+          "Conversations"
+        ],
+        "summary": "Close (abort) an in-flight or pending conversation across all participating agents",
+        "operationId": "CloseConversation",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloseConversationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/inbox": {
       "get": {
         "tags": [
@@ -7967,6 +8018,20 @@
           "ephemeral-no-memory",
           "ephemeral-with-memory"
         ]
+      },
+      "CloseConversationRequest": {
+        "required": [
+          "reason"
+        ],
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
       },
       "ConfigurationReport": {
         "required": [

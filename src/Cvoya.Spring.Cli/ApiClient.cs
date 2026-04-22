@@ -947,6 +947,27 @@ public class SpringApiClient
             $"Server returned an empty message response for conversation '{conversationId}'.");
     }
 
+    /// <summary>
+    /// Closes (aborts) a conversation across every participating agent
+    /// (#1038). Backs <c>spring conversation close &lt;id&gt;</c>. Returns
+    /// the (now-closed) conversation detail so the CLI can render a
+    /// confirmation and the trailing event timeline including the
+    /// <c>ConversationClosed</c> events the actors just emitted.
+    /// </summary>
+    public async Task<ConversationDetail> CloseConversationAsync(
+        string conversationId,
+        string? reason = null,
+        CancellationToken ct = default)
+    {
+        var request = new CloseConversationRequest
+        {
+            Reason = string.IsNullOrWhiteSpace(reason) ? null : reason,
+        };
+        var result = await _client.Api.V1.Conversations[conversationId].Close.PostAsync(request, cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty close response for conversation '{conversationId}'.");
+    }
+
     // Inbox (#456)
 
     /// <summary>

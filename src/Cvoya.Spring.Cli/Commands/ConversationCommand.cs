@@ -48,6 +48,7 @@ public static class ConversationCommand
         cmd.Subcommands.Add(CreateListCommand(outputOption));
         cmd.Subcommands.Add(CreateShowCommand(outputOption));
         cmd.Subcommands.Add(CreateSendCommand(outputOption));
+        cmd.Subcommands.Add(CreateCloseCommand(outputOption));
         return cmd;
     }
 
@@ -184,6 +185,66 @@ public static class ConversationCommand
             {
                 await Console.Error.WriteLineAsync(
                     $"Failed to send to conversation '{conversationId}': {ProblemDetailsFormatter.Format(ex)}");
+                Environment.Exit(1);
+            }
+        });
+
+        return command;
+    }
+
+    private static Command CreateCloseCommand(Option<string> outputOption)
+    {
+        // #1038: operator-driven close. Required when a dispatch fails in a
+        // way the actor itself cannot recover from (e.g. container exit 125
+        // before the runtime instance materialised — #1036) so the agent
+        // does not stay stuck on a dead conversation forever.
+        var idArg = new Argument<string>("id") { Description = "The conversation id to close" };
+        var reasonOption = new Option<string?>("--reason")
+        {
+            Description = "Optional human-readable reason — surfaced on the ConversationClosed activity event.",
+        };
+
+        var command = new Command(
+            "close",
+            "Close (abort) an in-flight or pending conversation across every participating agent.");
+        command.Arguments.Add(idArg);
+        command.Options.Add(reasonOption);
+
+        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var id = parseResult.GetValue(idArg)!;
+            var reason = parseResult.GetValue(reasonOption);
+            var output = parseResult.GetValue(outputOption) ?? "table";
+
+            var client = ClientFactory.Create();
+
+            try
+            {
+                var detail = await client.CloseConversationAsync(id, reason, ct);
+
+                if (output == "json")
+                {
+                    Console.WriteLine(OutputFormatter.FormatJson(detail));
+                    return;
+                }
+
+                var summary = detail.Summary;
+                Console.WriteLine($"Conversation {id} closed.");
+                if (summary is not null)
+                {
+                    Console.WriteLine($"Status:       {summary.Status}");
+                    Console.WriteLine($"Participants: {FormatParticipants(summary.Participants)}");
+                    Console.WriteLine($"Last:         {FormatTimestamp(summary.LastActivity)}");
+                }
+                if (!string.IsNullOrWhiteSpace(reason))
+                {
+                    Console.WriteLine($"Reason:       {reason}");
+                }
+            }
+            catch (Microsoft.Kiota.Abstractions.ApiException ex)
+            {
+                await Console.Error.WriteLineAsync(
+                    $"Failed to close conversation '{id}': {ProblemDetailsFormatter.Format(ex)}");
                 Environment.Exit(1);
             }
         });

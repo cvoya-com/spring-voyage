@@ -90,4 +90,44 @@ public interface IAgentActor : IAgent
     /// so the observability pipeline (#44) sees directory-shape changes.
     /// </summary>
     Task SetExpertiseAsync(ExpertiseDomain[] domains, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Closes the supplied conversation (#1038). Idempotent — a conversation
+    /// id that matches neither the active channel nor any pending channel
+    /// returns silently. When the id matches the currently active
+    /// conversation the actor cancels in-flight dispatch, removes the
+    /// active state, emits a <c>ConversationClosed</c> activity event, and
+    /// promotes the next pending conversation onto the active slot. When
+    /// the id matches a pending channel that channel is dropped and the
+    /// active slot is left untouched.
+    /// </summary>
+    /// <param name="conversationId">The conversation identifier to close.</param>
+    /// <param name="reason">
+    /// Optional human-readable reason — surfaced on the
+    /// <c>ConversationClosed</c> activity event's <c>details</c> payload so
+    /// operators can see <em>why</em> the close happened (operator request,
+    /// non-zero dispatch exit, etc.).
+    /// </param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    Task CloseConversationAsync(
+        string conversationId,
+        string? reason,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Off-turn helper that the actor's own dispatch task self-invokes
+    /// (via Dapr remoting) when a dispatch terminates abnormally — either a
+    /// non-zero container exit (#1036) or an exception in the dispatcher
+    /// itself. Mutates persistent actor state — removes
+    /// <c>StateKeys.ActiveConversation</c>, emits a <c>StateChanged</c>
+    /// (Active → Idle) event, and promotes the next pending conversation —
+    /// so it must run on an actor turn. Surfaced on <see cref="IAgentActor"/>
+    /// (rather than left as an internal helper) precisely so the off-turn
+    /// dispatch task can call it through the actor proxy.
+    /// </summary>
+    /// <param name="reason">Human-readable reason for clearing the active slot.</param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    Task ClearActiveConversationAsync(
+        string? reason,
+        CancellationToken cancellationToken = default);
 }

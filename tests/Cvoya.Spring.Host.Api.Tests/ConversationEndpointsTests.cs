@@ -8,9 +8,13 @@ using System.Net.Http.Json;
 using System.Text.Json;
 
 using Cvoya.Spring.Core;
+using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Observability;
+using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Host.Api.Models;
+
+using global::Dapr.Actors;
 
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
@@ -218,6 +222,109 @@ public class ConversationEndpointsTests : IClassFixture<ConversationEndpointsTes
         var response = await _client.PostAsJsonAsync("/api/v1/conversations/c-1/messages", body, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadGateway);
+    }
+
+    // --- #1038 — POST /api/v1/conversations/{id}/close ---
+
+    [Fact]
+    public async Task CloseConversation_Existing_CallsAgentActorAndReturnsRefreshedDetail()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var now = DateTimeOffset.UtcNow;
+
+        var beforeSummary = new ConversationSummary(
+            "c-close", new[] { "agent://ada", "human://savasp" },
+            "active", now, now, 1, "agent://ada", "Started");
+        var beforeDetail = new ConversationDetail(beforeSummary, new List<ConversationEvent>());
+
+        var afterSummary = beforeSummary with { Status = "closed" };
+        var afterDetail = new ConversationDetail(
+            afterSummary,
+            new List<ConversationEvent>
+            {
+                new(Guid.NewGuid(), now, "agent://ada", "ConversationClosed", "Info", "Conversation closed (operator request)"),
+            });
+
+        // First GetAsync returns the live conversation; second (post-close) returns
+        // the projected detail with the ConversationClosed event included.
+        _factory.ConversationQueryService.ClearSubstitute();
+        _factory.ConversationQueryService.GetAsync("c-close", Arg.Any<CancellationToken>())
+            .Returns(beforeDetail, afterDetail);
+
+        var entry = new DirectoryEntry(
+            new Address("agent", "ada"),
+            ActorId: "ada",
+            DisplayName: "Ada",
+            Description: "Test agent",
+            Role: null,
+            RegisteredAt: now);
+        _factory.DirectoryService.ClearSubstitute();
+        _factory.DirectoryService.ResolveAsync(
+                Arg.Is<Address>(a => a.Scheme == "agent" && a.Path == "ada"),
+                Arg.Any<CancellationToken>())
+            .Returns(entry);
+
+        var agentProxy = Substitute.For<IAgentActor>();
+        _factory.ActorProxyFactory.ClearSubstitute();
+        _factory.ActorProxyFactory
+            .CreateActorProxy<IAgentActor>(Arg.Is<ActorId>(id => id.GetId() == "ada"), nameof(AgentActor))
+            .Returns(agentProxy);
+
+        var body = new CloseConversationRequest("operator request");
+        var response = await _client.PostAsJsonAsync("/api/v1/conversations/c-close/close", body, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var detail = await response.Content.ReadFromJsonAsync<ConversationDetail>(ct);
+        detail.ShouldNotBeNull();
+        detail!.Summary.Status.ShouldBe("closed");
+        detail.Events.Count.ShouldBe(1);
+        detail.Events[0].EventType.ShouldBe("ConversationClosed");
+
+        await agentProxy.Received(1).CloseConversationAsync(
+            "c-close", "operator request", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CloseConversation_Missing_Returns404()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        _factory.ConversationQueryService.ClearSubstitute();
+        _factory.ConversationQueryService.GetAsync("c-missing", Arg.Any<CancellationToken>())
+            .Returns((ConversationDetail?)null);
+
+        var body = new CloseConversationRequest("oops");
+        var response = await _client.PostAsJsonAsync("/api/v1/conversations/c-missing/close", body, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task CloseConversation_NoAgentParticipants_StillReturnsOk()
+    {
+        // Conversations with only human participants have no actor proxies to
+        // call — the endpoint must still succeed (and return the unchanged
+        // detail) so operator UX doesn't break for human-only threads.
+        var ct = TestContext.Current.CancellationToken;
+        var now = DateTimeOffset.UtcNow;
+        var summary = new ConversationSummary(
+            "c-human-only", new[] { "human://savasp" },
+            "active", now, now, 0, "human://savasp", "Pending input");
+        var detail = new ConversationDetail(summary, new List<ConversationEvent>());
+
+        _factory.ConversationQueryService.ClearSubstitute();
+        _factory.ConversationQueryService.GetAsync("c-human-only", Arg.Any<CancellationToken>())
+            .Returns(detail);
+        // ClearSubstitute on the shared ActorProxyFactory so the
+        // DidNotReceive assertion below isn't polluted by other tests in
+        // this class fixture that exercise the close endpoint.
+        _factory.ActorProxyFactory.ClearSubstitute();
+
+        var body = new CloseConversationRequest(null);
+        var response = await _client.PostAsJsonAsync("/api/v1/conversations/c-human-only/close", body, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        _factory.ActorProxyFactory.DidNotReceive()
+            .CreateActorProxy<IAgentActor>(Arg.Any<ActorId>(), Arg.Any<string>());
     }
 
     [Fact]

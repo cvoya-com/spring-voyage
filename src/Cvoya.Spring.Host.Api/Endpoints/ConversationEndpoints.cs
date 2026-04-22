@@ -3,12 +3,18 @@
 
 namespace Cvoya.Spring.Host.Api.Endpoints;
 
+using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Observability;
+using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Host.Api.Auth;
 using Cvoya.Spring.Host.Api.Models;
 
+using global::Dapr.Actors;
+using global::Dapr.Actors.Client;
+
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// Maps the conversation read + send endpoints introduced by #452. Conversations
@@ -48,6 +54,18 @@ public static class ConversationEndpoints
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status502BadGateway);
+
+        // #1038: explicit operator-driven close so a single failed dispatch
+        // doesn't permanently brick an agent. We use `/{id}/close` rather
+        // than `/{id}:close` so the route plays nicely with the existing
+        // `/{id}/messages` sibling and routing template constraints; the
+        // verb-style URL was tempting but inconsistent with the rest of the
+        // surface.
+        group.MapPost("/{id}/close", CloseConversationAsync)
+            .WithName("CloseConversation")
+            .WithSummary("Close (abort) an in-flight or pending conversation across all participating agents")
+            .Produces<ConversationDetail>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         return group;
     }
@@ -150,6 +168,130 @@ public static class ConversationEndpoints
         }
 
         return Results.Ok(new ConversationMessageResponse(messageId, id, result.Value?.Payload));
+    }
+
+    /// <summary>
+    /// Closes (aborts) a conversation across every agent participant, then
+    /// returns the (now-closed) conversation detail. See #1038 — without this
+    /// surface a single failed dispatch leaves an agent permanently busy
+    /// because the active-conversation pointer is persisted in actor state.
+    /// </summary>
+    private static async Task<IResult> CloseConversationAsync(
+        string id,
+        CloseConversationRequest request,
+        IConversationQueryService queryService,
+        IDirectoryService directoryService,
+        IActorProxyFactory actorProxyFactory,
+        ILoggerFactory loggerFactory,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return Results.Problem(
+                detail: "Conversation id is required.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        var detail = await queryService.GetAsync(id, cancellationToken);
+        if (detail is null)
+        {
+            return Results.Problem(
+                detail: $"Conversation '{id}' not found",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        var logger = loggerFactory.CreateLogger("Cvoya.Spring.Host.Api.Endpoints.ConversationEndpoints");
+        var reason = request?.Reason;
+
+        // Walk the participants on the summary, keeping only agent-scheme
+        // entries (humans don't have actor proxies and units close as a
+        // side-effect of their member agents closing). Any participant the
+        // directory can't resolve is skipped with a structured warning rather
+        // than failing the whole close — the operator's intent is "stop this
+        // thread", and a missing participant shouldn't block the others.
+        foreach (var participant in detail.Summary.Participants)
+        {
+            if (!TryParseAgentParticipant(participant, out var agentAddress))
+            {
+                continue;
+            }
+
+            DirectoryEntry? entry;
+            try
+            {
+                entry = await directoryService.ResolveAsync(agentAddress, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex,
+                    "Failed to resolve participant {Participant} while closing conversation {ConversationId}.",
+                    participant, id);
+                continue;
+            }
+
+            if (entry is null)
+            {
+                logger.LogWarning(
+                    "Participant {Participant} not found in directory while closing conversation {ConversationId}.",
+                    participant, id);
+                continue;
+            }
+
+            try
+            {
+                var proxy = actorProxyFactory.CreateActorProxy<IAgentActor>(
+                    new ActorId(entry.ActorId), nameof(AgentActor));
+                await proxy.CloseConversationAsync(id, reason, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex,
+                    "CloseConversationAsync failed on participant {Participant} for conversation {ConversationId}.",
+                    participant, id);
+            }
+        }
+
+        // Re-read the detail so the response reflects the close events the
+        // actors just emitted (the read model is event-sourced — by the time
+        // we return, the ConversationClosed events should be projected).
+        var updated = await queryService.GetAsync(id, cancellationToken) ?? detail;
+        return Results.Ok(updated);
+    }
+
+    private static bool TryParseAgentParticipant(string participant, out Address address)
+    {
+        address = default!;
+        if (string.IsNullOrWhiteSpace(participant))
+        {
+            return false;
+        }
+
+        var separatorIdx = participant.IndexOf("://", StringComparison.Ordinal);
+        string scheme;
+        string path;
+        if (separatorIdx > 0)
+        {
+            scheme = participant[..separatorIdx];
+            path = participant[(separatorIdx + 3)..];
+        }
+        else
+        {
+            var colonIdx = participant.IndexOf(':');
+            if (colonIdx <= 0)
+            {
+                return false;
+            }
+            scheme = participant[..colonIdx];
+            path = participant[(colonIdx + 1)..];
+        }
+
+        if (!string.Equals(scheme, "agent", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        address = new Address(scheme, path);
+        return true;
     }
 }
 

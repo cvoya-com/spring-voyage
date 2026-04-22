@@ -58,7 +58,13 @@ A conversation is the platform's unit of correlated work. Every message carries 
 
 - **Creation.** Sending a message without `--conversation` starts a new conversation. The server assigns a fresh id, creates a new conversation channel on the receiving actor, and returns the id to the sender.
 - **Continuation.** Sending additional messages with the same `--conversation <id>` appends them to the active channel. For the conversation that is currently ACTIVE on the actor, follow-ups are delivered at the next checkpoint so the agent can incorporate them without losing its current train of thought. For PENDING conversations the new message accumulates in the channel and is picked up when the conversation becomes active.
-- **Conclusion.** A conversation ends when the agent emits a `Completed` event for its work; the channel is released, any result payload is published to observers, and the next pending conversation is promoted to ACTIVE. There is no explicit "close conversation" command — completion is driven by the agent, not the sender.
+- **Conclusion.** A conversation normally ends when the agent emits a `Completed` event for its work; the channel is released, any result payload is published to observers, and the next pending conversation is promoted to ACTIVE.
+- **Operator close (#1038).** When a dispatch hangs, fails, or simply needs to be abandoned, the operator can close the conversation explicitly:
+  - CLI: `spring conversation close <id> [--reason <text>]`
+  - HTTP: `POST /api/v1/conversations/{id}/close`
+
+  The platform cancels any in-flight dispatch, removes the active-conversation pointer from each participating agent, emits a `ConversationClosed` activity event (correlated to the conversation id), and promotes the next pending conversation. Closing an unknown id is a no-op so the call is safe to retry.
+- **Auto-close on dispatch failure (#1036).** When the dispatcher returns a non-zero `ExitCode` (e.g. container exit code 125 because the runtime image was missing), the agent now surfaces the failure rather than silently swallowing it: an `ErrorOccurred` event with the exit code + first stderr line is appended to the conversation, the failure response is still routed back to the original sender, and the conversation is cleared off the agent's active slot via the same path the explicit-close API uses. The agent unblocks and the next pending conversation is promoted automatically.
 
 See [Messaging architecture — Partitioned Mailbox with Priority Processing](../architecture/messaging.md#design-partitioned-mailbox-with-priority-processing) for the full lifecycle, including conversation suspension and multi-conversation scheduling.
 

@@ -1254,6 +1254,32 @@ public class SpringApiClientTests
         handler.WasCalled.ShouldBeTrue();
     }
 
+    // --- #1038 — `spring conversation close <id>` API path ---
+
+    [Fact]
+    public async Task CloseConversationAsync_PostsCloseEndpointWithReason()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/conversations/c-1/close",
+            expectedMethod: HttpMethod.Post,
+            responseBody: """{"summary":{"id":"c-1","participants":["agent://ada"],"status":"closed","createdAt":"2026-04-01T00:00:00Z","lastActivity":"2026-04-01T00:00:01Z","messageCount":2,"lastSpeaker":"agent://ada","lastSummary":"Conversation closed"},"events":[]}""",
+            validateRequestBody: body =>
+            {
+                var json = JsonSerializer.Deserialize<JsonElement>(body);
+                json.GetProperty("reason").GetString().ShouldBe("operator request");
+            });
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var result = await client.CloseConversationAsync(
+            "c-1", reason: "operator request", ct: TestContext.Current.CancellationToken);
+
+        result.Summary!.Id.ShouldBe("c-1");
+        result.Summary.Status.ShouldBe("closed");
+        handler.WasCalled.ShouldBeTrue();
+    }
+
     [Fact]
     public async Task SetAgentCloningPolicyAsync_SerialisesBodyAsPlainObject()
     {

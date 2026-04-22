@@ -45,3 +45,15 @@ public record ConversationMessageResponse(
     Guid MessageId,
     string ConversationId,
     JsonElement? ResponsePayload);
+
+/// <summary>
+/// Request body for <c>POST /api/v1/conversations/{id}/close</c> (#1038). The
+/// reason is optional — when supplied it surfaces on the
+/// <c>ConversationClosed</c> activity event the actor emits, so operators can
+/// see <em>why</em> a thread was aborted (operator request, runaway tool,
+/// upstream incident, etc.). Present as a body rather than a query string so
+/// long reasons aren't truncated by URL length limits and aren't logged in
+/// server access logs.
+/// </summary>
+/// <param name="Reason">Optional human-readable reason for closing.</param>
+public record CloseConversationRequest(string? Reason);

@@ -94,6 +94,10 @@ msg4: (conv-A)                   → routed to conv-A channel (active)
 
 All agents use the same mailbox model: one active conversation with suspension. The active period spans the full lifetime of a container-based agent run, which can be long (minutes to hours). The uniform model keeps the mailbox implementation simple.
 
+**Operator-driven close (#1038).** A conversation can also be closed explicitly by an operator via `IAgentActor.CloseConversationAsync(id, reason)` (surfaced as `POST /api/v1/conversations/{id}/close` and `spring conversation close <id>`). The close path cancels any in-flight dispatch via the active conversation's `CancellationTokenSource`, removes `StateKeys.ActiveConversation` (or drops the matching pending channel), emits a `ConversationClosed` activity event correlated to the conversation, and promotes the next pending channel. The operation is idempotent — closing an unknown id is a no-op.
+
+**Auto-clear on dispatch failure (#1036).** When the off-turn `RunDispatchAsync` task observes a non-zero `ExitCode` on the dispatcher response (or an unhandled exception), the actor emits an `ErrorOccurred` event with the exit code + first stderr line, still routes the failure response back to the original sender, and then self-invokes `ClearActiveConversationAsync` via `IActorProxyFactory` so the state mutation runs on a fresh actor turn (the off-turn dispatch task must not touch `StateManager` directly). The clear helper removes the active pointer, emits a `StateChanged` Active→Idle event, and promotes the next pending channel — so a single failed dispatch no longer permanently bricks an agent.
+
 ### Asynchronous Work Dispatch & Cancellation
 
 The actor's primary responsibility is **processing messages**. It never performs long-running work synchronously. Every work message is handled the same way: the actor validates, updates state, launches the work asynchronously, and returns — remaining immediately available for the next message.

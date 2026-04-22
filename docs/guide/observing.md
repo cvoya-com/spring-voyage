@@ -69,6 +69,17 @@ spring message send agent://engineering-team/ada "Looks good — ship it." --con
 
 Both resolve to the same server endpoint; pick whichever reads better in the surrounding script.
 
+### Close a Conversation (#1038)
+
+When a conversation hangs, fails, or simply needs to be abandoned — for example, a delegated container exited non-zero (#1036) and the agent is now wedged on a stale active slot — close it explicitly:
+
+```
+spring conversation close <conversation-id>
+spring conversation close <conversation-id> --reason "container missing image"
+```
+
+The platform cancels any in-flight dispatch on every participating agent, removes the active-conversation pointer, emits a `ConversationClosed` activity event correlated to the conversation, and promotes the next pending conversation. The verb is idempotent — closing an unknown id is a safe no-op — so it's fine to script as a recovery step. Failures translate via `ProblemDetails`, mirroring the `POST /api/v1/conversations/{id}/close` HTTP surface.
+
 ### Inbox: Things Awaiting You
 
 The inbox is the human-facing "things pointed at me that I have not responded to" surface. A conversation shows up here when the last event targets your `human://` address and you have not yet sent a follow-up; it drops off as soon as you respond or the agent retracts.

@@ -749,4 +749,176 @@ public class AgentActorTests
                 e.Details.Value.GetProperty("costSource").GetString() == "Initiative"),
             Arg.Any<CancellationToken>());
     }
+
+    // --- #1036 / #1038 — non-zero dispatch exit + close API ---
+
+    [Fact]
+    public async Task RunDispatchAsync_NonZeroExitCode_EmitsErrorAndClearsActiveConversation()
+    {
+        // Arrange — dispatcher returns a response payload that mirrors the
+        // shape A2AExecutionDispatcher.BuildResponseMessage emits when the
+        // container exits non-zero. The first state read (during ReceiveAsync)
+        // must report "no active conversation" so the actor takes the dispatch
+        // path; subsequent reads (after dispatch returns) must report the
+        // active conversation so ClearActiveConversationAsync has something to
+        // clear.
+        var conversationId = "conv-exit-125";
+        var activeChannel = new ConversationChannel
+        {
+            ConversationId = conversationId,
+            Messages = []
+        };
+        _stateManager.TryGetStateAsync<ConversationChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
+            .Returns(
+                new ConditionalValue<ConversationChannel>(false, default!),
+                new ConditionalValue<ConversationChannel>(true, activeChannel));
+
+        var inbound = CreateMessage(conversationId: conversationId);
+        var failurePayload = JsonSerializer.SerializeToElement(new
+        {
+            Error = "container init: image not found\nlayer 1 missing",
+            Output = string.Empty,
+            ExitCode = 125,
+        });
+        var failureResponse = new Message(
+            Guid.NewGuid(),
+            new Address("agent", "test-agent"),
+            inbound.From,
+            MessageType.Domain,
+            conversationId,
+            failurePayload,
+            DateTimeOffset.UtcNow);
+
+        _dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns(failureResponse);
+        _router.RouteAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Returns(Cvoya.Spring.Core.Result<Message?, RoutingError>.Success(null));
+
+        // Act — the test harness omits IActorProxyFactory, so the dispatch
+        // task falls through to calling ClearActiveConversationAsync
+        // directly (mocked StateManager == no real concurrency to race).
+        await _actor.ReceiveAsync(inbound, TestContext.Current.CancellationToken);
+        await _actor.PendingDispatchTask!;
+
+        // Assert — ErrorOccurred event with structured details + active
+        // conversation cleared + StateChanged Active→Idle event emitted.
+        await _activityEventBus.Received().PublishAsync(
+            Arg.Is<ActivityEvent>(e =>
+                e.EventType == ActivityEventType.ErrorOccurred &&
+                e.CorrelationId == conversationId &&
+                e.Summary.Contains("125") &&
+                e.Details.HasValue &&
+                e.Details.Value.GetProperty("exitCode").GetInt32() == 125),
+            Arg.Any<CancellationToken>());
+
+        await _stateManager.Received().TryRemoveStateAsync(
+            StateKeys.ActiveConversation, Arg.Any<CancellationToken>());
+
+        await _activityEventBus.Received().PublishAsync(
+            Arg.Is<ActivityEvent>(e =>
+                e.EventType == ActivityEventType.StateChanged &&
+                e.Summary.Contains("Active") &&
+                e.Summary.Contains("Idle")),
+            Arg.Any<CancellationToken>());
+
+        // Original sender still gets the failure response routed back
+        // (so the human / upstream agent can see it).
+        await _router.Received(1).RouteAsync(
+            Arg.Is<Message>(m => m.Id == failureResponse.Id),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CloseConversationAsync_ActiveId_ClearsAndPromotesNextPending()
+    {
+        var active = new ConversationChannel { ConversationId = "conv-active", Messages = [] };
+        var pending = new ConversationChannel { ConversationId = "conv-next", Messages = [] };
+
+        _stateManager.TryGetStateAsync<ConversationChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<ConversationChannel>(true, active));
+        _stateManager.TryGetStateAsync<List<ConversationChannel>>(StateKeys.PendingConversations, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<List<ConversationChannel>>(true, [pending]));
+
+        await _actor.CloseConversationAsync("conv-active", "operator request",
+            TestContext.Current.CancellationToken);
+
+        // Active state removed
+        await _stateManager.Received().TryRemoveStateAsync(
+            StateKeys.ActiveConversation, Arg.Any<CancellationToken>());
+
+        // ConversationClosed event with structured details
+        await _activityEventBus.Received().PublishAsync(
+            Arg.Is<ActivityEvent>(e =>
+                e.EventType == ActivityEventType.ConversationClosed &&
+                e.CorrelationId == "conv-active" &&
+                e.Details.HasValue &&
+                e.Details.Value.GetProperty("wasActive").GetBoolean() == true &&
+                e.Details.Value.GetProperty("reason").GetString() == "operator request"),
+            Arg.Any<CancellationToken>());
+
+        // Promotion ran — next pending now active
+        await _stateManager.Received().SetStateAsync(
+            StateKeys.ActiveConversation,
+            Arg.Is<ConversationChannel>(c => c.ConversationId == "conv-next"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CloseConversationAsync_PendingId_RemovesPendingAndLeavesActiveAlone()
+    {
+        var active = new ConversationChannel { ConversationId = "conv-active", Messages = [] };
+        var p1 = new ConversationChannel { ConversationId = "conv-keep", Messages = [] };
+        var p2 = new ConversationChannel { ConversationId = "conv-drop", Messages = [] };
+
+        _stateManager.TryGetStateAsync<ConversationChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<ConversationChannel>(true, active));
+        _stateManager.TryGetStateAsync<List<ConversationChannel>>(StateKeys.PendingConversations, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<List<ConversationChannel>>(true, [p1, p2]));
+
+        await _actor.CloseConversationAsync("conv-drop", null,
+            TestContext.Current.CancellationToken);
+
+        // Active state must NOT have been removed
+        await _stateManager.DidNotReceive().TryRemoveStateAsync(
+            StateKeys.ActiveConversation, Arg.Any<CancellationToken>());
+
+        // Pending list rewritten with conv-keep only
+        await _stateManager.Received().SetStateAsync(
+            StateKeys.PendingConversations,
+            Arg.Is<List<ConversationChannel>>(list =>
+                list.Count == 1 && list[0].ConversationId == "conv-keep"),
+            Arg.Any<CancellationToken>());
+
+        await _activityEventBus.Received().PublishAsync(
+            Arg.Is<ActivityEvent>(e =>
+                e.EventType == ActivityEventType.ConversationClosed &&
+                e.CorrelationId == "conv-drop" &&
+                e.Details.HasValue &&
+                e.Details.Value.GetProperty("wasActive").GetBoolean() == false),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CloseConversationAsync_UnknownId_IsNoOp()
+    {
+        var active = new ConversationChannel { ConversationId = "conv-active", Messages = [] };
+        _stateManager.TryGetStateAsync<ConversationChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<ConversationChannel>(true, active));
+        _stateManager.TryGetStateAsync<List<ConversationChannel>>(StateKeys.PendingConversations, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<List<ConversationChannel>>(false, default!));
+
+        await _actor.CloseConversationAsync("conv-unknown", "noop",
+            TestContext.Current.CancellationToken);
+
+        // No state mutation, no event emitted.
+        await _stateManager.DidNotReceive().TryRemoveStateAsync(
+            StateKeys.ActiveConversation, Arg.Any<CancellationToken>());
+        await _stateManager.DidNotReceive().SetStateAsync(
+            StateKeys.PendingConversations,
+            Arg.Any<List<ConversationChannel>>(),
+            Arg.Any<CancellationToken>());
+        await _activityEventBus.DidNotReceive().PublishAsync(
+            Arg.Is<ActivityEvent>(e => e.EventType == ActivityEventType.ConversationClosed),
+            Arg.Any<CancellationToken>());
+    }
 }
