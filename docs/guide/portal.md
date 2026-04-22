@@ -356,7 +356,7 @@ The tab reads `GET /api/v1/units/{id}/execution`, edits each field in place, and
 
 | Field | Input shape | CLI equivalent |
 |-------|-------------|----------------|
-| **Image** | Plain text input. Placeholder: `ghcr.io/... or spring-agent:latest`. Shape 1 — autocomplete from history is #622 (V2.1), registry discovery is #623 (V2.1). | `spring unit execution set <unit> --image <ref>` |
+| **Image** | Plain text input. Placeholder: `ghcr.io/... or localhost/spring-voyage-agent:latest` (the tag `deployment/deploy.sh build` produces, per #1035). Shape 1 — autocomplete from history is #622 (V2.1), registry discovery is #623 (V2.1). | `spring unit execution set <unit> --image <ref>` |
 | **Runtime** | Dropdown: `docker` / `podman` (or `(leave to default)`). | `--runtime docker\|podman` |
 | **Tool** | Dropdown: `claude-code` / `codex` / `gemini` / `dapr-agent` / `custom`. | `--tool <key>` |
 | **Provider** | Dropdown: `anthropic` / `openai` / `google` / `ollama`. **Only shown when Tool is `dapr-agent`, or when Tool is unset** (#598 gating, matches PR #627). | `--provider <key>` |

@@ -2,13 +2,15 @@
 
 Extends the Spring Voyage agent base with extra CLI tooling the agent
 process can shell out to. Use this template when your agent workflow
-needs a tool that isn't shipped with `spring-agent:latest`.
+needs a tool that isn't shipped with
+`localhost/spring-voyage-agent:latest` (the tag produced by
+`deployment/deploy.sh build`).
 
 ## What this Dockerfile does
 
-Inherits `spring-agent:latest`, switches to root long enough to install
-extra packages via `apt-get`, then drops back to the non-root `agent`
-user so the runtime identity matches the base image.
+Inherits `localhost/spring-voyage-agent:latest`, switches to root long
+enough to install extra packages via `apt-get`, then drops back to the
+non-root `agent` user so the runtime identity matches the base image.
 
 The file ships commented-out examples for three common shapes:
 

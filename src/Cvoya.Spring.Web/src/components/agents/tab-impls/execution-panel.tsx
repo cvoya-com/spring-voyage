@@ -333,7 +333,7 @@ export function AgentExecutionPanel({
             placeholder={
               inherited("image")
                 ? `inherited from unit: ${inherited("image")}`
-                : "ghcr.io/... or spring-agent:latest"
+                : "ghcr.io/... or localhost/spring-voyage-agent:latest"
             }
             aria-label="Agent execution image"
             data-testid="agent-execution-image-input"

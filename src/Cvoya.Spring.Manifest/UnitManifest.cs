@@ -220,7 +220,7 @@ public class MemberManifest
 /// </remarks>
 public class ExecutionManifest
 {
-    /// <summary>Container image reference (e.g. <c>ghcr.io/...</c>, <c>spring-agent:latest</c>).</summary>
+    /// <summary>Container image reference (e.g. <c>ghcr.io/...</c>, <c>localhost/spring-voyage-agent:latest</c>).</summary>
     [YamlMember(Alias = "image")]
     public string? Image { get; set; }
 

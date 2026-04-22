@@ -34,14 +34,24 @@ const startUnit = vi.fn();
 const getUnit = vi.fn();
 const getUnitExecution = vi.fn();
 
+const listUnitTemplates = vi.fn();
+const listConnectorTypes = vi.fn();
+
 vi.mock("@/lib/api/client", () => ({
   api: {
     listOllamaModels: () => listOllamaModels(),
     listAgentRuntimes: () => listAgentRuntimes(),
     getAgentRuntimeModels: (id: string) => getAgentRuntimeModels(id),
     getProviderCredentialStatus: (p: string) => getProviderCredentialStatus(p),
+    // Legacy aliases kept for tests that still reference the old names.
     getUnitTemplates: vi.fn().mockResolvedValue([]),
     getConnectorTypes: vi.fn().mockResolvedValue([]),
+    // Real API method names — `useUnitTemplates` / `useConnectorTypes`
+    // reach through `api.listUnitTemplates` / `api.listConnectorTypes`,
+    // so tests that exercise template or connector flows must mock these
+    // explicitly (seedDefaultMocks below seeds `[]` as the default).
+    listUnitTemplates: () => listUnitTemplates(),
+    listConnectorTypes: () => listConnectorTypes(),
     createUnit: (body: unknown) => createUnit(body),
     createUnitFromTemplate: (body: unknown) => createUnitFromTemplate(body),
     createUnitFromYaml: (body: unknown) => createUnitFromYaml(body),
@@ -212,6 +222,12 @@ function seedDefaultMocks() {
   getProviderCredentialStatus.mockResolvedValue(
     makeStatus({ provider: "anthropic", resolvable: true, source: "tenant" }),
   );
+  // Defaults — tests that exercise template / connector flows override
+  // these. Keeping them on the seed path means the list-templates /
+  // list-connector-types queries never throw and the wizard renders in
+  // its empty-template-catalog state by default.
+  listUnitTemplates.mockResolvedValue([]);
+  listConnectorTypes.mockResolvedValue([]);
 }
 
 describe("CreateUnitPage — wizard reads tenant-installed agent runtimes (#690)", () => {
@@ -935,5 +951,274 @@ describe("CreateUnitPage — Step 2 explains a disabled Next", () => {
       /Claude Code.*runtime is not installed/i,
     );
     expect(screen.getByRole("button", { name: /^next$/i })).toBeDisabled();
+  });
+});
+
+// #1033: the create-unit POST must always carry the wizard's resolved
+// `tool` / `provider` — the previous "suppress when equals default"
+// shortcut dropped `tool=claude-code` on the floor and landed the unit
+// with `tool: (unset)`, which then broke every template-instantiated
+// agent at first dispatch.
+describe("CreateUnitPage — #1033 execution.tool propagation", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    seedDefaultMocks();
+    createUnit.mockResolvedValue({ name: "acme", id: "acme-id" });
+    startUnit.mockResolvedValue(undefined);
+    getUnit.mockResolvedValue({
+      id: "acme-id",
+      name: "acme",
+      displayName: "Acme",
+      description: "",
+      registeredAt: "2026-04-21T00:00:00Z",
+      status: "Running",
+      model: "claude-opus-4-7",
+      color: null,
+      tool: "claude-code",
+      provider: "claude",
+      hosting: null,
+      lastValidationError: null,
+      lastValidationRunId: null,
+    });
+    getUnitExecution.mockResolvedValue({
+      unitId: "acme-id",
+      image: null,
+      runtime: null,
+      model: null,
+      secrets: null,
+      updatedAt: null,
+    });
+  });
+
+  async function advanceScratchToFinalize() {
+    renderPage();
+    const nameInput = screen.getByPlaceholderText(
+      /engineering-team/i,
+    ) as HTMLInputElement;
+    await act(async () => {
+      fireEvent.change(nameInput, { target: { value: "acme" } });
+    });
+    const clickNext = async () => {
+      const next = screen.getByRole("button", { name: /^next$/i });
+      await act(async () => {
+        fireEvent.click(next);
+      });
+    };
+    await clickNext(); // → Execution
+    await waitFor(async () => {
+      const modelSelect = (await screen.findByLabelText(
+        /^Model$/i,
+      )) as HTMLSelectElement;
+      expect(modelSelect.value).not.toBe("");
+    });
+    await clickNext(); // → Mode
+    const scratch = screen.getByRole("button", { name: /scratch/i });
+    await act(async () => {
+      fireEvent.click(scratch);
+    });
+    await clickNext(); // → Connector
+    await clickNext(); // → Secrets
+    await clickNext(); // → Finalize
+  }
+
+  it("sends tool='claude-code' on the create-unit body even when the default is unchanged", async () => {
+    await advanceScratchToFinalize();
+    const createBtn = screen.getByTestId("create-unit-button");
+    await act(async () => {
+      fireEvent.click(createBtn);
+    });
+
+    await waitFor(() => {
+      expect(createUnit).toHaveBeenCalledTimes(1);
+    });
+    const body = createUnit.mock.calls[0]?.[0] as Record<string, unknown>;
+    // The wizard's default tool is 'claude-code' (#690 seeds it). Prior
+    // to the #1033 fix the wizard suppressed this field because it
+    // equalled DEFAULT_EXECUTION_TOOL — the unit then landed with
+    // `tool: (unset)` and dispatch failed with SpringException from
+    // A2AExecutionDispatcher. Now it must be present on the wire.
+    expect(body.tool).toBe("claude-code");
+    // The fixed-provider tools (claude-code / codex / gemini) must also
+    // send the canonical provider so `IsFullyConfiguredForValidationAsync`
+    // can transition the unit straight into Validating on create.
+    expect(body.provider).toBe("claude");
+  });
+
+  it("sends tool and provider when creating from a template", async () => {
+    listUnitTemplates.mockResolvedValue([
+      {
+        package: "software-engineering",
+        name: "engineering-team",
+        displayName: "Engineering team",
+        description: "Coordinated software engineering team.",
+        path: "packages/software-engineering/units/engineering-team.yaml",
+      },
+    ]);
+    createUnitFromTemplate.mockResolvedValue({
+      unit: { name: "portal-tpl-eng-1", id: "tpl-id" },
+      warnings: [],
+    });
+
+    renderPage();
+    const nameInput = screen.getByPlaceholderText(
+      /engineering-team/i,
+    ) as HTMLInputElement;
+    await act(async () => {
+      fireEvent.change(nameInput, { target: { value: "portal-tpl-eng-1" } });
+    });
+
+    const clickNext = async () => {
+      const next = screen.getByRole("button", { name: /^next$/i });
+      await act(async () => {
+        fireEvent.click(next);
+      });
+    };
+    await clickNext(); // → Execution
+    await waitFor(async () => {
+      const modelSelect = (await screen.findByLabelText(
+        /^Model$/i,
+      )) as HTMLSelectElement;
+      expect(modelSelect.value).not.toBe("");
+    });
+    await clickNext(); // → Mode
+    const templateBtn = screen.getByRole("button", { name: /^template/i });
+    await act(async () => {
+      fireEvent.click(templateBtn);
+    });
+    // Pick the only template on offer — the picker renders a button
+    // whose text carries the "{package}/{name}" header.
+    const templateRadio = await screen.findByRole("button", {
+      name: /software-engineering\/engineering-team/i,
+    });
+    await act(async () => {
+      fireEvent.click(templateRadio);
+    });
+    await clickNext(); // → Connector
+    await clickNext(); // → Secrets
+    await clickNext(); // → Finalize
+
+    const createBtn = screen.getByTestId("create-unit-button");
+    await act(async () => {
+      fireEvent.click(createBtn);
+    });
+
+    await waitFor(() => {
+      expect(createUnitFromTemplate).toHaveBeenCalledTimes(1);
+    });
+    const body = createUnitFromTemplate.mock.calls[0]?.[0] as Record<
+      string,
+      unknown
+    >;
+    expect(body.tool).toBe("claude-code");
+    expect(body.provider).toBe("claude");
+    // #1033 + #325: the wizard also forwards the operator's name
+    // override so repeated template instantiations don't collide on the
+    // server's unique-name constraint.
+    expect(body.unitName).toBe("portal-tpl-eng-1");
+  });
+});
+
+// #1034: the Finalize summary's Name row lied about the name the unit
+// would be created with when Mode = Template. Now the row always echoes
+// the typed name back when one was supplied.
+describe("CreateUnitPage — #1034 Finalize summary respects typed name", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    seedDefaultMocks();
+  });
+
+  it("echoes the typed name in template mode instead of '(from template …)'", async () => {
+    listUnitTemplates.mockResolvedValue([
+      {
+        package: "software-engineering",
+        name: "engineering-team",
+        displayName: "Engineering team",
+        description: "Coordinated software engineering team.",
+        path: "packages/software-engineering/units/engineering-team.yaml",
+      },
+    ]);
+
+    renderPage();
+    const nameInput = screen.getByPlaceholderText(
+      /engineering-team/i,
+    ) as HTMLInputElement;
+    await act(async () => {
+      fireEvent.change(nameInput, { target: { value: "portal-tpl-eng-1" } });
+    });
+    const clickNext = async () => {
+      const next = screen.getByRole("button", { name: /^next$/i });
+      await act(async () => {
+        fireEvent.click(next);
+      });
+    };
+    await clickNext(); // → Execution
+    await waitFor(async () => {
+      const modelSelect = (await screen.findByLabelText(
+        /^Model$/i,
+      )) as HTMLSelectElement;
+      expect(modelSelect.value).not.toBe("");
+    });
+    await clickNext(); // → Mode
+    const templateBtn = screen.getByRole("button", { name: /^template/i });
+    await act(async () => {
+      fireEvent.click(templateBtn);
+    });
+    const templateRadio = await screen.findByRole("button", {
+      name: /software-engineering\/engineering-team/i,
+    });
+    await act(async () => {
+      fireEvent.click(templateRadio);
+    });
+    await clickNext(); // → Connector
+    await clickNext(); // → Secrets
+    await clickNext(); // → Finalize
+
+    // The Finalize summary must display the operator-supplied name —
+    // not "(from template software-engineering/engineering-team)",
+    // which was the bug.
+    const finalize = await screen.findByText(/^Name$/i);
+    const summaryRow = finalize.parentElement as HTMLElement | null;
+    expect(summaryRow).not.toBeNull();
+    expect(summaryRow!.textContent).toContain("portal-tpl-eng-1");
+    expect(summaryRow!.textContent).not.toMatch(/from template/i);
+  });
+
+  // Complements the positive case above: `renderNameSummary` still
+  // returns the template-scoped label when the operator truly left the
+  // Name field blank. This is a direct test of the helper to avoid
+  // recreating the full click path (Step 1 gates advance on a name, so
+  // a UI path to a blank-name Finalize requires a typed-then-cleared
+  // workaround that tests the wizard's rerender gymnastics more than
+  // the summary logic).
+  it("renderNameSummary echoes the typed name, falling back to the template/yaml label only when blank", async () => {
+    const { renderNameSummary } = await import("./page");
+    expect(
+      renderNameSummary({
+        name: "",
+        mode: "template",
+        templateId: "software-engineering/engineering-team",
+      }),
+    ).toBe("(from template software-engineering/engineering-team)");
+    expect(
+      renderNameSummary({
+        name: "portal-tpl-eng-1",
+        mode: "template",
+        templateId: "software-engineering/engineering-team",
+      }),
+    ).toBe("portal-tpl-eng-1");
+    expect(
+      renderNameSummary({
+        name: "  ",
+        mode: "yaml",
+        templateId: null,
+      }),
+    ).toBe("(from YAML manifest)");
+    expect(
+      renderNameSummary({
+        name: "",
+        mode: "scratch",
+        templateId: null,
+      }),
+    ).toBe("—");
   });
 });

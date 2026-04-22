@@ -675,10 +675,29 @@ export default function CreateUnitPage() {
       // the actor-create + directory-register logic is identical. When a
       // connector binding is present it goes on the same request so the
       // server can create + bind atomically (#199).
-      // #350: pass execution config if non-default.
+      // #350 + #1033: always propagate the tool/provider the wizard resolved
+      // to. The previous "only send if non-default" shortcut silently dropped
+      // `tool=claude-code` — the wizard's default — so the created unit
+      // landed with `tool: (unset)` and every template-instantiated agent
+      // failed dispatch with "no execution configuration." The wire is cheap
+      // and the server mirrors both fields onto the unit's execution block
+      // (see UnitCreationService.CreateCoreAsync), so unconditional
+      // propagation is correct. We still omit `custom` because the server
+      // treats it as "no canonical tool"; passing the literal would persist
+      // a string no dispatcher knows how to resolve.
       const toolField =
-        form.tool !== DEFAULT_EXECUTION_TOOL ? form.tool : undefined;
-      const providerField = form.provider || undefined;
+        form.tool !== "custom" ? form.tool : undefined;
+      // Derive the wire provider from the tool (claude/openai/google hard-
+      // code it; dapr-agent follows the provider dropdown, including the
+      // Ollama branch). `getToolWireProvider` returns `undefined` for
+      // `custom` — we fall through to whatever the operator typed in that
+      // case, matching the freeform intent of custom tools.
+      const wireProvider = getToolWireProvider(
+        form.tool,
+        form.provider.trim() || null,
+      );
+      const providerField =
+        wireProvider ?? (form.provider.trim() || undefined);
       const hostingField =
         form.hosting !== DEFAULT_HOSTING_MODE ? form.hosting : undefined;
 
@@ -1375,7 +1394,7 @@ export default function CreateUnitPage() {
                   <Input
                     value={form.image}
                     onChange={(e) => update("image", e.target.value)}
-                    placeholder="ghcr.io/... or spring-agent:latest"
+                    placeholder="ghcr.io/... or localhost/spring-voyage-agent:latest"
                     aria-label="Execution image"
                   />
                   <span className="block text-xs text-muted-foreground">
@@ -2075,14 +2094,28 @@ export default function CreateUnitPage() {
   );
 }
 
-function renderNameSummary(form: FormState): string {
+// Exported for unit tests — `renderNameSummary` is pure, depending
+// only on the form's `name` / `mode` / `templateId` slots, so a direct
+// helper test is cheaper than driving the wizard through every screen
+// just to reach the Finalize summary.
+export function renderNameSummary(
+  form: Pick<FormState, "name" | "mode" | "templateId">,
+): string {
+  // #1034: the user's own name always takes precedence on the summary —
+  // when they typed one on the Identity step, that is the name the
+  // server receives (template mode passes it as `unitName`, scratch mode
+  // as `name`). Only fall back to the "(from template …)" / "(from YAML
+  // manifest)" hints when the name was left blank, so the Finalize
+  // summary does not lie to the operator who just entered one.
+  const typedName = form.name.trim();
+  if (typedName) return typedName;
   if (form.mode === "template" && form.templateId) {
     return `(from template ${form.templateId})`;
   }
   if (form.mode === "yaml") {
     return "(from YAML manifest)";
   }
-  return form.name || "—";
+  return "—";
 }
 
 function ModeCard({

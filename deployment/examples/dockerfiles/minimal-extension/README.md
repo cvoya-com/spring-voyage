@@ -1,15 +1,16 @@
 # Minimal agent image extension
 
-The smallest possible custom agent image: re-tag `spring-agent:latest`
-under your own name so unit / agent manifests reference a stable,
-pinned identifier.
+The smallest possible custom agent image: re-tag
+`localhost/spring-voyage-agent:latest` (the tag produced by
+`deployment/deploy.sh build`) under your own name so unit / agent
+manifests reference a stable, pinned identifier.
 
 ## What this Dockerfile does
 
-Inherits the `spring-agent:latest` base image unchanged and produces a
-new image under your chosen tag. No extra tooling is added. Use this as
-a starting point when you want to pin a tag but don't yet need
-additional CLI tools or MCP servers in the image.
+Inherits the `localhost/spring-voyage-agent:latest` base image unchanged
+and produces a new image under your chosen tag. No extra tooling is
+added. Use this as a starting point when you want to pin a tag but
+don't yet need additional CLI tools or MCP servers in the image.
 
 ## Build
 

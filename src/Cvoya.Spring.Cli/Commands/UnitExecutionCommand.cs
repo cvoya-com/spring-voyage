@@ -134,7 +134,7 @@ public static class UnitExecutionCommand
         var unitArg = new Argument<string>("unit") { Description = "The unit identifier" };
         var imageOption = new Option<string?>("--image")
         {
-            Description = "Default container image reference (e.g. ghcr.io/... or spring-agent:latest).",
+            Description = "Default container image reference (e.g. ghcr.io/... or localhost/spring-voyage-agent:latest).",
         };
         var runtimeOption = new Option<string?>("--runtime")
         {

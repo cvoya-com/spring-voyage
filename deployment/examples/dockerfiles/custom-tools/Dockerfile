@@ -2,7 +2,8 @@
 #
 # Custom agent image with extra CLI tooling.
 #
-# Extends the Spring Voyage `spring-agent:latest` base with a couple of
+# Extends the Spring Voyage `localhost/spring-voyage-agent:latest` base
+# (the tag produced by `deployment/deploy.sh build`) with a couple of
 # common CLI tools the agent process can shell out to. Use this as a
 # template when an agent workflow needs a tool that isn't in the base
 # image (e.g. a specific MCP server binary, a protobuf compiler, or a
@@ -12,7 +13,7 @@
 #   podman build -t localhost/my-agent-with-tools:latest .
 #   # or: docker build -t localhost/my-agent-with-tools:latest .
 
-FROM spring-agent:latest
+FROM localhost/spring-voyage-agent:latest
 
 # `jq` and `ripgrep` are already in the base image (see
 # `deployment/Dockerfile.agent`). Add your own layer of tooling here.

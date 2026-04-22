@@ -23,7 +23,7 @@ unit:
     - agent: literature-reviewer
     - agent: data-analyst
   execution:
-    image: spring-agent:latest
+    image: localhost/spring-voyage-agent:latest
     runtime: docker
   policies:
     communication: through-unit
