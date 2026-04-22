@@ -205,11 +205,19 @@ See the [Getting Started guide](docs/guide/getting-started.md) for a full walkth
 
 ### Custom agent images
 
-An agent dispatches in a container — by default `localhost/spring-voyage-agent:latest`, the tag produced by `deployment/deploy.sh build`. To run agents in a custom image (extra CLI tools, pinned tags, bespoke MCP servers), the shortest path is a Dockerfile that extends the base image. Two starter templates ship under [`deployment/examples/dockerfiles/`](deployment/examples/dockerfiles/):
+An agent dispatches in a container. The platform ships two reference tool-bearing images plus a bridge base image (PR 3b of [#1087](https://github.com/cvoya-com/spring-voyage/issues/1087), [#1096](https://github.com/cvoya-com/spring-voyage/issues/1096)), all built by `./deployment/build-agent-images.sh`:
+
+| Image (local tag) | Conformance path | Use it for |
+| ----------------- | ---------------- | ---------- |
+| `localhost/spring-voyage-agent-claude-code:latest` | path 1 (bridge) | Anthropic Claude Code CLI on top of the agent-base bridge. |
+| `localhost/spring-voyage-agent-dapr:latest`        | path 3 (native A2A) | Dapr Agent runtime — speaks A2A natively. |
+| `ghcr.io/cvoya-com/agent-base:<semver>`                | path 1 base     | Bring your own CLI on top of the bridge sidecar. |
+
+To layer extra tooling on top, the shortest path is a Dockerfile that extends one of the bases. Two starter templates ship under [`deployment/examples/dockerfiles/`](deployment/examples/dockerfiles/):
 
 | Template | When to use |
 | -------- | ----------- |
-| [`minimal-extension`](deployment/examples/dockerfiles/minimal-extension/) | Re-tag `localhost/spring-voyage-agent:latest` under your own registry. |
+| [`minimal-extension`](deployment/examples/dockerfiles/minimal-extension/) | Re-tag a base image under your own registry. |
 | [`custom-tools`](deployment/examples/dockerfiles/custom-tools/) | Layer extra CLI tools on top of the base. |
 
 Reference the built image through a unit's or agent's `execution.image` field — either from a YAML manifest or through the portal's new **Execution** tab (unit detail / agent detail). The five-field execution block (`image`, `runtime`, `tool`, `provider`, `model`) plus the **agent → unit → fail** resolution chain is described in [`docs/architecture/units.md`](docs/architecture/units.md#unit-execution-defaults-and-the-agent--unit--fail-resolution-chain-601-b-wide).

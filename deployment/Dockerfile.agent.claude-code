@@ -1,0 +1,72 @@
+# syntax=docker/dockerfile:1.7
+#
+# Spring Voyage — Claude Code agent image (PR 3b of #1087, #1096).
+#
+# BYOI conformance path 1 from `docs/architecture/agent-runtime.md` § 7:
+# `FROM` the agent-base image (which already bundles the A2A bridge sidecar
+# on :8999) and `RUN`-install the tool we want the bridge to spawn.
+#
+# Wire contract recap (full text in agent-runtime.md § 7):
+#
+#   * The base image's ENTRYPOINT runs the TypeScript A2A bridge on
+#     `${AGENT_PORT:-8999}`. We do NOT override it — the bridge is the only
+#     thing the dispatcher's A2A client knows how to talk to.
+#   * The dispatcher (PR 4 of #1087) stamps `SPRING_AGENT_ARGV` into the
+#     container env at launch time as a JSON array — e.g.:
+#
+#         SPRING_AGENT_ARGV='["claude","--dangerously-skip-permissions"]'
+#
+#     The bridge spawns argv[0] with argv[1..] on every `message/send`, with
+#     no shell, and pipes the request's text part(s) to the child's stdin.
+#     The deliberately-no-shell shape is documented in
+#     `deployment/agent-sidecar/README.md` § Configuration (#1063 burned us
+#     on shell-style splitting).
+#   * Anthropic credentials are NOT baked into this image. The launcher
+#     injects them as env vars at dispatch time (`ANTHROPIC_API_KEY`,
+#     `CLAUDE_*`) and the bridge passes them through to the spawned CLI
+#     unchanged.
+#
+# Build:
+#   deployment/build-agent-images.sh
+#       (preferred — builds agent-base, agent-claude-code, agent-dapr together)
+#
+#   docker build \
+#     -f deployment/Dockerfile.agent.claude-code \
+#     -t localhost/spring-voyage-agent-claude-code:latest \
+#     --build-arg AGENT_BASE_IMAGE=ghcr.io/cvoya-com/agent-base:dev \
+#     .
+#
+# `AGENT_BASE_IMAGE` defaults to the public ghcr.io tag pinned by this PR.
+# Override it to point at a locally-built `agent-base` (see
+# `deployment/build-sidecar.sh`) when the published image isn't yet in your
+# pull cache.
+
+ARG AGENT_BASE_IMAGE=ghcr.io/cvoya-com/agent-base:1.0.0
+
+FROM ${AGENT_BASE_IMAGE}
+
+# Pin the Claude Code CLI explicitly so `docker build` is reproducible
+# across hosts. Lifted from `packages/software-engineering/execution/spring-agent/Dockerfile`
+# (the legacy spring-agent image) so we don't regress the version that
+# operators are running today. Override at build time with
+# --build-arg CLAUDE_CODE_VERSION=<x.y.z> to roll forward without editing
+# this file.
+ARG CLAUDE_CODE_VERSION=2.1.98
+
+# Anthropic distributes the CLI as @anthropic-ai/claude-code on the public
+# npm registry; the package's binary is `claude` (not `claude-code`). The
+# probe (`claude --version`) makes any install regression fail the build
+# loudly instead of producing a silently broken image.
+#
+# We need root to write to npm's global prefix; the base image runs as
+# `agent`, so we drop down for the install and switch back so we keep the
+# non-root posture the dispatcher and the bridge sidecar expect.
+USER root
+RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
+ && command -v claude >/dev/null \
+ && claude --version
+USER agent
+
+# No CMD / ENTRYPOINT override — inherit the base image's bridge entrypoint
+# unchanged. Operators (or PR 4's launcher) supply SPRING_AGENT_ARGV to
+# choose how the bridge invokes `claude`.

@@ -13,12 +13,17 @@ open-source single-host scenario.
 | `deploy-remote.sh`       | SSH + rsync wrapper that runs `deploy.sh` on a remote VPS.        |
 | `spring-voyage-host.sh`  | Manages host-process services (`spring-dispatcher`). Used directly when bouncing the dispatcher in isolation; called by `deploy.sh up/down`. |
 | `Dockerfile`             | Multi-stage platform image (.NET 10 API/Worker + Web + Dapr CLI). |
-| `Dockerfile.agent`       | Slim image for delegated agent execution containers.              |
+| `Dockerfile.agent-base`  | A2A bridge sidecar base image (BYOI conformance path 1 — see [`docs/architecture/agent-runtime.md` § 7](../docs/architecture/agent-runtime.md#7-byoi-conformance-contract)). Published as `ghcr.io/cvoya-com/agent-base:<semver>` by `release-agent-base.yml`. |
+| `Dockerfile.agent.claude-code` | Claude Code CLI on top of `agent-base` (path 1 reference). Built locally as `localhost/spring-voyage-agent-claude-code:latest`. |
+| `Dockerfile.agent.dapr`  | Dapr Agent native A2A image (path 3). Built locally as `localhost/spring-voyage-agent-dapr:latest`. |
+| `Dockerfile.agent`       | DEPRECATED. Legacy alias of `Dockerfile.agent-base` kept for back-compat with manifests still pinning `localhost/spring-voyage-agent:latest`. Removed in PR 4 of [#1087](https://github.com/cvoya-com/spring-voyage/issues/1087). |
+| `build-agent-images.sh`  | Builds the three agent images above. Invoked by `deploy.sh build`. |
+| `build-sidecar.sh`       | Builds `ghcr.io/cvoya-com/agent-base:dev` from local sources. Used when iterating on the bridge sidecar without GHCR pull access. |
 | `Caddyfile`              | Single-host path-routed Caddy config (default).                   |
 | `Caddyfile.multi-host`   | Per-service hostnames variant (web / API / webhook each FQDN).    |
 | `relay.sh`               | Local-dev SSH reverse tunnel for webhook delivery to a laptop.    |
 | `spring.env.example`     | Documented env template. Copy to `spring.env` and fill in.        |
-| `examples/dockerfiles/`  | Starter Dockerfiles showing how to extend `localhost/spring-voyage-agent:latest` (see **Custom agent images** below). |
+| `examples/dockerfiles/`  | Starter Dockerfiles showing how to extend the per-tool agent images (see **Custom agent images** below). |
 
 > `spring-dispatcher` is intentionally **not** packaged as a container image
 > in OSS. It runs as a long-lived host process owned by
@@ -32,15 +37,29 @@ open-source single-host scenario.
 ## Custom agent images
 
 Unit and agent execution blocks (`execution.image`) accept any container
-reference the host can pull. To run an agent in a custom image — whether
-you just want a pinned tag, or you need to layer extra CLI tools on top
-of `localhost/spring-voyage-agent:latest` (the tag `deploy.sh build`
-produces) — start from one of the templates under
-`examples/dockerfiles/`:
+reference the host can pull. The platform ships three reference images
+(see the file table above) — pick the one that matches your tool and
+either reference it directly or layer extra tooling on top:
+
+| Base image                                              | Conformance path | Use it for |
+| ------------------------------------------------------- | ---------------- | ---------- |
+| `ghcr.io/cvoya-com/agent-base:<semver>`                     | path 1 (bridge)  | Bring your own CLI; the bridge handles A2A. |
+| `localhost/spring-voyage-agent-claude-code:latest`      | path 1 (bridge)  | Claude Code CLI baked in; ready to dispatch. |
+| `localhost/spring-voyage-agent-dapr:latest`             | path 3 (native A2A) | Dapr Agent runtime — speaks A2A natively. |
+
+Build them locally with:
+
+```bash
+./deployment/build-agent-images.sh                # all three at :dev
+./deployment/build-agent-images.sh --tag latest   # all three at :latest
+```
+
+To layer extra tooling on top of one of the bases, start from a
+template under `examples/dockerfiles/`:
 
 | Template            | When to use it                                                         |
 | ------------------- | ---------------------------------------------------------------------- |
-| `minimal-extension` | Re-tag `localhost/spring-voyage-agent:latest` under your own registry / name. No code changes; useful for pinning a stable reference. |
+| `minimal-extension` | Re-tag a base image under your own registry / name. No code changes; useful for pinning a stable reference. |
 | `custom-tools`      | Add extra CLI tools (system packages, npm-installed MCP servers, language toolchains). |
 
 Each template ships with its own `README.md` covering build, reference,

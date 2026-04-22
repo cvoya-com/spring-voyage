@@ -581,11 +581,27 @@ cmd_build() {
         -t "${SPRING_PLATFORM_IMAGE:-localhost/spring-voyage:latest}" \
         "${REPO_ROOT}"
 
-    log "building agent image: ${SPRING_AGENT_IMAGE:-localhost/spring-voyage-agent:latest}"
-    podman build \
-        -f "${SCRIPT_DIR}/Dockerfile.agent" \
-        -t "${SPRING_AGENT_IMAGE:-localhost/spring-voyage-agent:latest}" \
-        "${REPO_ROOT}"
+    # The three agent-runtime images (legacy alias, claude-code path 1,
+    # dapr path 3) are built by the canonical entry point added in
+    # PR 3b of #1087 (#1096). It tags them at :dev locally and re-tags
+    # the legacy `localhost/spring-voyage-agent` for back-compat below.
+    log "building agent images via deployment/build-agent-images.sh"
+    DOCKER=podman "${SCRIPT_DIR}/build-agent-images.sh" --tag "${SPRING_AGENT_TAG:-latest}"
+
+    # Back-compat shim: re-tag the new claude-code image under the
+    # legacy reference so manifests that still pin
+    # `localhost/spring-voyage-agent:latest` (or the
+    # `${SPRING_AGENT_IMAGE}` override) keep working until they're
+    # migrated. Removed in PR 4 of #1087 along with the deprecated
+    # `Dockerfile.agent`.
+    local legacy_tag="${SPRING_AGENT_IMAGE:-localhost/spring-voyage-agent:latest}"
+    log "tagging localhost/spring-voyage-agent-claude-code:${SPRING_AGENT_TAG:-latest} as ${legacy_tag} (legacy)"
+    podman tag "localhost/spring-voyage-agent-claude-code:${SPRING_AGENT_TAG:-latest}" "${legacy_tag}"
+
+    # Legacy dapr-agent reference. Same back-compat story; remove in PR 4.
+    local legacy_dapr_tag="${SPRING_DAPR_AGENT_IMAGE:-localhost/spring-dapr-agent:latest}"
+    log "tagging localhost/spring-voyage-agent-dapr:${SPRING_AGENT_TAG:-latest} as ${legacy_dapr_tag} (legacy)"
+    podman tag "localhost/spring-voyage-agent-dapr:${SPRING_AGENT_TAG:-latest}" "${legacy_dapr_tag}"
 
     # spring-dispatcher is a host process (#1063); we publish its .NET binary
     # via spring-voyage-host.sh build instead of producing an image.
@@ -593,12 +609,6 @@ cmd_build() {
         log "publishing spring-dispatcher host binary"
         "${HOST_SCRIPT}" build
     fi
-
-    log "building dapr-agent image: ${SPRING_DAPR_AGENT_IMAGE:-localhost/spring-dapr-agent:latest}"
-    podman build \
-        -f "${REPO_ROOT}/agents/dapr-agent/Dockerfile" \
-        -t "${SPRING_DAPR_AGENT_IMAGE:-localhost/spring-dapr-agent:latest}" \
-        "${REPO_ROOT}/agents/dapr-agent"
 }
 
 cmd_ensure_user_net() {

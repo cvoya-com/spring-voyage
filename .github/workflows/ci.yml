@@ -38,6 +38,7 @@ jobs:
       web: ${{ steps.filter.outputs.web }}
       workflows: ${{ steps.filter.outputs.workflows }}
       dispatcher_host: ${{ steps.filter.outputs.dispatcher_host }}
+      agent_images: ${{ steps.filter.outputs.agent_images }}
     steps:
       - uses: actions/checkout@v6
 
@@ -85,6 +86,15 @@ jobs:
               - 'deployment/docker-compose.yml'
               - 'deployment/spring.env.example'
               - 'src/Cvoya.Spring.Dispatcher/**'
+            agent_images:
+              - 'deployment/Dockerfile.agent-base'
+              - 'deployment/Dockerfile.agent'
+              - 'deployment/Dockerfile.agent.claude-code'
+              - 'deployment/Dockerfile.agent.dapr'
+              - 'deployment/build-agent-images.sh'
+              - 'deployment/agent-sidecar/**'
+              - 'agents/dapr-agent/**'
+              - 'tests/scripts/smoke-agent-images.sh'
 
   build:
     name: Build
@@ -841,6 +851,50 @@ jobs:
         shell: bash
         run: bash scripts/audit-no-container-cli.sh
 
+  agent-images-smoke:
+    name: Agent images build + smoke
+    runs-on: ubuntu-latest
+    needs: changes
+    # PR 3b of #1087 (#1096): build the three tool-bearing agent images
+    # (`agent-base`, `agent-claude-code`, `agent-dapr`) the dispatcher
+    # launches today and smoke-test that each one exposes
+    # /.well-known/agent.json with the BYOI conformance shape
+    # (`docs/architecture/agent-runtime.md` § 7).
+    #
+    # Static-input check (it bakes the PR's own Dockerfiles), so it is
+    # safe to skip in the merge queue — a pass on the pull_request run
+    # stays valid through the queue. Path-filtered to the deployment +
+    # python-agent surface so unrelated PRs don't pay the build cost.
+    if: >
+      github.event_name != 'merge_group' &&
+      (needs.changes.outputs.agent_images == 'true' || needs.changes.outputs.workflows == 'true')
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Verify docker is on PATH
+        shell: bash
+        run: |
+          if ! command -v docker >/dev/null 2>&1; then
+            echo "::error::docker is not on PATH; ubuntu-latest images normally ship docker pre-installed"
+            exit 1
+          fi
+          docker version
+
+      - name: Build agent images (offline-safe — agent-base from local sources)
+        shell: bash
+        # `--skip-agent-base=0` (the default) builds ghcr.io/cvoya-com/agent-base:dev
+        # locally first so the claude-code FROM resolves without a GHCR pull.
+        # That way a PR can be tested before the corresponding agent-base
+        # tag is published.
+        run: bash deployment/build-agent-images.sh --tag dev
+
+      - name: Smoke each image (curl /.well-known/agent.json)
+        shell: bash
+        env:
+          SMOKE_IMAGE_TAG: dev
+        run: bash tests/scripts/smoke-agent-images.sh
+
   required-checks:
     name: Required checks
     runs-on: ubuntu-latest
@@ -864,6 +918,7 @@ jobs:
       - host-script-idempotence
       - dispatcher-smoke
       - audit-no-container-cli
+      - agent-images-smoke
     # Always runs - branch protection depends on a single "Required checks"
     # context, so this job must report a status even when upstream jobs were
     # path-filtered out.
@@ -892,6 +947,7 @@ jobs:
           HOST_IDEMPOTENCE_RESULT: ${{ needs.host-script-idempotence.result }}
           DISPATCHER_SMOKE_RESULT: ${{ needs.dispatcher-smoke.result }}
           AUDIT_RESULT: ${{ needs.audit-no-container-cli.result }}
+          AGENT_IMAGES_RESULT: ${{ needs.agent-images-smoke.result }}
           CHANGES_RESULT: ${{ needs.changes.result }}
         run: |
           echo "changes=$CHANGES_RESULT"
@@ -913,6 +969,7 @@ jobs:
           echo "host-script-idempotence=$HOST_IDEMPOTENCE_RESULT"
           echo "dispatcher-smoke=$DISPATCHER_SMOKE_RESULT"
           echo "audit-no-container-cli=$AUDIT_RESULT"
+          echo "agent-images-smoke=$AGENT_IMAGES_RESULT"
 
           # The 'changes' gate itself must have run cleanly - if path detection
           # failed we can't trust the skip decisions downstream.
@@ -944,3 +1001,4 @@ jobs:
           ok "$HOST_IDEMPOTENCE_RESULT" || { echo "::error::host-script-idempotence failed"; exit 1; }
           ok "$DISPATCHER_SMOKE_RESULT" || { echo "::error::dispatcher-smoke failed"; exit 1; }
           ok "$AUDIT_RESULT"            || { echo "::error::audit-no-container-cli failed"; exit 1; }
+          ok "$AGENT_IMAGES_RESULT"     || { echo "::error::agent-images-smoke failed"; exit 1; }

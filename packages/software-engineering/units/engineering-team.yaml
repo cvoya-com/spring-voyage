@@ -19,7 +19,7 @@ unit:
     - agent: backend-engineer
     - agent: qa-engineer
   execution:
-    image: localhost/spring-voyage-agent:latest
+    image: localhost/spring-voyage-agent-claude-code:latest
     runtime: docker
   connectors:
     - type: github

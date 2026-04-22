@@ -1,16 +1,22 @@
 # Minimal agent image extension
 
-The smallest possible custom agent image: re-tag
-`localhost/spring-voyage-agent:latest` (the tag produced by
-`deployment/deploy.sh build`) under your own name so unit / agent
-manifests reference a stable, pinned identifier.
+The smallest possible custom agent image: re-tag one of the
+tool-bearing agent images shipped by `deployment/build-agent-images.sh`
+(the entry point added in PR 3b of #1087, #1096) under your own name so
+unit / agent manifests reference a stable, pinned identifier.
+
+The example below extends `localhost/spring-voyage-agent-claude-code:latest`
+(BYOI conformance path 1 — agent-base bridge + Claude Code CLI).
+Substitute `localhost/spring-voyage-agent-dapr:latest` for the Dapr
+Agent path-3 runtime, or `ghcr.io/cvoya-com/agent-base:1.0.0` if you only
+want the bridge sidecar and will install your own CLI on top.
 
 ## What this Dockerfile does
 
-Inherits the `localhost/spring-voyage-agent:latest` base image unchanged
-and produces a new image under your chosen tag. No extra tooling is
-added. Use this as a starting point when you want to pin a tag but
-don't yet need additional CLI tools or MCP servers in the image.
+Inherits the chosen agent base image unchanged and produces a new image
+under your chosen tag. No extra tooling is added. Use this as a starting
+point when you want to pin a tag but don't yet need additional CLI tools
+or MCP servers in the image.
 
 ## Build
 

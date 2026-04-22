@@ -1407,7 +1407,7 @@ export default function CreateUnitPage() {
                   <Input
                     value={form.image}
                     onChange={(e) => update("image", e.target.value)}
-                    placeholder="ghcr.io/... or localhost/spring-voyage-agent:latest"
+                    placeholder="ghcr.io/... or localhost/spring-voyage-agent-claude-code:latest"
                     aria-label="Execution image"
                   />
                   <span className="block text-xs text-muted-foreground">

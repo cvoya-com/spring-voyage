@@ -351,7 +351,7 @@ To make the provider/model configurable by YAML only, `AgentDefinition`'s
 ```yaml
 execution:
   tool: dapr-agent                          # selects the launcher
-  image: localhost/spring-dapr-agent:latest # required for container-backed tools
+  image: localhost/spring-voyage-agent-dapr:latest # required for container-backed tools
   runtime: podman                           # optional runtime hint
   hosting: ephemeral                        # or "persistent"
   provider: ollama                          # Dapr Conversation component name

@@ -8,7 +8,7 @@ agent:
     model: claude-sonnet-4-6
     tool: claude-code
     environment:
-      image: localhost/spring-voyage-agent:latest
+      image: localhost/spring-voyage-agent-claude-code:latest
       runtime: docker
   instructions: |
     You are a literature reviewer. You scope a topic, survey the existing

@@ -23,7 +23,7 @@ unit:
     - agent: pm
     - agent: design
   execution:
-    image: localhost/spring-voyage-agent:latest
+    image: localhost/spring-voyage-agent-claude-code:latest
     runtime: docker
   policies:
     communication: through-unit

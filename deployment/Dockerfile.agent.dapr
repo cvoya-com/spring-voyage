@@ -1,0 +1,91 @@
+# syntax=docker/dockerfile:1.7
+#
+# Spring Voyage — Dapr Agent image (PR 3b of #1087, #1096).
+#
+# BYOI conformance path 3 from `docs/architecture/agent-runtime.md` § 7:
+# the container speaks A2A 0.3.x natively — no Spring sidecar bridge in the
+# image. The Python entrypoint stands up an `A2AStarletteApplication`
+# (from `a2a-sdk[http-server]`) on `${AGENT_PORT:-8999}` and runs a
+# `dapr_agents.DurableAgent` agentic loop that resolves its tools through
+# the platform's MCP server and routes its LLM calls through Dapr
+# Conversation. See `docs/architecture/agent-runtime.md` § 2 (Tier B —
+# A2A-native launchers) and § 5 (Dapr Conversation wiring).
+#
+# This image is the canonical reference for the `dapr-agent` tool the
+# `DaprAgentLauncher` dispatches to. The Python source lives under
+# `agents/dapr-agent/` (lint + tests gated in `.github/workflows/ci.yml`).
+#
+# Why we duplicate `agents/dapr-agent/Dockerfile`:
+#   * `deployment/build-agent-images.sh` is the new single entry point for
+#     building every agent image the dispatcher launches today (PR 3b
+#     acceptance criterion).
+#   * Co-locating the three Dockerfiles under `deployment/` keeps the
+#     "what does the platform launch?" surface in one folder so the
+#     followup that updates the launcher (PR 4 of #1087) has a single
+#     directory to grep.
+#   * `agents/dapr-agent/Dockerfile` stays for the existing test scenarios
+#     (`tests/e2e/scenarios/llm/40-dapr-agent-turn.sh`) until those are
+#     migrated, and is re-exported as a thin alias of this file so a
+#     `podman build agents/dapr-agent/` still works.
+#
+# Build:
+#   deployment/build-agent-images.sh
+#       (preferred — builds agent-base, agent-claude-code, agent-dapr together)
+#
+#   docker build \
+#     -f deployment/Dockerfile.agent.dapr \
+#     -t localhost/spring-voyage-agent-dapr:latest \
+#     .
+
+FROM docker.io/library/python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    AGENT_PORT=8999
+
+# `tini` for clean signal forwarding (matches the agent-base image so
+# `tasks/cancel` semantics are uniform across the Tier-A and Tier-B
+# launchers). `ca-certificates` so `httpx` can verify TLS endpoints
+# (Anthropic, OpenAI, etc.).
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        tini \
+ && rm -rf /var/lib/apt/lists/*
+
+# Non-root agent user (uid 1000 / gid 1000) for parity with
+# `Dockerfile.agent-base` so a bind-mounted workspace from a host that
+# already worked with the base image continues to work without a chown.
+ARG AGENT_UID=1000
+ARG AGENT_GID=1000
+RUN groupadd --gid "${AGENT_GID}" agent \
+ && useradd  --uid "${AGENT_UID}" --gid "${AGENT_GID}" --create-home --shell /bin/bash agent
+
+WORKDIR /app
+
+# Install Python deps in a single root layer so they land under the
+# system site-packages and survive the USER switch below. The
+# `requirements.txt` lives next to the Python source under
+# `agents/dapr-agent/` and is the single source of truth for the
+# dapr-agents + a2a-sdk version pins (a2a-sdk is upper-pinned to <1
+# while the import surface is migrated — see the file's comments).
+COPY agents/dapr-agent/requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt \
+ && rm /tmp/requirements.txt
+
+# Copy the Python source last so iterative changes to agent.py /
+# a2a_server.py / mcp_bridge.py don't bust the dep-install layer cache.
+COPY agents/dapr-agent/agent.py        ./agent.py
+COPY agents/dapr-agent/a2a_server.py   ./a2a_server.py
+COPY agents/dapr-agent/mcp_bridge.py   ./mcp_bridge.py
+COPY agents/dapr-agent/pyproject.toml  ./pyproject.toml
+
+RUN chown -R agent:agent /app
+USER agent
+
+EXPOSE 8999
+
+# tini as PID 1 mirrors `Dockerfile.agent-base` so SIGTERM from the
+# dispatcher flows through to the uvicorn server cleanly.
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["python", "agent.py"]

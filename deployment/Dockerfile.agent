@@ -1,59 +1,26 @@
 # syntax=docker/dockerfile:1.7
 #
-# Spring Voyage — delegated agent execution container.
+# Spring Voyage — DEPRECATED legacy agent runtime image.
 #
-# This image is the runtime for "delegated" execution mode (see
-# docs/architecture/units.md). An agent actor in the worker dispatches work
-# to a container built from this image; the container runs the configured
-# agent tool (Claude Code CLI, a Python ADK entrypoint, a workflow binary,
-# etc.) and talks to its paired Dapr sidecar for messaging and state.
+# This file used to be the Debian + Node + Python "delegated execution"
+# base image, tagged `localhost/spring-voyage-agent:latest`. PR 3b of
+# #1087 (#1096) splits the world into:
 #
-# The image is intentionally slim — it provides a sandboxed execution shell
-# with a node/python runtime and common tools. Agent-specific tools are
-# layered on top in downstream images or mounted at runtime.
+#   * `Dockerfile.agent-base`        — A2A bridge sidecar base (path 1)
+#   * `Dockerfile.agent.claude-code` — Claude Code on top of agent-base
+#   * `Dockerfile.agent.dapr`        — Dapr Agent native A2A image (path 3)
+#
+# To avoid breaking operators who still build with `deploy.sh build` and
+# the existing example Dockerfiles, this file is preserved as a thin
+# legacy alias that simply `FROM`s the new agent-base image. The output
+# tag (`localhost/spring-voyage-agent:latest`) is now functionally
+# identical to `localhost/spring-voyage-agent-claude-code:latest` minus
+# the Claude Code CLI install — i.e. the agent-base image. New manifests
+# should reference one of the per-tool images directly.
+#
+# Removal target: PR 4 of #1087, which lands the launcher changes that
+# make per-tool image references the only supported path.
 
-FROM docker.io/library/debian:12-slim
+ARG AGENT_BASE_IMAGE=ghcr.io/cvoya-com/agent-base:1.0.0
 
-ENV DEBIAN_FRONTEND=noninteractive \
-    LANG=C.UTF-8 \
-    LC_ALL=C.UTF-8 \
-    WORKSPACE=/workspace
-
-RUN apt-get update \
- && apt-get install -y --no-install-recommends \
-        ca-certificates \
-        curl \
-        git \
-        gnupg \
-        jq \
-        openssh-client \
-        python3 \
-        python3-pip \
-        python3-venv \
-        ripgrep \
-        tini \
-        tzdata \
-        unzip \
- && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
- && apt-get install -y --no-install-recommends nodejs \
- && apt-get purge -y --auto-remove gnupg \
- && rm -rf /var/lib/apt/lists/*
-
-# Non-root agent user. Matches the typical rootless-podman subuid mapping.
-ARG AGENT_UID=1000
-ARG AGENT_GID=1000
-RUN groupadd --gid "${AGENT_GID}" agent \
- && useradd  --uid "${AGENT_UID}" --gid "${AGENT_GID}" --create-home --shell /bin/bash agent \
- && mkdir -p "${WORKSPACE}" \
- && chown -R agent:agent "${WORKSPACE}" /home/agent
-
-USER agent
-WORKDIR /workspace
-
-# tini forwards signals cleanly so cancellation from the actor propagates
-# to the underlying tool process (critical for MessageType.Cancel semantics).
-ENTRYPOINT ["/usr/bin/tini", "--"]
-
-# Default command: keep the container alive until the actor issues work.
-# The real command is supplied by ContainerLifecycleManager at launch time.
-CMD ["sleep", "infinity"]
+FROM ${AGENT_BASE_IMAGE}

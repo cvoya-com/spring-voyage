@@ -295,7 +295,7 @@ export function ExecutionTab({ unitId }: ExecutionTabProps) {
               onChange={(e) =>
                 setField("image", e.target.value ? e.target.value : null)
               }
-              placeholder="ghcr.io/... or localhost/spring-voyage-agent:latest"
+              placeholder="ghcr.io/... or localhost/spring-voyage-agent-claude-code:latest"
               aria-label="Execution image"
               data-testid="execution-image-input"
             />

@@ -357,7 +357,7 @@ The tab reads `GET /api/v1/units/{id}/execution`, edits each field in place, and
 
 | Field | Input shape | CLI equivalent |
 |-------|-------------|----------------|
-| **Image** | Plain text input. Placeholder: `ghcr.io/... or localhost/spring-voyage-agent:latest` (the tag `deployment/deploy.sh build` produces, per #1035). Shape 1 — autocomplete from history is #622 (V2.1), registry discovery is #623 (V2.1). | `spring unit execution set <unit> --image <ref>` |
+| **Image** | Plain text input. Placeholder: `ghcr.io/... or localhost/spring-voyage-agent-claude-code:latest` (the tag `deployment/build-agent-images.sh` produces for the Claude Code path, per #1096; the legacy `localhost/spring-voyage-agent:latest` is also re-tagged by `deployment/deploy.sh build` for back-compat). Shape 1 — autocomplete from history is #622 (V2.1), registry discovery is #623 (V2.1). | `spring unit execution set <unit> --image <ref>` |
 | **Runtime** | Dropdown: `docker` / `podman` (or `(leave to default)`). | `--runtime docker\|podman` |
 | **Tool** | Dropdown: `claude-code` / `codex` / `gemini` / `dapr-agent` / `custom`. | `--tool <key>` |
 | **Provider** | Dropdown: `anthropic` / `openai` / `google` / `ollama`. **Only shown when Tool is `dapr-agent`, or when Tool is unset** (#598 gating, matches PR #627). | `--provider <key>` |

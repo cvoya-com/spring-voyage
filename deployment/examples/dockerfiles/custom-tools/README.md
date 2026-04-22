@@ -1,16 +1,19 @@
 # Custom-tools agent image
 
-Extends the Spring Voyage agent base with extra CLI tooling the agent
-process can shell out to. Use this template when your agent workflow
-needs a tool that isn't shipped with
-`localhost/spring-voyage-agent:latest` (the tag produced by
-`deployment/deploy.sh build`).
+Extends one of the Spring Voyage tool-bearing agent images with extra
+CLI tooling the agent process can shell out to. Use this template when
+your agent workflow needs a tool that isn't shipped with the
+per-tool images produced by `deployment/build-agent-images.sh` (added
+in PR 3b of #1087, #1096) — for example
+`localhost/spring-voyage-agent-claude-code:latest` (Claude Code path 1)
+or `localhost/spring-voyage-agent-dapr:latest` (Dapr Agent path 3).
 
 ## What this Dockerfile does
 
-Inherits `localhost/spring-voyage-agent:latest`, switches to root long
-enough to install extra packages via `apt-get`, then drops back to the
-non-root `agent` user so the runtime identity matches the base image.
+Inherits `localhost/spring-voyage-agent-claude-code:latest`, switches to
+root long enough to install extra packages via `apt-get`, then drops
+back to the non-root `agent` user so the runtime identity matches the
+base image.
 
 The file ships commented-out examples for three common shapes:
 
