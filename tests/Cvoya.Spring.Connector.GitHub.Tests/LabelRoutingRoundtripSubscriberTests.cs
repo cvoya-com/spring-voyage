@@ -234,6 +234,13 @@ public class LabelRoutingRoundtripSubscriberTests
     }
 
     [Fact]
+    public void Filter_ReturnsFalse_WhenEventIsNull()
+    {
+        LabelRoutingRoundtripSubscriber.IsLabelRoutedGitHubAssignment(null!)
+            .ShouldBeFalse();
+    }
+
+    [Fact]
     public void TryExtractTarget_ReturnsFalseOnMissingIssue()
     {
         var details = JsonSerializer.SerializeToElement(new

@@ -348,6 +348,10 @@ public sealed class LabelRoutingRoundtripSubscriber : IHostedService, IDisposabl
     /// </summary>
     internal static bool IsLabelRoutedGitHubAssignment(ActivityEvent evt)
     {
+        if (evt is null)
+        {
+            return false;
+        }
         if (evt.EventType != ActivityEventType.DecisionMade)
         {
             return false;
