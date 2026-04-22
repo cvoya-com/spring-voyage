@@ -49,6 +49,15 @@ public class UnitValidationWaitLoopTests
             ErrorMessage: null,
             ErrorDetails: null);
 
+    private static UnitValidationSnapshot Draft() =>
+        new(
+            Status: "Draft",
+            ValidationRunId: null,
+            ErrorCode: null,
+            ErrorStep: null,
+            ErrorMessage: null,
+            ErrorDetails: null);
+
     private static UnitValidationSnapshot Error(
         string code,
         string step,
@@ -221,6 +230,64 @@ public class UnitValidationWaitLoopTests
 
         exit.ShouldBe(UnitValidationExitCodes.Success);
         callCount.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task RunAsync_AlreadyDraftAtStart_ReturnsSuccessAndNoPolls()
+    {
+        // #1025 — a minimal unit (no model / no provider) lands in Draft; the
+        // server never schedules a validation workflow so the wait loop must
+        // treat Draft as terminal, not poll forever.
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+
+        var callCount = 0;
+        Task<UnitValidationSnapshot> Fetch(CancellationToken _)
+        {
+            callCount++;
+            return Task.FromResult(Draft());
+        }
+
+        var exit = await UnitValidationWaitLoop.RunAsync(
+            "eng-team",
+            Draft(),
+            Fetch,
+            stdout,
+            stderr,
+            TestContext.Current.CancellationToken,
+            pollInterval: TimeSpan.FromMilliseconds(1),
+            delay: NoDelay);
+
+        exit.ShouldBe(UnitValidationExitCodes.Success);
+        callCount.ShouldBe(0);
+        stdout.ToString().ShouldContain("Draft");
+        stdout.ToString().ShouldContain("Add a model");
+        stderr.ToString().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task RunAsync_ValidatingThenDraft_ReturnsSuccessAndStopsPolling()
+    {
+        // Covers the less-common path where the server returns Validating
+        // on the initial POST but the unit settles back into Draft (e.g. a
+        // model reference gets cleared). The loop must still terminate.
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        var fetch = FetchSequence(Validating(), Draft());
+
+        var exit = await UnitValidationWaitLoop.RunAsync(
+            "eng-team",
+            Validating(),
+            fetch,
+            stdout,
+            stderr,
+            TestContext.Current.CancellationToken,
+            pollInterval: TimeSpan.FromMilliseconds(1),
+            delay: NoDelay);
+
+        exit.ShouldBe(UnitValidationExitCodes.Success);
+        stdout.ToString().ShouldContain("Draft");
+        stdout.ToString().ShouldContain("Add a model");
     }
 
     [Fact]
