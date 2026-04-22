@@ -365,13 +365,6 @@ export const EXECUTION_PROVIDERS = [
   "ollama",
 ] as const;
 
-/**
- * Hosting modes the backend accepts on an agent's execution block. The
- * reference dispatcher reads this to pick between the ephemeral and
- * persistent launcher paths.
- */
-export const EXECUTION_HOSTING_MODES = ["ephemeral", "persistent"] as const;
-
 /** Matches Cvoya.Spring.Core.Initiative.InitiativePolicy record. */
 export type InitiativePolicy = Schemas["InitiativePolicy"];
 
