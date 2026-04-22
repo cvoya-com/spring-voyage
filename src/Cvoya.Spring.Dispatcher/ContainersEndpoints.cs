@@ -54,6 +54,7 @@ public static class ContainersEndpoints
     internal static async Task<IResult> RunOrStartAsync(
         [FromBody] RunContainerRequest request,
         IContainerRuntime runtime,
+        IWorkspaceMaterializer workspaceMaterializer,
         ILoggerFactory loggerFactory,
         HttpContext httpContext,
         CancellationToken cancellationToken)
@@ -72,20 +73,49 @@ public static class ContainersEndpoints
             });
         }
 
+        // Materialise the workspace BEFORE building the config so the bind-mount
+        // spec and effective working directory both reference the dispatcher-host
+        // path the agent container will actually see (issue #1042).
+        MaterializedWorkspace? materialized = null;
+        if (request.Workspace is { } workspaceRequest)
+        {
+            try
+            {
+                materialized = await workspaceMaterializer.MaterializeAsync(
+                    workspaceRequest, cancellationToken);
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+            {
+                logger.LogWarning(
+                    EventIds.DispatcherRejected,
+                    ex,
+                    "Rejected container run: workspace request is invalid");
+                return Results.BadRequest(new DispatcherErrorResponse
+                {
+                    Code = "workspace_invalid",
+                    Message = ex.Message,
+                });
+            }
+        }
+
+        var mounts = BuildEffectiveMounts(request.Mounts, materialized);
+        var workdir = request.WorkingDirectory
+            ?? materialized?.MountPath;
+
         var config = new ContainerConfig(
             Image: request.Image,
             Command: request.Command,
             EnvironmentVariables: request.Env is null
                 ? null
                 : new Dictionary<string, string>(request.Env),
-            VolumeMounts: request.Mounts,
+            VolumeMounts: mounts,
             Timeout: request.TimeoutSeconds is { } ts ? TimeSpan.FromSeconds(ts) : null,
             NetworkName: request.NetworkName,
             Labels: request.Labels is null
                 ? null
                 : new Dictionary<string, string>(request.Labels),
             ExtraHosts: request.ExtraHosts,
-            WorkingDirectory: request.WorkingDirectory);
+            WorkingDirectory: workdir);
 
         if (request.Detached)
         {
@@ -93,22 +123,70 @@ public static class ContainersEndpoints
                 EventIds.ContainerStartRequested,
                 "Starting detached container image={Image}", request.Image);
 
-            var id = await runtime.StartAsync(config, cancellationToken);
-            return Results.Ok(new RunContainerResponse { Id = id });
+            try
+            {
+                var id = await runtime.StartAsync(config, cancellationToken);
+                if (materialized is not null)
+                {
+                    // Detached starts: defer cleanup until DELETE /v1/containers/{id}.
+                    workspaceMaterializer.TrackForContainer(id, materialized);
+                }
+                return Results.Ok(new RunContainerResponse { Id = id });
+            }
+            catch
+            {
+                // The runtime never owned the workspace, so a start failure means
+                // we leak the host dir unless we sweep it here.
+                if (materialized is not null)
+                {
+                    workspaceMaterializer.Cleanup(materialized);
+                }
+                throw;
+            }
         }
 
         logger.LogInformation(
             EventIds.ContainerRunRequested,
             "Running container image={Image}", request.Image);
 
-        var result = await runtime.RunAsync(config, cancellationToken);
-        return Results.Ok(new RunContainerResponse
+        try
         {
-            Id = result.ContainerId,
-            ExitCode = result.ExitCode,
-            StandardOutput = result.StandardOutput,
-            StandardError = result.StandardError,
-        });
+            var result = await runtime.RunAsync(config, cancellationToken);
+            return Results.Ok(new RunContainerResponse
+            {
+                Id = result.ContainerId,
+                ExitCode = result.ExitCode,
+                StandardOutput = result.StandardOutput,
+                StandardError = result.StandardError,
+            });
+        }
+        finally
+        {
+            // Blocking runs always clean up — success or failure. Cleanup is
+            // logged by the materialiser so operators can audit the lifecycle.
+            if (materialized is not null)
+            {
+                workspaceMaterializer.Cleanup(materialized);
+            }
+        }
+    }
+
+    private static IReadOnlyList<string>? BuildEffectiveMounts(
+        IReadOnlyList<string>? requested,
+        MaterializedWorkspace? materialized)
+    {
+        if (materialized is null)
+        {
+            return requested;
+        }
+
+        var mounts = new List<string>(requested?.Count + 1 ?? 1);
+        if (requested is { Count: > 0 })
+        {
+            mounts.AddRange(requested);
+        }
+        mounts.Add(materialized.MountSpec);
+        return mounts;
     }
 
     /// <summary>
@@ -159,6 +237,7 @@ public static class ContainersEndpoints
     internal static async Task<IResult> StopAsync(
         string id,
         IContainerRuntime runtime,
+        IWorkspaceMaterializer workspaceMaterializer,
         ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
@@ -177,7 +256,16 @@ public static class ContainersEndpoints
             EventIds.ContainerStopRequested,
             "Stopping container id={ContainerId}", id);
 
-        await runtime.StopAsync(id, cancellationToken);
+        try
+        {
+            await runtime.StopAsync(id, cancellationToken);
+        }
+        finally
+        {
+            // Detached starts deferred workspace cleanup to this call —
+            // if no workspace was tracked for this id this is a no-op.
+            workspaceMaterializer.CleanupForContainer(id);
+        }
         return Results.NoContent();
     }
 }

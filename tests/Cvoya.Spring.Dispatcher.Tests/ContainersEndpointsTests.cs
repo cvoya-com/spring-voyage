@@ -166,4 +166,141 @@ public class ContainersEndpointsTests : IClassFixture<DispatcherWebApplicationFa
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
     }
+
+    [Fact]
+    public async Task PostContainers_WithWorkspace_MaterialisesFilesAndAppendsBindMount()
+    {
+        _factory.ContainerRuntime.ClearSubstitute();
+
+        ContainerConfig? captured = null;
+        _factory.ContainerRuntime
+            .RunAsync(Arg.Do<ContainerConfig>(c => captured = c), Arg.Any<CancellationToken>())
+            .Returns(new ContainerResult("ws-blocking", 0, "ok", string.Empty));
+
+        var client = CreateAuthorizedClient();
+
+        var response = await client.PostAsJsonAsync("/v1/containers", new
+        {
+            image = "claude-code:latest",
+            workspace = new
+            {
+                mountPath = "/workspace",
+                files = new Dictionary<string, string>
+                {
+                    ["CLAUDE.md"] = "system prompt body",
+                    [".mcp.json"] = "{\"mcpServers\":{}}",
+                    ["nested/dir/note.txt"] = "nested",
+                },
+            },
+            detached = false,
+        }, TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        captured.ShouldNotBeNull();
+        captured!.WorkingDirectory.ShouldBe("/workspace");
+        var bindMount = captured.VolumeMounts!.Single();
+        bindMount.ShouldEndWith(":/workspace");
+
+        var hostDir = bindMount[..bindMount.LastIndexOf(":/workspace", StringComparison.Ordinal)];
+        Directory.Exists(hostDir).ShouldBeFalse(
+            "blocking runs must clean the materialised dir up after the runtime returns");
+        // The dir was materialised inside the configured root before being deleted.
+        hostDir.ShouldStartWith(_factory.WorkspaceRoot);
+    }
+
+    [Fact]
+    public async Task PostContainers_WithWorkspace_RejectsTraversalPaths()
+    {
+        _factory.ContainerRuntime.ClearSubstitute();
+
+        var client = CreateAuthorizedClient();
+
+        var response = await client.PostAsJsonAsync("/v1/containers", new
+        {
+            image = "claude-code:latest",
+            workspace = new
+            {
+                mountPath = "/workspace",
+                files = new Dictionary<string, string>
+                {
+                    ["../../etc/passwd"] = "x",
+                },
+            },
+        }, TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        await _factory.ContainerRuntime.DidNotReceive().RunAsync(
+            Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PostContainers_DetachedWithWorkspace_DefersCleanupUntilStop()
+    {
+        _factory.ContainerRuntime.ClearSubstitute();
+
+        ContainerConfig? captured = null;
+        _factory.ContainerRuntime
+            .StartAsync(Arg.Do<ContainerConfig>(c => captured = c), Arg.Any<CancellationToken>())
+            .Returns("persistent-ws-1");
+
+        var client = CreateAuthorizedClient();
+
+        var startResponse = await client.PostAsJsonAsync("/v1/containers", new
+        {
+            image = "agent:latest",
+            workspace = new
+            {
+                mountPath = "/workspace",
+                files = new Dictionary<string, string> { ["A.txt"] = "alpha" },
+            },
+            detached = true,
+        }, TestContext.Current.CancellationToken);
+
+        startResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        captured.ShouldNotBeNull();
+        var bindMount = captured!.VolumeMounts!.Single();
+        var hostDir = bindMount[..bindMount.LastIndexOf(":/workspace", StringComparison.Ordinal)];
+        Directory.Exists(hostDir).ShouldBeTrue(
+            "detached starts must keep the workspace until DELETE is called");
+        File.ReadAllText(Path.Combine(hostDir, "A.txt")).ShouldBe("alpha");
+
+        var deleteResponse = await client.DeleteAsync(
+            "/v1/containers/persistent-ws-1", TestContext.Current.CancellationToken);
+        deleteResponse.StatusCode.ShouldBe(HttpStatusCode.NoContent);
+
+        Directory.Exists(hostDir).ShouldBeFalse(
+            "DELETE should sweep the workspace tracked by the detached start");
+    }
+
+    [Fact]
+    public async Task PostContainers_WithWorkspace_PreservesExistingMounts()
+    {
+        _factory.ContainerRuntime.ClearSubstitute();
+
+        ContainerConfig? captured = null;
+        _factory.ContainerRuntime
+            .RunAsync(Arg.Do<ContainerConfig>(c => captured = c), Arg.Any<CancellationToken>())
+            .Returns(new ContainerResult("ws-with-extra", 0, string.Empty, string.Empty));
+
+        var client = CreateAuthorizedClient();
+
+        var response = await client.PostAsJsonAsync("/v1/containers", new
+        {
+            image = "claude-code:latest",
+            mounts = new[] { "/var/run/secrets:/secrets:ro" },
+            workspace = new
+            {
+                mountPath = "/workspace",
+                files = new Dictionary<string, string> { ["CLAUDE.md"] = "x" },
+            },
+        }, TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        captured.ShouldNotBeNull();
+        captured!.VolumeMounts!.Count.ShouldBe(2);
+        captured.VolumeMounts.ShouldContain("/var/run/secrets:/secrets:ro");
+        captured.VolumeMounts.Last().ShouldEndWith(":/workspace");
+    }
 }

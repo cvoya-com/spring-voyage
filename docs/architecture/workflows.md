@@ -106,7 +106,7 @@ At dispatch time it:
 3. Looks up the `IAgentToolLauncher` whose `Tool` property matches `execution.tool`.
 4. Issues a short-lived MCP session (`IMcpServer.IssueSession`) bound to `(agentId, conversationId)`.
 5. Assembles the full four-layer prompt via `IPromptAssembler` (Layers 1–4; see [Units & Agents](units.md)).
-6. Delegates filesystem preparation to the launcher, which returns the per-invocation working directory, env vars, and volume-mount specs.
+6. Asks the launcher to describe the workspace it needs (file contents, in-container mount path, env vars, extra mounts). The launcher does **not** touch the local filesystem — `spring-dispatcher` materialises that workspace on its host before starting the agent container (issue #1042; see [Deployment](deployment.md#per-invocation-workspace-materialisation)).
 7. Runs the container (`IContainerRuntime`) and either streams A2A messages (persistent) or collects stdout on exit (ephemeral today; see [Deployment](deployment.md) for the rolling move to A2A-everywhere).
 
 ### Launcher registry
@@ -114,8 +114,7 @@ At dispatch time it:
 `IAgentToolLauncher` (`Cvoya.Spring.Core/Execution/IAgentToolLauncher.cs`) is the per-tool extension point. Every launcher exposes:
 
 - A unique `Tool` string that matches `execution.tool` in the agent YAML.
-- `PrepareAsync(AgentLaunchContext, ct)` — materialises a per-invocation working directory and returns `AgentLaunchPrep` (working dir path, env vars, volume mounts).
-- `CleanupAsync(workingDirectory, ct)` — removes the working directory when the container exits.
+- `PrepareAsync(AgentLaunchContext, ct)` — returns `AgentLaunchPrep`, a pure data record describing the workspace files (relative path → text content), env vars, the in-container mount path, optional extra mounts, and the working directory inside the container. The launcher does not touch the host filesystem; `spring-dispatcher` materialises and cleans up the workspace on its own host (#1042).
 
 Launchers are enumerable-registered in `AddCvoyaSpringDapr`; `A2AExecutionDispatcher` indexes them by `Tool` using a case-insensitive dictionary built at construction time.
 
@@ -170,13 +169,14 @@ sequenceDiagram
     MCP-->>Disp: SessionToken
     Disp->>Disp: IPromptAssembler.AssembleAsync(msg, ctx)
     Disp->>Launcher: PrepareAsync(AgentLaunchContext)
-    Launcher-->>Disp: AgentLaunchPrep (workdir, envVars, mounts)
-    Disp->>Runtime: RunAsync(ContainerConfig)
+    Launcher-->>Disp: AgentLaunchPrep (files, envVars, mountPath, mounts)
+    Disp->>Runtime: RunAsync(ContainerConfig with Workspace)
+    Runtime->>Runtime: materialise workspace + bind-mount<br/>(spring-dispatcher host)
     Runtime->>Container: start (mount workdir, inject envVars)
     Container->>MCP: MCP calls (checkpoint, recallMemory, ...)
     Container-->>Runtime: stdout / exit code
+    Runtime->>Runtime: delete workspace subdir
     Runtime-->>Disp: ContainerResult
-    Disp->>Launcher: CleanupAsync(workdir)
     Disp->>MCP: RevokeSession(token)
     Disp-->>A: response Message
 ```

@@ -50,10 +50,9 @@ public class A2AExecutionDispatcherTests
         _launcher.Tool.Returns("claude-code");
         _launcher.PrepareAsync(Arg.Any<AgentLaunchContext>(), Arg.Any<CancellationToken>())
             .Returns(new AgentLaunchPrep(
-                WorkingDirectory: "/tmp/test-workdir",
+                WorkspaceFiles: new Dictionary<string, string> { ["CLAUDE.md"] = "prepared" },
                 EnvironmentVariables: new Dictionary<string, string> { ["SPRING_SYSTEM_PROMPT"] = "prepared" },
-                VolumeMounts: ["/tmp/test-workdir:/workspace"]));
-        _launcher.CleanupAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
+                WorkspaceMountPath: "/workspace"));
 
         _mcpServer.Endpoint.Returns("http://host.docker.internal:12345/mcp/");
         _mcpServer.IssueSession(Arg.Any<string>(), Arg.Any<string>())
@@ -183,7 +182,7 @@ public class A2AExecutionDispatcherTests
     }
 
     [Fact]
-    public async Task DispatchAsync_EphemeralAgent_CleansUpAndRevokesSession_OnSuccess()
+    public async Task DispatchAsync_EphemeralAgent_RevokesSession_OnSuccess()
     {
         var message = CreateMessage();
         _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
@@ -194,11 +193,10 @@ public class A2AExecutionDispatcherTests
         await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
 
         _mcpServer.Received(1).RevokeSession("test-token");
-        await _launcher.Received(1).CleanupAsync("/tmp/test-workdir", Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task DispatchAsync_EphemeralAgent_CleansUpAndRevokesSession_OnFailure()
+    public async Task DispatchAsync_EphemeralAgent_RevokesSession_OnFailure()
     {
         var message = CreateMessage();
         _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
@@ -210,7 +208,30 @@ public class A2AExecutionDispatcherTests
         await Should.ThrowAsync<InvalidOperationException>(act);
 
         _mcpServer.Received(1).RevokeSession("test-token");
-        await _launcher.Received(1).CleanupAsync("/tmp/test-workdir", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DispatchAsync_EphemeralAgent_ForwardsWorkspaceToContainerRuntime()
+    {
+        // Issue #1042: workspace materialisation moved to the dispatcher, so
+        // the dispatcher must thread the launcher's WorkspaceFiles +
+        // WorkspaceMountPath through ContainerConfig.Workspace (which the
+        // dispatcher-client serialises into the run request).
+        var message = CreateMessage();
+        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns("p");
+        _containerRuntime.RunAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
+            .Returns(new ContainerResult("spring-exec-ws", 0, "", ""));
+
+        await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
+
+        await _containerRuntime.Received(1).RunAsync(
+            Arg.Is<ContainerConfig>(c =>
+                c.Workspace != null &&
+                c.Workspace.MountPath == "/workspace" &&
+                c.Workspace.Files.ContainsKey("CLAUDE.md") &&
+                c.WorkingDirectory == "/workspace"),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -339,12 +360,12 @@ public class A2AExecutionDispatcherTests
 
         _launcher.PrepareAsync(Arg.Any<AgentLaunchContext>(), Arg.Any<CancellationToken>())
             .Returns(ci => new AgentLaunchPrep(
-                WorkingDirectory: "/tmp/test-workdir",
+                WorkspaceFiles: new Dictionary<string, string>(),
                 EnvironmentVariables: new Dictionary<string, string>
                 {
                     ["SPRING_SYSTEM_PROMPT"] = ci.ArgAt<AgentLaunchContext>(0).Prompt
                 },
-                VolumeMounts: []));
+                WorkspaceMountPath: "/workspace"));
 
         await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
 

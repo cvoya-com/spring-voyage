@@ -33,10 +33,23 @@ public class DispatcherWebApplicationFactory : WebApplicationFactory<Program>
     /// <summary>Tenant id the <see cref="ValidToken"/> is scoped to.</summary>
     public const string ValidTenantId = "tenant-test";
 
+    /// <summary>
+    /// Per-fixture workspace root the dispatcher is configured to use. Lives
+    /// under <see cref="Path.GetTempPath"/> so the workspace materialiser can
+    /// write through the real filesystem during integration tests without
+    /// requiring the production default (<c>/var/lib/spring-workspaces</c>) to
+    /// exist.
+    /// </summary>
+    public string WorkspaceRoot { get; } =
+        Path.Combine(Path.GetTempPath(), "spring-dispatcher-tests-" + Guid.NewGuid().ToString("N"));
+
     /// <inheritdoc />
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
+        Directory.CreateDirectory(WorkspaceRoot);
+
         builder.UseSetting($"{DispatcherOptions.SectionName}:Tokens:{ValidToken}:TenantId", ValidTenantId);
+        builder.UseSetting($"{DispatcherOptions.SectionName}:WorkspaceRoot", WorkspaceRoot);
 
         builder.ConfigureServices(services =>
         {
@@ -64,6 +77,27 @@ public class DispatcherWebApplicationFactory : WebApplicationFactory<Program>
             }
             services.AddSingleton<IContainerRuntimeBinaryProbe>(new StubContainerRuntimeBinaryProbe());
         });
+    }
+
+    /// <inheritdoc />
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+        if (disposing)
+        {
+            try
+            {
+                if (Directory.Exists(WorkspaceRoot))
+                {
+                    Directory.Delete(WorkspaceRoot, recursive: true);
+                }
+            }
+            catch
+            {
+                // Best-effort cleanup — leaking a temp dir on test teardown is
+                // not worth failing the build over.
+            }
+        }
     }
 
     private sealed class StubContainerRuntimeBinaryProbe : IContainerRuntimeBinaryProbe

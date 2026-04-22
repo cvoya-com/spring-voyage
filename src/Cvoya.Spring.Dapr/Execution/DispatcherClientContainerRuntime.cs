@@ -230,6 +230,15 @@ public class DispatcherClientContainerRuntime(
                 : new Dictionary<string, string>(config.Labels),
             ExtraHosts = config.ExtraHosts,
             Detached = detached,
+            Workspace = config.Workspace is { } ws
+                ? new DispatcherWorkspace
+                {
+                    MountPath = ws.MountPath,
+                    Files = ws.Files is IDictionary<string, string> mutable
+                        ? mutable
+                        : new Dictionary<string, string>(ws.Files),
+                }
+                : null,
         };
     }
 
@@ -257,6 +266,26 @@ public class DispatcherClientContainerRuntime(
         public IDictionary<string, string>? Labels { get; init; }
         public IReadOnlyList<string>? ExtraHosts { get; init; }
         public bool Detached { get; init; }
+
+        /// <summary>
+        /// Per-invocation workspace the dispatcher must materialise on its own
+        /// host filesystem and bind-mount into the container. <c>null</c>
+        /// means the worker is asking for a plain run with no workspace.
+        /// </summary>
+        public DispatcherWorkspace? Workspace { get; init; }
+    }
+
+    /// <summary>
+    /// Wire shape for the optional <c>workspace</c> field on
+    /// <see cref="DispatcherRunRequest"/>. The dispatcher creates a fresh
+    /// per-invocation directory, writes <see cref="Files"/> into it, and
+    /// bind-mounts that directory at <see cref="MountPath"/> inside the
+    /// container — see issue #1042.
+    /// </summary>
+    internal record DispatcherWorkspace
+    {
+        public required string MountPath { get; init; }
+        public required IDictionary<string, string> Files { get; init; }
     }
 
     /// <summary>

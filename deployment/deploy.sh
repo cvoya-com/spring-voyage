@@ -281,11 +281,20 @@ start_dispatcher() {
     local socket="${SPRING_DISPATCHER_PODMAN_SOCKET:-/run/podman/podman.sock}"
     local token="${SPRING_DISPATCHER_WORKER_TOKEN:-worker-token}"
     local tenant="${SPRING_DEFAULT_TENANT_ID:-default}"
+    # Per-invocation agent workspace root. The dispatcher writes the
+    # workspace materialised for each agent run here, then bind-mounts
+    # ${workspace_root}/<subdir> into the agent container. Workers no
+    # longer touch the local filesystem (#1042). The named volume is
+    # mounted at the same path so the host's podman can resolve the
+    # bind-mount source.
+    local workspace_root="${SPRING_DISPATCHER_WORKSPACE_ROOT:-/var/lib/spring-workspaces}"
 
     run_container spring-dispatcher \
         --env-file "${RESOLVED_ENV_FILE}" \
         -e "Dispatcher__Tokens__${token}__TenantId=${tenant}" \
+        -e "Dispatcher__WorkspaceRoot=${workspace_root}" \
         -v "${socket}:/run/podman/podman.sock:Z" \
+        -v "spring-agent-workspaces:${workspace_root}" \
         "${SPRING_DISPATCHER_IMAGE:-localhost/spring-dispatcher:latest}" \
         dotnet /app/Cvoya.Spring.Dispatcher.dll
 }

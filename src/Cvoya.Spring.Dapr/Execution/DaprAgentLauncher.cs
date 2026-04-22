@@ -9,21 +9,24 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 /// <summary>
-/// <see cref="IAgentToolLauncher"/> for the Dapr Agent container.  Materialises
-/// a per-invocation working directory and sets the environment variables the
-/// Python Dapr Agent expects: MCP endpoint/token, LLM provider/model, and the
-/// assembled system prompt.
+/// <see cref="IAgentToolLauncher"/> for the Dapr Agent container. Sets the
+/// environment variables the Python Dapr Agent expects: MCP endpoint/token,
+/// LLM provider/model, and the assembled system prompt. The dispatcher
+/// materialises an empty per-invocation workspace and bind-mounts it at
+/// <c>/workspace</c> — the Dapr Agent currently consumes its prompt via
+/// <c>SPRING_SYSTEM_PROMPT</c>, but the workspace mount keeps the launch
+/// shape uniform across tool launchers.
 ///
 /// Unlike <see cref="ClaudeCodeLauncher"/> the Dapr Agent is an A2A-native
 /// service and does not need a sidecar adapter — it exposes the A2A endpoint
-/// directly.  The dispatcher reaches the agent on the container's
+/// directly. The dispatcher reaches the agent on the container's
 /// <c>AGENT_PORT</c> (default 8999).
 /// </summary>
 public class DaprAgentLauncher(
     IOptions<OllamaOptions> ollamaOptions,
     ILoggerFactory loggerFactory) : IAgentToolLauncher
 {
-    internal const string ContainerWorkspace = "/workspace";
+    internal const string WorkspaceMountPath = "/workspace";
 
     /// <summary>Default A2A port the Dapr Agent listens on.</summary>
     internal const int DefaultAgentPort = 8999;
@@ -38,14 +41,9 @@ public class DaprAgentLauncher(
         AgentLaunchContext context,
         CancellationToken cancellationToken = default)
     {
-        var workdir = Path.Combine(
-            Path.GetTempPath(),
-            "spring-dapr-agent-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(workdir);
-
         _logger.LogInformation(
-            "Prepared Dapr Agent working directory {Workdir} for agent {AgentId} conversation {ConversationId}",
-            workdir, context.AgentId, context.ConversationId);
+            "Prepared Dapr Agent launch request for agent {AgentId} conversation {ConversationId}",
+            context.AgentId, context.ConversationId);
 
         var opts = ollamaOptions.Value;
 
@@ -80,33 +78,9 @@ public class DaprAgentLauncher(
             envVars["OLLAMA_ENDPOINT"] = opts.BaseUrl;
         }
 
-        var mounts = new List<string>
-        {
-            $"{workdir}:{ContainerWorkspace}"
-        };
-
-        var prep = new AgentLaunchPrep(workdir, envVars, mounts);
-        return Task.FromResult(prep);
-    }
-
-    /// <inheritdoc />
-    public Task CleanupAsync(string workingDirectory, CancellationToken cancellationToken = default)
-    {
-        try
-        {
-            if (Directory.Exists(workingDirectory))
-            {
-                Directory.Delete(workingDirectory, recursive: true);
-                _logger.LogDebug("Deleted Dapr Agent working directory {Workdir}", workingDirectory);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex,
-                "Failed to delete Dapr Agent working directory {Workdir}; leaving in place for operator inspection.",
-                workingDirectory);
-        }
-
-        return Task.CompletedTask;
+        return Task.FromResult(new AgentLaunchPrep(
+            WorkspaceFiles: new Dictionary<string, string>(),
+            EnvironmentVariables: envVars,
+            WorkspaceMountPath: WorkspaceMountPath));
     }
 }

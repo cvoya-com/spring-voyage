@@ -38,6 +38,11 @@ volumes:
   spring-placement-data:
   spring-scheduler-data:
   spring-dataprotection-keys:
+  # Per-invocation agent workspaces materialised by the dispatcher and
+  # bind-mounted into the agent containers podman launches on its behalf
+  # (issue #1042). The dispatcher writes here; the host's podman uses the
+  # same path as the bind-mount source for each agent run.
+  spring-agent-workspaces:
 
 services:
   # -----------------------------------------------------------------
@@ -197,6 +202,11 @@ services:
       # OSS deployment a single shared token is enough; multi-tenant K8s
       # deployments belong in a downstream repo.
       Dispatcher__Tokens__${SPRING_DISPATCHER_WORKER_TOKEN:-worker-token}__TenantId: ${SPRING_DEFAULT_TENANT_ID:-default}
+      # Where the dispatcher writes per-invocation agent workspaces. The
+      # path must be identical on the dispatcher container's filesystem AND
+      # on the host the podman socket targets — we satisfy that by mounting
+      # the named volume at the same path on both sides (issue #1042).
+      Dispatcher__WorkspaceRoot: ${SPRING_DISPATCHER_WORKSPACE_ROOT:-/var/lib/spring-workspaces}
     command: ["dotnet", "/app/Cvoya.Spring.Dispatcher.dll"]
     # The dispatcher needs a reachable podman socket. On Linux this is the
     # rootless user-socket; on macOS the podman machine forwards the socket
@@ -206,8 +216,14 @@ services:
     # to the dispatcher on SELinux-enforcing hosts (Fedora CoreOS Podman
     # machines, RHEL/Fedora). Private-relabel — safe here because the
     # socket is single-consumer; must NOT be applied to shared volumes.
+    #
+    # spring-agent-workspaces is a named volume the dispatcher uses as the
+    # root for per-invocation agent workspaces. Agent containers receive
+    # their bind mount dynamically from the dispatcher at run-time — the
+    # mount only needs to be declared on the dispatcher itself.
     volumes:
       - ${SPRING_DISPATCHER_PODMAN_SOCKET:-/run/podman/podman.sock}:/run/podman/podman.sock:Z
+      - spring-agent-workspaces:${SPRING_DISPATCHER_WORKSPACE_ROOT:-/var/lib/spring-workspaces}
     networks: [spring-net]
     build:
       context: ..

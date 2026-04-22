@@ -82,6 +82,18 @@ public interface IContainerRuntime
 /// <param name="DaprAppPort">The port the app listens on for Dapr to call.</param>
 /// <param name="ExtraHosts">Additional <c>host:IP</c> entries to add to the container's <c>/etc/hosts</c>. Used to expose the MCP server to Linux containers via <c>host.docker.internal:host-gateway</c>.</param>
 /// <param name="WorkingDirectory">Optional working directory inside the container.</param>
+/// <param name="Workspace">
+/// Optional per-invocation workspace materialised on the dispatcher host. When
+/// non-null, the dispatcher writes <see cref="ContainerWorkspace.Files"/> into
+/// a fresh per-invocation directory on its own filesystem, bind-mounts that
+/// directory at <see cref="ContainerWorkspace.MountPath"/> inside the
+/// container, and cleans the directory up when the run completes (or, for
+/// detached starts, when <c>StopAsync</c> is called for the resulting
+/// container id). This is the seam that fixes the "worker writes to its own
+/// /tmp, dispatcher tries to bind-mount a path that does not exist on the
+/// host" failure mode in containerised dispatcher deployments — see issue
+/// #1042.
+/// </param>
 public record ContainerConfig(
     string Image,
     string? Command = null,
@@ -94,7 +106,37 @@ public record ContainerConfig(
     string? DaprAppId = null,
     int? DaprAppPort = null,
     IReadOnlyList<string>? ExtraHosts = null,
-    string? WorkingDirectory = null);
+    string? WorkingDirectory = null,
+    ContainerWorkspace? Workspace = null);
+
+/// <summary>
+/// A per-invocation set of text files the dispatcher must materialise into a
+/// fresh directory on its own filesystem and bind-mount into the launched
+/// container at <see cref="MountPath"/>. Carried by
+/// <see cref="ContainerConfig.Workspace"/>.
+/// </summary>
+/// <remarks>
+/// <para>
+/// The worker no longer writes the agent's <c>CLAUDE.md</c> / <c>AGENTS.md</c>
+/// / <c>.mcp.json</c> files itself — those paths exist only on the worker
+/// container's private filesystem and are invisible to the host's container
+/// runtime. The launcher describes the desired workspace as a content map
+/// keyed by relative path; the dispatcher creates the per-invocation directory
+/// on its own filesystem (under <c>Dispatcher:WorkspaceRoot</c>), writes the
+/// files, and uses that host path as the bind-mount source. See issue #1042.
+/// </para>
+/// <para>
+/// Files are written verbatim — the dispatcher does not interpret content,
+/// re-encode, or apply templating. Relative paths may contain forward
+/// slashes; the dispatcher normalises directory separators before creating
+/// parent directories. Absolute paths and <c>..</c> traversals are rejected.
+/// </para>
+/// </remarks>
+/// <param name="MountPath">Absolute path inside the container where the dispatcher bind-mounts the materialised directory (e.g. <c>"/workspace"</c>).</param>
+/// <param name="Files">File contents keyed by path relative to the workspace root (e.g. <c>"CLAUDE.md"</c>, <c>".mcp.json"</c>, <c>"sub/dir/file.txt"</c>).</param>
+public record ContainerWorkspace(
+    string MountPath,
+    IReadOnlyDictionary<string, string> Files);
 
 /// <summary>
 /// Result of a container execution.

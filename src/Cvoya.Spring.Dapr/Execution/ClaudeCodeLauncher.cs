@@ -10,14 +10,14 @@ using Cvoya.Spring.Core.Execution;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// <see cref="IAgentToolLauncher"/> for Claude Code containers. Materialises a
-/// per-invocation working directory containing:
+/// <see cref="IAgentToolLauncher"/> for Claude Code containers. Describes a
+/// per-invocation workspace containing:
 /// <list type="bullet">
 ///   <item><c>CLAUDE.md</c> — the assembled system prompt (all four layers).</item>
 ///   <item><c>.mcp.json</c> — MCP server endpoint + bearer token Claude Code will dial.</item>
 /// </list>
-/// The directory is bind-mounted at <c>/workspace</c> inside the container and
-/// <see cref="CleanupAsync"/> removes it after the run completes.
+/// The dispatcher materialises this workspace on its own host filesystem and
+/// bind-mounts it at <c>/workspace</c> inside the container — see issue #1042.
 /// </summary>
 public class ClaudeCodeLauncher(ILoggerFactory loggerFactory) : IAgentToolLauncher
 {
@@ -28,20 +28,10 @@ public class ClaudeCodeLauncher(ILoggerFactory loggerFactory) : IAgentToolLaunch
     public string Tool => "claude-code";
 
     /// <inheritdoc />
-    public async Task<AgentLaunchPrep> PrepareAsync(
+    public Task<AgentLaunchPrep> PrepareAsync(
         AgentLaunchContext context,
         CancellationToken cancellationToken = default)
     {
-        var workdir = Path.Combine(
-            Path.GetTempPath(),
-            "spring-claude-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(workdir);
-
-        await File.WriteAllTextAsync(
-            Path.Combine(workdir, "CLAUDE.md"),
-            context.Prompt,
-            cancellationToken);
-
         var mcpConfig = new
         {
             mcpServers = new Dictionary<string, object>
@@ -58,14 +48,15 @@ public class ClaudeCodeLauncher(ILoggerFactory loggerFactory) : IAgentToolLaunch
             }
         };
 
-        await File.WriteAllTextAsync(
-            Path.Combine(workdir, ".mcp.json"),
-            JsonSerializer.Serialize(mcpConfig, new JsonSerializerOptions { WriteIndented = true }),
-            cancellationToken);
+        var workspaceFiles = new Dictionary<string, string>
+        {
+            ["CLAUDE.md"] = context.Prompt,
+            [".mcp.json"] = JsonSerializer.Serialize(mcpConfig, new JsonSerializerOptions { WriteIndented = true })
+        };
 
         _logger.LogInformation(
-            "Prepared Claude Code working directory {Workdir} for agent {AgentId} conversation {ConversationId}",
-            workdir, context.AgentId, context.ConversationId);
+            "Prepared Claude Code workspace request ({FileCount} files) for agent {AgentId} conversation {ConversationId}",
+            workspaceFiles.Count, context.AgentId, context.ConversationId);
 
         var envVars = new Dictionary<string, string>
         {
@@ -76,32 +67,9 @@ public class ClaudeCodeLauncher(ILoggerFactory loggerFactory) : IAgentToolLaunch
             ["SPRING_SYSTEM_PROMPT"] = context.Prompt
         };
 
-        var mounts = new List<string>
-        {
-            $"{workdir}:{WorkspaceMountPath}"
-        };
-
-        return new AgentLaunchPrep(workdir, envVars, mounts);
-    }
-
-    /// <inheritdoc />
-    public Task CleanupAsync(string workingDirectory, CancellationToken cancellationToken = default)
-    {
-        try
-        {
-            if (Directory.Exists(workingDirectory))
-            {
-                Directory.Delete(workingDirectory, recursive: true);
-                _logger.LogDebug("Deleted Claude Code working directory {Workdir}", workingDirectory);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex,
-                "Failed to delete Claude Code working directory {Workdir}; leaving in place for operator inspection.",
-                workingDirectory);
-        }
-
-        return Task.CompletedTask;
+        return Task.FromResult(new AgentLaunchPrep(
+            WorkspaceFiles: workspaceFiles,
+            EnvironmentVariables: envVars,
+            WorkspaceMountPath: WorkspaceMountPath));
     }
 }

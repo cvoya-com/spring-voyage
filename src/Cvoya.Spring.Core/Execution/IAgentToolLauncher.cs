@@ -4,12 +4,19 @@
 namespace Cvoya.Spring.Core.Execution;
 
 /// <summary>
-/// Prepares the container-launch contract (working directory, env vars, volume
-/// mounts) for one specific external agent tool. Different tools (Claude Code,
-/// Codex, Gemini CLI, …) materialise their configuration in different ways, so
-/// each gets its own launcher. The dispatcher selects the launcher matching the
+/// Describes the container-launch contract for one specific external agent
+/// tool. Different tools (Claude Code, Codex, Gemini CLI, …) materialise
+/// their per-invocation configuration differently, so each gets its own
+/// launcher. The dispatcher selects the launcher matching the
 /// <see cref="AgentExecutionConfig.Tool"/> of the resolved agent definition.
 /// </summary>
+/// <remarks>
+/// Launchers no longer touch the local filesystem: they describe the workspace
+/// they need (file contents keyed by relative path, plus the desired in-container
+/// mount path) and let the dispatcher service materialise that workspace on its
+/// own host filesystem. This is what allows the agent container's bind mount to
+/// resolve to a real path the container runtime can see — see issue #1042.
+/// </remarks>
 public interface IAgentToolLauncher
 {
     /// <summary>
@@ -19,15 +26,13 @@ public interface IAgentToolLauncher
     string Tool { get; }
 
     /// <summary>
-    /// Materialises a new per-invocation working directory on disk and returns
-    /// the container-launch pieces that the dispatcher must splice into
-    /// <see cref="ContainerConfig"/>. The returned <see cref="AgentLaunchPrep.WorkingDirectory"/>
-    /// must be passed to <see cref="CleanupAsync"/> when the container exits.
+    /// Builds the container-launch contract for one invocation. The returned
+    /// <see cref="AgentLaunchPrep"/> describes the workspace the dispatcher
+    /// must materialise (file contents keyed by relative path), the mount
+    /// path inside the container, and any extra env vars or volume mounts.
+    /// Launchers MUST NOT write to the local filesystem.
     /// </summary>
     Task<AgentLaunchPrep> PrepareAsync(AgentLaunchContext context, CancellationToken cancellationToken = default);
-
-    /// <summary>Deletes the working directory created by a prior <see cref="PrepareAsync"/> call.</summary>
-    Task CleanupAsync(string workingDirectory, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -58,12 +63,30 @@ public record AgentLaunchContext(
     string? Model = null);
 
 /// <summary>
-/// Output of <see cref="IAgentToolLauncher.PrepareAsync"/>.
+/// Output of <see cref="IAgentToolLauncher.PrepareAsync"/>. Pure data — no
+/// on-disk state. The dispatcher materialises <see cref="WorkspaceFiles"/>
+/// into a fresh per-invocation directory on its own filesystem and bind-mounts
+/// it at <see cref="WorkspaceMountPath"/> inside the container.
 /// </summary>
-/// <param name="WorkingDirectory">Absolute path to the on-disk working directory the container mounts in.</param>
+/// <param name="WorkspaceFiles">
+/// File contents keyed by path relative to the workspace root
+/// (e.g. <c>"CLAUDE.md"</c>, <c>".mcp.json"</c>). Empty when the agent does
+/// not need a workspace materialised.
+/// </param>
 /// <param name="EnvironmentVariables">Env vars the dispatcher must add to the container (on top of its own baseline).</param>
-/// <param name="VolumeMounts">Additional volume-mount specs (beyond the working-directory mount).</param>
+/// <param name="WorkspaceMountPath">
+/// Absolute path inside the container where the dispatcher must bind-mount
+/// the materialised workspace (e.g. <c>"/workspace"</c>). Required whenever
+/// <see cref="WorkspaceFiles"/> is non-empty.
+/// </param>
+/// <param name="ExtraVolumeMounts">Additional volume-mount specs (beyond the workspace mount).</param>
+/// <param name="WorkingDirectory">
+/// Optional working directory inside the container. When <c>null</c>, the
+/// dispatcher uses <see cref="WorkspaceMountPath"/>.
+/// </param>
 public record AgentLaunchPrep(
-    string WorkingDirectory,
+    IReadOnlyDictionary<string, string> WorkspaceFiles,
     IReadOnlyDictionary<string, string> EnvironmentVariables,
-    IReadOnlyList<string> VolumeMounts);
+    string WorkspaceMountPath,
+    IReadOnlyList<string>? ExtraVolumeMounts = null,
+    string? WorkingDirectory = null);

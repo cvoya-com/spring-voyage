@@ -43,20 +43,20 @@ public class DaprAgentLauncherTests
     }
 
     [Fact]
-    public async Task PrepareAsync_CreatesWorkingDirectory()
+    public async Task PrepareAsync_DoesNotTouchLocalFilesystem()
     {
-        var context = CreateContext();
+        // Issue #1042: launchers must no longer materialise workspace dirs on
+        // the worker side — the dispatcher owns that. Verify by snapshotting
+        // the temp dir before/after.
+        var preExisting = new HashSet<string>(Directory.EnumerateFileSystemEntries(Path.GetTempPath()));
 
-        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
+        var prep = await _launcher.PrepareAsync(CreateContext(), TestContext.Current.CancellationToken);
 
-        try
-        {
-            Directory.Exists(prep.WorkingDirectory).ShouldBeTrue();
-        }
-        finally
-        {
-            await _launcher.CleanupAsync(prep.WorkingDirectory, TestContext.Current.CancellationToken);
-        }
+        var postExisting = Directory.EnumerateFileSystemEntries(Path.GetTempPath());
+        postExisting.Where(p => !preExisting.Contains(p))
+            .ShouldBeEmpty("DaprAgentLauncher must not touch the local filesystem");
+
+        prep.WorkspaceMountPath.ShouldBe("/workspace");
     }
 
     [Fact]
@@ -66,40 +66,27 @@ public class DaprAgentLauncherTests
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
-        try
-        {
-            prep.EnvironmentVariables["SPRING_AGENT_ID"].ShouldBe(context.AgentId);
-            prep.EnvironmentVariables["SPRING_CONVERSATION_ID"].ShouldBe(context.ConversationId);
-            prep.EnvironmentVariables["SPRING_MCP_ENDPOINT"].ShouldBe(context.McpEndpoint);
-            prep.EnvironmentVariables["SPRING_AGENT_TOKEN"].ShouldBe(context.McpToken);
-            prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldBe(context.Prompt);
-            prep.EnvironmentVariables["SPRING_MODEL"].ShouldBe("llama3.2:3b");
-            prep.EnvironmentVariables["SPRING_LLM_PROVIDER"].ShouldBe("ollama");
-            prep.EnvironmentVariables["AGENT_PORT"].ShouldBe("8999");
-            prep.EnvironmentVariables["OLLAMA_ENDPOINT"].ShouldBe("http://spring-ollama:11434");
-        }
-        finally
-        {
-            await _launcher.CleanupAsync(prep.WorkingDirectory, TestContext.Current.CancellationToken);
-        }
+        prep.EnvironmentVariables["SPRING_AGENT_ID"].ShouldBe(context.AgentId);
+        prep.EnvironmentVariables["SPRING_CONVERSATION_ID"].ShouldBe(context.ConversationId);
+        prep.EnvironmentVariables["SPRING_MCP_ENDPOINT"].ShouldBe(context.McpEndpoint);
+        prep.EnvironmentVariables["SPRING_AGENT_TOKEN"].ShouldBe(context.McpToken);
+        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldBe(context.Prompt);
+        prep.EnvironmentVariables["SPRING_MODEL"].ShouldBe("llama3.2:3b");
+        prep.EnvironmentVariables["SPRING_LLM_PROVIDER"].ShouldBe("ollama");
+        prep.EnvironmentVariables["AGENT_PORT"].ShouldBe("8999");
+        prep.EnvironmentVariables["OLLAMA_ENDPOINT"].ShouldBe("http://spring-ollama:11434");
     }
 
     [Fact]
-    public async Task PrepareAsync_IncludesVolumeMount()
+    public async Task PrepareAsync_ProvidesEmptyWorkspace()
     {
-        var context = CreateContext();
+        // The Dapr Agent receives its prompt via SPRING_SYSTEM_PROMPT — so the
+        // requested workspace is empty (the dispatcher still mounts an empty
+        // dir at /workspace to keep the launch shape uniform across launchers).
+        var prep = await _launcher.PrepareAsync(CreateContext(), TestContext.Current.CancellationToken);
 
-        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
-
-        try
-        {
-            prep.VolumeMounts.ShouldHaveSingleItem()
-                .ShouldBe($"{prep.WorkingDirectory}:/workspace");
-        }
-        finally
-        {
-            await _launcher.CleanupAsync(prep.WorkingDirectory, TestContext.Current.CancellationToken);
-        }
+        prep.WorkspaceFiles.ShouldBeEmpty();
+        prep.WorkspaceMountPath.ShouldBe("/workspace");
     }
 
     [Fact]
@@ -111,15 +98,8 @@ public class DaprAgentLauncherTests
 
         var prep = await launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
-        try
-        {
-            prep.EnvironmentVariables.ShouldNotContainKey("OLLAMA_ENDPOINT");
-            prep.EnvironmentVariables["SPRING_MODEL"].ShouldBe("phi3:mini");
-        }
-        finally
-        {
-            await launcher.CleanupAsync(prep.WorkingDirectory, TestContext.Current.CancellationToken);
-        }
+        prep.EnvironmentVariables.ShouldNotContainKey("OLLAMA_ENDPOINT");
+        prep.EnvironmentVariables["SPRING_MODEL"].ShouldBe("phi3:mini");
     }
 
     [Fact]
@@ -139,15 +119,8 @@ public class DaprAgentLauncherTests
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
-        try
-        {
-            prep.EnvironmentVariables["SPRING_LLM_PROVIDER"].ShouldBe("openai");
-            prep.EnvironmentVariables["SPRING_MODEL"].ShouldBe("gpt-4o-mini");
-        }
-        finally
-        {
-            await _launcher.CleanupAsync(prep.WorkingDirectory, TestContext.Current.CancellationToken);
-        }
+        prep.EnvironmentVariables["SPRING_LLM_PROVIDER"].ShouldBe("openai");
+        prep.EnvironmentVariables["SPRING_MODEL"].ShouldBe("gpt-4o-mini");
     }
 
     [Fact]
@@ -160,36 +133,8 @@ public class DaprAgentLauncherTests
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
-        try
-        {
-            prep.EnvironmentVariables["SPRING_LLM_PROVIDER"].ShouldBe("ollama");
-            prep.EnvironmentVariables["SPRING_MODEL"].ShouldBe("llama3.2:3b");
-        }
-        finally
-        {
-            await _launcher.CleanupAsync(prep.WorkingDirectory, TestContext.Current.CancellationToken);
-        }
-    }
-
-    [Fact]
-    public async Task CleanupAsync_DeletesWorkingDirectory()
-    {
-        var context = CreateContext();
-        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
-
-        await _launcher.CleanupAsync(prep.WorkingDirectory, TestContext.Current.CancellationToken);
-
-        Directory.Exists(prep.WorkingDirectory).ShouldBeFalse();
-    }
-
-    [Fact]
-    public async Task CleanupAsync_NonexistentDirectory_DoesNotThrow()
-    {
-        var nonexistent = Path.Combine(Path.GetTempPath(), "no-such-dir-" + Guid.NewGuid());
-
-        var act = () => _launcher.CleanupAsync(nonexistent, TestContext.Current.CancellationToken);
-
-        await Should.NotThrowAsync(act);
+        prep.EnvironmentVariables["SPRING_LLM_PROVIDER"].ShouldBe("ollama");
+        prep.EnvironmentVariables["SPRING_MODEL"].ShouldBe("llama3.2:3b");
     }
 
     private static AgentLaunchContext CreateContext() =>

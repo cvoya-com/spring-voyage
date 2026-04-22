@@ -45,10 +45,9 @@ public class PersistentDispatchIntegrationTests
         _launcher.Tool.Returns("claude-code");
         _launcher.PrepareAsync(Arg.Any<AgentLaunchContext>(), Arg.Any<CancellationToken>())
             .Returns(new AgentLaunchPrep(
-                WorkingDirectory: "/tmp/test-workdir",
+                WorkspaceFiles: new Dictionary<string, string>(),
                 EnvironmentVariables: new Dictionary<string, string>(),
-                VolumeMounts: []));
-        _launcher.CleanupAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
+                WorkspaceMountPath: "/workspace"));
 
         _mcpServer.Endpoint.Returns("http://host.docker.internal:12345/mcp/");
         _mcpServer.IssueSession(Arg.Any<string>(), Arg.Any<string>())

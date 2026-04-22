@@ -18,6 +18,9 @@ public class DispatcherOptions
     /// <summary>Configuration section name.</summary>
     public const string SectionName = "Dispatcher";
 
+    /// <summary>Default value for <see cref="WorkspaceRoot"/>.</summary>
+    public const string DefaultWorkspaceRoot = "/var/lib/spring-workspaces";
+
     /// <summary>
     /// Per-worker bearer tokens. Keys are opaque token strings (issued at deploy
     /// time); values carry the tenant id the token is scoped to. Requests whose
@@ -28,6 +31,19 @@ public class DispatcherOptions
     /// </summary>
     public IDictionary<string, DispatcherTokenScope> Tokens { get; set; }
         = new Dictionary<string, DispatcherTokenScope>(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Filesystem root the dispatcher uses for per-invocation agent
+    /// workspaces. Each <c>POST /v1/containers</c> with a workspace request
+    /// gets a unique subdirectory here, which the dispatcher then bind-mounts
+    /// into the agent container. The directory must exist on the dispatcher
+    /// process's filesystem AND be addressable by the host's container runtime
+    /// (the dispatcher's <c>podman</c> shells out against the host socket).
+    /// Defaults to <see cref="DefaultWorkspaceRoot"/>; the deployment scripts
+    /// pre-create this directory and bind-mount it into the dispatcher
+    /// container at the same path. See issue #1042.
+    /// </summary>
+    public string WorkspaceRoot { get; set; } = DefaultWorkspaceRoot;
 }
 
 /// <summary>

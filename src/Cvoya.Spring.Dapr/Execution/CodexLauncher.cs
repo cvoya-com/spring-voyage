@@ -10,15 +10,15 @@ using Cvoya.Spring.Core.Execution;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// <see cref="IAgentToolLauncher"/> for OpenAI Codex containers. Materialises a
-/// per-invocation working directory containing:
+/// <see cref="IAgentToolLauncher"/> for OpenAI Codex containers. Describes a
+/// per-invocation workspace containing:
 /// <list type="bullet">
 ///   <item><c>AGENTS.md</c> — the assembled system prompt (all four layers).
 ///         Codex reads this file as its instructions equivalent of Claude Code's <c>CLAUDE.md</c>.</item>
 ///   <item><c>.mcp.json</c> — MCP server endpoint + bearer token the Codex agent will dial.</item>
 /// </list>
-/// The directory is bind-mounted at <c>/workspace</c> inside the container and
-/// <see cref="CleanupAsync"/> removes it after the run completes.
+/// The dispatcher materialises this workspace on its own host filesystem and
+/// bind-mounts it at <c>/workspace</c> inside the container — see issue #1042.
 /// <para>
 /// <b>Expected container image shape:</b> The image must bundle the Codex CLI
 /// and the A2A sidecar from <c>agents/a2a-sidecar/</c>. The sidecar wraps the
@@ -37,20 +37,10 @@ public class CodexLauncher(ILoggerFactory loggerFactory) : IAgentToolLauncher
     public string Tool => "codex";
 
     /// <inheritdoc />
-    public async Task<AgentLaunchPrep> PrepareAsync(
+    public Task<AgentLaunchPrep> PrepareAsync(
         AgentLaunchContext context,
         CancellationToken cancellationToken = default)
     {
-        var workdir = Path.Combine(
-            Path.GetTempPath(),
-            "spring-codex-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(workdir);
-
-        await File.WriteAllTextAsync(
-            Path.Combine(workdir, "AGENTS.md"),
-            context.Prompt,
-            cancellationToken);
-
         var mcpConfig = new
         {
             mcpServers = new Dictionary<string, object>
@@ -67,14 +57,15 @@ public class CodexLauncher(ILoggerFactory loggerFactory) : IAgentToolLauncher
             }
         };
 
-        await File.WriteAllTextAsync(
-            Path.Combine(workdir, ".mcp.json"),
-            JsonSerializer.Serialize(mcpConfig, new JsonSerializerOptions { WriteIndented = true }),
-            cancellationToken);
+        var workspaceFiles = new Dictionary<string, string>
+        {
+            ["AGENTS.md"] = context.Prompt,
+            [".mcp.json"] = JsonSerializer.Serialize(mcpConfig, new JsonSerializerOptions { WriteIndented = true })
+        };
 
         _logger.LogInformation(
-            "Prepared Codex working directory {Workdir} for agent {AgentId} conversation {ConversationId}",
-            workdir, context.AgentId, context.ConversationId);
+            "Prepared Codex workspace request ({FileCount} files) for agent {AgentId} conversation {ConversationId}",
+            workspaceFiles.Count, context.AgentId, context.ConversationId);
 
         var envVars = new Dictionary<string, string>
         {
@@ -85,32 +76,9 @@ public class CodexLauncher(ILoggerFactory loggerFactory) : IAgentToolLauncher
             ["SPRING_SYSTEM_PROMPT"] = context.Prompt
         };
 
-        var mounts = new List<string>
-        {
-            $"{workdir}:{WorkspaceMountPath}"
-        };
-
-        return new AgentLaunchPrep(workdir, envVars, mounts);
-    }
-
-    /// <inheritdoc />
-    public Task CleanupAsync(string workingDirectory, CancellationToken cancellationToken = default)
-    {
-        try
-        {
-            if (Directory.Exists(workingDirectory))
-            {
-                Directory.Delete(workingDirectory, recursive: true);
-                _logger.LogDebug("Deleted Codex working directory {Workdir}", workingDirectory);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex,
-                "Failed to delete Codex working directory {Workdir}; leaving in place for operator inspection.",
-                workingDirectory);
-        }
-
-        return Task.CompletedTask;
+        return Task.FromResult(new AgentLaunchPrep(
+            WorkspaceFiles: workspaceFiles,
+            EnvironmentVariables: envVars,
+            WorkspaceMountPath: WorkspaceMountPath));
     }
 }

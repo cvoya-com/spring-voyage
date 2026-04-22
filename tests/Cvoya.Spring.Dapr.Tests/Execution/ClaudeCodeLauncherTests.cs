@@ -38,7 +38,7 @@ public class ClaudeCodeLauncherTests
     }
 
     [Fact]
-    public async Task PrepareAsync_WritesPromptAndMcpConfig()
+    public async Task PrepareAsync_ReturnsWorkspaceFilesAndEnvVars_WithoutTouchingDisk()
     {
         var context = new AgentLaunchContext(
             AgentId: "ada",
@@ -47,53 +47,36 @@ public class ClaudeCodeLauncherTests
             McpEndpoint: "http://host.docker.internal:9999/mcp/",
             McpToken: "top-secret-token");
 
-        AgentLaunchPrep prep;
-        try
-        {
-            prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
+        // The launcher must not write to the local filesystem any more —
+        // workspace materialisation lives in the dispatcher (issue #1042).
+        // We snapshot the temp dir before the call so we can assert nothing
+        // new appeared.
+        var preExisting = new HashSet<string>(Directory.EnumerateFileSystemEntries(Path.GetTempPath()));
 
-            File.Exists(Path.Combine(prep.WorkingDirectory, "CLAUDE.md")).ShouldBeTrue();
-            File.Exists(Path.Combine(prep.WorkingDirectory, ".mcp.json")).ShouldBeTrue();
+        var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
-            var promptOnDisk = await File.ReadAllTextAsync(
-                Path.Combine(prep.WorkingDirectory, "CLAUDE.md"),
-                TestContext.Current.CancellationToken);
-            promptOnDisk.ShouldBe(context.Prompt);
+        var postExisting = Directory.EnumerateFileSystemEntries(Path.GetTempPath());
+        postExisting.Where(p => !preExisting.Contains(p))
+            .ShouldBeEmpty("ClaudeCodeLauncher must not touch the local filesystem");
 
-            var mcpConfig = await File.ReadAllTextAsync(
-                Path.Combine(prep.WorkingDirectory, ".mcp.json"),
-                TestContext.Current.CancellationToken);
-            var parsed = JsonDocument.Parse(mcpConfig).RootElement;
-            var server = parsed.GetProperty("mcpServers").GetProperty("spring-voyage");
-            server.GetProperty("url").GetString().ShouldBe(context.McpEndpoint);
-            server.GetProperty("headers").GetProperty("Authorization").GetString()
-                .ShouldBe("Bearer top-secret-token");
+        prep.WorkspaceMountPath.ShouldBe("/workspace");
+        prep.WorkspaceFiles.Keys.ShouldBe(new[] { "CLAUDE.md", ".mcp.json" }, ignoreOrder: true);
+        prep.WorkspaceFiles["CLAUDE.md"].ShouldBe(context.Prompt);
 
-            prep.EnvironmentVariables["SPRING_AGENT_ID"].ShouldBe(context.AgentId);
-            prep.EnvironmentVariables["SPRING_CONVERSATION_ID"].ShouldBe(context.ConversationId);
-            prep.EnvironmentVariables["SPRING_MCP_ENDPOINT"].ShouldBe(context.McpEndpoint);
-            prep.EnvironmentVariables["SPRING_AGENT_TOKEN"].ShouldBe(context.McpToken);
-            prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldBe(context.Prompt);
+        var parsed = JsonDocument.Parse(prep.WorkspaceFiles[".mcp.json"]).RootElement;
+        var server = parsed.GetProperty("mcpServers").GetProperty("spring-voyage");
+        server.GetProperty("url").GetString().ShouldBe(context.McpEndpoint);
+        server.GetProperty("headers").GetProperty("Authorization").GetString()
+            .ShouldBe("Bearer top-secret-token");
 
-            prep.VolumeMounts.ShouldHaveSingleItem()
-                .ShouldBe($"{prep.WorkingDirectory}:/workspace");
-        }
-        finally
-        {
-            // Explicit cleanup in case the test body fails before calling CleanupAsync.
-        }
+        prep.EnvironmentVariables["SPRING_AGENT_ID"].ShouldBe(context.AgentId);
+        prep.EnvironmentVariables["SPRING_CONVERSATION_ID"].ShouldBe(context.ConversationId);
+        prep.EnvironmentVariables["SPRING_MCP_ENDPOINT"].ShouldBe(context.McpEndpoint);
+        prep.EnvironmentVariables["SPRING_AGENT_TOKEN"].ShouldBe(context.McpToken);
+        prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldBe(context.Prompt);
 
-        await _launcher.CleanupAsync(prep.WorkingDirectory, TestContext.Current.CancellationToken);
-        Directory.Exists(prep.WorkingDirectory).ShouldBeFalse();
-    }
-
-    [Fact]
-    public async Task CleanupAsync_NonexistentDirectory_DoesNotThrow()
-    {
-        var nonexistent = Path.Combine(Path.GetTempPath(), "definitely-does-not-exist-" + Guid.NewGuid());
-
-        var act = () => _launcher.CleanupAsync(nonexistent, TestContext.Current.CancellationToken);
-
-        await Should.NotThrowAsync(act);
+        prep.ExtraVolumeMounts.ShouldBeNull();
+        prep.WorkingDirectory.ShouldBeNull(
+            "leaving WorkingDirectory unset lets the dispatcher default to WorkspaceMountPath");
     }
 }

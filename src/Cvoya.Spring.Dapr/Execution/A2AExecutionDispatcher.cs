@@ -137,12 +137,7 @@ public class A2AExecutionDispatcher(
                     "or switch the agent to hosting: persistent.");
             }
 
-            var config = new ContainerConfig(
-                Image: definition.Execution.Image,
-                EnvironmentVariables: prep.EnvironmentVariables,
-                VolumeMounts: prep.VolumeMounts,
-                ExtraHosts: ["host.docker.internal:host-gateway"],
-                WorkingDirectory: ClaudeCodeLauncher.WorkspaceMountPath);
+            var config = BuildContainerConfig(definition.Execution.Image, prep);
 
             string? containerName = null;
             await using var cancellationRegistration = cancellationToken.Register(() =>
@@ -167,8 +162,28 @@ public class A2AExecutionDispatcher(
         finally
         {
             mcpServer.RevokeSession(session.Token);
-            await launcher.CleanupAsync(prep.WorkingDirectory, CancellationToken.None);
+            // No CleanupAsync call — workspace materialisation/cleanup lives in
+            // the dispatcher service now (issue #1042).
         }
+    }
+
+    /// <summary>
+    /// Translates a launcher's <see cref="AgentLaunchPrep"/> into a
+    /// <see cref="ContainerConfig"/>. The launcher describes the workspace as
+    /// pure data; the dispatcher service materialises it on its host
+    /// filesystem and synthesises the bind-mount at run time. See issue #1042.
+    /// </summary>
+    private static ContainerConfig BuildContainerConfig(string image, AgentLaunchPrep prep)
+    {
+        return new ContainerConfig(
+            Image: image,
+            EnvironmentVariables: prep.EnvironmentVariables,
+            VolumeMounts: prep.ExtraVolumeMounts,
+            ExtraHosts: ["host.docker.internal:host-gateway"],
+            WorkingDirectory: prep.WorkingDirectory ?? prep.WorkspaceMountPath,
+            Workspace: new ContainerWorkspace(
+                MountPath: prep.WorkspaceMountPath,
+                Files: prep.WorkspaceFiles));
     }
 
     private async Task<SvMessage?> DispatchPersistentAsync(
@@ -252,14 +267,7 @@ public class A2AExecutionDispatcher(
             "Starting persistent agent {AgentId} with image {Image}",
             agentId, definition.Execution.Image);
 
-        var config = new ContainerConfig(
-            Image: definition.Execution.Image,
-            EnvironmentVariables: prep.EnvironmentVariables,
-            VolumeMounts: prep.VolumeMounts,
-            ExtraHosts: ["host.docker.internal:host-gateway"],
-            WorkingDirectory: prep.WorkingDirectory.Contains(':')
-                ? null // Volume mount spec — don't set working dir
-                : prep.WorkingDirectory);
+        var config = BuildContainerConfig(definition.Execution.Image, prep);
 
         var containerId = await containerRuntime.StartAsync(config, cancellationToken);
 

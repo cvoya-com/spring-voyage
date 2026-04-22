@@ -29,14 +29,23 @@ builder.Services.AddOptions<ContainerRuntimeOptions>()
 // DispatcherClientContainerRuntime instead (registered in the Dapr DI layer).
 builder.Services.AddSingleton<IContainerRuntime, PodmanRuntime>();
 
+// Workspace materialiser: per-invocation agent workspaces are written here on
+// the dispatcher host, then bind-mounted into the agent container. Lives in
+// the dispatcher (not the worker) so the host's container runtime sees the
+// directory. See issue #1042.
+builder.Services.AddSingleton<IWorkspaceMaterializer, WorkspaceMaterializer>();
+
 // Startup probe: the configured container runtime binary must resolve on PATH
 // before the dispatcher accepts requests. Without this, a misconfigured image
 // (e.g. one that ships `podman-remote` but not `podman`) comes up healthy and
 // then 500s on every dispatch with "No such file or directory". See #984.
 builder.Services.TryAddSingleton<IContainerRuntimeBinaryProbe, ContainerRuntimeBinaryProbe>();
+builder.Services.TryAddSingleton<IWorkspaceRootProbe, WorkspaceRootProbe>();
 builder.Services.AddCvoyaSpringConfigurationValidator();
 builder.Services.TryAddEnumerable(
     ServiceDescriptor.Singleton<IConfigurationRequirement, ContainerRuntimeBinaryConfigurationRequirement>());
+builder.Services.TryAddEnumerable(
+    ServiceDescriptor.Singleton<IConfigurationRequirement, WorkspaceRootConfigurationRequirement>());
 
 // Bearer-token auth over DispatcherOptions.Tokens. Keeping the scheme minimal
 // — a downstream host that targets multi-tenant K8s deployments can swap in a

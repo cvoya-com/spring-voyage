@@ -119,7 +119,7 @@ Selection of the dispatcher's own backend is driven by `ContainerRuntime:Runtime
 - **The dispatcher needs a reachable container socket.** In the OSS standalone deployment the dispatcher container bind-mounts the host's rootless podman socket (`/run/user/${UID}/podman/podman.sock`) at `/run/podman/podman.sock` and uses `podman-remote` against it.
 - **Network reachability** for `host.docker.internal` — Linux hosts need Podman 4.1+ or an explicit `--add-host=host.docker.internal:host-gateway` (which the dispatcher adds automatically). This is how the in-container agent tool reaches the host's MCP server.
 - **TCP port 8999 free on `localhost`** — persistent agent containers publish their A2A endpoint on this port. (Future work will introduce per-agent port allocation; see `A2AExecutionDispatcher.SidecarPort`.)
-- **Writable temp directory** on the dispatcher host — each launcher materialises a per-invocation working directory under `Path.GetTempPath()` before the container starts.
+- **Writable workspace root on the dispatcher host** — the dispatcher materialises every per-invocation agent workspace under `Dispatcher:WorkspaceRoot` (default `/var/lib/spring-workspaces`) and bind-mounts it into the agent container. The OSS deployment scripts mount the named volume `spring-agent-workspaces` at this path so the host's podman can resolve the bind-mount source. Workers no longer write any workspace files of their own — see [Per-invocation workspace materialisation](#per-invocation-workspace-materialisation) below and issue #1042.
 
 ---
 
@@ -145,7 +145,19 @@ spring-worker
 | DELETE | `/v1/containers/{id}`       | Stop and remove a running container. 404 is treated as a no-op (already gone) to keep parity with the in-process runtime. |
 | GET    | `/health`                   | Unauthenticated liveness. |
 
-Request and response bodies are JSON. The request shape is close to `Cvoya.Spring.Core.Execution.ContainerConfig` — `image`, `command`, `env`, `mounts`, `workdir`, `timeoutSeconds`, `network`, `labels`, `extraHosts`, `detached`. The response is `{ id, exitCode?, stdout?, stderr? }`.
+Request and response bodies are JSON. The request shape is close to `Cvoya.Spring.Core.Execution.ContainerConfig` — `image`, `command`, `env`, `mounts`, `workdir`, `timeoutSeconds`, `network`, `labels`, `extraHosts`, `detached`, plus an optional `workspace: { mountPath, files }` envelope (see below). The response is `{ id, exitCode?, stdout?, stderr? }`.
+
+### Per-invocation workspace materialisation
+
+Agent launchers (`ClaudeCodeLauncher`, `CodexLauncher`, `GeminiLauncher`, `DaprAgentLauncher`) describe the workspace they need as **pure data** — a `WorkspaceFiles` map keyed by relative path plus a `WorkspaceMountPath` — and the dispatcher materialises that workspace on its own host filesystem before launching the agent container. Concretely, when a `POST /v1/containers` request includes a `workspace` envelope:
+
+1. The dispatcher creates a unique subdirectory under `Dispatcher:WorkspaceRoot` (`spring-ws-<guid>`).
+2. It writes each requested file into the subdirectory, creating parent directories as needed. Absolute paths and `..` traversals are rejected with `400 workspace_invalid`.
+3. It synthesises a bind-mount spec `<host-subdir>:<mountPath>` and appends it to the container's mounts.
+4. It defaults `workdir` to `mountPath` if the request did not specify one.
+5. For blocking runs (`detached=false`) it deletes the subdirectory after the runtime returns. For detached starts (`detached=true`) it tracks the subdirectory against the returned container id and deletes it when `DELETE /v1/containers/{id}` arrives.
+
+This is why workers no longer carry the workspace mount themselves: the worker's filesystem is private to the worker container, so any path the worker created would be invisible to the host's podman that the dispatcher actually shells out against. Issue #1042 captured the failure mode (`exit code 125, no such file or directory` on every Claude Code dispatch) and ADR'd into "the dispatcher owns workspace materialisation" because the dispatcher is the one process that already has the right filesystem view.
 
 ### Authentication and tenant scoping
 

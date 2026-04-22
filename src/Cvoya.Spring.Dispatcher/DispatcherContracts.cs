@@ -55,6 +55,39 @@ public record RunContainerRequest
     /// </summary>
     [JsonPropertyName("detached")]
     public bool Detached { get; init; }
+
+    /// <summary>
+    /// Optional per-invocation workspace the dispatcher must materialise on
+    /// its own host filesystem (under <c>Dispatcher:WorkspaceRoot</c>) and
+    /// bind-mount into the container at <see cref="WorkspaceRequest.MountPath"/>.
+    /// Synthesised mount is appended to <see cref="Mounts"/>; if
+    /// <see cref="WorkingDirectory"/> is null it defaults to the workspace
+    /// mount path. The dispatcher deletes the materialised directory when the
+    /// run completes (or, for detached starts, when <c>DELETE</c> is called
+    /// for the resulting container id). See issue #1042.
+    /// </summary>
+    [JsonPropertyName("workspace")]
+    public WorkspaceRequest? Workspace { get; init; }
+}
+
+/// <summary>
+/// Files the dispatcher must materialise into a fresh per-invocation directory
+/// before launching a container. Carried by <see cref="RunContainerRequest.Workspace"/>.
+/// </summary>
+public record WorkspaceRequest
+{
+    /// <summary>Absolute path inside the container where the dispatcher bind-mounts the workspace.</summary>
+    [JsonPropertyName("mountPath")]
+    public required string MountPath { get; init; }
+
+    /// <summary>
+    /// File contents keyed by path relative to the workspace root. Paths must
+    /// be relative; absolute paths or <c>..</c> traversals are rejected. The
+    /// dispatcher creates parent directories as needed and writes each file
+    /// with UTF-8 encoding.
+    /// </summary>
+    [JsonPropertyName("files")]
+    public required IDictionary<string, string> Files { get; init; }
 }
 
 /// <summary>
