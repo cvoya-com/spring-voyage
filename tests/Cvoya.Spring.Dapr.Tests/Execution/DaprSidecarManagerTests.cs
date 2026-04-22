@@ -6,94 +6,212 @@ namespace Cvoya.Spring.Dapr.Tests.Execution;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Dapr.Execution;
 
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+
+using NSubstitute;
+
 using Shouldly;
 
 using Xunit;
 
 /// <summary>
-/// Unit tests for <see cref="DaprSidecarManager"/> argument building.
-/// These tests verify the sidecar run command construction without launching actual containers.
+/// Unit tests for <see cref="DaprSidecarManager"/>.
 /// </summary>
+/// <remarks>
+/// Stage 2 of #522 / #1063 rewrote this class to route every container
+/// operation through <see cref="IContainerRuntime"/>. The previous test
+/// surface (a static <c>BuildSidecarRunArguments</c> string builder) is
+/// gone; we now assert on the <see cref="ContainerConfig"/> shape that
+/// <see cref="DaprSidecarManager.BuildSidecarContainerConfig"/> emits, plus
+/// the runtime-call shape <c>StartSidecarAsync</c> / <c>StopSidecarAsync</c>
+/// / <c>WaitForHealthyAsync</c> hand to <see cref="IContainerRuntime"/>.
+/// </remarks>
 public class DaprSidecarManagerTests
 {
-    [Fact]
-    public void BuildSidecarRunArguments_MinimalConfig_ProducesCorrectCommand()
+    private static DaprSidecarManager CreateManager(
+        IContainerRuntime? runtime = null,
+        DaprSidecarOptions? options = null)
     {
+        var loggerFactory = Substitute.For<ILoggerFactory>();
+        loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
+        return new DaprSidecarManager(
+            runtime ?? Substitute.For<IContainerRuntime>(),
+            Options.Create(options ?? new DaprSidecarOptions()),
+            loggerFactory);
+    }
+
+    [Fact]
+    public void BuildSidecarContainerConfig_MinimalConfig_ProducesExpectedShape()
+    {
+        var manager = CreateManager();
         var config = new DaprSidecarConfig(
             AppId: "my-app",
             AppPort: 8080,
             DaprHttpPort: 3500,
             DaprGrpcPort: 50001);
-        var sidecarName = "spring-dapr-test";
 
-        var args = DaprSidecarManager.BuildSidecarRunArguments(config, sidecarName);
+        var containerConfig = manager.BuildSidecarContainerConfig(config, "spring-dapr-test");
 
-        args.ShouldStartWith("run -d --name spring-dapr-test");
-        args.ShouldContain("--label spring.managed=true");
-        args.ShouldContain("--label spring.role=dapr-sidecar");
-        args.ShouldContain("--label spring.app-id=my-app");
-        args.ShouldContain("daprio/daprd:latest");
-        args.ShouldContain("--app-id my-app");
-        args.ShouldContain("--app-port 8080");
-        args.ShouldContain("--dapr-http-port 3500");
-        args.ShouldContain("--dapr-grpc-port 50001");
-        args.ShouldNotContain("--network");
-        args.ShouldNotContain("--resources-path");
+        containerConfig.Image.ShouldBe("daprio/daprd:latest");
+        containerConfig.Command.ShouldNotBeNull();
+        containerConfig.Command!.ShouldStartWith("./daprd");
+        containerConfig.Command.ShouldContain("--app-id my-app");
+        containerConfig.Command.ShouldContain("--app-port 8080");
+        containerConfig.Command.ShouldContain("--dapr-http-port 3500");
+        containerConfig.Command.ShouldContain("--dapr-grpc-port 50001");
+        containerConfig.Command.ShouldNotContain("--resources-path");
+        containerConfig.NetworkName.ShouldBeNull();
+        containerConfig.VolumeMounts.ShouldBeNull();
+        containerConfig.Labels.ShouldNotBeNull();
+        containerConfig.Labels!["spring.managed"].ShouldBe("true");
+        containerConfig.Labels["spring.role"].ShouldBe("dapr-sidecar");
+        containerConfig.Labels["spring.app-id"].ShouldBe("my-app");
     }
 
     [Fact]
-    public void BuildSidecarRunArguments_WithNetwork_IncludesNetworkFlag()
+    public void BuildSidecarContainerConfig_WithNetwork_PropagatesNetworkName()
     {
+        var manager = CreateManager();
         var config = new DaprSidecarConfig(
             AppId: "my-app",
             AppPort: 8080,
             DaprHttpPort: 3500,
             DaprGrpcPort: 50001,
             NetworkName: "spring-net-abc");
-        var sidecarName = "spring-dapr-net";
 
-        var args = DaprSidecarManager.BuildSidecarRunArguments(config, sidecarName);
+        var containerConfig = manager.BuildSidecarContainerConfig(config, "spring-dapr-net");
 
-        args.ShouldContain("--network spring-net-abc");
+        containerConfig.NetworkName.ShouldBe("spring-net-abc");
     }
 
     [Fact]
-    public void BuildSidecarRunArguments_WithComponentsPath_MountsAndConfigures()
+    public void BuildSidecarContainerConfig_WithComponentsPath_AddsMountAndCommandFlag()
     {
+        var manager = CreateManager();
         var config = new DaprSidecarConfig(
             AppId: "my-app",
             AppPort: 8080,
             DaprHttpPort: 3500,
             DaprGrpcPort: 50001,
             ComponentsPath: "/home/user/dapr/components");
-        var sidecarName = "spring-dapr-comp";
 
-        var args = DaprSidecarManager.BuildSidecarRunArguments(config, sidecarName);
+        var containerConfig = manager.BuildSidecarContainerConfig(config, "spring-dapr-comp");
 
-        args.ShouldContain("-v /home/user/dapr/components:/components");
-        args.ShouldContain("--resources-path /components");
+        containerConfig.VolumeMounts.ShouldNotBeNull();
+        containerConfig.VolumeMounts!.ShouldContain("/home/user/dapr/components:/components");
+        containerConfig.Command.ShouldNotBeNull();
+        containerConfig.Command!.ShouldContain("--resources-path /components");
     }
 
     [Fact]
-    public void BuildSidecarRunArguments_FullConfig_ProducesCorrectOrder()
+    public void BuildSidecarContainerConfig_HonorsImageOverride()
     {
+        var manager = CreateManager(options: new DaprSidecarOptions { Image = "daprio/daprd:1.14.4" });
         var config = new DaprSidecarConfig(
-            AppId: "workflow-1",
-            AppPort: 9090,
-            DaprHttpPort: 3501,
-            DaprGrpcPort: 50002,
-            ComponentsPath: "/components",
-            NetworkName: "my-network");
-        var sidecarName = "spring-dapr-full";
+            AppId: "my-app",
+            AppPort: 8080,
+            DaprHttpPort: 3500,
+            DaprGrpcPort: 50001);
 
-        var args = DaprSidecarManager.BuildSidecarRunArguments(config, sidecarName);
+        var containerConfig = manager.BuildSidecarContainerConfig(config, "spring-dapr-pinned");
 
-        // Image should come after flags, daprd command after image
-        var imageIndex = args.IndexOf("daprio/daprd:latest", StringComparison.Ordinal);
-        var networkIndex = args.IndexOf("--network my-network", StringComparison.Ordinal);
-        var appIdIndex = args.IndexOf("--app-id workflow-1", StringComparison.Ordinal);
+        containerConfig.Image.ShouldBe("daprio/daprd:1.14.4");
+    }
 
-        networkIndex.ShouldBeLessThan(imageIndex, "network flag should come before image");
-        appIdIndex.ShouldBeGreaterThan(imageIndex, "daprd args should come after image");
+    [Fact]
+    public async Task StartSidecarAsync_DelegatesToRuntimeStartAsync()
+    {
+        var runtime = Substitute.For<IContainerRuntime>();
+        runtime.StartAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult("dispatcher-assigned-id"));
+
+        var manager = CreateManager(runtime);
+        var config = new DaprSidecarConfig(
+            AppId: "my-app",
+            AppPort: 8080,
+            DaprHttpPort: 3500,
+            DaprGrpcPort: 50001,
+            NetworkName: "n");
+
+        var info = await manager.StartSidecarAsync(config, TestContext.Current.CancellationToken);
+
+        await runtime.Received(1).StartAsync(
+            Arg.Is<ContainerConfig>(c => c.Image == "daprio/daprd:latest" && c.NetworkName == "n"),
+            Arg.Any<CancellationToken>());
+
+        // The contract is "return a sidecar info whose SidecarId is the
+        // human-readable name we picked" — symmetric with the labels we
+        // attach. The dispatcher's container id is logged but not surfaced.
+        info.SidecarId.ShouldStartWith("spring-dapr-my-app-");
+        info.DaprHttpPort.ShouldBe(3500);
+    }
+
+    [Fact]
+    public async Task StopSidecarAsync_DelegatesToRuntimeStopAsync()
+    {
+        var runtime = Substitute.For<IContainerRuntime>();
+        var manager = CreateManager(runtime);
+
+        await manager.StopSidecarAsync("sidecar-1", TestContext.Current.CancellationToken);
+
+        await runtime.Received(1).StopAsync("sidecar-1", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task StopSidecarAsync_SwallowsRuntimeFailures()
+    {
+        var runtime = Substitute.For<IContainerRuntime>();
+        runtime.StopAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new InvalidOperationException("boom")));
+        var manager = CreateManager(runtime);
+
+        // Best-effort teardown contract — exceptions log a warning and the
+        // call returns normally so the lifecycle manager's sweep continues.
+        await Should.NotThrowAsync(() =>
+            manager.StopSidecarAsync("sidecar-1", TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task WaitForHealthyAsync_ReturnsTrueOnFirstHealthyProbe()
+    {
+        var runtime = Substitute.For<IContainerRuntime>();
+        runtime.ProbeContainerHttpAsync(
+                Arg.Any<string>(),
+                Arg.Is<string>(u => u.Contains("/v1.0/healthz")),
+                Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(true));
+
+        var manager = CreateManager(runtime);
+
+        var healthy = await manager.WaitForHealthyAsync(
+            "sidecar-1", TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        healthy.ShouldBeTrue();
+        await runtime.Received().ProbeContainerHttpAsync(
+            "sidecar-1",
+            "http://localhost:3500/v1.0/healthz",
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task WaitForHealthyAsync_ReturnsFalseOnTimeout()
+    {
+        var runtime = Substitute.For<IContainerRuntime>();
+        runtime.ProbeContainerHttpAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(false));
+
+        var manager = CreateManager(runtime, new DaprSidecarOptions
+        {
+            // Drive the loop fast so the test completes well under the
+            // xUnit per-test timeout. The polling-interval knob is the
+            // whole reason we lifted these values into options.
+            HealthPollInterval = TimeSpan.FromMilliseconds(5),
+        });
+
+        var healthy = await manager.WaitForHealthyAsync(
+            "sidecar-1", TimeSpan.FromMilliseconds(50), TestContext.Current.CancellationToken);
+
+        healthy.ShouldBeFalse();
     }
 }

@@ -186,6 +186,173 @@ public class DispatcherClientContainerRuntimeTests
     }
 
     [Fact]
+    public async Task PullImageAsync_PostsImageAndTimeout()
+    {
+        HttpRequestMessage? captured = null;
+        var handler = new FakeHandler(async (req, _) =>
+        {
+            captured = req;
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        });
+
+        var runtime = CreateRuntime(handler);
+        await runtime.PullImageAsync(
+            "ghcr.io/cvoya/claude:1.2.3",
+            TimeSpan.FromSeconds(60),
+            TestContext.Current.CancellationToken);
+
+        captured.ShouldNotBeNull();
+        captured!.Method.ShouldBe(HttpMethod.Post);
+        captured.RequestUri!.AbsolutePath.ShouldBe("/v1/images/pull");
+        var body = await captured.Content!.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        using var parsed = JsonDocument.Parse(body);
+        parsed.RootElement.GetProperty("image").GetString().ShouldBe("ghcr.io/cvoya/claude:1.2.3");
+        parsed.RootElement.GetProperty("timeoutSeconds").GetInt32().ShouldBe(60);
+    }
+
+    [Fact]
+    public async Task PullImageAsync_504_ThrowsTimeoutException()
+    {
+        var handler = new FakeHandler(async (_, _) =>
+            new HttpResponseMessage(HttpStatusCode.GatewayTimeout)
+            {
+                Content = new StringContent("registry slow"),
+            });
+
+        var runtime = CreateRuntime(handler);
+
+        // PullImageActivity classifies on the exception type — the contract
+        // here is "504 ↔ TimeoutException" so the worker's existing branch
+        // for slow registries keeps working through the dispatcher hop.
+        await Should.ThrowAsync<TimeoutException>(async () =>
+            await runtime.PullImageAsync(
+                "alpine:latest",
+                TimeSpan.FromSeconds(30),
+                TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task PullImageAsync_502_ThrowsInvalidOperation()
+    {
+        var handler = new FakeHandler(async (_, _) =>
+            new HttpResponseMessage(HttpStatusCode.BadGateway)
+            {
+                Content = new StringContent("manifest unknown"),
+            });
+
+        var runtime = CreateRuntime(handler);
+
+        await Should.ThrowAsync<InvalidOperationException>(async () =>
+            await runtime.PullImageAsync(
+                "alpine:does-not-exist",
+                TimeSpan.FromSeconds(30),
+                TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task CreateNetworkAsync_PostsName()
+    {
+        HttpRequestMessage? captured = null;
+        var handler = new FakeHandler(async (req, _) =>
+        {
+            captured = req;
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        });
+
+        var runtime = CreateRuntime(handler);
+        await runtime.CreateNetworkAsync("spring-net-abc", TestContext.Current.CancellationToken);
+
+        captured.ShouldNotBeNull();
+        captured!.Method.ShouldBe(HttpMethod.Post);
+        captured.RequestUri!.AbsolutePath.ShouldBe("/v1/networks");
+        var body = await captured.Content!.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        using var parsed = JsonDocument.Parse(body);
+        parsed.RootElement.GetProperty("name").GetString().ShouldBe("spring-net-abc");
+    }
+
+    [Fact]
+    public async Task RemoveNetworkAsync_IssuesDelete()
+    {
+        HttpRequestMessage? captured = null;
+        var handler = new FakeHandler(async (req, _) =>
+        {
+            captured = req;
+            return new HttpResponseMessage(HttpStatusCode.NoContent);
+        });
+
+        var runtime = CreateRuntime(handler);
+        await runtime.RemoveNetworkAsync("spring-net-abc", TestContext.Current.CancellationToken);
+
+        captured.ShouldNotBeNull();
+        captured!.Method.ShouldBe(HttpMethod.Delete);
+        captured.RequestUri!.AbsolutePath.ShouldBe("/v1/networks/spring-net-abc");
+    }
+
+    [Fact]
+    public async Task RemoveNetworkAsync_404IsTreatedAsNoOp()
+    {
+        var handler = new FakeHandler(async (_, _) =>
+            new HttpResponseMessage(HttpStatusCode.NotFound));
+
+        var runtime = CreateRuntime(handler);
+
+        // Idempotent contract: removing a missing network must not throw,
+        // so ContainerLifecycleManager's teardown sweep is safe after a
+        // partial-failure boot.
+        await runtime.RemoveNetworkAsync("missing", TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task ProbeContainerHttpAsync_PostsUrlAndParsesHealthy()
+    {
+        HttpRequestMessage? captured = null;
+        var handler = new FakeHandler(async (req, _) =>
+        {
+            captured = req;
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = JsonContent.Create(new { healthy = true }),
+            };
+        });
+
+        var runtime = CreateRuntime(handler);
+        var healthy = await runtime.ProbeContainerHttpAsync(
+            "sidecar-1",
+            "http://localhost:3500/v1.0/healthz",
+            TestContext.Current.CancellationToken);
+
+        healthy.ShouldBeTrue();
+        captured.ShouldNotBeNull();
+        captured!.Method.ShouldBe(HttpMethod.Post);
+        captured.RequestUri!.AbsolutePath.ShouldBe("/v1/containers/sidecar-1/probe");
+        var body = await captured.Content!.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        using var parsed = JsonDocument.Parse(body);
+        parsed.RootElement.GetProperty("url").GetString().ShouldBe("http://localhost:3500/v1.0/healthz");
+    }
+
+    [Fact]
+    public async Task ProbeContainerHttpAsync_404IsTreatedAsUnhealthy()
+    {
+        var handler = new FakeHandler(async (_, _) =>
+            new HttpResponseMessage(HttpStatusCode.NotFound));
+
+        var runtime = CreateRuntime(handler);
+
+        // The probe collapses every failure mode (missing container, missing
+        // wget, non-2xx, DNS failure) to a single boolean so the polling
+        // loop in DaprSidecarManager owns retry semantics. 404 specifically
+        // is "container vanished" — we treat it as unhealthy rather than a
+        // hard exception so a teardown race during sidecar boot doesn't
+        // crash the worker.
+        var healthy = await runtime.ProbeContainerHttpAsync(
+            "missing-sidecar",
+            "http://localhost:3500/v1.0/healthz",
+            TestContext.Current.CancellationToken);
+
+        healthy.ShouldBeFalse();
+    }
+
+    [Fact]
     public async Task RunAsync_MissingBaseUrl_Throws()
     {
         var handler = new FakeHandler(async (_, _) => new HttpResponseMessage(HttpStatusCode.OK));

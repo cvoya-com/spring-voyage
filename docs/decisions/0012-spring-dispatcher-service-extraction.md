@@ -1,6 +1,6 @@
 # 0012 — Extract container-runtime ownership into a dedicated `spring-dispatcher` service
 
-- **Status:** Accepted — the worker no longer holds the host container binary. Its only `IContainerRuntime` binding is `DispatcherClientContainerRuntime`, which forwards every launch / logs / stop call over HTTP to the new `Cvoya.Spring.Dispatcher` ASP.NET service. The dispatcher owns `PodmanRuntime` (OSS default); the HTTP contract is backend-plural so downstream deployment repositories can plug in a Kubernetes-native backend without touching the worker. **Superseded in part by [#1063](https://github.com/cvoya-com/spring-voyage/issues/1063): the dispatcher now runs as a host process rather than a container in OSS deployments.** The HTTP contract and the worker binding are unchanged; only the deployment topology moved.
+- **Status:** Accepted — the worker no longer holds the host container binary. Its only `IContainerRuntime` binding is `DispatcherClientContainerRuntime`, which forwards every launch / logs / stop / pull / network / probe call over HTTP to the `Cvoya.Spring.Dispatcher` ASP.NET service. The dispatcher owns `PodmanRuntime` (OSS default); the HTTP contract is backend-plural so downstream deployment repositories can plug in a Kubernetes-native backend without touching the worker. **Superseded in part by [#1063](https://github.com/cvoya-com/spring-voyage/issues/1063): the dispatcher runs as a host process rather than a container in OSS deployments.** The HTTP contract and the worker binding are unchanged; only the deployment topology moved. **Stage 2 of [#522](https://github.com/cvoya-com/spring-voyage/issues/522) completed the cutover** — `ContainerLifecycleManager`, `DaprSidecarManager`, and `PullImageActivity` now route through the dispatcher too; the worker holds zero `Process.Start("podman"|"docker")` calls and the regression is guarded by a CI audit (`scripts/audit-no-container-cli.sh`).
 - **Date:** 2026-04-17
 - **Closes:** [#521](https://github.com/cvoya-com/spring-voyage/issues/521)
 - **Implemented by:** [PR #535](https://github.com/cvoya-com/spring-voyage/pull/535) (closes [#513](https://github.com/cvoya-com/spring-voyage/issues/513))
@@ -27,14 +27,20 @@ Design questions that needed answers before shipping:
 
 ### HTTP surface
 
-Three authenticated endpoints plus an unauthenticated health probe:
+Authenticated endpoints plus an unauthenticated health probe (Stage 2 of #522 added `/v1/images/pull`, `/v1/networks`, and `/v1/containers/{id}/probe` so the worker can fully drop its container CLI binding):
 
-| Verb     | Path                             | Purpose                                     |
-| -------- | -------------------------------- | ------------------------------------------- |
-| `POST`   | `/v1/containers`                 | Start a container (image, env, mounts, …).  |
-| `GET`    | `/v1/containers/{id}/logs`       | Read combined stdout/stderr (tail-bounded). |
-| `DELETE` | `/v1/containers/{id}`            | Stop and remove a container.                |
-| `GET`    | `/health`                        | Unauthenticated liveness probe.             |
+| Verb     | Path                             | Purpose                                                                     |
+| -------- | -------------------------------- | --------------------------------------------------------------------------- |
+| `POST`   | `/v1/containers`                 | Start a container (image, env, mounts, …); blocking or detached.            |
+| `GET`    | `/v1/containers/{id}/logs`       | Read combined stdout/stderr (tail-bounded).                                 |
+| `POST`   | `/v1/containers/{id}/probe`      | One-shot HTTP probe (`wget --spider`) inside the container; returns bool.   |
+| `DELETE` | `/v1/containers/{id}`            | Stop and remove a container.                                                |
+| `POST`   | `/v1/images/pull`                | Pull an image; 504 ↔ TimeoutException, 502 ↔ InvalidOperationException.     |
+| `POST`   | `/v1/networks`                   | Create a container network (idempotent).                                    |
+| `DELETE` | `/v1/networks/{name}`            | Remove a container network (idempotent).                                    |
+| `GET`    | `/health`                        | Unauthenticated liveness probe.                                             |
+
+The probe surface is deliberately narrower than a generic `exec`: a URL string and a boolean answer, no shell expansion, no stdout capture. That keeps the dispatcher's RCE posture bounded while solving the only worker-side use case that needed exec — Dapr sidecar health polling. Callers that need richer container introspection should fall back to `inspect` / `logs`; widening the probe to a full exec is a future ADR if a use case emerges.
 
 Every authenticated request carries `Authorization: Bearer <token>`. Tokens are opaque strings configured at deploy time through `Dispatcher__Tokens__<token>__TenantId=<tenant>`; the mapping is the scope the request can assert. Unauthenticated calls 401; unknown tokens 401; cross-tenant violations (once tenant-aware scoping enforces the map at the authorisation layer) 403.
 
@@ -60,4 +66,4 @@ Inside the dispatcher, `IContainerRuntime` is still the extensibility seam. OSS 
 - **OSS scope stays single-host.** The OSS stack ships a single dispatcher token scoped to the `default` tenant. Multi-tenant K8s deployments live downstream; nothing in OSS assumes multiple tenants exist.
 - **`PersistentAgentLifecycle` (ADR 0011) and `A2AExecutionDispatcher` go through the same seam.** Both resolve `IContainerRuntime` and both get the HTTP-backed implementation; the operator lifecycle surface and the turn-dispatch path share one runtime binding.
 - **An HTTP hop is now on the dispatch hot path.** The dispatcher runs on the same host in OSS deployments so the latency cost is a local TCP call; the benefit — one process holds runtime credentials — is worth it.
-- **Follow-up #522 finishes the migration.** `ContainerLifecycleManager`, `DaprSidecarManager`, and ad-hoc network operations still talk to podman directly from the worker in a few places; they move behind the dispatcher in a later PR so this one stays diff-bounded.
+- **Stage 2 of #522 finished the migration.** `ContainerLifecycleManager`, `DaprSidecarManager`, and `PullImageActivity` now route through the dispatcher's new `/v1/networks`, `/v1/images/pull`, and `/v1/containers/{id}/probe` endpoints. The Dapr sidecar image / health-poll knobs that used to share `ContainerRuntimeOptions` moved to a dedicated `DaprSidecarOptions` (`Dapr:Sidecar` config section) so worker hosts no longer bind container-runtime config they don't use. The CI audit `scripts/audit-no-container-cli.sh` greps the worker-side tree for `Process.Start("podman"|"docker")` patterns on every PR; only `ProcessContainerRuntime.cs` (which the dispatcher itself binds) and `src/Cvoya.Spring.Dispatcher/**` are allowlisted.

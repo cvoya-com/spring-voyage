@@ -46,7 +46,7 @@ public class UnitContainerLifecycleTests
         _lifecycleManager = new ContainerLifecycleManager(
             _containerRuntime,
             _sidecarManager,
-            Options.Create(new ContainerRuntimeOptions { RuntimeType = "docker" }),
+            Options.Create(new DaprSidecarOptions()),
             _loggerFactory);
     }
 

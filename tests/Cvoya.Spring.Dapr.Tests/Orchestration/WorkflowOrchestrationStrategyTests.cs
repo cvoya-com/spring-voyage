@@ -44,7 +44,7 @@ public class WorkflowOrchestrationStrategyTests
         var lifecycleManager = new ContainerLifecycleManager(
             _containerRuntime,
             Substitute.For<IDaprSidecarManager>(),
-            Options.Create(new ContainerRuntimeOptions()),
+            Options.Create(new DaprSidecarOptions()),
             _loggerFactory);
 
         _strategy = new WorkflowOrchestrationStrategy(

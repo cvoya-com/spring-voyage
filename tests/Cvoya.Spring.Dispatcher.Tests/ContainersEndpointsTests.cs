@@ -275,6 +275,86 @@ public class ContainersEndpointsTests : IClassFixture<DispatcherWebApplicationFa
     }
 
     [Fact]
+    public async Task PostContainerProbe_WithoutToken_Returns401()
+    {
+        var client = _factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync(
+            "/v1/containers/abc/probe",
+            new { url = "http://localhost:3500/v1.0/healthz" },
+            TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task PostContainerProbe_MissingUrl_Returns400()
+    {
+        _factory.ContainerRuntime.ClearSubstitute();
+
+        var client = CreateAuthorizedClient();
+
+        var response = await client.PostAsJsonAsync(
+            "/v1/containers/abc/probe",
+            new { url = "" },
+            TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        await _factory.ContainerRuntime.DidNotReceive().ProbeContainerHttpAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PostContainerProbe_Authorized_ReturnsHealthyJson()
+    {
+        _factory.ContainerRuntime.ClearSubstitute();
+        _factory.ContainerRuntime
+            .ProbeContainerHttpAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(true);
+
+        var client = CreateAuthorizedClient();
+
+        var response = await client.PostAsJsonAsync(
+            "/v1/containers/sidecar-1/probe",
+            new { url = "http://localhost:3500/v1.0/healthz" },
+            TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>(TestContext.Current.CancellationToken);
+        body.GetProperty("healthy").GetBoolean().ShouldBeTrue();
+
+        await _factory.ContainerRuntime.Received(1).ProbeContainerHttpAsync(
+            "sidecar-1",
+            "http://localhost:3500/v1.0/healthz",
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PostContainerProbe_RuntimeReturnsFalse_ReportsUnhealthy()
+    {
+        _factory.ContainerRuntime.ClearSubstitute();
+        _factory.ContainerRuntime
+            .ProbeContainerHttpAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(false);
+
+        var client = CreateAuthorizedClient();
+
+        var response = await client.PostAsJsonAsync(
+            "/v1/containers/sidecar-1/probe",
+            new { url = "http://localhost:3500/v1.0/healthz" },
+            TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>(TestContext.Current.CancellationToken);
+        // The probe surface deliberately collapses every failure mode
+        // (timeout, missing wget, exited container, non-2xx) into a single
+        // boolean — the worker's polling loop is the sole owner of retry
+        // semantics. This test pins that bit instead of accidentally
+        // upgrading negative answers to 5xx.
+        body.GetProperty("healthy").GetBoolean().ShouldBeFalse();
+    }
+
+    [Fact]
     public async Task PostContainers_WithWorkspace_PreservesExistingMounts()
     {
         _factory.ContainerRuntime.ClearSubstitute();

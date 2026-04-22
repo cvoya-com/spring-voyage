@@ -116,6 +116,69 @@ public record RunContainerResponse
 }
 
 /// <summary>
+/// Request body for <c>POST /v1/images/pull</c>. Splits image-pull semantics
+/// out from <c>POST /v1/containers</c> because pulls have distinct timeout
+/// and failure shapes (slow registry, auth failure, tag-not-found) that
+/// <c>UnitValidationWorkflow</c> surfaces differently from a run-time
+/// failure. See <c>IContainerRuntime.PullImageAsync</c>.
+/// </summary>
+public record PullImageRequest
+{
+    /// <summary>The fully-qualified image reference to pull (e.g. <c>ghcr.io/cvoya/claude:1.2.3</c>).</summary>
+    [JsonPropertyName("image")]
+    public required string Image { get; init; }
+
+    /// <summary>
+    /// Optional pull timeout in seconds. The dispatcher applies this as a
+    /// hard wall-clock deadline; if exceeded the response is HTTP 504 and
+    /// the client maps it to <see cref="System.TimeoutException"/>.
+    /// </summary>
+    [JsonPropertyName("timeoutSeconds")]
+    public int? TimeoutSeconds { get; init; }
+}
+
+/// <summary>
+/// Request body for <c>POST /v1/containers/{id}/probe</c>. Mirrors the
+/// narrow primitive on <c>IContainerRuntime.ProbeContainerHttpAsync</c> —
+/// the dispatcher executes <c>wget -q --spider</c> inside the named
+/// container and returns whether the URL responded 2xx. See the interface
+/// docs for the rationale on keeping the surface narrower than a generic
+/// <c>exec</c>.
+/// </summary>
+public record ProbeContainerHttpRequest
+{
+    /// <summary>The URL to probe; typically a loopback URL inside the container.</summary>
+    [JsonPropertyName("url")]
+    public required string Url { get; init; }
+}
+
+/// <summary>
+/// Response body for <c>POST /v1/containers/{id}/probe</c>. The dispatcher
+/// collapses every failure mode (DNS failure, non-2xx, missing wget, exited
+/// container) into a single boolean so the caller's polling loop owns the
+/// retry / timeout decision uniformly.
+/// </summary>
+public record ProbeContainerHttpResponse
+{
+    /// <summary>Whether the probed URL answered 2xx.</summary>
+    [JsonPropertyName("healthy")]
+    public required bool Healthy { get; init; }
+}
+
+/// <summary>
+/// Request body for <c>POST /v1/networks</c>. The dispatcher creates the
+/// network idempotently — repeating the call with the same name is a 200,
+/// not a 409, so callers (notably <c>ContainerLifecycleManager</c>) can
+/// re-issue the create without first inspecting existence.
+/// </summary>
+public record CreateNetworkRequest
+{
+    /// <summary>The container network name to create.</summary>
+    [JsonPropertyName("name")]
+    public required string Name { get; init; }
+}
+
+/// <summary>
 /// Problem shape emitted by the dispatcher for error responses.
 /// </summary>
 public record DispatcherErrorResponse

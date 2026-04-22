@@ -3,58 +3,90 @@
 
 namespace Cvoya.Spring.Dapr.Execution;
 
-using System.Diagnostics;
-using System.Text;
-
 using Cvoya.Spring.Core.Execution;
 
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 /// <summary>
-/// Manages Dapr sidecar containers by launching daprd in a container on the same network
-/// as the application container.
+/// Manages Dapr sidecar containers by routing every container operation
+/// through <see cref="IContainerRuntime"/> — i.e. through the host
+/// <c>spring-dispatcher</c> service. The worker process holds zero
+/// <c>Process.Start</c> calls of its own (Stage 2 of #522 / #1063).
 /// </summary>
+/// <remarks>
+/// <para>
+/// Health polling uses
+/// <see cref="IContainerRuntime.ProbeContainerHttpAsync"/> to ask the
+/// dispatcher to run a one-shot <c>wget --spider</c> against the sidecar's
+/// loopback healthz URL. The sidecar itself runs on a private per-app
+/// network the worker does not share, so a direct
+/// <c>HttpClient</c>-from-worker probe would not reach it; routing through
+/// the dispatcher's container namespace is the shortest path that keeps
+/// the worker free of a podman/docker binding.
+/// </para>
+/// <para>
+/// Image and timeout knobs that used to live as <c>const</c>s in this file
+/// (and inside <see cref="ContainerRuntimeOptions"/>) now bind from
+/// <see cref="DaprSidecarOptions"/> so operators can pin a daprd version
+/// without recompiling.
+/// </para>
+/// </remarks>
 public class DaprSidecarManager(
-    IOptions<ContainerRuntimeOptions> options,
+    IContainerRuntime runtime,
+    IOptions<DaprSidecarOptions> options,
     ILoggerFactory loggerFactory) : IDaprSidecarManager
 {
-    private const string DaprImage = "daprio/daprd:latest";
-
     private readonly ILogger _logger = loggerFactory.CreateLogger<DaprSidecarManager>();
-    private readonly ContainerRuntimeOptions _options = options.Value;
+    private readonly DaprSidecarOptions _options = options.Value;
+
+    /// <summary>
+    /// HTTP port the daprd healthz endpoint binds inside the sidecar
+    /// container. Hardcoded because <see cref="WaitForHealthyAsync"/>
+    /// only receives a sidecar id (the contract on
+    /// <see cref="IDaprSidecarManager"/> doesn't carry the configured
+    /// port through). Every <see cref="StartSidecarAsync"/> caller in
+    /// the platform passes <see cref="DaprSidecarConfig.DaprHttpPort"/>
+    /// = 3500, so this matches the previous hardcoded value
+    /// (the pre-Stage-2 implementation also hardcoded 3500). If a
+    /// caller ever needs a non-default port, the right fix is to widen
+    /// the interface — not to plumb the value through state.
+    /// </summary>
+    private const int DaprHealthHttpPort = 3500;
 
     /// <inheritdoc />
     public async Task<DaprSidecarInfo> StartSidecarAsync(DaprSidecarConfig config, CancellationToken ct = default)
     {
         var sidecarName = $"spring-dapr-{config.AppId}-{Guid.NewGuid():N}"[..48];
-        var arguments = BuildSidecarRunArguments(config, sidecarName);
+        var containerConfig = BuildSidecarContainerConfig(config, sidecarName);
 
         _logger.LogInformation(
             EventIds.SidecarStarting,
             "Starting Dapr sidecar {SidecarName} for app {AppId} on ports HTTP={HttpPort} gRPC={GrpcPort}",
             sidecarName, config.AppId, config.DaprHttpPort, config.DaprGrpcPort);
 
-        var (exitCode, stdout, stderr) = await RunProcessAsync(
-            _options.RuntimeType, arguments, ct);
+        try
+        {
+            var containerId = await runtime.StartAsync(containerConfig, ct);
 
-        if (exitCode != 0)
+            _logger.LogInformation(
+                EventIds.SidecarStarted,
+                "Dapr sidecar {SidecarName} started with container ID {ContainerId}",
+                sidecarName, containerId);
+
+            // We return the human-readable name (matches the previous
+            // contract) — the runtime resolves either by id or by name on
+            // subsequent calls, and using the name keeps logs symmetric
+            // with the labels we set on the container.
+            return new DaprSidecarInfo(sidecarName, config.DaprHttpPort, config.DaprGrpcPort);
+        }
+        catch (Exception ex)
         {
             _logger.LogError(
-                EventIds.SidecarStartFailed,
-                "Failed to start Dapr sidecar {SidecarName}. Exit code: {ExitCode}. Stderr: {Stderr}",
-                sidecarName, exitCode, stderr);
-            throw new InvalidOperationException(
-                $"Failed to start Dapr sidecar {sidecarName}. Exit code: {exitCode}. Stderr: {stderr}");
+                EventIds.SidecarStartFailed, ex,
+                "Failed to start Dapr sidecar {SidecarName}", sidecarName);
+            throw;
         }
-
-        var containerId = stdout.Trim();
-        _logger.LogInformation(
-            EventIds.SidecarStarted,
-            "Dapr sidecar {SidecarName} started with container ID {ContainerId}",
-            sidecarName, containerId);
-
-        return new DaprSidecarInfo(sidecarName, config.DaprHttpPort, config.DaprGrpcPort);
     }
 
     /// <inheritdoc />
@@ -66,49 +98,48 @@ public class DaprSidecarManager(
 
         try
         {
-            await RunProcessAsync(_options.RuntimeType, $"stop {sidecarId}", ct);
+            // The runtime's StopAsync semantics are "stop AND remove"
+            // (see ProcessContainerRuntime.StopAsync), matching the
+            // previous two-step podman stop / podman rm sequence.
+            await runtime.StopAsync(sidecarId, ct);
         }
         catch (Exception ex)
         {
+            // Best-effort teardown: log and move on. The lifecycle manager's
+            // teardown path also calls this and tolerates failures.
             _logger.LogWarning(ex, "Failed to stop Dapr sidecar {SidecarId}", sidecarId);
-        }
-
-        try
-        {
-            await RunProcessAsync(_options.RuntimeType, $"rm -f {sidecarId}", ct);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to remove Dapr sidecar {SidecarId}", sidecarId);
         }
     }
 
     /// <inheritdoc />
     public async Task<bool> WaitForHealthyAsync(string sidecarId, TimeSpan timeout, CancellationToken ct = default)
     {
+        // Caller-provided timeout wins over the configured default so call
+        // sites that already pass a context-aware deadline (lifecycle
+        // manager's DefaultHealthTimeout) keep their existing behavior.
+        var effectiveTimeout = timeout > TimeSpan.Zero ? timeout : _options.HealthTimeout;
+        var pollInterval = _options.HealthPollInterval;
+
         _logger.LogInformation(
             EventIds.SidecarHealthCheck,
             "Waiting for Dapr sidecar {SidecarId} to become healthy (timeout: {Timeout})",
-            sidecarId, timeout);
+            sidecarId, effectiveTimeout);
+
+        // Loopback URL: we run the probe inside the sidecar container's own
+        // network namespace (the dispatcher's exec routes it there), so
+        // localhost resolves to daprd's bound interface regardless of which
+        // network the sidecar is attached to in the worker / app graph.
+        var healthUrl = $"http://localhost:{DaprHealthHttpPort}/v1.0/healthz";
 
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeoutCts.CancelAfter(timeout);
-
-        // Poll the container's health by inspecting its running state.
-        // In a network-attached container scenario, we check if the container is still running
-        // and use docker/podman exec to hit the health endpoint.
-        var pollInterval = TimeSpan.FromMilliseconds(500);
+        timeoutCts.CancelAfter(effectiveTimeout);
 
         while (!timeoutCts.Token.IsCancellationRequested)
         {
             try
             {
-                var (exitCode, _, _) = await RunProcessAsync(
-                    _options.RuntimeType,
-                    $"exec {sidecarId} wget -q --spider http://localhost:3500/v1.0/healthz",
-                    timeoutCts.Token);
-
-                if (exitCode == 0)
+                var healthy = await runtime.ProbeContainerHttpAsync(sidecarId, healthUrl, timeoutCts.Token);
+                if (healthy)
                 {
                     _logger.LogInformation(
                         EventIds.SidecarHealthy,
@@ -118,80 +149,72 @@ public class DaprSidecarManager(
             }
             catch (OperationCanceledException) when (timeoutCts.Token.IsCancellationRequested && !ct.IsCancellationRequested)
             {
+                // Local timeout — fall through to the warning below.
                 break;
             }
 
-            await Task.Delay(pollInterval, timeoutCts.Token);
+            try
+            {
+                await Task.Delay(pollInterval, timeoutCts.Token);
+            }
+            catch (OperationCanceledException) when (timeoutCts.Token.IsCancellationRequested && !ct.IsCancellationRequested)
+            {
+                break;
+            }
         }
 
         _logger.LogWarning(
             EventIds.SidecarUnhealthy,
-            "Dapr sidecar {SidecarId} did not become healthy within {Timeout}", sidecarId, timeout);
+            "Dapr sidecar {SidecarId} did not become healthy within {Timeout}", sidecarId, effectiveTimeout);
         return false;
     }
 
     /// <summary>
-    /// Builds the argument string for launching a Dapr sidecar container.
+    /// Translates a <see cref="DaprSidecarConfig"/> + container name into
+    /// the runtime-level <see cref="ContainerConfig"/> the dispatcher
+    /// expects. Public for tests; the previous string-arg builder
+    /// (<c>BuildSidecarRunArguments</c>) was test-only too.
     /// </summary>
-    internal static string BuildSidecarRunArguments(DaprSidecarConfig config, string sidecarName)
+    internal ContainerConfig BuildSidecarContainerConfig(DaprSidecarConfig config, string sidecarName)
     {
-        var args = new StringBuilder();
-        args.Append($"run -d --name {sidecarName}");
-
-        if (config.NetworkName is not null)
+        var labels = new Dictionary<string, string>
         {
-            args.Append($" --network {config.NetworkName}");
-        }
-
-        args.Append($" --label spring.managed=true");
-        args.Append($" --label spring.role=dapr-sidecar");
-        args.Append($" --label spring.app-id={config.AppId}");
-
-        if (config.ComponentsPath is not null)
-        {
-            args.Append($" -v {config.ComponentsPath}:/components");
-        }
-
-        args.Append($" {DaprImage}");
-        args.Append($" ./daprd");
-        args.Append($" --app-id {config.AppId}");
-        args.Append($" --app-port {config.AppPort}");
-        args.Append($" --dapr-http-port {config.DaprHttpPort}");
-        args.Append($" --dapr-grpc-port {config.DaprGrpcPort}");
-
-        if (config.ComponentsPath is not null)
-        {
-            args.Append($" --resources-path /components");
-        }
-
-        return args.ToString();
-    }
-
-    private static async Task<(int ExitCode, string Stdout, string Stderr)> RunProcessAsync(
-        string fileName, string arguments, CancellationToken ct)
-    {
-        using var process = new Process();
-        process.StartInfo = new ProcessStartInfo
-        {
-            FileName = fileName,
-            Arguments = arguments,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
+            ["spring.managed"] = "true",
+            ["spring.role"] = "dapr-sidecar",
+            ["spring.app-id"] = config.AppId,
         };
 
-        process.Start();
+        var mounts = new List<string>();
+        if (config.ComponentsPath is not null)
+        {
+            mounts.Add($"{config.ComponentsPath}:/components");
+        }
 
-        var stdoutTask = process.StandardOutput.ReadToEndAsync(ct);
-        var stderrTask = process.StandardError.ReadToEndAsync(ct);
+        // Build the daprd command line. Mirrors the original
+        // BuildSidecarRunArguments verbatim except we now pass it as the
+        // container's command argument rather than splicing it into a
+        // long `podman run` string. The dispatcher's runtime appends it
+        // after the image, matching the previous behavior.
+        var commandParts = new List<string>
+        {
+            "./daprd",
+            $"--app-id {config.AppId}",
+            $"--app-port {config.AppPort}",
+            $"--dapr-http-port {config.DaprHttpPort}",
+            $"--dapr-grpc-port {config.DaprGrpcPort}",
+        };
 
-        await process.WaitForExitAsync(ct);
+        if (config.ComponentsPath is not null)
+        {
+            commandParts.Add("--resources-path /components");
+        }
 
-        var stdout = await stdoutTask;
-        var stderr = await stderrTask;
-
-        return (process.ExitCode, stdout, stderr);
+        return new ContainerConfig(
+            Image: _options.Image,
+            Command: string.Join(' ', commandParts),
+            VolumeMounts: mounts.Count > 0 ? mounts : null,
+            NetworkName: config.NetworkName,
+            Labels: labels);
     }
 
     /// <summary>

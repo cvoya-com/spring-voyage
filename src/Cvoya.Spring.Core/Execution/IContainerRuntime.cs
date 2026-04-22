@@ -65,6 +65,61 @@ public interface IContainerRuntime
     /// container id is unknown so the caller can surface a 404.
     /// </returns>
     Task<string> GetLogsAsync(string containerId, int tail = 200, CancellationToken ct = default);
+
+    /// <summary>
+    /// Creates a container network with the given name. Idempotent: a network
+    /// that already exists is treated as success so callers do not have to
+    /// pre-check existence (the lifecycle manager re-uses a stable network
+    /// name across restarts).
+    /// </summary>
+    /// <param name="name">The network name. Must be a non-empty, runtime-valid identifier.</param>
+    /// <param name="ct">A token to cancel the operation.</param>
+    /// <exception cref="InvalidOperationException">Thrown when the runtime reports a non-zero exit that is not the "already exists" sentinel.</exception>
+    Task CreateNetworkAsync(string name, CancellationToken ct = default);
+
+    /// <summary>
+    /// Removes a container network by name. Idempotent: a network that does
+    /// not exist is treated as success so the lifecycle manager's teardown
+    /// path is safe to call after a partial-failure boot.
+    /// </summary>
+    /// <param name="name">The network name.</param>
+    /// <param name="ct">A token to cancel the operation.</param>
+    Task RemoveNetworkAsync(string name, CancellationToken ct = default);
+
+    /// <summary>
+    /// Probes an HTTP endpoint reachable from inside the named container by
+    /// running a one-shot <c>wget --spider</c> in the container's network
+    /// namespace. Returns <c>true</c> when the endpoint answers 2xx within
+    /// the runtime's per-call timeout (the implementation is short-bounded;
+    /// callers that want to wait for slow boots should poll).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the dispatcher-routed replacement for the worker's old
+    /// <c>podman exec &lt;id&gt; wget -q --spider &lt;url&gt;</c> sidecar-health
+    /// pattern (Stage 2 of #522 / #1063). The probe runs inside the
+    /// container so it works for sidecars on a private per-app network the
+    /// worker does not share. The container image must carry <c>wget</c> on
+    /// its PATH — the <c>daprio/daprd</c> image does.
+    /// </para>
+    /// <para>
+    /// The contract is deliberately narrower than a generic <c>exec</c>: a
+    /// URL string and a boolean answer, no shell expansion, no stdout
+    /// capture. That keeps the dispatcher's surface area and security
+    /// posture (RCE) bounded while solving the only worker-side use case
+    /// that needed exec — sidecar health polling.
+    /// </para>
+    /// </remarks>
+    /// <param name="containerId">Identifier of the container to probe inside.</param>
+    /// <param name="url">URL to probe; typically a loopback URL such as <c>http://localhost:3500/v1.0/healthz</c>.</param>
+    /// <param name="ct">A token to cancel the operation.</param>
+    /// <returns>
+    /// <c>true</c> when the endpoint answered 2xx; <c>false</c> on any
+    /// non-2xx, network error, missing <c>wget</c>, or unknown container.
+    /// Callers that need to distinguish those cases should fall back to
+    /// inspect / logs.
+    /// </returns>
+    Task<bool> ProbeContainerHttpAsync(string containerId, string url, CancellationToken ct = default);
 }
 
 /// <summary>

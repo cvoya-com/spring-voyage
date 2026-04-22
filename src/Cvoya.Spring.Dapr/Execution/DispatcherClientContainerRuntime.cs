@@ -71,15 +71,30 @@ public class DispatcherClientContainerRuntime(
             using var response = await httpClient.PostAsJsonAsync(
                 "v1/images/pull", request, JsonOptions, timeoutCts.Token);
 
-            if (!response.IsSuccessStatusCode)
+            if (response.IsSuccessStatusCode)
             {
-                var body = await SafeReadBodyAsync(response, timeoutCts.Token);
-                throw new InvalidOperationException(
-                    $"Dispatcher returned {(int)response.StatusCode} pulling image {image}: {body}");
+                return;
             }
+
+            var body = await SafeReadBodyAsync(response, timeoutCts.Token);
+
+            // Round-trip the dispatcher's classification so PullImageActivity
+            // can keep its existing exception-shape switch:
+            //   504  → server-side timeout exceeded → TimeoutException
+            //   any other non-2xx → registry/runtime refused → InvalidOperationException
+            if (response.StatusCode == System.Net.HttpStatusCode.GatewayTimeout)
+            {
+                throw new TimeoutException(
+                    $"Dispatcher reported pull timeout for image {image}: {body}");
+            }
+
+            throw new InvalidOperationException(
+                $"Dispatcher returned {(int)response.StatusCode} pulling image {image}: {body}");
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
+            // Local timeoutCts fired before the dispatcher answered. Caller's
+            // ct is intact, so this is "we waited the full deadline locally".
             throw new TimeoutException($"Pull of image {image} exceeded timeout of {timeout}.");
         }
     }
@@ -127,6 +142,86 @@ public class DispatcherClientContainerRuntime(
         }
 
         return await response.Content.ReadAsStringAsync(ct);
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> ProbeContainerHttpAsync(string containerId, string url, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(containerId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(url);
+
+        var httpClient = CreateClient();
+        var uri = $"v1/containers/{Uri.EscapeDataString(containerId)}/probe";
+        var request = new DispatcherProbeRequest { Url = url };
+
+        using var response = await httpClient.PostAsJsonAsync(uri, request, JsonOptions, ct);
+
+        // 404 (container unknown) collapses to "not healthy" so the polling
+        // loop in DaprSidecarManager treats a vanished container as a probe
+        // failure rather than a hard exception. The dispatcher itself never
+        // 404s on probe today (it routes to ProcessContainerRuntime which
+        // handles missing containers internally), but we accept it for
+        // forward compatibility with future runtimes that surface it.
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return false;
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await SafeReadBodyAsync(response, ct);
+            throw new InvalidOperationException(
+                $"Dispatcher returned {(int)response.StatusCode} probing {containerId} at {url}: {body}");
+        }
+
+        var parsed = await response.Content.ReadFromJsonAsync<DispatcherProbeResponse>(JsonOptions, ct);
+        return parsed?.Healthy ?? false;
+    }
+
+    /// <inheritdoc />
+    public async Task CreateNetworkAsync(string name, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        var httpClient = CreateClient();
+        var request = new DispatcherCreateNetworkRequest { Name = name };
+
+        _logger.LogInformation(
+            "Requesting dispatcher to create network {NetworkName}", name);
+
+        using var response = await httpClient.PostAsJsonAsync(
+            "v1/networks", request, JsonOptions, ct);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await SafeReadBodyAsync(response, ct);
+            throw new InvalidOperationException(
+                $"Dispatcher returned {(int)response.StatusCode} creating network {name}: {body}");
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task RemoveNetworkAsync(string name, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        var httpClient = CreateClient();
+        var uri = $"v1/networks/{Uri.EscapeDataString(name)}";
+
+        _logger.LogInformation(
+            "Requesting dispatcher to remove network {NetworkName}", name);
+
+        using var response = await httpClient.DeleteAsync(uri, ct);
+        // The dispatcher already treats "missing on remove" as success (204);
+        // we only treat anything else non-2xx as a failure here. NotFound is
+        // accepted defensively in case a future dispatcher version surfaces
+        // it instead — the contract is "remove is idempotent".
+        if (!response.IsSuccessStatusCode && response.StatusCode != System.Net.HttpStatusCode.NotFound)
+        {
+            var body = await SafeReadBodyAsync(response, ct);
+            throw new InvalidOperationException(
+                $"Dispatcher returned {(int)response.StatusCode} removing network {name}: {body}");
+        }
     }
 
     /// <inheritdoc />
@@ -297,6 +392,32 @@ public class DispatcherClientContainerRuntime(
     {
         public required string Image { get; init; }
         public int? TimeoutSeconds { get; init; }
+    }
+
+    /// <summary>
+    /// Wire shape sent to <c>POST /v1/networks</c>. Mirrors
+    /// <c>CreateNetworkRequest</c> on the dispatcher side; duplicated here
+    /// rather than shared so client and server can be deployed independently.
+    /// </summary>
+    internal record DispatcherCreateNetworkRequest
+    {
+        public required string Name { get; init; }
+    }
+
+    /// <summary>
+    /// Wire shape sent to <c>POST /v1/containers/{id}/probe</c>.
+    /// </summary>
+    internal record DispatcherProbeRequest
+    {
+        public required string Url { get; init; }
+    }
+
+    /// <summary>
+    /// Wire shape returned by <c>POST /v1/containers/{id}/probe</c>.
+    /// </summary>
+    internal record DispatcherProbeResponse
+    {
+        public required bool Healthy { get; init; }
     }
 
     /// <summary>

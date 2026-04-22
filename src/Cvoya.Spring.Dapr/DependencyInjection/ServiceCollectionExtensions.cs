@@ -180,8 +180,12 @@ public static class ServiceCollectionExtensions
                 ServiceDescriptor.Singleton<IConfigurationRequirement, SecretsConfigurationRequirement>());
             services.TryAddEnumerable(
                 ServiceDescriptor.Singleton<IConfigurationRequirement, DispatcherConfigurationRequirement>());
-            services.TryAddEnumerable(
-                ServiceDescriptor.Singleton<IConfigurationRequirement, ContainerRuntimeConfigurationRequirement>());
+            // Stage 2 of #522 / #1063: ContainerRuntimeConfigurationRequirement
+            // (and the underlying ContainerRuntimeOptions binding) is now
+            // dispatcher-only — the worker no longer holds a container CLI
+            // binding so validating the worker's `ContainerRuntime:RuntimeType`
+            // would fail closed on a setting the worker doesn't use.
+            // The dispatcher registers it itself in Cvoya.Spring.Dispatcher/Program.cs.
         }
 
         // Database options. Always bound — both API and Worker hosts (and
@@ -304,7 +308,13 @@ public static class ServiceCollectionExtensions
 
         // Options
         services.AddOptions<AiProviderOptions>().BindConfiguration(AiProviderOptions.SectionName);
-        services.AddOptions<ContainerRuntimeOptions>().BindConfiguration("ContainerRuntime");
+        // ContainerRuntimeOptions used to be bound here too. Stage 2 of #522
+        // moved it to the dispatcher exclusively — the worker does not call
+        // a container CLI any more (DaprSidecarManager and
+        // ContainerLifecycleManager now route through IContainerRuntime).
+        // The Dapr sidecar image / health knobs that used to share that
+        // section moved to DaprSidecarOptions ("Dapr:Sidecar").
+        services.AddOptions<DaprSidecarOptions>().BindConfiguration(DaprSidecarOptions.SectionName);
         services.AddOptions<DispatcherClientOptions>().BindConfiguration(DispatcherClientOptions.SectionName);
         services.AddOptions<UnitRuntimeOptions>().BindConfiguration(UnitRuntimeOptions.SectionName);
         services.AddOptions<WorkflowOrchestrationOptions>().BindConfiguration("WorkflowOrchestration");

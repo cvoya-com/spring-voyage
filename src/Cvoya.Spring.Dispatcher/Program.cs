@@ -60,6 +60,12 @@ builder.Services.TryAddSingleton<IWorkspaceRootProbe, WorkspaceRootProbe>();
 builder.Services.AddCvoyaSpringConfigurationValidator();
 builder.Services.TryAddEnumerable(
     ServiceDescriptor.Singleton<IConfigurationRequirement, ContainerRuntimeBinaryConfigurationRequirement>());
+// Stage 2 of #522 / #1063: ContainerRuntimeConfigurationRequirement now lives
+// here too. The worker dropped its registration when its container CLI
+// binding moved through the dispatcher; the dispatcher is the only host that
+// reads ContainerRuntime:RuntimeType, so it owns validating it.
+builder.Services.TryAddEnumerable(
+    ServiceDescriptor.Singleton<IConfigurationRequirement, ContainerRuntimeConfigurationRequirement>());
 builder.Services.TryAddEnumerable(
     ServiceDescriptor.Singleton<IConfigurationRequirement, WorkspaceRootConfigurationRequirement>());
 
@@ -85,6 +91,8 @@ app.MapGet("/health", () => Results.Ok(new { Status = "Healthy" }))
     .WithName("Health");
 
 app.MapContainerEndpoints();
+app.MapNetworkEndpoints();
+app.MapImageEndpoints();
 
 await app.RunAsync();
 
