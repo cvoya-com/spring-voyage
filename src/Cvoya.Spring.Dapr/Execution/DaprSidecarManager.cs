@@ -190,28 +190,27 @@ public class DaprSidecarManager(
             mounts.Add($"{config.ComponentsPath}:/components");
         }
 
-        // Build the daprd command line. Mirrors the original
-        // BuildSidecarRunArguments verbatim except we now pass it as the
-        // container's command argument rather than splicing it into a
-        // long `podman run` string. The dispatcher's runtime appends it
-        // after the image, matching the previous behavior.
+        // Build the daprd argv. Each token is one argv entry — the dispatcher
+        // forwards it through ProcessStartInfo.ArgumentList, no shell splitting
+        // and no whitespace fragility (cf. the bug fixed in #1063 / #1093).
         var commandParts = new List<string>
         {
             "./daprd",
-            $"--app-id {config.AppId}",
-            $"--app-port {config.AppPort}",
-            $"--dapr-http-port {config.DaprHttpPort}",
-            $"--dapr-grpc-port {config.DaprGrpcPort}",
+            "--app-id", config.AppId,
+            "--app-port", config.AppPort.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "--dapr-http-port", config.DaprHttpPort.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "--dapr-grpc-port", config.DaprGrpcPort.ToString(System.Globalization.CultureInfo.InvariantCulture),
         };
 
         if (config.ComponentsPath is not null)
         {
-            commandParts.Add("--resources-path /components");
+            commandParts.Add("--resources-path");
+            commandParts.Add("/components");
         }
 
         return new ContainerConfig(
             Image: _options.Image,
-            Command: string.Join(' ', commandParts),
+            Command: commandParts,
             VolumeMounts: mounts.Count > 0 ? mounts : null,
             NetworkName: config.NetworkName,
             Labels: labels);

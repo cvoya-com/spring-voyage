@@ -55,11 +55,14 @@ public class DaprSidecarManagerTests
 
         containerConfig.Image.ShouldBe("daprio/daprd:latest");
         containerConfig.Command.ShouldNotBeNull();
-        containerConfig.Command!.ShouldStartWith("./daprd");
-        containerConfig.Command.ShouldContain("--app-id my-app");
-        containerConfig.Command.ShouldContain("--app-port 8080");
-        containerConfig.Command.ShouldContain("--dapr-http-port 3500");
-        containerConfig.Command.ShouldContain("--dapr-grpc-port 50001");
+        containerConfig.Command![0].ShouldBe("./daprd");
+        containerConfig.Command.ShouldBe([
+            "./daprd",
+            "--app-id", "my-app",
+            "--app-port", "8080",
+            "--dapr-http-port", "3500",
+            "--dapr-grpc-port", "50001",
+        ]);
         containerConfig.Command.ShouldNotContain("--resources-path");
         containerConfig.NetworkName.ShouldBeNull();
         containerConfig.VolumeMounts.ShouldBeNull();
@@ -101,7 +104,13 @@ public class DaprSidecarManagerTests
         containerConfig.VolumeMounts.ShouldNotBeNull();
         containerConfig.VolumeMounts!.ShouldContain("/home/user/dapr/components:/components");
         containerConfig.Command.ShouldNotBeNull();
-        containerConfig.Command!.ShouldContain("--resources-path /components");
+        containerConfig.Command!.ShouldContain("--resources-path");
+        containerConfig.Command!.ShouldContain("/components");
+        // Tokens must be adjacent — "--resources-path" must immediately
+        // precede "/components" so the dispatcher forwards them as a
+        // single flag/value pair.
+        var flagIdx = containerConfig.Command.ToList().IndexOf("--resources-path");
+        containerConfig.Command[flagIdx + 1].ShouldBe("/components");
     }
 
     [Fact]

@@ -167,15 +167,13 @@ public class ProcessContainerRuntimeTests
     [Fact]
     public void BuildRunArguments_WithCommand_AppendsCommandTokensAfterImage()
     {
-        // Command is split on whitespace because existing producers
-        // (DaprSidecarManager, RunContainerProbeActivity) compose the
-        // command as a single string with single-space token separators.
-        // Each individual token is still one argv entry — the tokens
-        // themselves are assumed not to contain spaces, mirroring the
-        // existing contract.
+        // Command is now a list — each entry becomes one argv token verbatim,
+        // no whitespace splitting. Producers that previously joined tokens
+        // with single spaces (DaprSidecarManager, RunContainerProbeActivity)
+        // were updated in #1093 to pass the list directly.
         var config = new ContainerConfig(
             Image: "agent:v1",
-            Command: "./daprd --app-id myapp --app-port 8080");
+            Command: ["./daprd", "--app-id", "myapp", "--app-port", "8080"]);
 
         var args = ProcessContainerRuntime.BuildRunArguments(config, "spring-exec-cmd");
 
@@ -187,11 +185,27 @@ public class ProcessContainerRuntimeTests
     }
 
     [Fact]
+    public void BuildRunArguments_CommandTokenWithSpaces_IsForwardedAsSingleArgvEntry()
+    {
+        // Regression for #1063 / #1093: a single argv token that contains a
+        // space must reach podman as one argument, not split on whitespace.
+        var config = new ContainerConfig(
+            Image: "agent:v1",
+            Command: ["sh", "-c", "echo hello world"]);
+
+        var args = ProcessContainerRuntime.BuildRunArguments(config, "spring-exec-spaces");
+
+        var imageIndex = IndexOf(args, "agent:v1");
+        var commandTokens = args.Skip(imageIndex + 1).ToArray();
+        commandTokens.ShouldBe(["sh", "-c", "echo hello world"]);
+    }
+
+    [Fact]
     public void BuildRunArguments_FullConfig_HasCorrectFlagOrdering()
     {
         var config = new ContainerConfig(
             Image: "agent:v1",
-            Command: "run-agent",
+            Command: ["run-agent"],
             EnvironmentVariables: new Dictionary<string, string> { ["KEY"] = "val" },
             VolumeMounts: ["/src:/app"],
             NetworkName: "my-net",

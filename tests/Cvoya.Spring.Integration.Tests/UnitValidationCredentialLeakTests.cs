@@ -253,7 +253,12 @@ public sealed class UnitValidationCredentialLeakTests : IDisposable
 
         public Task<ContainerResult> RunAsync(ContainerConfig config, CancellationToken ct = default)
         {
-            LastCommand = config.Command ?? string.Empty;
+            // Command is now a list (#1093); join for diagnostic display only.
+            // We never assert on the joined form for credential redaction —
+            // the canary lives in stderr — so the lossy join here is fine.
+            LastCommand = config.Command is null
+                ? string.Empty
+                : string.Join(' ', config.Command);
             LastEnv = config.EnvironmentVariables;
 
             // The OpenAI ValidatingCredential probe is

@@ -44,7 +44,7 @@ public class PersistentDispatchIntegrationTests
         _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
         _launcher.Tool.Returns("claude-code");
         _launcher.PrepareAsync(Arg.Any<AgentLaunchContext>(), Arg.Any<CancellationToken>())
-            .Returns(new AgentLaunchPrep(
+            .Returns(new AgentLaunchSpec(
                 WorkspaceFiles: new Dictionary<string, string>(),
                 EnvironmentVariables: new Dictionary<string, string>(),
                 WorkspaceMountPath: "/workspace"));

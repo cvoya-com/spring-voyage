@@ -49,7 +49,7 @@ public class A2AExecutionDispatcherTests
         _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
         _launcher.Tool.Returns("claude-code");
         _launcher.PrepareAsync(Arg.Any<AgentLaunchContext>(), Arg.Any<CancellationToken>())
-            .Returns(new AgentLaunchPrep(
+            .Returns(new AgentLaunchSpec(
                 WorkspaceFiles: new Dictionary<string, string> { ["CLAUDE.md"] = "prepared" },
                 EnvironmentVariables: new Dictionary<string, string> { ["SPRING_SYSTEM_PROMPT"] = "prepared" },
                 WorkspaceMountPath: "/workspace"));
@@ -348,6 +348,25 @@ public class A2AExecutionDispatcherTests
     }
 
     [Fact]
+    public async Task DispatchAsync_PooledHosting_ThrowsNotSupported()
+    {
+        // PR 1 of #1087: Pooled is reserved on the enum for #362 but not
+        // implemented yet. The dispatcher must reject the value explicitly
+        // so it can't silently fall through to the ephemeral path.
+        var message = CreateMessage();
+        _agentProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
+            .Returns(new AgentDefinition(
+                AgentId, "My Agent", "instructions",
+                new AgentExecutionConfig("claude-code", Image, Hosting: AgentHostingMode.Pooled)));
+        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns("prompt");
+
+        var act = () => _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
+        var ex = await Should.ThrowAsync<NotSupportedException>(act);
+        ex.Message.ShouldContain("#362");
+    }
+
+    [Fact]
     public async Task DispatchAsync_PassesPromptAsEnvironmentVariable()
     {
         var message = CreateMessage();
@@ -359,7 +378,7 @@ public class A2AExecutionDispatcherTests
             .Returns(new ContainerResult("spring-exec-env", 0, "output", ""));
 
         _launcher.PrepareAsync(Arg.Any<AgentLaunchContext>(), Arg.Any<CancellationToken>())
-            .Returns(ci => new AgentLaunchPrep(
+            .Returns(ci => new AgentLaunchSpec(
                 WorkspaceFiles: new Dictionary<string, string>(),
                 EnvironmentVariables: new Dictionary<string, string>
                 {

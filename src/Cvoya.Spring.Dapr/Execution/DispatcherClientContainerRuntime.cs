@@ -313,7 +313,11 @@ public class DispatcherClientContainerRuntime(
         return new DispatcherRunRequest
         {
             Image = config.Image,
-            Command = config.Command,
+            // Send argv as a list (CommandArgs). The legacy single-string
+            // `Command` field is kept on the wire for older dispatchers but
+            // is no longer populated by this client — the server prefers
+            // CommandArgs when present. See #1093.
+            CommandArgs = config.Command,
             Env = config.EnvironmentVariables is null
                 ? null
                 : new Dictionary<string, string>(config.EnvironmentVariables),
@@ -347,7 +351,27 @@ public class DispatcherClientContainerRuntime(
     internal record DispatcherRunRequest
     {
         public required string Image { get; init; }
+
+        /// <summary>
+        /// Legacy single-string command field. Retained on the wire so a
+        /// new client can still talk to an old dispatcher that does not
+        /// know <see cref="CommandArgs"/>. The current client never
+        /// populates this — it sends argv via <see cref="CommandArgs"/>
+        /// and leaves this null.
+        /// </summary>
+        [JsonPropertyName("command")]
         public string? Command { get; init; }
+
+        /// <summary>
+        /// argv-style command vector. Each entry becomes one argv token
+        /// inside the container — no shell splitting on either side. The
+        /// dispatcher prefers this over <see cref="Command"/> when both
+        /// are sent. Introduced in #1093 to replace the whitespace-split
+        /// fragility of <c>ProcessContainerRuntime</c> (cf. #1063).
+        /// </summary>
+        [JsonPropertyName("commandArgs")]
+        public IReadOnlyList<string>? CommandArgs { get; init; }
+
         public IDictionary<string, string>? Env { get; init; }
         public IReadOnlyList<string>? Mounts { get; init; }
 

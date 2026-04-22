@@ -126,7 +126,16 @@ public interface IContainerRuntime
 /// Configuration for launching a container.
 /// </summary>
 /// <param name="Image">The container image to run.</param>
-/// <param name="Command">An optional command to execute inside the container.</param>
+/// <param name="Command">
+/// Optional argv vector to set as the container's command. Each element
+/// becomes one argv entry — the runtime does not shell-split or otherwise
+/// re-parse the strings, so producers must split on whitespace themselves
+/// (e.g. <c>["./daprd", "--app-id", "my-app"]</c>, never
+/// <c>["./daprd --app-id my-app"]</c>). <c>null</c> or an empty list means
+/// "use the image's default ENTRYPOINT/CMD". The list-typed shape replaces
+/// the legacy <c>string?</c> field; see issue #1093 for the migration that
+/// removed the dispatcher's whitespace-split fragility (cf. #1063).
+/// </param>
 /// <param name="EnvironmentVariables">Optional environment variables to set in the container.</param>
 /// <param name="VolumeMounts">Optional volume mount specifications.</param>
 /// <param name="Timeout">Optional timeout after which the container should be stopped.</param>
@@ -151,7 +160,7 @@ public interface IContainerRuntime
 /// </param>
 public record ContainerConfig(
     string Image,
-    string? Command = null,
+    IReadOnlyList<string>? Command = null,
     IReadOnlyDictionary<string, string>? EnvironmentVariables = null,
     IReadOnlyList<string>? VolumeMounts = null,
     TimeSpan? Timeout = null,

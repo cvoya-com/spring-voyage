@@ -48,7 +48,18 @@ public enum AgentHostingMode
     /// A long-lived service receives messages over its lifetime. The platform
     /// starts it on first dispatch and keeps it running.
     /// </summary>
-    Persistent
+    Persistent,
+
+    /// <summary>
+    /// Reserved for the warm-pool dispatch model in #362. Containers are
+    /// pre-started up to a low-water mark and pulled from the pool per
+    /// dispatch instead of being created on demand. <b>Not implemented in
+    /// this release</b> — the dispatcher rejects this value with
+    /// <see cref="NotSupportedException"/>. Reserved on the enum now so
+    /// agent YAML written against #362 doesn't break the agent provider's
+    /// parser before the implementation lands.
+    /// </summary>
+    Pooled
 }
 
 /// <summary>

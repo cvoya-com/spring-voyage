@@ -37,7 +37,7 @@ public class DaprAgentLauncher(
     public string Tool => "dapr-agent";
 
     /// <inheritdoc />
-    public Task<AgentLaunchPrep> PrepareAsync(
+    public Task<AgentLaunchSpec> PrepareAsync(
         AgentLaunchContext context,
         CancellationToken cancellationToken = default)
     {
@@ -78,7 +78,7 @@ public class DaprAgentLauncher(
             envVars["OLLAMA_ENDPOINT"] = opts.BaseUrl;
         }
 
-        return Task.FromResult(new AgentLaunchPrep(
+        return Task.FromResult(new AgentLaunchSpec(
             WorkspaceFiles: new Dictionary<string, string>(),
             EnvironmentVariables: envVars,
             WorkspaceMountPath: WorkspaceMountPath));
