@@ -77,6 +77,14 @@ public class MessageRouter(
     /// <summary>
     /// Resolves an address to its actor ID and the scheme used for actor type lookup.
     /// Direct addresses (path starts with '@') skip directory lookup.
+    /// <para>
+    /// <c>human://</c> addresses also skip the directory: humans are 1:1 with their
+    /// address (the path IS the human identifier), so there is no routing
+    /// indirection that a directory lookup could add. The platform has no
+    /// general flow that registers humans in the directory, and forcing one
+    /// would just trade a real bug (#1037) for a registration bookkeeping
+    /// problem.
+    /// </para>
     /// </summary>
     private async Task<Result<(string ActorId, string Scheme), RoutingError>> ResolveActorIdAsync(
         Address address, CancellationToken cancellationToken)
@@ -88,6 +96,24 @@ public class MessageRouter(
             _logger.LogDebug("Resolved direct address {Scheme}://{Path} to actor ID {ActorId}",
                 address.Scheme, address.Path, actorId);
             return Result<(string, string), RoutingError>.Success((actorId, address.Scheme));
+        }
+
+        // Human address: the path IS the actor id — no directory indirection.
+        // See #1037: in LocalDev mode the worker tried to route an agent's
+        // response back to human://local-dev-user and failed because no
+        // directory entry exists. Short-circuiting here generalises the fix
+        // beyond local-dev to every human:// caller.
+        if (string.Equals(address.Scheme, "human", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrEmpty(address.Path))
+            {
+                _logger.LogWarning("Human address has empty path: {Scheme}://", address.Scheme);
+                return Result<(string, string), RoutingError>.Failure(RoutingError.AddressNotFound(address));
+            }
+
+            _logger.LogDebug("Resolved human address {Scheme}://{Path} to actor ID {ActorId}",
+                address.Scheme, address.Path, address.Path);
+            return Result<(string, string), RoutingError>.Success((address.Path, "human"));
         }
 
         // Path address: look up in directory service.

@@ -265,6 +265,57 @@ public class MessageRouterTests
         result.Error!.Code.ShouldBe("PERMISSION_DENIED");
     }
 
+    // #1037: human:// addresses must resolve directly to their actor id
+    // without a directory lookup. The platform has no general flow that
+    // registers humans in the directory; insisting on a directory hit broke
+    // the LocalDev scenario where the worker tried to route an agent's
+    // response back to human://local-dev-user. Humans are 1:1 with their
+    // address so the directory adds no routing value here.
+
+    [Fact]
+    public async Task RouteAsync_HumanDestination_BypassesDirectoryAndDelivers()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var destination = new Address("human", "local-dev-user");
+        var message = CreateMessage(destination);
+        var expectedResponse = CreateResponse(message);
+
+        // Explicitly: no directory entry registered for the human address.
+        _directoryService.ResolveAsync(destination, Arg.Any<CancellationToken>())
+            .Returns((DirectoryEntry?)null);
+
+        var humanProxy = Substitute.For<IAgent>();
+        humanProxy.ReceiveAsync(message, Arg.Any<CancellationToken>())
+            .Returns(expectedResponse);
+
+        _agentProxyResolver.Resolve("human", "local-dev-user").Returns(humanProxy);
+
+        var result = await _router.RouteAsync(message, ct);
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.ShouldBe(expectedResponse);
+
+        // Directory service should NOT have been consulted for human addresses.
+        await _directoryService.DidNotReceive().ResolveAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RouteAsync_HumanDestinationEmptyPath_FailsWithAddressNotFound()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var destination = new Address("human", string.Empty);
+        var message = CreateMessage(destination);
+
+        var result = await _router.RouteAsync(message, ct);
+
+        result.IsSuccess.ShouldBeFalse();
+        result.Error!.Code.ShouldBe("ADDRESS_NOT_FOUND");
+
+        // Directory service should not have been called either — the empty
+        // path is rejected before any lookup.
+        await _directoryService.DidNotReceive().ResolveAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>());
+    }
+
     [Fact]
     public async Task RouteAsync_AgentToUnit_SkipsPermissionCheck()
     {
