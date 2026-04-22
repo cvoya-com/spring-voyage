@@ -31,6 +31,15 @@ dapr/secrets.json
 ## Deployment env file (not committed; keep spring.env.example only)
 deployment/spring.env
 
+## Repo-local dispatcher publish output. `deployment/spring-voyage-host.sh`
+## publishes the spring-dispatcher binary here on `start`/`build` so that
+## `discover_binary` has a stable, config- and TFM-agnostic path to run from
+## (see PUBLISH_DIR_DEFAULT in the host script). Operators can redirect with
+## SPRING_DISPATCHER_PUBLISH_DIR; in either case the artifact is local to the
+## working tree and must not be committed. Mirrors the operator-facing
+## ~/.spring-voyage/ namespace (state, workspaces).
+.spring-voyage/
+
 ## Generated client code — re-emitted from the committed OpenAPI
 ## contract on every `dotnet build` (CLI Kiota tree) and every
 ## `npm run generate-api` (web TypeScript schema). Source of truth is
