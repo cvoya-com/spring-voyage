@@ -2,20 +2,33 @@
 
 from __future__ import annotations
 
+import inspect
+from typing import Awaitable, Callable
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agent import DaprAgentExecutor, _build_agent
+from agent import DaprAgentExecutor, _build_agent, _build_agent_kwargs
 
 
 class TestDaprAgentExecutor:
+    @staticmethod
+    def _make_factory(
+        agent: MagicMock,
+        runner: MagicMock,
+    ) -> "Callable[[], Awaitable[tuple[MagicMock, MagicMock]]]":
+        async def factory():
+            return agent, runner
+
+        return factory
+
     @pytest.mark.asyncio
     async def test_execute_enqueues_completed_status(self):
         mock_agent = MagicMock()
-        mock_agent.run = AsyncMock(return_value="Hello from agent!")
+        mock_runner = MagicMock()
+        mock_runner.run = AsyncMock(return_value="Hello from agent!")
 
-        executor = DaprAgentExecutor(mock_agent)
+        executor = DaprAgentExecutor(self._make_factory(mock_agent, mock_runner))
 
         context = MagicMock()
         # Provide a truthy current_task so new_task() is not called.
@@ -32,13 +45,20 @@ class TestDaprAgentExecutor:
 
         # Should have enqueued: task, working status, artifact, completed status
         assert event_queue.enqueue_event.call_count == 4
+        # Runner is invoked with the agent + the user text wrapped as a task payload.
+        mock_runner.run.assert_awaited_once()
+        call_args = mock_runner.run.await_args
+        assert call_args.args[0] is mock_agent
+        assert call_args.kwargs["payload"] == {"task": "What is 2+2?"}
+        assert call_args.kwargs["wait"] is True
 
     @pytest.mark.asyncio
     async def test_execute_handles_agent_error(self):
         mock_agent = MagicMock()
-        mock_agent.run = AsyncMock(side_effect=RuntimeError("LLM unreachable"))
+        mock_runner = MagicMock()
+        mock_runner.run = AsyncMock(side_effect=RuntimeError("LLM unreachable"))
 
-        executor = DaprAgentExecutor(mock_agent)
+        executor = DaprAgentExecutor(self._make_factory(mock_agent, mock_runner))
 
         context = MagicMock()
         context.current_task = MagicMock()
@@ -58,7 +78,8 @@ class TestDaprAgentExecutor:
     @pytest.mark.asyncio
     async def test_cancel_enqueues_canceled_status(self):
         mock_agent = MagicMock()
-        executor = DaprAgentExecutor(mock_agent)
+        mock_runner = MagicMock()
+        executor = DaprAgentExecutor(self._make_factory(mock_agent, mock_runner))
 
         context = MagicMock()
         context.task_id = "task-3"
@@ -70,6 +91,35 @@ class TestDaprAgentExecutor:
         await executor.cancel(context, event_queue)
 
         assert event_queue.enqueue_event.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_factory_is_called_once_across_invocations(self):
+        """Lazy build cache: the factory runs at most once per executor."""
+        mock_agent = MagicMock()
+        mock_runner = MagicMock()
+        mock_runner.run = AsyncMock(return_value="ok")
+
+        call_count = {"n": 0}
+
+        async def counting_factory():
+            call_count["n"] += 1
+            return mock_agent, mock_runner
+
+        executor = DaprAgentExecutor(counting_factory)
+
+        for _ in range(3):
+            context = MagicMock()
+            context.current_task = MagicMock()
+            context.task_id = "t"
+            context.context_id = "c"
+            context.message = MagicMock()
+            context.message.parts = []
+            event_queue = MagicMock()
+            event_queue.enqueue_event = AsyncMock()
+            await executor.execute(context, event_queue)
+
+        assert call_count["n"] == 1
+        assert mock_runner.run.await_count == 3
 
 
 class TestBuildAgent:
@@ -104,10 +154,14 @@ class TestBuildAgent:
         assert call_kwargs["instructions"] == ["Be concise."]
 
     @pytest.mark.asyncio
-    async def test_passes_provider_and_model_to_agent(self, monkeypatch):
-        """SPRING_LLM_PROVIDER and SPRING_MODEL must flow into the DurableAgent
-        constructor as `llm` and `model` so the Dapr Conversation component is
-        pinned explicitly — not silently resolved by the SDK default."""
+    async def test_passes_dapr_chat_client_to_agent(self, monkeypatch):
+        """Issue #1110: in dapr-agents 1.x ``DurableAgent.__init__`` no
+        longer accepts a ``model`` kwarg. The model is configured on the
+        Dapr Conversation component (via the deployed conversation-*.yaml
+        metadata, which reads ``SPRING_MODEL``) and the agent receives a
+        ``DaprChatClient`` instance whose ``component_name`` matches the
+        deployed component (``llm-provider`` by default).
+        """
         monkeypatch.delenv("SPRING_MCP_ENDPOINT", raising=False)
         monkeypatch.delenv("SPRING_AGENT_TOKEN", raising=False)
         monkeypatch.setenv("SPRING_LLM_PROVIDER", "openai")
@@ -118,8 +172,24 @@ class TestBuildAgent:
             await _build_agent()
 
         call_kwargs = mock_agent_cls.call_args[1]
-        assert call_kwargs["llm"] == "openai"
-        assert call_kwargs["model"] == "gpt-4o-mini"
+        # The legacy `model` kwarg was removed in dapr-agents 1.0.
+        assert "model" not in call_kwargs
+        # `llm` is now a ChatClientBase instance, not a string identifier.
+        llm = call_kwargs["llm"]
+        assert getattr(llm, "component_name", None) == "llm-provider"
+
+    @pytest.mark.asyncio
+    async def test_respects_llm_component_override(self, monkeypatch):
+        monkeypatch.delenv("SPRING_MCP_ENDPOINT", raising=False)
+        monkeypatch.delenv("SPRING_AGENT_TOKEN", raising=False)
+        monkeypatch.setenv("SPRING_LLM_COMPONENT", "custom-llm")
+
+        with patch("agent.Agent") as mock_agent_cls:
+            mock_agent_cls.return_value = MagicMock()
+            await _build_agent()
+
+        call_kwargs = mock_agent_cls.call_args[1]
+        assert call_kwargs["llm"].component_name == "custom-llm"
 
     @pytest.mark.asyncio
     async def test_builds_agent_with_mcp_tools(self, monkeypatch):
@@ -148,3 +218,27 @@ class TestBuildAgent:
 
         call_kwargs = mock_agent_cls.call_args[1]
         assert len(call_kwargs["tools"]) == 1
+
+
+class TestKwargsCompatibility:
+    """Regression for issue #1110.
+
+    Validates that the kwargs we hand to ``DurableAgent`` are accepted by
+    the real ``DurableAgent.__init__`` signature — catches any future
+    upstream rename / removal at unit-test time instead of at container
+    boot.
+    """
+
+    def test_kwargs_bind_against_real_durable_agent_signature(self):
+        from dapr_agents import DurableAgent
+
+        kwargs = _build_agent_kwargs()
+        sig = inspect.signature(DurableAgent.__init__)
+
+        try:
+            sig.bind_partial(self=None, **kwargs)
+        except TypeError as exc:
+            pytest.fail(
+                f"_build_agent_kwargs() produced kwargs incompatible with "
+                f"DurableAgent.__init__: {exc}"
+            )

@@ -186,19 +186,10 @@ smoke_one "${CLAUDE_IMAGE}" "claude-code" \
 # bridge, no SPRING_AGENT_ARGV — the agent card is built statically and
 # served as soon as uvicorn binds. We tolerate (don't require) MCP env
 # vars; the agent.py drop-in default logs a warning and proceeds with
-# zero tools when SPRING_MCP_ENDPOINT is missing.
-#
-# TODO(#1110): re-enable once `agents/dapr-agent/agent.py` is updated to
-# the dapr-agents 1.x API (`DurableAgent.__init__` no longer accepts a
-# `model` kwarg, so the entrypoint crashes before binding :8999). The
-# image builds cleanly today; only the runtime smoke is gated. Run
-# `SMOKE_DAPR=1 tests/scripts/smoke-agent-images.sh` to opt into the
-# (currently-failing) dapr leg locally for issue-fix work.
-if [[ "${SMOKE_DAPR:-0}" == "1" ]]; then
-    log "smoke 2/2: ${DAPR_IMAGE}"
-    smoke_one "${DAPR_IMAGE}" "dapr"
-else
-    log "smoke 2/2: SKIPPED ${DAPR_IMAGE} (see #1110; SMOKE_DAPR=1 to run)"
-fi
+# zero tools when SPRING_MCP_ENDPOINT is missing. The DurableAgent +
+# AgentRunner are built lazily on the first A2A invocation (issue #1110)
+# so the agent-card endpoint comes up even with no Dapr sidecar.
+log "smoke 2/2: ${DAPR_IMAGE}"
+smoke_one "${DAPR_IMAGE}" "dapr"
 
 log "all agent images passed smoke at tag :${TAG}"
