@@ -87,18 +87,11 @@ public static class UnitExecutionEndpoints
 
     private static async Task<IResult> SetExecutionAsync(
         string id,
-        UnitExecutionResponse? request,
+        UnitExecutionResponse request,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IUnitExecutionStore store,
         CancellationToken cancellationToken)
     {
-        if (request is null)
-        {
-            return Results.Problem(
-                detail: "Request body must contain an execution document.",
-                statusCode: StatusCodes.Status400BadRequest);
-        }
-
         var entry = await directoryService.ResolveAsync(new Address("unit", id), cancellationToken);
         if (entry is null)
         {

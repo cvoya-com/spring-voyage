@@ -1210,6 +1210,75 @@ public class SpringApiClientTests
 
         handler.WasCalled.ShouldBeTrue();
     }
+
+    // #1021 — regression coverage for the Kiota oneOf(null, $ref) request-body
+    // bug. Endpoints declared the request body as `TRequest? request` (nullable
+    // reference type), which OpenAPI 3.1 lowered to oneOf: [null, $ref]. Kiota
+    // generated an IComposedTypeWrapper (FooPutRequestBody) whose Serialize
+    // writes a property with no name, producing `{"": {...}}` on the wire that
+    // Utf8JsonWriter.ValidateEnd refused ("'}' is invalid following a property
+    // name"). Dropping `?` on the endpoint param flattens the OpenAPI to a
+    // plain $ref and Kiota emits the body as a top-level object. Each
+    // endpoint's PUT body must be a plain JSON object whose fields are the
+    // TRequest's properties — not a one-key wrapper.
+    [Fact]
+    public async Task SetUnitBoundaryAsync_SerialisesBodyAsPlainObject()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/units/eng-team/boundary",
+            expectedMethod: HttpMethod.Put,
+            responseBody: """{"opacities":[],"projections":[],"syntheses":[]}""",
+            validateRequestBody: body =>
+            {
+                var json = JsonSerializer.Deserialize<JsonElement>(body);
+                // Plain UnitBoundaryResponse shape — not a composed wrapper with
+                // an empty-string key. If the old Member1 wrapper were still in
+                // place the body would be `{"": {...}}` and this check would
+                // fail on the projections property not existing at the root.
+                json.ValueKind.ShouldBe(JsonValueKind.Object);
+                json.TryGetProperty("", out _).ShouldBeFalse();
+                json.TryGetProperty("projections", out var projections).ShouldBeTrue();
+                projections.ValueKind.ShouldBe(JsonValueKind.Array);
+            });
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var boundary = new Cvoya.Spring.Cli.Generated.Models.UnitBoundaryResponse
+        {
+            Projections = new List<Cvoya.Spring.Cli.Generated.Models.BoundaryProjectionRuleDto>(),
+        };
+        await client.SetUnitBoundaryAsync(
+            "eng-team", boundary, TestContext.Current.CancellationToken);
+
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task SetAgentCloningPolicyAsync_SerialisesBodyAsPlainObject()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/agents/ada/cloning-policy",
+            expectedMethod: HttpMethod.Put,
+            responseBody: """{"enabled":true}""",
+            validateRequestBody: body =>
+            {
+                var json = JsonSerializer.Deserialize<JsonElement>(body);
+                json.ValueKind.ShouldBe(JsonValueKind.Object);
+                // The real field (whatever the server defines) must live at the
+                // root, not under an empty-string discriminator key.
+                json.TryGetProperty("", out _).ShouldBeFalse();
+            });
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var policy = new Cvoya.Spring.Cli.Generated.Models.AgentCloningPolicyResponse();
+        await client.SetAgentCloningPolicyAsync(
+            "ada", policy, TestContext.Current.CancellationToken);
+
+        handler.WasCalled.ShouldBeTrue();
+    }
 }
 
 /// <summary>

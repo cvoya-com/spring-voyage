@@ -74,19 +74,12 @@ public static class BoundaryEndpoints
 
     private static async Task<IResult> SetBoundaryAsync(
         string id,
-        UnitBoundaryResponse? request,
+        UnitBoundaryResponse request,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IUnitBoundaryStore boundaryStore,
         [FromServices] IExpertiseAggregator aggregator,
         CancellationToken cancellationToken)
     {
-        if (request is null)
-        {
-            return Results.Problem(
-                detail: "Request body must contain a UnitBoundary.",
-                statusCode: StatusCodes.Status400BadRequest);
-        }
-
         var address = new Address("unit", id);
         var entry = await directoryService.ResolveAsync(address, cancellationToken);
         if (entry is null)

@@ -163,18 +163,11 @@ public static class AgentEndpoints
 
     private static async Task<IResult> SetAgentExecutionAsync(
         string id,
-        AgentExecutionResponse? request,
+        AgentExecutionResponse request,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IAgentExecutionStore store,
         CancellationToken cancellationToken)
     {
-        if (request is null)
-        {
-            return Results.Problem(
-                detail: "Request body must contain an execution document.",
-                statusCode: StatusCodes.Status400BadRequest);
-        }
-
         var entry = await directoryService.ResolveAsync(new Address("agent", id), cancellationToken);
         if (entry is null)
         {

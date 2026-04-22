@@ -97,18 +97,11 @@ public static class CloningPolicyEndpoints
 
     private static async Task<IResult> SetAgentCloningPolicyAsync(
         string id,
-        AgentCloningPolicyResponse? request,
+        AgentCloningPolicyResponse request,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IAgentCloningPolicyRepository repository,
         CancellationToken cancellationToken)
     {
-        if (request is null)
-        {
-            return Results.Problem(
-                detail: "Request body must contain an AgentCloningPolicy.",
-                statusCode: StatusCodes.Status400BadRequest);
-        }
-
         var entry = await directoryService.ResolveAsync(new Address("agent", id), cancellationToken);
         if (entry is null)
         {
@@ -151,18 +144,11 @@ public static class CloningPolicyEndpoints
     }
 
     private static async Task<IResult> SetTenantCloningPolicyAsync(
-        AgentCloningPolicyResponse? request,
+        AgentCloningPolicyResponse request,
         [FromServices] ITenantContext tenantContext,
         [FromServices] IAgentCloningPolicyRepository repository,
         CancellationToken cancellationToken)
     {
-        if (request is null)
-        {
-            return Results.Problem(
-                detail: "Request body must contain an AgentCloningPolicy.",
-                statusCode: StatusCodes.Status400BadRequest);
-        }
-
         var policy = request.ToCore();
         await repository.SetAsync(
             CloningPolicyScope.Tenant, tenantContext.CurrentTenantId, policy, cancellationToken);

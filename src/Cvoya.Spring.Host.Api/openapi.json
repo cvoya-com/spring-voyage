@@ -751,17 +751,11 @@
           "content": {
             "application/json": {
               "schema": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/AgentExecutionResponse"
-                  }
-                ]
+                "$ref": "#/components/schemas/AgentExecutionResponse"
               }
             }
-          }
+          },
+          "required": true
         },
         "responses": {
           "200": {
@@ -1897,17 +1891,11 @@
           "content": {
             "application/json": {
               "schema": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/UnitPolicyResponse"
-                  }
-                ]
+                "$ref": "#/components/schemas/UnitPolicyResponse"
               }
             }
-          }
+          },
+          "required": true
         },
         "responses": {
           "200": {
@@ -2743,17 +2731,11 @@
           "content": {
             "application/json": {
               "schema": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/UnitBoundaryResponse"
-                  }
-                ]
+                "$ref": "#/components/schemas/UnitBoundaryResponse"
               }
             }
-          }
+          },
+          "required": true
         },
         "responses": {
           "200": {
@@ -2881,17 +2863,11 @@
           "content": {
             "application/json": {
               "schema": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/UnitOrchestrationResponse"
-                  }
-                ]
+                "$ref": "#/components/schemas/UnitOrchestrationResponse"
               }
             }
-          }
+          },
+          "required": true
         },
         "responses": {
           "200": {
@@ -3019,17 +2995,11 @@
           "content": {
             "application/json": {
               "schema": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/UnitExecutionResponse"
-                  }
-                ]
+                "$ref": "#/components/schemas/UnitExecutionResponse"
               }
             }
-          }
+          },
+          "required": true
         },
         "responses": {
           "200": {
@@ -3339,17 +3309,11 @@
           "content": {
             "application/json": {
               "schema": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/AgentCloningPolicyResponse"
-                  }
-                ]
+                "$ref": "#/components/schemas/AgentCloningPolicyResponse"
               }
             }
-          }
+          },
+          "required": true
         },
         "responses": {
           "200": {
@@ -3447,17 +3411,11 @@
           "content": {
             "application/json": {
               "schema": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/AgentCloningPolicyResponse"
-                  }
-                ]
+                "$ref": "#/components/schemas/AgentCloningPolicyResponse"
               }
             }
-          }
+          },
+          "required": true
         },
         "responses": {
           "200": {

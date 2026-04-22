@@ -91,18 +91,11 @@ public static class OrchestrationEndpoints
 
     private static async Task<IResult> SetOrchestrationAsync(
         string id,
-        UnitOrchestrationResponse? request,
+        UnitOrchestrationResponse request,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IUnitOrchestrationStore store,
         CancellationToken cancellationToken)
     {
-        if (request is null)
-        {
-            return Results.Problem(
-                detail: "Request body must contain an orchestration document.",
-                statusCode: StatusCodes.Status400BadRequest);
-        }
-
         // #606: reject an empty / whitespace strategy on PUT so the caller
         // sees a clear 400. Clearing the slot is a separate verb (DELETE)
         // rather than a silent write of an empty key — matches the

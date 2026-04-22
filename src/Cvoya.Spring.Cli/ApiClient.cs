@@ -643,14 +643,7 @@ public class SpringApiClient
         UnitBoundaryResponse boundary,
         CancellationToken ct = default)
     {
-        // Kiota emitted a composed oneOf body here (same shape it does for
-        // /policy). Wrap the typed response into the Member1 discriminator
-        // so the command layer never has to spell it out.
-        var body = new Cvoya.Spring.Cli.Generated.Api.V1.Units.Item.Boundary.BoundaryRequestBuilder.BoundaryPutRequestBody
-        {
-            UnitBoundaryResponse = boundary,
-        };
-        var result = await _client.Api.V1.Units[unitId].Boundary.PutAsync(body, cancellationToken: ct);
+        var result = await _client.Api.V1.Units[unitId].Boundary.PutAsync(boundary, cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
             $"Server returned an empty boundary response for unit '{unitId}'.");
     }
@@ -692,16 +685,9 @@ public class SpringApiClient
         string strategyKey,
         CancellationToken ct = default)
     {
-        // Kiota emitted a composed `oneOf` body here matching the /policy
-        // and /boundary surfaces. Wrap the typed response into the
-        // discriminator the generator produced so command callers never
-        // have to spell it out.
-        var body = new Cvoya.Spring.Cli.Generated.Api.V1.Units.Item.Orchestration.OrchestrationRequestBuilder.OrchestrationPutRequestBody
+        var body = new UnitOrchestrationResponse
         {
-            UnitOrchestrationResponse = new UnitOrchestrationResponse
-            {
-                Strategy = strategyKey,
-            },
+            Strategy = strategyKey,
         };
         var result = await _client.Api.V1.Units[unitId].Orchestration.PutAsync(body, cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
@@ -747,11 +733,7 @@ public class SpringApiClient
         UnitExecutionResponse defaults,
         CancellationToken ct = default)
     {
-        var body = new Cvoya.Spring.Cli.Generated.Api.V1.Units.Item.Execution.ExecutionRequestBuilder.ExecutionPutRequestBody
-        {
-            UnitExecutionResponse = defaults,
-        };
-        var result = await _client.Api.V1.Units[unitId].Execution.PutAsync(body, cancellationToken: ct);
+        var result = await _client.Api.V1.Units[unitId].Execution.PutAsync(defaults, cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
             $"Server returned an empty execution response for unit '{unitId}'.");
     }
@@ -792,11 +774,7 @@ public class SpringApiClient
         AgentExecutionResponse shape,
         CancellationToken ct = default)
     {
-        var body = new Cvoya.Spring.Cli.Generated.Api.V1.Agents.Item.Execution.ExecutionRequestBuilder.ExecutionPutRequestBody
-        {
-            AgentExecutionResponse = shape,
-        };
-        var result = await _client.Api.V1.Agents[agentId].Execution.PutAsync(body, cancellationToken: ct);
+        var result = await _client.Api.V1.Agents[agentId].Execution.PutAsync(shape, cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
             $"Server returned an empty execution response for agent '{agentId}'.");
     }
@@ -1413,11 +1391,7 @@ public class SpringApiClient
         AgentCloningPolicyResponse policy,
         CancellationToken ct = default)
     {
-        var body = new Cvoya.Spring.Cli.Generated.Api.V1.Agents.Item.CloningPolicy.CloningPolicyRequestBuilder.CloningPolicyPutRequestBody
-        {
-            AgentCloningPolicyResponse = policy,
-        };
-        var result = await _client.Api.V1.Agents[agentId].CloningPolicy.PutAsync(body, cancellationToken: ct);
+        var result = await _client.Api.V1.Agents[agentId].CloningPolicy.PutAsync(policy, cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
             $"Server returned an empty cloning-policy response for agent '{agentId}'.");
     }
@@ -1438,11 +1412,7 @@ public class SpringApiClient
         AgentCloningPolicyResponse policy,
         CancellationToken ct = default)
     {
-        var body = new Cvoya.Spring.Cli.Generated.Api.V1.Tenant.CloningPolicy.CloningPolicyRequestBuilder.CloningPolicyPutRequestBody
-        {
-            AgentCloningPolicyResponse = policy,
-        };
-        var result = await _client.Api.V1.Tenant.CloningPolicy.PutAsync(body, cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.CloningPolicy.PutAsync(policy, cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
             "Server returned an empty cloning-policy response for the tenant scope.");
     }

@@ -71,18 +71,11 @@ public static class UnitPolicyEndpoints
 
     private static async Task<IResult> SetPolicyAsync(
         string id,
-        UnitPolicyResponse? request,
+        UnitPolicyResponse request,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IUnitPolicyRepository repository,
         CancellationToken cancellationToken)
     {
-        if (request is null)
-        {
-            return Results.Problem(
-                detail: "Request body must contain a UnitPolicy.",
-                statusCode: StatusCodes.Status400BadRequest);
-        }
-
         var entry = await directoryService.ResolveAsync(new Address("unit", id), cancellationToken);
         if (entry is null)
         {
