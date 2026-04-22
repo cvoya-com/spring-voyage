@@ -118,4 +118,29 @@ public class ActivityEventBusTests
 
         completed.ShouldBeTrue();
     }
+
+    [Fact]
+    public void Publish_NullEvent_ThrowsArgumentNullExceptionAndDoesNotFaultSubscribers()
+    {
+        using var bus = new ActivityEventBus();
+        Exception? observedError = null;
+        using var sub = bus.Events.Subscribe(_ => { }, ex => observedError = ex);
+
+        Should.Throw<ArgumentNullException>(() => bus.Publish(null!));
+
+        observedError.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task PublishAsync_NullEvent_ThrowsArgumentNullExceptionAndDoesNotFaultSubscribers()
+    {
+        using var bus = new ActivityEventBus();
+        Exception? observedError = null;
+        using var sub = bus.Events.Subscribe(_ => { }, ex => observedError = ex);
+
+        await Should.ThrowAsync<ArgumentNullException>(
+            async () => await bus.PublishAsync(null!));
+
+        observedError.ShouldBeNull();
+    }
 }

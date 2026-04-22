@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Host.Api.Tests;
 
 using Cvoya.Spring.Dapr.Data;
+using Cvoya.Spring.Dapr.DependencyInjection;
 
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -39,6 +40,12 @@ public class ServiceRegistrationTests : IDisposable
 
                 builder.ConfigureServices(services =>
                 {
+                    // This test validates endpoint DI resolution only. Keep the
+                    // DaprWorkflowClient registrations but strip the workflow
+                    // worker so factory disposal does not trip the known Dapr
+                    // Workflow shutdown bug tracked in #568.
+                    services.RemoveDaprWorkflowWorker();
+
                     // Replace only the DB with in-memory — keep all other DI registrations intact.
                     // Also strip EF / Npgsql internal-service registrations so the swap does
                     // not trip EF's "multiple providers registered" guard.

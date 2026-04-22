@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.Host.Api.Tests;
 
+using System.Reactive.Linq;
+
 using Cvoya.Spring.Connector.GitHub.Webhooks;
 using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.Capabilities;
@@ -65,9 +67,15 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
     public IAnalyticsQueryService AnalyticsQueryService { get; } = Substitute.For<IAnalyticsQueryService>();
 
     /// <summary>
-    /// Gets the mock <see cref="IActivityEventBus"/> registered in the test DI container.
+    /// Gets the mock <see cref="IActivityEventBus"/> registered in the test
+    /// DI container. The substitute's <see cref="IActivityObservable.ActivityStream"/>
+    /// is pre-configured to <see cref="Observable.Never{T}"/> so hosted Rx
+    /// subscribers (e.g. <c>LabelRoutingRoundtripSubscriber</c>) never observe
+    /// the auto-subbed-observable artefact that would otherwise emit
+    /// <c>OnError</c> during teardown. Tests that exercise the stream override
+    /// the return explicitly.
     /// </summary>
-    public IActivityEventBus ActivityEventBus { get; } = Substitute.For<IActivityEventBus>();
+    public IActivityEventBus ActivityEventBus { get; } = CreateStubActivityEventBus();
 
     /// <summary>
     /// Gets the mock <see cref="IUnitActivityObservable"/> registered in the test DI container.
@@ -160,6 +168,20 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
     /// arrange effective-permission responses on this mock.
     /// </summary>
     public IPermissionService PermissionService { get; } = Substitute.For<IPermissionService>();
+
+    private static IActivityEventBus CreateStubActivityEventBus()
+    {
+        var stub = Substitute.For<IActivityEventBus>();
+        // NSubstitute's auto-substituted IObservable<T> property returns a
+        // substitute that emits OnError on any subscription, which faulted
+        // hosted Rx consumers (LabelRoutingRoundtripSubscriber). Pin the
+        // default to a hot observable that never emits so the subscription
+        // stays live until the test tears the host down. Tests that need
+        // a real stream override this by calling
+        // ActivityStream.Returns(subject) inside the test body.
+        stub.ActivityStream.Returns(Observable.Never<ActivityEvent>());
+        return stub;
+    }
 
     private static IUnitMembershipTenantGuard CreatePermissiveTenantGuard()
     {

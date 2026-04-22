@@ -30,14 +30,18 @@ public sealed class ActivityEventBus : IActivityEventBus, IDisposable
     /// Publishes an activity event to all subscribers.
     /// </summary>
     /// <param name="activityEvent">The event to publish.</param>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="activityEvent"/> is <c>null</c>.</exception>
     public void Publish(ActivityEvent activityEvent)
     {
+        ArgumentNullException.ThrowIfNull(activityEvent);
         _subject.OnNext(activityEvent);
     }
 
     /// <inheritdoc />
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="activityEvent"/> is <c>null</c>.</exception>
     public Task PublishAsync(ActivityEvent activityEvent, CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(activityEvent);
         cancellationToken.ThrowIfCancellationRequested();
         _subject.OnNext(activityEvent);
         return Task.CompletedTask;
