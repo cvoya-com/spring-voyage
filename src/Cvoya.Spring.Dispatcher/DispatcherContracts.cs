@@ -16,9 +16,25 @@ public record RunContainerRequest
     [JsonPropertyName("image")]
     public required string Image { get; init; }
 
-    /// <summary>Optional command to execute inside the container.</summary>
+    /// <summary>
+    /// Legacy single-string command field. Retained for compatibility with
+    /// older worker clients that have not been upgraded to send
+    /// <see cref="CommandArgs"/>. When <see cref="CommandArgs"/> is also
+    /// set the server prefers the list and ignores this string. When only
+    /// this field is set the server splits on whitespace (the same lossy
+    /// behaviour the worker had before #1093).
+    /// </summary>
     [JsonPropertyName("command")]
     public string? Command { get; init; }
+
+    /// <summary>
+    /// argv-style command vector. Each entry becomes one argv token inside
+    /// the container — no shell splitting. Introduced in #1093 to replace
+    /// the whitespace-split fragility on the worker side. Preferred over
+    /// <see cref="Command"/> when both are sent.
+    /// </summary>
+    [JsonPropertyName("commandArgs")]
+    public IReadOnlyList<string>? CommandArgs { get; init; }
 
     /// <summary>Environment variables to set in the container.</summary>
     [JsonPropertyName("env")]

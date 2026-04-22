@@ -37,7 +37,7 @@ public class GeminiLauncher(ILoggerFactory loggerFactory) : IAgentToolLauncher
     public string Tool => "gemini";
 
     /// <inheritdoc />
-    public Task<AgentLaunchPrep> PrepareAsync(
+    public Task<AgentLaunchSpec> PrepareAsync(
         AgentLaunchContext context,
         CancellationToken cancellationToken = default)
     {
@@ -76,7 +76,7 @@ public class GeminiLauncher(ILoggerFactory loggerFactory) : IAgentToolLauncher
             ["SPRING_SYSTEM_PROMPT"] = context.Prompt
         };
 
-        return Task.FromResult(new AgentLaunchPrep(
+        return Task.FromResult(new AgentLaunchSpec(
             WorkspaceFiles: workspaceFiles,
             EnvironmentVariables: envVars,
             WorkspaceMountPath: WorkspaceMountPath));

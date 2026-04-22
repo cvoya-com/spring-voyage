@@ -110,7 +110,7 @@ public class RunContainerProbeActivity(
 
         var containerConfig = new ContainerConfig(
             Image: input.Image,
-            Command: string.Join(' ', step.Args),
+            Command: step.Args,
             EnvironmentVariables: step.Env,
             Timeout: step.Timeout);
 

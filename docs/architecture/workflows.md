@@ -114,7 +114,7 @@ At dispatch time it:
 `IAgentToolLauncher` (`Cvoya.Spring.Core/Execution/IAgentToolLauncher.cs`) is the per-tool extension point. Every launcher exposes:
 
 - A unique `Tool` string that matches `execution.tool` in the agent YAML.
-- `PrepareAsync(AgentLaunchContext, ct)` — returns `AgentLaunchPrep`, a pure data record describing the workspace files (relative path → text content), env vars, the in-container mount path, optional extra mounts, and the working directory inside the container. The launcher does not touch the host filesystem; `spring-dispatcher` materialises and cleans up the workspace on its own host (#1042).
+- `PrepareAsync(AgentLaunchContext, ct)` — returns `AgentLaunchSpec`, a pure data record describing the workspace files (relative path → text content), env vars, the in-container mount path, optional extra mounts, the working directory inside the container, the optional argv vector to set as the container's command, an optional stdin payload to feed the agent process, the A2A port the in-container endpoint listens on, and the response-capture mechanism. The launcher does not touch the host filesystem; `spring-dispatcher` materialises and cleans up the workspace on its own host (#1042). Replaces the legacy `AgentLaunchPrep` record (#1093, part of the #1087 unification).
 
 Launchers are enumerable-registered in `AddCvoyaSpringDapr`; `A2AExecutionDispatcher` indexes them by `Tool` using a case-insensitive dictionary built at construction time.
 
@@ -169,7 +169,7 @@ sequenceDiagram
     MCP-->>Disp: SessionToken
     Disp->>Disp: IPromptAssembler.AssembleAsync(msg, ctx)
     Disp->>Launcher: PrepareAsync(AgentLaunchContext)
-    Launcher-->>Disp: AgentLaunchPrep (files, envVars, mountPath, mounts)
+    Launcher-->>Disp: AgentLaunchSpec (files, envVars, mountPath, mounts, argv, stdin, a2aPort)
     Disp->>Runtime: RunAsync(ContainerConfig with Workspace)
     Runtime->>Runtime: materialise workspace + bind-mount<br/>(spring-dispatcher host)
     Runtime->>Container: start (mount workdir, inject envVars)
@@ -199,7 +199,7 @@ sequenceDiagram
     alt not registered / unhealthy
         Registry-->>Disp: null
         Disp->>Launcher: PrepareAsync(...)
-        Launcher-->>Disp: AgentLaunchPrep
+        Launcher-->>Disp: AgentLaunchSpec
         Disp->>Runtime: StartAsync(ContainerConfig)
         Runtime-->>Disp: containerId
         Disp->>Registry: WaitForA2AReadyAsync(endpoint, timeout)

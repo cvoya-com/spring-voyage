@@ -366,15 +366,12 @@ public class ProcessContainerRuntime(
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <see cref="ContainerConfig.Command"/> is split on whitespace because
-    /// the previous string-based builder appended it verbatim and existing
-    /// callers (most notably <c>DaprSidecarManager</c>) rely on being able
-    /// to express a multi-token command (<c>./daprd --app-id … --app-port …</c>)
-    /// as a single string. The split uses
-    /// <see cref="StringSplitOptions.RemoveEmptyEntries"/> so trailing or
-    /// duplicate spaces don't produce empty argv entries that podman would
-    /// reject. This preserves backwards compatibility while still avoiding
-    /// the env-var / label whitespace breakage.
+    /// <see cref="ContainerConfig.Command"/> is now a list, so each entry
+    /// becomes one argv token verbatim — no whitespace splitting and no
+    /// fragility for tokens that legitimately contain spaces (#1063 / #1093).
+    /// Producers that previously joined tokens with single spaces
+    /// (<c>DaprSidecarManager</c>, <c>RunContainerProbeActivity</c>) have
+    /// been updated to pass the list directly.
     /// </para>
     /// </remarks>
     private static void AppendCommonArguments(List<string> args, ContainerConfig config)
@@ -428,9 +425,9 @@ public class ProcessContainerRuntime(
 
         args.Add(config.Image);
 
-        if (!string.IsNullOrWhiteSpace(config.Command))
+        if (config.Command is { Count: > 0 } command)
         {
-            args.AddRange(config.Command.Split(' ', StringSplitOptions.RemoveEmptyEntries));
+            args.AddRange(command);
         }
     }
 

@@ -83,7 +83,16 @@ public class A2AExecutionDispatcher(
         return definition.Execution.Hosting switch
         {
             AgentHostingMode.Persistent => await DispatchPersistentAsync(message, definition, context, cancellationToken),
-            _ => await DispatchEphemeralAsync(message, definition, context, cancellationToken),
+            AgentHostingMode.Ephemeral => await DispatchEphemeralAsync(message, definition, context, cancellationToken),
+            // Pooled is reserved on the enum (PR 1 of #1087) so agent YAML
+            // written against #362 doesn't break the parser before #362
+            // lands. Reject explicitly here so the value can't silently fall
+            // through to ephemeral dispatch.
+            AgentHostingMode.Pooled => throw new NotSupportedException(
+                $"Pooled agent hosting is reserved for #362 and not yet implemented (agent '{agentId}'). " +
+                "Set execution.hosting to 'ephemeral' or 'persistent'."),
+            _ => throw new NotSupportedException(
+                $"Unknown AgentHostingMode '{definition.Execution.Hosting}' for agent '{agentId}'."),
         };
     }
 
@@ -120,7 +129,7 @@ public class A2AExecutionDispatcher(
             Provider: definition.Execution.Provider,
             Model: definition.Execution.Model);
 
-        var prep = await launcher.PrepareAsync(launchContext, cancellationToken);
+        var spec = await launcher.PrepareAsync(launchContext, cancellationToken);
 
         try
         {
@@ -137,7 +146,7 @@ public class A2AExecutionDispatcher(
                     "or switch the agent to hosting: persistent.");
             }
 
-            var config = BuildContainerConfig(definition.Execution.Image, prep);
+            var config = BuildContainerConfig(definition.Execution.Image, spec);
 
             string? containerName = null;
             await using var cancellationRegistration = cancellationToken.Register(() =>
@@ -168,22 +177,32 @@ public class A2AExecutionDispatcher(
     }
 
     /// <summary>
-    /// Translates a launcher's <see cref="AgentLaunchPrep"/> into a
+    /// Translates a launcher's <see cref="AgentLaunchSpec"/> into a
     /// <see cref="ContainerConfig"/>. The launcher describes the workspace as
     /// pure data; the dispatcher service materialises it on its host
     /// filesystem and synthesises the bind-mount at run time. See issue #1042.
     /// </summary>
-    private static ContainerConfig BuildContainerConfig(string image, AgentLaunchPrep prep)
+    /// <remarks>
+    /// PR 1 of #1087 forwards <see cref="AgentLaunchSpec.Argv"/> to
+    /// <see cref="ContainerConfig.Command"/> only when the launcher set a
+    /// non-empty argv. Today's launchers all return an empty argv, so this
+    /// branch is dormant — the legacy "fall through to the image's
+    /// CMD ['sleep', 'infinity']" behaviour is preserved until PR 4 wires the
+    /// launchers to populate argv. PR 2 collapses this builder into a shared
+    /// <c>ContainerConfigBuilder</c> reused by the persistent path.
+    /// </remarks>
+    private static ContainerConfig BuildContainerConfig(string image, AgentLaunchSpec spec)
     {
         return new ContainerConfig(
             Image: image,
-            EnvironmentVariables: prep.EnvironmentVariables,
-            VolumeMounts: prep.ExtraVolumeMounts,
+            Command: spec.Argv is { Count: > 0 } ? spec.Argv : null,
+            EnvironmentVariables: spec.EnvironmentVariables,
+            VolumeMounts: spec.ExtraVolumeMounts,
             ExtraHosts: ["host.docker.internal:host-gateway"],
-            WorkingDirectory: prep.WorkingDirectory ?? prep.WorkspaceMountPath,
+            WorkingDirectory: spec.WorkingDirectory ?? spec.WorkspaceMountPath,
             Workspace: new ContainerWorkspace(
-                MountPath: prep.WorkspaceMountPath,
-                Files: prep.WorkspaceFiles));
+                MountPath: spec.WorkspaceMountPath,
+                Files: spec.WorkspaceFiles));
     }
 
     private async Task<SvMessage?> DispatchPersistentAsync(
@@ -261,13 +280,13 @@ public class A2AExecutionDispatcher(
             Provider: definition.Execution.Provider,
             Model: definition.Execution.Model);
 
-        var prep = await launcher.PrepareAsync(launchContext, cancellationToken);
+        var spec = await launcher.PrepareAsync(launchContext, cancellationToken);
 
         _logger.LogInformation(
             "Starting persistent agent {AgentId} with image {Image}",
             agentId, definition.Execution.Image);
 
-        var config = BuildContainerConfig(definition.Execution.Image, prep);
+        var config = BuildContainerConfig(definition.Execution.Image, spec);
 
         var containerId = await containerRuntime.StartAsync(config, cancellationToken);
 

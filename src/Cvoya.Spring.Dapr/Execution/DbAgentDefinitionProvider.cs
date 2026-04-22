@@ -206,9 +206,22 @@ public class DbAgentDefinitionProvider(
             return AgentHostingMode.Ephemeral;
         }
 
-        return value.Equals("persistent", StringComparison.OrdinalIgnoreCase)
-            ? AgentHostingMode.Persistent
-            : AgentHostingMode.Ephemeral;
+        if (value.Equals("persistent", StringComparison.OrdinalIgnoreCase))
+        {
+            return AgentHostingMode.Persistent;
+        }
+
+        // "pooled" is reserved on the enum (PR 1 of #1087) for #362's
+        // warm-pool dispatch model. Accept it on the parser side so YAML
+        // written against #362 round-trips through the provider; the
+        // dispatcher rejects it at dispatch time with NotSupportedException
+        // until #362 lands.
+        if (value.Equals("pooled", StringComparison.OrdinalIgnoreCase))
+        {
+            return AgentHostingMode.Pooled;
+        }
+
+        return AgentHostingMode.Ephemeral;
     }
 
     private static string? GetStringOrNull(JsonElement obj, string name)

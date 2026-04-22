@@ -146,6 +146,30 @@ public class DbAgentDefinitionProviderTests
     }
 
     [Fact]
+    public void Project_HostingPooled_ParsesEnumValueButDispatcherWillRejectAtRuntime()
+    {
+        // PR 1 of #1087 reserves Pooled on the enum so YAML written against
+        // #362 round-trips through the projection. The dispatcher rejects
+        // it at dispatch time with NotSupportedException — see
+        // A2AExecutionDispatcherTests.DispatchAsync_PooledHosting_ThrowsNotSupported.
+        var entity = new AgentDefinitionEntity
+        {
+            Id = Guid.NewGuid(),
+            AgentId = "ada",
+            Name = "Ada",
+            Definition = JsonSerializer.SerializeToElement(new
+            {
+                execution = new { tool = "claude-code", image = "spring-agent:latest", hosting = "pooled" }
+            })
+        };
+
+        var def = DbAgentDefinitionProvider.Project(entity);
+
+        def.Execution.ShouldNotBeNull();
+        def.Execution!.Hosting.ShouldBe(AgentHostingMode.Pooled);
+    }
+
+    [Fact]
     public void Project_ExtractsProviderAndModel_ForDaprConversationAgents()
     {
         // #480 step 5: switching the Dapr-Conversation-backed runtime's provider

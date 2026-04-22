@@ -107,7 +107,15 @@ public static class ContainersEndpoints
 
         var config = new ContainerConfig(
             Image: request.Image,
-            Command: request.Command,
+            // Prefer the new list-typed CommandArgs. Fall back to splitting
+            // the legacy string field on whitespace for older clients —
+            // this is intentionally lossy but matches the behaviour the
+            // worker had before #1093 so the wire stays back-compat.
+            Command: request.CommandArgs is { Count: > 0 } argv
+                ? argv
+                : (string.IsNullOrWhiteSpace(request.Command)
+                    ? null
+                    : request.Command.Split(' ', StringSplitOptions.RemoveEmptyEntries)),
             EnvironmentVariables: request.Env is null
                 ? null
                 : new Dictionary<string, string>(request.Env),

@@ -28,7 +28,7 @@ public class ClaudeCodeLauncher(ILoggerFactory loggerFactory) : IAgentToolLaunch
     public string Tool => "claude-code";
 
     /// <inheritdoc />
-    public Task<AgentLaunchPrep> PrepareAsync(
+    public Task<AgentLaunchSpec> PrepareAsync(
         AgentLaunchContext context,
         CancellationToken cancellationToken = default)
     {
@@ -67,7 +67,7 @@ public class ClaudeCodeLauncher(ILoggerFactory loggerFactory) : IAgentToolLaunch
             ["SPRING_SYSTEM_PROMPT"] = context.Prompt
         };
 
-        return Task.FromResult(new AgentLaunchPrep(
+        return Task.FromResult(new AgentLaunchSpec(
             WorkspaceFiles: workspaceFiles,
             EnvironmentVariables: envVars,
             WorkspaceMountPath: WorkspaceMountPath));
