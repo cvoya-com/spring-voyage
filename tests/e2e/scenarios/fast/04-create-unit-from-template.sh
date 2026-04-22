@@ -58,10 +58,10 @@ response="$(e2e::cli --output json unit members list "${template_unit}")"
 code="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "0" "${code}" "unit members list succeeds for template-created unit"
-e2e::expect_contains "\"agentAddress\": \"tech-lead\"" "${body}" "members list includes tech-lead"
-e2e::expect_contains "\"agentAddress\": \"backend-engineer\"" "${body}" "members list includes backend-engineer"
-e2e::expect_contains "\"agentAddress\": \"qa-engineer\"" "${body}" "members list includes qa-engineer"
-cli_count="$(printf '%s' "${body}" | grep -c '"agentAddress"' || true)"
+e2e::expect_contains "\"member\": \"tech-lead\"" "${body}" "members list includes tech-lead"
+e2e::expect_contains "\"member\": \"backend-engineer\"" "${body}" "members list includes backend-engineer"
+e2e::expect_contains "\"member\": \"qa-engineer\"" "${body}" "members list includes qa-engineer"
+cli_count="$(printf '%s' "${body}" | grep -o '"member"' | wc -l | tr -d '[:space:]')"
 if [[ "${cli_count}" == "3" ]]; then
     e2e::ok "members list returns exactly 3 members (got ${cli_count})"
 else
@@ -79,7 +79,7 @@ e2e::expect_status "200" "${status}" "/memberships returns 200 for template unit
 e2e::expect_contains "tech-lead" "${mships_body}" "/memberships includes tech-lead"
 e2e::expect_contains "backend-engineer" "${mships_body}" "/memberships includes backend-engineer"
 e2e::expect_contains "qa-engineer" "${mships_body}" "/memberships includes qa-engineer"
-mships_count="$(printf '%s' "${mships_body}" | grep -c '"agentAddress"' || true)"
+mships_count="$(printf '%s' "${mships_body}" | grep -o '"agentAddress"' | wc -l | tr -d '[:space:]')"
 if [[ "${mships_count}" == "3" ]]; then
     e2e::ok "/memberships returns exactly 3 rows (got ${mships_count})"
 else
@@ -123,7 +123,7 @@ e2e::expect_status "0" "${code}" "agent list succeeds after template creation"
 e2e::expect_contains "tech-lead" "${body}" "agent list includes tech-lead (#374)"
 e2e::expect_contains "backend-engineer" "${body}" "agent list includes backend-engineer (#374)"
 e2e::expect_contains "qa-engineer" "${body}" "agent list includes qa-engineer (#374)"
-agent_count="$(printf '%s' "${body}" | grep -c '"name"' || true)"
+agent_count="$(printf '%s' "${body}" | grep -o '"name"' | wc -l | tr -d '[:space:]')"
 if [[ "${agent_count}" -ge "3" ]]; then
     e2e::ok "agent list returns at least 3 agents (got ${agent_count})"
 else
