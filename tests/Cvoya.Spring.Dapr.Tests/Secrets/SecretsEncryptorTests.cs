@@ -25,6 +25,7 @@ using Xunit;
 /// binding, legacy fallback, key-source precedence, and the weak-key
 /// self-check at startup.
 /// </summary>
+[Collection(SecretsEnvironmentVariableCollection.Name)]
 public class SecretsEncryptorTests : IDisposable
 {
     private const string EnvVar = SecretsEncryptor.KeyEnvironmentVariable;

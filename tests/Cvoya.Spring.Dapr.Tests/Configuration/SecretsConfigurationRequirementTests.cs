@@ -11,6 +11,7 @@ using Cvoya.Spring.Core.Configuration;
 using Cvoya.Spring.Dapr.Configuration;
 using Cvoya.Spring.Dapr.Secrets;
 using Cvoya.Spring.Dapr.Tenancy;
+using Cvoya.Spring.Dapr.Tests.Secrets;
 
 using Microsoft.Extensions.Options;
 
@@ -23,6 +24,7 @@ using Xunit;
 /// Saves and restores <c>SPRING_SECRETS_AES_KEY</c> around every test to
 /// isolate process-environment state from the test runner's default.
 /// </summary>
+[Collection(SecretsEnvironmentVariableCollection.Name)]
 public class SecretsConfigurationRequirementTests : IDisposable
 {
     private const string EnvVar = SecretsKeyClassifier.KeyEnvironmentVariable;
