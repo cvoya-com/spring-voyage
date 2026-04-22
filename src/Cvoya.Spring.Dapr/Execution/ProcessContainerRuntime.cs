@@ -4,7 +4,6 @@
 namespace Cvoya.Spring.Dapr.Execution;
 
 using System.Diagnostics;
-using System.Text;
 
 using Cvoya.Spring.Core.Execution;
 
@@ -41,7 +40,7 @@ public class ProcessContainerRuntime(
         try
         {
             var (exitCode, _, stderr) = await RunProcessAsync(
-                binaryName, $"pull {image}", timeoutCts.Token);
+                binaryName, ["pull", image], timeoutCts.Token);
 
             if (exitCode != 0)
             {
@@ -77,9 +76,6 @@ public class ProcessContainerRuntime(
 
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeoutCts.CancelAfter(timeout);
-
-        var stdoutBuilder = new StringBuilder();
-        var stderrBuilder = new StringBuilder();
 
         try
         {
@@ -146,7 +142,7 @@ public class ProcessContainerRuntime(
 
         try
         {
-            await RunProcessAsync(binaryName, $"stop {containerId}", ct);
+            await RunProcessAsync(binaryName, ["stop", containerId], ct);
         }
         catch (Exception ex)
         {
@@ -155,7 +151,7 @@ public class ProcessContainerRuntime(
 
         try
         {
-            await RunProcessAsync(binaryName, $"rm -f {containerId}", ct);
+            await RunProcessAsync(binaryName, ["rm", "-f", containerId], ct);
         }
         catch (Exception ex)
         {
@@ -185,7 +181,13 @@ public class ProcessContainerRuntime(
         // directly and we want the contract stable.
         var effectiveTail = tail <= 0 ? 200 : tail;
 
-        var arguments = $"logs --tail {effectiveTail} {containerId}";
+        string[] arguments =
+        [
+            "logs",
+            "--tail",
+            effectiveTail.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            containerId,
+        ];
 
         _logger.LogDebug(
             "Reading last {Tail} log lines from container {ContainerId} using {Binary}",
@@ -227,7 +229,7 @@ public class ProcessContainerRuntime(
             "Creating container network {NetworkName} using {Binary}", name, binaryName);
 
         var (exitCode, _, stderr) = await RunProcessAsync(
-            binaryName, $"network create {name}", ct);
+            binaryName, ["network", "create", name], ct);
 
         if (exitCode == 0)
         {
@@ -267,7 +269,7 @@ public class ProcessContainerRuntime(
         // intentionally small: no flags beyond -q --spider so we don't
         // accidentally widen the attack surface beyond what the original
         // worker-side `podman exec ... wget` did.
-        var args = $"exec {containerId} wget -q --spider {url}";
+        string[] args = ["exec", containerId, "wget", "-q", "--spider", url];
 
         try
         {
@@ -302,7 +304,7 @@ public class ProcessContainerRuntime(
             "Removing container network {NetworkName} using {Binary}", name, binaryName);
 
         var (exitCode, _, stderr) = await RunProcessAsync(
-            binaryName, $"network rm {name}", ct);
+            binaryName, ["network", "rm", name], ct);
 
         if (exitCode == 0)
         {
@@ -325,86 +327,70 @@ public class ProcessContainerRuntime(
     }
 
     /// <summary>
-    /// Builds the argument string for the container run command.
+    /// Builds the argv vector for the container run command.
     /// </summary>
+    /// <remarks>
+    /// Returns one argv entry per token (no shell-style escaping needed) so
+    /// <see cref="ProcessStartInfo.ArgumentList"/> can pass each value
+    /// verbatim to the container CLI. Concatenating with spaces and using
+    /// <see cref="ProcessStartInfo.Arguments"/> would split values on
+    /// whitespace and break any env-var, label, or volume-mount value that
+    /// contains a space (the assembled system prompt for a delegated agent
+    /// is the most common offender — see the bug log alongside this fix).
+    /// </remarks>
     /// <param name="config">The container configuration.</param>
     /// <param name="containerName">The unique container name.</param>
-    /// <returns>The arguments string for the run command.</returns>
-    internal static string BuildRunArguments(ContainerConfig config, string containerName)
+    /// <returns>The argv list for the run command.</returns>
+    internal static IReadOnlyList<string> BuildRunArguments(ContainerConfig config, string containerName)
     {
-        var args = new StringBuilder();
-        args.Append($"run --rm --name {containerName}");
-
-        if (config.NetworkName is not null)
-        {
-            args.Append($" --network {config.NetworkName}");
-        }
-
-        if (config.Labels is not null)
-        {
-            foreach (var (key, value) in config.Labels)
-            {
-                args.Append($" --label {key}={value}");
-            }
-        }
-
-        if (config.EnvironmentVariables is not null)
-        {
-            foreach (var (key, value) in config.EnvironmentVariables)
-            {
-                args.Append($" -e {key}={value}");
-            }
-        }
-
-        if (config.VolumeMounts is not null)
-        {
-            foreach (var mount in config.VolumeMounts)
-            {
-                args.Append($" -v {mount}");
-            }
-        }
-
-        if (config.ExtraHosts is not null)
-        {
-            foreach (var host in config.ExtraHosts)
-            {
-                args.Append($" --add-host={host}");
-            }
-        }
-
-        if (!string.IsNullOrEmpty(config.WorkingDirectory))
-        {
-            args.Append($" -w {config.WorkingDirectory}");
-        }
-
-        args.Append($" {config.Image}");
-
-        if (config.Command is not null)
-        {
-            args.Append($" {config.Command}");
-        }
-
-        return args.ToString();
+        var args = new List<string> { "run", "--rm", "--name", containerName };
+        AppendCommonArguments(args, config);
+        return args;
     }
 
     /// <summary>
-    /// Builds the argument string for a detached container start command.
+    /// Builds the argv vector for a detached container start command. Same
+    /// quoting-safety story as <see cref="BuildRunArguments"/>.
     /// </summary>
-    internal static string BuildStartArguments(ContainerConfig config, string containerName)
+    internal static IReadOnlyList<string> BuildStartArguments(ContainerConfig config, string containerName)
     {
-        var args = new StringBuilder();
-        args.Append($"run -d --name {containerName}");
+        var args = new List<string> { "run", "-d", "--name", containerName };
+        AppendCommonArguments(args, config);
+        return args;
+    }
 
+    /// <summary>
+    /// Appends the option / image / command portion shared by run and
+    /// detached-start invocations to <paramref name="args"/>. Each value
+    /// is added as a single argv entry — never split, never re-parsed.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <see cref="ContainerConfig.Command"/> is split on whitespace because
+    /// the previous string-based builder appended it verbatim and existing
+    /// callers (most notably <c>DaprSidecarManager</c>) rely on being able
+    /// to express a multi-token command (<c>./daprd --app-id … --app-port …</c>)
+    /// as a single string. The split uses
+    /// <see cref="StringSplitOptions.RemoveEmptyEntries"/> so trailing or
+    /// duplicate spaces don't produce empty argv entries that podman would
+    /// reject. This preserves backwards compatibility while still avoiding
+    /// the env-var / label whitespace breakage.
+    /// </para>
+    /// </remarks>
+    private static void AppendCommonArguments(List<string> args, ContainerConfig config)
+    {
         if (config.NetworkName is not null)
         {
-            args.Append($" --network {config.NetworkName}");
+            args.Add("--network");
+            args.Add(config.NetworkName);
         }
 
         if (config.Labels is not null)
         {
             foreach (var (key, value) in config.Labels)
             {
-                args.Append($" --label {key}={value}");
+                args.Add("--label");
+                args.Add($"{key}={value}");
             }
         }
 
@@ -412,7 +398,8 @@ public class ProcessContainerRuntime(
         {
             foreach (var (key, value) in config.EnvironmentVariables)
             {
-                args.Append($" -e {key}={value}");
+                args.Add("-e");
+                args.Add($"{key}={value}");
             }
         }
 
@@ -420,7 +407,8 @@ public class ProcessContainerRuntime(
         {
             foreach (var mount in config.VolumeMounts)
             {
-                args.Append($" -v {mount}");
+                args.Add("-v");
+                args.Add(mount);
             }
         }
 
@@ -428,42 +416,50 @@ public class ProcessContainerRuntime(
         {
             foreach (var host in config.ExtraHosts)
             {
-                args.Append($" --add-host={host}");
+                args.Add($"--add-host={host}");
             }
         }
 
         if (!string.IsNullOrEmpty(config.WorkingDirectory))
         {
-            args.Append($" -w {config.WorkingDirectory}");
+            args.Add("-w");
+            args.Add(config.WorkingDirectory);
         }
 
-        args.Append($" {config.Image}");
+        args.Add(config.Image);
 
-        if (config.Command is not null)
+        if (!string.IsNullOrWhiteSpace(config.Command))
         {
-            args.Append($" {config.Command}");
+            args.AddRange(config.Command.Split(' ', StringSplitOptions.RemoveEmptyEntries));
         }
-
-        return args.ToString();
     }
 
     private static async Task<(int ExitCode, string Stdout, string Stderr)> RunProcessAsync(
-        string fileName, string arguments, CancellationToken ct)
+        string fileName, IEnumerable<string> arguments, CancellationToken ct)
     {
         using var process = new Process();
         process.StartInfo = new ProcessStartInfo
         {
             FileName = fileName,
-            Arguments = arguments,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
             CreateNoWindow = true
         };
 
+        // ArgumentList passes each entry as a separate argv element directly
+        // to posix_spawn / CreateProcess, so values containing whitespace,
+        // '=', quotes, or other shell-meaningful characters travel through
+        // unchanged. The string-based ProcessStartInfo.Arguments path would
+        // re-split on whitespace and break any env-var / label / volume
+        // value containing a space.
+        foreach (var arg in arguments)
+        {
+            process.StartInfo.ArgumentList.Add(arg);
+        }
+
         process.Start();
 
-        // Read stdout and stderr concurrently to avoid deadlocks.
         var stdoutTask = process.StandardOutput.ReadToEndAsync(ct);
         var stderrTask = process.StandardError.ReadToEndAsync(ct);
 

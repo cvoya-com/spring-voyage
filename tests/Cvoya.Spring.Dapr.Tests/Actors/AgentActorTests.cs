@@ -921,4 +921,94 @@ public class AgentActorTests
             Arg.Is<ActivityEvent>(e => e.EventType == ActivityEventType.ConversationClosed),
             Arg.Any<CancellationToken>());
     }
+
+    // --- post-Stage-2 (#1063 / #522) follow-ups: dispatch lifecycle ---
+
+    /// <summary>
+    /// Regression for the OCE branch in <c>RunDispatchAsync</c>: a cancelled
+    /// dispatch (e.g. worker-side HttpClient timeout firing while the
+    /// dispatcher is mid-run) MUST clear the active-conversation slot,
+    /// otherwise every subsequent message in any other conversation gets
+    /// queued as pending forever and the agent looks bricked. Discovered
+    /// when the post-Stage-2 cutover surfaced the dispatcher-client's
+    /// 100 s default timeout — the actor logged "Dispatch cancelled" and
+    /// then refused every follow-up message.
+    /// </summary>
+    [Fact]
+    public async Task RunDispatchAsync_CancelledDispatch_ClearsActiveConversation()
+    {
+        var conversationId = "conv-cancelled";
+        var activeChannel = new ConversationChannel
+        {
+            ConversationId = conversationId,
+            Messages = []
+        };
+        _stateManager.TryGetStateAsync<ConversationChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
+            .Returns(
+                new ConditionalValue<ConversationChannel>(false, default!),
+                new ConditionalValue<ConversationChannel>(true, activeChannel));
+
+        _dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns<Message?>(_ => throw new OperationCanceledException("simulated worker timeout"));
+
+        var inbound = CreateMessage(conversationId: conversationId);
+
+        await _actor.ReceiveAsync(inbound, TestContext.Current.CancellationToken);
+        await _actor.PendingDispatchTask!;
+
+        await _stateManager.Received().TryRemoveStateAsync(
+            StateKeys.ActiveConversation, Arg.Any<CancellationToken>());
+
+        await _activityEventBus.Received().PublishAsync(
+            Arg.Is<ActivityEvent>(e =>
+                e.EventType == ActivityEventType.StateChanged &&
+                e.Summary.Contains("Active") &&
+                e.Summary.Contains("Idle") &&
+                e.Summary.Contains("dispatch cancelled")),
+            Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// Regression for <c>PromoteNextPendingAsync</c>: promoting a
+    /// pending channel to active MUST also schedule a dispatch for the
+    /// queued head message, otherwise the actor sits Active-but-idle
+    /// after a clear/close and the user never gets a response. The
+    /// first-message path in <c>HandleDomainMessageAsync</c> Case 1
+    /// already does this; promotion has to mirror it.
+    /// </summary>
+    [Fact]
+    public async Task CloseConversationAsync_PromotesAndDispatchesQueuedHead()
+    {
+        var queuedHead = CreateMessage(conversationId: "conv-pending");
+        var active = new ConversationChannel { ConversationId = "conv-active", Messages = [] };
+        var pending = new ConversationChannel
+        {
+            ConversationId = "conv-pending",
+            Messages = [queuedHead]
+        };
+
+        _stateManager.TryGetStateAsync<ConversationChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<ConversationChannel>(true, active));
+        _stateManager.TryGetStateAsync<List<ConversationChannel>>(StateKeys.PendingConversations, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<List<ConversationChannel>>(true, [pending]));
+
+        // Dispatcher returns no response — keeps the assertion focused on
+        // the "did we even call DispatchAsync for the head message?"
+        // question without dragging routing/clear-on-failure into scope.
+        _dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns((Message?)null);
+
+        await _actor.CloseConversationAsync("conv-active", "operator request",
+            TestContext.Current.CancellationToken);
+
+        if (_actor.PendingDispatchTask is not null)
+        {
+            await _actor.PendingDispatchTask;
+        }
+
+        await _dispatcher.Received(1).DispatchAsync(
+            Arg.Is<Message>(m => m.Id == queuedHead.Id),
+            Arg.Any<PromptAssemblyContext?>(),
+            Arg.Any<CancellationToken>());
+    }
 }

@@ -957,9 +957,24 @@ public class AgentActor(
         }
         catch (OperationCanceledException)
         {
+            // A cancelled dispatch leaves the active-conversation slot
+            // pointing at a dead turn. Without clearing it, the actor
+            // refuses every subsequent message in any other conversation
+            // (Case 3 in HandleDomainMessageAsync queues them as pending
+            // forever) and the agent looks bricked from the user's
+            // perspective. The non-zero exit and generic-exception
+            // branches below already self-call ClearActiveConversationAsync
+            // for exactly this reason; the cancel branch must too.
+            // Discovered post-Stage-2 cutover (#1063 / #522 follow-up):
+            // a worker-side HttpClient timeout surfaced as
+            // OperationCanceledException, the actor logged it but kept
+            // the conversation marked Active, and every subsequent
+            // user message was queued as pending and never dispatched.
             _logger.LogInformation(
                 "Dispatch cancelled for actor {ActorId} conversation {ConversationId}.",
                 Id.GetId(), message.ConversationId);
+
+            await ClearActiveConversationViaSelfAsync("dispatch cancelled");
         }
         catch (Exception ex)
         {
@@ -1281,6 +1296,45 @@ public class AgentActor(
 
         _logger.LogInformation("Actor {ActorId} promoted conversation {ConversationId} to active",
             Id.GetId(), next.ConversationId);
+
+        // Promotion alone is not enough: the queued head message must be
+        // dispatched, otherwise the actor sits Active-but-idle and the
+        // user never gets a response. The first-message path in
+        // HandleDomainMessageAsync (Case 1) explicitly schedules
+        // RunDispatchAsync after activating; promotion has to do the
+        // same. Discovered post-Stage-2 cutover (#1063 / #522 follow-up):
+        // after a previous turn was cleared, the queued conversation
+        // got "promoted" but never dispatched until the user sent a new
+        // message, and even then it stayed in Case 2 (append) which
+        // also doesn't dispatch.
+        if (next.Messages is { Count: > 0 } messages)
+        {
+            var head = messages[0];
+            try
+            {
+                var effective = await ResolveEffectiveMetadataAsync(head, cancellationToken);
+                if (effective.Enabled == false)
+                {
+                    _logger.LogInformation(
+                        "Actor {ActorId} skipping promoted conversation {ConversationId}: membership Enabled=false.",
+                        Id.GetId(), next.ConversationId);
+                    return;
+                }
+
+                var context = await BuildPromptAssemblyContextAsync(next, effective, cancellationToken);
+                PendingDispatchTask = RunDispatchAsync(head, context, _activeWorkCancellation.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "Actor {ActorId} failed to dispatch promoted conversation {ConversationId}.",
+                    Id.GetId(), next.ConversationId);
+            }
+        }
     }
 
     /// <summary>

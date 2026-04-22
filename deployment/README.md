@@ -218,6 +218,37 @@ set -a; . ~/.spring-voyage/host/dispatcher.env; set +a
 docker compose -f deployment/docker-compose.yml up
 ```
 
+#### Worker → dispatcher transport timeout
+
+The worker binds a single named `HttpClient` for the dispatcher. Its
+`HttpClient.Timeout` defaults to `Timeout.InfiniteTimeSpan` because:
+
+- Synchronous container runs (`POST /v1/containers`) for a real Claude
+  Code or Codex agent turn legitimately take minutes.
+- The dispatcher already enforces the per-run deadline via the
+  `timeoutSeconds` field on the wire (mapped from
+  `ContainerConfig.Timeout`).
+
+A shorter worker-side cap is a footgun: when it fires first, the
+worker drops the connection, the dispatcher sees a client abort, kills
+the container, and the user never receives a response. Stage 2 of
+[#1063](https://github.com/cvoya-com/spring-voyage/issues/1063) /
+[#522](https://github.com/cvoya-com/spring-voyage/issues/522) hit this
+in production once container starts started succeeding — the default
+100 s cap on `HttpClient` was the symptom.
+
+Operators who want a hard ceiling (for example, multi-tenant
+deployments that want a sane upper bound) can set
+`Dispatcher__RequestTimeout` on every worker/API container:
+
+```dotenv
+## Hard cap of 30 minutes — the dispatcher's per-run timeout still
+## takes precedence when it is shorter.
+Dispatcher__RequestTimeout=00:30:00
+```
+
+Leave it unset to use the default `InfiniteTimeSpan`.
+
 #### Self-contained release artifacts
 
 Each `dispatcher-vMAJOR.MINOR.PATCH` tag triggers

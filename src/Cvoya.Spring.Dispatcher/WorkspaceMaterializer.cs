@@ -111,18 +111,36 @@ public sealed class WorkspaceMaterializer(
         var hostDir = Path.Combine(root, subdirName);
         Directory.CreateDirectory(hostDir);
 
+        // World-readable+executable on the directory and world-readable on the
+        // files. The launched container runs as a *different* uid (the agent
+        // user inside the image, typically uid 1000) than the dispatcher
+        // process (the host user, frequently uid 501 on macOS). Without an
+        // explicit chmod the dispatcher's umask wins — and at least one
+        // shipped launcher (`spring-voyage-host.sh`) used to leak `umask 077`,
+        // producing 0700 dirs that the in-container agent could not enter
+        // (`Permission denied` on `ls /workspace`). Even with that launcher
+        // bug fixed, the materializer should not depend on the caller's
+        // umask for correctness — the bind-mounted workspace MUST be
+        // readable to the in-container agent or the entire dispatch is a
+        // silent no-op (the agent process never reads `CLAUDE.md` /
+        // `.mcp.json`). We don't write secrets here; the bearer token is in
+        // the env var stream, not the workspace.
+        ApplyWorldReadable(hostDir);
+
         try
         {
             foreach (var (relativePath, content) in workspace.Files)
             {
                 var safePath = SanitizeRelativePath(relativePath, hostDir);
                 var parent = Path.GetDirectoryName(safePath);
-                if (!string.IsNullOrEmpty(parent))
+                if (!string.IsNullOrEmpty(parent) && parent != hostDir)
                 {
                     Directory.CreateDirectory(parent);
+                    ApplyWorldReadable(parent);
                 }
 
                 await File.WriteAllTextAsync(safePath, content ?? string.Empty, Encoding.UTF8, cancellationToken);
+                ApplyWorldReadableFile(safePath);
             }
         }
         catch
@@ -139,6 +157,42 @@ public sealed class WorkspaceMaterializer(
             hostDir, workspace.MountPath, workspace.Files.Count);
 
         return new MaterializedWorkspace(hostDir, workspace.MountPath, mountSpec);
+    }
+
+    /// <summary>
+    /// Sets a directory's mode to 0755 on Unix-like systems. No-op on Windows
+    /// (where the file ACL model is incompatible and the dispatcher does not
+    /// run on Windows in any deployment we ship).
+    /// </summary>
+    private static void ApplyWorldReadable(string dir)
+    {
+        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS())
+        {
+            return;
+        }
+
+        const UnixFileMode dirMode =
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+            UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
+            UnixFileMode.OtherRead | UnixFileMode.OtherExecute;
+        File.SetUnixFileMode(dir, dirMode);
+    }
+
+    /// <summary>
+    /// Sets a file's mode to 0644 on Unix-like systems. No-op on Windows.
+    /// </summary>
+    private static void ApplyWorldReadableFile(string path)
+    {
+        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS())
+        {
+            return;
+        }
+
+        const UnixFileMode fileMode =
+            UnixFileMode.UserRead | UnixFileMode.UserWrite |
+            UnixFileMode.GroupRead |
+            UnixFileMode.OtherRead;
+        File.SetUnixFileMode(path, fileMode);
     }
 
     /// <inheritdoc />

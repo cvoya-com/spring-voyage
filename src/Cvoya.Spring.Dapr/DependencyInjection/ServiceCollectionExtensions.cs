@@ -413,7 +413,7 @@ public static class ServiceCollectionExtensions
         // ("Dispatcher service") and issue #513. TryAdd so downstream
         // deployments that run the dispatcher in-process (test harnesses,
         // alternative topologies) can pre-register their own IContainerRuntime.
-        services.AddHttpClient(DispatcherClientContainerRuntime.HttpClientName);
+        services.AddDispatcherHttpClient();
         services.TryAddSingleton<IContainerRuntime, DispatcherClientContainerRuntime>();
         services.AddSingleton<IDaprSidecarManager, DaprSidecarManager>();
         services.AddSingleton<ContainerLifecycleManager>();
@@ -856,6 +856,49 @@ public static class ServiceCollectionExtensions
         services.AddHostedService(sp => sp.GetRequiredService<StartupConfigurationValidator>());
 
         return services;
+    }
+
+    /// <summary>
+    /// Registers the named <see cref="HttpClient"/> the worker uses to talk
+    /// to <c>spring-dispatcher</c>, with a transport timeout sourced from
+    /// <see cref="DispatcherClientOptions.RequestTimeout"/> (defaulting to
+    /// <see cref="System.Threading.Timeout.InfiniteTimeSpan"/>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Synchronous container runs on <c>POST /v1/containers</c> can take
+    /// minutes for a Claude Code or Codex agent turn. The dispatcher
+    /// already enforces the per-run deadline via
+    /// <c>ContainerConfig.Timeout</c>, so an additional, shorter
+    /// worker-side cap is a footgun: when the default
+    /// <see cref="HttpClient.Timeout"/> of 100 s fires first the worker
+    /// drops the connection, the dispatcher sees a client abort, kills
+    /// the container, and the user never receives a response. This
+    /// regression bit Stage 2 of #1063 / #522 in production once the
+    /// argv-quoting fix let containers actually start.
+    /// </para>
+    /// <para>
+    /// Operators who want a hard ceiling can still set
+    /// <c>Dispatcher:RequestTimeout</c>; the configured value flows
+    /// through <see cref="DispatcherClientOptions"/> and is applied
+    /// here.
+    /// </para>
+    /// </remarks>
+    /// <param name="services">The service collection to configure.</param>
+    /// <returns>The <see cref="IHttpClientBuilder"/> so callers can layer
+    /// additional handlers (telemetry, retry policies, etc.).</returns>
+    internal static IHttpClientBuilder AddDispatcherHttpClient(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        return services.AddHttpClient(DispatcherClientContainerRuntime.HttpClientName)
+            .ConfigureHttpClient(static (sp, client) =>
+            {
+                var dispatcherOptions = sp
+                    .GetRequiredService<IOptions<DispatcherClientOptions>>().Value;
+                client.Timeout = dispatcherOptions.RequestTimeout
+                    ?? System.Threading.Timeout.InfiniteTimeSpan;
+            });
     }
 
     /// <summary>
