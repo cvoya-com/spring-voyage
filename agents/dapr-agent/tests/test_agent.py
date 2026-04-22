@@ -238,7 +238,4 @@ class TestKwargsCompatibility:
         try:
             sig.bind_partial(self=None, **kwargs)
         except TypeError as exc:
-            pytest.fail(
-                f"_build_agent_kwargs() produced kwargs incompatible with "
-                f"DurableAgent.__init__: {exc}"
-            )
+            pytest.fail(f"_build_agent_kwargs() produced kwargs incompatible with DurableAgent.__init__: {exc}")
