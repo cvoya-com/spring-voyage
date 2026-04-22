@@ -1,0 +1,40 @@
+{
+  "name": "@cvoya/spring-voyage-agent-sidecar",
+  "version": "1.0.0",
+  "description": "A2A 0.3.x bridge sidecar for stdin/stdout-based CLI agents on Spring Voyage. Conformance path 2 of the BYOI contract (#1087).",
+  "license": "BUSL-1.1",
+  "homepage": "https://github.com/cvoya-com/spring-voyage/tree/main/deployment/agent-sidecar",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cvoya-com/spring-voyage.git",
+    "directory": "deployment/agent-sidecar"
+  },
+  "bugs": {
+    "url": "https://github.com/cvoya-com/spring-voyage/issues"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "main": "./dist/index.js",
+  "bin": {
+    "spring-voyage-agent-sidecar": "./dist/cli.js"
+  },
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist coverage",
+    "test": "node --test --import tsx ./test/*.test.ts",
+    "lint": "tsc --noEmit -p tsconfig.json",
+    "start": "node dist/cli.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

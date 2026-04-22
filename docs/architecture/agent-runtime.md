@@ -375,7 +375,56 @@ accepts both the top-level `execution:` block and the legacy
 
 ---
 
-## 7. Adding a new launcher
+## 7. BYOI conformance contract
+
+Operators (OSS and Cloud) frequently want to bring their own agent images — pre-baked with proprietary CLIs, custom system tooling, an internal trust anchor, or a non-Debian distro. The contract between an agent image and `A2AExecutionDispatcher` is small enough to fit on one screen, and there are three conformance paths to satisfy it. ADR `0027-agent-image-conformance-contract.md` (filed in PR 6 of [#1087](https://github.com/cvoya-com/spring-voyage/issues/1087)) is the canonical reference; this section is the operational summary.
+
+### The wire contract
+
+An image conforms when the running container, after launch by the dispatcher, exposes:
+
+- A2A 0.3.x at `http://0.0.0.0:${AGENT_PORT}/` (default `8999`, set by the launcher via `AgentLaunchSpec.A2APort`).
+- An Agent Card at `GET /.well-known/agent.json` whose `protocolVersion` is `"0.3"`.
+- A response header `x-spring-voyage-bridge-version: <semver>` on every response (and the same field on the Agent Card / task payload). The dispatcher logs version skew so operators can correlate odd behaviour with stale sidecars.
+- Implementations of A2A `message/send`, `tasks/cancel`, and `tasks/get`.
+- Honouring the launcher-supplied environment, including any `SPRING_*` keys the launcher stamped into `AgentLaunchSpec.EnvironmentVariables`.
+
+### The three paths
+
+| Path | Recipe                                                                                                                                              | When to pick it                                                                                                |
+| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| 1    | `FROM ghcr.io/cvoya/agent-base:<semver>` and `RUN`-install your CLI tool. ENTRYPOINT is left as-is — the bridge runs on `:8999` automatically.       | Default. Fastest path. Works for anything that can run on Debian 12 + Node 22.                                  |
+| 2    | Pull the bridge into a custom base. Either `npm install -g @cvoya/spring-voyage-agent-sidecar` (Node-bearing image), or copy the static binary from each GitHub Release (`spring-voyage-agent-sidecar-linux-amd64`, `linux-arm64`, `darwin-arm64`) into a Node-less image. Set the binary as the `ENTRYPOINT`. | You need a non-Debian distro, a rootless image with non-default UIDs, or you can't have Node in the runtime layer. |
+| 3    | Implement A2A 0.3.x natively in your image. No bridge involved. The launcher must speak directly to your endpoint.                                  | You already speak A2A natively (e.g., the Python Dapr Agent at `DaprAgentLauncher`).                            |
+
+The Tier B native launcher (`DaprAgentLauncher`) is the canonical example of path 3. The Tier A launchers (`ClaudeCodeLauncher`, `CodexLauncher`, `GeminiLauncher`) all use path 1 by default.
+
+### Versioning commitment
+
+- The bridge npm package and the OCI tag use semver.
+- N-2 backward compatibility on the bridge package — a worker dialing this bridge accepts versions within the last 2 majors.
+- A2A pinned to `0.3.x`. A bump to `0.4.x` or `1.x` is a deliberate breaking change with a deprecation window on the dispatcher side.
+- The bridge source lives in the same repository as the dispatcher, under [`deployment/agent-sidecar/`](../../deployment/agent-sidecar/). Releases are cut on tags shaped `agent-base-vX.Y.Z`.
+
+### Local verification
+
+```bash
+deployment/build-sidecar.sh                          # builds ghcr.io/cvoya/agent-base:dev
+docker run --rm -p 8999:8999 \
+  -e SPRING_AGENT_ARGV='["true"]' \
+  ghcr.io/cvoya/agent-base:dev &
+
+curl -s http://localhost:8999/.well-known/agent.json | jq '.protocolVersion, .version'
+curl -s -X POST http://localhost:8999/ \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","method":"message/send","params":{"message":{"parts":[{"text":"ping"}]}},"id":1}'
+```
+
+The first command should print `"0.3"` and the bridge semver; the second should return a JSON-RPC `result` whose `status.state` is `completed`.
+
+---
+
+## 8. Adding a new launcher
 
 Checklist for a fresh `IAgentToolLauncher`:
 

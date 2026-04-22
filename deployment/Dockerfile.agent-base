@@ -1,0 +1,95 @@
+# syntax=docker/dockerfile:1.7
+#
+# Spring Voyage — agent-base image (#1087, PR 3a — #1095).
+#
+# This is the recommended base image for custom agents (BYOI conformance
+# path 1). It layers the TypeScript A2A bridge sidecar onto the existing
+# `Dockerfile.agent` runtime so an operator can:
+#
+#   FROM ghcr.io/cvoya/agent-base:1.0.0
+#   RUN npm install -g @anthropic-ai/claude-code   # or any other CLI
+#
+# and immediately have a container that the Spring Voyage dispatcher can
+# dial over A2A on :8999. The dispatcher sets SPRING_AGENT_ARGV at launch
+# time (PR 4 of #1087); the bridge spawns whatever it points to and pipes
+# stdin/stdout through.
+#
+# Stage 1 builds the sidecar from source so we don't ship build tools or
+# devDependencies in the runtime layer. Stage 2 starts from the same
+# debian:12-slim base as Dockerfile.agent so existing operators see no
+# behavioural drift on the OS layer.
+
+ARG NODE_VERSION=22
+
+FROM docker.io/library/node:${NODE_VERSION}-bookworm-slim AS sidecar-build
+
+WORKDIR /build
+COPY deployment/agent-sidecar/package.json deployment/agent-sidecar/tsconfig.json ./
+COPY deployment/agent-sidecar/src ./src
+RUN npm install --omit=optional --no-audit --no-fund \
+ && npx tsc -p tsconfig.json \
+ && npm prune --omit=dev
+
+
+FROM docker.io/library/debian:12-slim
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    WORKSPACE=/workspace \
+    AGENT_PORT=8999 \
+    SIDECAR_DIR=/opt/spring-voyage/sidecar
+
+# Identical OS layer to deployment/Dockerfile.agent so this image is a
+# strict superset (same tini, same Node 22, same coreutils). Operators
+# moving from `Dockerfile.agent` to `Dockerfile.agent-base` should see
+# zero behavioural change in the OS layer.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        git \
+        gnupg \
+        jq \
+        openssh-client \
+        python3 \
+        python3-pip \
+        python3-venv \
+        ripgrep \
+        tini \
+        tzdata \
+        unzip \
+ && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+ && apt-get install -y --no-install-recommends nodejs \
+ && apt-get purge -y --auto-remove gnupg \
+ && rm -rf /var/lib/apt/lists/*
+
+# Non-root agent user; matches Dockerfile.agent's UID/GID layout so a
+# bind-mounted workspace from a host that already worked with the
+# previous image continues to work.
+ARG AGENT_UID=1000
+ARG AGENT_GID=1000
+RUN groupadd --gid "${AGENT_GID}" agent \
+ && useradd  --uid "${AGENT_UID}" --gid "${AGENT_GID}" --create-home --shell /bin/bash agent \
+ && mkdir -p "${WORKSPACE}" "${SIDECAR_DIR}" \
+ && chown -R agent:agent "${WORKSPACE}" /home/agent
+
+# Copy the compiled sidecar bundle and its production node_modules.
+# Owned by root, executable by everyone — the sidecar runs as `agent`.
+COPY --from=sidecar-build /build/dist        ${SIDECAR_DIR}/dist
+COPY --from=sidecar-build /build/node_modules ${SIDECAR_DIR}/node_modules
+COPY --from=sidecar-build /build/package.json ${SIDECAR_DIR}/package.json
+
+USER agent
+WORKDIR /workspace
+
+EXPOSE 8999
+
+# tini is PID 1 so signals from the dispatcher (cancel, stop) reach the
+# Node process and the spawned CLI cleanly. The bridge handles SIGTERM
+# itself by closing the HTTP server.
+ENTRYPOINT ["/usr/bin/tini", "--", "node", "/opt/spring-voyage/sidecar/dist/cli.js"]
+
+# No CMD: the bridge's argv vector is set at runtime via SPRING_AGENT_ARGV.
+# Override ENTRYPOINT only if you intentionally bypass the bridge (BYOI
+# path 3 — implement A2A natively in your image).
