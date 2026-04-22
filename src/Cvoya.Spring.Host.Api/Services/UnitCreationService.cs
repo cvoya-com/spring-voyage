@@ -870,6 +870,15 @@ public class UnitCreationService : IUnitCreationService
             // scheduler can read back a consistent view of what to
             // validate against. The manifest path already writes this
             // through PersistUnitExecutionAsync.
+            //
+            // #1065: `Runtime` is the *container runtime* slot
+            // (`docker | podman`) — never the LLM provider. The direct-
+            // create request body carries no `--runtime` field (only
+            // `unit execution set` does), so we leave `Runtime` null
+            // here and let operators set it explicitly. Mirroring
+            // `provider` into `Runtime` mislabels every unit created
+            // with `--provider ollama` as needing the (non-existent)
+            // `ollama` container runtime.
             if (_executionStore is not null &&
                 (!string.IsNullOrWhiteSpace(model)
                     || !string.IsNullOrWhiteSpace(provider)
@@ -881,7 +890,7 @@ public class UnitCreationService : IUnitCreationService
                         name,
                         new UnitExecutionDefaults(
                             Image: null,
-                            Runtime: provider,
+                            Runtime: null,
                             Tool: tool,
                             Provider: provider,
                             Model: model),

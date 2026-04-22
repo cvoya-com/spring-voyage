@@ -641,14 +641,23 @@ public class UnitActor : Actor, IUnitActor
     {
         var modelResult = await StateManager.TryGetStateAsync<string>(StateKeys.UnitModel, ct);
         var colorResult = await StateManager.TryGetStateAsync<string>(StateKeys.UnitColor, ct);
+        var toolResult = await StateManager.TryGetStateAsync<string>(StateKeys.UnitTool, ct);
+        var providerResult = await StateManager.TryGetStateAsync<string>(StateKeys.UnitProvider, ct);
+        var hostingResult = await StateManager.TryGetStateAsync<string>(StateKeys.UnitHosting, ct);
 
         // DisplayName and Description are persisted on the directory entity,
         // not on the actor. See IUnitActor.GetMetadataAsync for the contract.
+        // #1065: Tool / Provider / Hosting are actor-owned. Without these
+        // reads the unit-detail GET returned them as null even when set on
+        // create — see the side-note on #1065.
         return new UnitMetadata(
             DisplayName: null,
             Description: null,
             Model: modelResult.HasValue ? modelResult.Value : null,
-            Color: colorResult.HasValue ? colorResult.Value : null);
+            Color: colorResult.HasValue ? colorResult.Value : null,
+            Tool: toolResult.HasValue ? toolResult.Value : null,
+            Provider: providerResult.HasValue ? providerResult.Value : null,
+            Hosting: hostingResult.HasValue ? hostingResult.Value : null);
     }
 
     /// <inheritdoc />
@@ -669,6 +678,28 @@ public class UnitActor : Actor, IUnitActor
         {
             await StateManager.SetStateAsync(StateKeys.UnitColor, metadata.Color, ct);
             writtenFields.Add(nameof(metadata.Color));
+        }
+
+        // #1065: persist Tool / Provider / Hosting so the unit-detail GET
+        // round-trips them. Pre-fix the actor silently dropped these
+        // fields, surfacing as `tool: null` / `provider: null` on
+        // GET /api/v1/units/{id} despite being set on create.
+        if (metadata.Tool is not null)
+        {
+            await StateManager.SetStateAsync(StateKeys.UnitTool, metadata.Tool, ct);
+            writtenFields.Add(nameof(metadata.Tool));
+        }
+
+        if (metadata.Provider is not null)
+        {
+            await StateManager.SetStateAsync(StateKeys.UnitProvider, metadata.Provider, ct);
+            writtenFields.Add(nameof(metadata.Provider));
+        }
+
+        if (metadata.Hosting is not null)
+        {
+            await StateManager.SetStateAsync(StateKeys.UnitHosting, metadata.Hosting, ct);
+            writtenFields.Add(nameof(metadata.Hosting));
         }
 
         // DisplayName and Description are deliberately not persisted here; the
@@ -713,6 +744,9 @@ public class UnitActor : Actor, IUnitActor
                 directoryFields,
                 model = metadata.Model,
                 color = metadata.Color,
+                tool = metadata.Tool,
+                provider = metadata.Provider,
+                hosting = metadata.Hosting,
                 displayName = metadata.DisplayName,
                 description = metadata.Description
             }));

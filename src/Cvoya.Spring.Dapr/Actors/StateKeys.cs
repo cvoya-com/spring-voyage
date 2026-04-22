@@ -298,4 +298,31 @@ public static class StateKeys
     /// ceiling cannot be relaxed by an agent-scoped override. See #416.
     /// </summary>
     public const string TenantCloningPolicy = "Tenant:CloningPolicy";
+
+    /// <summary>
+    /// State key for the unit's external agent-tool identifier
+    /// (e.g. <c>claude-code</c>, <c>dapr-agent</c>). Surfaced through
+    /// <see cref="Core.Units.UnitMetadata"/> so the unit-detail GET
+    /// returns the value the operator passed at create time. Distinct
+    /// from the unit's <c>execution:</c> block (which the scheduler
+    /// consults) — both are kept in sync by <c>UnitCreationService</c>.
+    /// See #1065.
+    /// </summary>
+    public const string UnitTool = "Unit:Tool";
+
+    /// <summary>
+    /// State key for the unit's LLM provider identifier
+    /// (e.g. <c>ollama</c>, <c>openai</c>). Surfaced through
+    /// <see cref="Core.Units.UnitMetadata"/>. Distinct from the
+    /// container runtime (<c>docker | podman</c>) which lives on the
+    /// unit's <c>execution:</c> block as <c>runtime</c>. See #1065.
+    /// </summary>
+    public const string UnitProvider = "Unit:Provider";
+
+    /// <summary>
+    /// State key for the unit's hosting hint
+    /// (e.g. <c>ephemeral</c>, <c>persistent</c>). Surfaced through
+    /// <see cref="Core.Units.UnitMetadata"/>. See #1065.
+    /// </summary>
+    public const string UnitHosting = "Unit:Hosting";
 }
