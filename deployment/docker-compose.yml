@@ -201,8 +201,13 @@ services:
     # The dispatcher needs a reachable podman socket. On Linux this is the
     # rootless user-socket; on macOS the podman machine forwards the socket
     # to the host. Operators override the mount source as needed.
+    #
+    # `:Z` triggers a per-mount SELinux relabel so the socket is accessible
+    # to the dispatcher on SELinux-enforcing hosts (Fedora CoreOS Podman
+    # machines, RHEL/Fedora). Private-relabel — safe here because the
+    # socket is single-consumer; must NOT be applied to shared volumes.
     volumes:
-      - ${SPRING_DISPATCHER_PODMAN_SOCKET:-/run/podman/podman.sock}:/run/podman/podman.sock
+      - ${SPRING_DISPATCHER_PODMAN_SOCKET:-/run/podman/podman.sock}:/run/podman/podman.sock:Z
     networks: [spring-net]
     build:
       context: ..

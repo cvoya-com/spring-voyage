@@ -271,6 +271,12 @@ start_worker() {
 # SPRING_DISPATCHER_WORKER_TOKEN: opaque bearer token the worker presents
 #   on every request. Generate per deployment; never commit.
 # SPRING_DEFAULT_TENANT_ID: tenant the worker token is scoped to.
+#
+# The socket mount uses `:Z` to trigger a per-mount SELinux relabel so the
+# dispatcher can read/write the socket on SELinux-enforcing hosts (Fedora
+# CoreOS Podman machines, RHEL/Fedora). `:Z` is a private relabel — safe
+# here because the socket is single-consumer, but it must NOT be applied
+# to shared data volumes.
 start_dispatcher() {
     local socket="${SPRING_DISPATCHER_PODMAN_SOCKET:-/run/podman/podman.sock}"
     local token="${SPRING_DISPATCHER_WORKER_TOKEN:-worker-token}"
@@ -279,7 +285,7 @@ start_dispatcher() {
     run_container spring-dispatcher \
         --env-file "${RESOLVED_ENV_FILE}" \
         -e "Dispatcher__Tokens__${token}__TenantId=${tenant}" \
-        -v "${socket}:/run/podman/podman.sock" \
+        -v "${socket}:/run/podman/podman.sock:Z" \
         "${SPRING_DISPATCHER_IMAGE:-localhost/spring-dispatcher:latest}" \
         dotnet /app/Cvoya.Spring.Dispatcher.dll
 }
