@@ -4,8 +4,10 @@ import type { paths } from "./schema";
 import type {
   AgentDetailResponse,
   AgentExecutionResponse,
+  AgentResponse,
   ConversationListFilters,
   ConversationMessageRequest,
+  CreateAgentRequest,
   CreateCloneRequest,
   CreateSecretRequest,
   CreateUnitFromTemplateRequest,
@@ -144,6 +146,19 @@ export const api = {
 
   // Agents
   listAgents: async () => unwrap(await fetchClient.GET("/api/v1/agents")),
+  /**
+   * Create a new agent. Mirrors the CLI's `spring agent create` 1:1 —
+   * the server requires at least one unit assignment (#744) and accepts
+   * an optional `definitionJson` blob carrying the execution config
+   * (tool / runtime / image / model). Surfaced through the portal's
+   * `/agents/create` page and the inline-create dialog reachable from
+   * a unit's Agents tab; both flows funnel through the shared helper
+   * in `@/lib/agents/create-agent`.
+   */
+  createAgent: async (body: CreateAgentRequest): Promise<AgentResponse> =>
+    unwrap(
+      await fetchClient.POST("/api/v1/agents", { body }),
+    ) as AgentResponse,
   // The generated type for GET /api/v1/agents/{id} is AgentDetailResponse;
   // the handler falls back to returning `{ agent, status: null }` when the
   // StatusQuery to the actor fails. Existing call sites expect

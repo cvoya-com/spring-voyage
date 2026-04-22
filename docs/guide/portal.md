@@ -219,11 +219,12 @@ One row per membership ([agents-tab.tsx](../../src/Cvoya.Spring.Web/src/app/unit
 | Action | Portal | CLI |
 |--------|--------|-----|
 | Add agent to unit | **Add agent** button → dialog with agent picker + override fields | `spring unit members add <unit> --agent <agent> [--model …] [--specialty …] [--enabled …] [--execution-mode …]` |
+| Create a brand-new agent and add it | **Add agent** dialog → **+ New agent** sub-mode (id, display name, role) | `spring agent create <id> --name "<display>" --role "<role>" --unit <unit>` |
 | Edit a membership | pencil icon → same dialog pre-filled | `spring unit members config <unit> --agent <agent> [--model …] [--enabled …] …` |
 | Remove a membership | trash icon + confirm | `spring unit members remove <unit> --agent <agent>` |
 | List memberships (with JSON) | (tab body) | `spring unit members list <unit> --output json` |
 
-The membership dialog lets you assign an existing agent (one the server already knows about) — you cannot create a new agent from this tab. To create a brand-new agent, use `spring agent create` (there is no portal page for agent creation today — **CLI/UI parity gap**).
+The membership dialog now supports both flows. Clicking **Add agent** opens the picker (assign an agent that already exists in the directory); inside the dialog the **+ New agent** affordance swaps the picker for a small create-form (`id`, `display name`, `role`) that registers the agent and assigns it to the current unit in one step. For finer control over the agent's `image` / `runtime` / `tool` / `model` defaults, the standalone **`/agents/create`** page mirrors the full `spring agent create` CLI surface — see the [Agent creation](#agent-creation) section below. (Closes the long-standing CLI/UI parity gap [#1040](https://github.com/cvoya-com/spring-voyage/issues/1040).)
 
 ### Sub-units
 
@@ -410,6 +411,34 @@ The detail page ([src/Cvoya.Spring.Web/src/app/connectors/[type]/connector-detai
 The Connector tab on the unit detail page also carries a **Details** deep-link back into `/connectors/{slug}` so navigation is bidirectional.
 
 **CLI equivalent:** `spring connector show --unit <name>` shows the connector + typed config for a single unit binding. `spring connector bindings <slugOrId>` prints the full bound-units list for a given connector type, matching the portal's Bound units section (#520).
+
+## Agent creation (`/agents/create`)
+
+The standalone agent-create page ([src/Cvoya.Spring.Web/src/app/agents/create/page.tsx](../../src/Cvoya.Spring.Web/src/app/agents/create/page.tsx)) mirrors `spring agent create` field-for-field so the portal can drive the full registration flow without dropping to the CLI. It is the canonical surface for creating agents that need bespoke execution overrides; for the lightweight "create-and-add to this unit" path, use the **+ New agent** sub-mode of the unit Agents-tab dialog (see [Agents](#agents)).
+
+| Field | Required | Maps to | CLI flag |
+|-------|----------|---------|----------|
+| Agent id | yes | `name` (URL-safe; `^[a-z0-9-]+$`) | positional `<id>` |
+| Display name | yes | `displayName` | `--name` |
+| Role | no | `role` | `--role` |
+| Execution tool | no (defaulted) | `execution.tool` (defaulted into `definitionJson`) | `--tool` |
+| Container image | no | `execution.image` | `--image` |
+| Container runtime | no | `execution.runtime` (`docker` / `podman`) | `--runtime` |
+| Model | no | `execution.model` (catalog comes from the chosen tool's runtime via `GET /api/v1/agent-runtimes/{id}/models`) | (sourced from `--definition-file` / `--definition` today) |
+| Initial unit assignment | yes (≥1) | `unitIds[]` | `--unit` (repeatable) |
+
+The form posts to `POST /api/v1/agents` (the same endpoint the CLI uses) and on success redirects to the parent unit's **Agents** tab so the new membership is visible immediately. API errors surface inline as a problem-details message and the dialog stays open for the operator to fix the input. (Closes [#1040](https://github.com/cvoya-com/spring-voyage/issues/1040).)
+
+```bash
+# Equivalent CLI invocation:
+spring agent create ada \
+  --name "Ada Lovelace" \
+  --role reviewer \
+  --unit engineering \
+  --image ghcr.io/example/agent:latest \
+  --runtime docker \
+  --tool claude-code
+```
 
 ## Agents lens (`/agents`)
 
