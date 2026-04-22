@@ -18,10 +18,49 @@ using Microsoft.Extensions.Logging;
 /// </list>
 /// The dispatcher materialises this workspace on its own host filesystem and
 /// bind-mounts it at <c>/workspace</c> inside the container — see issue #1042.
+///
+/// PR 4 of the #1087 series wires the launcher to the BYOI conformance
+/// path 1: the spec leaves <see cref="AgentLaunchSpec.Argv"/> empty so the
+/// agent-base image's ENTRYPOINT (the TypeScript A2A bridge) takes over and
+/// re-execs the real CLI from <c>SPRING_AGENT_ARGV</c>. The launcher also
+/// surfaces the assembled prompt as <see cref="AgentLaunchSpec.StdinPayload"/>
+/// so PR 5 can flow it through the bridge to <c>claude</c>'s stdin.
 /// </summary>
 public class ClaudeCodeLauncher(ILoggerFactory loggerFactory) : IAgentToolLauncher
 {
     internal const string WorkspaceMountPath = "/workspace";
+
+    /// <summary>
+    /// Argv vector the A2A bridge (agent-base ENTRYPOINT) spawns inside the
+    /// container on every <c>message/send</c>. Encoded as a JSON array string
+    /// in <c>SPRING_AGENT_ARGV</c> so the bridge can recover the exact
+    /// quoting/whitespace without shell-splitting (see #1063 for why we
+    /// avoid string-split argv).
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item><c>--print</c> drives <c>claude</c> in non-interactive mode so
+    ///   it consumes stdin and writes to stdout instead of opening a TUI.</item>
+    ///   <item><c>--dangerously-skip-permissions</c> waives the per-tool
+    ///   confirmation prompt — the container is the sandbox.</item>
+    ///   <item><c>--output-format stream-json</c> emits structured JSON the
+    ///   dispatcher can map to <see cref="Cvoya.Spring.Core.Messaging.StreamEvent"/>s.</item>
+    /// </list>
+    /// Source: matches the smoke argv used by the agent-sidecar config tests
+    /// (<c>deployment/agent-sidecar/test/config.test.ts</c>) — there is no
+    /// <c>scripts/run-claude-code.sh</c> today because the legacy dispatcher
+    /// path runs <c>sleep infinity</c> (PR 5 / #1098 flips it). Documented in
+    /// the issue (#1097) as the BYOI path-1 baseline.
+    /// </remarks>
+    internal static readonly string[] DefaultClaudeArgv =
+    [
+        "claude",
+        "--print",
+        "--dangerously-skip-permissions",
+        "--output-format",
+        "stream-json"
+    ];
+
     private readonly ILogger _logger = loggerFactory.CreateLogger<ClaudeCodeLauncher>();
 
     /// <inheritdoc />
@@ -64,12 +103,26 @@ public class ClaudeCodeLauncher(ILoggerFactory loggerFactory) : IAgentToolLaunch
             ["SPRING_CONVERSATION_ID"] = context.ConversationId,
             ["SPRING_MCP_ENDPOINT"] = context.McpEndpoint,
             ["SPRING_AGENT_TOKEN"] = context.McpToken,
-            ["SPRING_SYSTEM_PROMPT"] = context.Prompt
+            ["SPRING_SYSTEM_PROMPT"] = context.Prompt,
+            // The bridge parses this back into argv via JSON.parse — see
+            // deployment/agent-sidecar/src/config.ts. Hand-rolling the
+            // encoding is forbidden (see issue text); JsonSerializer
+            // gives us stable, double-quoted output.
+            ["SPRING_AGENT_ARGV"] = JsonSerializer.Serialize(DefaultClaudeArgv)
         };
 
         return Task.FromResult(new AgentLaunchSpec(
             WorkspaceFiles: workspaceFiles,
             EnvironmentVariables: envVars,
-            WorkspaceMountPath: WorkspaceMountPath));
+            WorkspaceMountPath: WorkspaceMountPath,
+            // Empty argv: defer to the agent-base image's ENTRYPOINT (the
+            // TypeScript bridge), which reads SPRING_AGENT_ARGV and spawns
+            // the real CLI per `message/send`. BYOI conformance path 1.
+            Argv: Array.Empty<string>(),
+            // Same content as CLAUDE.md / SPRING_SYSTEM_PROMPT — the bridge
+            // (PR 5) will pipe this to `claude`'s stdin alongside the per-
+            // message user text. Populated here so PR 5 can wire it up
+            // without touching the launcher contract again.
+            StdinPayload: context.Prompt));
     }
 }

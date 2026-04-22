@@ -137,6 +137,51 @@ public class DaprAgentLauncherTests
         prep.EnvironmentVariables["SPRING_MODEL"].ShouldBe("llama3.2:3b");
     }
 
+    [Fact]
+    public async Task PrepareAsync_SetsArgvForNativeA2APath()
+    {
+        // BYOI conformance path 3: dapr-agent images speak A2A natively.
+        // The launcher hands the dispatcher a non-empty argv so the
+        // image's bridge ENTRYPOINT (if present) is bypassed and the
+        // Python process boots directly. Matches the production CMD
+        // declared by agents/dapr-agent/Dockerfile.
+        var prep = await _launcher.PrepareAsync(CreateContext(), TestContext.Current.CancellationToken);
+
+        prep.Argv.ShouldNotBeNull();
+        prep.Argv.ShouldBe(new[] { "python", "agent.py" });
+    }
+
+    [Fact]
+    public async Task PrepareAsync_SetsDaprAgentPortEnvVar()
+    {
+        // Issue #1097 introduces DAPR_AGENT_PORT as the contract name.
+        // AGENT_PORT is kept alongside it for back-compat with the
+        // existing in-container agent.py (PR 5 cuts the dispatcher
+        // over).
+        var prep = await _launcher.PrepareAsync(CreateContext(), TestContext.Current.CancellationToken);
+
+        prep.EnvironmentVariables["DAPR_AGENT_PORT"].ShouldBe("8999");
+        prep.EnvironmentVariables["AGENT_PORT"].ShouldBe("8999");
+    }
+
+    [Fact]
+    public async Task PrepareAsync_LeavesStdinPayloadNull()
+    {
+        // dapr-agent reads requests over A2A, never via stdin.
+        var prep = await _launcher.PrepareAsync(CreateContext(), TestContext.Current.CancellationToken);
+
+        prep.StdinPayload.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task PrepareAsync_DefaultsA2APortAndResponseCapture()
+    {
+        var prep = await _launcher.PrepareAsync(CreateContext(), TestContext.Current.CancellationToken);
+
+        prep.A2APort.ShouldBe(8999);
+        prep.ResponseCapture.ShouldBe(AgentResponseCapture.A2A);
+    }
+
     private static AgentLaunchContext CreateContext() =>
         new(
             AgentId: "dapr-test-agent",
