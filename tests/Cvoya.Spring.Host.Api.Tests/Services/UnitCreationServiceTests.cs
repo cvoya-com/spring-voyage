@@ -130,6 +130,8 @@ public class UnitCreationServiceTests
         public IUnitActor Proxy { get; } = Substitute.For<IUnitActor>();
         public Cvoya.Spring.Core.Execution.ILlmCredentialResolver CredentialResolver { get; } =
             Substitute.For<Cvoya.Spring.Core.Execution.ILlmCredentialResolver>();
+        public Cvoya.Spring.Core.Execution.IUnitExecutionStore ExecutionStore { get; } =
+            Substitute.For<Cvoya.Spring.Core.Execution.IUnitExecutionStore>();
         public UnitCreationService Service { get; }
 
         public Fixture()
@@ -167,6 +169,7 @@ public class UnitCreationServiceTests
                 MembershipRepository,
                 scopeFactory,
                 NullLoggerFactory.Instance,
+                executionStore: ExecutionStore,
                 credentialResolver: CredentialResolver);
         }
 
@@ -462,5 +465,118 @@ public class UnitCreationServiceTests
         result.Unit.Status.ShouldBe(UnitStatus.Draft);
         await fixture.Proxy.DidNotReceive().TransitionAsync(
             UnitStatus.Validating, Arg.Any<CancellationToken>());
+    }
+
+    // --- #1065: provider must NOT leak into the execution-defaults Runtime slot ---
+
+    [Fact]
+    public async Task CreateAsync_WithProviderOnly_DoesNotMirrorProviderIntoRuntime()
+    {
+        // Regression for #1065. The CreateUnitRequest body carries no
+        // `runtime` field — that lives on the dedicated execution-set
+        // surface (`unit execution set --runtime <docker|podman>`).
+        // Pre-fix, the direct-create execution-defaults mirror wrote
+        // `Runtime: provider`, so a unit created with `--provider ollama`
+        // surfaced as `runtime: ollama` on `GET /api/v1/units/{id}/execution`
+        // — a category error (LLM provider in the container-runtime slot).
+        var fixture = new Fixture();
+        fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
+
+        await fixture.Service.CreateAsync(
+            new CreateUnitRequest(
+                Name: "ollama-no-runtime",
+                DisplayName: "ollama-no-runtime",
+                Description: "test",
+                Model: "llama3.2:3b",
+                Color: null,
+                Connector: null,
+                Tool: "dapr-agent",
+                Provider: "ollama",
+                IsTopLevel: true),
+            CancellationToken.None);
+
+        // The execution defaults must persist Tool/Provider/Model from the
+        // request, but Runtime must stay null — the request has no runtime
+        // field, and provider must not be mirrored into the runtime slot.
+        await fixture.ExecutionStore.Received(1).SetAsync(
+            "ollama-no-runtime",
+            Arg.Is<Cvoya.Spring.Core.Execution.UnitExecutionDefaults>(d =>
+                d.Runtime == null
+                && d.Provider == "ollama"
+                && d.Tool == "dapr-agent"
+                && d.Model == "llama3.2:3b"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CreateAsync_WithToolOnly_LeavesProviderAndRuntimeNull()
+    {
+        // Symmetric assertion: a tool-only create (e.g. `claude-code`,
+        // no provider, no model) must leave both Provider and Runtime
+        // null on the persisted execution defaults. Before #1065 the
+        // mirror would have written Provider into Runtime, but a tool-
+        // only create has no provider to mirror — so the bug was masked
+        // for `--tool claude-code` alone. Lock the contract anyway so a
+        // future regression that tries to default Runtime from anything
+        // else (Tool, Hosting…) trips this test.
+        var fixture = new Fixture();
+        fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
+
+        await fixture.Service.CreateAsync(
+            new CreateUnitRequest(
+                Name: "claude-only",
+                DisplayName: "claude-only",
+                Description: "test",
+                Model: null,
+                Color: null,
+                Connector: null,
+                Tool: "claude-code",
+                Provider: null,
+                IsTopLevel: true),
+            CancellationToken.None);
+
+        await fixture.ExecutionStore.Received(1).SetAsync(
+            "claude-only",
+            Arg.Is<Cvoya.Spring.Core.Execution.UnitExecutionDefaults>(d =>
+                d.Runtime == null
+                && d.Provider == null
+                && d.Tool == "claude-code"
+                && d.Model == null),
+            Arg.Any<CancellationToken>());
+    }
+
+    // --- #1065 side-note: unit-detail GET surfaces Tool/Provider/Hosting ---
+    // The actor-side round-trip is verified in UnitActorTests; this test
+    // pins the wire-shape contract that Tool/Provider/Hosting flow into
+    // SetMetadataAsync from the create path so the unit-detail GET has
+    // values to project.
+
+    [Fact]
+    public async Task CreateAsync_WithToolProviderHosting_FlowsThroughSetMetadata()
+    {
+        var fixture = new Fixture();
+        fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
+
+        await fixture.Service.CreateAsync(
+            new CreateUnitRequest(
+                Name: "metadata-roundtrip",
+                DisplayName: "metadata-roundtrip",
+                Description: "test",
+                Model: "llama3.2:3b",
+                Color: null,
+                Connector: null,
+                Tool: "dapr-agent",
+                Provider: "ollama",
+                Hosting: "ephemeral",
+                IsTopLevel: true),
+            CancellationToken.None);
+
+        await fixture.Proxy.Received(1).SetMetadataAsync(
+            Arg.Is<UnitMetadata>(m =>
+                m.Tool == "dapr-agent"
+                && m.Provider == "ollama"
+                && m.Hosting == "ephemeral"
+                && m.Model == "llama3.2:3b"),
+            Arg.Any<CancellationToken>());
     }
 }
