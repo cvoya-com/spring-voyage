@@ -220,10 +220,18 @@ e2e::expect_contains() {
 #
 #   trap 'e2e::cleanup_unit "${name}"' EXIT
 #
-# Cleanup never masks a scenario's real exit code: every purge is best-effort,
-# errors are reported via e2e::log (not e2e::fail), and the helper always
-# returns 0. --confirm gates the destructive op as the CLI requires.
+# Cleanup never masks a scenario's real exit code: every purge is best-effort
+# and errors are reported via e2e::log (not e2e::fail). The helper preserves
+# the caller's pending `$?` by capturing it on entry and returning it at the
+# end — that way, when this helper is the last command in an EXIT trap (as in
+# every scenario's `trap '…e2e::cleanup_unit…' EXIT`), bash does NOT overwrite
+# the script's pending exit code with 0 from the cleanup's last CLI call. See
+# #1030: without this, a scenario that fails assertions but cleans up happily
+# exits 0 and run.sh marks it passed.
+#
+# --confirm gates the destructive op as the CLI requires.
 e2e::cleanup_unit() {
+    local rc=$?
     local unit
     for unit in "$@"; do
         [[ -z "${unit}" ]] && continue
@@ -233,14 +241,17 @@ e2e::cleanup_unit() {
             e2e::log "cleanup: purge failed for ${unit} (ignored)"
         fi
     done
-    return 0
+    return "${rc}"
 }
 
 # e2e::cleanup_agent NAME [NAME...] — companion to cleanup_unit for agents
 # created outside any unit (e.g. the nested-units scenario doesn't need this,
 # but 06-unit-membership-roundtrip creates an agent that is removed after the
-# unit purge cascades). Same swallow-and-log contract.
+# unit purge cascades). Same swallow-and-log contract — including the #1030
+# fix: preserves the caller's pending `$?` so chained trap invocations like
+# `trap '…cleanup_unit …; cleanup_agent …' EXIT` don't mask a failing summary.
 e2e::cleanup_agent() {
+    local rc=$?
     local agent
     for agent in "$@"; do
         [[ -z "${agent}" ]] && continue
@@ -250,7 +261,7 @@ e2e::cleanup_agent() {
             e2e::log "cleanup: purge failed for ${agent} (ignored)"
         fi
     done
-    return 0
+    return "${rc}"
 }
 
 # e2e::require_ollama — pings the configured local LLM endpoint. Returns 0 when
