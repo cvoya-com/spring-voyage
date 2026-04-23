@@ -45,6 +45,7 @@ How to use Spring Voyage V2 through the `spring` CLI.
 - [Observing Activity](guide/observing.md) -- streams, cost tracking, dashboards
 - [Declarative Configuration](guide/declarative.md) -- YAML definitions and `spring apply`
 - [Deployment](guide/deployment.md) -- self-hosting on Docker Compose or Podman (including the no-build / registry path)
+- [Register your GitHub App](guide/github-app-setup.md) -- per-deployment GitHub App registration (CLI one-liner or manual github.com walkthrough)
 
 ### Operator Guides
 

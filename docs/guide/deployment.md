@@ -345,6 +345,12 @@ chmod 600 /opt/spring-voyage/deployment/spring.env
 
 ### Tier-1 platform credentials — GitHub App identity (env only)
 
+Spring Voyage does **not** ship a shared GitHub App private key. Each
+deployment registers its own GitHub App and configures the values below
+with that App's credentials. The full registration walkthrough — both
+the `spring github-app register` one-liner and the manual github.com
+flow — lives in [Register your GitHub App](github-app-setup.md).
+
 Uncomment in `spring.env` when the deployment acts as a GitHub App (tier-1
 platform-deploy config: these identify the Spring Voyage instance itself,
 not a workload):
