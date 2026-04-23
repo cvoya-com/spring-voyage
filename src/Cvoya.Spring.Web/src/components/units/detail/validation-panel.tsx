@@ -71,6 +71,12 @@ interface Props {
 /**
  * The four probe steps, in the order the workflow walks them. Keeping
  * the list central so the panel and the friendly-copy map cannot drift.
+ *
+ * `SchedulingWorkflow` (#1136) is intentionally NOT in this list — it's
+ * a host-side step that runs before any in-container probe and is only
+ * surfaced when scheduling itself fails. The live checklist still walks
+ * the four probe steps; the host-side step only appears as the `step`
+ * value on a terminal `Error` panel.
  */
 const STEP_ORDER: readonly UnitValidationStep[] = [
   "PullingImage",
@@ -84,6 +90,7 @@ const STEP_LABEL: Record<UnitValidationStep, string> = {
   VerifyingTool: "Verifying tool",
   ValidatingCredential: "Validating credential",
   ResolvingModel: "Resolving model",
+  SchedulingWorkflow: "Scheduling validation",
 };
 
 /**
@@ -123,6 +130,8 @@ const VALIDATION_COPY: Record<string, (ctx: CopyContext) => string> = {
     ctx.runId
       ? `Validation failed with an internal error. Retry; if it repeats, check dispatcher logs (run id \`${ctx.runId}\`).`
       : "Validation failed with an internal error. Retry; if it repeats, check dispatcher logs.",
+  ScheduleFailed: () =>
+    "The validation workflow couldn't be scheduled. Retry; if it repeats, check dispatcher logs.",
 };
 
 function formatValidationCopy(
