@@ -11474,7 +11474,8 @@
           "repo",
           "appInstallationId",
           "events",
-          "reviewer"
+          "reviewer",
+          "eventsAreDefault"
         ],
         "type": "object",
         "properties": {
@@ -11507,6 +11508,9 @@
               "null",
               "string"
             ]
+          },
+          "eventsAreDefault": {
+            "type": "boolean"
           }
         }
       },

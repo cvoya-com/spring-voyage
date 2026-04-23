@@ -221,6 +221,87 @@ public class GitHubConnectorEndpointsTests
         body.Repo.ShouldBe("platform");
         body.AppInstallationId.ShouldBe(1001);
         body.Events.ShouldContain("issues");
+        // #1146: an explicit Events list must surface as eventsAreDefault: false
+        // so the portal tab renders the per-event row enabled (not the
+        // informational "use defaults" mode).
+        body.EventsAreDefault.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task GetConfig_NoExplicitEvents_ReportsEventsAreDefault()
+    {
+        // #1146: when the persisted binding has no explicit Events list
+        // (null sentinel — the wizard's "Connector defaults" path), the
+        // response surfaces the connector defaults verbatim AND sets
+        // EventsAreDefault: true so the post-bind tab renders with the
+        // toggle checked and the per-event row disabled.
+        var configStore = Substitute.For<IUnitConnectorConfigStore>();
+        var stored = JsonSerializer.SerializeToElement(
+            new UnitGitHubConfig("acme", "platform", 1001, Events: null));
+        configStore.GetAsync("u1", Arg.Any<CancellationToken>())
+            .Returns(new UnitConnectorBinding(GitHubConnectorType.GitHubTypeId, stored));
+
+        await using var factory = CreateFactory(configStore: configStore);
+        var client = factory.CreateClient();
+        var ct = TestContext.Current.CancellationToken;
+
+        var response = await client.GetAsync("/api/v1/connectors/github/units/u1/config", ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<UnitGitHubConfigResponse>(ct);
+        body.ShouldNotBeNull();
+        body!.EventsAreDefault.ShouldBeTrue();
+        body.Events.ShouldBe(new[] { "issues", "pull_request", "issue_comment" });
+    }
+
+    [Fact]
+    public async Task GetConfig_ExplicitDefaultEqualSet_IsNotFlippedToDefault()
+    {
+        // #1146: the contract change exists precisely so an operator who
+        // deliberately picks the same set as the connector defaults is
+        // not silently re-rendered as "use defaults". Anti-regression
+        // for the rejected client-side heuristic option.
+        var explicitDefaults = new[] { "issues", "pull_request", "issue_comment" };
+        var configStore = Substitute.For<IUnitConnectorConfigStore>();
+        var stored = JsonSerializer.SerializeToElement(
+            new UnitGitHubConfig("acme", "platform", 1001, explicitDefaults));
+        configStore.GetAsync("u1", Arg.Any<CancellationToken>())
+            .Returns(new UnitConnectorBinding(GitHubConnectorType.GitHubTypeId, stored));
+
+        await using var factory = CreateFactory(configStore: configStore);
+        var client = factory.CreateClient();
+        var ct = TestContext.Current.CancellationToken;
+
+        var response = await client.GetAsync("/api/v1/connectors/github/units/u1/config", ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<UnitGitHubConfigResponse>(ct);
+        body.ShouldNotBeNull();
+        body!.EventsAreDefault.ShouldBeFalse();
+        body.Events.ShouldBe(explicitDefaults);
+    }
+
+    [Fact]
+    public async Task PutConfig_NullEvents_RoundTripsAsEventsAreDefault()
+    {
+        // #1146: putting a config with no Events (the wizard's "Connector
+        // defaults" wire shape) must round-trip — the response from the
+        // very same PUT call already carries EventsAreDefault: true so a
+        // tab refresh after save renders with the toggle still checked
+        // and the row disabled.
+        var configStore = Substitute.For<IUnitConnectorConfigStore>();
+        await using var factory = CreateFactory(configStore: configStore);
+        var client = factory.CreateClient();
+        var ct = TestContext.Current.CancellationToken;
+
+        var request = new UnitGitHubConfigRequest("acme", "platform", AppInstallationId: 1001);
+
+        var response = await client.PutAsJsonAsync(
+            "/api/v1/connectors/github/units/u1/config", request, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<UnitGitHubConfigResponse>(ct);
+        body.ShouldNotBeNull();
+        body!.EventsAreDefault.ShouldBeTrue();
+        body.Events.ShouldBe(new[] { "issues", "pull_request", "issue_comment" });
     }
 
     [Fact]

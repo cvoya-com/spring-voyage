@@ -698,13 +698,24 @@ public class GitHubConnectorType : IConnectorType
     }
 
     private UnitGitHubConfigResponse ToResponse(string unitId, UnitGitHubConfig config)
-        => new(
+    {
+        // #1146: the persisted binding distinguishes "operator picked an
+        // explicit set" (Events has at least one entry) from "use the
+        // connector defaults" (Events is null or empty — same sentinel
+        // PutConfigAsync collapses to). Surfacing the distinction
+        // verbatim lets the portal's connector tab round-trip the
+        // wizard's "Connector defaults" toggle without resorting to a
+        // lossy "events == DEFAULT_EVENTS" client heuristic.
+        var eventsAreDefault = config.Events is not { Count: > 0 };
+        return new UnitGitHubConfigResponse(
             unitId,
             config.Owner,
             config.Repo,
             config.AppInstallationId,
-            config.Events is { Count: > 0 } ? config.Events : DefaultEvents,
-            config.Reviewer);
+            eventsAreDefault ? DefaultEvents : config.Events!,
+            config.Reviewer,
+            eventsAreDefault);
+    }
 
     // Hand-authored schema — deriving from C# via reflection would be cleaner
     // but .NET 10's OpenAPI generator doesn't expose the per-component schema
