@@ -90,6 +90,21 @@ The Units page ([src/Cvoya.Spring.Web/src/app/units/page.tsx](../../src/Cvoya.Sp
 
 The create flow ([src/Cvoya.Spring.Web/src/app/units/create/page.tsx](../../src/Cvoya.Spring.Web/src/app/units/create/page.tsx)) is a five-step wizard. The wizard drives the same `/api/v1/units` endpoints the CLI uses; anything created here is indistinguishable from a unit created with `spring unit create`.
 
+### Top-level vs sub-unit creation (#1150)
+
+The same wizard creates both top-level units (parent = tenant) and sub-units of an existing parent.
+
+- **Top-level unit** — visit `/units/create` directly (e.g. via the **New unit** button on the Units list). The wizard does not send `parentUnitIds`; the server creates the unit at the tenant root.
+- **Sub-unit of an existing parent** — open the parent unit in the Explorer (`/units?node=<parent-id>`) and click **Create sub-unit** in the detail-pane action cluster ([unit-pane-actions.tsx](../../src/Cvoya.Spring.Web/src/components/units/unit-pane-actions.tsx)). The button routes to `/units/create?parent=<parent-id>`. The wizard reads the `parent` query string at mount, fetches the parent unit envelope to display its name in a banner on the Identity step, and threads `parentUnitIds: [<parent-id>]` + `isTopLevel: false` through every create-unit endpoint (scratch / template / YAML).
+
+The Identity-step banner exposes a **Clear (create top-level unit)** affordance so the operator can drop back to top-level creation without abandoning the wizard. Refreshing the page (`?parent=<id>`) keeps the parent context across the reload — the wizard's session-storage snapshot persists `parentUnitId` (#1132 + #1150).
+
+| Action | Portal | CLI |
+|--------|--------|-----|
+| Create top-level unit | `/units/create` (or **New unit** on the Units list) | `spring unit create <name>` |
+| Create sub-unit of parent | **Create sub-unit** on the parent's detail pane | `spring unit create <name> --parent-unit <parent-id>` |
+
+
 ### Step 1 — Details
 
 Collects the unit `name` (URL-safe lowercase/digits/hyphens), `display name`, `description`, execution `tool` (claude-code, codex, gemini, dapr-agent, custom), `hosting mode` (ephemeral or persistent), unit-level `image` + `runtime` defaults (#601 B-wide — inherited by member agents; see [Execution tab](#execution-601-b-wide)), and a UI `color`.
@@ -233,7 +248,8 @@ Lists every unit-scheme member of this unit ([sub-units-tab.tsx](../../src/Cvoya
 | Action | Portal | CLI |
 |--------|--------|-----|
 | List sub-units | (tab body) | `spring unit members list <unit> --output json` (filter `scheme=unit`) |
-| Add sub-unit | **Add sub-unit** button | `spring unit members add <parent> --unit <child>` |
+| Add sub-unit (existing) | **Add sub-unit** button | `spring unit members add <parent> --unit <child>` |
+| Create + nest a brand-new sub-unit | **Create sub-unit** action on the parent's detail pane (#1150) — see [Top-level vs sub-unit creation](#top-level-vs-sub-unit-creation-1150) | `spring unit create <name> --parent-unit <parent-id>` |
 | Remove sub-unit | trash icon + confirm | `spring unit members remove <parent> --unit <child>` |
 
 ### Skills

@@ -480,6 +480,7 @@ Shared banner styling for "this thing needs operator attention" callouts inside 
 
 - **Warning** — `rounded-md border border-warning/50 bg-warning/15 px-3 py-2 text-sm text-warning`, body copy in `text-foreground`. `role="alert"`. Prefix with `AlertTriangle` at `h-4 w-4 aria-hidden`. Include an actionable control when possible.
 - **Success** — `rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-900 dark:text-emerald-200`. `role="status"`. Prefix with `CheckCircle2`. A success banner may carry a secondary "Override" `<button>` with `underline underline-offset-2` — never a `div` with `onClick` (axe catches that).
+- **Info / context** — `rounded-md border border-primary/40 bg-primary/10 px-3 py-2 text-sm`, body copy in `text-foreground`. `role="status"`. Prefix with a contextually relevant lucide icon at `h-4 w-4 aria-hidden text-primary` (e.g. `Sparkles` for the create-sub-unit parent banner, #1150). Used to surface neutral, operator-supplied context the wizard or detail surface is operating against ("Creating a sub-unit of …", inherited-from-parent affordances, etc.) — never for failure or success states. May carry a secondary `underline underline-offset-2` `<button>` to clear or change the context (same axe contract as the success banner). When the underlying state cannot be loaded, downgrade to the Warning palette so the operator sees a single failure shape regardless of context category.
 
 ### 12.5 Multi-rule config editor
 

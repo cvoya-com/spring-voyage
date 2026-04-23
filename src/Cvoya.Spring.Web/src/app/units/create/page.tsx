@@ -90,6 +90,31 @@ const WIZARD_PERSIST_DEBOUNCE_MS = 300;
 
 const NAME_PATTERN = /^[a-z0-9-]+$/;
 
+/**
+ * #1150: read the optional `?parent=<unitId>` query param at wizard
+ * mount. The "Create sub-unit" button on the unit detail pane
+ * navigates here with this param so the wizard knows to attach the
+ * new unit as a child of `<unitId>` instead of creating a top-level
+ * unit. We read directly off `window.location.search` (lazy
+ * `useState` initialiser) to avoid the `Suspense` boundary that
+ * `useSearchParams` requires for client components — the wizard is
+ * already a `"use client"` page that initialises lots of state from
+ * `sessionStorage` the same way. SSR-safe: returns `null` when there
+ * is no `window` (server prerender).
+ */
+function readParentUnitFromUrl(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const raw = params.get("parent");
+    if (raw === null) return null;
+    const trimmed = raw.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  } catch {
+    return null;
+  }
+}
+
 // How long to wait inside the Validating state before surfacing a
 // soft "this is taking longer than expected" notice in the wizard.
 // The backend's per-step timeouts (5 min image pull, etc.) are
@@ -198,6 +223,16 @@ interface FormState {
   // separate from the ON/OFF checkbox so we can tell apart "no override
   // entered" from "override entered but left blank".
   credentialOverrideOpen: boolean;
+  // #1150: id of the parent unit this wizard is creating a sub-unit
+  // under. `null` keeps the legacy behaviour — the new unit is
+  // top-level (parent = tenant). Seeded from the `?parent=<id>` query
+  // string when an operator launches the wizard from a unit detail
+  // pane's "Create sub-unit" button; the Identity step exposes a
+  // banner that lets the operator clear it back to top-level. Wire
+  // shape: the API client maps a non-null value to `parentUnitIds:
+  // [parentUnitId]` and `isTopLevel: false` on every create-unit
+  // endpoint (scratch / template / yaml).
+  parentUnitId: string | null;
 }
 
 /**
@@ -300,6 +335,7 @@ function mergeSnapshotIntoForm(snap: WizardFormSnapshot): FormState {
     connectorSlug: snap.connectorSlug,
     connectorTypeId: snap.connectorTypeId,
     connectorConfig: snap.connectorConfig,
+    parentUnitId: snap.parentUnitId,
   };
 }
 
@@ -330,6 +366,7 @@ function extractWizardFormSnapshot(form: FormState): WizardFormSnapshot {
     connectorSlug: form.connectorSlug,
     connectorTypeId: form.connectorTypeId,
     connectorConfig: form.connectorConfig,
+    parentUnitId: form.parentUnitId,
   };
 }
 
@@ -358,6 +395,7 @@ const INITIAL_FORM: FormState = {
   credentialKey: "",
   saveAsTenantDefault: false,
   credentialOverrideOpen: false,
+  parentUnitId: null,
 };
 
 /**
@@ -445,11 +483,24 @@ export default function CreateUnitPage() {
   const [step, setStep] = useState<Step>(
     (initialSnapshot?.currentStep as Step | undefined) ?? 1,
   );
-  const [form, setForm] = useState<FormState>(() =>
-    initialSnapshot
+  // #1150: the `?parent=<id>` query param wins over a rehydrated
+  // snapshot, because the operator just clicked "Create sub-unit" on
+  // a specific parent and that intent is more recent than any
+  // sessionStorage blob. When the URL omits `parent` we fall back to
+  // the snapshot's own `parentUnitId` (could itself be `null` for
+  // top-level), so a hard refresh of `/units/create?parent=foo` keeps
+  // the parent context, and a refresh of plain `/units/create`
+  // preserves whatever parent the operator was last editing.
+  const initialParentFromUrl = useMemo(readParentUnitFromUrl, []);
+  const [form, setForm] = useState<FormState>(() => {
+    const base = initialSnapshot
       ? mergeSnapshotIntoForm(initialSnapshot.form)
-      : INITIAL_FORM,
-  );
+      : INITIAL_FORM;
+    if (initialParentFromUrl !== null) {
+      return { ...base, parentUnitId: initialParentFromUrl };
+    }
+    return base;
+  });
   const [stepError, setStepError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitWarnings, setSubmitWarnings] = useState<string[]>([]);
@@ -505,6 +556,27 @@ export default function CreateUnitPage() {
       }
     };
   }, [runId, step, form, createdUnitName]);
+
+  // #1150: when the wizard is creating a sub-unit we fetch the parent
+  // unit envelope so the Identity step can show the operator which
+  // unit they're nesting under (display name, falling back to the
+  // address). Disabled when `parentUnitId` is `null` — top-level
+  // creation never hits this query. The query is cached behind the
+  // standard `units.detail` key, so a back-button → forward to the
+  // detail pane immediately picks up the cached envelope without a
+  // round-trip.
+  const parentUnitQuery = useUnit(form.parentUnitId ?? "", {
+    enabled: form.parentUnitId !== null,
+  });
+  const parentUnitName = useMemo<string | null>(() => {
+    if (form.parentUnitId === null) return null;
+    const data = parentUnitQuery.data;
+    if (!data) return form.parentUnitId;
+    return data.displayName?.trim() || data.name || form.parentUnitId;
+  }, [form.parentUnitId, parentUnitQuery.data]);
+  const parentUnitMissing =
+    form.parentUnitId !== null &&
+    parentUnitQuery.isError;
 
   // Template catalog (#119): cached once per session so revisiting the
   // wizard doesn't round-trip. The key comes from `queryKeys.templates`.
@@ -891,6 +963,24 @@ export default function CreateUnitPage() {
       const hostingField =
         form.hosting !== DEFAULT_HOSTING_MODE ? form.hosting : undefined;
 
+      // #1150: when the wizard is creating a sub-unit, send the parent
+      // through `parentUnitIds` and pin `isTopLevel: false` so the
+      // server's `ValidateParentRequest` does not silently re-route
+      // the request to "top-level" (the API client's
+      // `withDefaultParentParent` helper would otherwise stamp
+      // `isTopLevel: true` when both fields are absent). When
+      // `parentUnitId` is `null` we omit both fields and the existing
+      // top-level default kicks in unchanged — that is the legacy
+      // behaviour every pre-#1150 wizard call relied on. See
+      // src/Cvoya.Spring.Host.Api/Services/UnitCreationService.cs
+      // (ValidateParentRequest) for the server-side contract.
+      const parentField = form.parentUnitId
+        ? {
+            parentUnitIds: [form.parentUnitId] as string[],
+            isTopLevel: false,
+          }
+        : {};
+
       // #626: if the operator supplied an API key AND chose "save as
       // tenant default", write the tenant secret BEFORE the unit is
       // created. A tenant-scope write can fail (permissions, backing
@@ -945,6 +1035,7 @@ export default function CreateUnitPage() {
           tool: toolField,
           provider: providerField,
           hosting: hostingField,
+          ...parentField,
         } as Parameters<typeof api.createUnitFromYaml>[0]);
         warnings.push(...(resp.warnings ?? []));
         createdName = resp.unit.name;
@@ -972,6 +1063,7 @@ export default function CreateUnitPage() {
           tool: toolField,
           provider: providerField,
           hosting: hostingField,
+          ...parentField,
         } as Parameters<typeof api.createUnitFromTemplate>[0]);
         warnings.push(...(resp.warnings ?? []));
         createdName = resp.unit.name;
@@ -987,6 +1079,7 @@ export default function CreateUnitPage() {
           tool: toolField,
           provider: providerField,
           hosting: hostingField,
+          ...parentField,
         });
         createdName = created.name;
       }
@@ -1431,14 +1524,30 @@ export default function CreateUnitPage() {
       <div className="flex flex-col gap-1">
         <div className="flex items-center gap-2">
           <Rocket className="h-5 w-5 text-primary" aria-hidden="true" />
-          <h1 className="text-2xl font-bold">Create a unit</h1>
+          <h1 className="text-2xl font-bold">
+            {form.parentUnitId !== null
+              ? "Create a sub-unit"
+              : "Create a unit"}
+          </h1>
         </div>
         <p className="text-sm text-muted-foreground">
-          Register a new unit and wire up its runtime. Mirrors{" "}
-          <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">
-            spring unit create
-          </code>
-          .
+          {form.parentUnitId !== null ? (
+            <>
+              Register a new unit nested under an existing parent. Mirrors{" "}
+              <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">
+                spring unit create --parent-unit
+              </code>
+              .
+            </>
+          ) : (
+            <>
+              Register a new unit and wire up its runtime. Mirrors{" "}
+              <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">
+                spring unit create
+              </code>
+              .
+            </>
+          )}
         </p>
       </div>
 
@@ -1450,6 +1559,60 @@ export default function CreateUnitPage() {
             <CardTitle>Identity</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            {form.parentUnitId !== null && (
+              <div
+                role="status"
+                data-testid="parent-unit-banner"
+                data-parent-id={form.parentUnitId}
+                className={cn(
+                  "flex flex-wrap items-start gap-2 rounded-md border px-3 py-2 text-sm",
+                  parentUnitMissing
+                    ? "border-warning/50 bg-warning/15 text-foreground"
+                    : "border-primary/40 bg-primary/10 text-foreground",
+                )}
+              >
+                {parentUnitMissing ? (
+                  <AlertTriangle
+                    className="mt-0.5 h-4 w-4 shrink-0 text-warning"
+                    aria-hidden
+                  />
+                ) : (
+                  <Sparkles
+                    className="mt-0.5 h-4 w-4 shrink-0 text-primary"
+                    aria-hidden
+                  />
+                )}
+                <div className="flex-1">
+                  {parentUnitMissing ? (
+                    <p>
+                      Could not load the parent unit{" "}
+                      <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">
+                        {form.parentUnitId}
+                      </code>
+                      . The new unit will still be created as a sub-unit
+                      of that id; clear the parent to create a top-level
+                      unit instead.
+                    </p>
+                  ) : (
+                    <p>
+                      Creating a sub-unit of{" "}
+                      <strong className="font-semibold">
+                        {parentUnitName ?? form.parentUnitId}
+                      </strong>
+                      .
+                    </p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  data-testid="parent-unit-clear"
+                  onClick={() => update("parentUnitId", null)}
+                  className="text-xs font-medium underline underline-offset-2 text-foreground/80 hover:text-foreground"
+                >
+                  Clear (create top-level unit)
+                </button>
+              </div>
+            )}
             <label className="block space-y-1">
               <span className="text-sm text-muted-foreground">
                 Name<span className="text-destructive"> *</span>

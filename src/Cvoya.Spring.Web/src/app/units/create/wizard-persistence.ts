@@ -87,6 +87,17 @@ export interface WizardFormSnapshot {
   connectorSlug: string | null;
   connectorTypeId: string | null;
   connectorConfig: Record<string, unknown> | null;
+  /**
+   * Id of the unit the wizard is creating a sub-unit under (#1150). When
+   * `null` the wizard is producing a top-level unit (parent = tenant) —
+   * the existing behaviour from before #1150. The wizard seeds this slot
+   * from the `?parent=<id>` query string when the operator initiates the
+   * flow from a unit detail pane's "Create sub-unit" button, and the
+   * Identity step also exposes a banner that lets the operator clear it
+   * back to top-level. Only the id is persisted; the parent's display
+   * name is re-fetched live so a renamed parent reflects on rehydrate.
+   */
+  parentUnitId: string | null;
 }
 
 /**
@@ -166,9 +177,15 @@ export function validateSnapshot(blob: unknown): WizardSnapshot | null {
     "yamlFileName",
     "connectorSlug",
     "connectorTypeId",
+    "parentUnitId",
   ];
   for (const key of nullableStrings) {
     const v = f[key];
+    // `parentUnitId` is a #1150 addition; older blobs don't carry it.
+    // Treat the missing key as `null` (top-level) so we don't discard
+    // an otherwise-valid snapshot just because the operator started the
+    // wizard before #1150 shipped.
+    if (key === "parentUnitId" && v === undefined) continue;
     if (v !== null && typeof v !== "string") return null;
   }
 
@@ -204,6 +221,10 @@ export function validateSnapshot(blob: unknown): WizardSnapshot | null {
       connectorSlug: f.connectorSlug as string | null,
       connectorTypeId: f.connectorTypeId as string | null,
       connectorConfig: f.connectorConfig as Record<string, unknown> | null,
+      parentUnitId:
+        f.parentUnitId === undefined
+          ? null
+          : (f.parentUnitId as string | null),
     },
   };
 }

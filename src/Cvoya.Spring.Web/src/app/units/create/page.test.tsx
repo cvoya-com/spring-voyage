@@ -6,7 +6,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 
 import { expectNoAxeViolations } from "@/test/a11y";
@@ -1519,5 +1519,233 @@ describe("CreateUnitPage — #1132 wizard state persistence", () => {
       sessionStorage.getItem(`spring.wizard.unit-create.${runId}`),
     ).toBeNull();
     expect(pushMock).toHaveBeenCalledWith("/units");
+  });
+});
+
+// #1150: the wizard accepts an optional `?parent=<unitId>` query
+// param and threads it through `parentUnitIds` / `isTopLevel: false`
+// on every create-unit endpoint. The Identity step surfaces a banner
+// naming the parent so the operator knows what they're nesting under,
+// and exposes a Clear affordance that drops back to top-level
+// creation. Top-level creation (no `?parent=`) must keep working
+// unchanged.
+describe("CreateUnitPage — #1150 sub-unit creation", () => {
+  const ORIGINAL_LOCATION = window.location;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    seedDefaultMocks();
+    sessionStorage.clear();
+    createUnit.mockResolvedValue({ name: "acme-child", id: "acme-child-id" });
+    startUnit.mockResolvedValue(undefined);
+    // The wizard polls the just-created unit AND fetches the parent
+    // unit envelope (for the banner). Route the mock by id so both
+    // queries get sensible payloads.
+    getUnit.mockImplementation(async (id: string) => {
+      if (id === "engineering-team") {
+        return {
+          id: "engineering-team",
+          name: "engineering-team",
+          displayName: "Engineering Team",
+          description: "Parent unit fixture for #1150 tests.",
+          registeredAt: "2026-04-21T00:00:00Z",
+          status: "Running",
+          model: null,
+          color: null,
+          tool: null,
+          provider: null,
+          hosting: null,
+          lastValidationError: null,
+          lastValidationRunId: null,
+        };
+      }
+      return {
+        id: "acme-child-id",
+        name: "acme-child",
+        displayName: "Acme child",
+        description: "",
+        registeredAt: "2026-04-21T00:00:00Z",
+        status: "Running",
+        model: "claude-opus-4-7",
+        color: null,
+        tool: "claude-code",
+        provider: "claude",
+        hosting: null,
+        lastValidationError: null,
+        lastValidationRunId: null,
+      };
+    });
+    getUnitExecution.mockResolvedValue({
+      unitId: "acme-child-id",
+      image: null,
+      runtime: null,
+      model: null,
+      secrets: null,
+      updatedAt: null,
+    });
+  });
+
+  afterEachRestoreLocation();
+
+  function setSearch(search: string) {
+    // jsdom forbids assigning to window.location directly, but the
+    // wizard reads `window.location.search` via `URLSearchParams` in
+    // a lazy useState initialiser, so substituting the property is
+    // enough.
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      writable: true,
+      value: { ...ORIGINAL_LOCATION, search },
+    });
+  }
+
+  function afterEachRestoreLocation() {
+    // We register a cleanup that runs after every test in this
+    // describe block. Defining it inside the describe keeps the
+    // restore tied to the same suite that overrides the location.
+    afterEach(() => {
+      Object.defineProperty(window, "location", {
+        configurable: true,
+        writable: true,
+        value: ORIGINAL_LOCATION,
+      });
+    });
+  }
+
+  async function fillNameAndAdvance() {
+    const nameInput = screen.getByPlaceholderText(
+      /engineering-team/i,
+    ) as HTMLInputElement;
+    if (nameInput.value === "") {
+      await act(async () => {
+        fireEvent.change(nameInput, { target: { value: "acme-child" } });
+      });
+    }
+    const next = screen.getByRole("button", { name: /^next$/i });
+    await act(async () => {
+      fireEvent.click(next);
+    });
+  }
+
+  async function advanceScratchToFinalize() {
+    await fillNameAndAdvance(); // Identity → Execution
+    await waitFor(async () => {
+      const modelSelect = (await screen.findByLabelText(
+        /^Model$/i,
+      )) as HTMLSelectElement;
+      expect(modelSelect.value).not.toBe("");
+    });
+    const next = () => screen.getByRole("button", { name: /^next$/i });
+    await act(async () => {
+      fireEvent.click(next());
+    });
+    const scratch = screen.getByRole("button", { name: /scratch/i });
+    await act(async () => {
+      fireEvent.click(scratch);
+    });
+    await act(async () => {
+      fireEvent.click(next());
+    });
+    await act(async () => {
+      fireEvent.click(next());
+    });
+    await act(async () => {
+      fireEvent.click(next());
+    });
+  }
+
+  it("renders the parent banner and routes the create-unit body through parentUnitIds", async () => {
+    setSearch("?parent=engineering-team");
+
+    renderPage();
+
+    // The Identity-step banner names the parent and exposes a Clear
+    // affordance. Both data-testids are part of the contract the
+    // explorer's "Create sub-unit" button relies on.
+    const banner = await screen.findByTestId("parent-unit-banner");
+    expect(banner.dataset.parentId).toBe("engineering-team");
+    await waitFor(() => {
+      expect(banner.textContent).toMatch(/Engineering Team/);
+    });
+    expect(screen.getByTestId("parent-unit-clear")).toBeInTheDocument();
+    // Heading reskins to reflect the sub-unit intent.
+    expect(
+      screen.getByRole("heading", { name: /create a sub-unit/i }),
+    ).toBeInTheDocument();
+
+    await advanceScratchToFinalize();
+
+    const createBtn = screen.getByTestId("create-unit-button");
+    await act(async () => {
+      fireEvent.click(createBtn);
+    });
+
+    await waitFor(() => {
+      expect(createUnit).toHaveBeenCalledTimes(1);
+    });
+    const body = createUnit.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(body.parentUnitIds).toEqual(["engineering-team"]);
+    expect(body.isTopLevel).toBe(false);
+  });
+
+  it("clearing the parent banner reverts the wizard to top-level creation", async () => {
+    setSearch("?parent=engineering-team");
+
+    renderPage();
+
+    const clear = await screen.findByTestId("parent-unit-clear");
+    await act(async () => {
+      fireEvent.click(clear);
+    });
+
+    // Banner is gone; heading reverts to plain "Create a unit".
+    expect(
+      screen.queryByTestId("parent-unit-banner"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: /^create a unit$/i }),
+    ).toBeInTheDocument();
+
+    await advanceScratchToFinalize();
+    const createBtn = screen.getByTestId("create-unit-button");
+    await act(async () => {
+      fireEvent.click(createBtn);
+    });
+
+    await waitFor(() => {
+      expect(createUnit).toHaveBeenCalledTimes(1);
+    });
+    const body = createUnit.mock.calls[0]?.[0] as Record<string, unknown>;
+    // Top-level path: the wizard does not send `parentUnitIds`. The API
+    // client's `withDefaultParentParent` helper then stamps
+    // `isTopLevel: true`, but that's a client-internal default — the
+    // wizard surface itself must not pre-stamp the field.
+    expect(body.parentUnitIds).toBeUndefined();
+    expect(body.isTopLevel).toBeUndefined();
+  });
+
+  it("legacy path: no `?parent=` keeps the existing top-level flow unchanged", async () => {
+    // No setSearch — defaults to whatever JSDOM's default location is.
+    renderPage();
+
+    expect(
+      screen.queryByTestId("parent-unit-banner"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: /^create a unit$/i }),
+    ).toBeInTheDocument();
+
+    await advanceScratchToFinalize();
+    const createBtn = screen.getByTestId("create-unit-button");
+    await act(async () => {
+      fireEvent.click(createBtn);
+    });
+
+    await waitFor(() => {
+      expect(createUnit).toHaveBeenCalledTimes(1);
+    });
+    const body = createUnit.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(body.parentUnitIds).toBeUndefined();
+    expect(body.isTopLevel).toBeUndefined();
   });
 });

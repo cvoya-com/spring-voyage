@@ -27,8 +27,12 @@ import type { AgentNode, UnitNode } from "./aggregate";
 import type { UnitResponse, UnitStatus } from "@/lib/api/types";
 
 const routerReplaceMock = vi.fn();
+const routerPushMock = vi.fn();
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace: routerReplaceMock }),
+  useRouter: () => ({
+    replace: routerReplaceMock,
+    push: routerPushMock,
+  }),
 }));
 
 const startUnitMock = vi.fn();
@@ -116,6 +120,7 @@ const agentNode: AgentNode = {
 
 beforeEach(() => {
   routerReplaceMock.mockReset();
+  routerPushMock.mockReset();
   startUnitMock.mockReset();
   stopUnitMock.mockReset();
   revalidateUnitMock.mockReset();
@@ -189,8 +194,56 @@ describe("UnitPaneActions — Unit status gating", () => {
       for (const id of c.hidden) {
         expect(screen.queryByTestId(id)).toBeNull();
       }
+      // #1150: Create sub-unit is always available — every unit can be
+      // a parent regardless of lifecycle status.
+      expect(
+        screen.getByTestId("unit-action-create-subunit"),
+      ).toBeInTheDocument();
     });
   }
+});
+
+// #1150: the "Create sub-unit" affordance routes to the create-unit
+// wizard with the current unit pre-selected as the parent. The
+// wizard reads the `parent` query param and threads `parentUnitIds`
+// onto the create-unit API call. The button is unconditional — see
+// the status-gating loop above for the cross-status assertion that
+// every UnitStatus surfaces it.
+describe("UnitPaneActions — Create sub-unit (#1150)", () => {
+  it("navigates to /units/create with the parent query param", async () => {
+    useUnitMock.mockReturnValue({ data: makeUnit("Running") });
+    render(wrap(<UnitPaneActions node={unitNode} />));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("unit-action-create-subunit"));
+    });
+    expect(routerPushMock).toHaveBeenCalledWith(
+      "/units/create?parent=alpha",
+    );
+  });
+
+  it("URL-encodes parent ids so address-shaped names survive the round-trip", async () => {
+    useUnitMock.mockReturnValue({ data: makeUnit("Stopped") });
+    const nestedNode: UnitNode = {
+      kind: "Unit",
+      id: "engineering/team alpha",
+      name: "engineering/team alpha",
+      status: "stopped",
+    };
+    render(wrap(<UnitPaneActions node={nestedNode} />));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("unit-action-create-subunit"));
+    });
+    expect(routerPushMock).toHaveBeenCalledWith(
+      "/units/create?parent=engineering%2Fteam%20alpha",
+    );
+  });
+
+  it("is not rendered for agent nodes", () => {
+    render(wrap(<UnitPaneActions node={agentNode} />));
+    expect(
+      screen.queryByTestId("unit-action-create-subunit"),
+    ).toBeNull();
+  });
 });
 
 describe("UnitPaneActions — Start / Stop / Revalidate / Validate", () => {

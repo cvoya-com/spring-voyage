@@ -33,6 +33,7 @@ function makeForm(overrides: Partial<WizardFormSnapshot> = {}): WizardFormSnapsh
     connectorSlug: null,
     connectorTypeId: null,
     connectorConfig: null,
+    parentUnitId: null,
     ...overrides,
   };
 }
@@ -167,5 +168,69 @@ describe("wizard-persistence", () => {
     const b = generateWizardRunId();
     expect(a).not.toBe(b);
     expect(a.length).toBeGreaterThan(0);
+  });
+
+  // #1150: the wizard persists `parentUnitId` so a hard refresh of
+  // /units/create?parent=foo doesn't lose the parent context. Two
+  // cases matter:
+  //   (a) round-trip a non-null parent id through save + load.
+  //   (b) older blobs (pre-#1150) lack the field entirely — the
+  //       loader must accept them and default the field to `null`
+  //       (top-level), not discard the snapshot.
+  it("round-trips a non-null parentUnitId (#1150)", () => {
+    const runId = "run-parent-1";
+    const snapshot = makeSnapshot({
+      form: makeForm({ parentUnitId: "engineering" }),
+    });
+    saveWizardSnapshot(runId, snapshot);
+    const loaded = loadWizardSnapshot(runId);
+    expect(loaded).not.toBeNull();
+    expect(loaded?.form.parentUnitId).toBe("engineering");
+  });
+
+  it("accepts pre-#1150 blobs that omit parentUnitId, defaulting to null", () => {
+    const runId = "run-parent-2";
+    // Hand-craft a snapshot that mimics a pre-#1150 sessionStorage
+    // entry: every other field is present, but `parentUnitId` is
+    // missing. The loader should treat it as a top-level wizard
+    // (`null`) instead of throwing the snapshot away.
+    const legacy = {
+      schemaVersion: WIZARD_STATE_SCHEMA_VERSION,
+      currentStep: 3,
+      form: {
+        name: "acme",
+        displayName: "Acme",
+        description: "",
+        provider: "claude",
+        model: "claude-sonnet-4-6",
+        color: "#6366f1",
+        tool: "claude-code",
+        hosting: "default",
+        image: "",
+        runtime: "",
+        mode: "scratch",
+        templateId: null,
+        yamlText: "",
+        yamlFileName: null,
+        connectorSlug: null,
+        connectorTypeId: null,
+        connectorConfig: null,
+        // intentionally no `parentUnitId`
+      },
+    };
+    sessionStorage.setItem(wizardSessionKey(runId), JSON.stringify(legacy));
+    const loaded = loadWizardSnapshot(runId);
+    expect(loaded).not.toBeNull();
+    expect(loaded?.form.parentUnitId).toBeNull();
+  });
+
+  it("validateSnapshot rejects a non-string, non-null parentUnitId", () => {
+    expect(
+      validateSnapshot({
+        schemaVersion: WIZARD_STATE_SCHEMA_VERSION,
+        currentStep: 3,
+        form: makeForm({ parentUnitId: 42 as unknown as string }),
+      }),
+    ).toBeNull();
   });
 });

@@ -20,7 +20,14 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Play, RefreshCw, Square, Trash2, CheckCircle2 } from "lucide-react";
+import {
+  Play,
+  Plus,
+  RefreshCw,
+  Square,
+  Trash2,
+  CheckCircle2,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -173,11 +180,33 @@ function UnitActions({ node }: { node: TreeNode }) {
     deleteMutation.isPending ||
     forceDeleteMutation.isPending;
 
+  // #1150: "Create sub-unit" launches the existing /units/create wizard
+  // with this unit pre-selected as the parent. The wizard reads the
+  // `parent` query param at mount and threads `parentUnitIds` /
+  // `isTopLevel: false` through the create-unit API call (see
+  // `src/app/units/create/page.tsx`). The button is unconditional —
+  // every unit can be a parent, regardless of its lifecycle status —
+  // so we do not gate it on `status` like the lifecycle verbs above.
+  // The action sits ahead of the Day-2 verbs in the cluster because
+  // it's a creation flow, not a verb on the current unit.
+  const onCreateSubunit = () => {
+    router.push(`/units/create?parent=${encodeURIComponent(node.id)}`);
+  };
+
   return (
     <div
       className="flex flex-wrap items-center gap-2"
       data-testid="unit-pane-actions"
     >
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={onCreateSubunit}
+        data-testid="unit-action-create-subunit"
+      >
+        <Plus className="mr-1 h-4 w-4" aria-hidden="true" />
+        Create sub-unit
+      </Button>
       {status === "Draft" && (
         <Button
           variant="default"
