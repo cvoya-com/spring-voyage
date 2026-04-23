@@ -95,6 +95,18 @@ const AVAILABLE_EVENTS: readonly string[] = [
   "release",
 ];
 
+// Mirror of `GitHubConnectorType.DefaultEvents`. The server falls back to
+// this set whenever the wire `events` field is null or empty, so the
+// wizard surfaces the same list as the informational row under the
+// "Connector defaults" toggle. Kept duplicated on purpose — changing the
+// defaults in one place shouldn't silently change them in the other.
+// (#1127)
+const DEFAULT_EVENTS: readonly string[] = [
+  "issues",
+  "pull_request",
+  "issue_comment",
+];
+
 export interface GitHubConnectorWizardStepProps {
   /**
    * Fires whenever the form produces a new valid config payload (or `null`
@@ -131,8 +143,24 @@ export function GitHubConnectorWizardStep({
       : Number(initialValue.appInstallationId),
   );
   const [reviewer, setReviewer] = useState(initialValue?.reviewer ?? "");
+  // #1127: split webhook-event handling into "use connector defaults" vs.
+  // "explicit set". `useDefaults` drives both the wire shape (omit
+  // `events` so the server applies its own defaults) AND the UI (the
+  // event row becomes informational — checkmarks reflect DEFAULT_EVENTS,
+  // boxes are disabled). Initial value:
+  //   * no initialValue.events (or empty)  -> defaults checked
+  //   * initialValue.events provided        -> defaults unchecked
+  // We seed the explicit `events` state with DEFAULT_EVENTS rather than
+  // [] so the first click of "uncheck Connector defaults" lands the
+  // operator on the same row of marks they were already living with —
+  // not an empty form they then have to re-tick.
+  const initialUseDefaults =
+    initialValue?.events == null || initialValue.events.length === 0;
+  const [useDefaults, setUseDefaults] = useState<boolean>(initialUseDefaults);
   const [events, setEvents] = useState<string[]>(
-    initialValue?.events ? [...initialValue.events] : [],
+    initialValue?.events && initialValue.events.length > 0
+      ? [...initialValue.events]
+      : [...DEFAULT_EVENTS],
   );
 
   const [repositories, setRepositories] = useState<
@@ -299,10 +327,20 @@ export function GitHubConnectorWizardStep({
       owner: trimmedOwner,
       repo: trimmedRepo,
       appInstallationId: installationId,
-      events: events.length > 0 ? events : undefined,
+      // #1127: omit `events` whenever the operator picked "Connector
+      // defaults" so the server resolves the set itself. When they
+      // picked an explicit list we forward it verbatim — the server
+      // still falls back to its defaults if we somehow send an empty
+      // list, but bubbling the explicit selection is the user's
+      // intent of record either way.
+      events: useDefaults
+        ? undefined
+        : events.length > 0
+          ? events
+          : undefined,
       reviewer: reviewer.trim() === "" ? undefined : reviewer.trim(),
     });
-  }, [owner, repo, installationId, events, reviewer, onChange]);
+  }, [owner, repo, installationId, events, reviewer, useDefaults, onChange]);
 
   const toggleEvent = (e: string) => {
     setEvents((prev) =>
@@ -550,20 +588,59 @@ export function GitHubConnectorWizardStep({
         </label>
       )}
 
-      <div className="space-y-1">
-        <span className="text-xs text-muted-foreground">Webhook events</span>
-        <div className="flex flex-wrap gap-2">
+      {/* #1127: webhook event selection. The "Connector defaults" toggle
+          is the primary control. While it's checked the per-event row
+          becomes purely informational — checkmarks reflect what the
+          server would apply (DEFAULT_EVENTS) and the inputs are
+          disabled. Unchecking it pre-populates the explicit list with
+          the same defaults so the operator starts from "what was
+          already happening", not an empty form. */}
+      <fieldset className="space-y-2">
+        <legend className="text-xs text-muted-foreground">
+          Webhook events
+        </legend>
+        <label className="inline-flex cursor-pointer items-center gap-2 text-xs">
+          <input
+            type="checkbox"
+            checked={useDefaults}
+            onChange={(e) => {
+              const next = e.target.checked;
+              setUseDefaults(next);
+              if (!next && events.length === 0) {
+                setEvents([...DEFAULT_EVENTS]);
+              }
+            }}
+            data-testid="github-events-use-defaults"
+          />
+          <span className="font-medium text-foreground">
+            Connector defaults
+          </span>
+        </label>
+        <div
+          className="flex flex-wrap gap-2"
+          aria-label="Webhook events"
+          role="group"
+        >
           {AVAILABLE_EVENTS.map((e) => {
-            const checked = events.includes(e);
+            const checked = useDefaults
+              ? DEFAULT_EVENTS.includes(e)
+              : events.includes(e);
             return (
               <label
                 key={e}
-                className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-border px-2 py-1 text-xs"
+                className={
+                  "inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs " +
+                  (useDefaults
+                    ? "cursor-not-allowed opacity-70"
+                    : "cursor-pointer")
+                }
               >
                 <input
                   type="checkbox"
                   checked={checked}
+                  disabled={useDefaults}
                   onChange={() => toggleEvent(e)}
+                  aria-label={e}
                 />
                 <span>{e}</span>
               </label>
@@ -571,9 +648,11 @@ export function GitHubConnectorWizardStep({
           })}
         </div>
         <span className="block text-[11px] text-muted-foreground">
-          Leave empty to use the connector&apos;s default event set.
+          {useDefaults
+            ? "The connector subscribes to its default events. Uncheck to pick a custom set."
+            : "Custom event set. The server clamps anything unsupported."}
         </span>
-      </div>
+      </fieldset>
     </div>
   );
 }
