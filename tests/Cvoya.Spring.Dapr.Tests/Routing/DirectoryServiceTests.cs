@@ -591,6 +591,104 @@ public class DirectoryServiceTests : IDisposable
         second.DeletedAt.ShouldBe(firstStamp);
     }
 
+    /// <summary>
+    /// #1135 regression: deleting a unit must make it disappear from
+    /// <see cref="DirectoryService.ResolveAsync"/> in the same process, with
+    /// no restart. The previous implementation's cascade went through
+    /// <see cref="DirectoryService.ResolveAsync"/> while computing sub-unit
+    /// members, which write-through-repopulated <c>_entries</c> and the
+    /// shared cache from the still-live DB row before the soft-delete
+    /// stamp was applied. The post-delete in-memory state then served a
+    /// ghost entry until the host restarted.
+    /// </summary>
+    [Fact]
+    public async Task UnregisterAsync_unit_in_process_resolve_returns_null_after_cascade()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var proxyFactory = Substitute.For<IActorProxyFactory>();
+        var service = CreateServiceWithActorFactory(proxyFactory);
+
+        var unitAddress = new Address("unit", "ghost-resolve");
+        await service.RegisterAsync(
+            new DirectoryEntry(unitAddress, "unit-actor-ghost", "Ghost", "", null, DateTimeOffset.UtcNow),
+            ct);
+
+        StubUnitMembers(proxyFactory, "unit-actor-ghost", Array.Empty<Address>());
+
+        await service.UnregisterAsync(unitAddress, ct);
+
+        // The same process that just deleted the row must not serve a
+        // cached/repopulated entry for it.
+        var resolved = await service.ResolveAsync(unitAddress, ct);
+        resolved.ShouldBeNull();
+    }
+
+    /// <summary>
+    /// #1135 regression: <see cref="DirectoryService.ListAllAsync"/> must
+    /// not include the deleted unit immediately after
+    /// <see cref="DirectoryService.UnregisterAsync"/> returns. Same root
+    /// cause as the resolve regression above; this is the
+    /// <c>GET /api/v1/units</c> path.
+    /// </summary>
+    [Fact]
+    public async Task UnregisterAsync_unit_in_process_list_does_not_include_after_cascade()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var proxyFactory = Substitute.For<IActorProxyFactory>();
+        var service = CreateServiceWithActorFactory(proxyFactory);
+
+        var unitAddress = new Address("unit", "ghost-list");
+        await service.RegisterAsync(
+            new DirectoryEntry(unitAddress, "unit-actor-ghost-list", "Ghost", "", null, DateTimeOffset.UtcNow),
+            ct);
+
+        StubUnitMembers(proxyFactory, "unit-actor-ghost-list", Array.Empty<Address>());
+
+        // Warm the cache via the same path the API uses on every list.
+        var beforeDelete = await service.ListAllAsync(ct);
+        beforeDelete.ShouldContain(e => e.Address.Path == "ghost-list");
+
+        await service.UnregisterAsync(unitAddress, ct);
+
+        var afterDelete = await service.ListAllAsync(ct);
+        afterDelete.ShouldNotContain(e => e.Address.Path == "ghost-list");
+    }
+
+    /// <summary>
+    /// #1135 regression: the cascade-through-sub-units path must also leave
+    /// the in-memory state coherent. Both the parent and the soft-deleted
+    /// sub-unit must be invisible to a same-process resolve / list, even
+    /// though the cascade walked through the parent's actor proxy to find
+    /// the sub-unit and could trigger write-through repopulation along the
+    /// way.
+    /// </summary>
+    [Fact]
+    public async Task UnregisterAsync_unit_cascades_in_process_eviction()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var proxyFactory = Substitute.For<IActorProxyFactory>();
+        var service = CreateServiceWithActorFactory(proxyFactory);
+
+        var parent = new Address("unit", "ghost-parent");
+        var sub = new Address("unit", "ghost-sub");
+        await service.RegisterAsync(
+            new DirectoryEntry(parent, "unit-actor-ghost-parent", "P", "", null, DateTimeOffset.UtcNow), ct);
+        await service.RegisterAsync(
+            new DirectoryEntry(sub, "unit-actor-ghost-sub", "S", "", null, DateTimeOffset.UtcNow), ct);
+
+        StubUnitMembers(proxyFactory, "unit-actor-ghost-parent", new[] { sub });
+        StubUnitMembers(proxyFactory, "unit-actor-ghost-sub", Array.Empty<Address>());
+
+        await service.UnregisterAsync(parent, ct);
+
+        (await service.ResolveAsync(parent, ct)).ShouldBeNull();
+        (await service.ResolveAsync(sub, ct)).ShouldBeNull();
+
+        var listed = await service.ListAllAsync(ct);
+        listed.ShouldNotContain(e => e.Address.Path == "ghost-parent");
+        listed.ShouldNotContain(e => e.Address.Path == "ghost-sub");
+    }
+
     private DirectoryService CreateServiceWithActorFactory(IActorProxyFactory proxyFactory)
     {
         return new DirectoryService(

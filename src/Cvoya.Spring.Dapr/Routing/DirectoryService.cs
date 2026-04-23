@@ -400,6 +400,21 @@ public class DirectoryService(
 
         await db.SaveChangesAsync(cancellationToken);
 
+        // #1135: re-evict the unit from the in-memory map and the cache
+        // *after* the soft-delete commits. Reading the cascade graph above
+        // can race with `ResolveAsync`'s write-through path, which may have
+        // repopulated `_entries`/`cache` from the still-live DB row mid-
+        // cascade (the `deleted_at` flip happens in the line above, not at
+        // the start of this method). Without this final eviction, every
+        // post-delete read served from `_entries` (e.g. `ListAllAsync`,
+        // `ResolveAsync`'s in-memory hit) would return a ghost entry for a
+        // unit the DB has already tombstoned, and the only recovery would be
+        // a host restart. The DB write is the source of truth; force the
+        // in-memory state to match it.
+        var unitKey = ToKey(unitAddress);
+        _entries.TryRemove(unitKey, out _);
+        cache.Invalidate(unitAddress);
+
         _logger.LogInformation(
             "Cascade-deleted unit {UnitId}: memberships removed={MembershipCount}, sub-units visited={SubUnitCount}.",
             unitId, memberships.Count, subUnits.Count);
@@ -412,6 +427,18 @@ public class DirectoryService(
     /// degrade to "no members" — the cascade still soft-deletes the unit
     /// row and its memberships, just without recursing into sub-units.
     /// </summary>
+    /// <remarks>
+    /// #1135: this method runs as part of the unit-delete cascade, before
+    /// the row's <c>DeletedAt</c> column is set. We deliberately bypass
+    /// <see cref="ResolveAsync"/> because that method has a write-through
+    /// side effect — on a cache miss it repopulates <c>_entries</c> and the
+    /// shared <see cref="DirectoryCache"/> from the DB. Mid-cascade the DB
+    /// row is still live, so the write-through would re-add the entry we
+    /// are about to delete and the post-delete state would still serve a
+    /// ghost. Read directly from the in-memory map (no write) and fall back
+    /// to <see cref="LoadFromDatabaseAsync"/> for cold-path deletes; in
+    /// both cases we never write back into the cache from this code path.
+    /// </remarks>
     private async Task<IReadOnlyList<Address>> TryReadUnitMembersAsync(
         Address unitAddress, CancellationToken cancellationToken)
     {
@@ -420,9 +447,14 @@ public class DirectoryService(
             return Array.Empty<Address>();
         }
 
-        // Prefer the already-warmed in-memory entry; fall back to the DB so
-        // the cascade works on cold-path deletes too.
-        var entry = await ResolveAsync(unitAddress, cancellationToken);
+        var key = ToKey(unitAddress);
+        DirectoryEntry? entry;
+        if (!_entries.TryGetValue(key, out entry))
+        {
+            // Cold path: read the row directly. LoadFromDatabaseAsync only
+            // returns the entry; it does not mutate _entries or `cache`.
+            entry = await LoadFromDatabaseAsync(unitAddress, cancellationToken);
+        }
         if (entry is null)
         {
             return Array.Empty<Address>();
