@@ -44,6 +44,7 @@ using Cvoya.Spring.Dapr.Secrets;
 using Cvoya.Spring.Dapr.Skills;
 using Cvoya.Spring.Dapr.State;
 using Cvoya.Spring.Dapr.Tenancy;
+using Cvoya.Spring.Dapr.Units;
 using Cvoya.Spring.Dapr.Workflows;
 
 using global::Dapr.Actors.Client;
@@ -200,7 +201,17 @@ public static class ServiceCollectionExtensions
         // Repositories
         services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
         services.TryAddScoped<IUnitMembershipRepository, UnitMembershipRepository>();
+        services.TryAddScoped<IUnitSubunitMembershipRepository, UnitSubunitMembershipRepository>();
         services.TryAddScoped<IUnitPolicyRepository, UnitPolicyRepository>();
+
+        // Singleton write-through wrapper around the scoped sub-unit
+        // membership repository (#1154). UnitActor is not request-scoped
+        // and cannot consume the scoped repo directly; the projector
+        // creates a fresh DI scope per call so the EF context resolves
+        // cleanly. TryAddSingleton so the cloud overlay can register a
+        // tenant-aware decorator (audit / permission / multi-tenant
+        // context) ahead of the OSS default.
+        services.TryAddSingleton<IUnitSubunitMembershipProjector, UnitSubunitMembershipProjector>();
 
         // Tenant-scoping guard for composition + membership writes (#745).
         // Scoped so the guard sees the current request's tenant context —
@@ -753,6 +764,43 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddCvoyaSpringDefaultTenantBootstrap(this IServiceCollection services)
     {
         services.AddHostedService<DefaultTenantBootstrapService>();
+        return services;
+    }
+
+    /// <summary>
+    /// Registers <see cref="UnitSubunitMembershipReconciliationService"/>
+    /// as a hosted service so the host that owns the actor runtime
+    /// reconciles the persistent <c>unit_subunit_memberships</c>
+    /// projection with each <c>UnitActor</c>'s in-state member list on
+    /// startup (#1154).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Single-owner invariant: call this from the host that registers
+    /// the unit actor (the Worker in OSS topology). Running it in
+    /// multiple replicas is safe — every write is idempotent — but
+    /// wastes per-actor round-trips. Hosts that do not own the actor
+    /// runtime (the API host, build-time tooling) MUST NOT register
+    /// this service: without the local actor activations the proxy
+    /// calls have nothing to call into and reconciliation logs noise
+    /// for every unit.
+    /// </para>
+    /// <para>
+    /// Mirrors the lifecycle of
+    /// <see cref="AddCvoyaSpringDatabaseMigrator"/> /
+    /// <see cref="AddCvoyaSpringDefaultTenantBootstrap"/>: the
+    /// reconciliation runs once at <c>StartAsync</c> and no-ops on
+    /// stop. Failures are logged and swallowed — a stale projection
+    /// degrades the tenant tree to "missing some sub-unit edges" but
+    /// never blocks the host from coming up.
+    /// </para>
+    /// </remarks>
+    /// <param name="services">The service collection to configure.</param>
+    /// <returns>The same service collection for chaining.</returns>
+    public static IServiceCollection AddCvoyaSpringUnitSubunitMembershipReconciliation(
+        this IServiceCollection services)
+    {
+        services.AddHostedService<UnitSubunitMembershipReconciliationService>();
         return services;
     }
 

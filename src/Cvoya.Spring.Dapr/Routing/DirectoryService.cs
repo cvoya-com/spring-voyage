@@ -342,6 +342,23 @@ public class DirectoryService(
             db.UnitMemberships.Remove(membership);
         }
 
+        // #1154: tear down every persistent sub-unit edge that mentions
+        // this unit on either side. The actor-state list is the source
+        // of truth for runtime dispatch and is gone the moment the
+        // unit's row is soft-deleted; if we leave the projection rows
+        // behind, the next tenant-tree fetch renders ghost children
+        // (parent edge) or orphans the new tenant root (child edge).
+        // Wrapped in the same SaveChangesAsync below so the cascade
+        // stays atomic.
+        var subunitEdges = await db.UnitSubunitMemberships
+            .Where(e => e.ParentUnitId == unitId || e.ChildUnitId == unitId)
+            .ToListAsync(cancellationToken);
+
+        foreach (var edge in subunitEdges)
+        {
+            db.UnitSubunitMemberships.Remove(edge);
+        }
+
         // Ref-count each affected agent. An agent is soft-deleted iff every
         // other unit it's attached to is already deleted. We check against
         // unit_definitions (IgnoreQueryFilters so soft-deleted units read
@@ -416,8 +433,8 @@ public class DirectoryService(
         cache.Invalidate(unitAddress);
 
         _logger.LogInformation(
-            "Cascade-deleted unit {UnitId}: memberships removed={MembershipCount}, sub-units visited={SubUnitCount}.",
-            unitId, memberships.Count, subUnits.Count);
+            "Cascade-deleted unit {UnitId}: memberships removed={MembershipCount}, sub-units visited={SubUnitCount}, sub-unit edges removed={SubunitEdgeCount}.",
+            unitId, memberships.Count, subUnits.Count, subunitEdges.Count);
     }
 
     /// <summary>

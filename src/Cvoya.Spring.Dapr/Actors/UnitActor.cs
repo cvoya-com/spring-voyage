@@ -44,6 +44,7 @@ public class UnitActor : Actor, IUnitActor
     private readonly IOrchestrationStrategyResolver? _strategyResolver;
     private readonly IUnitValidationWorkflowScheduler? _validationWorkflowScheduler;
     private readonly IUnitValidationTracker? _validationTracker;
+    private readonly IUnitSubunitMembershipProjector? _subunitProjector;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="UnitActor"/> class.
@@ -91,6 +92,16 @@ public class UnitActor : Actor, IUnitActor
     /// bookkeeping proceeds without the entity write so older tests keep
     /// passing.
     /// </param>
+    /// <param name="subunitProjector">
+    /// Optional write-through projector for the parent → child unit
+    /// edge (#1154). When present, <see cref="AddMemberAsync"/> and
+    /// <see cref="RemoveMemberAsync"/> mirror every <c>unit://</c>-scheme
+    /// mutation into the persistent <c>unit_subunit_memberships</c>
+    /// table so the tenant-tree endpoint (and any other reader) can
+    /// resolve the unit containment graph without a per-unit actor
+    /// fanout. Null in legacy test harnesses; the actor-state list
+    /// remains authoritative either way.
+    /// </param>
     public UnitActor(
         ActorHost host,
         ILoggerFactory loggerFactory,
@@ -101,7 +112,8 @@ public class UnitActor : Actor, IUnitActor
         IExpertiseSeedProvider? expertiseSeedProvider = null,
         IOrchestrationStrategyResolver? strategyResolver = null,
         IUnitValidationWorkflowScheduler? validationWorkflowScheduler = null,
-        IUnitValidationTracker? validationTracker = null)
+        IUnitValidationTracker? validationTracker = null,
+        IUnitSubunitMembershipProjector? subunitProjector = null)
         : base(host)
     {
         _logger = loggerFactory.CreateLogger<UnitActor>();
@@ -113,6 +125,7 @@ public class UnitActor : Actor, IUnitActor
         _strategyResolver = strategyResolver;
         _validationWorkflowScheduler = validationWorkflowScheduler;
         _validationTracker = validationTracker;
+        _subunitProjector = subunitProjector;
     }
 
     /// <summary>
@@ -247,6 +260,18 @@ public class UnitActor : Actor, IUnitActor
         _logger.LogInformation("Unit {ActorId} added member {Member}. Total members: {Count}",
             Id.GetId(), member, members.Count);
 
+        // #1154: persist the parent → child edge so the tenant-tree
+        // endpoint can resolve nested unit hierarchies without a
+        // per-unit actor fanout. The projector swallows its own
+        // failures — the actor-state write above is authoritative and
+        // the startup reconciliation service replays drifted edges on
+        // the next host boot.
+        if (_subunitProjector is not null
+            && string.Equals(member.Scheme, "unit", StringComparison.OrdinalIgnoreCase))
+        {
+            await _subunitProjector.ProjectAddAsync(Id.GetId(), member.Path, ct);
+        }
+
         await EmitActivityEventAsync(ActivityEventType.StateChanged,
             $"Member {member} added to unit. Total members: {members.Count}",
             ct,
@@ -274,6 +299,15 @@ public class UnitActor : Actor, IUnitActor
 
         _logger.LogInformation("Unit {ActorId} removed member {Member}. Total members: {Count}",
             Id.GetId(), member, members.Count);
+
+        // #1154: keep the persistent projection in sync with the
+        // actor-state list. Failures are swallowed by the projector;
+        // the next host start reconciles any drift.
+        if (_subunitProjector is not null
+            && string.Equals(member.Scheme, "unit", StringComparison.OrdinalIgnoreCase))
+        {
+            await _subunitProjector.ProjectRemoveAsync(Id.GetId(), member.Path, ct);
+        }
 
         await EmitActivityEventAsync(ActivityEventType.StateChanged,
             $"Member {member} removed from unit. Total members: {members.Count}",

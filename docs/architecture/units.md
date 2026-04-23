@@ -217,6 +217,13 @@ A rejected add surfaces a `CyclicMembershipException` carrying the parent unit, 
 
 Removing a `unit://` member is a straightforward state write — no cycle check is needed because removing an edge cannot introduce one.
 
+**Persistent projection of unit-as-member edges (#1154).** `IUnitActor` state is the source of truth for runtime dispatch and cycle detection, but it is invisible to readers that don't fan out one actor call per unit (the tenant-tree endpoint, future analytics, the cloud overlay's audit pipeline). To unblock those readers without forcing them to walk every actor, `UnitActor.AddMemberAsync` and `RemoveMemberAsync` write through to a sibling `unit_subunit_memberships` table whenever the mutated member is `unit://`-scheme. Composite primary key `(tenant_id, parent_unit_id, child_unit_id)`; per-edge config overrides for unit-typed members remain deferred to #217.
+
+The projection is best-effort by design: a write-through failure logs and continues, never aborting the actor turn that already updated state. Two safety nets recover any drift:
+
+1. The unit-delete cascade in `DirectoryService.CascadeDeleteUnitAsync` deletes every projection row that mentions the deleted unit on either side, in the same EF transaction that flips its `deleted_at`. A surviving ghost would otherwise render a deleted unit as a child node on the next `GET /api/v1/tenant/tree`.
+2. A startup hosted service (`UnitSubunitMembershipReconciliationService`, registered by the Worker host) iterates the directory, asks each unit actor for its current member list, upserts every missing `unit://` edge, and retires every projection row whose edge is no longer present in actor state. The reconciliation runs once per host start, is idempotent, and is the only path that backfills the projection on existing deployments where the column did not exist before this migration.
+
 The unit delegates message handling to an **`IOrchestrationStrategy`**:
 
 ```csharp
