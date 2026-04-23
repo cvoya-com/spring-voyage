@@ -74,20 +74,46 @@ public class UnitValidationWorkflowScheduler(
 
         if (entity is null)
         {
-            throw new SpringException(
-                $"Cannot schedule unit validation: no UnitDefinition row for actor id '{unitActorId}'.");
+            // The directory has the actor id but the canonical row is gone
+            // — almost certainly a tear-down race. Surface as a structured
+            // configuration failure so the actor doesn't get stuck.
+            throw new UnitValidationSchedulingException(new UnitValidationError(
+                Step: UnitValidationStep.PullingImage,
+                Code: UnitValidationCodes.ConfigurationIncomplete,
+                Message: $"No unit definition row exists for actor id '{unitActorId}'. " +
+                    "The unit may have been deleted; recreate it before validating.",
+                Details: null));
         }
 
-        var defaults = DbUnitExecutionStore.Extract(entity.Definition)
-            ?? throw new SpringException(
-                $"Cannot schedule unit validation for unit '{entity.UnitId}': " +
-                "no execution defaults are configured on the unit definition.");
+        var defaults = DbUnitExecutionStore.Extract(entity.Definition);
+        if (defaults is null)
+        {
+            // No execution defaults at all — closest semantic step is the
+            // first one the workflow would have run (image pull). The
+            // operator can fix this from the unit's Execution tab and
+            // call /revalidate.
+            throw new UnitValidationSchedulingException(new UnitValidationError(
+                Step: UnitValidationStep.PullingImage,
+                Code: UnitValidationCodes.ConfigurationIncomplete,
+                Message: "No execution defaults are configured on this unit. " +
+                    "Set a container image (and optionally a runtime) before validation can run.",
+                Details: new Dictionary<string, string>
+                {
+                    ["missing"] = "image,runtime",
+                }));
+        }
 
         if (string.IsNullOrWhiteSpace(defaults.Image))
         {
-            throw new SpringException(
-                $"Cannot schedule unit validation for unit '{entity.UnitId}': " +
-                "execution defaults declare no container image.");
+            throw new UnitValidationSchedulingException(new UnitValidationError(
+                Step: UnitValidationStep.PullingImage,
+                Code: UnitValidationCodes.ConfigurationIncomplete,
+                Message: "This unit has no container image configured. " +
+                    "Set the image on the unit's Execution tab and retry validation.",
+                Details: new Dictionary<string, string>
+                {
+                    ["missing"] = "image",
+                }));
         }
 
         // Runtime id lives in the execution.runtime slot. The dapr-agent
@@ -96,9 +122,15 @@ public class UnitValidationWorkflowScheduler(
         var runtimeId = defaults.Runtime ?? defaults.Provider;
         if (string.IsNullOrWhiteSpace(runtimeId))
         {
-            throw new SpringException(
-                $"Cannot schedule unit validation for unit '{entity.UnitId}': " +
-                "execution defaults declare neither a runtime nor a provider.");
+            throw new UnitValidationSchedulingException(new UnitValidationError(
+                Step: UnitValidationStep.VerifyingTool,
+                Code: UnitValidationCodes.ConfigurationIncomplete,
+                Message: "This unit has no runtime or provider configured. " +
+                    "Pick a runtime (or provider) on the unit's Execution tab and retry validation.",
+                Details: new Dictionary<string, string>
+                {
+                    ["missing"] = "runtime",
+                }));
         }
 
         // Resolve the credential via the two-tier chain (unit → tenant).

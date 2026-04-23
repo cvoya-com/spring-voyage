@@ -45,4 +45,17 @@ public static class UnitValidationCodes
     /// knowledge of the API's <c>?force=true</c> escape hatch.
     /// </summary>
     public const string ScheduleFailed = "ScheduleFailed";
+
+    /// <summary>
+    /// The unit's persisted configuration is missing one or more values the
+    /// validation workflow requires (e.g. no container image, no runtime id).
+    /// Reported by the scheduler — the in-container probe never gets a chance
+    /// to run. <see cref="UnitValidationError.Details"/> carries the missing
+    /// field name(s) under the <c>missing</c> key. Distinct from
+    /// <see cref="ScheduleFailed"/>, which is the catch-all for
+    /// scheduler-side failures (Dapr runtime down, transient infra) — this
+    /// code identifies a configuration mistake the operator can fix on the
+    /// wizard's Execution step before retrying.
+    /// </summary>
+    public const string ConfigurationIncomplete = "ConfigurationIncomplete";
 }

@@ -31,6 +31,8 @@ const createUnitSecret = vi.fn();
 const createTenantSecret = vi.fn();
 const rotateTenantSecret = vi.fn();
 const startUnit = vi.fn();
+const deleteUnit = vi.fn();
+const revalidateUnit = vi.fn();
 const getUnit = vi.fn();
 const getUnitExecution = vi.fn();
 
@@ -61,9 +63,10 @@ vi.mock("@/lib/api/client", () => ({
     rotateTenantSecret: (name: string, body: unknown) =>
       rotateTenantSecret(name, body),
     startUnit: (name: string) => startUnit(name),
+    deleteUnit: (name: string) => deleteUnit(name),
+    revalidateUnit: (name: string) => revalidateUnit(name),
     getUnit: (name: string) => getUnit(name),
     getUnitExecution: (name: string) => getUnitExecution(name),
-    revalidateUnit: vi.fn().mockResolvedValue(undefined),
   },
 }));
 
@@ -228,6 +231,8 @@ function seedDefaultMocks() {
   // its empty-template-catalog state by default.
   listUnitTemplates.mockResolvedValue([]);
   listConnectorTypes.mockResolvedValue([]);
+  deleteUnit.mockResolvedValue(undefined);
+  revalidateUnit.mockResolvedValue(undefined);
 }
 
 describe("CreateUnitPage — wizard reads tenant-installed agent runtimes (#690)", () => {
@@ -718,11 +723,13 @@ describe("CreateUnitPage — T-07 wizard simplification (#949)", () => {
       name: "anthropic-api-key",
       value: "sk-ant-unit",
     });
-    // Wizard auto-starts the unit (#983) and waits for a terminal
-    // status before redirecting to the Explorer.
-    await waitFor(() => {
-      expect(startUnit).toHaveBeenCalledWith("acme");
-    });
+    // The mocked GET /units/{id} reports `Running` immediately, so the
+    // wizard skips POST /start (the unit is already past Draft) and
+    // redirects straight to the Explorer once the terminal status is
+    // observed. The /start gate was tightened to avoid emitting a
+    // spurious 409 when the create endpoint has already advanced the
+    // unit's lifecycle (see "skips POST /start" test below).
+    expect(startUnit).not.toHaveBeenCalled();
     await waitFor(() => {
       expect(pushMock).toHaveBeenCalledWith(
         "/units?node=acme&tab=Overview",
@@ -792,7 +799,13 @@ describe("CreateUnitPage — auto-start + validation (#983)", () => {
     await clickNext(); // → Finalize
   }
 
-  it("success path: POSTs /start, renders ValidationPanel, redirects on Running", async () => {
+  it("success path: post-create status is Running, redirects without re-calling /start", async () => {
+    // The create endpoint may advance the unit's lifecycle on its own
+    // (it transitions to Validating when the unit is fully configured,
+    // and the validation workflow then moves it to Stopped/Running).
+    // The wizard observes the resulting status and only POSTs /start
+    // when the unit is still in Draft — re-calling /start from a
+    // non-Draft state is a 409 in the API.
     getUnit.mockResolvedValue({
       id: "acme-id",
       name: "acme",
@@ -819,6 +832,57 @@ describe("CreateUnitPage — auto-start + validation (#983)", () => {
     await waitFor(() => {
       expect(createUnit).toHaveBeenCalledTimes(1);
     });
+    expect(startUnit).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(pushMock).toHaveBeenCalledWith(
+        "/units?node=acme&tab=Overview",
+      );
+    });
+  });
+
+  it("legacy Draft path: POSTs /start when post-create status is still Draft", async () => {
+    // First poll returns Draft (legacy scratch path: the create
+    // endpoint didn't advance the lifecycle), subsequent polls flip
+    // to Running so the redirect can fire.
+    getUnit
+      .mockResolvedValueOnce({
+        id: "acme-id",
+        name: "acme",
+        displayName: "Acme",
+        description: "",
+        registeredAt: "2026-04-21T00:00:00Z",
+        status: "Draft",
+        model: "claude-opus-4-7",
+        color: null,
+        tool: "claude-code",
+        provider: null,
+        hosting: null,
+        lastValidationError: null,
+        lastValidationRunId: null,
+      })
+      .mockResolvedValue({
+        id: "acme-id",
+        name: "acme",
+        displayName: "Acme",
+        description: "",
+        registeredAt: "2026-04-21T00:00:00Z",
+        status: "Running",
+        model: "claude-opus-4-7",
+        color: null,
+        tool: "claude-code",
+        provider: null,
+        hosting: null,
+        lastValidationError: null,
+        lastValidationRunId: null,
+      });
+
+    await advanceWizardToFinalize();
+
+    const createBtn = screen.getByTestId("create-unit-button");
+    await act(async () => {
+      fireEvent.click(createBtn);
+    });
+
     await waitFor(() => {
       expect(startUnit).toHaveBeenCalledWith("acme");
     });
@@ -829,7 +893,7 @@ describe("CreateUnitPage — auto-start + validation (#983)", () => {
     });
   });
 
-  it("error path: terminal Error keeps the user on Finalize with a Back affordance", async () => {
+  it("error path: terminal Error keeps the user on Finalize with Back and Cancel affordances", async () => {
     getUnit.mockResolvedValue({
       id: "acme-id",
       name: "acme",
@@ -857,13 +921,21 @@ describe("CreateUnitPage — auto-start + validation (#983)", () => {
       fireEvent.click(createBtn);
     });
 
+    // Backend already moved the unit past Draft (straight to Error in
+    // this scenario), so the wizard does NOT call /start.
     await waitFor(() => {
-      expect(startUnit).toHaveBeenCalledWith("acme");
+      expect(createUnit).toHaveBeenCalledTimes(1);
     });
+    expect(startUnit).not.toHaveBeenCalled();
 
     // Error action row shows up; redirect must NOT happen.
     await screen.findByTestId("wizard-validation-error-actions");
     expect(pushMock).not.toHaveBeenCalled();
+
+    // Both Back and Cancel-and-delete must be present.
+    expect(
+      screen.getByTestId("wizard-validation-error-cancel"),
+    ).toBeInTheDocument();
 
     // Back affordance steps the wizard back to Execution (step 2).
     const back = screen.getByTestId("wizard-validation-back");
@@ -874,6 +946,46 @@ describe("CreateUnitPage — auto-start + validation (#983)", () => {
     // Once the user steps back, the Execution step's Tool select is
     // visible again.
     expect(screen.getByLabelText("Execution tool")).toBeInTheDocument();
+  });
+
+  it("Cancel during Validating deletes the partial unit and routes back to /units", async () => {
+    // Stay in Validating indefinitely so the Cancel surface stays mounted.
+    getUnit.mockResolvedValue({
+      id: "acme-id",
+      name: "acme",
+      displayName: "Acme",
+      description: "",
+      registeredAt: "2026-04-21T00:00:00Z",
+      status: "Validating",
+      model: "claude-opus-4-7",
+      color: null,
+      tool: "claude-code",
+      provider: null,
+      hosting: null,
+      lastValidationError: null,
+      lastValidationRunId: "run-pending",
+    });
+
+    await advanceWizardToFinalize();
+
+    const createBtn = screen.getByTestId("create-unit-button");
+    await act(async () => {
+      fireEvent.click(createBtn);
+    });
+
+    // Wait for the inline Cancel button to appear next to the
+    // "Waiting for validation" status text.
+    const cancel = await screen.findByTestId("wizard-validation-cancel");
+    await act(async () => {
+      fireEvent.click(cancel);
+    });
+
+    await waitFor(() => {
+      expect(deleteUnit).toHaveBeenCalledWith("acme");
+    });
+    await waitFor(() => {
+      expect(pushMock).toHaveBeenCalledWith("/units");
+    });
   });
 });
 

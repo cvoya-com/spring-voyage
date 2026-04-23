@@ -15,8 +15,10 @@ import {
   FileText,
   KeyRound,
   Plug,
+  RefreshCw,
   Rocket,
   Sparkles,
+  X,
 } from "lucide-react";
 // Note: unit validation is now backend-side (T-02/T-04). The wizard no
 // longer tries to reach an LLM from the browser to check the key —
@@ -87,6 +89,15 @@ const DEFAULT_COLOR = "#6366f1";
 const WIZARD_PERSIST_DEBOUNCE_MS = 300;
 
 const NAME_PATTERN = /^[a-z0-9-]+$/;
+
+// How long to wait inside the Validating state before surfacing a
+// soft "this is taking longer than expected" notice in the wizard.
+// The backend's per-step timeouts (5 min image pull, etc.) are
+// authoritative; this number is purely a UX threshold so the operator
+// can choose to cancel rather than stare at a spinner. Kept short
+// enough to feel responsive but long enough that a normal cold image
+// pull on a slow connection won't trip it spuriously.
+const VALIDATION_SOFT_TIMEOUT_MS = 60_000;
 
 // Issue #661: the wizard splits into Identity (step 1) and Execution
 // (step 2) — see the issue body for the field-level acceptance
@@ -452,6 +463,17 @@ export default function CreateUnitPage() {
   const [createdUnitName, setCreatedUnitName] = useState<string | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
   const [startRequested, setStartRequested] = useState(false);
+  // Soft client-side timeout for the Validating phase. The backend has
+  // its own per-step timeouts (5 min for the image pull), but those are
+  // long enough that a stuck workflow looks indistinguishable from "still
+  // working" to a user staring at the wizard. After
+  // VALIDATION_SOFT_TIMEOUT_MS we surface a "this is taking longer than
+  // expected" notice with Cancel / Retry affordances. The validation
+  // itself keeps running in the background; the notice is purely UX.
+  const [validationStartedAt, setValidationStartedAt] = useState<number | null>(
+    null,
+  );
+  const [validationSoftTimedOut, setValidationSoftTimedOut] = useState(false);
 
   // #1132: debounced sessionStorage save. Stops once the unit is
   // created (we don't want to overwrite the snapshot — it's about to be
@@ -1062,7 +1084,7 @@ export default function CreateUnitPage() {
   });
 
   // Post-create validation flow. Once `createdUnitName` is set, we
-  // POST /start exactly once and begin polling the unit envelope. The
+  // poll the unit envelope until it reaches a terminal status. The
   // SSE stream inside ValidationPanel also invalidates the detail
   // cache, so the polling interval is a fallback — short enough to
   // feel responsive when SSE is unavailable but not so short that it
@@ -1070,21 +1092,6 @@ export default function CreateUnitPage() {
   const startMutation = useMutation({
     mutationFn: (name: string) => api.startUnit(name),
   });
-  useEffect(() => {
-    if (createdUnitName && !startRequested) {
-      setStartRequested(true);
-      startMutation.mutate(createdUnitName, {
-        onError: (err) => {
-          const message = err instanceof Error ? err.message : String(err);
-          setStartError(message);
-        },
-      });
-    }
-    // We only want to fire start once per created unit. `startMutation`
-    // identity is stable within a render cycle for our purposes; the
-    // guard is `startRequested`.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [createdUnitName, startRequested]);
 
   // Poll the newly-created unit until it reaches a terminal status.
   const createdUnitQuery = useUnit(createdUnitName ?? "", {
@@ -1095,6 +1102,39 @@ export default function CreateUnitPage() {
   const createdUnitExecution = useUnitExecution(createdUnitName ?? "", {
     enabled: createdUnitName !== null,
   });
+
+  // Auto-start gate. The create endpoint may already have moved the
+  // unit out of `Draft` (it transitions to `Validating` or directly to
+  // `Error` when the persisted execution defaults are sufficient — or
+  // demonstrably broken). Calling `/start` from `Validating` would
+  // 409, which is the noisy "API error 409: Conflict — cannot
+  // transition from Validating to Starting" the operator used to see
+  // when validation got wedged. So: only POST `/start` when the first
+  // poll observation says the unit is still in `Draft`. For any other
+  // status we just observe — the unit has already been handed off to
+  // the validation workflow (or its terminal state) by the create
+  // path.
+  useEffect(() => {
+    if (!createdUnitName || startRequested) return;
+    if (!createdUnit) return; // Wait for the first poll result.
+    if (createdUnit.status !== "Draft") {
+      // Already past Draft — nothing to start. Mark requested so we
+      // don't reconsider on every poll.
+      setStartRequested(true);
+      return;
+    }
+    setStartRequested(true);
+    startMutation.mutate(createdUnitName, {
+      onError: (err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        setStartError(message);
+      },
+    });
+    // We only want to fire start once per created unit. `startMutation`
+    // identity is stable within a render cycle for our purposes; the
+    // guard is `startRequested`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [createdUnitName, createdUnit, startRequested]);
 
   // Terminal statuses from the validation workflow's perspective.
   // `Running` = start-after-validate succeeded; `Stopped` = validated,
@@ -1126,6 +1166,93 @@ export default function CreateUnitPage() {
       );
     }
   }, [createdUnitName, isTerminalSuccess, router, runId]);
+
+  // Soft-timeout machinery. Tracks the wall-clock instant the unit
+  // first appeared in a non-terminal post-create state, then sets
+  // `validationSoftTimedOut` once the threshold elapses. The clock
+  // resets whenever the unit returns to a terminal state (e.g. on
+  // Retry) so the operator gets a fresh window after each attempt.
+  useEffect(() => {
+    if (!isValidating) {
+      setValidationStartedAt(null);
+      setValidationSoftTimedOut(false);
+      return;
+    }
+    if (validationStartedAt === null) {
+      setValidationStartedAt(Date.now());
+      setValidationSoftTimedOut(false);
+      return;
+    }
+    if (validationSoftTimedOut) return;
+    const elapsed = Date.now() - validationStartedAt;
+    const remaining = Math.max(0, VALIDATION_SOFT_TIMEOUT_MS - elapsed);
+    if (remaining === 0) {
+      setValidationSoftTimedOut(true);
+      return;
+    }
+    const handle = window.setTimeout(() => {
+      setValidationSoftTimedOut(true);
+    }, remaining);
+    return () => window.clearTimeout(handle);
+  }, [isValidating, validationStartedAt, validationSoftTimedOut]);
+
+  // Cancel-creation mutation. Deletes the partially-created unit and
+  // navigates back to the units list. Used by the Cancel affordance
+  // surfaced during Validating, the soft-timeout notice, and the
+  // terminal-Error surface — so the operator always has an escape
+  // hatch from a stuck or failed validation.
+  const cancelMutation = useMutation({
+    mutationFn: async (name: string) => {
+      await api.deleteUnit(name);
+    },
+    onSuccess: (_data, name) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.units.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
+      toast({ title: "Unit cancelled", description: `Removed ${name}.` });
+      router.push("/units");
+    },
+    onError: (err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      toast({
+        title: "Failed to cancel unit",
+        description: message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleCancelCreatedUnit = () => {
+    if (!createdUnitName) return;
+    cancelMutation.mutate(createdUnitName);
+  };
+
+  // Retry: re-trigger validation against the existing unit. Clears
+  // the soft-timeout window so the operator gets a fresh deadline.
+  const revalidateMutation = useMutation({
+    mutationFn: (name: string) => api.revalidateUnit(name),
+    onSuccess: () => {
+      if (createdUnitName) {
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.units.detail(createdUnitName),
+        });
+      }
+      setValidationStartedAt(null);
+      setValidationSoftTimedOut(false);
+    },
+    onError: (err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      toast({
+        title: "Failed to retry validation",
+        description: message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleRetry = () => {
+    if (!createdUnitName) return;
+    revalidateMutation.mutate(createdUnitName);
+  };
 
   const submitting = createUnit.isPending;
 
@@ -2152,16 +2279,6 @@ export default function CreateUnitPage() {
               </p>
             )}
 
-            {startError && (
-              <p
-                role="alert"
-                data-testid="wizard-start-error"
-                className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-              >
-                Failed to start validation: {startError}
-              </p>
-            )}
-
             {createdUnitName && !createdUnit && !createdUnitQuery.error && (
               <p
                 role="status"
@@ -2173,12 +2290,82 @@ export default function CreateUnitPage() {
             )}
 
             {createdUnit && (
-              <div data-testid="wizard-validation-view">
+              <div data-testid="wizard-validation-view" className="space-y-3">
                 <ValidationPanel
                   unit={createdUnit}
                   image={createdUnitExecution.data?.image ?? null}
                   runtime={createdUnitExecution.data?.runtime ?? null}
                 />
+
+                {/*
+                 * `/start` failures are surfaced inside the validation
+                 * surface — not as a separate banner above — so the
+                 * operator reads the failed step and the API error in
+                 * the same visual unit. Only relevant if the wizard
+                 * actually attempted /start (i.e. the unit was still
+                 * Draft when we observed it after creation).
+                 */}
+                {startError && (
+                  <p
+                    role="alert"
+                    data-testid="wizard-start-error"
+                    className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+                  >
+                    Couldn&apos;t start validation: {startError}
+                  </p>
+                )}
+
+                {/*
+                 * Soft timeout. The validation workflow may genuinely
+                 * still be running (a slow image pull, for example),
+                 * but the operator deserves an explicit escape hatch
+                 * after a minute of waiting. We render Cancel + Retry
+                 * actions; Cancel deletes the partial unit, Retry
+                 * triggers /revalidate against the existing unit.
+                 */}
+                {isValidating && validationSoftTimedOut && (
+                  <div
+                    data-testid="wizard-validation-stuck"
+                    className="flex flex-wrap items-start gap-3 rounded-md border border-warning/50 bg-warning/10 px-3 py-2 text-sm text-foreground"
+                  >
+                    <div className="flex-1 space-y-1">
+                      <p className="font-medium">
+                        Validation is taking longer than expected.
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        The backend may still be working — image pulls can take
+                        several minutes on a cold cache. You can keep waiting,
+                        retry, or cancel and remove the partial unit.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        data-testid="wizard-validation-stuck-retry"
+                        onClick={handleRetry}
+                        disabled={revalidateMutation.isPending}
+                      >
+                        <RefreshCw className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                        {revalidateMutation.isPending
+                          ? "Retrying…"
+                          : "Retry validation"}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        data-testid="wizard-validation-stuck-cancel"
+                        onClick={handleCancelCreatedUnit}
+                        disabled={cancelMutation.isPending}
+                      >
+                        <X className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                        {cancelMutation.isPending
+                          ? "Cancelling…"
+                          : "Cancel and delete"}
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -2193,14 +2380,26 @@ export default function CreateUnitPage() {
             )}
 
             {isValidating && (
-              <p
-                role="status"
-                data-testid="wizard-validation-status"
-                className="text-xs text-muted-foreground"
-              >
-                Waiting for validation to finish. You&apos;ll be redirected to
-                the Explorer once the unit is ready.
-              </p>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p
+                  role="status"
+                  data-testid="wizard-validation-status"
+                  className="text-xs text-muted-foreground"
+                >
+                  Waiting for validation to finish. You&apos;ll be redirected to
+                  the Explorer once the unit is ready.
+                </p>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  data-testid="wizard-validation-cancel"
+                  onClick={handleCancelCreatedUnit}
+                  disabled={cancelMutation.isPending}
+                >
+                  <X className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                  {cancelMutation.isPending ? "Cancelling…" : "Cancel"}
+                </Button>
+              </div>
             )}
 
             {isTerminalError && (
@@ -2210,8 +2409,8 @@ export default function CreateUnitPage() {
               >
                 <p className="flex-1 text-sm text-foreground">
                   Validation failed. Step back to adjust your inputs (for
-                  example, paste a new credential or pick a different tool) and
-                  try again.
+                  example, set a container image or paste a new credential)
+                  and retry — or cancel and remove the partial unit.
                 </p>
                 <Button
                   variant="outline"
@@ -2221,17 +2420,32 @@ export default function CreateUnitPage() {
                     // Unwind the create-phase state so the wizard returns to a
                     // pristine editable state. We don't reset the form itself —
                     // the operator's choices are preserved so they can fix the
-                    // offending field without re-entering everything.
+                    // offending field without re-entering everything. The unit
+                    // itself stays in the directory in `Error` so the operator
+                    // can choose to retry validation from the Explorer instead
+                    // of recreating from scratch.
                     setCreatedUnitName(null);
                     setStartRequested(false);
                     setStartError(null);
                     setSubmitError(null);
                     setSubmitWarnings([]);
+                    setValidationStartedAt(null);
+                    setValidationSoftTimedOut(false);
                     setStep(2);
                   }}
                 >
                   <ArrowLeft className="mr-1.5 h-3.5 w-3.5" aria-hidden />
                   Back to Execution
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  data-testid="wizard-validation-error-cancel"
+                  onClick={handleCancelCreatedUnit}
+                  disabled={cancelMutation.isPending}
+                >
+                  <X className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                  {cancelMutation.isPending ? "Cancelling…" : "Cancel and delete"}
                 </Button>
               </div>
             )}

@@ -109,7 +109,10 @@ interface CopyContext {
   runId: string | null;
 }
 
-const VALIDATION_COPY: Record<string, (ctx: CopyContext) => string> = {
+const VALIDATION_COPY: Record<
+  string,
+  (ctx: CopyContext, err?: UnitValidationError) => string
+> = {
   ImagePullFailed: (ctx) =>
     `Could not pull image \`${ctx.image ?? "(unset)"}\`. Check that the registry is reachable and the tag exists.`,
   ImageStartFailed: (ctx) =>
@@ -130,8 +133,32 @@ const VALIDATION_COPY: Record<string, (ctx: CopyContext) => string> = {
     ctx.runId
       ? `Validation failed with an internal error. Retry; if it repeats, check dispatcher logs (run id \`${ctx.runId}\`).`
       : "Validation failed with an internal error. Retry; if it repeats, check dispatcher logs.",
+  // #1136 / #1142: scheduler-side failures the actor catches generically
+  // (Dapr workflow runtime down, transient infra). Operator action: retry
+  // via /revalidate; if it persists, check dispatcher logs.
   ScheduleFailed: () =>
     "The validation workflow couldn't be scheduled. Retry; if it repeats, check dispatcher logs.",
+  // #1144: scheduler-side failure the operator can fix on the wizard's
+  // Execution step (e.g. no container image, no runtime). The scheduler
+  // attaches the missing field name(s) under `details.missing` so we can
+  // name them in the copy. Falls back to a generic
+  // "configuration is incomplete" string when no detail is set.
+  ConfigurationIncomplete: (_ctx, err) => {
+    const missing = err?.details?.missing;
+    if (typeof missing === "string" && missing.length > 0) {
+      const fields = missing
+        .split(",")
+        .map((f) => f.trim())
+        .filter((f) => f.length > 0);
+      if (fields.length > 0) {
+        return (
+          `This unit can't be validated yet — missing: ${fields.join(", ")}. ` +
+          "Update the unit's Execution settings and retry validation."
+        );
+      }
+    }
+    return "This unit's configuration is incomplete. Update its Execution settings and retry validation.";
+  },
 };
 
 function formatValidationCopy(
@@ -139,7 +166,7 @@ function formatValidationCopy(
   ctx: CopyContext,
 ): string {
   const mapped = VALIDATION_COPY[err.code];
-  if (mapped) return mapped(ctx);
+  if (mapped) return mapped(ctx, err);
   // Fall back to the server-supplied message so unknown codes still
   // render something actionable.
   return err.message;
@@ -300,6 +327,19 @@ export default function ValidationPanel({ unit, image, runtime }: Props) {
         <CardTitle className="text-base">Validation failed</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
+        {/*
+         * Render the same step checklist used during Validating, but
+         * with the failed step marked. This anchors the error block
+         * below to the specific step it relates to — operators told us
+         * (#issue-handling-stuck-validation) the error felt detached
+         * from the visual progress when it appeared as a separate
+         * banner.
+         */}
+        <StepChecklist
+          activeStep={null}
+          failedStep={err?.step ?? null}
+        />
+
         <div
           role="alert"
           className="space-y-1.5 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-3 text-sm text-foreground"
@@ -349,21 +389,43 @@ export default function ValidationPanel({ unit, image, runtime }: Props) {
 
 function StepChecklist({
   activeStep,
+  failedStep = null,
 }: {
   activeStep: UnitValidationStep | null;
+  // When set, the checklist renders in a "post-mortem" mode: every
+  // step before `failedStep` shows as completed, the failed step
+  // shows with a destructive marker, and steps after it are muted
+  // ("never reached"). Used by the Error state so the error block
+  // below visually attaches to the step that produced it.
+  failedStep?: UnitValidationStep | null;
 }) {
   // Map each step's position to the visual state. When `activeStep` is
-  // null the server hasn't yet emitted progress — treat the first step
-  // as in-flight so the operator sees motion immediately.
-  const activeIndex = activeStep
-    ? STEP_ORDER.indexOf(activeStep)
-    : 0;
+  // null and there's no `failedStep` the server hasn't yet emitted
+  // progress — treat the first step as in-flight so the operator sees
+  // motion immediately. When `failedStep` is set, ignore `activeStep`
+  // entirely.
+  const failedIndex = failedStep ? STEP_ORDER.indexOf(failedStep) : -1;
+  const activeIndex = failedStep
+    ? -1
+    : activeStep
+      ? STEP_ORDER.indexOf(activeStep)
+      : 0;
 
   return (
     <ol className="space-y-2" data-testid="validation-step-checklist">
       {STEP_ORDER.map((step, idx) => {
-        const state: "done" | "active" | "future" =
-          idx < activeIndex ? "done" : idx === activeIndex ? "active" : "future";
+        let state: "done" | "active" | "future" | "failed" | "skipped";
+        if (failedIndex >= 0) {
+          if (idx < failedIndex) state = "done";
+          else if (idx === failedIndex) state = "failed";
+          else state = "skipped";
+        } else if (idx < activeIndex) {
+          state = "done";
+        } else if (idx === activeIndex) {
+          state = "active";
+        } else {
+          state = "future";
+        }
         return (
           <li
             key={step}
@@ -371,7 +433,8 @@ function StepChecklist({
             data-state={state}
             className={cn(
               "flex items-center gap-2 text-sm",
-              state === "future" && "text-muted-foreground",
+              (state === "future" || state === "skipped") && "text-muted-foreground",
+              state === "failed" && "text-destructive",
             )}
           >
             <span
@@ -382,7 +445,9 @@ function StepChecklist({
                   "border-emerald-500/40 bg-emerald-500/15 text-emerald-600 dark:text-emerald-300",
                 state === "active" &&
                   "border-primary/50 bg-primary/10 text-primary",
-                state === "future" &&
+                state === "failed" &&
+                  "border-destructive/50 bg-destructive/10 text-destructive",
+                (state === "future" || state === "skipped") &&
                   "border-border bg-muted text-muted-foreground",
               )}
             >
@@ -390,12 +455,21 @@ function StepChecklist({
               {state === "active" && (
                 <Loader2 className="h-3 w-3 animate-spin" />
               )}
+              {state === "failed" && <AlertTriangle className="h-3 w-3" />}
             </span>
             <span>
               {STEP_LABEL[step]}
               {state === "active" && (
                 <span className="ml-2 text-xs text-muted-foreground">
                   in progress
+                </span>
+              )}
+              {state === "failed" && (
+                <span className="ml-2 text-xs text-destructive">failed</span>
+              )}
+              {state === "skipped" && (
+                <span className="ml-2 text-xs text-muted-foreground">
+                  skipped
                 </span>
               )}
             </span>

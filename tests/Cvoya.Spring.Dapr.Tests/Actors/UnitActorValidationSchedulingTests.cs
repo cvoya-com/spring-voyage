@@ -185,8 +185,15 @@ public class UnitActorValidationSchedulingTests
     /// chain returns is Error.
     /// </summary>
     [Fact]
-    public async Task SchedulerThrows_FlipsToError_AndPersistsScheduleFailedPayload()
+    public async Task SchedulerThrowsGeneric_FlipsToError_AndPersistsScheduleFailedPayload()
     {
+        // #1136: unexpected scheduler failures (Dapr workflow gateway
+        // down, etc.) used to leave the unit hanging in Validating with
+        // no workflow attached. The actor now catches generically,
+        // persists a ScheduleFailed blob with the SchedulingWorkflow step
+        // (the host-side step that never finished), and flips to Error so
+        // the UI / CLI can surface a structured failure and offer a
+        // Retry.
         WithCurrentStatus(UnitStatus.Draft);
         _scheduler
             .ScheduleAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
@@ -196,8 +203,9 @@ public class UnitActorValidationSchedulingTests
         var result = await _actor.TransitionAsync(
             UnitStatus.Validating, TestContext.Current.CancellationToken);
 
-        // The return value is the result of the final PersistTransitionAsync
-        // call inside the catch path: Validating -> Error.
+        // The return value is the result of the final
+        // PersistTransitionAsync call inside the catch path:
+        // Validating -> Error.
         result.Success.ShouldBeTrue();
         result.CurrentStatus.ShouldBe(UnitStatus.Error);
 
@@ -207,7 +215,7 @@ public class UnitActorValidationSchedulingTests
 
         // SetFailureAsync must have been called with a ScheduleFailed
         // payload that round-trips through JSON to a UnitValidationError
-        // whose Code matches the contract.
+        // whose Code + Step match the merged contract.
         await _validationTracker.Received(1).SetFailureAsync(
             TestUnitActorId,
             Arg.Is<string>(payload => PayloadHasScheduleFailedCode(payload)),
@@ -249,6 +257,63 @@ public class UnitActorValidationSchedulingTests
             StateKeys.UnitStatus,
             UnitStatus.Error,
             Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// #1144: when the scheduler throws the typed
+    /// <see cref="UnitValidationSchedulingException"/> (e.g. because the
+    /// unit has no image), the actor persists the *structured* error
+    /// verbatim — preserving the ConfigurationIncomplete code and the
+    /// missing-field detail — instead of falling through to the generic
+    /// ScheduleFailed catch. This is what lets the wizard render
+    /// "Image is required…" copy that names the missing field.
+    /// </summary>
+    [Fact]
+    public async Task SchedulerThrowsTyped_FlipsToError_AndPersistsConfigurationIncompleteBlob()
+    {
+        WithCurrentStatus(UnitStatus.Draft);
+        var error = new UnitValidationError(
+            Step: UnitValidationStep.PullingImage,
+            Code: UnitValidationCodes.ConfigurationIncomplete,
+            Message: "This unit has no container image configured.",
+            Details: new Dictionary<string, string> { ["missing"] = "image" });
+        _scheduler
+            .ScheduleAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<UnitValidationSchedule>(
+                new UnitValidationSchedulingException(error)));
+
+        var result = await _actor.TransitionAsync(
+            UnitStatus.Validating, TestContext.Current.CancellationToken);
+
+        result.Success.ShouldBeTrue();
+        result.CurrentStatus.ShouldBe(UnitStatus.Error);
+
+        // Storage serialization uses default options, so the
+        // UnitValidationStep enum is written as its numeric value (0 ==
+        // PullingImage). The API endpoint re-serializes with
+        // JsonStringEnumConverter on read, so the wire format the UI
+        // sees is still the symbolic name. Assert on the stable bits:
+        // code + missing-field detail.
+        await _validationTracker.Received(1).SetFailureAsync(
+            TestUnitActorId,
+            Arg.Is<string>(payload =>
+                payload != null
+                && payload.Contains(UnitValidationCodes.ConfigurationIncomplete)
+                && payload.Contains("missing")
+                && payload.Contains("image")),
+            Arg.Any<CancellationToken>());
+
+        // The generic ScheduleFailed catch must NOT have fired — the typed
+        // catch's payload should be the only one persisted.
+        await _validationTracker.DidNotReceive().SetFailureAsync(
+            TestUnitActorId,
+            Arg.Is<string>(payload =>
+                payload != null
+                && payload.Contains(UnitValidationCodes.ScheduleFailed)),
+            Arg.Any<CancellationToken>());
+
+        await _stateManager.Received().SetStateAsync(
+            StateKeys.UnitStatus, UnitStatus.Error, Arg.Any<CancellationToken>());
     }
 
     private static bool PayloadHasScheduleFailedCode(string payload)
