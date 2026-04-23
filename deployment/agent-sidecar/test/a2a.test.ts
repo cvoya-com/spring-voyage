@@ -65,6 +65,11 @@ describe("A2AHandler.handle", () => {
   });
 
   it("round-trips a successful message/send to a stub CLI", async () => {
+    // Wire shape (issue #1115): `message/send` returns
+    // `{ result: { task: AgentTask } }` with proto-style enum names so
+    // the .NET A2A SDK's `SendMessageResponse` deserializer (which
+    // discriminates on field-presence between `task` and `message`)
+    // picks up the AgentTask without throwing on `task.status.state`.
     const handler = makeHandler([
       PROCESS_NODE,
       "-e",
@@ -79,12 +84,19 @@ describe("A2AHandler.handle", () => {
     assert.equal(res.id, "task-1");
     const result = res.result as Record<string, unknown>;
     assert.ok(result, "expected a result payload");
-    const status = result.status as Record<string, unknown>;
-    assert.equal(status.state, "completed");
-    const artifacts = result.artifacts as Array<{ artifactId: string; parts: Array<{ text: string }> }>;
+    const taskWrapper = result.task as Record<string, unknown>;
+    assert.ok(taskWrapper, "message/send result must be wrapped under `task` (SendMessageResponse contract)");
+    const status = taskWrapper.status as Record<string, unknown>;
+    // Proto-style enum name pinned by `A2A.TaskState` in the .NET SDK.
+    // See https://github.com/a2aproject/a2a-dotnet/blob/main/src/A2A/Models/TaskState.cs.
+    assert.equal(status.state, "TASK_STATE_COMPLETED");
+    // contextId is [JsonRequired] on A2A.AgentTask; the bridge mirrors
+    // the task id since it has no separate conversation handle.
+    assert.equal(typeof taskWrapper.contextId, "string");
+    const artifacts = taskWrapper.artifacts as Array<{ artifactId: string; parts: Array<{ text: string }> }>;
     assert.equal(artifacts.length, 1);
     assert.equal(artifacts[0]?.parts[0]?.text, "echo:ping");
-    assert.equal((result as Record<string, unknown>)["x-spring-voyage-bridge-version"], BRIDGE_VERSION);
+    assert.equal((taskWrapper as Record<string, unknown>)["x-spring-voyage-bridge-version"], BRIDGE_VERSION);
   });
 
   it("reports failed state with stderr text on non-zero CLI exit", async () => {
@@ -100,16 +112,24 @@ describe("A2AHandler.handle", () => {
       id: 9,
     });
     const result = res.result as Record<string, unknown>;
-    const status = result.status as Record<string, unknown>;
-    assert.equal(status.state, "failed");
-    const message = status.message as { parts: Array<{ text: string }> };
+    const taskWrapper = result.task as Record<string, unknown>;
+    const status = taskWrapper.status as Record<string, unknown>;
+    assert.equal(status.state, "TASK_STATE_FAILED");
+    const message = status.message as { role: string; messageId: string; parts: Array<{ text: string }> };
+    // role + messageId are [JsonRequired] on A2A.Message; the bridge
+    // emits the proto-style `ROLE_AGENT` and a fresh per-error
+    // messageId because the SDK rejects either field being missing.
+    assert.equal(message.role, "ROLE_AGENT");
+    assert.equal(typeof message.messageId, "string");
     assert.match(message.parts[0]?.text ?? "", /boom/);
   });
 
   it("tasks/get returns the cached terminal state for a completed task", async () => {
     // Kick off a successful send first, capture the task id from the
     // response, then assert tasks/get returns the same state without
-    // re-running the CLI.
+    // re-running the CLI. Note: tasks/get returns the bare AgentTask
+    // (no `task` wrapper) because the dispatcher's GetTaskAsync
+    // deserializes the result as `AgentTask` directly.
     const handler = makeHandler([PROCESS_NODE, "-e", "process.stdout.write('done')"]);
     const sendRes = await handler.handle({
       jsonrpc: "2.0",
@@ -117,18 +137,18 @@ describe("A2AHandler.handle", () => {
       params: { message: { parts: [{ text: "" }] } },
       id: 1,
     });
-    const sendResult = sendRes.result as { id: string; status: { state: string } };
-    assert.equal(sendResult.status.state, "completed");
+    const sendTask = (sendRes.result as { task: { id: string; status: { state: string } } }).task;
+    assert.equal(sendTask.status.state, "TASK_STATE_COMPLETED");
 
     const getRes = await handler.handle({
       jsonrpc: "2.0",
       method: "tasks/get",
-      params: { id: sendResult.id },
+      params: { id: sendTask.id },
       id: 2,
     });
     const getResult = getRes.result as { id: string; status: { state: string } };
-    assert.equal(getResult.id, sendResult.id);
-    assert.equal(getResult.status.state, "completed");
+    assert.equal(getResult.id, sendTask.id);
+    assert.equal(getResult.status.state, "TASK_STATE_COMPLETED");
   });
 
   it("tasks/cancel after terminal completion returns the cached state without re-running", async () => {
@@ -139,16 +159,18 @@ describe("A2AHandler.handle", () => {
       params: { message: { parts: [{ text: "" }] } },
       id: 1,
     });
-    const sendResult = sendRes.result as { id: string; status: { state: string } };
+    const sendTask = (sendRes.result as { task: { id: string; status: { state: string } } }).task;
     const cancelRes = await handler.handle({
       jsonrpc: "2.0",
       method: "tasks/cancel",
-      params: { id: sendResult.id },
+      params: { id: sendTask.id },
       id: 2,
     });
+    // tasks/cancel also returns the bare AgentTask (no `task`
+    // wrapper) — see CancelTaskAsync<AgentTask> on the dispatcher side.
     const cancelResult = cancelRes.result as { status: { state: string } };
     // Already completed → cancel must not flip the state.
-    assert.equal(cancelResult.status.state, "completed");
+    assert.equal(cancelResult.status.state, "TASK_STATE_COMPLETED");
   });
 
   it("tasks/get for an unknown id returns -32001", async () => {

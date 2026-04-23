@@ -116,7 +116,14 @@ async def handle_send_message(params: dict, rpc_id) -> web.Response:
 
     task_id = str(uuid.uuid4())
 
-    active_tasks[task_id] = {"process": None, "status": "working", "output": ""}
+    # State strings use the proto-style enum names that the .NET A2A SDK
+    # pins via [JsonStringEnumMemberName] (issue #1115). See
+    # https://github.com/a2aproject/a2a-dotnet/blob/main/src/A2A/Models/TaskState.cs.
+    active_tasks[task_id] = {
+        "process": None,
+        "status": "TASK_STATE_WORKING",
+        "output": "",
+    }
 
     try:
         cmd = [AGENT_CMD] + AGENT_ARGS
@@ -145,15 +152,21 @@ async def handle_send_message(params: dict, rpc_id) -> web.Response:
         error_output = stderr_data.decode(errors="replace") if stderr_data else ""
 
         if exit_code == 0:
-            active_tasks[task_id]["status"] = "completed"
+            active_tasks[task_id]["status"] = "TASK_STATE_COMPLETED"
             active_tasks[task_id]["output"] = output
         else:
-            active_tasks[task_id]["status"] = "failed"
+            active_tasks[task_id]["status"] = "TASK_STATE_FAILED"
             active_tasks[task_id]["output"] = error_output or output
 
-        result_status = "completed" if exit_code == 0 else "failed"
+        result_status = (
+            "TASK_STATE_COMPLETED" if exit_code == 0 else "TASK_STATE_FAILED"
+        )
+        # contextId is [JsonRequired] on A2A.AgentTask in the .NET SDK;
+        # the sidecar mirrors the per-task id since it has no separate
+        # conversation handle to thread through here.
         task_response = {
             "id": task_id,
+            "contextId": task_id,
             "status": {
                 "state": result_status,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -168,24 +181,37 @@ async def handle_send_message(params: dict, rpc_id) -> web.Response:
             else [],
         }
 
+        # message/send result is the .NET SDK's SendMessageResponse, a
+        # field-presence wrapper around `task` or `message`. Wrap so
+        # the dispatcher's deserializer picks up the AgentTask. See
+        # the equivalent comment in deployment/agent-sidecar/src/a2a.ts.
         return web.json_response(
-            {"jsonrpc": "2.0", "result": task_response, "id": rpc_id}
+            {"jsonrpc": "2.0", "result": {"task": task_response}, "id": rpc_id}
         )
 
     except Exception as exc:
         logger.exception("Agent execution failed for task %s", task_id)
-        active_tasks[task_id]["status"] = "failed"
+        active_tasks[task_id]["status"] = "TASK_STATE_FAILED"
+        # role + messageId are [JsonRequired] on A2A.Message in the
+        # .NET SDK; the sidecar emits the proto-style `ROLE_AGENT` and
+        # mints a fresh per-error messageId because the SDK rejects
+        # either field being missing.
         task_response = {
             "id": task_id,
+            "contextId": task_id,
             "status": {
-                "state": "failed",
-                "message": {"role": "agent", "parts": [{"text": str(exc)}]},
+                "state": "TASK_STATE_FAILED",
+                "message": {
+                    "role": "ROLE_AGENT",
+                    "messageId": str(uuid.uuid4()),
+                    "parts": [{"text": str(exc)}],
+                },
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             },
             "artifacts": [],
         }
         return web.json_response(
-            {"jsonrpc": "2.0", "result": task_response, "id": rpc_id}
+            {"jsonrpc": "2.0", "result": {"task": task_response}, "id": rpc_id}
         )
 
 
@@ -211,11 +237,15 @@ async def handle_cancel_task(params: dict, rpc_id) -> web.Response:
         except ProcessLookupError:
             pass
 
-    entry["status"] = "canceled"
+    entry["status"] = "TASK_STATE_CANCELED"
+    # tasks/cancel result deserializes as `AgentTask` directly on the
+    # dispatcher side (CancelTaskAsync<AgentTask>), so the result is
+    # the bare AgentTask shape — no `task` wrapper here.
     task_response = {
         "id": task_id,
+        "contextId": task_id,
         "status": {
-            "state": "canceled",
+            "state": "TASK_STATE_CANCELED",
             "timestamp": datetime.now(timezone.utc).isoformat(),
         },
     }
@@ -238,8 +268,12 @@ async def handle_get_task(params: dict, rpc_id) -> web.Response:
         )
 
     entry = active_tasks[task_id]
+    # tasks/get result deserializes as `AgentTask` directly on the
+    # dispatcher side (GetTaskAsync<AgentTask>), so the result is the
+    # bare AgentTask shape — no `task` wrapper here.
     task_response = {
         "id": task_id,
+        "contextId": task_id,
         "status": {
             "state": entry["status"],
             "timestamp": datetime.now(timezone.utc).isoformat(),

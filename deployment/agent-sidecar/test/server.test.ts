@@ -89,9 +89,17 @@ describe("createServer", () => {
         const body = (await res.json()) as Record<string, unknown>;
         assert.equal(body.id, 42);
         const result = body.result as Record<string, unknown>;
-        const status = result.status as Record<string, unknown>;
-        assert.equal(status.state, "completed");
-        const artifacts = result.artifacts as Array<{ parts: Array<{ text: string }> }>;
+        // message/send result is the .NET A2A SDK's
+        // SendMessageResponse — a field-presence wrapper around
+        // either `task` or `message`. The bridge always returns a
+        // task per #1115.
+        const taskWrapper = result.task as Record<string, unknown>;
+        const status = taskWrapper.status as Record<string, unknown>;
+        // Proto-style enum name (issue #1115). The .NET A2A SDK
+        // pins TASK_STATE_* via [JsonStringEnumMemberName] and
+        // throws on the lowercase A2A 0.3 spec form.
+        assert.equal(status.state, "TASK_STATE_COMPLETED");
+        const artifacts = taskWrapper.artifacts as Array<{ parts: Array<{ text: string }> }>;
         assert.equal(artifacts[0]?.parts[0]?.text, "ack:ping");
       },
     );

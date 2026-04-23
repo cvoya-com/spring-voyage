@@ -6,7 +6,10 @@
 # `docs/decisions/0027-agent-image-conformance-contract.md` end-to-end at
 # the wire level: it boots an agent image, polls /.well-known/agent.json
 # until ready, fires an A2A `message/send`, and asserts a real response
-# came back (status.state == "completed", artifact text matches).
+# came back (status.state == "TASK_STATE_COMPLETED", artifact text
+# matches). Enum values follow the proto-style names that the .NET A2A
+# SDK pins via [JsonStringEnumMemberName]; see issue #1115 for the
+# rationale.
 #
 # What's exercised today:
 #   - Path 1 (FROM ghcr.io/cvoya-com/agent-base): the claude-code image
@@ -175,9 +178,12 @@ PATH1_RESP="$(curl -fsS --max-time 10 -X POST "http://127.0.0.1:${PATH1_PORT}/" 
 log "path 1 message/send response:"
 printf '%s\n' "${PATH1_RESP}" | jq . >&2 || printf '%s\n' "${PATH1_RESP}" >&2
 
-PATH1_STATE="$(printf '%s' "${PATH1_RESP}" | jq -r '.result.status.state // empty')"
-if [[ "${PATH1_STATE}" != "completed" ]]; then
-    log "::error::path 1: message/send result.status.state='${PATH1_STATE}', expected 'completed'"
+# message/send result is the .NET A2A SDK's SendMessageResponse — a
+# field-presence wrapper around `task` or `message`. The bridge always
+# returns the AgentTask under `task` (see issue #1115).
+PATH1_STATE="$(printf '%s' "${PATH1_RESP}" | jq -r '.result.task.status.state // empty')"
+if [[ "${PATH1_STATE}" != "TASK_STATE_COMPLETED" ]]; then
+    log "::error::path 1: message/send result.task.status.state='${PATH1_STATE}', expected 'TASK_STATE_COMPLETED'"
     "${DOCKER}" logs "${PATH1_NAME}" >&2 || true
     exit 1
 fi
@@ -186,13 +192,14 @@ fi
 # text should contain the prompt verbatim. We tolerate trailing whitespace
 # differences.
 #
-# A2A artifacts can live in either result.artifacts[].parts[].text or
-# result.status.message.parts[].text depending on the bridge version; we
-# check both and assert the prompt shows up somewhere.
+# A2A artifacts can live in either result.task.artifacts[].parts[].text
+# or result.task.status.message.parts[].text depending on whether the
+# bridge attached an error message; we check both and assert the prompt
+# shows up somewhere.
 PATH1_ARTIFACT="$(printf '%s' "${PATH1_RESP}" | jq -r '
     [
-      (.result.artifacts // [])[].parts[]?.text,
-      (.result.status.message.parts // [])[]?.text
+      (.result.task.artifacts // [])[].parts[]?.text,
+      (.result.task.status.message.parts // [])[]?.text
     ] | map(select(. != null)) | join("\n")
 ')"
 
@@ -203,7 +210,7 @@ if [[ "${PATH1_ARTIFACT}" != *"${PROMPT}"* ]]; then
     exit 1
 fi
 
-log "path 1: PASS (protocolVersion=0.3, bridge-version header present, message/send echoed prompt)"
+log "path 1: PASS (protocolVersion=0.3, bridge-version header present, message/send returned TASK_STATE_COMPLETED with echoed prompt)"
 
 "${DOCKER}" rm -f "${PATH1_NAME}" >/dev/null
 unset 'CONTAINERS[0]'

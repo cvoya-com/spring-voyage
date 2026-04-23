@@ -1,0 +1,24 @@
+{
+  "jsonrpc": "2.0",
+  "id": "stable-id",
+  "result": {
+    "task": {
+      "id": "stable-id",
+      "contextId": "stable-contextId",
+      "status": {
+        "state": "TASK_STATE_COMPLETED",
+        "timestamp": "2026-01-01T00:00:00.000Z"
+      },
+      "artifacts": [
+        {
+          "artifactId": "stable-artifactId",
+          "parts": [
+            {
+              "text": "echo:hello-from-fixture"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

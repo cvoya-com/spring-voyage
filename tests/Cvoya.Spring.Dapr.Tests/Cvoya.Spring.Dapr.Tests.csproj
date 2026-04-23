@@ -24,4 +24,15 @@
     <PackageReference Include="System.Reactive" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Wire-format fixtures captured from the agent-sidecar bridge so the
+         dispatcher tests can pin the exact JSON the bridge emits (issue
+         #1115). Capture script: deployment/agent-sidecar/test/a2a.test.ts
+         exercises the same paths; these fixtures are the JSON-RPC
+         envelopes the bridge writes on the wire. -->
+    <None Update="Execution/Fixtures/*.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>
