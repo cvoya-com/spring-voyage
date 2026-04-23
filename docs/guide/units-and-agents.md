@@ -151,10 +151,14 @@ spring unit set <name> \
 ### Managing Members
 
 ```
-spring unit members add <unit> <agent-or-unit>
-spring unit members remove <unit> <agent-or-unit>
+spring unit members add <unit> --agent <agent> [--model …] [--specialty …] [--enabled …] [--execution-mode …]
+spring unit members add <unit> --unit <child>
+spring unit members remove <unit> --agent <agent>
+spring unit members remove <unit> --unit <child>
 spring unit members list <unit>
 ```
+
+`--agent` and `--unit` are mutually exclusive on both `add` and `remove`; supply exactly one. The `--agent` shape on `add` accepts the per-membership overrides above (`--model` / `--specialty` / `--enabled` / `--execution-mode`); the `--unit` shape carries no per-edge config today (#217). On `remove`, the `--unit` path detaches a sub-unit edge — the server keeps the parent-required invariant (#744), so removing the last parent of a non-top-level child returns 409 with the offending unit address surfaced in the CLI's error output.
 
 `unit members list --output json` returns one row per member with a unified `member` field carrying the scheme-prefixed canonical address (`agent://<path>` for agent members, `unit://<path>` for sub-units), so scripts can read the member id without branching on `agentAddress` vs `subUnitId`. The HTTP `/api/v1/units/{id}/memberships` and `/api/v1/agents/{id}/memberships` surfaces carry the same field on `UnitMembershipResponse`.
 

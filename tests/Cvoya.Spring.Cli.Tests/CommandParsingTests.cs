@@ -297,6 +297,71 @@ public class CommandParsingTests
         parseResult.GetValue<string>("--agent").ShouldBe("ada");
     }
 
+    // --- #1151: `spring unit members remove --unit <child>` ---------------
+
+    [Fact]
+    public void UnitMembersRemove_ParsesUnitOption()
+    {
+        // Mirror of UnitMembersAdd_ParsesUnitOption (#331). After #1151,
+        // `members remove` accepts --unit as an alternative to --agent so a
+        // sub-unit edge can be detached through the same verb that creates
+        // it.
+        var outputOption = CreateOutputOption();
+        var unitCommand = UnitCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(unitCommand);
+
+        var parseResult = rootCommand.Parse(
+            "unit members remove parent-unit --unit child-unit");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<string>("unit").ShouldBe("parent-unit");
+        parseResult.GetValue<string>("--unit").ShouldBe("child-unit");
+        parseResult.GetValue<string>("--agent").ShouldBeNull();
+    }
+
+    [Fact]
+    public void UnitMembersRemove_ParsesWithoutAgentOrUnit_LeavesErrorsEmpty()
+    {
+        // #1151 relaxed the parser-level `Required = true` on --agent
+        // because `members remove` now accepts --unit as an alternative.
+        // The mutual-exclusion rule ("exactly one of --agent / --unit") is
+        // enforced at action time with a readable error message; the parse
+        // step itself stays successful so the action can take over and
+        // surface the right diagnostic to the user — same shape as the
+        // `members add` permissive parse landed by #331.
+        var outputOption = CreateOutputOption();
+        var unitCommand = UnitCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(unitCommand);
+
+        var parseResult = rootCommand.Parse("unit members remove eng-team");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<string>("--agent").ShouldBeNull();
+        parseResult.GetValue<string>("--unit").ShouldBeNull();
+    }
+
+    [Fact]
+    public void UnitMembersRemove_ParsesAgentAndUnitTogether_ForActionToReject()
+    {
+        // Parser is intentionally permissive; the action layer enforces the
+        // "exactly one of --agent / --unit" rule with a readable error
+        // message. See UnitCommand.CreateMembersRemoveCommand for the
+        // runtime check introduced by #1151.
+        var outputOption = CreateOutputOption();
+        var unitCommand = UnitCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(unitCommand);
+
+        var parseResult = rootCommand.Parse(
+            "unit members remove parent-unit --agent ada --unit child-unit");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<string>("--agent").ShouldBe("ada");
+        parseResult.GetValue<string>("--unit").ShouldBe("child-unit");
+    }
+
     [Fact]
     public void UnitPurge_ParsesIdAndConfirm()
     {

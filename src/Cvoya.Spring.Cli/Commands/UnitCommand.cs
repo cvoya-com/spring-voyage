@@ -1521,24 +1521,78 @@ public static class UnitCommand
     private static Command CreateMembersRemoveCommand()
     {
         var unitArg = new Argument<string>("unit") { Description = "The unit identifier" };
-        var agentOption = new Option<string>("--agent")
+        // #1151: --agent and --unit are mutually exclusive (exactly one
+        // required). Mirrors the shape of `members add` (#331) so the
+        // remove path can detach either an agent membership or a sub-unit
+        // edge through a single verb. Both options are parser-permissive
+        // (Required = false) so the action body can produce a single,
+        // readable error when callers supply neither / both — same pattern
+        // used by `members add`.
+        var agentOption = new Option<string?>("--agent")
         {
-            Description = "The agent identifier to remove from this unit",
-            Required = true,
+            Description = "The agent identifier to remove from this unit (mutually exclusive with --unit).",
         };
-        var command = new Command("remove", "Remove an agent's membership from this unit.");
+        var unitOption = new Option<string?>("--unit")
+        {
+            Description = "The sub-unit identifier to detach from this unit (mutually exclusive with --agent).",
+        };
+        var command = new Command(
+            "remove",
+            "Remove an agent (--agent) or detach a sub-unit (--unit) from this unit. Exactly one of --agent or --unit must be supplied.");
         command.Arguments.Add(unitArg);
         command.Options.Add(agentOption);
+        command.Options.Add(unitOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
-            var unitId = parseResult.GetValue(unitArg)!;
-            var agentId = parseResult.GetValue(agentOption)!;
+            var parentUnitId = parseResult.GetValue(unitArg)!;
+            var agentId = parseResult.GetValue(agentOption);
+            var childUnitId = parseResult.GetValue(unitOption);
+
+            var hasAgent = !string.IsNullOrWhiteSpace(agentId);
+            var hasChildUnit = !string.IsNullOrWhiteSpace(childUnitId);
+
+            if (hasAgent == hasChildUnit)
+            {
+                await Console.Error.WriteLineAsync(hasAgent
+                    ? "--agent and --unit are mutually exclusive. Supply exactly one."
+                    : "One of --agent or --unit is required.");
+                Environment.Exit(1);
+                return;
+            }
+
             var client = ClientFactory.Create();
+
+            if (hasChildUnit)
+            {
+                // #1151: sub-unit memberships live on the unit actor's
+                // member list rather than the /memberships repository
+                // (per-membership overrides are agent-only today, see
+                // #217). The actor-level DELETE /api/v1/units/{id}/members/
+                // {memberId} endpoint handles both schemes server-side and
+                // consults UnitParentInvariantGuard, so removing the last
+                // parent of a non-top-level child returns 409 — bubbled
+                // through ExtractServerDetail like every other structured
+                // error path.
+                try
+                {
+                    await client.RemoveMemberAsync(parentUnitId, childUnitId!, ct);
+                }
+                catch (ApiException ex)
+                {
+                    await Console.Error.WriteLineAsync(
+                        $"Failed to detach sub-unit '{childUnitId}' from unit '{parentUnitId}': {ExtractServerDetail(ex)}");
+                    Environment.Exit(1);
+                    return;
+                }
+
+                Console.WriteLine($"Sub-unit '{childUnitId}' detached from unit '{parentUnitId}'.");
+                return;
+            }
 
             try
             {
-                await client.DeleteMembershipAsync(unitId, agentId, ct);
+                await client.DeleteMembershipAsync(parentUnitId, agentId!, ct);
             }
             catch (ApiException ex)
             {
@@ -1547,11 +1601,11 @@ public static class UnitCommand
                 // so operators see the server's title/detail rather than the
                 // Kiota exception stack.
                 await Console.Error.WriteLineAsync(
-                    $"Failed to remove membership for agent '{agentId}' from unit '{unitId}': {ExtractServerDetail(ex)}");
+                    $"Failed to remove membership for agent '{agentId}' from unit '{parentUnitId}': {ExtractServerDetail(ex)}");
                 Environment.Exit(1);
                 return;
             }
-            Console.WriteLine($"Membership for agent '{agentId}' removed from unit '{unitId}'.");
+            Console.WriteLine($"Membership for agent '{agentId}' removed from unit '{parentUnitId}'.");
         });
 
         return command;
