@@ -39,16 +39,20 @@ public class DaprAgentLauncher(
     /// <summary>
     /// Argv vector that bypasses the agent-base bridge and starts the Dapr
     /// Agent process directly. Matches the CMD declared by
-    /// <c>agents/dapr-agent/Dockerfile</c> (the actual production entrypoint
-    /// for this image — the upstream <c>dapr-agents</c> PyPI package does
-    /// not publish a runnable A2A module today, so we run our own
-    /// <c>agent.py</c> shim instead). BYOI conformance path 3.
+    /// <c>agents/dapr-agent/Dockerfile</c>. BYOI conformance path 3.
     /// </summary>
     /// <remarks>
-    /// See follow-up issue tracking confirmation of the upstream
-    /// <c>dapr-agents</c> A2A entrypoint module path; if/when that lands,
-    /// this argv can be swapped for <c>python -m dapr_agents.&lt;module&gt;</c>
-    /// without changing the launcher contract.
+    /// Issue #1106 verified (2026-04): the upstream <c>dapr-agents 1.0.1</c>
+    /// PyPI package does NOT publish a runnable A2A entrypoint module —
+    /// <c>dapr_agents/__init__.py</c> exports <c>DurableAgent</c>,
+    /// <c>AgentRunner</c>, chat clients, and helpers, but no
+    /// <c>dapr_agents.a2a</c> module. The A2A surface is provided by
+    /// <c>a2a-sdk[http-server]</c>; agents wire their own ASGI app and
+    /// expose it via uvicorn (see <c>agents/dapr-agent/agent.py</c> +
+    /// <c>agents/dapr-agent/a2a_server.py</c>). If upstream ever adds a
+    /// runnable A2A module, this argv can be swapped for
+    /// <c>python -m dapr_agents.&lt;module&gt;</c> without changing the
+    /// launcher contract.
     /// </remarks>
     internal static readonly string[] DefaultDaprAgentArgv = ["python", "agent.py"];
 
