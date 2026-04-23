@@ -22,10 +22,12 @@ Bound from the `GitHub` configuration section
 | `PrivateKeyPem` | `GitHub__PrivateKeyPem` | yes | PEM-encoded App private key. Inlined verbatim, inlined as a single line with literal `\n` between blocks (decoded automatically — same convention as Firebase / GCP service-account keys), or an absolute container-visible path to a `.pem` file. |
 | `WebhookSecret` | `GitHub__WebhookSecret` | recommended | Shared secret used to verify incoming webhook signatures. |
 | `InstallationId` | `GitHub__InstallationId` | optional | Pin operations to a specific installation; otherwise the connector picks the first installation visible to the App. |
-| `AppSlug` | `GitHub__AppSlug` | required for install URL | The App's public slug, used to build `https://github.com/apps/{slug}/installations/new`. |
+| `AppSlug` | `GitHub__AppSlug` | required for install URL | The App's public slug as it appears in the App's URL on github.com (`https://github.com/apps/<slug>`). The operator picks the App name when registering — see [Register your GitHub App](../../docs/guide/github-app-setup.md) — and GitHub derives the slug from the chosen name. The connector uses it to build `https://github.com/apps/{slug}/installations/new`. |
 | `WebhookUrl` | `GitHub__WebhookUrl` | yes (for unit start) | Public URL the connector registers webhooks against on unit start. |
 
 > **Env-file gotchas.** podman / docker `--env-file` keeps surrounding quotes literally and does not support multi-line values. Always write `GitHub__*` values UNQUOTED, and inline the PEM as one line with `\n` separators. See [Deployment guide § Tier-1 platform credentials](../../docs/guide/deployment.md#tier-1-platform-credentials--github-app-identity-env-only) for the full set of pitfalls.
+
+> **Where do these values come from?** Spring Voyage does not ship a shared App private key — each deployment registers its **own** GitHub App. The fastest path is `spring github-app register`, which drives GitHub's App-from-manifest flow and writes every value above into `deployment/spring.env` for you. The manual github.com flow is also documented end-to-end. See [Register your GitHub App](../../docs/guide/github-app-setup.md) for both paths and the required permission / event matrices.
 
 Missing `AppId` / `PrivateKeyPem` keep the connector registered but
 disabled — the credential requirement
