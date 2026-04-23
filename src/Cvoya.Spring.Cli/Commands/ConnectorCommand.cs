@@ -315,6 +315,10 @@ public static class ConnectorCommand
             Description = "Optional webhook events to subscribe to. Repeatable. When omitted the server falls back to the connector's default event set.",
             AllowMultipleArgumentsPerToken = true,
         };
+        var reviewerOption = new Option<string?>("--reviewer")
+        {
+            Description = "Optional default reviewer (GitHub login) used for human-review handoffs on this unit. When omitted the connector falls back to its installation default.",
+        };
 
         var command = new Command(
             "bind",
@@ -325,6 +329,7 @@ public static class ConnectorCommand
         command.Options.Add(repoOption);
         command.Options.Add(installationIdOption);
         command.Options.Add(eventsOption);
+        command.Options.Add(reviewerOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
@@ -334,6 +339,7 @@ public static class ConnectorCommand
             var repo = parseResult.GetValue(repoOption);
             var installationId = parseResult.GetValue(installationIdOption);
             var events = parseResult.GetValue(eventsOption);
+            var reviewer = parseResult.GetValue(reviewerOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
 
             if (!string.Equals(type, "github", StringComparison.OrdinalIgnoreCase))
@@ -369,6 +375,7 @@ public static class ConnectorCommand
                     repo!,
                     installationId,
                     events,
+                    reviewer,
                     ct);
 
                 if (output == "json")

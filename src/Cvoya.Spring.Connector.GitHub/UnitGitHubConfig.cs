@@ -21,8 +21,15 @@ namespace Cvoya.Spring.Connector.GitHub;
 /// <c>pull_request</c>, <c>issue_comment</c>). <c>null</c> falls back to
 /// the connector's default set so legacy config keeps working.
 /// </param>
+/// <param name="Reviewer">
+/// Default GitHub login (without the leading <c>@</c>) requested as the
+/// reviewer on pull requests this unit opens. <c>null</c> means "no
+/// default reviewer" — agents that explicitly pass a reviewer to
+/// <c>RequestPullRequestReviewSkill</c> still override per-call.
+/// </param>
 public record UnitGitHubConfig(
     string Owner,
     string Repo,
     long? AppInstallationId = null,
-    IReadOnlyList<string>? Events = null);
+    IReadOnlyList<string>? Events = null,
+    string? Reviewer = null);

@@ -9,9 +9,14 @@
 // repository root — see that file for the rationale. The web project
 // imports this component through the `@connector-github/*` path alias
 // declared in `src/Cvoya.Spring.Web/tsconfig.json`.
+//
+// #1133: the post-bind tab tracks the wizard's UX rewrite — Repository and
+// Reviewer dropdowns sourced from the aggregated `/list-repositories` and
+// per-repo `/list-collaborators` endpoints. The owner / repo / installation
+// fields are no longer typed by hand.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Github, Loader2, RefreshCw } from "lucide-react";
+import { Github, Loader2, Lock, RefreshCw } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,12 +26,12 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
 import { ApiError, api } from "@/lib/api/client";
 import type {
-  GitHubInstallationResponse,
+  GitHubCollaboratorResponse,
+  GitHubRepositoryResponse,
   UnitGitHubConfigResponse,
 } from "@/lib/api/types";
 
@@ -37,6 +42,8 @@ import type {
 // post-bind tab into the wizard's bundle, or vice versa.
 const GITHUB_APP_DOCS_URL =
   "https://github.com/cvoya-com/spring-voyage/blob/main/docs/guide/deployment.md#optional--connector-credentials";
+
+const NO_REVIEWER = "";
 
 function extractDisabledReason(err: unknown): string | null {
   if (!(err instanceof ApiError) || err.status !== 404) {
@@ -78,16 +85,25 @@ export function GitHubConnectorTab({ unitId }: GitHubConnectorTabProps) {
   const [owner, setOwner] = useState("");
   const [repo, setRepo] = useState("");
   const [installationId, setInstallationId] = useState<number | null>(null);
+  const [reviewer, setReviewer] = useState("");
   const [events, setEvents] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  const [installations, setInstallations] = useState<
-    GitHubInstallationResponse[] | null
+  const [repositories, setRepositories] = useState<
+    GitHubRepositoryResponse[] | null
   >(null);
-  const [installationsError, setInstallationsError] = useState<string | null>(
+  const [reposError, setReposError] = useState<string | null>(null);
+  const [reposLoading, setReposLoading] = useState(false);
+
+  const [collaborators, setCollaborators] = useState<
+    GitHubCollaboratorResponse[] | null
+  >(null);
+  const [collaboratorsLoading, setCollaboratorsLoading] = useState(false);
+  const [collaboratorsError, setCollaboratorsError] = useState<string | null>(
     null,
   );
+
   const [installUrl, setInstallUrl] = useState<string | null>(null);
   // disabled-with-reason is a first-class connector state distinct from
   // a network error or an unconfigured repo (#1186). When set we hide the
@@ -104,6 +120,7 @@ export function GitHubConnectorTab({ unitId }: GitHubConnectorTabProps) {
     setInstallationId(
       c.appInstallationId == null ? null : Number(c.appInstallationId),
     );
+    setReviewer(c.reviewer ?? "");
     setEvents([...c.events]);
   }, []);
 
@@ -120,31 +137,29 @@ export function GitHubConnectorTab({ unitId }: GitHubConnectorTabProps) {
     }
   }, [unitId, applyConfig]);
 
-  const loadInstallations = useCallback(async () => {
-    let list: GitHubInstallationResponse[] = [];
+  const loadRepositories = useCallback(async () => {
+    let list: GitHubRepositoryResponse[] = [];
     let disabled: string | null = null;
+    setReposLoading(true);
     try {
-      list = await api.listGitHubInstallations();
-      setInstallations(list);
-      setInstallationsError(null);
+      list = await api.listGitHubRepositories();
+      setRepositories(list);
+      setReposError(null);
       setDisabledReason(null);
     } catch (err) {
       disabled = extractDisabledReason(err);
       if (disabled !== null) {
         setDisabledReason(disabled);
-        setInstallationsError(null);
+        setReposError(null);
       } else {
         const message = err instanceof Error ? err.message : String(err);
-        setInstallationsError(message);
+        setReposError(message);
         setDisabledReason(null);
       }
-      setInstallations([]);
+      setRepositories([]);
+    } finally {
+      setReposLoading(false);
     }
-    // Fetch the install URL whenever the empty-state banner will show
-    // (either the list came back empty, or the call errored). Keeps the
-    // post-bind surface in parity with the create-unit wizard (#599).
-    // Skip when the connector is disabled at the deployment level — the
-    // install URL endpoint will return the same 404 with no URL to show.
     if (disabled !== null) {
       return;
     }
@@ -159,16 +174,55 @@ export function GitHubConnectorTab({ unitId }: GitHubConnectorTabProps) {
     }
   }, []);
 
+  // Re-fetch collaborators whenever the chosen repo changes — same
+  // behaviour as the wizard step.
+  useEffect(() => {
+    if (
+      installationId == null ||
+      owner.trim() === "" ||
+      repo.trim() === ""
+    ) {
+      setCollaborators(null);
+      setCollaboratorsError(null);
+      setCollaboratorsLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setCollaboratorsLoading(true);
+    (async () => {
+      try {
+        const list = await api.listGitHubCollaborators(
+          installationId,
+          owner,
+          repo,
+        );
+        if (cancelled) return;
+        setCollaborators(list);
+        setCollaboratorsError(null);
+      } catch (err) {
+        if (cancelled) return;
+        const message = err instanceof Error ? err.message : String(err);
+        setCollaborators([]);
+        setCollaboratorsError(message);
+      } finally {
+        if (!cancelled) setCollaboratorsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [installationId, owner, repo]);
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    Promise.all([loadConfig(), loadInstallations()]).finally(() => {
+    Promise.all([loadConfig(), loadRepositories()]).finally(() => {
       if (!cancelled) setLoading(false);
     });
     return () => {
       cancelled = true;
     };
-  }, [loadConfig, loadInstallations]);
+  }, [loadConfig, loadRepositories]);
 
   const handleSave = async () => {
     setSaveError(null);
@@ -179,6 +233,7 @@ export function GitHubConnectorTab({ unitId }: GitHubConnectorTabProps) {
         repo: repo.trim(),
         events: events.length > 0 ? events : undefined,
         appInstallationId: installationId ?? undefined,
+        reviewer: reviewer.trim() === "" ? undefined : reviewer.trim(),
       });
       applyConfig(resp);
       toast({ title: "Connector saved" });
@@ -202,9 +257,56 @@ export function GitHubConnectorTab({ unitId }: GitHubConnectorTabProps) {
   };
 
   const statusBadge = useMemo(() => {
-    if (!config) return <Badge variant="outline">Not configured</Badge>;
+    if (!config || !config.owner || !config.repo) {
+      return <Badge variant="outline">Not configured</Badge>;
+    }
     return <Badge variant="outline">{`${config.owner}/${config.repo}`}</Badge>;
   }, [config]);
+
+  const selectedFullName =
+    owner !== "" && repo !== "" ? `${owner}/${repo}` : "";
+
+  // Persisted owner/repo may not be present in the live repository list
+  // (e.g. the App lost access). Synthesise a placeholder row so the
+  // dropdown still shows the current binding rather than collapsing to
+  // "Select…", which would silently invite the user to drop the binding.
+  const repoOptions = useMemo(() => {
+    const base = repositories ?? [];
+    if (
+      selectedFullName !== "" &&
+      installationId != null &&
+      !base.some((r) => r.fullName === selectedFullName)
+    ) {
+      return [
+        ...base,
+        {
+          installationId,
+          repositoryId: 0,
+          owner,
+          repo,
+          fullName: selectedFullName,
+          private: false,
+        } as GitHubRepositoryResponse,
+      ];
+    }
+    return base;
+  }, [repositories, selectedFullName, installationId, owner, repo]);
+
+  const handleRepoChange = (next: string) => {
+    if (next === "") {
+      setOwner("");
+      setRepo("");
+      setInstallationId(null);
+      setReviewer("");
+      return;
+    }
+    const match = repoOptions.find((r) => r.fullName === next) ?? null;
+    if (match === null) return;
+    setOwner(match.owner);
+    setRepo(match.repo);
+    setInstallationId(Number(match.installationId));
+    setReviewer("");
+  };
 
   if (loading) {
     return (
@@ -272,16 +374,17 @@ export function GitHubConnectorTab({ unitId }: GitHubConnectorTabProps) {
         )}
 
         {disabledReason === null &&
-          installations &&
-          installations.length === 0 && (
+          repositories &&
+          repositories.length === 0 && (
             <div
               role="alert"
               className="rounded-md border border-warning/50 bg-warning/15 px-3 py-2 text-sm text-warning"
             >
-              <p className="font-medium">No GitHub App installations found.</p>
+              <p className="font-medium">No GitHub repositories visible.</p>
               <p className="mt-1 text-foreground">
-                Install the app on your account or organisation before
-                configuring this unit.
+                Install the app on your account or organisation, and grant it
+                access to at least one repository, before configuring this
+                unit.
               </p>
               {installUrl && (
                 <a
@@ -294,69 +397,104 @@ export function GitHubConnectorTab({ unitId }: GitHubConnectorTabProps) {
                   Install GitHub App
                 </a>
               )}
-              {installationsError && (
+              {reposError && (
                 <p className="mt-2 text-xs text-muted-foreground">
-                  ({installationsError})
+                  ({reposError})
                 </p>
               )}
             </div>
           )}
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        {disabledReason === null && (
           <label className="block space-y-1">
-            <span className="text-sm text-muted-foreground">
-              Repository owner
-            </span>
-            <Input
-              value={owner}
-              onChange={(e) => setOwner(e.target.value)}
-              placeholder="acme"
-            />
-          </label>
-          <label className="block space-y-1">
-            <span className="text-sm text-muted-foreground">
-              Repository name
-            </span>
-            <Input
-              value={repo}
-              onChange={(e) => setRepo(e.target.value)}
-              placeholder="platform"
-            />
-          </label>
-        </div>
-
-        {installations && installations.length > 0 && (
-          <div className="space-y-1">
-            <span className="text-sm text-muted-foreground">
-              App installation
-            </span>
+            <span className="text-sm text-muted-foreground">Repository</span>
             <div className="flex items-center gap-2">
               <select
+                aria-label="Repository"
                 className="h-9 flex-1 rounded-md border border-input bg-background px-3 text-sm"
-                value={installationId ?? ""}
-                onChange={(e) =>
-                  setInstallationId(
-                    e.target.value === "" ? null : Number(e.target.value),
-                  )
-                }
+                value={selectedFullName}
+                onChange={(e) => handleRepoChange(e.target.value)}
+                disabled={reposLoading || repoOptions.length === 0}
               >
-                <option value="">(auto — use platform default)</option>
-                {installations.map((i) => (
-                  <option key={i.installationId} value={i.installationId}>
-                    {i.account} ({i.accountType}, {i.repoSelection})
+                <option value="">
+                  {reposLoading
+                    ? "Loading repositories…"
+                    : repoOptions.length === 0
+                      ? "No repositories available"
+                      : "Select a repository…"}
+                </option>
+                {repoOptions.map((r) => (
+                  <option
+                    key={`${r.installationId}:${r.repositoryId}:${r.fullName}`}
+                    value={r.fullName}
+                  >
+                    {r.fullName}
+                    {r.private ? " (private)" : ""}
                   </option>
                 ))}
               </select>
               <Button
                 size="sm"
                 variant="outline"
-                onClick={loadInstallations}
-                aria-label="Refresh installations"
+                onClick={loadRepositories}
+                aria-label="Refresh repositories"
+                disabled={reposLoading}
               >
-                <RefreshCw className="h-4 w-4" />
+                {reposLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4" />
+                )}
               </Button>
             </div>
-          </div>
+            {selectedFullName !== "" &&
+              repoOptions.find((r) => r.fullName === selectedFullName)
+                ?.private && (
+                <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                  <Lock className="h-3 w-3" aria-hidden="true" />
+                  Private repository.
+                </span>
+              )}
+          </label>
+        )}
+
+        {disabledReason === null && installationId != null && (
+          <label className="block space-y-1">
+            <span className="text-sm text-muted-foreground">
+              Default reviewer
+            </span>
+            <select
+              aria-label="Default reviewer"
+              className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+              value={reviewer}
+              onChange={(e) => setReviewer(e.target.value)}
+              disabled={collaboratorsLoading}
+            >
+              <option value={NO_REVIEWER}>
+                {collaboratorsLoading
+                  ? "Loading collaborators…"
+                  : "(none — agents pick per call)"}
+              </option>
+              {/* If the persisted reviewer isn't (yet) in the loaded list,
+                  surface it anyway so the current value remains visible
+                  while the live collaborator list catches up (or stays
+                  unreachable). */}
+              {reviewer !== "" &&
+                !collaborators?.some((c) => c.login === reviewer) && (
+                  <option value={reviewer}>{reviewer}</option>
+                )}
+              {collaborators?.map((c) => (
+                <option key={c.login} value={c.login}>
+                  {c.login}
+                </option>
+              ))}
+            </select>
+            {collaboratorsError && (
+              <span className="block text-[11px] text-destructive">
+                Could not load collaborators: {collaboratorsError}
+              </span>
+            )}
+          </label>
         )}
 
         <div className="space-y-1">

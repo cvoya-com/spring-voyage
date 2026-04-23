@@ -265,6 +265,7 @@ public class GitHubConnectorTypeCredentialValidationTests
             _runtimeStore,
             _webhookRegistrar,
             _installationsClient,
+            Substitute.For<IGitHubCollaboratorsClient>(),
             optionsAccessor,
             requirement,
             _loggerFactory);

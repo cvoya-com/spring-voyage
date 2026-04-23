@@ -5339,6 +5339,135 @@
         }
       }
     },
+    "/api/v1/connectors/github/actions/list-repositories": {
+      "get": {
+        "tags": [
+          "Connectors.GitHub"
+        ],
+        "summary": "List repositories visible to the GitHub App, aggregated across installations",
+        "operationId": "ListGitHubRepositories",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/GitHubRepositoryResponse"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Bad Gateway",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/connectors/github/actions/list-collaborators": {
+      "get": {
+        "tags": [
+          "Connectors.GitHub"
+        ],
+        "summary": "List collaborators on a repository visible to the GitHub App",
+        "operationId": "ListGitHubCollaborators",
+        "parameters": [
+          {
+            "name": "installation_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "owner",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "repo",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/GitHubCollaboratorResponse"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Bad Gateway",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/connectors/github/config-schema": {
       "get": {
         "tags": [
@@ -9448,6 +9577,24 @@
           }
         }
       },
+      "GitHubCollaboratorResponse": {
+        "required": [
+          "login",
+          "avatarUrl"
+        ],
+        "type": "object",
+        "properties": {
+          "login": {
+            "type": "string"
+          },
+          "avatarUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "GitHubInstallationResponse": {
         "required": [
           "installationId",
@@ -9484,6 +9631,47 @@
         "properties": {
           "url": {
             "type": "string"
+          }
+        }
+      },
+      "GitHubRepositoryResponse": {
+        "required": [
+          "installationId",
+          "repositoryId",
+          "owner",
+          "repo",
+          "fullName",
+          "private"
+        ],
+        "type": "object",
+        "properties": {
+          "installationId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "repositoryId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "repo": {
+            "type": "string"
+          },
+          "fullName": {
+            "type": "string"
+          },
+          "private": {
+            "type": "boolean"
           }
         }
       },
@@ -11270,6 +11458,12 @@
             "items": {
               "type": "string"
             }
+          },
+          "reviewer": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -11279,7 +11473,8 @@
           "owner",
           "repo",
           "appInstallationId",
-          "events"
+          "events",
+          "reviewer"
         ],
         "type": "object",
         "properties": {
@@ -11306,6 +11501,12 @@
             "items": {
               "type": "string"
             }
+          },
+          "reviewer": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },

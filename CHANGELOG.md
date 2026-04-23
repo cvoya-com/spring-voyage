@@ -110,6 +110,7 @@ No versions have been tagged yet. The entries below capture the repository's his
 - Worker is the single owner of EF Core migrations ([#318](https://github.com/cvoya-com/spring-voyage/pull/318)).
 - EF Core migrations adopted for the Dapr `DbContext` ([#237](https://github.com/cvoya-com/spring-voyage/pull/237)).
 - Roadmap restructured to reflect actual completion status and introduce issue-tracked planning ([#419](https://github.com/cvoya-com/spring-voyage/pull/419)).
+- **GitHub connector configuration UX** — the create-unit wizard and the unit's Connector tab dropped the manual owner / repo / installation-id triple in favour of a single Repository dropdown (aggregated across the visible installations via the new `GET /api/v1/connectors/github/actions/list-repositories` endpoint) and a Default reviewer dropdown sourced from `GET /api/v1/connectors/github/actions/list-collaborators`. Adds a `reviewer` field to `UnitGitHubConfig` and a `--reviewer` flag to `spring connector bind`. The visible "App installation" picker is gone — installation ids ride along on each repository row, eliminating the cross-tenant enumeration surface in OSS and giving cloud deployments a clean extension point to scope the listing per OAuth session ([#1133](https://github.com/cvoya-com/spring-voyage/issues/1133)).
 
 ### Removed
 

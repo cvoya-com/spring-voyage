@@ -1131,6 +1131,7 @@ public class SpringApiClient
         string repo,
         string? appInstallationId,
         IReadOnlyList<string>? events,
+        string? reviewer = null,
         CancellationToken ct = default)
     {
         var request = new UnitGitHubConfigRequest
@@ -1146,6 +1147,7 @@ public class SpringApiClient
                 ? null
                 : new UntypedString(appInstallationId),
             Events = events?.ToList(),
+            Reviewer = string.IsNullOrWhiteSpace(reviewer) ? null : reviewer,
         };
         var result = await _client.Api.V1.Connectors.Github.Units[unitId].Config
             .PutAsync(request, cancellationToken: ct);
