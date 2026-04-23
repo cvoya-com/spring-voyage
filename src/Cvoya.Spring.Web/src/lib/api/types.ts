@@ -480,6 +480,22 @@ export type UnitGitHubConfigResponse = Schemas["UnitGitHubConfigResponse"];
  */
 export type GitHubInstallationResponse = Schemas["GitHubInstallationResponse"];
 
+/**
+ * GET /api/v1/connectors/github/actions/list-repositories item (#1133).
+ * One row per repo the App can see, aggregated across every visible
+ * installation. Drives the wizard's single Repository dropdown.
+ * @public Consumed by `Cvoya.Spring.Connector.GitHub/web/*` cross-workspace.
+ */
+export type GitHubRepositoryResponse = Schemas["GitHubRepositoryResponse"];
+
+/**
+ * GET /api/v1/connectors/github/actions/list-collaborators item (#1133).
+ * Drives the wizard's Reviewer dropdown — selecting a row stores
+ * `login` on `UnitGitHubConfigRequest.reviewer`.
+ * @public Consumed by `Cvoya.Spring.Connector.GitHub/web/*` cross-workspace.
+ */
+export type GitHubCollaboratorResponse = Schemas["GitHubCollaboratorResponse"];
+
 /** GET /api/v1/units/{id}/readiness response. */
 export type UnitReadinessResponse = Schemas["UnitReadinessResponse"];
 

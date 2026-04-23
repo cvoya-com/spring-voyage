@@ -299,11 +299,11 @@ Generic connector host ([connector-tab.tsx](../../src/Cvoya.Spring.Web/src/app/u
 
 The GitHub form ([connector-tab.tsx](../../src/Cvoya.Spring.Connector.GitHub/web/connector-tab.tsx)) collects:
 
-- **Repository owner / repository name** — the `{owner}/{repo}` pair the unit listens to.
-- **App installation** — choose from the list of GitHub App installations the platform can see. If the list is empty, the portal shows an "Install App" banner with a deep-link to the platform's install URL (`/api/v1/connectors/github/install-url`). Clicking it opens GitHub's App installation flow in a new tab.
+- **Repository** — single dropdown of `{owner}/{repo}` rows aggregated across every GitHub App installation visible to the current operator (sourced from `GET /api/v1/connectors/github/actions/list-repositories`). Picking a row carries its installation id along with `owner` and `repo`, so the operator never has to discover or paste an installation id by hand. Private repositories are tagged inline. If the list is empty, the portal shows an "Install App" banner with a deep-link to the platform's install URL (`/api/v1/connectors/github/install-url`).
+- **Default reviewer** — collaborators of the chosen repository, fetched on demand from `GET /api/v1/connectors/github/actions/list-collaborators`. Optional. When set, agents in this unit request the named login as the reviewer on PRs they open; per-call overrides still win when an agent passes a reviewer explicitly.
 - **Webhook events** — toggle which events (issues, pull_request, issue_comment, push, release) the unit subscribes to.
 
-Saving POSTs `/api/v1/connectors/github/units/{unitId}/config` and registers the webhook subscription server-side.
+Saving POSTs `/api/v1/connectors/github/units/{unitId}/config` and registers the webhook subscription server-side. ([#1133](https://github.com/cvoya-com/spring-voyage/issues/1133) replaced the prior owner/repo/installation triple with the Repository + Reviewer dropdowns.)
 
 **CLI equivalent:** none today — GitHub connector configuration is portal-only. You can embed the same fields in a unit YAML manifest's `connectors:` block and `spring apply -f` it. **This is a CLI/UI parity gap.**
 
@@ -723,8 +723,8 @@ spring unit members add <unit> --agent <agent> \
 ### Wiring up GitHub
 
 1. Navigate to `/units/{unit}` → **Connector** tab.
-2. If no installations are listed, click **Install App** and complete GitHub's install flow.
-3. Enter the repository owner/name, select the installation, pick webhook events, **Save**.
+2. If no repositories are listed, click **Install App** and complete GitHub's install flow.
+3. Pick the repository from the dropdown, optionally pick a default reviewer, toggle the webhook events the unit should receive, and **Save**.
 
 Equivalent CLI: no direct CLI surface — fall back to a YAML manifest with a `connectors:` block and `spring apply -f`.
 

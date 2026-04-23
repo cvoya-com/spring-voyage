@@ -57,6 +57,7 @@ public class GitHubConnectorType : IConnectorType
     private readonly IUnitConnectorRuntimeStore _runtimeStore;
     private readonly IOptions<GitHubConnectorOptions> _options;
     private readonly IGitHubInstallationsClient _installationsClient;
+    private readonly IGitHubCollaboratorsClient _collaboratorsClient;
     private readonly GitHubAppConfigurationRequirement _credentialRequirement;
     private readonly ILogger<GitHubConnectorType> _logger;
 
@@ -68,6 +69,7 @@ public class GitHubConnectorType : IConnectorType
         IUnitConnectorRuntimeStore runtimeStore,
         IGitHubWebhookRegistrar webhookRegistrar,
         IGitHubInstallationsClient installationsClient,
+        IGitHubCollaboratorsClient collaboratorsClient,
         IOptions<GitHubConnectorOptions> options,
         GitHubAppConfigurationRequirement credentialRequirement,
         ILoggerFactory loggerFactory)
@@ -76,6 +78,7 @@ public class GitHubConnectorType : IConnectorType
         _runtimeStore = runtimeStore;
         _webhookRegistrar = webhookRegistrar;
         _installationsClient = installationsClient;
+        _collaboratorsClient = collaboratorsClient;
         _options = options;
         _credentialRequirement = credentialRequirement;
         _logger = loggerFactory.CreateLogger<GitHubConnectorType>();
@@ -148,6 +151,34 @@ public class GitHubConnectorType : IConnectorType
             .WithSummary("Get the GitHub App install URL the wizard should redirect the user through")
             .WithTags("Connectors.GitHub")
             .Produces<GitHubInstallUrlResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status502BadGateway);
+
+        // Aggregated repository list — one row per repo the App can see,
+        // collapsed across every visible installation (#1133). Replaces
+        // the v2 "type the owner / type the repo / pick the installation"
+        // surface with a single dropdown the wizard splits client-side.
+        // The installation id rides along on every row so the wizard can
+        // post it back without a second resolver call.
+        group.MapGet("/actions/list-repositories", ListRepositoriesAsync)
+            .WithName("ListGitHubRepositories")
+            .WithSummary("List repositories visible to the GitHub App, aggregated across installations")
+            .WithTags("Connectors.GitHub")
+            .Produces<GitHubRepositoryResponse[]>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status502BadGateway);
+
+        // Collaborator list for a single repo (#1133). The wizard's
+        // Reviewer dropdown re-fetches this whenever the repo selection
+        // changes; the installation id is required so the connector can
+        // mint the right token without doing a repo-to-installation
+        // resolve on every call.
+        group.MapGet("/actions/list-collaborators", ListCollaboratorsAsync)
+            .WithName("ListGitHubCollaborators")
+            .WithSummary("List collaborators on a repository visible to the GitHub App")
+            .WithTags("Connectors.GitHub")
+            .Produces<GitHubCollaboratorResponse[]>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status502BadGateway);
 
@@ -435,8 +466,15 @@ public class GitHubConnectorType : IConnectorType
         }
 
         var events = request.Events is { Count: > 0 } ? request.Events : null;
+        // Reviewer is optional. Treat whitespace as "no default reviewer"
+        // so the wizard's "(none)" sentinel ("") doesn't accidentally
+        // persist an empty login that the PR-review skill would later
+        // try to assign.
+        var reviewer = string.IsNullOrWhiteSpace(request.Reviewer)
+            ? null
+            : request.Reviewer.Trim();
         var config = new UnitGitHubConfig(
-            request.Owner, request.Repo, request.AppInstallationId, events);
+            request.Owner, request.Repo, request.AppInstallationId, events, reviewer);
 
         var payload = JsonSerializer.SerializeToElement(config, ConfigJson);
         await _configStore.SetAsync(unitId, GitHubTypeId, payload, cancellationToken);
@@ -479,6 +517,142 @@ public class GitHubConnectorType : IConnectorType
             _logger.LogWarning(ex, "Failed to list GitHub App installations");
             return Results.Problem(
                 title: "Failed to list GitHub App installations",
+                detail: ex.Message,
+                statusCode: StatusCodes.Status502BadGateway);
+        }
+    }
+
+    private async Task<IResult> ListRepositoriesAsync(CancellationToken cancellationToken)
+    {
+        // Same disabled short-circuit as list-installations — without
+        // valid App credentials we can't mint installation tokens, so
+        // every per-installation /installation/repositories call would
+        // fail with a JWT-sign error. Surface the structured "disabled"
+        // payload the portal already renders cleanly (#609).
+        if (!IsConnectorEnabled)
+        {
+            var reason = ConnectorDisabledReason;
+            return Results.Problem(
+                title: "GitHub connector is not configured",
+                detail: reason,
+                statusCode: StatusCodes.Status404NotFound,
+                extensions: new Dictionary<string, object?>
+                {
+                    ["disabled"] = true,
+                    ["reason"] = reason,
+                });
+        }
+
+        try
+        {
+            var installations = await _installationsClient
+                .ListInstallationsAsync(cancellationToken);
+
+            // Aggregate across installations so the wizard can present a
+            // single repository dropdown (#1133). The per-installation
+            // call goes through the existing
+            // ListInstallationRepositoriesAsync which mints an installation
+            // token and pages through GET /installation/repositories.
+            // A failure on one installation MUST NOT poison the list —
+            // log it and keep the other installations' rows so the wizard
+            // still has something to render.
+            var aggregated = new List<GitHubRepositoryResponse>();
+            foreach (var installation in installations)
+            {
+                IReadOnlyList<GitHubInstallationRepository> repos;
+                try
+                {
+                    repos = await _installationsClient
+                        .ListInstallationRepositoriesAsync(installation.InstallationId, cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(
+                        ex,
+                        "Failed to list repositories for installation {InstallationId} ({Account}); skipping",
+                        installation.InstallationId, installation.Account);
+                    continue;
+                }
+
+                foreach (var repo in repos)
+                {
+                    aggregated.Add(new GitHubRepositoryResponse(
+                        installation.InstallationId,
+                        repo.RepositoryId,
+                        repo.Owner,
+                        repo.Name,
+                        repo.FullName,
+                        repo.Private));
+                }
+            }
+
+            // Stable order — sort by full name so the wizard's dropdown
+            // doesn't shuffle between renders. GitHub itself returns the
+            // list in install-time order, which is meaningless to a user
+            // browsing a long catalogue.
+            var ordered = aggregated
+                .OrderBy(r => r.FullName, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+            return Results.Ok(ordered);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to aggregate GitHub repositories");
+            return Results.Problem(
+                title: "Failed to list GitHub repositories",
+                detail: ex.Message,
+                statusCode: StatusCodes.Status502BadGateway);
+        }
+    }
+
+    private async Task<IResult> ListCollaboratorsAsync(
+        [FromQuery(Name = "installation_id")] long installationId,
+        [FromQuery] string owner,
+        [FromQuery] string repo,
+        CancellationToken cancellationToken)
+    {
+        if (installationId <= 0
+            || string.IsNullOrWhiteSpace(owner)
+            || string.IsNullOrWhiteSpace(repo))
+        {
+            return Results.Problem(
+                title: "Missing required parameters",
+                detail: "installation_id, owner, and repo are all required.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        if (!IsConnectorEnabled)
+        {
+            var reason = ConnectorDisabledReason;
+            return Results.Problem(
+                title: "GitHub connector is not configured",
+                detail: reason,
+                statusCode: StatusCodes.Status404NotFound,
+                extensions: new Dictionary<string, object?>
+                {
+                    ["disabled"] = true,
+                    ["reason"] = reason,
+                });
+        }
+
+        try
+        {
+            var collaborators = await _collaboratorsClient
+                .ListCollaboratorsAsync(installationId, owner, repo, cancellationToken);
+            var response = collaborators
+                .Select(c => new GitHubCollaboratorResponse(c.Login, c.AvatarUrl))
+                .ToArray();
+            return Results.Ok(response);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Failed to list collaborators for {Owner}/{Repo} (installation {InstallationId})",
+                owner, repo, installationId);
+            return Results.Problem(
+                title: "Failed to list GitHub collaborators",
                 detail: ex.Message,
                 statusCode: StatusCodes.Status502BadGateway);
         }
@@ -529,7 +703,8 @@ public class GitHubConnectorType : IConnectorType
             config.Owner,
             config.Repo,
             config.AppInstallationId,
-            config.Events is { Count: > 0 } ? config.Events : DefaultEvents);
+            config.Events is { Count: > 0 } ? config.Events : DefaultEvents,
+            config.Reviewer);
 
     // Hand-authored schema — deriving from C# via reflection would be cleaner
     // but .NET 10's OpenAPI generator doesn't expose the per-component schema
@@ -551,6 +726,10 @@ public class GitHubConnectorType : IConnectorType
               "type": ["array", "null"],
               "items": { "type": "string" },
               "description": "Webhook events to subscribe to. Null falls back to the connector's default set."
+            },
+            "reviewer": {
+              "type": ["string", "null"],
+              "description": "Default GitHub login (no leading @) requested as the reviewer on pull requests opened by this unit."
             }
           }
         }
