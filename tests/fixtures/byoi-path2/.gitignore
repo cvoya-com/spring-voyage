@@ -1,0 +1,5 @@
+# tests/scripts/smoke-1087.sh --path 2 drops a freshly produced
+# `npm pack` tarball next to the Dockerfile so it can be picked up by
+# the build context, then deletes it on exit. The tarball is a build
+# artifact, not source — keep it out of the working tree.
+*.tgz

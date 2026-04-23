@@ -95,6 +95,11 @@ jobs:
               - 'agents/dapr-agent/**'
               - 'tests/scripts/smoke-agent-images.sh'
               - 'tests/scripts/smoke-1087.sh'
+              # #1120: BYOI conformance path 2 fixture (npm-installed
+              # bridge). The smoke driver builds an image from this
+              # Dockerfile + a `npm pack` tarball of the in-tree sidecar,
+              # so the job needs to re-run when either side changes.
+              - 'tests/fixtures/byoi-path2/**'
 
   build:
     name: Build
@@ -899,13 +904,19 @@ jobs:
       # an A2A `message/send` against the agent-base bridge (path 1) and
       # asserts a real response (`status.state == "completed"`, artifact
       # echoes the prompt). Path 3 (dapr-agent) is gated behind SMOKE_DAPR=1
-      # pending #1110; path 2 (npm-installed bridge) is tracked as a
-      # follow-up. See the script header for the full matrix.
-      - name: End-to-end smoke (PR 6 of #1087 acceptance)
+      # pending #1110.
+      #
+      # `--path all` (added in #1120) covers BYOI conformance path 1
+      # (the agent-base bridge baked into the claude-code image) AND
+      # path 2 (the @cvoya/spring-voyage-agent-sidecar bridge installed
+      # via `npm i -g` from a `npm pack` tarball of the in-tree sidecar).
+      # See the script header and tests/fixtures/byoi-path2/Dockerfile
+      # for the full matrix.
+      - name: End-to-end smoke (PR 6 of #1087 acceptance, paths 1 + 2)
         shell: bash
         env:
           SMOKE_IMAGE_TAG: dev
-        run: bash tests/scripts/smoke-1087.sh
+        run: bash tests/scripts/smoke-1087.sh --path all
 
   required-checks:
     name: Required checks

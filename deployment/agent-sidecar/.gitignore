@@ -3,3 +3,7 @@ dist/
 coverage/
 *.log
 .DS_Store
+# `npm pack` output. Produced by tests/scripts/smoke-1087.sh --path 2
+# (see #1120) and by anyone running `npm pack` locally to inspect the
+# publish payload.
+*.tgz

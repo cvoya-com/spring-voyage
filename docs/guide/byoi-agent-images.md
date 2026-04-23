@@ -115,6 +115,8 @@ EXPOSE 8999
 ENTRYPOINT ["spring-voyage-agent-sidecar"]
 ```
 
+The in-tree smoke fixture at [`tests/fixtures/byoi-path2/Dockerfile`](../../tests/fixtures/byoi-path2/Dockerfile) is the same recipe sourced from `npm pack` of the working tree instead of `npmjs.org` — useful if you want to see the exact CI shape end-to-end, or if you're iterating on the bridge itself and want to smoke a local change before publishing. See `tests/scripts/smoke-1087.sh --path 2` for the driver.
+
 ### Path 2b — SEA binary (Node-less image)
 
 ```dockerfile
@@ -365,6 +367,27 @@ SMOKE_IMAGE_TAG=dev tests/scripts/smoke-agent-images.sh
 ```
 
 The script publishes each image on a random host port, waits for `/.well-known/agent.json`, and asserts the minimum Agent Card shape. The CI job `Agent images build + smoke` runs the same steps on every PR that touches the deployment surface.
+
+### `smoke-1087.sh` — full A2A round-trip across both bridge-bearing paths
+
+`tests/scripts/smoke-1087.sh` is the wire-level conformance smoke for the unified dispatch path. It boots an agent image, polls `/.well-known/agent.json`, fires an A2A `message/send`, and asserts a real response (`result.task.status.state == "TASK_STATE_COMPLETED"`, prompt echoed back via the bridge spawning `cat`). The proto-style enum names follow the .NET A2A SDK contract pinned via `[JsonStringEnumMemberName]`; see issue #1115 for the rationale. It covers both bridge-bearing conformance paths from ADR 0027:
+
+```bash
+# Path 1 only (default; what CI ran on every PR before #1120).
+bash tests/scripts/smoke-1087.sh
+bash tests/scripts/smoke-1087.sh --path 1
+
+# Path 2 only — builds tests/fixtures/byoi-path2/Dockerfile against a
+# fresh `npm pack` tarball of deployment/agent-sidecar/ and asserts
+# the same A2A round-trip. Requires Node + npm on the host (the
+# tarball is produced ahead of `docker build`).
+bash tests/scripts/smoke-1087.sh --path 2
+
+# Both paths in one run.
+bash tests/scripts/smoke-1087.sh --path all
+```
+
+The CI job `Agent images build + smoke` runs `--path all` on every PR that touches `deployment/Dockerfile.agent-*`, `deployment/agent-sidecar/**`, `agents/dapr-agent/**`, `tests/scripts/smoke-1087.sh`, or `tests/fixtures/byoi-path2/**` — so a sidecar source change, a Dockerfile change, or a smoke-script change exercises both BYOI conformance paths before merge. Path 3 (native A2A) stays gated behind `SMOKE_DAPR=1` pending [#1110](https://github.com/cvoya-com/spring-voyage/issues/1110).
 
 For the full ephemeral-dispatch round-trip (`StartAsync → readiness → A2A → ReleaseAsync`), the `EphemeralDispatchSmokeTests` integration test in `tests/Cvoya.Spring.Integration.Tests/` runs against a real container runtime when you set `SPRING_RUN_DOCKER_SMOKE=1`:
 

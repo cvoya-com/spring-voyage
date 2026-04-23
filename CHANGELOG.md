@@ -113,6 +113,7 @@ No versions have been tagged yet. The entries below capture the repository's his
 
 ### Removed
 
+- Legacy `v`-prefixed OCI tag (`ghcr.io/cvoya-com/agent-base:vX.Y.Z`) from the agent-base release workflow; the unprefixed `:X.Y.Z` and `:latest` tags continue to be published ([#1121](https://github.com/cvoya-com/spring-voyage/issues/1121)).
 - Hosted (in-process) execution path; all agentic work now delegated to containers ([#118](https://github.com/cvoya-com/spring-voyage/pull/118)).
 - Container-launch responsibilities removed from unit start/stop API endpoints ([#373](https://github.com/cvoya-com/spring-voyage/pull/373)).
 - PostgreSQL statestore component removed from local dev in favour of the Dapr state store wrapper ([70d6565](https://github.com/cvoya-com/spring-voyage/commit/70d6565)).

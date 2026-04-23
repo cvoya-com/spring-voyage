@@ -122,7 +122,6 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=v${{ env.RELEASE_VERSION }}
             type=raw,value=${{ env.RELEASE_VERSION }}
             type=raw,value=latest
           labels: |
