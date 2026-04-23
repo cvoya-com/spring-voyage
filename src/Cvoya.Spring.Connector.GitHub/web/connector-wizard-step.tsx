@@ -17,15 +17,22 @@
 // alias declared in `src/Cvoya.Spring.Web/tsconfig.json`. It's listed
 // alongside `connector-tab.tsx` in `src/Cvoya.Spring.Web/src/connectors/
 // registry.ts` so both entry points are statically known at build time.
+//
+// #1133: the surface dropped manual owner / repo / installation pickers in
+// favour of a single Repository dropdown sourced from the aggregated
+// `/list-repositories` endpoint, plus a Reviewer dropdown sourced from
+// `/list-collaborators` for the chosen repo. The installation id is no
+// longer user-visible — it rides along on every repository row so the
+// wire shape stays the same.
 
 import { useCallback, useEffect, useState } from "react";
-import { Github, Loader2, RefreshCw } from "lucide-react";
+import { Github, Loader2, Lock, RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { ApiError, api } from "@/lib/api/client";
 import type {
-  GitHubInstallationResponse,
+  GitHubCollaboratorResponse,
+  GitHubRepositoryResponse,
   UnitGitHubConfigRequest,
 } from "@/lib/api/types";
 
@@ -34,6 +41,11 @@ import type {
 // the deployment guide moves, only this constant changes.
 const GITHUB_APP_DOCS_URL =
   "https://github.com/cvoya-com/spring-voyage/blob/main/docs/guide/deployment.md#optional--connector-credentials";
+
+// Sentinel value for the Reviewer dropdown's "no default reviewer" row.
+// The empty string is what the underlying <select> emits for an empty
+// option, and it can never collide with a real GitHub login.
+const NO_REVIEWER = "";
 
 // Shape of the Problem+JSON the GitHub connector returns when the App
 // credentials are not configured at the deployment level (#609 / #1186).
@@ -99,14 +111,18 @@ export interface GitHubConnectorWizardStepProps {
 }
 
 /**
- * Wizard-mode GitHub connector configuration. Collects owner / repo /
- * installation / events, validates locally, and bubbles a
- * {@link UnitGitHubConfigRequest} up to the parent wizard.
+ * Wizard-mode GitHub connector configuration. Presents a single Repository
+ * dropdown sourced from the aggregated `/list-repositories` endpoint and a
+ * Reviewer dropdown that re-fetches whenever the repo selection changes
+ * (#1133). Bubbles a {@link UnitGitHubConfigRequest} up to the parent
+ * wizard.
  */
 export function GitHubConnectorWizardStep({
   onChange,
   initialValue,
 }: GitHubConnectorWizardStepProps) {
+  // Persisted on the binding. The wizard splits the chosen full_name
+  // client-side so the wire shape stays `(owner, repo, installationId)`.
   const [owner, setOwner] = useState(initialValue?.owner ?? "");
   const [repo, setRepo] = useState(initialValue?.repo ?? "");
   const [installationId, setInstallationId] = useState<number | null>(
@@ -114,27 +130,38 @@ export function GitHubConnectorWizardStep({
       ? null
       : Number(initialValue.appInstallationId),
   );
+  const [reviewer, setReviewer] = useState(initialValue?.reviewer ?? "");
   const [events, setEvents] = useState<string[]>(
     initialValue?.events ? [...initialValue.events] : [],
   );
 
-  const [installations, setInstallations] = useState<
-    GitHubInstallationResponse[] | null
+  const [repositories, setRepositories] = useState<
+    GitHubRepositoryResponse[] | null
   >(null);
-  const [installationsError, setInstallationsError] = useState<string | null>(
+  const [reposError, setReposError] = useState<string | null>(null);
+  const [reposLoading, setReposLoading] = useState(true);
+
+  const [collaborators, setCollaborators] = useState<
+    GitHubCollaboratorResponse[] | null
+  >(null);
+  const [collaboratorsLoading, setCollaboratorsLoading] = useState(false);
+  const [collaboratorsError, setCollaboratorsError] = useState<string | null>(
     null,
   );
+
   const [installUrl, setInstallUrl] = useState<string | null>(null);
   // When the connector reports `disabled: true` at the deployment level
   // (no GitHub App credentials configured), we hide the install/refresh
   // affordances entirely and render a remediation panel pointing at the
   // CLI / docs. Drives the friendly path for #1186.
   const [disabledReason, setDisabledReason] = useState<string | null>(null);
-  // #1132: tracks an in-flight installations refetch. The Recheck
-  // button reads this to disable itself + announce a busy state via
-  // `aria-busy`; the existing-installations Refresh button on the
-  // installation-picker reuses the same flag so both controls stay
-  // coordinated when the user clicks either one.
+  // #1132: tracks an in-flight repositories refetch driven by the
+  // Recheck button (or the Refresh affordance on the repository
+  // dropdown). The button reads this to disable itself + announce a
+  // busy state via `aria-busy`. Distinct from `reposLoading` (which
+  // also covers the initial mount fetch) so the Recheck button only
+  // shows the "Rechecking…" copy when the user explicitly asks for a
+  // refresh.
   const [rechecking, setRechecking] = useState(false);
 
   // #1132: lifted out of the mount effect so the Recheck button can
@@ -147,13 +174,13 @@ export function GitHubConnectorWizardStep({
   // important — it keeps `react-hooks/set-state-in-effect` quiet when
   // the mount effect calls this function (the rule only flags
   // synchronous setState before the first suspension point).
-  const fetchInstallations = useCallback(async () => {
-    let list: GitHubInstallationResponse[] = [];
+  const fetchRepositories = useCallback(async () => {
+    let list: GitHubRepositoryResponse[] = [];
     let disabled: string | null = null;
     try {
-      list = await api.listGitHubInstallations();
-      setInstallations(list);
-      setInstallationsError(null);
+      list = await api.listGitHubRepositories();
+      setRepositories(list);
+      setReposError(null);
       setDisabledReason(null);
     } catch (err) {
       // disabled-with-reason is a first-class connector state, not a
@@ -162,13 +189,13 @@ export function GitHubConnectorWizardStep({
       disabled = extractDisabledReason(err);
       if (disabled !== null) {
         setDisabledReason(disabled);
-        setInstallationsError(null);
+        setReposError(null);
       } else {
         const message = err instanceof Error ? err.message : String(err);
-        setInstallationsError(message);
+        setReposError(message);
         setDisabledReason(null);
       }
-      setInstallations([]);
+      setRepositories([]);
     }
     // Fetch the install URL whenever the empty-state banner will show
     // (either the list came back empty, or the call errored). #599: the
@@ -190,46 +217,127 @@ export function GitHubConnectorWizardStep({
     }
   }, []);
 
-  // #1132: imperative wrapper for the Recheck button. Lifts the
-  // `rechecking` flag around the fetch so the UI can render the
+  // #1132: imperative wrapper for the Recheck / Refresh buttons. Lifts
+  // the `rechecking` flag around the fetch so the UI can render the
   // spinner / aria-busy state without leaking that concern into the
   // mount-time effect.
-  const recheckInstallations = useCallback(async () => {
+  const recheckRepositories = useCallback(async () => {
     setRechecking(true);
     try {
-      await fetchInstallations();
+      await fetchRepositories();
     } finally {
       setRechecking(false);
     }
-  }, [fetchInstallations]);
+  }, [fetchRepositories]);
 
+  // -- Repositories (mount fetch) -------------------------------------------
   useEffect(() => {
-    void fetchInstallations();
-  }, [fetchInstallations]);
+    let cancelled = false;
+    setReposLoading(true);
+    (async () => {
+      try {
+        await fetchRepositories();
+      } finally {
+        if (!cancelled) setReposLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchRepositories]);
 
-  // Push validated state up to the wizard on every change. Null when the
-  // minimum required fields are missing so the wizard knows not to bundle
-  // a partially-filled config.
+  // -- Collaborators (re-fetched whenever the repo selection changes) -------
+  useEffect(() => {
+    if (
+      installationId == null ||
+      owner.trim() === "" ||
+      repo.trim() === ""
+    ) {
+      // No repo chosen yet — clear stale state so the dropdown collapses.
+      setCollaborators(null);
+      setCollaboratorsError(null);
+      setCollaboratorsLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setCollaboratorsLoading(true);
+    (async () => {
+      try {
+        const list = await api.listGitHubCollaborators(
+          installationId,
+          owner,
+          repo,
+        );
+        if (cancelled) return;
+        setCollaborators(list);
+        setCollaboratorsError(null);
+      } catch (err) {
+        if (cancelled) return;
+        const message = err instanceof Error ? err.message : String(err);
+        setCollaborators([]);
+        setCollaboratorsError(message);
+      } finally {
+        if (!cancelled) setCollaboratorsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [installationId, owner, repo]);
+
+  // -- Bubble validated state up to the wizard ------------------------------
+  // Null when the minimum required field (a chosen repository) is missing
+  // so the wizard knows not to bundle a partially-filled config.
   useEffect(() => {
     const trimmedOwner = owner.trim();
     const trimmedRepo = repo.trim();
-    if (!trimmedOwner || !trimmedRepo) {
+    if (!trimmedOwner || !trimmedRepo || installationId == null) {
       onChange(null);
       return;
     }
     onChange({
       owner: trimmedOwner,
       repo: trimmedRepo,
-      appInstallationId: installationId ?? undefined,
+      appInstallationId: installationId,
       events: events.length > 0 ? events : undefined,
+      reviewer: reviewer.trim() === "" ? undefined : reviewer.trim(),
     });
-  }, [owner, repo, installationId, events, onChange]);
+  }, [owner, repo, installationId, events, reviewer, onChange]);
 
   const toggleEvent = (e: string) => {
     setEvents((prev) =>
       prev.includes(e) ? prev.filter((x) => x !== e) : [...prev, e],
     );
   };
+
+  // The dropdown's value is the full_name; we split client-side so the
+  // wire shape stays `(owner, repo, installationId)`. Selecting "" clears
+  // the selection.
+  const selectedFullName =
+    owner !== "" && repo !== "" ? `${owner}/${repo}` : "";
+
+  const handleRepoChange = (next: string) => {
+    if (next === "") {
+      setOwner("");
+      setRepo("");
+      setInstallationId(null);
+      setReviewer("");
+      return;
+    }
+    const match = repositories?.find((r) => r.fullName === next) ?? null;
+    if (match === null) return;
+    setOwner(match.owner);
+    setRepo(match.repo);
+    setInstallationId(Number(match.installationId));
+    // Selecting a different repo invalidates the previously chosen
+    // reviewer — collaborators are repo-scoped.
+    setReviewer("");
+  };
+
+  // Combined busy flag for the dropdown + Refresh button. Both the
+  // initial mount fetch (`reposLoading`) and any subsequent recheck
+  // (`rechecking`) should disable the dropdown / spin the icon.
+  const repoBusy = reposLoading || rechecking;
 
   return (
     <div className="space-y-4 rounded-md border border-border bg-muted/30 p-4">
@@ -281,23 +389,24 @@ export function GitHubConnectorWizardStep({
       )}
 
       {disabledReason === null &&
-        installations &&
-        installations.length === 0 && (
+        repositories &&
+        repositories.length === 0 && (
           <div
             role="alert"
             className="rounded-md border border-warning/50 bg-warning/15 px-3 py-2 text-sm text-warning"
           >
-            <p className="font-medium">No GitHub App installations found.</p>
+            <p className="font-medium">No GitHub repositories visible.</p>
             <p className="mt-1 text-foreground">
-              Install the GitHub App on your account or organisation before
-              binding this unit.
+              Install the GitHub App on your account or organisation, and
+              grant it access to at least one repository, before binding this
+              unit.
             </p>
             {/* #1132: Install-app routes the operator off-site to GitHub
                 — once they install the App, GitHub redirects them away,
                 and they then have to manually return to the wizard. The
                 old code never re-fetched, so the panel stayed stuck on
                 "No installations" and the operator hit a dead end. The
-                Recheck button re-runs the same `list-installations`
+                Recheck button re-runs the same `list-repositories`
                 fetch in place; it's announced as `aria-busy` while in
                 flight and disabled to avoid double-clicks. */}
             <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -315,7 +424,7 @@ export function GitHubConnectorWizardStep({
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => void recheckInstallations()}
+                onClick={() => void recheckRepositories()}
                 disabled={rechecking}
                 aria-label="Recheck installations"
                 aria-busy={rechecking}
@@ -340,76 +449,104 @@ export function GitHubConnectorWizardStep({
                 )}
               </Button>
             </div>
-            {installationsError && (
+            {reposError && (
               <p className="mt-2 text-xs text-muted-foreground">
-                ({installationsError})
+                ({reposError})
               </p>
             )}
           </div>
         )}
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      {disabledReason === null && (
         <label className="block space-y-1">
           <span className="text-xs text-muted-foreground">
-            Repository owner<span className="text-destructive"> *</span>
-          </span>
-          <Input
-            value={owner}
-            onChange={(e) => setOwner(e.target.value)}
-            placeholder="acme"
-            autoComplete="off"
-          />
-        </label>
-        <label className="block space-y-1">
-          <span className="text-xs text-muted-foreground">
-            Repository name<span className="text-destructive"> *</span>
-          </span>
-          <Input
-            value={repo}
-            onChange={(e) => setRepo(e.target.value)}
-            placeholder="platform"
-            autoComplete="off"
-          />
-        </label>
-      </div>
-
-      {installations && installations.length > 0 && (
-        <label className="block space-y-1">
-          <span className="text-xs text-muted-foreground">
-            App installation
+            Repository<span className="text-destructive"> *</span>
           </span>
           <div className="flex items-center gap-2">
             <select
+              aria-label="Repository"
               className="h-9 flex-1 rounded-md border border-input bg-background px-3 text-sm"
-              value={installationId ?? ""}
-              onChange={(e) =>
-                setInstallationId(
-                  e.target.value === "" ? null : Number(e.target.value),
-                )
-              }
+              value={selectedFullName}
+              onChange={(e) => handleRepoChange(e.target.value)}
+              disabled={repoBusy || (repositories?.length ?? 0) === 0}
             >
-              <option value="">(auto — use platform default)</option>
-              {installations.map((i) => (
-                <option key={i.installationId} value={i.installationId}>
-                  {i.account} ({i.accountType}, {i.repoSelection})
+              <option value="">
+                {repoBusy
+                  ? "Loading repositories…"
+                  : (repositories?.length ?? 0) === 0
+                    ? "No repositories available"
+                    : "Select a repository…"}
+              </option>
+              {repositories?.map((r) => (
+                <option key={`${r.installationId}:${r.repositoryId}`} value={r.fullName}>
+                  {r.fullName}
+                  {r.private ? " (private)" : ""}
                 </option>
               ))}
             </select>
             <Button
               size="sm"
               variant="outline"
-              onClick={() => void recheckInstallations()}
-              disabled={rechecking}
-              aria-label="Refresh installations"
-              aria-busy={rechecking}
+              onClick={() => void recheckRepositories()}
+              aria-label="Refresh repositories"
+              aria-busy={repoBusy}
+              disabled={repoBusy}
             >
-              {rechecking ? (
+              {repoBusy ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <RefreshCw className="h-4 w-4" />
               )}
             </Button>
           </div>
+          {selectedFullName !== "" && (
+            <span className="block text-[11px] text-muted-foreground">
+              {repositories?.find((r) => r.fullName === selectedFullName)
+                ?.private && (
+                <span className="inline-flex items-center gap-1">
+                  <Lock className="h-3 w-3" aria-hidden="true" />
+                  Private repository.{" "}
+                </span>
+              )}
+              The GitHub App installation covering this repo will be used.
+            </span>
+          )}
+        </label>
+      )}
+
+      {disabledReason === null && installationId != null && (
+        <label className="block space-y-1">
+          <span className="text-xs text-muted-foreground">
+            Default reviewer
+          </span>
+          <select
+            aria-label="Default reviewer"
+            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+            value={reviewer}
+            onChange={(e) => setReviewer(e.target.value)}
+            disabled={collaboratorsLoading}
+          >
+            <option value={NO_REVIEWER}>
+              {collaboratorsLoading
+                ? "Loading collaborators…"
+                : "(none — agents pick per call)"}
+            </option>
+            {collaborators?.map((c) => (
+              <option key={c.login} value={c.login}>
+                {c.login}
+              </option>
+            ))}
+          </select>
+          {collaboratorsError && (
+            <span className="block text-[11px] text-destructive">
+              Could not load collaborators: {collaboratorsError}
+            </span>
+          )}
+          <span className="block text-[11px] text-muted-foreground">
+            Requested as the reviewer when this unit&apos;s agents open pull
+            requests. Optional — agents that pass a reviewer explicitly still
+            override per-call.
+          </span>
         </label>
       )}
 

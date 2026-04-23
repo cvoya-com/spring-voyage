@@ -254,6 +254,12 @@ public static class ServiceCollectionExtensions
         // without pulling endpoint code.
         services.TryAddSingleton<IGitHubInstallationsClient, GitHubInstallationsClient>();
 
+        // Collaborator-listing is its own abstraction (#1133) so the cloud
+        // repo can substitute a tenant-aware impl that filters by the
+        // caller's permission level. The OSS default mints an installation
+        // token and calls GET /repos/{owner}/{repo}/collaborators.
+        services.TryAddSingleton<IGitHubCollaboratorsClient, GitHubCollaboratorsClient>();
+
         // Expose the GitHub skills through the cross-connector ISkillRegistry abstraction
         // so the MCP server (and any future planner) can discover them uniformly.
         services.AddSingleton<ISkillRegistry>(sp => sp.GetRequiredService<GitHubSkillRegistry>());

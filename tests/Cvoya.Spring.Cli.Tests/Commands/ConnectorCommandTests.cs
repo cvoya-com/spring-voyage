@@ -292,6 +292,41 @@ public class ConnectorCommandTests
     }
 
     [Fact]
+    public async Task PutUnitGitHubConfigAsync_SendsReviewerWhenProvided()
+    {
+        // The CLI's --reviewer flag (added alongside the portal's reviewer
+        // dropdown) must round-trip onto the wire as a non-null `reviewer`
+        // property so the server can persist it on UnitGitHubConfig. We
+        // also verify that a blank reviewer is omitted (the API client
+        // normalises whitespace to null before serialising).
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/connectors/github/units/eng-team/config",
+            expectedMethod: HttpMethod.Put,
+            responseBody:
+                """{"unitId":"eng-team","owner":"acme","repo":"platform","appInstallationId":12345,"events":["issues"],"reviewer":"alice"}""",
+            validateRequestBody: body =>
+            {
+                var json = JsonSerializer.Deserialize<JsonElement>(body);
+                json.GetProperty("reviewer").GetString().ShouldBe("alice");
+            });
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var result = await client.PutUnitGitHubConfigAsync(
+            "eng-team",
+            owner: "acme",
+            repo: "platform",
+            appInstallationId: "12345",
+            events: new[] { "issues" },
+            reviewer: "alice",
+            ct: TestContext.Current.CancellationToken);
+
+        result.Reviewer.ShouldBe("alice");
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
     public async Task ListConnectorBindingsAsync_CallsBulkEndpoint()
     {
         // Single round-trip: the typed wrapper must hit the new bulk

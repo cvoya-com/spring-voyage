@@ -863,6 +863,41 @@ export const api = {
         "/api/v1/connectors/github/actions/list-installations",
       ),
     ),
+  /**
+   * Aggregated repository list (#1133). One row per repo the GitHub App
+   * can see, collapsed across every visible installation; the wizard
+   * binds its single Repository dropdown to this rather than asking the
+   * user to type owner+repo and pick an installation. Each row carries
+   * the installation id back so the connector never has to re-resolve
+   * `(owner, repo) → installation`.
+   */
+  listGitHubRepositories: async () =>
+    unwrap(
+      await fetchClient.GET(
+        "/api/v1/connectors/github/actions/list-repositories",
+      ),
+    ),
+  /**
+   * Lists the collaborators on a single repository (#1133). The wizard's
+   * Reviewer dropdown calls this whenever the repo selection changes;
+   * the installation id is required so the connector mints the right
+   * token without doing a repo-to-installation resolve every time.
+   */
+  listGitHubCollaborators: async (
+    installationId: number,
+    owner: string,
+    repo: string,
+  ) =>
+    unwrap(
+      await fetchClient.GET(
+        "/api/v1/connectors/github/actions/list-collaborators",
+        {
+          params: {
+            query: { installation_id: installationId, owner, repo } as never,
+          },
+        },
+      ),
+    ),
   getGitHubInstallUrl: async () =>
     unwrap(
       await fetchClient.GET("/api/v1/connectors/github/actions/install-url"),

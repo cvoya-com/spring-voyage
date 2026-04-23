@@ -436,7 +436,7 @@ spring connector show --unit <unit>
 spring connector show --unit <unit> --output json
 ```
 
-Prints the unit's active binding pointer (`typeSlug`, `typeId`, typed `configUrl`, actions base URL). When the connector is GitHub, the command also pulls the typed config and renders owner / repo / events / installation id in the same output. When the unit isn't bound to any connector, it prints `Unit '<unit>' has no active connector binding.` (or `{"unit":"<unit>","bound":false}` in JSON mode).
+Prints the unit's active binding pointer (`typeSlug`, `typeId`, typed `configUrl`, actions base URL). When the connector is GitHub, the command also pulls the typed config and renders owner / repo / events / installation id / reviewer in the same output. When the unit isn't bound to any connector, it prints `Unit '<unit>' has no active connector binding.` (or `{"unit":"<unit>","bound":false}` in JSON mode).
 
 ### Binding a Unit to a Connector
 
@@ -444,7 +444,8 @@ Prints the unit's active binding pointer (`typeSlug`, `typeId`, typed `configUrl
 spring connector bind --unit <unit> --type github \
   --owner <owner> --repo <repo> \
   [--installation-id <id>] \
-  [--events <event1> <event2> ...]
+  [--events <event1> <event2> ...] \
+  [--reviewer <github-login>]
 ```
 
 Example:
@@ -452,8 +453,11 @@ Example:
 ```
 spring connector bind --unit engineering-team --type github \
   --owner my-org --repo platform \
-  --events issues pull_request issue_comment
+  --events issues pull_request issue_comment \
+  --reviewer alice
 ```
+
+`--reviewer` (added by [#1133](https://github.com/cvoya-com/spring-voyage/issues/1133)) is the GitHub login the connector requests as the default reviewer when this unit's agents open pull requests. It mirrors the portal's "Default reviewer" dropdown and is optional — agents that pass a reviewer explicitly per call still override it.
 
 Bind writes the per-unit config and the connector binding atomically through the connector-owned PUT endpoint. GitHub is the only typed bind surface today; other connector types are surfaced in `catalog` but return a clear `not supported by 'spring connector bind' yet` message until their typed PUT lands. Removing a binding is still handled by the unit lifecycle (stop / delete); a dedicated `unbind` command will follow in a later PR.
 

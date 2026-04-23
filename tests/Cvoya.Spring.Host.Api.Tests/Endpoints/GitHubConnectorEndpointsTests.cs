@@ -126,6 +126,66 @@ public class GitHubConnectorEndpointsTests
     }
 
     [Fact]
+    public async Task PutConfig_PersistsReviewer()
+    {
+        // #1133: the new Reviewer field must round-trip through the
+        // typed config endpoint and end up in the JSON the config store
+        // sees. A whitespace-only Reviewer must collapse to null so the
+        // PR-review skill never tries to assign an empty login.
+        var captured = default(JsonElement?);
+        var configStore = Substitute.For<IUnitConnectorConfigStore>();
+        configStore.SetAsync(
+            Arg.Any<string>(), Arg.Any<Guid>(), Arg.Do<JsonElement>(j => captured = j.Clone()),
+            Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+
+        await using var factory = CreateFactory(configStore: configStore);
+        var client = factory.CreateClient();
+        var ct = TestContext.Current.CancellationToken;
+
+        var request = new UnitGitHubConfigRequest(
+            "acme", "platform", AppInstallationId: 1001, Reviewer: "octocat");
+
+        var response = await client.PutAsJsonAsync(
+            "/api/v1/connectors/github/units/u1/config", request, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        captured.ShouldNotBeNull();
+        captured!.Value.GetProperty("reviewer").GetString().ShouldBe("octocat");
+
+        var body = await response.Content.ReadFromJsonAsync<UnitGitHubConfigResponse>(ct);
+        body.ShouldNotBeNull();
+        body!.Reviewer.ShouldBe("octocat");
+    }
+
+    [Fact]
+    public async Task PutConfig_BlankReviewer_StoresNull()
+    {
+        // Whitespace-only reviewer must persist as null. Otherwise a stray
+        // " " would later be sent verbatim to GitHub's request-review API.
+        var captured = default(JsonElement?);
+        var configStore = Substitute.For<IUnitConnectorConfigStore>();
+        configStore.SetAsync(
+            Arg.Any<string>(), Arg.Any<Guid>(), Arg.Do<JsonElement>(j => captured = j.Clone()),
+            Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+
+        await using var factory = CreateFactory(configStore: configStore);
+        var client = factory.CreateClient();
+        var ct = TestContext.Current.CancellationToken;
+
+        var request = new UnitGitHubConfigRequest(
+            "acme", "platform", Reviewer: "   ");
+
+        var response = await client.PutAsJsonAsync(
+            "/api/v1/connectors/github/units/u1/config", request, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        captured.ShouldNotBeNull();
+        captured!.Value.GetProperty("reviewer").ValueKind.ShouldBe(JsonValueKind.Null);
+    }
+
+    [Fact]
     public async Task GetConfig_UnboundUnit_Returns404()
     {
         var configStore = Substitute.For<IUnitConnectorConfigStore>();
@@ -235,6 +295,171 @@ public class GitHubConnectorEndpointsTests
     }
 
     [Fact]
+    public async Task ListRepositories_AggregatesAcrossInstallations()
+    {
+        // #1133: the new endpoint replaces "type owner / type repo /
+        // pick installation" with a single dropdown sourced from every
+        // visible installation. The response carries the installation id
+        // back so the wizard never has to re-resolve it on submit.
+        var installationsClient = Substitute.For<IGitHubInstallationsClient>();
+        installationsClient.ListInstallationsAsync(Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new GitHubInstallation(1001L, "acme", "Organization", "selected"),
+                new GitHubInstallation(1002L, "alice", "User", "all"),
+            });
+        installationsClient.ListInstallationRepositoriesAsync(1001L, Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new GitHubInstallationRepository(10L, "acme", "platform", "acme/platform", true),
+                new GitHubInstallationRepository(11L, "acme", "ui", "acme/ui", false),
+            });
+        installationsClient.ListInstallationRepositoriesAsync(1002L, Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new GitHubInstallationRepository(20L, "alice", "demos", "alice/demos", false),
+            });
+
+        await using var factory = CreateFactory(installationsClient: installationsClient);
+        var client = factory.CreateClient();
+        var ct = TestContext.Current.CancellationToken;
+
+        var response = await client.GetAsync(
+            "/api/v1/connectors/github/actions/list-repositories", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<GitHubRepositoryResponse[]>(ct);
+        body.ShouldNotBeNull();
+        body!.Length.ShouldBe(3);
+
+        // Stable alphabetical order — keeps the dropdown from shuffling
+        // between renders.
+        body.Select(r => r.FullName).ToArray().ShouldBe(
+            new[] { "acme/platform", "acme/ui", "alice/demos" });
+
+        // Each row carries its installation id so the wizard never has
+        // to call back to resolve (owner, repo) → installation.
+        body.Single(r => r.FullName == "acme/platform").InstallationId.ShouldBe(1001L);
+        body.Single(r => r.FullName == "alice/demos").InstallationId.ShouldBe(1002L);
+
+        // Owner / repo are split for direct round-trip into UnitGitHubConfig.
+        var platform = body.Single(r => r.FullName == "acme/platform");
+        platform.Owner.ShouldBe("acme");
+        platform.Repo.ShouldBe("platform");
+        platform.Private.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task ListRepositories_PerInstallationFailureDoesNotPoisonList()
+    {
+        // One installation throwing must not collapse the entire response
+        // — the wizard still needs to render the other installations'
+        // repos so the user can pick one.
+        var installationsClient = Substitute.For<IGitHubInstallationsClient>();
+        installationsClient.ListInstallationsAsync(Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new GitHubInstallation(1001L, "acme", "Organization", "selected"),
+                new GitHubInstallation(1002L, "alice", "User", "all"),
+            });
+        installationsClient.ListInstallationRepositoriesAsync(1001L, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("github 503"));
+        installationsClient.ListInstallationRepositoriesAsync(1002L, Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new GitHubInstallationRepository(20L, "alice", "demos", "alice/demos", false),
+            });
+
+        await using var factory = CreateFactory(installationsClient: installationsClient);
+        var client = factory.CreateClient();
+        var ct = TestContext.Current.CancellationToken;
+
+        var response = await client.GetAsync(
+            "/api/v1/connectors/github/actions/list-repositories", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<GitHubRepositoryResponse[]>(ct);
+        body.ShouldNotBeNull();
+        body!.Length.ShouldBe(1);
+        body[0].FullName.ShouldBe("alice/demos");
+    }
+
+    [Fact]
+    public async Task ListRepositories_ConnectorDisabled_Returns404WithStructuredBody()
+    {
+        await using var factory = CreateFactory(appEnabled: false);
+        var client = factory.CreateClient();
+        var ct = TestContext.Current.CancellationToken;
+
+        var response = await client.GetAsync(
+            "/api/v1/connectors/github/actions/list-repositories", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>(ct);
+        body.GetProperty("disabled").GetBoolean().ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task ListCollaborators_HappyPath_ReturnsLogins()
+    {
+        var collaboratorsClient = Substitute.For<IGitHubCollaboratorsClient>();
+        collaboratorsClient.ListCollaboratorsAsync(
+                1001L, "acme", "platform", Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new GitHubCollaborator("octocat", "https://avatars/octocat"),
+                new GitHubCollaborator("hubot", null),
+            });
+
+        await using var factory = CreateFactory(collaboratorsClient: collaboratorsClient);
+        var client = factory.CreateClient();
+        var ct = TestContext.Current.CancellationToken;
+
+        var response = await client.GetAsync(
+            "/api/v1/connectors/github/actions/list-collaborators?installation_id=1001&owner=acme&repo=platform",
+            ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<GitHubCollaboratorResponse[]>(ct);
+        body.ShouldNotBeNull();
+        body!.Length.ShouldBe(2);
+        body.Select(c => c.Login).ToArray().ShouldBe(new[] { "octocat", "hubot" });
+    }
+
+    [Fact]
+    public async Task ListCollaborators_MissingParams_Returns400()
+    {
+        // Defence in depth — the client is responsible for not omitting
+        // these, but the endpoint must reject the call before reaching
+        // any GitHub API.
+        await using var factory = CreateFactory();
+        var client = factory.CreateClient();
+        var ct = TestContext.Current.CancellationToken;
+
+        var response = await client.GetAsync(
+            "/api/v1/connectors/github/actions/list-collaborators?installation_id=0&owner=&repo=",
+            ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task ListCollaborators_ConnectorDisabled_Returns404WithStructuredBody()
+    {
+        await using var factory = CreateFactory(appEnabled: false);
+        var client = factory.CreateClient();
+        var ct = TestContext.Current.CancellationToken;
+
+        var response = await client.GetAsync(
+            "/api/v1/connectors/github/actions/list-collaborators?installation_id=1001&owner=acme&repo=platform",
+            ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>(ct);
+        body.GetProperty("disabled").GetBoolean().ShouldBeTrue();
+    }
+
+    [Fact]
     public async Task GetConfigSchema_ReturnsJsonSchema()
     {
         await using var factory = CreateFactory();
@@ -261,6 +486,7 @@ public class GitHubConnectorEndpointsTests
     private static WebApplicationFactory<Program> CreateFactory(
         string? appSlug = null,
         IGitHubInstallationsClient? installationsClient = null,
+        IGitHubCollaboratorsClient? collaboratorsClient = null,
         IUnitConnectorConfigStore? configStore = null,
         bool appEnabled = true)
     {
@@ -325,6 +551,18 @@ public class GitHubConnectorEndpointsTests
                         services.Remove(d);
                     }
                     services.AddSingleton(installationsClient);
+                }
+
+                if (collaboratorsClient is not null)
+                {
+                    var descriptors = services
+                        .Where(d => d.ServiceType == typeof(IGitHubCollaboratorsClient))
+                        .ToList();
+                    foreach (var d in descriptors)
+                    {
+                        services.Remove(d);
+                    }
+                    services.AddSingleton(collaboratorsClient);
                 }
 
                 if (configStore is not null)
