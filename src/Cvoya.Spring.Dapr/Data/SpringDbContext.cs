@@ -90,6 +90,9 @@ public class SpringDbContext : DbContext
     /// <summary>Gets the set of unit-membership rows.</summary>
     public DbSet<UnitMembershipEntity> UnitMemberships => Set<UnitMembershipEntity>();
 
+    /// <summary>Gets the persistent projection of parent → child unit edges (#1154).</summary>
+    public DbSet<UnitSubunitMembershipEntity> UnitSubunitMemberships => Set<UnitSubunitMembershipEntity>();
+
     /// <summary>Gets the set of unit-policy rows.</summary>
     public DbSet<UnitPolicyEntity> UnitPolicies => Set<UnitPolicyEntity>();
 
@@ -126,6 +129,7 @@ public class SpringDbContext : DbContext
         modelBuilder.ApplyConfiguration(new CostRecordConfiguration());
         modelBuilder.ApplyConfiguration(new SecretRegistryEntryConfiguration());
         modelBuilder.ApplyConfiguration(new UnitMembershipEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new UnitSubunitMembershipEntityConfiguration());
         modelBuilder.ApplyConfiguration(new UnitPolicyEntityConfiguration());
         modelBuilder.ApplyConfiguration(new TenantAgentRuntimeInstallEntityConfiguration());
         modelBuilder.ApplyConfiguration(new TenantConnectorInstallEntityConfiguration());
@@ -150,6 +154,8 @@ public class SpringDbContext : DbContext
         modelBuilder.Entity<SecretRegistryEntry>()
             .HasQueryFilter(e => e.TenantId == CurrentTenantId);
         modelBuilder.Entity<UnitMembershipEntity>()
+            .HasQueryFilter(e => e.TenantId == CurrentTenantId);
+        modelBuilder.Entity<UnitSubunitMembershipEntity>()
             .HasQueryFilter(e => e.TenantId == CurrentTenantId);
         modelBuilder.Entity<UnitPolicyEntity>()
             .HasQueryFilter(e => e.TenantId == CurrentTenantId);

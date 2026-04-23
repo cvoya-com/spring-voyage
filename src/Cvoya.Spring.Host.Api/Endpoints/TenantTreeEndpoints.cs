@@ -55,6 +55,7 @@ public static class TenantTreeEndpoints
         HttpContext httpContext,
         [FromServices] IDirectoryService directoryService,
         [FromServices] IUnitMembershipRepository memberships,
+        [FromServices] IUnitSubunitMembershipRepository subunitMemberships,
         [FromServices] ITenantContext tenantContext,
         [FromServices] IActorProxyFactory actorProxyFactory,
         [FromServices] ILoggerFactory loggerFactory,
@@ -68,6 +69,9 @@ public static class TenantTreeEndpoints
             .Where(e => string.Equals(e.Address.Scheme, "unit", StringComparison.OrdinalIgnoreCase))
             .OrderBy(e => e.Address.Path, StringComparer.Ordinal)
             .ToList();
+
+        var unitEntriesById = unitEntries.ToDictionary(
+            e => e.Address.Path, StringComparer.Ordinal);
 
         var agentEntries = entries
             .Where(e => string.Equals(e.Address.Scheme, "agent", StringComparison.OrdinalIgnoreCase))
@@ -89,6 +93,34 @@ public static class TenantTreeEndpoints
             .GroupBy(m => m.UnitId, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
 
+        // #1154: pull the persistent sub-unit projection so the tree can
+        // nest child units under their parent. Filter out edges whose
+        // child or parent has no live directory entry — leftover ghosts
+        // that the cascade or reconciliation hasn't caught up with yet
+        // would otherwise render as broken nodes.
+        var allSubunitEdges = await subunitMemberships.ListAllAsync(cancellationToken);
+        var liveSubunitEdges = allSubunitEdges
+            .Where(e => unitEntriesById.ContainsKey(e.ParentUnitId)
+                     && unitEntriesById.ContainsKey(e.ChildUnitId))
+            .ToList();
+
+        var childUnitsByParent = liveSubunitEdges
+            .GroupBy(e => e.ParentUnitId, StringComparer.Ordinal)
+            .ToDictionary(
+                g => g.Key,
+                g => (IReadOnlyList<string>)g
+                    .Select(e => e.ChildUnitId)
+                    .Distinct(StringComparer.Ordinal)
+                    .ToList(),
+                StringComparer.Ordinal);
+
+        // Any unit that appears on the child side of at least one live
+        // edge is no longer a tenant-root unit — it must render under
+        // its parent rather than alongside it.
+        var nestedUnitIds = liveSubunitEdges
+            .Select(e => e.ChildUnitId)
+            .ToHashSet(StringComparer.Ordinal);
+
         // #1032: look up the real lifecycle status for each unit via its
         // actor. Previously every unit was pinned to "running", which left
         // operators looking at a green dot and the badge text "Running"
@@ -103,8 +135,24 @@ public static class TenantTreeEndpoints
                 await TryGetUnitStatusAsync(actorProxyFactory, unit.ActorId, logger, unit.Address.Path, cancellationToken);
         }
 
-        var unitNodes = unitEntries
-            .Select(u => BuildUnitNode(u, unitStatuses, membershipsByUnit, agentEntries, primaryByAgent))
+        // Walk the tree top-down from the unnested root units. The
+        // visited set defends against a corrupted projection that would
+        // otherwise loop — cycle prevention lives on the actor write
+        // path (UnitActor.EnsureNoCycleAsync) but we don't trust the
+        // projection blindly here.
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        var rootUnitNodes = unitEntries
+            .Where(u => !nestedUnitIds.Contains(u.Address.Path))
+            .Select(u => BuildUnitNode(
+                u,
+                unitEntriesById,
+                unitStatuses,
+                membershipsByUnit,
+                childUnitsByParent,
+                agentEntries,
+                primaryByAgent,
+                visited,
+                logger))
             .ToList();
 
         var tenantNode = new TenantTreeNode(
@@ -112,7 +160,7 @@ public static class TenantTreeEndpoints
             Name: tenantId,
             Kind: "Tenant",
             Status: "running",
-            Children: unitNodes);
+            Children: rootUnitNodes);
 
         httpContext.Response.Headers.CacheControl =
             $"private, max-age={CacheMaxAgeSeconds.ToString(CultureInfo.InvariantCulture)}";
@@ -122,12 +170,41 @@ public static class TenantTreeEndpoints
 
     private static TenantTreeNode BuildUnitNode(
         DirectoryEntry unit,
+        IReadOnlyDictionary<string, DirectoryEntry> unitEntriesById,
         IReadOnlyDictionary<string, UnitStatus> unitStatuses,
         IReadOnlyDictionary<string, List<UnitMembership>> membershipsByUnit,
+        IReadOnlyDictionary<string, IReadOnlyList<string>> childUnitsByParent,
         IReadOnlyDictionary<string, DirectoryEntry> agentEntries,
-        IReadOnlyDictionary<string, string> primaryByAgent)
+        IReadOnlyDictionary<string, string> primaryByAgent,
+        HashSet<string> visited,
+        ILogger logger)
     {
         var unitPath = unit.Address.Path;
+        var status = unitStatuses.TryGetValue(unitPath, out var persisted)
+            ? persisted
+            : UnitStatus.Draft;
+        var displayName = string.IsNullOrWhiteSpace(unit.DisplayName) ? unitPath : unit.DisplayName;
+        var description = string.IsNullOrWhiteSpace(unit.Description) ? null : unit.Description;
+
+        // Defense in depth against a corrupted projection: a cycle
+        // would otherwise blow the stack here. Cycle prevention is
+        // enforced on the actor write path; this guard renders the
+        // duplicate node as a leaf and logs once so operators can spot
+        // the drift.
+        if (!visited.Add(unitPath))
+        {
+            logger.LogWarning(
+                "Tenant tree: skipping duplicate unit {UnitPath} discovered via sub-unit projection (possible cycle).",
+                unitPath);
+            return new TenantTreeNode(
+                Id: unitPath,
+                Name: displayName,
+                Kind: "Unit",
+                Status: ToWireStatus(status),
+                Desc: description,
+                Children: Array.Empty<TenantTreeNode>());
+        }
+
         var rows = membershipsByUnit.TryGetValue(unitPath, out var list)
             ? list
             : new List<UnitMembership>();
@@ -139,17 +216,38 @@ public static class TenantTreeEndpoints
             .Cast<TenantTreeNode>()
             .ToList();
 
-        var status = unitStatuses.TryGetValue(unitPath, out var persisted)
-            ? persisted
-            : UnitStatus.Draft;
+        // Sub-unit children sit alongside agent children. Order is
+        // deterministic (sub-units first, alpha; then agents in
+        // membership order) so the Explorer's expand/collapse state and
+        // `findIndex` stay stable across reloads.
+        var childUnitNodes = childUnitsByParent.TryGetValue(unitPath, out var childIds)
+            ? childIds
+                .OrderBy(id => id, StringComparer.Ordinal)
+                .Where(unitEntriesById.ContainsKey)
+                .Select(id => BuildUnitNode(
+                    unitEntriesById[id],
+                    unitEntriesById,
+                    unitStatuses,
+                    membershipsByUnit,
+                    childUnitsByParent,
+                    agentEntries,
+                    primaryByAgent,
+                    visited,
+                    logger))
+                .ToList()
+            : new List<TenantTreeNode>();
+
+        var allChildren = new List<TenantTreeNode>(childUnitNodes.Count + agentNodes.Count);
+        allChildren.AddRange(childUnitNodes);
+        allChildren.AddRange(agentNodes);
 
         return new TenantTreeNode(
             Id: unitPath,
-            Name: string.IsNullOrWhiteSpace(unit.DisplayName) ? unitPath : unit.DisplayName,
+            Name: displayName,
             Kind: "Unit",
             Status: ToWireStatus(status),
-            Desc: string.IsNullOrWhiteSpace(unit.Description) ? null : unit.Description,
-            Children: agentNodes);
+            Desc: description,
+            Children: allChildren);
     }
 
     /// <summary>
