@@ -37,15 +37,28 @@ const revalidateUnitMock = vi.fn();
 const deleteUnitMock = vi.fn();
 const deleteAgentMock = vi.fn();
 
-vi.mock("@/lib/api/client", () => ({
-  api: {
-    startUnit: (id: string) => startUnitMock(id),
-    stopUnit: (id: string) => stopUnitMock(id),
-    revalidateUnit: (id: string) => revalidateUnitMock(id),
-    deleteUnit: (id: string) => deleteUnitMock(id),
-    deleteAgent: (id: string) => deleteAgentMock(id),
-  },
-}));
+// Re-export the real ApiError so the production code's `instanceof
+// ApiError` check inside the unit-pane-actions component matches the
+// instances we throw from the test mocks. Mocking ApiError out would
+// break the 409 forceHint detection used by the recovery flow.
+vi.mock("@/lib/api/client", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/api/client")>(
+    "@/lib/api/client",
+  );
+  return {
+    ...actual,
+    api: {
+      startUnit: (id: string) => startUnitMock(id),
+      stopUnit: (id: string) => stopUnitMock(id),
+      revalidateUnit: (id: string) => revalidateUnitMock(id),
+      deleteUnit: (id: string, options?: { force?: boolean }) =>
+        deleteUnitMock(id, options),
+      deleteAgent: (id: string) => deleteAgentMock(id),
+    },
+  };
+});
+
+import { ApiError } from "@/lib/api/client";
 
 const useUnitMock = vi.fn();
 vi.mock("@/lib/api/queries", () => ({
@@ -261,11 +274,81 @@ describe("UnitPaneActions — Delete confirmation flow", () => {
       );
     });
     await waitFor(() => {
-      expect(deleteUnitMock).toHaveBeenCalledWith("alpha");
+      expect(deleteUnitMock).toHaveBeenCalledWith("alpha", undefined);
     });
     await waitFor(() => {
       expect(routerReplaceMock).toHaveBeenCalledWith("/units");
     });
+  });
+});
+
+describe("UnitPaneActions — Force delete recovery (#1137)", () => {
+  // The API gates DELETE on lifecycle status — units in
+  // Validating/Starting/Running/Stopping return 409 with a
+  // `forceHint` payload that surfaces `?force=true`. The portal
+  // detects that shape and offers a second confirmation that calls
+  // the API with `{ force: true }`. This test pins the recovery flow
+  // end-to-end so a future refactor can't silently drop the hint.
+  it("opens the force-delete dialog when the API returns 409 with forceHint", async () => {
+    useUnitMock.mockReturnValue({ data: makeUnit("Validating") });
+    deleteUnitMock.mockRejectedValueOnce(
+      new ApiError(409, "Conflict", {
+        forceHint: "Pass ?force=true to bypass the lifecycle gate.",
+      }),
+    );
+    deleteUnitMock.mockResolvedValueOnce(undefined);
+
+    render(wrap(<UnitPaneActions node={unitNode} />));
+    fireEvent.click(screen.getByTestId("unit-action-delete"));
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: /permanently delete/i }),
+      );
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /force delete/i }),
+      ).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /force delete/i }));
+    });
+
+    await waitFor(() => {
+      expect(deleteUnitMock).toHaveBeenLastCalledWith("alpha", { force: true });
+    });
+    await waitFor(() => {
+      expect(routerReplaceMock).toHaveBeenCalledWith("/units");
+    });
+  });
+
+  it("surfaces a normal error toast when the 409 has no forceHint", async () => {
+    useUnitMock.mockReturnValue({ data: makeUnit("Running") });
+    deleteUnitMock.mockRejectedValueOnce(
+      new ApiError(409, "Conflict", { detail: "no hint here" }),
+    );
+
+    render(wrap(<UnitPaneActions node={unitNode} />));
+    fireEvent.click(screen.getByTestId("unit-action-delete"));
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: /permanently delete/i }),
+      );
+    });
+
+    await waitFor(() => {
+      expect(toastMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Delete failed",
+          variant: "destructive",
+        }),
+      );
+    });
+    expect(
+      screen.queryByRole("button", { name: /force delete/i }),
+    ).toBeNull();
   });
 });
 

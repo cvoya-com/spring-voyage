@@ -25,10 +25,21 @@ import { Play, RefreshCw, Square, Trash2, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
-import { api } from "@/lib/api/client";
+import { api, ApiError } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/query-keys";
 import { useUnit } from "@/lib/api/queries";
 import type { UnitStatus } from "@/lib/api/types";
+
+// #1137: shape of the API's 409 conflict body for DELETE /units/{id}.
+// Only `forceHint` is consumed by the recovery flow — its presence is the
+// signal that the operator can re-run the delete with `?force=true`.
+function isForceableConflict(err: unknown): boolean {
+  if (!(err instanceof ApiError) || err.status !== 409) return false;
+  const body = err.body;
+  if (!body || typeof body !== "object") return false;
+  const forceHint = (body as Record<string, unknown>).forceHint;
+  return typeof forceHint === "string" && forceHint.length > 0;
+}
 
 import type { TreeNode } from "./aggregate";
 
@@ -62,6 +73,11 @@ function UnitActions({ node }: { node: TreeNode }) {
   const status: UnitStatus | null = unitQuery.data?.status ?? null;
 
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // #1137: when the lifecycle-status gate refuses the delete with 409 +
+  // forceHint, surface a recovery dialog rather than silently dropping the
+  // operator into "open the API docs and figure out ?force=true". Set the
+  // flag and re-open the confirm with a force-flavoured copy.
+  const [forceConfirmOpen, setForceConfirmOpen] = useState(false);
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: queryKeys.units.detail(node.id) });
@@ -116,8 +132,36 @@ function UnitActions({ node }: { node: TreeNode }) {
       router.replace("/units");
     },
     onError: (err) => {
+      // #1137: the API's lifecycle-status gate returns 409 with
+      // forceHint for stuck units. Don't blow up with a generic
+      // "Delete failed" toast — pivot the dialog into a force-delete
+      // recovery prompt so the operator's only out isn't dropping to
+      // curl. Any other error still falls through to the regular
+      // toast.
+      if (isForceableConflict(err)) {
+        setConfirmOpen(false);
+        setForceConfirmOpen(true);
+        return;
+      }
       onError("Delete")(err);
       setConfirmOpen(false);
+    },
+  });
+
+  const forceDeleteMutation = useMutation({
+    mutationFn: () => api.deleteUnit(node.id, { force: true }),
+    onSuccess: () => {
+      invalidate();
+      toast({
+        title: "Unit force-deleted",
+        description: node.name,
+      });
+      setForceConfirmOpen(false);
+      router.replace("/units");
+    },
+    onError: (err) => {
+      onError("Force delete")(err);
+      setForceConfirmOpen(false);
     },
   });
 
@@ -126,7 +170,8 @@ function UnitActions({ node }: { node: TreeNode }) {
     revalidateMutation.isPending ||
     startMutation.isPending ||
     stopMutation.isPending ||
-    deleteMutation.isPending;
+    deleteMutation.isPending ||
+    forceDeleteMutation.isPending;
 
   return (
     <div
@@ -200,6 +245,24 @@ function UnitActions({ node }: { node: TreeNode }) {
         pending={deleteMutation.isPending}
         onConfirm={() => deleteMutation.mutate()}
         onCancel={() => setConfirmOpen(false)}
+      />
+      {/*
+        #1137 recovery dialog. Only ever opens after a regular delete
+        comes back 409 with forceHint, so the operator has already
+        confirmed intent once. Copy is deliberately heavier than the
+        primary dialog — force-delete skips the lifecycle gate and may
+        leave external resources (containers, sidecars) behind for the
+        host's best-effort teardown to clean up.
+      */}
+      <ConfirmDialog
+        open={forceConfirmOpen}
+        title={`Force-delete unit "${node.name}"?`}
+        description={`The API refused the normal delete because the unit is in a non-terminal state (e.g. Validating, Starting, Running, Stopping). Force-delete bypasses the lifecycle gate and removes the unit from the directory; the host runs a best-effort teardown of container, sidecar, and connector resources. Use this for units stuck in an intermediate state.`}
+        confirmLabel="Force delete"
+        confirmVariant="destructive"
+        pending={forceDeleteMutation.isPending}
+        onConfirm={() => forceDeleteMutation.mutate()}
+        onCancel={() => setForceConfirmOpen(false)}
       />
     </div>
   );

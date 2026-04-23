@@ -1033,16 +1033,30 @@ public static class UnitCommand
     private static Command CreateDeleteCommand()
     {
         var idArg = new Argument<string>("id") { Description = "The unit identifier" };
+        var forceOption = new Option<bool>("--force")
+        {
+            Description =
+                "Bypass the lifecycle-status gate and delete the unit even " +
+                "if it is in Validating, Starting, Running, or Stopping. Use " +
+                "to recover units the API otherwise refuses to delete with " +
+                "409 (e.g. probes that crashed or scheduler-side failures " +
+                "before #1136 landed). Best-effort — the unit is removed " +
+                "from the directory regardless of in-flight teardown work.",
+        };
         var command = new Command("delete", "Delete a unit");
         command.Arguments.Add(idArg);
+        command.Options.Add(forceOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
             var id = parseResult.GetValue(idArg)!;
+            var force = parseResult.GetValue(forceOption);
             var client = ClientFactory.Create();
 
-            await client.DeleteUnitAsync(id, ct);
-            Console.WriteLine($"Unit '{id}' deleted.");
+            await client.DeleteUnitAsync(id, force, ct);
+            Console.WriteLine(force
+                ? $"Unit '{id}' force-deleted."
+                : $"Unit '{id}' deleted.");
         });
 
         return command;
@@ -1055,16 +1069,27 @@ public static class UnitCommand
         {
             Description = "Required acknowledgement that this cascading delete is intentional",
         };
+        var forceOption = new Option<bool>("--force")
+        {
+            Description =
+                "Forward --force to the final unit-delete step so the cascade " +
+                "completes even when the root unit is in a stuck state " +
+                "(Validating, Starting, Running, Stopping). Has no effect on " +
+                "the per-membership deletes — only on the final " +
+                "DeleteUnitAsync(id) call.",
+        };
         var command = new Command(
             "purge",
             "Cascading cleanup: delete every membership row for the unit, then delete the unit itself. Requires --confirm because it is destructive.");
         command.Arguments.Add(idArg);
         command.Options.Add(confirmOption);
+        command.Options.Add(forceOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
             var id = parseResult.GetValue(idArg)!;
             var confirm = parseResult.GetValue(confirmOption);
+            var force = parseResult.GetValue(forceOption);
             if (!confirm)
             {
                 await Console.Error.WriteLineAsync(
@@ -1108,9 +1133,13 @@ public static class UnitCommand
                     }
                 }
 
-                // Step 3: delete the unit.
-                Console.WriteLine($"  - deleting unit '{id}'");
-                await client.DeleteUnitAsync(id, ct);
+                // Step 3: delete the unit. --force is forwarded here so a
+                // root unit stuck in a non-terminal state still gets
+                // tombstoned (#1137).
+                Console.WriteLine(force
+                    ? $"  - force-deleting unit '{id}'"
+                    : $"  - deleting unit '{id}'");
+                await client.DeleteUnitAsync(id, force, ct);
                 Console.WriteLine($"Unit '{id}' purged.");
             }
             catch (ApiException ex)

@@ -387,10 +387,21 @@ export const api = {
         params: { path: { id } },
       }),
     ),
-  deleteUnit: async (id: string): Promise<void> => {
+  // #1137: `force` skips the API's lifecycle-status gate and tombstones
+  // the unit even from non-terminal states (Validating, Starting, Running,
+  // Stopping). The portal uses it as a recovery path triggered by the
+  // confirmation dialog after a regular delete returns 409 with a
+  // `forceHint` extension — never as the default delete action.
+  deleteUnit: async (
+    id: string,
+    options?: { force?: boolean },
+  ): Promise<void> => {
     assertOk(
       await fetchClient.DELETE("/api/v1/units/{id}", {
-        params: { path: { id } },
+        params: {
+          path: { id },
+          query: options?.force ? { force: true } : undefined,
+        },
       }),
     );
   },

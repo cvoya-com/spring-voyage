@@ -407,9 +407,20 @@ public class SpringApiClient
         return result ?? throw new InvalidOperationException($"Server returned an empty response for unit '{id}'.");
     }
 
-    /// <summary>Deletes a unit.</summary>
-    public Task DeleteUnitAsync(string id, CancellationToken ct = default)
-        => _client.Api.V1.Units[id].DeleteAsync(cancellationToken: ct);
+    /// <summary>
+    /// Deletes a unit. When <paramref name="force"/> is <see langword="true"/>
+    /// the API skips the lifecycle-status gate and removes the unit even
+    /// from non-terminal states (Validating, Starting, Running, Stopping).
+    /// Use to recover units the API otherwise refuses to delete with a
+    /// 409 — see #1137 / <c>UnitEndpoints.DeleteUnitAsync</c>'s
+    /// <c>forceHint</c>.
+    /// </summary>
+    public Task DeleteUnitAsync(string id, bool force = false, CancellationToken ct = default)
+        => _client.Api.V1.Units[id].DeleteAsync(
+            requestConfiguration: force
+                ? c => c.QueryParameters.Force = true
+                : null,
+            cancellationToken: ct);
 
     /// <summary>
     /// Lists all members of a unit (agents and sub-units) via the typed
