@@ -426,6 +426,174 @@ describe("GitHubConnectorWizardStep", () => {
     ).not.toBeInTheDocument();
   });
 
+  // #1127: by default the wizard checks the "Connector defaults" toggle
+  // and the per-event row is informational — checks reflect the
+  // server's DefaultEvents (issues, pull_request, issue_comment) and
+  // every event input is disabled. The wire shape omits `events` so
+  // the server resolves the set itself.
+  it("starts with Connector defaults checked and event row disabled (#1127)", async () => {
+    mocked.listGitHubRepositories.mockResolvedValue([repoFixture]);
+    mocked.listGitHubCollaborators.mockResolvedValue([]);
+    const onChange = vi.fn();
+
+    await act(async () => {
+      render(<GitHubConnectorWizardStep onChange={onChange} />);
+    });
+
+    await waitFor(() =>
+      expect(mocked.listGitHubRepositories).toHaveBeenCalled(),
+    );
+
+    const toggle = screen.getByTestId(
+      "github-events-use-defaults",
+    ) as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
+
+    const issues = screen.getByLabelText("issues") as HTMLInputElement;
+    const pr = screen.getByLabelText("pull_request") as HTMLInputElement;
+    const ic = screen.getByLabelText("issue_comment") as HTMLInputElement;
+    const push = screen.getByLabelText("push") as HTMLInputElement;
+    const release = screen.getByLabelText("release") as HTMLInputElement;
+    expect(issues.checked).toBe(true);
+    expect(pr.checked).toBe(true);
+    expect(ic.checked).toBe(true);
+    expect(push.checked).toBe(false);
+    expect(release.checked).toBe(false);
+    [issues, pr, ic, push, release].forEach((input) =>
+      expect(input).toBeDisabled(),
+    );
+
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText("Repository"), {
+        target: { value: "acme/platform" },
+      });
+    });
+
+    await waitFor(() => {
+      const last = onChange.mock.calls.at(-1)?.[0];
+      expect(last).toEqual(
+        expect.objectContaining({
+          owner: "acme",
+          repo: "platform",
+          appInstallationId: 7777,
+        }),
+      );
+      expect(last?.events).toBeUndefined();
+    });
+  });
+
+  // #1127: unchecking "Connector defaults" enables the per-event row and
+  // pre-populates it with the same DefaultEvents the operator was
+  // already living with — they don't restart from an empty form.
+  it("enables and pre-populates the event row when Connector defaults is unchecked (#1127)", async () => {
+    mocked.listGitHubRepositories.mockResolvedValue([repoFixture]);
+    mocked.listGitHubCollaborators.mockResolvedValue([]);
+    const onChange = vi.fn();
+
+    await act(async () => {
+      render(<GitHubConnectorWizardStep onChange={onChange} />);
+    });
+
+    await waitFor(() =>
+      expect(mocked.listGitHubRepositories).toHaveBeenCalled(),
+    );
+
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText("Repository"), {
+        target: { value: "acme/platform" },
+      });
+    });
+
+    const toggle = screen.getByTestId(
+      "github-events-use-defaults",
+    ) as HTMLInputElement;
+    await act(async () => {
+      fireEvent.click(toggle);
+    });
+    expect(toggle.checked).toBe(false);
+
+    const issues = screen.getByLabelText("issues") as HTMLInputElement;
+    const release = screen.getByLabelText("release") as HTMLInputElement;
+    expect(issues).not.toBeDisabled();
+    expect(release).not.toBeDisabled();
+    expect(issues.checked).toBe(true);
+    expect(release.checked).toBe(false);
+
+    await act(async () => {
+      fireEvent.click(release);
+    });
+
+    await waitFor(() => {
+      const last = onChange.mock.calls.at(-1)?.[0];
+      expect(last?.events).toEqual(
+        expect.arrayContaining([
+          "issues",
+          "pull_request",
+          "issue_comment",
+          "release",
+        ]),
+      );
+      expect(last?.events).not.toContain("push");
+    });
+
+    // Re-checking "Connector defaults" returns to the wire shape that
+    // omits `events` so the server resolves the set itself.
+    await act(async () => {
+      fireEvent.click(toggle);
+    });
+    expect(toggle.checked).toBe(true);
+    await waitFor(() => {
+      const last = onChange.mock.calls.at(-1)?.[0];
+      expect(last?.events).toBeUndefined();
+    });
+  });
+
+  // #1127: re-entering the wizard with an explicit `events` list pre-
+  // selects the unchecked-defaults state so the operator can see and
+  // edit what was previously chosen — without silently switching them
+  // back to "use defaults".
+  it("starts with Connector defaults UNchecked when initialValue carries an explicit events list (#1127)", async () => {
+    mocked.listGitHubRepositories.mockResolvedValue([repoFixture]);
+    mocked.listGitHubCollaborators.mockResolvedValue([]);
+    const onChange = vi.fn();
+
+    await act(async () => {
+      render(
+        <GitHubConnectorWizardStep
+          onChange={onChange}
+          initialValue={{
+            owner: "acme",
+            repo: "platform",
+            appInstallationId: 7777,
+            events: ["push", "release"],
+            reviewer: undefined,
+          }}
+        />,
+      );
+    });
+
+    await waitFor(() =>
+      expect(mocked.listGitHubRepositories).toHaveBeenCalled(),
+    );
+
+    const toggle = screen.getByTestId(
+      "github-events-use-defaults",
+    ) as HTMLInputElement;
+    expect(toggle.checked).toBe(false);
+    const push = screen.getByLabelText("push") as HTMLInputElement;
+    const release = screen.getByLabelText("release") as HTMLInputElement;
+    const issues = screen.getByLabelText("issues") as HTMLInputElement;
+    expect(push.checked).toBe(true);
+    expect(release.checked).toBe(true);
+    expect(issues.checked).toBe(false);
+    expect(push).not.toBeDisabled();
+
+    await waitFor(() => {
+      const last = onChange.mock.calls.at(-1)?.[0];
+      expect(last?.events).toEqual(["push", "release"]);
+    });
+  });
+
   it("hydrates from initialValue when provided", async () => {
     // When the user navigates back to the wizard step, the previously
     // selected repository must already be the chosen value in the
