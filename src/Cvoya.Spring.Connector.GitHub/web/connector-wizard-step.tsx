@@ -83,6 +83,31 @@ function extractDisabledReason(err: unknown): string | null {
   return null;
 }
 
+/**
+ * #1153: shape of the Problem+JSON the connector returns when no
+ * signed-in GitHub user is available on the request. The wizard uses
+ * the presence of `requires_signin: true` to render the "Sign in with
+ * GitHub" affordance instead of the generic error path.
+ */
+function isRequiresSigninProblem(err: unknown): boolean {
+  if (!(err instanceof ApiError) || err.status !== 401) {
+    return false;
+  }
+  const body = err.body as { requires_signin?: unknown } | null;
+  return (
+    typeof body === "object" &&
+    body !== null &&
+    body.requires_signin === true
+  );
+}
+
+/**
+ * `sessionStorage` key the wizard uses to persist the OAuth session id
+ * across the redirect back from GitHub. Scoped to a constant so the
+ * post-callback handler in the layout can clear it deterministically.
+ */
+const GITHUB_OAUTH_SESSION_KEY = "spring.connectors.github.oauthSessionId";
+
 // Mirror of the event set in connector-tab.tsx. Kept duplicated on purpose
 // — changing the set of offered events in one surface shouldn't silently
 // change it in the other. The server clamps anything the user picks to the
@@ -183,6 +208,17 @@ export function GitHubConnectorWizardStep({
   // affordances entirely and render a remediation panel pointing at the
   // CLI / docs. Drives the friendly path for #1186.
   const [disabledReason, setDisabledReason] = useState<string | null>(null);
+  // #1153: GitHub OAuth session id (persisted in sessionStorage so it
+  // survives the redirect back from GitHub). When null/undefined the
+  // wizard renders the "Sign in with GitHub" CTA; when populated it's
+  // sent on every list-repositories call so the dropdown is scoped to
+  // the signed-in user instead of every repo the App can see across
+  // every other user's installations.
+  const [oauthSessionId, setOauthSessionId] = useState<string | null>(null);
+  const [oauthLogin, setOauthLogin] = useState<string | null>(null);
+  const [requiresSignin, setRequiresSignin] = useState(false);
+  const [signinPending, setSigninPending] = useState(false);
+  const [signinError, setSigninError] = useState<string | null>(null);
   // #1132: tracks an in-flight repositories refetch driven by the
   // Recheck button (or the Refresh affordance on the repository
   // dropdown). The button reads this to disable itself + announce a
@@ -202,48 +238,77 @@ export function GitHubConnectorWizardStep({
   // important — it keeps `react-hooks/set-state-in-effect` quiet when
   // the mount effect calls this function (the rule only flags
   // synchronous setState before the first suspension point).
-  const fetchRepositories = useCallback(async () => {
-    let list: GitHubRepositoryResponse[] = [];
-    let disabled: string | null = null;
-    try {
-      list = await api.listGitHubRepositories();
-      setRepositories(list);
-      setReposError(null);
-      setDisabledReason(null);
-    } catch (err) {
-      // disabled-with-reason is a first-class connector state, not a
-      // failure (#1186). Render the remediation panel instead of the
-      // raw RFC 9110 envelope.
-      disabled = extractDisabledReason(err);
-      if (disabled !== null) {
-        setDisabledReason(disabled);
-        setReposError(null);
-      } else {
-        const message = err instanceof Error ? err.message : String(err);
-        setReposError(message);
-        setDisabledReason(null);
-      }
-      setRepositories([]);
-    }
-    // Fetch the install URL whenever the empty-state banner will show
-    // (either the list came back empty, or the call errored). #599: the
-    // previous implementation only fetched on the catch branch, so
-    // platforms where the App simply has no installations surfaced a
-    // banner with no call-to-action link.
-    //
-    // Skip the install-URL fetch when the connector is disabled — the
-    // endpoint will 404 with the same disabled payload, and there is
-    // no install URL to render anyway (the deployment hasn't been
-    // wired up to a GitHub App yet).
-    if (disabled === null && list.length === 0) {
+  const fetchRepositories = useCallback(
+    async (sessionId: string | null) => {
+      let list: GitHubRepositoryResponse[] = [];
+      let disabled: string | null = null;
+      let needsSignin = false;
       try {
-        const { url } = await api.getGitHubInstallUrl();
-        setInstallUrl(url);
-      } catch {
-        // Swallow — the banner already tells the user what's wrong.
+        list = await api.listGitHubRepositories(sessionId ?? undefined);
+        setRepositories(list);
+        setReposError(null);
+        setDisabledReason(null);
+        setRequiresSignin(false);
+      } catch (err) {
+        // disabled-with-reason is a first-class connector state, not a
+        // failure (#1186). Render the remediation panel instead of the
+        // raw RFC 9110 envelope.
+        disabled = extractDisabledReason(err);
+        if (disabled !== null) {
+          setDisabledReason(disabled);
+          setReposError(null);
+          setRequiresSignin(false);
+        } else if (isRequiresSigninProblem(err)) {
+          // #1153: server is telling us the request didn't carry a
+          // signed-in GitHub user. Surface the "Sign in with GitHub"
+          // affordance instead of leaking the 401 envelope.
+          needsSignin = true;
+          setRequiresSignin(true);
+          setReposError(null);
+          setDisabledReason(null);
+          // The session id we sent (if any) was rejected — clear it
+          // so the next attempt starts fresh.
+          if (sessionId !== null) {
+            try {
+              window.sessionStorage.removeItem(GITHUB_OAUTH_SESSION_KEY);
+            } catch {
+              // Swallow — sessionStorage may be unavailable in some
+              // sandboxed contexts (private mode, SSR). The user can
+              // still re-trigger sign-in manually.
+            }
+            setOauthSessionId(null);
+            setOauthLogin(null);
+          }
+        } else {
+          const message = err instanceof Error ? err.message : String(err);
+          setReposError(message);
+          setDisabledReason(null);
+          setRequiresSignin(false);
+        }
+        setRepositories([]);
       }
-    }
-  }, []);
+      // Fetch the install URL whenever the empty-state banner will show
+      // (either the list came back empty, or the call errored). #599: the
+      // previous implementation only fetched on the catch branch, so
+      // platforms where the App simply has no installations surfaced a
+      // banner with no call-to-action link.
+      //
+      // Skip the install-URL fetch when the connector is disabled — the
+      // endpoint will 404 with the same disabled payload, and there is
+      // no install URL to render anyway (the deployment hasn't been
+      // wired up to a GitHub App yet). Also skip when sign-in is
+      // required — the panel we render for that case has its own CTA.
+      if (disabled === null && !needsSignin && list.length === 0) {
+        try {
+          const { url } = await api.getGitHubInstallUrl();
+          setInstallUrl(url);
+        } catch {
+          // Swallow — the banner already tells the user what's wrong.
+        }
+      }
+    },
+    [],
+  );
 
   // #1132: imperative wrapper for the Recheck / Refresh buttons. Lifts
   // the `rechecking` flag around the fetch so the UI can render the
@@ -252,19 +317,76 @@ export function GitHubConnectorWizardStep({
   const recheckRepositories = useCallback(async () => {
     setRechecking(true);
     try {
-      await fetchRepositories();
+      await fetchRepositories(oauthSessionId);
     } finally {
       setRechecking(false);
     }
-  }, [fetchRepositories]);
+  }, [fetchRepositories, oauthSessionId]);
+
+  // -- OAuth session bootstrapping (#1153) ----------------------------------
+  // On mount, hydrate the OAuth session id from two sources, in order:
+  //   1. The URL fragment (`#oauth_session_id=…&login=…`) the OAuth
+  //      callback redirected us back to. We strip the fragment so a
+  //      page reload doesn't re-process a stale value.
+  //   2. `sessionStorage`, which the previous step wrote into so the
+  //      session survives across navigations within the wizard.
+  // This effect runs exactly once per mount, before the repository
+  // fetch, so the first list-repositories call carries the session id
+  // when one is available.
+  useEffect(() => {
+    let resolvedSessionId: string | null = null;
+    let resolvedLogin: string | null = null;
+    if (typeof window !== "undefined") {
+      const hash = window.location.hash;
+      if (hash.length > 1) {
+        const fragmentParams = new URLSearchParams(hash.slice(1));
+        const fragmentSession = fragmentParams.get("oauth_session_id");
+        const fragmentLogin = fragmentParams.get("login");
+        if (fragmentSession) {
+          resolvedSessionId = fragmentSession;
+          resolvedLogin = fragmentLogin;
+          try {
+            window.sessionStorage.setItem(
+              GITHUB_OAUTH_SESSION_KEY,
+              fragmentSession,
+            );
+          } catch {
+            // Best-effort persistence.
+          }
+          // Strip the fragment without triggering a navigation so a
+          // refresh won't replay a stale session id.
+          const cleanUrl =
+            window.location.pathname + window.location.search;
+          try {
+            window.history.replaceState(null, "", cleanUrl);
+          } catch {
+            // Some browsers (very old) reject this; non-fatal.
+          }
+        }
+      }
+      if (resolvedSessionId === null) {
+        try {
+          resolvedSessionId =
+            window.sessionStorage.getItem(GITHUB_OAUTH_SESSION_KEY);
+        } catch {
+          resolvedSessionId = null;
+        }
+      }
+    }
+    setOauthSessionId(resolvedSessionId);
+    setOauthLogin(resolvedLogin);
+  }, []);
 
   // -- Repositories (mount fetch) -------------------------------------------
+  // Re-runs whenever the OAuth session id changes (initial hydration,
+  // post-callback set, server-rejected clear) so the dropdown stays in
+  // lockstep with the signed-in identity.
   useEffect(() => {
     let cancelled = false;
     setReposLoading(true);
     (async () => {
       try {
-        await fetchRepositories();
+        await fetchRepositories(oauthSessionId);
       } finally {
         if (!cancelled) setReposLoading(false);
       }
@@ -272,7 +394,47 @@ export function GitHubConnectorWizardStep({
     return () => {
       cancelled = true;
     };
-  }, [fetchRepositories]);
+  }, [fetchRepositories, oauthSessionId]);
+
+  // -- Sign-in handler (#1153) ----------------------------------------------
+  // Calls the connector's authorize endpoint with the current portal
+  // path as `clientState`, then full-page navigates to GitHub. After
+  // GitHub redirects back through the connector callback, the user
+  // lands here again with `#oauth_session_id=…&login=…` in the URL
+  // fragment, which the bootstrap effect picks up and persists.
+  const beginSignin = useCallback(async () => {
+    if (typeof window === "undefined") return;
+    setSigninPending(true);
+    setSigninError(null);
+    try {
+      const returnPath = window.location.pathname + window.location.search;
+      const { authorizeUrl } = await api.beginGitHubOAuth(returnPath);
+      window.location.href = authorizeUrl;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setSigninError(message);
+      setSigninPending(false);
+    }
+  }, []);
+
+  // -- Sign-out handler (#1153) ---------------------------------------------
+  // Clears the session locally so the wizard reverts to the "Sign in
+  // with GitHub" CTA. We deliberately do NOT call /oauth/revoke here —
+  // the user may have other browser tabs / portal sessions using the
+  // same OAuth session, and revoking the token would tear those down
+  // too. The platform-wide sign-out flow owns remote revocation.
+  const clearSignin = useCallback(() => {
+    if (typeof window !== "undefined") {
+      try {
+        window.sessionStorage.removeItem(GITHUB_OAUTH_SESSION_KEY);
+      } catch {
+        // Best-effort.
+      }
+    }
+    setOauthSessionId(null);
+    setOauthLogin(null);
+    setRequiresSignin(true);
+  }, []);
 
   // -- Collaborators (re-fetched whenever the repo selection changes) -------
   useEffect(() => {
@@ -384,6 +546,69 @@ export function GitHubConnectorWizardStep({
         <span className="text-sm font-medium">GitHub connector</span>
       </div>
 
+      {disabledReason === null && oauthLogin !== null && !requiresSignin && (
+        <div
+          className="flex items-center justify-between gap-2 rounded-md border border-border bg-background px-3 py-2 text-xs"
+          data-testid="github-signed-in-as"
+        >
+          <span className="text-muted-foreground">
+            Showing repositories for{" "}
+            <span className="font-medium text-foreground">
+              @{oauthLogin}
+            </span>
+            .
+          </span>
+          <button
+            type="button"
+            className="text-xs text-muted-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            onClick={clearSignin}
+            data-testid="github-signout"
+          >
+            Sign out
+          </button>
+        </div>
+      )}
+
+      {disabledReason === null && requiresSignin && (
+        <div
+          role="alert"
+          className="rounded-md border border-info/50 bg-info/15 px-3 py-2 text-sm text-info"
+          data-testid="github-signin-required"
+        >
+          <p className="font-medium">Sign in with GitHub.</p>
+          <p className="mt-1 text-foreground">
+            We only show the repositories your GitHub account can see and
+            on which the configured GitHub App is installed. Sign in to
+            populate the dropdown.
+          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void beginSignin()}
+              disabled={signinPending}
+              aria-busy={signinPending}
+              data-testid="github-signin"
+            >
+              {signinPending ? (
+                <Loader2
+                  className="mr-1 h-4 w-4 animate-spin"
+                  aria-hidden="true"
+                />
+              ) : (
+                <Github className="mr-1 h-4 w-4" aria-hidden="true" />
+              )}
+              {signinPending ? "Redirecting…" : "Sign in with GitHub"}
+            </Button>
+          </div>
+          {signinError && (
+            <p className="mt-2 text-xs text-destructive">
+              Could not start sign-in: {signinError}
+            </p>
+          )}
+        </div>
+      )}
+
       {disabledReason !== null && (
         <div
           role="alert"
@@ -427,6 +652,7 @@ export function GitHubConnectorWizardStep({
       )}
 
       {disabledReason === null &&
+        !requiresSignin &&
         repositories &&
         repositories.length === 0 && (
           <div
@@ -495,7 +721,7 @@ export function GitHubConnectorWizardStep({
           </div>
         )}
 
-      {disabledReason === null && (
+      {disabledReason === null && !requiresSignin && (
         <label className="block space-y-1">
           <span className="text-xs text-muted-foreground">
             Repository<span className="text-destructive"> *</span>
@@ -552,7 +778,9 @@ export function GitHubConnectorWizardStep({
         </label>
       )}
 
-      {disabledReason === null && installationId != null && (
+      {disabledReason === null &&
+        !requiresSignin &&
+        installationId != null && (
         <label className="block space-y-1">
           <span className="text-xs text-muted-foreground">
             Default reviewer

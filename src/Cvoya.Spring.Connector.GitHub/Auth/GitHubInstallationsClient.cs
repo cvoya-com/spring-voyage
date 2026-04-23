@@ -115,12 +115,79 @@ public class GitHubInstallationsClient(
         }
     }
 
+    /// <inheritdoc />
+    public virtual async Task<IReadOnlyList<GitHubInstallation>> ListUserAccessibleInstallationsAsync(
+        string userAccessToken,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(userAccessToken);
+
+        var userClient = CreateUserOAuthClient(userAccessToken);
+
+        // GET /user/installations — returns ONLY the installations of the
+        // configured App that the signed-in user can enumerate via the
+        // user-to-server token. The App owner sees all of them; a regular
+        // user sees only their own + the orgs they belong to that have
+        // installed the App. This is the call that fixes #1153.
+        var response = await userClient.GitHubApps.GetAllInstallationsForCurrentUser();
+
+        _logger.LogInformation(
+            "User-scoped /user/installations sees {Count} installation(s) for the configured App",
+            response.TotalCount);
+
+        return response.Installations
+            .Select(MapInstallation)
+            .ToList();
+    }
+
+    /// <inheritdoc />
+    public virtual async Task<IReadOnlyList<GitHubInstallationRepository>> ListUserAccessibleInstallationRepositoriesAsync(
+        string userAccessToken,
+        long installationId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(userAccessToken);
+
+        var userClient = CreateUserOAuthClient(userAccessToken);
+
+        // GET /user/installations/{installation_id}/repositories — returns
+        // the per-installation intersection of "covered by this installation"
+        // and "visible to this user". Pages internally; Octokit collapses
+        // the pagination for us.
+        var response = await userClient.GitHubApps.Installation
+            .GetAllRepositoriesForCurrentUser(installationId);
+
+        _logger.LogInformation(
+            "User-scoped /user/installations/{InstallationId}/repositories returned {Count} repositor(y|ies)",
+            installationId, response.TotalCount);
+
+        return response.Repositories
+            .Select(r => new GitHubInstallationRepository(
+                r.Id,
+                r.Owner?.Login ?? string.Empty,
+                r.Name ?? string.Empty,
+                r.FullName ?? string.Empty,
+                r.Private))
+            .ToList();
+    }
+
     private GitHubClient CreateAppJwtClient()
     {
         var jwt = auth.GenerateJwt();
         return new GitHubClient(new ProductHeaderValue("SpringVoyage"))
         {
             Credentials = new Credentials(jwt, AuthenticationType.Bearer),
+        };
+    }
+
+    private static GitHubClient CreateUserOAuthClient(string userAccessToken)
+    {
+        // OAuth user-to-server tokens authenticate as the user, NOT as the
+        // App. The standard Credentials(token) ctor is the right shape for
+        // this — Octokit attaches it as `Authorization: token <token>`.
+        return new GitHubClient(new ProductHeaderValue("SpringVoyage"))
+        {
+            Credentials = new Credentials(userAccessToken),
         };
     }
 

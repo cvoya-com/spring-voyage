@@ -99,8 +99,64 @@ The connector owns the route group at
 
 - `GET units/{unitId}/config` — read the bound per-unit config.
 - `PUT units/{unitId}/config` — bind a unit and upsert its config.
-- `GET actions/list-installations` — installations the App can see.
+- `GET actions/list-installations` — installations the App can see
+  (App-scoped enumeration, used by credential-validation flows). Not
+  used by the wizard's repository dropdown — see `list-repositories`.
+- `GET actions/list-repositories` — **user-scoped** enumeration: returns
+  the intersection of (installations the App is part of) ∩
+  (repositories the **signed-in GitHub user** can see) by resolving the
+  user's OAuth token through `IGitHubUserAccessTokenProvider` and
+  calling `GET /user/installations` + `GET /user/installations/{id}/repositories`.
+  When no signed-in user is on the request, returns `401 Unauthorized`
+  with a `requires_signin: true` problem extension so the wizard can
+  render a "Sign in with GitHub" CTA. The portal sends the OAuth
+  session id either via the `oauth_session_id` query parameter or the
+  `X-GitHub-OAuth-Session` header. ([#1153](https://github.com/cvoya-com/spring-voyage/issues/1153))
 - `GET actions/install-url` — public install URL for the App.
+- `GET actions/list-collaborators` — collaborators of the chosen
+  repository (used by the Reviewer dropdown).
 - `GET config-schema` — JSON Schema describing the per-unit config.
 - OAuth authorize / callback / revoke / session endpoints (see
-  `Auth/OAuth/`).
+  `Auth/OAuth/`). The callback redirects back to the wizard URL passed
+  in the authorize request's `client_state`, embedding the
+  `oauth_session_id` and `login` in the URL fragment so they never
+  appear in server logs or `Referer` headers.
+
+## User-scoped repository enumeration ([#1153](https://github.com/cvoya-com/spring-voyage/issues/1153))
+
+Pre-#1153 the wizard's repository dropdown enumerated every
+installation the App had been granted access to (via
+`GET /app/installations`) and intersected it with the App's view of
+each installation's repositories. That leaked other users' repos to
+any operator who happened to be authenticated against the deployment
+— including, in the maintainer's own case, every repo the App had
+ever been installed on across every GitHub account.
+
+`GET actions/list-repositories` is now strictly user-scoped:
+
+1. The endpoint resolves the signed-in GitHub user via the injected
+   `IGitHubUserAccessTokenProvider`. The OSS implementation
+   (`HttpContextGitHubUserAccessTokenProvider`) reads `oauth_session_id`
+   from the request, looks the OAuth session up via `IOAuthSessionStore`,
+   and resolves the user's access token via `ISecretStore`. Cloud /
+   multi-tenant deployments override this provider to resolve the
+   token from their own session store.
+2. If no user identity is present, the endpoint returns
+   `401 Unauthorized` with `requires_signin: true`, an `authorize_path`
+   pointing at the OAuth `authorize` endpoint, and `provider: github`
+   so the wizard can render a sign-in CTA. The endpoint **never**
+   falls back to the App-wide enumeration — that is the bug we fixed.
+3. Otherwise the endpoint calls `IGitHubInstallationsClient.ListUserAccessibleInstallationsAsync(userToken)`
+   (Octokit `GitHubApps.GetAllInstallationsForCurrentUser`) and, for
+   each, `IGitHubInstallationsClient.ListUserAccessibleInstallationRepositoriesAsync(userToken, installationId)`
+   (Octokit `GitHubApps.Installation.GetAllRepositoriesForCurrentUser`).
+   GitHub itself enforces the intersection of (App is installed) ∩
+   (user can see).
+4. A per-installation failure does not poison the response — the
+   endpoint logs the failure and returns the union of the
+   installations that succeeded, so a single bad install does not
+   block the operator from picking a different one.
+5. An `AuthorizationException` from GitHub (token revoked, expired,
+   scope mismatch) is normalised to `401 Unauthorized` +
+   `requires_signin: true` so the wizard re-prompts the operator
+   instead of leaving them stuck on a 502.

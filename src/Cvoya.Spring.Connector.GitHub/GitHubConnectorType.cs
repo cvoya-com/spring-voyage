@@ -162,9 +162,10 @@ public class GitHubConnectorType : IConnectorType
         // post it back without a second resolver call.
         group.MapGet("/actions/list-repositories", ListRepositoriesAsync)
             .WithName("ListGitHubRepositories")
-            .WithSummary("List repositories visible to the GitHub App, aggregated across installations")
+            .WithSummary("List repositories the signed-in GitHub user can access via the configured GitHub App")
             .WithTags("Connectors.GitHub")
             .Produces<GitHubRepositoryResponse[]>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status502BadGateway);
 
@@ -522,7 +523,9 @@ public class GitHubConnectorType : IConnectorType
         }
     }
 
-    private async Task<IResult> ListRepositoriesAsync(CancellationToken cancellationToken)
+    private async Task<IResult> ListRepositoriesAsync(
+        [FromServices] IGitHubUserAccessTokenProvider userAccessTokenProvider,
+        CancellationToken cancellationToken)
     {
         // Same disabled short-circuit as list-installations — without
         // valid App credentials we can't mint installation tokens, so
@@ -543,19 +546,60 @@ public class GitHubConnectorType : IConnectorType
                 });
         }
 
+        // #1153: scope the list strictly to the signed-in GitHub user.
+        // The previous implementation enumerated /app/installations →
+        // /installation/repositories with the App's own JWT, which
+        // returned every repo every install of the App could see — even
+        // ones the caller had no right to see. Now we require an OAuth
+        // user token on every call and only call the user-scoped
+        // endpoints (/user/installations + /user/installations/{id}/
+        // repositories). When no user identity is on the request we
+        // return a structured 401 the wizard renders as "Sign in with
+        // GitHub" rather than silently falling back to the leaky path.
+        GitHubUserAccess? userAccess;
+        try
+        {
+            userAccess = await userAccessTokenProvider
+                .GetCurrentAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Failed to resolve GitHub user access token while listing repositories");
+            userAccess = null;
+        }
+
+        if (userAccess is null)
+        {
+            // 401 instead of 404 so the wizard can branch on status code
+            // alone. The `requires_signin` extension keys into the
+            // wizard's "Sign in with GitHub" affordance; the portal
+            // builds the authorize call itself rather than us pre-baking
+            // a URL (the redirect_uri is configured server-side and the
+            // ClientState round-tripping is owned by the wizard).
+            return Results.Problem(
+                title: "GitHub sign-in required",
+                detail: "List repositories the signed-in GitHub user can see — sign in with GitHub to populate the dropdown.",
+                statusCode: StatusCodes.Status401Unauthorized,
+                extensions: new Dictionary<string, object?>
+                {
+                    ["requires_signin"] = true,
+                    ["provider"] = "github",
+                    ["authorize_path"] = "/api/v1/connectors/github/oauth/authorize",
+                });
+        }
+
         try
         {
             var installations = await _installationsClient
-                .ListInstallationsAsync(cancellationToken);
+                .ListUserAccessibleInstallationsAsync(
+                    userAccess.AccessToken, cancellationToken);
 
             // Aggregate across installations so the wizard can present a
-            // single repository dropdown (#1133). The per-installation
-            // call goes through the existing
-            // ListInstallationRepositoriesAsync which mints an installation
-            // token and pages through GET /installation/repositories.
-            // A failure on one installation MUST NOT poison the list —
-            // log it and keep the other installations' rows so the wizard
-            // still has something to render.
+            // single repository dropdown (#1133). A failure on one
+            // installation MUST NOT poison the list — log it and keep the
+            // other installations' rows so the wizard still has something
+            // to render.
             var aggregated = new List<GitHubRepositoryResponse>();
             foreach (var installation in installations)
             {
@@ -563,13 +607,16 @@ public class GitHubConnectorType : IConnectorType
                 try
                 {
                     repos = await _installationsClient
-                        .ListInstallationRepositoriesAsync(installation.InstallationId, cancellationToken);
+                        .ListUserAccessibleInstallationRepositoriesAsync(
+                            userAccess.AccessToken,
+                            installation.InstallationId,
+                            cancellationToken);
                 }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(
                         ex,
-                        "Failed to list repositories for installation {InstallationId} ({Account}); skipping",
+                        "Failed to list user-scoped repositories for installation {InstallationId} ({Account}); skipping",
                         installation.InstallationId, installation.Account);
                     continue;
                 }
@@ -594,7 +641,30 @@ public class GitHubConnectorType : IConnectorType
                 .OrderBy(r => r.FullName, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
 
+            _logger.LogInformation(
+                "Returned {Count} repositor(y|ies) for GitHub user {Login} across {InstallationCount} installation(s)",
+                ordered.Length, userAccess.Login, installations.Count);
+
             return Results.Ok(ordered);
+        }
+        catch (AuthorizationException ex)
+        {
+            // The user-to-server token was rejected. Surface as 401 so
+            // the wizard re-prompts for sign-in rather than rendering a
+            // generic 502.
+            _logger.LogInformation(ex,
+                "GitHub rejected the OAuth user token while listing repositories (status {Status})",
+                ex.StatusCode);
+            return Results.Problem(
+                title: "GitHub sign-in required",
+                detail: "The GitHub sign-in for this session is no longer valid. Sign in again to refresh the repository list.",
+                statusCode: StatusCodes.Status401Unauthorized,
+                extensions: new Dictionary<string, object?>
+                {
+                    ["requires_signin"] = true,
+                    ["provider"] = "github",
+                    ["authorize_path"] = "/api/v1/connectors/github/oauth/authorize",
+                });
         }
         catch (Exception ex)
         {

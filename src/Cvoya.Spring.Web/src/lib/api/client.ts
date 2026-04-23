@@ -882,10 +882,24 @@ export const api = {
    * the installation id back so the connector never has to re-resolve
    * `(owner, repo) → installation`.
    */
-  listGitHubRepositories: async () =>
+  /**
+   * #1153: optional `oauthSessionId` scopes the result to the signed-in
+   * GitHub user behind that session. The server enforces the scoping —
+   * passing `undefined` (no signed-in user) makes the endpoint return a
+   * 401 with `requires_signin: true`, which the wizard handles by
+   * surfacing the GitHub sign-in affordance.
+   */
+  listGitHubRepositories: async (oauthSessionId?: string | null) =>
     unwrap(
       await fetchClient.GET(
         "/api/v1/connectors/github/actions/list-repositories",
+        oauthSessionId
+          ? {
+              params: {
+                query: { oauth_session_id: oauthSessionId } as never,
+              },
+            }
+          : undefined,
       ),
     ),
   /**
@@ -913,6 +927,74 @@ export const api = {
     unwrap(
       await fetchClient.GET("/api/v1/connectors/github/actions/install-url"),
     ),
+  /**
+   * #1153: starts a GitHub OAuth authorize flow. Returns the URL the
+   * caller MUST navigate the user to; on completion the OAuth callback
+   * redirects to `clientState` (which must be a same-origin path
+   * starting with `/`) with `#oauth_session_id=…&login=…` in the URL
+   * fragment. The fragment never reaches the server, keeping the
+   * session id out of access logs / referer headers.
+   *
+   * Plain `fetch` is used here (rather than the typed openapi-fetch
+   * client) so this helper doesn't depend on a regenerated `schema.d.ts`
+   * picking up the new optional query / body shape — the wire contract
+   * is small enough to spell out inline.
+   */
+  beginGitHubOAuth: async (
+    clientState: string,
+  ): Promise<{ authorizeUrl: string; state: string }> => {
+    const response = await fetch(
+      `${BASE}/api/v1/connectors/github/oauth/authorize`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientState }),
+      },
+    );
+    if (!response.ok) {
+      const body = await response.text();
+      throw new ApiError(response.status, response.statusText, body);
+    }
+    return (await response.json()) as { authorizeUrl: string; state: string };
+  },
+  /**
+   * #1153: server-side metadata for an existing OAuth session — used by
+   * the wizard to confirm the session is still alive (and to surface
+   * "signed in as @login") before posting it onto the
+   * `list-repositories` call. Returns `null` for unknown / expired
+   * sessions so the caller can transparently re-prompt for sign-in.
+   */
+  getGitHubOAuthSession: async (
+    sessionId: string,
+  ): Promise<{
+    sessionId: string;
+    login: string;
+    userId: number;
+    scopes: string;
+    expiresAt: string | null;
+    createdAt: string;
+    clientState: string | null;
+  } | null> => {
+    const response = await fetch(
+      `${BASE}/api/v1/connectors/github/oauth/session/${encodeURIComponent(sessionId)}`,
+    );
+    if (response.status === 404) {
+      return null;
+    }
+    if (!response.ok) {
+      const body = await response.text();
+      throw new ApiError(response.status, response.statusText, body);
+    }
+    return (await response.json()) as {
+      sessionId: string;
+      login: string;
+      userId: number;
+      scopes: string;
+      expiresAt: string | null;
+      createdAt: string;
+      clientState: string | null;
+    };
+  },
   getUnitGitHubConfig: async (unitId: string) => {
     const result = await fetchClient.GET(
       "/api/v1/connectors/github/units/{unitId}/config",

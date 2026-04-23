@@ -7,6 +7,7 @@ using System.Net;
 using System.Net.Http;
 
 using Cvoya.Spring.Connector.GitHub.Auth;
+using Cvoya.Spring.Connector.GitHub.Auth.OAuth;
 using Cvoya.Spring.Connector.GitHub.Configuration;
 using Cvoya.Spring.Connector.GitHub.Webhooks;
 using Cvoya.Spring.Connectors;

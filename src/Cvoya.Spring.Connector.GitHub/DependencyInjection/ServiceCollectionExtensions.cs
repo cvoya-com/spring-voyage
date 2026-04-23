@@ -212,6 +212,18 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IGitHubOAuthService, GitHubOAuthService>();
         services.TryAddSingleton<IGitHubOAuthClientFactory, GitHubOAuthClientFactory>();
 
+        // #1153: per-request resolver for the signed-in GitHub user's
+        // OAuth access token. The OSS default reads an oauth_session_id
+        // off the ambient HttpContext (query string or header) and looks
+        // it up via IOAuthSessionStore + ISecretStore. Cloud overlays
+        // pre-register a tenant-aware implementation that resolves the
+        // token from the SSO principal instead. IHttpContextAccessor is
+        // a singleton in ASP.NET Core; the provider itself is stateless,
+        // so a singleton lifetime is correct (per-request data lives on
+        // the HttpContext).
+        services.AddHttpContextAccessor();
+        services.TryAddSingleton<IGitHubUserAccessTokenProvider, HttpContextGitHubUserAccessTokenProvider>();
+
         services.TryAddSingleton<IWebhookSignatureValidator, WebhookSignatureValidator>();
         services.TryAddSingleton<GitHubWebhookHandler>();
         services.TryAddSingleton<IGitHubWebhookHandler>(sp => sp.GetRequiredService<GitHubWebhookHandler>());

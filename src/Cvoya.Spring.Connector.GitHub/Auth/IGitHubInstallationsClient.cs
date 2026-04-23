@@ -50,6 +50,45 @@ public interface IGitHubInstallationsClient
         string owner,
         string repo,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Lists the App installations the signed-in GitHub user can access via
+    /// the user-to-server token. Calls <c>GET /user/installations</c>. The
+    /// result is the intersection of "every installation of the App" and
+    /// "every installation the user is allowed to enumerate via the App"
+    /// (the App owner sees all of them; a regular user sees only their own
+    /// + the orgs they belong to that have installed the App).
+    /// </summary>
+    /// <param name="userAccessToken">A GitHub user-to-server OAuth token.</param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    /// <returns>The user-accessible installations of the configured App.</returns>
+    /// <remarks>
+    /// Used by the wizard's repository-listing endpoint so the dropdown
+    /// is scoped to the signed-in user (issue #1153). Cloud overlays may
+    /// substitute a tenant-aware implementation that reads the user token
+    /// from a per-tenant credential store rather than threading it through
+    /// the call.
+    /// </remarks>
+    Task<IReadOnlyList<GitHubInstallation>> ListUserAccessibleInstallationsAsync(
+        string userAccessToken,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Lists the repositories the signed-in GitHub user can access on the
+    /// given installation. Calls
+    /// <c>GET /user/installations/{installation_id}/repositories</c>. The
+    /// per-installation result is the intersection of "every repo the
+    /// installation covers" and "every repo the user can see" — exactly
+    /// the projection the wizard needs (issue #1153).
+    /// </summary>
+    /// <param name="userAccessToken">A GitHub user-to-server OAuth token.</param>
+    /// <param name="installationId">The numeric installation id.</param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    /// <returns>The user-accessible repositories on this installation.</returns>
+    Task<IReadOnlyList<GitHubInstallationRepository>> ListUserAccessibleInstallationRepositoriesAsync(
+        string userAccessToken,
+        long installationId,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>

@@ -122,6 +122,23 @@ public static class GitHubOAuthEndpoints
                     });
             }
 
+            // #1153: when the wizard initiated the flow it stamped the
+            // ClientState with the portal path it wants the user to
+            // return to (e.g. "/units/new?step=github"). Redirect there
+            // with the session id in the URL fragment so the wizard can
+            // resume — the fragment never reaches the server, so the
+            // session id stays out of access logs / referrer headers.
+            // Only same-origin redirect targets are honoured (must start
+            // with a single "/") to stop arbitrary open-redirect abuse.
+            var session = await service.GetSessionAsync(result.SessionId, ct);
+            var clientState = session?.ClientState;
+            if (IsSafeReturnPath(clientState))
+            {
+                var separator = clientState!.Contains('#') ? '&' : '#';
+                var target = $"{clientState}{separator}oauth_session_id={Uri.EscapeDataString(result.SessionId)}&login={Uri.EscapeDataString(result.Login ?? string.Empty)}";
+                return Results.Redirect(target);
+            }
+
             return Results.Ok(new OAuthCallbackResponse(result.SessionId, result.Login!));
         }
         catch (InvalidOperationException ex)
@@ -131,6 +148,31 @@ public static class GitHubOAuthEndpoints
                 detail: ex.Message,
                 statusCode: StatusCodes.Status502BadGateway);
         }
+    }
+
+    /// <summary>
+    /// True when <paramref name="path"/> is a relative same-origin path the
+    /// callback is allowed to redirect to. Restricts the target to a single
+    /// leading <c>/</c> followed by a non-<c>/</c> character so common
+    /// open-redirect tricks (<c>//evil.com</c>, <c>/\evil.com</c>) and
+    /// absolute schemes (<c>https://…</c>) are rejected.
+    /// </summary>
+    private static bool IsSafeReturnPath(string? path)
+    {
+        if (string.IsNullOrEmpty(path) || path.Length < 2)
+        {
+            return false;
+        }
+        if (path[0] != '/')
+        {
+            return false;
+        }
+        // Reject "//foo" (protocol-relative) and "/\foo".
+        if (path[1] == '/' || path[1] == '\\')
+        {
+            return false;
+        }
+        return true;
     }
 
     private static async Task<IResult> RevokeAsync(
