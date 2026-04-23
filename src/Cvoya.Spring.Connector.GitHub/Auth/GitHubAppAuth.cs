@@ -18,7 +18,7 @@ using Microsoft.IdentityModel.Tokens;
 /// policy — this class is a thin transport over GitHub's
 /// <c>POST /app/installations/{id}/access_tokens</c> endpoint.
 /// </summary>
-public class GitHubAppAuth
+public class GitHubAppAuth : IDisposable
 {
     /// <summary>
     /// Name of the <see cref="HttpClient"/> this class resolves through
@@ -32,6 +32,15 @@ public class GitHubAppAuth
     private readonly IHttpClientFactory? _httpClientFactory;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger _logger;
+
+    // Hold a single RSA instance for the lifetime of this singleton so the
+    // SignatureProvider that Microsoft.IdentityModel.Tokens caches inside
+    // CryptoProviderFactory.Default keeps a reference to a live key. Disposing
+    // the RSA between calls (the previous behaviour) left the cached
+    // SignatureProvider holding a disposed RSA, which threw
+    // ObjectDisposedException on every call after the first (#1130).
+    private readonly Lazy<RSA> _rsa;
+    private int _disposed;
 
     /// <summary>
     /// Initializes the auth helper with connector options, a logger factory,
@@ -59,6 +68,14 @@ public class GitHubAppAuth
         _httpClientFactory = httpClientFactory;
         _timeProvider = timeProvider ?? TimeProvider.System;
         _logger = loggerFactory.CreateLogger<GitHubAppAuth>();
+        _rsa = new Lazy<RSA>(CreateRsa, LazyThreadSafetyMode.ExecutionAndPublication);
+    }
+
+    private RSA CreateRsa()
+    {
+        var rsa = RSA.Create();
+        rsa.ImportFromPem(_options.PrivateKeyPem);
+        return rsa;
     }
 
     /// <summary>
@@ -70,11 +87,8 @@ public class GitHubAppAuth
     {
         var now = _timeProvider.GetUtcNow();
 
-        using var rsa = RSA.Create();
-        rsa.ImportFromPem(_options.PrivateKeyPem);
-
         var credentials = new SigningCredentials(
-            new RsaSecurityKey(rsa),
+            new RsaSecurityKey(_rsa.Value),
             SecurityAlgorithms.RsaSha256);
 
         var descriptor = new SecurityTokenDescriptor
@@ -191,5 +205,33 @@ public class GitHubAppAuth
     {
         var minted = await MintInstallationTokenAsync(installationId, cancellationToken);
         return minted.Token;
+    }
+
+    /// <summary>
+    /// Disposes the cached RSA key, if any. The DI container disposes
+    /// singletons that implement <see cref="IDisposable"/> on shutdown.
+    /// Safe to call multiple times.
+    /// </summary>
+    public void Dispose()
+    {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    /// <summary>
+    /// Disposes managed resources. Idempotent — repeated calls are no-ops.
+    /// </summary>
+    /// <param name="disposing">True when called from <see cref="Dispose()"/>.</param>
+    protected virtual void Dispose(bool disposing)
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
+        if (disposing && _rsa.IsValueCreated)
+        {
+            _rsa.Value.Dispose();
+        }
     }
 }
