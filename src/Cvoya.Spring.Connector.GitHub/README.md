@@ -18,12 +18,14 @@ Bound from the `GitHub` configuration section
 
 | Setting | Env var | Required | Purpose |
 |---------|---------|----------|---------|
-| `AppId` | `GITHUB_APP_ID` | yes (for write paths) | Numeric GitHub App id used as the JWT issuer. |
-| `PrivateKeyPem` | `GITHUB_APP_PRIVATE_KEY` | yes | PEM-encoded App private key. May be inlined or a path to a `.pem` file. |
-| `WebhookSecret` | `GITHUB_WEBHOOK_SECRET` | recommended | Shared secret used to verify incoming webhook signatures. |
-| `InstallationId` | — | optional | Pin operations to a specific installation; otherwise the connector picks the first installation visible to the App. |
-| `AppSlug` | — | required for install URL | The App's public slug, used to build `https://github.com/apps/{slug}/installations/new`. |
-| `WebhookUrl` | — | yes (for unit start) | Public URL the connector registers webhooks against on unit start. |
+| `AppId` | `GitHub__AppId` | yes (for write paths) | Numeric GitHub App id used as the JWT issuer. |
+| `PrivateKeyPem` | `GitHub__PrivateKeyPem` | yes | PEM-encoded App private key. Inlined verbatim, inlined as a single line with literal `\n` between blocks (decoded automatically — same convention as Firebase / GCP service-account keys), or an absolute container-visible path to a `.pem` file. |
+| `WebhookSecret` | `GitHub__WebhookSecret` | recommended | Shared secret used to verify incoming webhook signatures. |
+| `InstallationId` | `GitHub__InstallationId` | optional | Pin operations to a specific installation; otherwise the connector picks the first installation visible to the App. |
+| `AppSlug` | `GitHub__AppSlug` | required for install URL | The App's public slug, used to build `https://github.com/apps/{slug}/installations/new`. |
+| `WebhookUrl` | `GitHub__WebhookUrl` | yes (for unit start) | Public URL the connector registers webhooks against on unit start. |
+
+> **Env-file gotchas.** podman / docker `--env-file` keeps surrounding quotes literally and does not support multi-line values. Always write `GitHub__*` values UNQUOTED, and inline the PEM as one line with `\n` separators. See [Deployment guide § Tier-1 platform credentials](../../docs/guide/deployment.md#tier-1-platform-credentials--github-app-identity-env-only) for the full set of pitfalls.
 
 Missing `AppId` / `PrivateKeyPem` keep the connector registered but
 disabled — the credential requirement

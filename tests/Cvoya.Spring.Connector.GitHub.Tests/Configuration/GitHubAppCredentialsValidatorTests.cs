@@ -125,7 +125,7 @@ public class GitHubAppCredentialsValidatorTests
         result.Classification.ShouldBe(GitHubAppCredentialsValidator.Kind.LooksLikePath);
         result.ErrorMessage.ShouldNotBeNullOrWhiteSpace();
         result.ErrorMessage!.ShouldContain("filesystem path");
-        result.ErrorMessage.ShouldContain("GITHUB_APP_PRIVATE_KEY");
+        result.ErrorMessage.ShouldContain("GitHub__PrivateKeyPem");
     }
 
     [Fact]
@@ -215,5 +215,118 @@ public class GitHubAppCredentialsValidatorTests
         var result = GitHubAppCredentialsValidator.Classify(options);
 
         result.Classification.ShouldBe(GitHubAppCredentialsValidator.Kind.LooksLikePath);
+    }
+
+    // -------- #1186: env-file decoding (Firebase/GCP-style `\n` escapes
+    // and surrounding-quote tolerance). The connector accepts the same
+    // single-line PEM encoding as those ecosystems so podman/docker
+    // `--env-file` (which doesn't support multi-line or quote-stripping)
+    // is a first-class deployment option. -----------------------------
+
+    [Fact]
+    public void Classify_PemWithEscapedNewlines_DecodesAndReturnsValid()
+    {
+        // Common podman / docker compose --env-file pattern (Firebase /
+        // GCP service-account convention): the operator inlines the PEM
+        // on a single line, separating blocks with a literal \n that the
+        // shell does NOT interpret. The connector must decode this
+        // before handing it to RSA.ImportFromPem.
+        var encoded = TestPemKey.Value.Replace("\n", "\\n");
+        encoded.ShouldNotContain("\n");
+        encoded.ShouldContain("\\n");
+
+        var options = new GitHubConnectorOptions
+        {
+            AppId = 12345,
+            PrivateKeyPem = encoded,
+        };
+
+        var result = GitHubAppCredentialsValidator.Classify(options);
+
+        result.Classification.ShouldBe(GitHubAppCredentialsValidator.Kind.Valid);
+        result.ResolvedPrivateKeyPem.ShouldNotBeNull();
+        // The resolved value carries real newlines so downstream code
+        // sees a normal multi-line PEM regardless of the input shape.
+        result.ResolvedPrivateKeyPem.ShouldContain("\n");
+        result.ResolvedPrivateKeyPem.ShouldNotContain("\\n");
+    }
+
+    [Fact]
+    public void Classify_PemWrappedInDoubleQuotes_StripsQuotesAndReturnsValid()
+    {
+        // podman --env-file keeps surrounding quotes literally as part
+        // of the value. Operators reflexively quote multi-character
+        // values, so the validator strips one matching pair defensively
+        // (#1186 — the screenshot in the bug report had quote-wrapped
+        // values that silently bound as the literal `"..."` string).
+        var quoted = "\"" + TestPemKey.Value + "\"";
+        var options = new GitHubConnectorOptions
+        {
+            AppId = 12345,
+            PrivateKeyPem = quoted,
+        };
+
+        var result = GitHubAppCredentialsValidator.Classify(options);
+
+        result.Classification.ShouldBe(GitHubAppCredentialsValidator.Kind.Valid);
+        result.ResolvedPrivateKeyPem.ShouldNotBeNull();
+        result.ResolvedPrivateKeyPem.ShouldNotStartWith("\"");
+        result.ResolvedPrivateKeyPem.ShouldNotEndWith("\"");
+    }
+
+    [Fact]
+    public void Classify_PemWrappedInSingleQuotes_StripsQuotesAndReturnsValid()
+    {
+        var quoted = "'" + TestPemKey.Value + "'";
+        var options = new GitHubConnectorOptions
+        {
+            AppId = 12345,
+            PrivateKeyPem = quoted,
+        };
+
+        var result = GitHubAppCredentialsValidator.Classify(options);
+
+        result.Classification.ShouldBe(GitHubAppCredentialsValidator.Kind.Valid);
+        result.ResolvedPrivateKeyPem.ShouldNotBeNull();
+        result.ResolvedPrivateKeyPem.ShouldNotStartWith("'");
+    }
+
+    [Fact]
+    public void Classify_QuotedAndEscapedPem_ResolvesBoth()
+    {
+        // Worst-case env-file value: quoted AND escape-encoded. Both
+        // transforms must apply for the binder to see a usable PEM.
+        var encoded = "\"" + TestPemKey.Value.Replace("\n", "\\n") + "\"";
+        var options = new GitHubConnectorOptions
+        {
+            AppId = 12345,
+            PrivateKeyPem = encoded,
+        };
+
+        var result = GitHubAppCredentialsValidator.Classify(options);
+
+        result.Classification.ShouldBe(GitHubAppCredentialsValidator.Kind.Valid);
+    }
+
+    [Fact]
+    public void Classify_EscapeSequenceIgnoredWhenRealNewlinePresent()
+    {
+        // Defensive: if the value already contains real newlines, do NOT
+        // also rewrite literal `\n` sequences — they might appear in a
+        // base64 chunk or comment. The happy multi-line case must be
+        // adopted verbatim.
+        var key = TestPemKey.Value;
+        key.ShouldContain("\n");
+
+        var options = new GitHubConnectorOptions
+        {
+            AppId = 12345,
+            PrivateKeyPem = key,
+        };
+
+        var result = GitHubAppCredentialsValidator.Classify(options);
+
+        result.Classification.ShouldBe(GitHubAppCredentialsValidator.Kind.Valid);
+        result.ResolvedPrivateKeyPem.ShouldBe(key);
     }
 }

@@ -325,7 +325,7 @@ variable ConnectionStrings__SpringDb=...) to a valid PostgreSQL
 connection string. See deployment/README.md.
 ```
 
-PEM-parse failures for `GITHUB_APP_PRIVATE_KEY` fail-fast the same way
+PEM-parse failures for `GitHub__PrivateKeyPem` fail-fast the same way
 (carried forward from PR #621); a garbage value won't defer the failure
 to the first `list-installations` call. `SPRING_SECRETS_AES_KEY` fails
 the host the same way when it's unset and `Secrets:AllowEphemeralDevKey`

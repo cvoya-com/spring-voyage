@@ -78,17 +78,20 @@ public static class GitHubAppCredentialsValidator
         string? DisabledReason);
 
     private const string PathInsteadOfPemMessage =
-        "Expected PEM contents in 'GitHub:PrivateKeyPem' (env var GITHUB_APP_PRIVATE_KEY); got what looks like a filesystem path. " +
-        "If you intended to mount the key as a file, read its contents and set the env var, " +
-        "or make sure the path is readable — the connector also accepts a path that points at a file whose contents are valid PEM.";
+        "Expected PEM contents in 'GitHub:PrivateKeyPem' (env var GitHub__PrivateKeyPem); got what looks like a filesystem path. " +
+        "Inline the key as one line with literal '\\n' between blocks (the connector decodes them), " +
+        "or make sure the path is readable — the connector also accepts a path that points at a file whose contents are valid PEM. " +
+        "Note that podman/docker --env-file does not expand '~'; use an absolute container-visible path.";
 
     private const string MalformedPemMessage =
-        "'GitHub:PrivateKeyPem' (env var GITHUB_APP_PRIVATE_KEY) is set but does not parse as a PEM-encoded private key. " +
+        "'GitHub:PrivateKeyPem' (env var GitHub__PrivateKeyPem) is set but does not parse as a PEM-encoded private key. " +
         "Expected a block delimited by '-----BEGIN ... PRIVATE KEY-----' / '-----END ... PRIVATE KEY-----' " +
-        "(or the contents of a .pem file). Paste the full key contents, not a path or a base64 blob.";
+        "(or the same on one line with literal '\\n' between blocks, or a path to a .pem file). " +
+        "Do NOT wrap the value in quotes — podman --env-file keeps surrounding quotes literally.";
 
     private const string MissingReason =
-        "GitHub App not configured. Set 'GitHub:AppId' and 'GitHub:PrivateKeyPem' (env vars GITHUB_APP_ID / GITHUB_APP_PRIVATE_KEY) to enable the GitHub connector.";
+        "GitHub App not configured. Set 'GitHub:AppId' and 'GitHub:PrivateKeyPem' (env vars GitHub__AppId / GitHub__PrivateKeyPem) to enable the GitHub connector. " +
+        "Note: the .NET configuration provider binds env vars by Section__Key name — `GITHUB_APP_*` is NOT consumed.";
 
     /// <summary>
     /// Classifies the supplied connector options.
@@ -99,7 +102,17 @@ public static class GitHubAppCredentialsValidator
     {
         ArgumentNullException.ThrowIfNull(options);
 
-        var rawKey = options.PrivateKeyPem ?? string.Empty;
+        // Defensive normalisation for two podman/docker --env-file pitfalls
+        // we hit on real deployments (#1186):
+        //  1. Surrounding double/single quotes are KEPT literally by the
+        //     env-file reader. Strip them so an operator who reflexively
+        //     wrote `GitHub__PrivateKeyPem="..."` still parses.
+        //  2. Multi-line values are NOT supported; operators encode the PEM
+        //     as one line with literal `\n` (same convention as Firebase /
+        //     GCP service-account keys). Decode `\n` -> real newline so
+        //     RSA.ImportFromPem sees a valid block.
+        var rawKey = NormaliseInputKey(options.PrivateKeyPem);
+
         var appIdMissing = options.AppId <= 0;
         var keyMissing = string.IsNullOrWhiteSpace(rawKey);
 
@@ -122,18 +135,22 @@ public static class GitHubAppCredentialsValidator
             return new ValidationResult(
                 Kind.Malformed,
                 ResolvedPrivateKeyPem: null,
-                ErrorMessage: "'GitHub:AppId' is set but 'GitHub:PrivateKeyPem' (env var GITHUB_APP_PRIVATE_KEY) is empty. Paste the full PEM contents of the GitHub App private key.",
+                ErrorMessage: "'GitHub:AppId' is set but 'GitHub:PrivateKeyPem' (env var GitHub__PrivateKeyPem) is empty. Paste the full PEM contents of the GitHub App private key (one line with literal '\\n' between blocks is fine).",
                 DisabledReason: null);
         }
 
         // AppId blank but key present → still misconfigured; the connector
-        // cannot mint JWTs without an issuer id.
+        // cannot mint JWTs without an issuer id. Common pitfall: operators
+        // wrap the numeric id in quotes (`GitHub__AppId="123"`) which the
+        // env-file reader keeps literally, so the .NET binder fails to
+        // convert to long and silently leaves AppId at 0. Call that out
+        // explicitly.
         if (appIdMissing && !keyMissing)
         {
             return new ValidationResult(
                 Kind.Malformed,
                 ResolvedPrivateKeyPem: null,
-                ErrorMessage: "'GitHub:PrivateKeyPem' is set but 'GitHub:AppId' (env var GITHUB_APP_ID) is zero or missing. Set the numeric GitHub App id.",
+                ErrorMessage: "'GitHub:PrivateKeyPem' is set but 'GitHub:AppId' (env var GitHub__AppId) is zero or missing. Set the numeric GitHub App id, UNQUOTED — podman/docker --env-file keeps surrounding quotes literally, so a quoted numeric value fails to bind as long.",
                 DisabledReason: null);
         }
 
@@ -211,6 +228,56 @@ public static class GitHubAppCredentialsValidator
             ResolvedPrivateKeyPem: null,
             ErrorMessage: MalformedPemMessage,
             DisabledReason: null);
+    }
+
+    /// <summary>
+    /// Strips surrounding double or single quotes from <paramref name="raw"/>
+    /// and decodes literal <c>\n</c> escape sequences to actual newlines when
+    /// the value contains no real newline. Both transforms are no-ops in the
+    /// happy path (multi-line PEM pasted into a `KEY=VALUE` env source that
+    /// supports it, or a path) — they only kick in when the value carries
+    /// the artefacts of `--env-file` reader limitations (#1186).
+    /// </summary>
+    /// <remarks>
+    /// We do NOT decode <c>\n</c> sequences when the value already contains
+    /// real newlines: a legitimate multi-line PEM might also happen to carry
+    /// the two-character sequence in a comment or base64 chunk, and silently
+    /// rewriting it would corrupt the key.
+    /// </remarks>
+    internal static string NormaliseInputKey(string? raw)
+    {
+        if (string.IsNullOrEmpty(raw))
+        {
+            return string.Empty;
+        }
+
+        var value = raw.Trim();
+
+        // Strip a single layer of matching surrounding quotes. Common
+        // pitfall: operators reflexively quote env-file values, but
+        // podman/docker --env-file keeps the quotes as part of the value.
+        if (value.Length >= 2)
+        {
+            var first = value[0];
+            var last = value[^1];
+            if ((first == '"' && last == '"') || (first == '\'' && last == '\''))
+            {
+                value = value.Substring(1, value.Length - 2);
+            }
+        }
+
+        // Decode literal `\n` -> real newline ONLY when no real newline is
+        // present. Same convention as Firebase / GCP service-account JSON
+        // for env-encoded multi-line secrets.
+        if (value.Length > 0
+            && !value.Contains('\n')
+            && value.Contains("\\n", StringComparison.Ordinal))
+        {
+            value = value.Replace("\\r\\n", "\n", StringComparison.Ordinal)
+                         .Replace("\\n", "\n", StringComparison.Ordinal);
+        }
+
+        return value;
     }
 
     /// <summary>

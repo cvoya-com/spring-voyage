@@ -44,7 +44,7 @@ const fetchClient = createClient<paths>({ baseUrl: BASE });
  * `API error {status}: {statusText} — {body}`) so call sites that
  * inspect `err.message` don't change.
  */
-class ApiError extends Error {
+export class ApiError extends Error {
   constructor(
     public readonly status: number,
     public readonly statusText: string,

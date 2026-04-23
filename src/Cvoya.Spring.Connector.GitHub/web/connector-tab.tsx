@@ -24,11 +24,35 @@ import {
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
-import { api } from "@/lib/api/client";
+import { ApiError, api } from "@/lib/api/client";
 import type {
   GitHubInstallationResponse,
   UnitGitHubConfigResponse,
 } from "@/lib/api/types";
+
+// Mirror of the helpers used by the wizard step (see
+// connector-wizard-step.tsx). Duplicated rather than shared because the
+// connector package is consumed via path alias and the two surfaces are
+// deliberately independent — we don't want a shared helper to drag the
+// post-bind tab into the wizard's bundle, or vice versa.
+const GITHUB_APP_DOCS_URL =
+  "https://github.com/cvoya-com/spring-voyage/blob/main/docs/guide/deployment.md#optional--connector-credentials";
+
+function extractDisabledReason(err: unknown): string | null {
+  if (!(err instanceof ApiError) || err.status !== 404) {
+    return null;
+  }
+  const body = err.body as { disabled?: unknown; reason?: unknown } | null;
+  if (
+    body !== null &&
+    typeof body === "object" &&
+    body.disabled === true &&
+    typeof body.reason === "string"
+  ) {
+    return body.reason;
+  }
+  return null;
+}
 
 // Keep in sync with the server's DefaultGitHubEvents (GitHubConnectorType.cs)
 // and GitHubWebhookRegistrar.SubscribedEvents. Server defaults still apply
@@ -65,6 +89,10 @@ export function GitHubConnectorTab({ unitId }: GitHubConnectorTabProps) {
     null,
   );
   const [installUrl, setInstallUrl] = useState<string | null>(null);
+  // disabled-with-reason is a first-class connector state distinct from
+  // a network error or an unconfigured repo (#1186). When set we hide the
+  // install affordances and render a remediation panel instead.
+  const [disabledReason, setDisabledReason] = useState<string | null>(null);
 
   const applyConfig = useCallback((c: UnitGitHubConfigResponse) => {
     setConfig(c);
@@ -94,18 +122,32 @@ export function GitHubConnectorTab({ unitId }: GitHubConnectorTabProps) {
 
   const loadInstallations = useCallback(async () => {
     let list: GitHubInstallationResponse[] = [];
+    let disabled: string | null = null;
     try {
       list = await api.listGitHubInstallations();
       setInstallations(list);
       setInstallationsError(null);
+      setDisabledReason(null);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setInstallationsError(message);
+      disabled = extractDisabledReason(err);
+      if (disabled !== null) {
+        setDisabledReason(disabled);
+        setInstallationsError(null);
+      } else {
+        const message = err instanceof Error ? err.message : String(err);
+        setInstallationsError(message);
+        setDisabledReason(null);
+      }
       setInstallations([]);
     }
     // Fetch the install URL whenever the empty-state banner will show
     // (either the list came back empty, or the call errored). Keeps the
     // post-bind surface in parity with the create-unit wizard (#599).
+    // Skip when the connector is disabled at the deployment level — the
+    // install URL endpoint will return the same 404 with no URL to show.
+    if (disabled !== null) {
+      return;
+    }
     if (list.length === 0) {
       try {
         const { url } = await api.getGitHubInstallUrl();
@@ -191,34 +233,74 @@ export function GitHubConnectorTab({ unitId }: GitHubConnectorTabProps) {
           </p>
         )}
 
-        {installations && installations.length === 0 && (
+        {disabledReason !== null && (
           <div
             role="alert"
-            className="rounded-md border border-warning/50 bg-warning/15 px-3 py-2 text-sm text-warning"
+            className="rounded-md border border-info/50 bg-info/15 px-3 py-2 text-sm text-info"
           >
-            <p className="font-medium">No GitHub App installations found.</p>
-            <p className="mt-1 text-foreground">
-              Install the app on your account or organisation before configuring
-              this unit.
+            <p className="font-medium">
+              GitHub connector not configured on this deployment.
             </p>
-            {installUrl && (
-              <a
-                href={installUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-2 inline-flex h-8 items-center gap-1 rounded-md border border-warning/60 bg-warning/10 px-3 text-sm font-medium text-warning transition-colors hover:bg-warning/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-              >
-                <Github className="h-4 w-4" aria-hidden="true" />
-                Install GitHub App
-              </a>
-            )}
-            {installationsError && (
-              <p className="mt-2 text-xs text-muted-foreground">
-                ({installationsError})
-              </p>
-            )}
+            <p className="mt-1 text-foreground">{disabledReason}</p>
+            <p className="mt-2 text-xs text-foreground">
+              An operator needs to register a GitHub App and set
+              <code className="mx-1 rounded bg-muted px-1 py-0.5 text-[11px]">
+                GitHub__AppId
+              </code>
+              /
+              <code className="mx-1 rounded bg-muted px-1 py-0.5 text-[11px]">
+                GitHub__PrivateKeyPem
+              </code>
+              /
+              <code className="mx-1 rounded bg-muted px-1 py-0.5 text-[11px]">
+                GitHub__WebhookSecret
+              </code>
+              in <code className="rounded bg-muted px-1 py-0.5 text-[11px]">
+                spring.env
+              </code>{" "}
+              before this unit can deliver events.
+            </p>
+            <a
+              href={GITHUB_APP_DOCS_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-2 inline-flex h-8 items-center gap-1 rounded-md border border-info/60 bg-info/10 px-3 text-sm font-medium text-info transition-colors hover:bg-info/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            >
+              View deployment guide
+            </a>
           </div>
         )}
+
+        {disabledReason === null &&
+          installations &&
+          installations.length === 0 && (
+            <div
+              role="alert"
+              className="rounded-md border border-warning/50 bg-warning/15 px-3 py-2 text-sm text-warning"
+            >
+              <p className="font-medium">No GitHub App installations found.</p>
+              <p className="mt-1 text-foreground">
+                Install the app on your account or organisation before
+                configuring this unit.
+              </p>
+              {installUrl && (
+                <a
+                  href={installUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-2 inline-flex h-8 items-center gap-1 rounded-md border border-warning/60 bg-warning/10 px-3 text-sm font-medium text-warning transition-colors hover:bg-warning/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                >
+                  <Github className="h-4 w-4" aria-hidden="true" />
+                  Install GitHub App
+                </a>
+              )}
+              {installationsError && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  ({installationsError})
+                </p>
+              )}
+            </div>
+          )}
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <label className="block space-y-1">

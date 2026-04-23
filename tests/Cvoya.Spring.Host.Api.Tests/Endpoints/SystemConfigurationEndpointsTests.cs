@@ -67,7 +67,7 @@ public class SystemConfigurationEndpointsTests
                             Severity: SeverityLevel.Warning,
                             Reason: "GitHub App not configured.",
                             Suggestion: "Run `spring github-app register`.",
-                            EnvironmentVariableNames: new[] { "GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY" },
+                            EnvironmentVariableNames: new[] { "GitHub__AppId", "GitHub__PrivateKeyPem" },
                             ConfigurationSectionPath: "GitHub",
                             DocumentationUrl: null),
                     }),

@@ -131,7 +131,7 @@ Spring Voyage distinguishes three tiers of configuration so every piece of sensi
 
 | Tier | Surface | Examples | Owner |
 |------|---------|----------|-------|
-| **Tier 1 — platform-deploy** | `IConfiguration` / env / `spring.env` / `appsettings.json` | `ConnectionStrings__SpringDb`, Dapr component wiring, `DataProtection__KeysPath`, `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY` / `GITHUB_WEBHOOK_SECRET` (identity of the Spring Voyage instance itself) | Ops team at deploy time |
+| **Tier 1 — platform-deploy** | `IConfiguration` / env / `spring.env` / `appsettings.json` | `ConnectionStrings__SpringDb`, Dapr component wiring, `DataProtection__KeysPath`, `GitHub__AppId` / `GitHub__PrivateKeyPem` / `GitHub__WebhookSecret` (identity of the Spring Voyage instance itself) | Ops team at deploy time |
 | **Tier 2 — tenant-default** | `SecretScope.Tenant` rows in the registry | LLM provider API keys (`anthropic-api-key`, `openai-api-key`, `google-api-key`), tenant-wide observability tokens | Tenant admin post-deploy via `spring secret --scope tenant` / Tenant defaults panel |
 | **Tier 3 — unit-override** | `SecretScope.Unit` rows in the registry | Per-unit variants of any tier-2 credential | Unit operator via `spring secret --scope unit` / unit Secrets tab |
 

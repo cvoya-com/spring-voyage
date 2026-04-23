@@ -268,7 +268,7 @@ public class ServiceCollectionExtensionsTests
     [Fact]
     public async Task AddCvoyaSpringConnectorGitHub_MalformedPem_ReportsInvalid()
     {
-        // Regression for #609 / #616. Garbage in GITHUB_APP_PRIVATE_KEY — the
+        // Regression for #609 / #616. Garbage in GitHub__PrivateKeyPem — the
         // requirement reports Invalid so the startup validator aborts the
         // host (the fatal-error flag is attached). Options resolution no
         // longer throws directly; the validator owns the abort-on-boot.
@@ -305,7 +305,7 @@ public class ServiceCollectionExtensionsTests
         status.Status.ShouldBe(ConfigurationStatus.Invalid);
         status.Reason.ShouldNotBeNull();
         status.Reason!.ShouldContain("filesystem path", Case.Insensitive);
-        status.Reason.ShouldContain("GITHUB_APP_PRIVATE_KEY");
+        status.Reason.ShouldContain("GitHub__PrivateKeyPem");
     }
 
     [Fact]
@@ -358,6 +358,6 @@ public class ServiceCollectionExtensionsTests
         status.Status.ShouldBe(ConfigurationStatus.Met);
         status.Severity.ShouldBe(SeverityLevel.Warning);
         status.Reason.ShouldNotBeNull();
-        status.Reason!.ShouldContain("GITHUB_WEBHOOK_SECRET");
+        status.Reason!.ShouldContain("GitHub__WebhookSecret");
     }
 }

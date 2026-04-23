@@ -351,14 +351,24 @@ not a workload):
 
 ```ini
 # GitHub App — consumed by the GitHub connector.
+# Numeric / single-token values: UNQUOTED. PEM: SINGLE-QUOTED, single-line, `\n` between blocks.
 GitHub__AppId=123456
-GitHub__PrivateKeyPem=<paste the PEM contents here — NOT a path to a file>
+GitHub__AppSlug=<slug from https://github.com/apps/<slug>>
+GitHub__PrivateKeyPem='-----BEGIN RSA PRIVATE KEY-----\nMIIE...\n-----END RSA PRIVATE KEY-----'
 GitHub__WebhookSecret=<shared secret you configured on the GitHub App>
 ```
 
-The GitHub variables follow the .NET `Section__Key` convention and bind to the `GitHub:*` configuration section at startup. The short-form aliases `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY` / `GITHUB_WEBHOOK_SECRET` are recognised in platform log output and CLI diagnostics but are not themselves consumed — use the `GitHub__*` form in `spring.env`.
+The GitHub variables follow the .NET `Section__Key` convention and bind to the `GitHub:*` configuration section at startup. The short-form aliases `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY` / `GITHUB_WEBHOOK_SECRET` are NOT consumed — only the `GitHub__*` form is read by the binder.
 
-> **GitHub App private key — PEM contents, not a path.** `GitHub__PrivateKeyPem` must be the **contents** of the `.pem` file (`-----BEGIN PRIVATE KEY-----` … `-----END PRIVATE KEY-----`), not a filesystem path to it. The platform also accepts a path to a readable file whose contents are valid PEM (helpful for Docker secrets / Kubernetes volume mounts), but passing a path that does **not** resolve to a valid PEM fails the host at startup with a targeted error rather than waiting to return a 502 from the first `list-installations` call. See [Architecture — Connectors § disabled-with-reason](../architecture/connectors.md#disabled-with-reason-pattern) for the validation model. If either variable is missing, the GitHub connector boots in a disabled state and `GET /api/v1/connectors/github/actions/list-installations` returns a structured `404` the portal and CLI render as "GitHub App not configured" instead of attempting the JWT sign.
+> **env-file quirks (#1186).** `spring.env` is read by three layers and each treats values differently:
+>
+> 1. `deploy.sh` sources it with `set -a; source spring.env` so bash can expand `${VAR}` references between keys (e.g. inside `ConnectionStrings__SpringDb`). Bash splits unquoted values on whitespace, so any value containing spaces or shell metacharacters — notably the PEM `-----BEGIN RSA PRIVATE KEY-----` line — must be **single-quoted**. Use single quotes (literal in bash) rather than double quotes to avoid `${...}` expansion of fragments that look like variables.
+> 2. `envsubst` expands `${VAR}` references in the file content; everything else passes through verbatim, so the surrounding quotes survive into the resolved file.
+> 3. Podman / Docker `--env-file` reads `KEY=VALUE` literally — surrounding quotes become part of the value, and multi-line values are not supported.
+>
+> The connector strips one matching pair of surrounding quotes from `GitHub__PrivateKeyPem` and decodes literal `\n` -> real newline before `RSA.ImportFromPem`, so the single-quoted single-line PEM round-trips through bash + envsubst + podman without breaking parsing. The same trick can NOT rescue a quoted numeric `GitHub__AppId`: `long` binding happens before the connector sees the value, so a quoted numeric id silently binds as `0` and the connector reports `Disabled` with "GitHub App not configured." **Always leave `GitHub__AppId` unquoted.**
+
+> **GitHub App private key — PEM contents, not a path.** `GitHub__PrivateKeyPem` is the **contents** of the `.pem` file: either inlined verbatim, inlined as a single line with `\n` separators, or an absolute container-visible path whose file contents are valid PEM. `~` is **not** expanded by `--env-file`, so a value like `~/secrets/key.pem` reaches the container as the literal string `~/secrets/key.pem` — mount the file at a known absolute path if you want to reference it by path. Passing a path that does not resolve to a valid PEM fails the host at startup with a targeted error rather than waiting to return a 502 from the first `list-installations` call. See [Architecture — Connectors § disabled-with-reason](../architecture/connectors.md#disabled-with-reason-pattern) for the validation model. If either variable is missing, the GitHub connector boots in a disabled state and `GET /api/v1/connectors/github/actions/list-installations` returns a structured `404` the portal and CLI render as "GitHub App not configured" instead of attempting the JWT sign.
 
 ### Tier-2 tenant-default credentials — LLM provider keys (post-deploy)
 
@@ -392,7 +402,7 @@ Webhook providers (including GitHub) post to `/api/v1/webhooks/<provider>` on yo
 
 - `WEBHOOK_HOSTNAME` (if using the multi-host Caddyfile) or `DEPLOY_HOSTNAME` resolves publicly.
 - Port 443 is reachable from the internet.
-- The GitHub App's webhook URL is `https://<host>/api/v1/webhooks/github` and `GITHUB_WEBHOOK_SECRET` matches both ends.
+- The GitHub App's webhook URL is `https://<host>/api/v1/webhooks/github` and `GitHub__WebhookSecret` matches both ends.
 
 For local development against a laptop, use `deployment/relay.sh` to open an SSH reverse tunnel from a small relay VPS — see `deployment/README.md#local-dev-webhook-tunnel-relaysh`.
 

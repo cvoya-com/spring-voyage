@@ -14,8 +14,8 @@ using Cvoya.Spring.Core.Configuration;
 using Microsoft.Extensions.Options;
 
 /// <summary>
-/// Tier-1 requirement covering the GitHub App credentials (<c>GITHUB_APP_ID</c>,
-/// <c>GITHUB_APP_PRIVATE_KEY</c>, <c>GITHUB_WEBHOOK_SECRET</c>). Generalises the
+/// Tier-1 requirement covering the GitHub App credentials (<c>GitHub__AppId</c>,
+/// <c>GitHub__PrivateKeyPem</c>, <c>GitHub__WebhookSecret</c>). Generalises the
 /// pre-#616 <c>IGitHubConnectorAvailability</c> seam into the framework: the
 /// connector's endpoints consult
 /// <see cref="IConfigurationRequirement"/> via the cached report instead of a
@@ -56,7 +56,7 @@ public sealed class GitHubAppConfigurationRequirement(
 
     /// <inheritdoc />
     public IReadOnlyList<string> EnvironmentVariableNames { get; } =
-        new[] { "GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY", "GITHUB_WEBHOOK_SECRET" };
+        new[] { "GitHub__AppId", "GitHub__PrivateKeyPem", "GitHub__WebhookSecret" };
 
     /// <inheritdoc />
     public string? ConfigurationSectionPath => "GitHub";
@@ -94,9 +94,9 @@ public sealed class GitHubAppConfigurationRequirement(
                     if (string.IsNullOrWhiteSpace(options.WebhookSecret))
                     {
                         return ConfigurationRequirementStatus.MetWithWarning(
-                            reason: "GitHub App credentials are configured but GITHUB_WEBHOOK_SECRET is empty.",
+                            reason: "GitHub App credentials are configured but GitHub__WebhookSecret is empty.",
                             suggestion:
-                                "Set GITHUB_WEBHOOK_SECRET to the secret you configured on the App's webhook settings. " +
+                                "Set GitHub__WebhookSecret to the secret you configured on the App's webhook settings. " +
                                 "Incoming webhooks will be rejected until this value matches GitHub's.");
                     }
                     return ConfigurationRequirementStatus.Met();
@@ -104,16 +104,16 @@ public sealed class GitHubAppConfigurationRequirement(
 
             case GitHubAppCredentialsValidator.Kind.Missing:
                 return ConfigurationRequirementStatus.Disabled(
-                    reason: "GitHub App not configured.",
+                    reason: "GitHub App not configured on this deployment.",
                     suggestion:
-                        "Run `spring github-app register` to create one (see issue #631), or set GITHUB_APP_ID / GITHUB_APP_PRIVATE_KEY / GITHUB_WEBHOOK_SECRET manually. See docs/guide/deployment.md.");
+                        "Run `spring github-app register` to create one (see issue #631), or set GitHub__AppId / GitHub__PrivateKeyPem / GitHub__WebhookSecret manually in spring.env. See docs/guide/deployment.md.");
 
             case GitHubAppCredentialsValidator.Kind.LooksLikePath:
             case GitHubAppCredentialsValidator.Kind.Malformed:
                 return ConfigurationRequirementStatus.Invalid(
                     reason: result.ErrorMessage ?? "GitHub App private key could not be parsed.",
                     suggestion:
-                        "Fix GITHUB_APP_PRIVATE_KEY per the error above. Inline the PEM contents or mount it as a file whose contents parse as PEM.",
+                        "Fix GitHub__PrivateKeyPem per the error above. Inline the PEM contents (a single line with literal '\\n' between blocks works) or set the path to a readable .pem file.",
                     fatalError: new InvalidOperationException(result.ErrorMessage ?? "GitHub App credentials are malformed."));
 
             default:
