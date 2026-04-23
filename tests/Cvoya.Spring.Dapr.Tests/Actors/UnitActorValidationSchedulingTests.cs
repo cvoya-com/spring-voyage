@@ -173,12 +173,20 @@ public class UnitActorValidationSchedulingTests
             Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
+    /// <summary>
+    /// #1136: scheduler-side failure must tombstone the unit into Error
+    /// (was: leave it stuck in Validating). The actor still accepts the
+    /// initial transition into Validating, but the catch path then writes
+    /// a structured ScheduleFailed payload via the tracker and persists a
+    /// Validating -> Error transition so downstream lifecycle endpoints
+    /// (start/stop/delete-without-force) work the same as on a probe
+    /// failure. The TransitionAsync return value reflects the *final*
+    /// state (Error), because the actor's status-of-record after the call
+    /// chain returns is Error.
+    /// </summary>
     [Fact]
-    public async Task SchedulerThrows_TransitionStillApplied_NoRunIdPersisted()
+    public async Task SchedulerThrows_FlipsToError_AndPersistsScheduleFailedPayload()
     {
-        // The state transition has to succeed even if the scheduler fails
-        // — the unit ends up in Validating with no workflow actually
-        // running, which an operator recovers by calling /revalidate.
         WithCurrentStatus(UnitStatus.Draft);
         _scheduler
             .ScheduleAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
@@ -188,10 +196,66 @@ public class UnitActorValidationSchedulingTests
         var result = await _actor.TransitionAsync(
             UnitStatus.Validating, TestContext.Current.CancellationToken);
 
+        // The return value is the result of the final PersistTransitionAsync
+        // call inside the catch path: Validating -> Error.
         result.Success.ShouldBeTrue();
-        result.CurrentStatus.ShouldBe(UnitStatus.Validating);
+        result.CurrentStatus.ShouldBe(UnitStatus.Error);
 
+        // BeginRunAsync must NOT have been called — the run never started.
         await _validationTracker.DidNotReceive().BeginRunAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+
+        // SetFailureAsync must have been called with a ScheduleFailed
+        // payload that round-trips through JSON to a UnitValidationError
+        // whose Code matches the contract.
+        await _validationTracker.Received(1).SetFailureAsync(
+            TestUnitActorId,
+            Arg.Is<string>(payload => PayloadHasScheduleFailedCode(payload)),
+            Arg.Any<CancellationToken>());
+
+        // The Validating -> Error transition must have been persisted to
+        // the actor state store.
+        await _stateManager.Received().SetStateAsync(
+            StateKeys.UnitStatus,
+            UnitStatus.Error,
+            Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// #1136: a tracker that throws while persisting the ScheduleFailed
+    /// payload must not block the Validating -> Error transition. The
+    /// missing payload is logged but the unit still ends up unbricked, so
+    /// the operator's standard recovery paths still work.
+    /// </summary>
+    [Fact]
+    public async Task SchedulerThrows_TrackerThrows_StillFlipsToError()
+    {
+        WithCurrentStatus(UnitStatus.Draft);
+        _scheduler
+            .ScheduleAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<UnitValidationSchedule>(
+                new InvalidOperationException("dapr down")));
+        _validationTracker
+            .SetFailureAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new InvalidOperationException("db down")));
+
+        var result = await _actor.TransitionAsync(
+            UnitStatus.Validating, TestContext.Current.CancellationToken);
+
+        result.Success.ShouldBeTrue();
+        result.CurrentStatus.ShouldBe(UnitStatus.Error);
+
+        await _stateManager.Received().SetStateAsync(
+            StateKeys.UnitStatus,
+            UnitStatus.Error,
+            Arg.Any<CancellationToken>());
+    }
+
+    private static bool PayloadHasScheduleFailedCode(string payload)
+    {
+        var error = System.Text.Json.JsonSerializer.Deserialize<UnitValidationError>(payload);
+        return error is not null
+               && error.Code == UnitValidationCodes.ScheduleFailed
+               && error.Step == UnitValidationStep.SchedulingWorkflow;
     }
 }

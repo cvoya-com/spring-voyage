@@ -38,4 +38,14 @@ public enum UnitValidationStep
     /// this step.
     /// </summary>
     ResolvingModel,
+
+    /// <summary>
+    /// Scheduling the unit-validation workflow itself — the host-side step that
+    /// runs in <see cref="UnitActor"/> *before* any in-container probe. Reported
+    /// when the actor accepts a transition into <see cref="UnitStatus.Validating"/>
+    /// but the call into <c>IUnitValidationWorkflowScheduler.ScheduleAsync</c>
+    /// throws (Dapr workflow runtime unavailable, scheduler dependency
+    /// unresolved, etc.). The failure is host-side: no probe step ever ran.
+    /// </summary>
+    SchedulingWorkflow,
 }

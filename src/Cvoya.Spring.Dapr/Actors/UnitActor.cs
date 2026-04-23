@@ -373,12 +373,20 @@ public class UnitActor : Actor, IUnitActor
         // #947 / T-05: whenever the unit enters Validating we must schedule
         // the in-container probe workflow and persist its instance id so
         // the terminal callback can detect stale runs. The schedule + entity
-        // write happens AFTER the state-store status write so a failure to
-        // schedule leaves the unit in Validating with a diagnostic log and
-        // no fresh run id — an operator can re-run /revalidate to recover.
+        // write happens AFTER the state-store status write.
+        // #1136: scheduling failure used to leave the unit stuck in
+        // Validating; we now flip to Error inside
+        // TryStartValidationWorkflowAsync. When that happens the helper
+        // returns the post-recovery TransitionResult so the caller sees
+        // the actual final state (Error) instead of the intermediate
+        // Validating leg.
         if (result.Success && target == UnitStatus.Validating)
         {
-            await TryStartValidationWorkflowAsync(ct);
+            var recoveryResult = await TryStartValidationWorkflowAsync(ct);
+            if (recoveryResult is not null)
+            {
+                return recoveryResult;
+            }
         }
 
         return result;
@@ -472,14 +480,23 @@ public class UnitActor : Actor, IUnitActor
     /// <c>LastValidationErrorJson</c> so observers see "clean slate + fresh
     /// run" during revalidation.
     /// </summary>
-    private async Task TryStartValidationWorkflowAsync(CancellationToken ct)
+    /// <returns>
+    /// <see langword="null"/> on the happy path (scheduling succeeded; the
+    /// caller's existing <c>Draft|Stopped|Error -> Validating</c>
+    /// transition stands). A non-null <see cref="TransitionResult"/> when
+    /// the scheduler threw and the actor recovered by tombstoning into
+    /// <see cref="UnitStatus.Error"/> — the caller should return the
+    /// recovery result so observers see the final state without a separate
+    /// status read (#1136).
+    /// </returns>
+    private async Task<TransitionResult?> TryStartValidationWorkflowAsync(CancellationToken ct)
     {
         if (_validationWorkflowScheduler is null)
         {
             _logger.LogDebug(
                 "Unit {ActorId} transitioned to Validating without a validation workflow scheduler; no probe will run.",
                 Id.GetId());
-            return;
+            return null;
         }
 
         try
@@ -496,19 +513,59 @@ public class UnitActor : Actor, IUnitActor
             _logger.LogInformation(
                 "Unit {ActorId} scheduled validation workflow {WorkflowInstanceId} for unit {UnitName}.",
                 Id.GetId(), schedule.WorkflowInstanceId, schedule.UnitName);
+
+            return null;
         }
         catch (Exception ex)
         {
-            // The state transition has already been persisted; a failure
-            // here leaves the unit in Validating with no workflow actually
-            // running. Log loudly so an operator can diagnose — the unit
-            // will also stay in Validating until someone calls
-            // /revalidate, which is exactly the recovery path for this
-            // case.
+            // #1136: a scheduler-side failure used to leave the unit
+            // permanently in Validating with no LastValidationRunId — every
+            // lifecycle endpoint (start/stop/delete) was then gated and the
+            // only operator escape was DELETE ?force=true. We now treat it
+            // as a validation failure and tombstone the unit into Error
+            // with a structured ScheduleFailed payload so the standard
+            // recovery paths (delete without force, revalidate from Error)
+            // work without operator knowledge of the force escape hatch.
             _logger.LogError(
                 ex,
-                "Unit {ActorId} failed to schedule validation workflow.",
+                "Unit {ActorId} failed to schedule validation workflow; flipping to Error.",
                 Id.GetId());
+
+            if (_validationTracker is not null)
+            {
+                var failure = new UnitValidationError(
+                    Step: UnitValidationStep.SchedulingWorkflow,
+                    Code: UnitValidationCodes.ScheduleFailed,
+                    Message: $"Failed to schedule validation workflow: {ex.GetType().Name}: {ex.Message}",
+                    Details: null);
+
+                try
+                {
+                    var payload = JsonSerializer.Serialize(failure);
+                    await _validationTracker.SetFailureAsync(Id.GetId(), payload, ct);
+                }
+                catch (Exception trackerEx)
+                {
+                    // A tracker write failure here is non-fatal — operators
+                    // will still see the Error status; the structured
+                    // failure payload is best-effort. Log so the missing
+                    // payload is diagnosable later.
+                    _logger.LogWarning(
+                        trackerEx,
+                        "Unit {ActorId}: failed to persist ScheduleFailed payload before Error transition.",
+                        Id.GetId());
+                }
+            }
+
+            // Bypass the IsTransitionAllowed gate: we know the actor is in
+            // Validating because we just transitioned there a few lines
+            // up. The Validating -> Error transition is otherwise the same
+            // one CompleteValidationAsync uses on the probe-failure path,
+            // so the StateChanged activity event publishes identically and
+            // downstream observers cannot tell whether the failure was
+            // host-side or probe-side from the transition alone — only the
+            // payload's Code distinguishes them.
+            return await PersistTransitionAsync(UnitStatus.Validating, UnitStatus.Error, ct);
         }
     }
 

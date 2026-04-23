@@ -11693,7 +11693,8 @@
           "PullingImage",
           "VerifyingTool",
           "ValidatingCredential",
-          "ResolvingModel"
+          "ResolvingModel",
+          "SchedulingWorkflow"
         ]
       },
       "UnitWebSearchConfigRequest": {

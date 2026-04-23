@@ -35,4 +35,14 @@ public static class UnitValidationCodes
 
     /// <summary>The probe failed with an unexpected internal error; details should be attached on <see cref="UnitValidationError.Details"/>.</summary>
     public const string ProbeInternalError = "ProbeInternalError";
+
+    /// <summary>
+    /// The actor failed to schedule the unit-validation workflow before any
+    /// probe step ran. Host-side failure (Dapr workflow runtime unavailable,
+    /// scheduler dependency unresolved, etc.) — not a probe failure. The
+    /// unit is tombstoned into <see cref="UnitStatus.Error"/> so lifecycle
+    /// operations (delete, revalidate) can proceed without operator
+    /// knowledge of the API's <c>?force=true</c> escape hatch.
+    /// </summary>
+    public const string ScheduleFailed = "ScheduleFailed";
 }
