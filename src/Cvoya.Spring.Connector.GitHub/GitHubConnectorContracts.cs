@@ -40,13 +40,26 @@ public record UnitGitHubConfigRequest(
 /// the unit didn't pick one. Surfaced verbatim — the response does not
 /// invent a default.
 /// </param>
+/// <param name="EventsAreDefault">
+/// <c>true</c> when the persisted binding has no explicit event list and
+/// <see cref="Events"/> was materialized from the connector's defaults;
+/// <c>false</c> when the operator picked an explicit set (even if that
+/// set happens to coincide with the defaults). The portal's per-unit
+/// connector tab reads this to decide whether the "Connector defaults"
+/// toggle starts checked or unchecked, so an operator who explicitly
+/// picks the default set is not silently flipped back into "use
+/// defaults" mode on the next load. Mirror of the wizard request shape
+/// where a <c>null</c> <see cref="UnitGitHubConfigRequest.Events"/>
+/// already encodes "use defaults" intent. (#1146 / #1127)
+/// </param>
 public record UnitGitHubConfigResponse(
     string UnitId,
     string Owner,
     string Repo,
     long? AppInstallationId,
     IReadOnlyList<string> Events,
-    string? Reviewer);
+    string? Reviewer,
+    bool EventsAreDefault);
 
 /// <summary>
 /// Response item for

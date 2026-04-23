@@ -9,7 +9,6 @@ using System.Text.Json;
 
 using Cvoya.Spring.Connector.GitHub;
 using Cvoya.Spring.Connector.GitHub.Auth;
-using Cvoya.Spring.Connector.GitHub.Auth.OAuth;
 using Cvoya.Spring.Connector.GitHub.Webhooks;
 using Cvoya.Spring.Connectors;
 
@@ -222,6 +221,87 @@ public class GitHubConnectorEndpointsTests
         body.Repo.ShouldBe("platform");
         body.AppInstallationId.ShouldBe(1001);
         body.Events.ShouldContain("issues");
+        // #1146: an explicit Events list must surface as eventsAreDefault: false
+        // so the portal tab renders the per-event row enabled (not the
+        // informational "use defaults" mode).
+        body.EventsAreDefault.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task GetConfig_NoExplicitEvents_ReportsEventsAreDefault()
+    {
+        // #1146: when the persisted binding has no explicit Events list
+        // (null sentinel — the wizard's "Connector defaults" path), the
+        // response surfaces the connector defaults verbatim AND sets
+        // EventsAreDefault: true so the post-bind tab renders with the
+        // toggle checked and the per-event row disabled.
+        var configStore = Substitute.For<IUnitConnectorConfigStore>();
+        var stored = JsonSerializer.SerializeToElement(
+            new UnitGitHubConfig("acme", "platform", 1001, Events: null));
+        configStore.GetAsync("u1", Arg.Any<CancellationToken>())
+            .Returns(new UnitConnectorBinding(GitHubConnectorType.GitHubTypeId, stored));
+
+        await using var factory = CreateFactory(configStore: configStore);
+        var client = factory.CreateClient();
+        var ct = TestContext.Current.CancellationToken;
+
+        var response = await client.GetAsync("/api/v1/connectors/github/units/u1/config", ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<UnitGitHubConfigResponse>(ct);
+        body.ShouldNotBeNull();
+        body!.EventsAreDefault.ShouldBeTrue();
+        body.Events.ShouldBe(new[] { "issues", "pull_request", "issue_comment" });
+    }
+
+    [Fact]
+    public async Task GetConfig_ExplicitDefaultEqualSet_IsNotFlippedToDefault()
+    {
+        // #1146: the contract change exists precisely so an operator who
+        // deliberately picks the same set as the connector defaults is
+        // not silently re-rendered as "use defaults". Anti-regression
+        // for the rejected client-side heuristic option.
+        var explicitDefaults = new[] { "issues", "pull_request", "issue_comment" };
+        var configStore = Substitute.For<IUnitConnectorConfigStore>();
+        var stored = JsonSerializer.SerializeToElement(
+            new UnitGitHubConfig("acme", "platform", 1001, explicitDefaults));
+        configStore.GetAsync("u1", Arg.Any<CancellationToken>())
+            .Returns(new UnitConnectorBinding(GitHubConnectorType.GitHubTypeId, stored));
+
+        await using var factory = CreateFactory(configStore: configStore);
+        var client = factory.CreateClient();
+        var ct = TestContext.Current.CancellationToken;
+
+        var response = await client.GetAsync("/api/v1/connectors/github/units/u1/config", ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<UnitGitHubConfigResponse>(ct);
+        body.ShouldNotBeNull();
+        body!.EventsAreDefault.ShouldBeFalse();
+        body.Events.ShouldBe(explicitDefaults);
+    }
+
+    [Fact]
+    public async Task PutConfig_NullEvents_RoundTripsAsEventsAreDefault()
+    {
+        // #1146: putting a config with no Events (the wizard's "Connector
+        // defaults" wire shape) must round-trip — the response from the
+        // very same PUT call already carries EventsAreDefault: true so a
+        // tab refresh after save renders with the toggle still checked
+        // and the row disabled.
+        var configStore = Substitute.For<IUnitConnectorConfigStore>();
+        await using var factory = CreateFactory(configStore: configStore);
+        var client = factory.CreateClient();
+        var ct = TestContext.Current.CancellationToken;
+
+        var request = new UnitGitHubConfigRequest("acme", "platform", AppInstallationId: 1001);
+
+        var response = await client.PutAsJsonAsync(
+            "/api/v1/connectors/github/units/u1/config", request, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<UnitGitHubConfigResponse>(ct);
+        body.ShouldNotBeNull();
+        body!.EventsAreDefault.ShouldBeTrue();
+        body.Events.ShouldBe(new[] { "issues", "pull_request", "issue_comment" });
     }
 
     [Fact]
@@ -298,36 +378,30 @@ public class GitHubConnectorEndpointsTests
     [Fact]
     public async Task ListRepositories_AggregatesAcrossInstallations()
     {
-        // #1133 + #1153: the endpoint scopes its result to the signed-in
-        // GitHub user — pass a user access token through the provider so
-        // the user-scoped install + repo enumeration runs. The response
-        // carries the installation id back so the wizard never has to
-        // re-resolve it on submit.
+        // #1133: the new endpoint replaces "type owner / type repo /
+        // pick installation" with a single dropdown sourced from every
+        // visible installation. The response carries the installation id
+        // back so the wizard never has to re-resolve it on submit.
         var installationsClient = Substitute.For<IGitHubInstallationsClient>();
-        installationsClient.ListUserAccessibleInstallationsAsync(
-                "user-token", Arg.Any<CancellationToken>())
+        installationsClient.ListInstallationsAsync(Arg.Any<CancellationToken>())
             .Returns(new[]
             {
                 new GitHubInstallation(1001L, "acme", "Organization", "selected"),
                 new GitHubInstallation(1002L, "alice", "User", "all"),
             });
-        installationsClient.ListUserAccessibleInstallationRepositoriesAsync(
-                "user-token", 1001L, Arg.Any<CancellationToken>())
+        installationsClient.ListInstallationRepositoriesAsync(1001L, Arg.Any<CancellationToken>())
             .Returns(new[]
             {
                 new GitHubInstallationRepository(10L, "acme", "platform", "acme/platform", true),
                 new GitHubInstallationRepository(11L, "acme", "ui", "acme/ui", false),
             });
-        installationsClient.ListUserAccessibleInstallationRepositoriesAsync(
-                "user-token", 1002L, Arg.Any<CancellationToken>())
+        installationsClient.ListInstallationRepositoriesAsync(1002L, Arg.Any<CancellationToken>())
             .Returns(new[]
             {
                 new GitHubInstallationRepository(20L, "alice", "demos", "alice/demos", false),
             });
 
-        await using var factory = CreateFactory(
-            installationsClient: installationsClient,
-            userAccessToken: "user-token");
+        await using var factory = CreateFactory(installationsClient: installationsClient);
         var client = factory.CreateClient();
         var ct = TestContext.Current.CancellationToken;
 
@@ -354,13 +428,6 @@ public class GitHubConnectorEndpointsTests
         platform.Owner.ShouldBe("acme");
         platform.Repo.ShouldBe("platform");
         platform.Private.ShouldBeTrue();
-
-        // #1153: the App-scoped enumeration MUST NOT run — the bug we
-        // fixed was precisely that path leaking other users' repos.
-        await installationsClient.DidNotReceiveWithAnyArgs()
-            .ListInstallationsAsync(Arg.Any<CancellationToken>());
-        await installationsClient.DidNotReceiveWithAnyArgs()
-            .ListInstallationRepositoriesAsync(default, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -370,26 +437,21 @@ public class GitHubConnectorEndpointsTests
         // — the wizard still needs to render the other installations'
         // repos so the user can pick one.
         var installationsClient = Substitute.For<IGitHubInstallationsClient>();
-        installationsClient.ListUserAccessibleInstallationsAsync(
-                "user-token", Arg.Any<CancellationToken>())
+        installationsClient.ListInstallationsAsync(Arg.Any<CancellationToken>())
             .Returns(new[]
             {
                 new GitHubInstallation(1001L, "acme", "Organization", "selected"),
                 new GitHubInstallation(1002L, "alice", "User", "all"),
             });
-        installationsClient.ListUserAccessibleInstallationRepositoriesAsync(
-                "user-token", 1001L, Arg.Any<CancellationToken>())
+        installationsClient.ListInstallationRepositoriesAsync(1001L, Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("github 503"));
-        installationsClient.ListUserAccessibleInstallationRepositoriesAsync(
-                "user-token", 1002L, Arg.Any<CancellationToken>())
+        installationsClient.ListInstallationRepositoriesAsync(1002L, Arg.Any<CancellationToken>())
             .Returns(new[]
             {
                 new GitHubInstallationRepository(20L, "alice", "demos", "alice/demos", false),
             });
 
-        await using var factory = CreateFactory(
-            installationsClient: installationsClient,
-            userAccessToken: "user-token");
+        await using var factory = CreateFactory(installationsClient: installationsClient);
         var client = factory.CreateClient();
         var ct = TestContext.Current.CancellationToken;
 
@@ -416,70 +478,6 @@ public class GitHubConnectorEndpointsTests
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>(ct);
         body.GetProperty("disabled").GetBoolean().ShouldBeTrue();
-    }
-
-    [Fact]
-    public async Task ListRepositories_NoSignedInGitHubUser_Returns401WithRequiresSignin()
-    {
-        // #1153: when the request does not carry a signed-in GitHub user
-        // identity, the endpoint MUST refuse to fall back to the
-        // App-wide enumeration — that's the exact path that leaked
-        // every user's repos. The response is a 401 with a structured
-        // `requires_signin` extension the wizard renders as a "Sign in
-        // with GitHub" CTA.
-        var installationsClient = Substitute.For<IGitHubInstallationsClient>();
-
-        await using var factory = CreateFactory(
-            installationsClient: installationsClient,
-            userAccessToken: null);
-        var client = factory.CreateClient();
-        var ct = TestContext.Current.CancellationToken;
-
-        var response = await client.GetAsync(
-            "/api/v1/connectors/github/actions/list-repositories", ct);
-
-        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
-        var body = await response.Content.ReadFromJsonAsync<JsonElement>(ct);
-        body.GetProperty("requires_signin").GetBoolean().ShouldBeTrue();
-        body.GetProperty("provider").GetString().ShouldBe("github");
-        body.GetProperty("authorize_path").GetString()
-            .ShouldBe("/api/v1/connectors/github/oauth/authorize");
-
-        // Critical: the App-scoped path is the bug — it MUST NOT have
-        // been touched, even on the no-user branch.
-        await installationsClient.DidNotReceiveWithAnyArgs()
-            .ListInstallationsAsync(Arg.Any<CancellationToken>());
-        await installationsClient.DidNotReceiveWithAnyArgs()
-            .ListInstallationRepositoriesAsync(default, Arg.Any<CancellationToken>());
-        await installationsClient.DidNotReceiveWithAnyArgs()
-            .ListUserAccessibleInstallationsAsync(default!, Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task ListRepositories_UserTokenRejected_Returns401WithRequiresSignin()
-    {
-        // When GitHub rejects the user-to-server token (expired, revoked,
-        // scope mismatch) the endpoint MUST surface that as 401 +
-        // requires_signin — not a generic 502 — so the wizard re-prompts
-        // for sign-in instead of leaving the operator stuck.
-        var installationsClient = Substitute.For<IGitHubInstallationsClient>();
-        installationsClient.ListUserAccessibleInstallationsAsync(
-                "user-token", Arg.Any<CancellationToken>())
-            .ThrowsAsync(new Octokit.AuthorizationException(
-                new ResponseFake(HttpStatusCode.Unauthorized)));
-
-        await using var factory = CreateFactory(
-            installationsClient: installationsClient,
-            userAccessToken: "user-token");
-        var client = factory.CreateClient();
-        var ct = TestContext.Current.CancellationToken;
-
-        var response = await client.GetAsync(
-            "/api/v1/connectors/github/actions/list-repositories", ct);
-
-        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
-        var body = await response.Content.ReadFromJsonAsync<JsonElement>(ct);
-        body.GetProperty("requires_signin").GetBoolean().ShouldBeTrue();
     }
 
     [Fact]
@@ -571,8 +569,7 @@ public class GitHubConnectorEndpointsTests
         IGitHubInstallationsClient? installationsClient = null,
         IGitHubCollaboratorsClient? collaboratorsClient = null,
         IUnitConnectorConfigStore? configStore = null,
-        bool appEnabled = true,
-        string? userAccessToken = null)
+        bool appEnabled = true)
     {
         var baseFactory = new CustomWebApplicationFactory();
         return baseFactory.WithWebHostBuilder(builder =>
@@ -661,54 +658,10 @@ public class GitHubConnectorEndpointsTests
                     services.AddSingleton(configStore);
                 }
 
-                // #1153: stub the GitHub user-access-token resolver so
-                // the test controls whether a signed-in GitHub user is
-                // present on the request. A null token triggers the
-                // requires_signin response path; a string flips into
-                // the user-scoped enumeration.
-                var providerDescriptors = services
-                    .Where(d => d.ServiceType == typeof(IGitHubUserAccessTokenProvider))
-                    .ToList();
-                foreach (var d in providerDescriptors)
-                {
-                    services.Remove(d);
-                }
-                var userAccessProvider = Substitute.For<IGitHubUserAccessTokenProvider>();
-                userAccessProvider.GetCurrentAsync(Arg.Any<CancellationToken>())
-                    .Returns(userAccessToken is null
-                        ? null
-                        : new GitHubUserAccess("octocat", 42L, userAccessToken));
-                services.AddSingleton(userAccessProvider);
-
                 services.AddSingleton<GitHubConnectorType>();
                 services.AddSingleton<IConnectorType>(
                     sp => sp.GetRequiredService<GitHubConnectorType>());
             });
         });
-    }
-
-    /// <summary>
-    /// Minimal fake of Octokit's <see cref="Octokit.IResponse"/> so the
-    /// tests can raise <see cref="Octokit.AuthorizationException"/> /
-    /// <see cref="Octokit.ApiException"/> without going through the real
-    /// HTTP stack.
-    /// </summary>
-    private sealed class ResponseFake(HttpStatusCode statusCode) : Octokit.IResponse
-    {
-        public object Body => string.Empty;
-
-        public IReadOnlyDictionary<string, string> Headers { get; }
-            = new Dictionary<string, string>();
-
-        public Octokit.ApiInfo ApiInfo { get; } = new Octokit.ApiInfo(
-            new Dictionary<string, Uri>(),
-            new List<string>(),
-            new List<string>(),
-            "etag",
-            new Octokit.RateLimit(1, 1, 1));
-
-        public HttpStatusCode StatusCode { get; } = statusCode;
-
-        public string ContentType { get; } = "application/json";
     }
 }

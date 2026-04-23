@@ -72,6 +72,20 @@ const AVAILABLE_EVENTS: readonly string[] = [
   "release",
 ];
 
+// Mirror of `GitHubConnectorType.DefaultEvents`. When the operator
+// re-enables "Connector defaults" we collapse the local explicit set
+// back to this list — both for the wire shape (we send `events:
+// undefined`, but the local checkbox state still needs to reflect the
+// row the user will see if they uncheck again) and for the
+// pre-population behaviour the wizard ships under #1127. Kept
+// duplicated alongside the wizard's copy on purpose — see the comment
+// in `connector-wizard-step.tsx`.
+const DEFAULT_EVENTS: readonly string[] = [
+  "issues",
+  "pull_request",
+  "issue_comment",
+];
+
 export interface GitHubConnectorTabProps {
   unitId: string;
 }
@@ -86,6 +100,14 @@ export function GitHubConnectorTab({ unitId }: GitHubConnectorTabProps) {
   const [repo, setRepo] = useState("");
   const [installationId, setInstallationId] = useState<number | null>(null);
   const [reviewer, setReviewer] = useState("");
+  // #1146: matches the wizard's split (#1127) — `useDefaults` is the
+  // primary control, `events` carries the local explicit selection
+  // that the per-event row reflects when the toggle is unchecked.
+  // Initialized to []/true so the very first paint (before the load
+  // resolves) shows the disabled informational row rather than an
+  // empty enabled one. `applyConfig` rehydrates both fields from the
+  // server's `eventsAreDefault` flag the moment the GET resolves.
+  const [useDefaults, setUseDefaults] = useState<boolean>(true);
   const [events, setEvents] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -121,6 +143,15 @@ export function GitHubConnectorTab({ unitId }: GitHubConnectorTabProps) {
       c.appInstallationId == null ? null : Number(c.appInstallationId),
     );
     setReviewer(c.reviewer ?? "");
+    // #1146: the server's `eventsAreDefault` flag is authoritative for
+    // the toggle's initial state. When true, the response's `events`
+    // field is the connector's defaults materialized server-side; we
+    // seed the local `events` state from it anyway so the moment the
+    // operator unchecks the toggle they see the same row of marks they
+    // were already living with (matches the wizard's behaviour from
+    // #1127). When false, `events` is the operator's explicit set and
+    // we surface it verbatim.
+    setUseDefaults(c.eventsAreDefault);
     setEvents([...c.events]);
   }, []);
 
@@ -236,7 +267,17 @@ export function GitHubConnectorTab({ unitId }: GitHubConnectorTabProps) {
       const resp = await api.putUnitGitHubConfig(unitId, {
         owner: owner.trim(),
         repo: repo.trim(),
-        events: events.length > 0 ? events : undefined,
+        // #1146 / parity with the wizard (#1127): omit `events` when
+        // the operator picked "Connector defaults" so the server
+        // resolves the set itself; forward the explicit list verbatim
+        // otherwise. The server's PutConfig already collapses an empty
+        // list to null, but bubbling the explicit selection is the
+        // user's intent of record either way.
+        events: useDefaults
+          ? undefined
+          : events.length > 0
+            ? events
+            : undefined,
         appInstallationId: installationId ?? undefined,
         reviewer: reviewer.trim() === "" ? undefined : reviewer.trim(),
       });
@@ -540,27 +581,76 @@ export function GitHubConnectorTab({ unitId }: GitHubConnectorTabProps) {
           </label>
         )}
 
-        <div className="space-y-1">
-          <span className="text-sm text-muted-foreground">Webhook events</span>
-          <div className="flex flex-wrap gap-2">
+        {/* #1146: mirror of the wizard's Connector-defaults toggle
+            (#1127). The toggle is the primary control — while it's
+            checked the per-event row is purely informational
+            (checkmarks reflect what the server would apply, inputs are
+            disabled) and the wire shape omits `events` so the server
+            resolves the set itself. Unchecking pre-populates the
+            explicit list with the same set the operator was already
+            living with. Visually identical to
+            `connector-wizard-step.tsx` so the two surfaces don't
+            drift; the duplication is intentional (see the file-level
+            note about not sharing helpers across the package
+            boundary). */}
+        <fieldset className="space-y-2">
+          <legend className="text-sm text-muted-foreground">
+            Webhook events
+          </legend>
+          <label className="inline-flex cursor-pointer items-center gap-2 text-xs">
+            <input
+              type="checkbox"
+              checked={useDefaults}
+              onChange={(e) => {
+                const next = e.target.checked;
+                setUseDefaults(next);
+                if (!next && events.length === 0) {
+                  setEvents([...DEFAULT_EVENTS]);
+                }
+              }}
+              data-testid="github-events-use-defaults"
+            />
+            <span className="font-medium text-foreground">
+              Connector defaults
+            </span>
+          </label>
+          <div
+            className="flex flex-wrap gap-2"
+            aria-label="Webhook events"
+            role="group"
+          >
             {AVAILABLE_EVENTS.map((e) => {
-              const checked = events.includes(e);
+              const checked = useDefaults
+                ? DEFAULT_EVENTS.includes(e)
+                : events.includes(e);
               return (
                 <label
                   key={e}
-                  className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-border px-2 py-1 text-xs"
+                  className={
+                    "inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs " +
+                    (useDefaults
+                      ? "cursor-not-allowed opacity-70"
+                      : "cursor-pointer")
+                  }
                 >
                   <input
                     type="checkbox"
                     checked={checked}
+                    disabled={useDefaults}
                     onChange={() => toggleEvent(e)}
+                    aria-label={e}
                   />
                   <span>{e}</span>
                 </label>
               );
             })}
           </div>
-        </div>
+          <span className="block text-[11px] text-muted-foreground">
+            {useDefaults
+              ? "The connector subscribes to its default events. Uncheck to pick a custom set."
+              : "Custom event set. The server clamps anything unsupported."}
+          </span>
+        </fieldset>
 
         {saveError && (
           <p className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">

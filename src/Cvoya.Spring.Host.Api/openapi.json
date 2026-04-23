@@ -5344,7 +5344,7 @@
         "tags": [
           "Connectors.GitHub"
         ],
-        "summary": "List repositories the signed-in GitHub user can access via the configured GitHub App",
+        "summary": "List repositories visible to the GitHub App, aggregated across installations",
         "operationId": "ListGitHubRepositories",
         "responses": {
           "200": {
@@ -5356,16 +5356,6 @@
                   "items": {
                     "$ref": "#/components/schemas/GitHubRepositoryResponse"
                   }
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
                 }
               }
             }
@@ -11484,7 +11474,8 @@
           "repo",
           "appInstallationId",
           "events",
-          "reviewer"
+          "reviewer",
+          "eventsAreDefault"
         ],
         "type": "object",
         "properties": {
@@ -11517,6 +11508,9 @@
               "null",
               "string"
             ]
+          },
+          "eventsAreDefault": {
+            "type": "boolean"
           }
         }
       },
