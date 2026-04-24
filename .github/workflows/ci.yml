@@ -455,7 +455,7 @@ jobs:
       # don't have to repeat `npm run build`. Saves ~30s per dependent
       # job on cold cache.
       - name: Upload Next.js build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: web-next-build
           path: |
@@ -504,7 +504,7 @@ jobs:
 
       - name: Upload coverage report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: web-coverage
           path: src/Cvoya.Spring.Web/coverage
@@ -576,7 +576,7 @@ jobs:
 
       - name: Upload Playwright report on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report
           path: |
@@ -634,7 +634,7 @@ jobs:
 
       - name: Upload Lighthouse reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: lighthouse-report
           path: src/Cvoya.Spring.Web/.lighthouseci
