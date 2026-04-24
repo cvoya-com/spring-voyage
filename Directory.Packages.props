@@ -27,7 +27,7 @@
     <PackageVersion Include="Microsoft.Extensions.Options" Version="10.0.6" />
     <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.6" />
     <PackageVersion Include="Microsoft.Extensions.ApiDescription.Server" Version="10.0.6" />
-    <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.6" />
+    <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.7" />
 
     <!-- EF Core + PostgreSQL -->
     <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.6" />
