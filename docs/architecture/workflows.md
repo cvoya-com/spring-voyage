@@ -146,7 +146,7 @@ Most CLI tools (`claude`, `codex`, `gemini`) speak stdin/stdout, not A2A. To mak
 
 `DaprAgentLauncher` is the exception: the Python Dapr Agent already exposes A2A natively, so no sidecar wrapper is needed — the launcher just sets `AGENT_PORT=8999` and the dispatcher dials the container directly.
 
-Persistent agents are probed at `${endpoint}/.well-known/agent.json` during startup (see `PersistentAgentRegistry.WaitForA2AReadyAsync`) and on every health tick.
+Persistent agents are probed at `${endpoint}/.well-known/agent.json` during startup (see `PersistentAgentRegistry.WaitForA2AReadyAsync`) and on every health tick. Since #1063 split the worker out of the dispatcher's network, the probe is dispatched **into** the agent container via `IContainerRuntime.ProbeContainerHttpAsync` (`wget --spider` inside the container's own network namespace) — direct HTTP from the worker process can't reach the agent's loopback. The same primitive backs the ephemeral readiness wait in `A2AExecutionDispatcher`. See [#1160](https://github.com/cvoya-com/spring-voyage/issues/1160) for the open design call on routing the actual A2A `message/send` call across the worker/agent network boundary; today the message-send still uses `localhost:{port}` from the worker, which works only when the operator places the agent container on the worker's network.
 
 ### Ephemeral dispatch sequence
 
@@ -202,9 +202,11 @@ sequenceDiagram
         Launcher-->>Disp: AgentLaunchSpec
         Disp->>Runtime: StartAsync(ContainerConfig)
         Runtime-->>Disp: containerId
-        Disp->>Registry: WaitForA2AReadyAsync(endpoint, timeout)
-        Registry->>Container: GET /.well-known/agent.json
-        Container-->>Registry: 200 OK
+        Disp->>Registry: WaitForA2AReadyAsync(containerId, endpoint, timeout)
+        Registry->>Runtime: ProbeContainerHttpAsync(containerId, agent-card url)
+        Runtime->>Container: exec wget --spider /.well-known/agent.json
+        Container-->>Runtime: 200 OK
+        Runtime-->>Registry: healthy
         Registry-->>Disp: ready
         Disp->>Registry: Register(agentId, endpoint, containerId, definition)
     else healthy

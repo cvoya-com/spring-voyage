@@ -133,9 +133,11 @@ public class PersistentAgentRegistryTests : IDisposable
     [Fact]
     public async Task RunHealthChecksAsync_HealthyAgent_StaysHealthy()
     {
-        var handler = new TestHttpMessageHandler(HttpStatusCode.OK);
-        _httpClientFactory.CreateClient(Arg.Any<string>())
-            .Returns(_ => new HttpClient(handler, disposeHandler: false));
+        // #1160: health probe routes through the container runtime so it
+        // works regardless of worker/agent network topology.
+        _containerRuntime.ProbeContainerHttpAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(true));
 
         var endpoint = new Uri("http://localhost:8999/");
         _registry.Register("agent-1", endpoint, "container-1");
@@ -150,9 +152,9 @@ public class PersistentAgentRegistryTests : IDisposable
     [Fact]
     public async Task RunHealthChecksAsync_SingleFailure_IncreasesFailureCount()
     {
-        var handler = new TestHttpMessageHandler(HttpStatusCode.ServiceUnavailable);
-        _httpClientFactory.CreateClient(Arg.Any<string>())
-            .Returns(_ => new HttpClient(handler, disposeHandler: false));
+        _containerRuntime.ProbeContainerHttpAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(false));
 
         var endpoint = new Uri("http://localhost:8999/");
         _registry.Register("agent-1", endpoint, "container-1");
@@ -167,9 +169,9 @@ public class PersistentAgentRegistryTests : IDisposable
     [Fact]
     public async Task RunHealthChecksAsync_ConsecutiveFailures_MarksUnhealthy()
     {
-        var handler = new TestHttpMessageHandler(HttpStatusCode.ServiceUnavailable);
-        _httpClientFactory.CreateClient(Arg.Any<string>())
-            .Returns(_ => new HttpClient(handler, disposeHandler: false));
+        _containerRuntime.ProbeContainerHttpAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(false));
 
         var endpoint = new Uri("http://localhost:8999/");
         var definition = new AgentDefinition("agent-1", "Test Agent", null,
@@ -201,11 +203,10 @@ public class PersistentAgentRegistryTests : IDisposable
     [Fact]
     public async Task RunHealthChecksAsync_RecoveryAfterFailure_ResetsCount()
     {
-        var statusCode = HttpStatusCode.ServiceUnavailable;
-        var handler = new TestHttpMessageHandler(() => statusCode);
-        // Return a fresh HttpClient each time because ProbeHealthAsync disposes it.
-        _httpClientFactory.CreateClient(Arg.Any<string>())
-            .Returns(_ => new HttpClient(handler, disposeHandler: false));
+        var healthy = false;
+        _containerRuntime.ProbeContainerHttpAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(_ => Task.FromResult(healthy));
 
         var endpoint = new Uri("http://localhost:8999/");
         _registry.Register("agent-1", endpoint, "container-1");
@@ -217,12 +218,34 @@ public class PersistentAgentRegistryTests : IDisposable
         entry!.ConsecutiveFailures.ShouldBe(1);
 
         // Now succeed.
-        statusCode = HttpStatusCode.OK;
+        healthy = true;
         await _registry.RunHealthChecksAsync();
 
         _registry.TryGet("agent-1", out entry);
         entry!.ConsecutiveFailures.ShouldBe(0);
         entry.HealthStatus.ShouldBe(AgentHealthStatus.Healthy);
+    }
+
+    [Fact]
+    public async Task RunHealthChecksAsync_AgentWithoutContainerId_FallsBackToHttpProbe()
+    {
+        // Externally-registered persistent agents (no container id) fall
+        // back to the direct HTTP probe — useful for entries managed by
+        // out-of-process operators / the cloud control plane.
+        var handler = new TestHttpMessageHandler(HttpStatusCode.OK);
+        _httpClientFactory.CreateClient(Arg.Any<string>())
+            .Returns(_ => new HttpClient(handler, disposeHandler: false));
+
+        var endpoint = new Uri("http://localhost:8999/");
+        _registry.Register("agent-1", endpoint, containerId: null);
+
+        await _registry.RunHealthChecksAsync();
+
+        _registry.TryGet("agent-1", out var entry);
+        entry!.HealthStatus.ShouldBe(AgentHealthStatus.Healthy);
+        entry.ConsecutiveFailures.ShouldBe(0);
+        await _containerRuntime.DidNotReceive().ProbeContainerHttpAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

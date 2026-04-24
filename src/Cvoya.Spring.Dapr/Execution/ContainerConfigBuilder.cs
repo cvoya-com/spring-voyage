@@ -84,7 +84,17 @@ public static class ContainerConfigBuilder
             EnvironmentVariables: MergeEnvironment(spec.EnvironmentVariables, extraEnv),
             VolumeMounts: spec.ExtraVolumeMounts,
             ExtraHosts: BuildExtraHosts(extraHosts),
-            WorkingDirectory: spec.WorkingDirectory ?? spec.WorkspaceMountPath,
+            // The fallback to WorkspaceMountPath only fires when the launcher
+            // actually populated a workspace (i.e. WorkspaceFiles is non-empty).
+            // Launchers like ClaudeCodeLauncher write CLAUDE.md / .mcp.json into
+            // the workspace and run their tool from cwd, so they need the workdir
+            // override; launchers like DaprAgentLauncher carry an empty workspace
+            // (their prompt arrives via env vars) and ship images whose CMD is
+            // relative to a fixed image workdir (e.g. /app for python agent.py).
+            // Overriding their workdir to /workspace would break the relative
+            // CMD lookup and the container would exit immediately. See #1159.
+            WorkingDirectory: spec.WorkingDirectory
+                ?? (spec.WorkspaceFiles.Count > 0 ? spec.WorkspaceMountPath : null),
             Workspace: new ContainerWorkspace(
                 MountPath: spec.WorkspaceMountPath,
                 Files: spec.WorkspaceFiles));

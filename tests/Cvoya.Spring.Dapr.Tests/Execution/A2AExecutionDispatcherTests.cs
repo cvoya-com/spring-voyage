@@ -116,15 +116,21 @@ public class A2AExecutionDispatcherTests
     }
 
     /// <summary>
-    /// Wires the http client factory so the readiness probe and the A2A
-    /// SendMessage call see a stub responder. Returns the responder so tests
-    /// can inspect the requests it received.
+    /// Wires the http client factory so the A2A SendMessage call sees a stub
+    /// responder, and stubs the container runtime's readiness probe to return
+    /// healthy. Returns the responder so tests can inspect the requests it
+    /// received. The readiness probe is dispatched into the container via
+    /// <see cref="IContainerRuntime.ProbeContainerHttpAsync"/> (see #1160) so
+    /// the HttpClient stub no longer has to answer the agent-card GET.
     /// </summary>
     private StubA2AResponder InstallA2AStub(string responseText = "agent reply")
     {
         var responder = new StubA2AResponder(responseText);
         _httpClientFactory.CreateClient(Arg.Any<string>())
             .Returns(_ => new HttpClient(responder, disposeHandler: false));
+        _containerRuntime.ProbeContainerHttpAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(true));
         return responder;
     }
 
@@ -295,6 +301,27 @@ public class A2AExecutionDispatcherTests
         await Should.ThrowAsync<InvalidOperationException>(act);
 
         _mcpServer.Received(1).RevokeSession("test-token");
+    }
+
+    [Fact]
+    public async Task DispatchAsync_EphemeralAgent_ReadinessProbe_DispatchedThroughContainerRuntime()
+    {
+        // #1160: the readiness probe must go through
+        // IContainerRuntime.ProbeContainerHttpAsync so it runs inside the
+        // agent container's network namespace. Probing via HttpClient from
+        // the worker process won't work since #1063 — the worker can't
+        // reach the agent container's loopback.
+        var message = CreateMessage();
+        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns("p");
+        InstallA2AStub();
+
+        await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
+
+        await _containerRuntime.Received().ProbeContainerHttpAsync(
+            ContainerId,
+            Arg.Is<string>(url => url.EndsWith("/.well-known/agent.json")),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -482,6 +509,12 @@ public class A2AExecutionDispatcherTests
         var responder = new BlockingA2AResponder();
         _httpClientFactory.CreateClient(Arg.Any<string>())
             .Returns(_ => new HttpClient(responder, disposeHandler: false));
+        // Readiness now goes through the container runtime (see #1160); stub
+        // it healthy so the dispatcher proceeds to SendMessage and blocks
+        // there (which is where the test fires the cancel).
+        _containerRuntime.ProbeContainerHttpAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(true));
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         var dispatchTask = _dispatcher.DispatchAsync(message, context: null, cts.Token);

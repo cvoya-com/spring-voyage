@@ -142,7 +142,7 @@ public class PersistentAgentLifecycle(
         var endpoint = new Uri($"http://localhost:{A2AExecutionDispatcher.SidecarPort}/");
 
         var ready = await persistentAgentRegistry.WaitForA2AReadyAsync(
-            endpoint, A2AExecutionDispatcher.ReadinessTimeout, cancellationToken);
+            containerId, endpoint, A2AExecutionDispatcher.ReadinessTimeout, cancellationToken);
 
         if (!ready)
         {

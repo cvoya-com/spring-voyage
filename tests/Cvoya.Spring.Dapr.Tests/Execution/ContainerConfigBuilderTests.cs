@@ -117,21 +117,52 @@ public class ContainerConfigBuilderTests
     }
 
     [Fact]
-    public void Build_NullWorkingDirectory_DefaultsToWorkspaceMountPath()
+    public void Build_NullWorkingDirectory_WithWorkspaceFiles_DefaultsToWorkspaceMountPath()
     {
+        // MinimalSpec already sets a non-empty WorkspaceFiles map; the
+        // builder treats that as a signal that the launcher (e.g.
+        // ClaudeCodeLauncher) wrote files into the workspace and runs its
+        // tool from cwd, so the workdir must move to the mount path.
         var config = ContainerConfigBuilder.Build(Image, MinimalSpec(workingDirectory: null));
 
         config.WorkingDirectory.ShouldBe("/workspace");
     }
 
     [Fact]
-    public void Build_ExplicitWorkingDirectory_OverridesMountPath()
+    public void Build_NullWorkingDirectory_WithEmptyWorkspaceFiles_LeavesWorkdirNull()
     {
-        var config = ContainerConfigBuilder.Build(
+        // #1159: launchers like DaprAgentLauncher carry an empty workspace
+        // (their prompt arrives via env vars, not files) and ship images
+        // whose CMD is relative to a fixed image workdir (e.g. /app for
+        // `python agent.py`). Overriding workdir to /workspace breaks the
+        // relative CMD lookup and the container exits within ~40ms with
+        // `python: can't open file '/workspace/agent.py'`.
+        var spec = MinimalSpec(workingDirectory: null) with
+        {
+            WorkspaceFiles = new Dictionary<string, string>(),
+        };
+
+        var config = ContainerConfigBuilder.Build(Image, spec);
+
+        config.WorkingDirectory.ShouldBeNull();
+    }
+
+    [Fact]
+    public void Build_ExplicitWorkingDirectory_AlwaysWins()
+    {
+        // Whether or not the workspace is materialised, an explicit
+        // launcher-supplied WorkingDirectory must be honoured verbatim.
+        var withFiles = ContainerConfigBuilder.Build(
             Image,
             MinimalSpec(workingDirectory: "/srv/work"));
+        withFiles.WorkingDirectory.ShouldBe("/srv/work");
 
-        config.WorkingDirectory.ShouldBe("/srv/work");
+        var emptySpec = MinimalSpec(workingDirectory: "/srv/work") with
+        {
+            WorkspaceFiles = new Dictionary<string, string>(),
+        };
+        var withoutFiles = ContainerConfigBuilder.Build(Image, emptySpec);
+        withoutFiles.WorkingDirectory.ShouldBe("/srv/work");
     }
 
     [Fact]

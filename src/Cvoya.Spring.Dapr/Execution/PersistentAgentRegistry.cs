@@ -215,7 +215,7 @@ public class PersistentAgentRegistry(
         {
             try
             {
-                var healthy = await ProbeHealthAsync(entry.Endpoint);
+                var healthy = await ProbeHealthAsync(entry);
 
                 if (healthy)
                 {
@@ -279,12 +279,33 @@ public class PersistentAgentRegistry(
     /// <summary>
     /// Probes the A2A Agent Card endpoint to verify the agent is healthy.
     /// </summary>
-    internal async Task<bool> ProbeHealthAsync(Uri endpoint)
+    /// <remarks>
+    /// When the entry carries a container id, the probe is dispatched into
+    /// the agent container via <see cref="IContainerRuntime.ProbeContainerHttpAsync"/>
+    /// so it works regardless of network topology (see #1160). Entries
+    /// without a container id (legacy externally-registered persistent
+    /// agents) fall back to the direct HTTP probe.
+    /// </remarks>
+    internal async Task<bool> ProbeHealthAsync(PersistentAgentEntry entry)
     {
+        var agentCardUri = new Uri(entry.Endpoint, ".well-known/agent.json").ToString();
+
+        if (!string.IsNullOrEmpty(entry.ContainerId))
+        {
+            using var probeCts = new CancellationTokenSource(HealthProbeTimeout);
+            try
+            {
+                return await containerRuntime.ProbeContainerHttpAsync(
+                    entry.ContainerId, agentCardUri, probeCts.Token);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
         using var httpClient = httpClientFactory.CreateClient("PersistentAgentHealthCheck");
         httpClient.Timeout = HealthProbeTimeout;
-
-        var agentCardUri = new Uri(endpoint, ".well-known/agent.json");
 
         try
         {
@@ -334,7 +355,7 @@ public class PersistentAgentRegistry(
 
             // Wait for the new container to become ready.
             var ready = await WaitForA2AReadyAsync(
-                entry.Endpoint, A2AExecutionDispatcher.ReadinessTimeout, CancellationToken.None);
+                newContainerId, entry.Endpoint, A2AExecutionDispatcher.ReadinessTimeout, CancellationToken.None);
 
             if (ready)
             {
@@ -370,16 +391,40 @@ public class PersistentAgentRegistry(
     /// <summary>
     /// Waits until the A2A Agent Card endpoint returns 200 or the timeout expires.
     /// </summary>
-    internal async Task<bool> WaitForA2AReadyAsync(Uri endpoint, TimeSpan timeout, CancellationToken ct)
+    /// <remarks>
+    /// The probe is dispatched into the agent container via
+    /// <see cref="IContainerRuntime.ProbeContainerHttpAsync"/> so it works
+    /// even when the worker process and the agent container live on
+    /// different networks. <paramref name="endpoint"/> is interpreted from
+    /// the in-container perspective (its host should be <c>localhost</c>).
+    /// See #1160 for the open design call on routing the actual A2A
+    /// message send across networks.
+    /// </remarks>
+    internal async Task<bool> WaitForA2AReadyAsync(
+        string containerId,
+        Uri endpoint,
+        TimeSpan timeout,
+        CancellationToken ct)
     {
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(timeout);
 
+        var agentCardUri = new Uri(endpoint, ".well-known/agent.json").ToString();
+
         while (!cts.Token.IsCancellationRequested)
         {
-            if (await ProbeHealthAsync(endpoint))
+            try
             {
-                return true;
+                if (await containerRuntime.ProbeContainerHttpAsync(containerId, agentCardUri, cts.Token))
+                {
+                    return true;
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogDebug(
+                    "Readiness probe attempt failed for {Endpoint} (container {ContainerId}): {Reason}",
+                    endpoint, containerId, ex.Message);
             }
 
             try

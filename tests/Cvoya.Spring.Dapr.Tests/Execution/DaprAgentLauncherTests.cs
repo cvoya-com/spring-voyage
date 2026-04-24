@@ -82,6 +82,22 @@ public class DaprAgentLauncherTests
     }
 
     [Fact]
+    public async Task PrepareAsync_LeavesWorkingDirectoryNull_SoImageDefaultIsKept()
+    {
+        // #1159: the Dapr Agent image's CMD is `python agent.py` relative
+        // to its image WORKDIR (/app). The launcher must NOT set a
+        // WorkingDirectory — combined with WorkspaceFiles being empty,
+        // ContainerConfigBuilder will then leave the container workdir
+        // unset and the image default applies. If either of those two
+        // signals flips, `python: can't open file '/workspace/agent.py'`
+        // returns and the container exits within ~40ms.
+        var prep = await _launcher.PrepareAsync(CreateContext(), TestContext.Current.CancellationToken);
+
+        prep.WorkingDirectory.ShouldBeNull();
+        prep.WorkspaceFiles.ShouldBeEmpty();
+    }
+
+    [Fact]
     public async Task PrepareAsync_OmitsOllamaEndpoint_WhenBaseUrlIsNull()
     {
         var options = Options.Create(new OllamaOptions { DefaultModel = "phi3:mini", BaseUrl = "" });

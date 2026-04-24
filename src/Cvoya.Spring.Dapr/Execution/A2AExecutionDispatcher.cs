@@ -164,10 +164,17 @@ public class A2AExecutionDispatcher(
             containerId = await containerRuntime.StartAsync(config, cancellationToken);
             lease = ephemeralAgentRegistry.Register(agentId, conversationId, containerId);
 
+            // The endpoint URI's host is "localhost" because the readiness probe
+            // runs INSIDE the agent container's own network namespace (via the
+            // dispatcher's exec-wget primitive — see WaitForA2AReadyAsync). The
+            // SendA2AMessageAsync call below still treats the URI as worker-side;
+            // see #1160 for the open design call on routing the actual A2A
+            // message send when the worker and the agent container are on
+            // different networks.
             var endpoint = new Uri($"http://localhost:{spec.A2APort}/");
 
             var ready = await WaitForA2AReadyAsync(
-                endpoint, ReadinessTimeout, cancellationToken);
+                containerId, endpoint, ReadinessTimeout, cancellationToken);
 
             if (!ready)
             {
@@ -295,7 +302,7 @@ public class A2AExecutionDispatcher(
 
         var endpoint = new Uri($"http://localhost:{spec.A2APort}/");
 
-        var ready = await WaitForA2AReadyAsync(endpoint, ReadinessTimeout, cancellationToken);
+        var ready = await WaitForA2AReadyAsync(containerId, endpoint, ReadinessTimeout, cancellationToken);
 
         if (!ready)
         {
@@ -365,12 +372,26 @@ public class A2AExecutionDispatcher(
     /// or the timeout expires. Used by both dispatch paths so they cannot
     /// drift on what "ready" means.
     /// </summary>
-    internal async Task<bool> WaitForA2AReadyAsync(Uri endpoint, TimeSpan timeout, CancellationToken cancellationToken)
+    /// <remarks>
+    /// The probe goes through <see cref="IContainerRuntime.ProbeContainerHttpAsync"/>
+    /// rather than a direct <see cref="HttpClient"/> call so it works regardless
+    /// of the worker's network topology. Since #1063 the worker runs in its own
+    /// container and cannot reach the agent container on its own loopback;
+    /// <c>ProbeContainerHttpAsync</c> runs <c>wget --spider</c> inside the agent
+    /// container's network namespace via the dispatcher, where
+    /// <c>localhost:{port}</c> resolves to the in-container A2A endpoint. See
+    /// #1160 for the design discussion.
+    /// </remarks>
+    internal async Task<bool> WaitForA2AReadyAsync(
+        string containerId,
+        Uri endpoint,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
     {
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         cts.CancelAfter(timeout);
 
-        var agentCardUri = new Uri(endpoint, ".well-known/agent.json");
+        var agentCardUri = new Uri(endpoint, ".well-known/agent.json").ToString();
         var attempts = 0;
         Exception? lastException = null;
 
@@ -379,19 +400,18 @@ public class A2AExecutionDispatcher(
             attempts++;
             try
             {
-                using var probeClient = httpClientFactory.CreateClient("A2A-readiness");
-                probeClient.Timeout = TimeSpan.FromSeconds(5);
-                var response = await probeClient.GetAsync(agentCardUri, cts.Token);
-                if (response.IsSuccessStatusCode)
+                var healthy = await containerRuntime.ProbeContainerHttpAsync(
+                    containerId, agentCardUri, cts.Token);
+                if (healthy)
                 {
                     _logger.LogDebug(
-                        "A2A endpoint {Endpoint} ready after {Attempts} attempt(s)",
-                        endpoint, attempts);
+                        "A2A endpoint {Endpoint} ready after {Attempts} attempt(s) (container {ContainerId})",
+                        endpoint, attempts, containerId);
                     return true;
                 }
                 _logger.LogDebug(
-                    "A2A readiness probe attempt {Attempt} for {Endpoint} returned {Status}",
-                    attempts, endpoint, (int)response.StatusCode);
+                    "A2A readiness probe attempt {Attempt} for {Endpoint} returned not-ready (container {ContainerId})",
+                    attempts, endpoint, containerId);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -412,8 +432,8 @@ public class A2AExecutionDispatcher(
         }
 
         _logger.LogWarning(
-            "A2A endpoint {Endpoint} did not become ready after {Attempts} attempt(s) within {Timeout}. Last error: {LastError}",
-            endpoint, attempts, timeout, lastException?.Message ?? "(none)");
+            "A2A endpoint {Endpoint} did not become ready after {Attempts} attempt(s) within {Timeout} (container {ContainerId}). Last error: {LastError}",
+            endpoint, attempts, timeout, containerId, lastException?.Message ?? "(none)");
         return false;
     }
 
