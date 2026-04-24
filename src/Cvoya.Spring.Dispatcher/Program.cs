@@ -69,6 +69,17 @@ builder.Services.TryAddEnumerable(
 builder.Services.TryAddEnumerable(
     ServiceDescriptor.Singleton<IConfigurationRequirement, WorkspaceRootConfigurationRequirement>());
 
+// Named HttpClient used by /v1/llm/forward and /v1/llm/forward/stream
+// to dispatch the upstream LLM call from the dispatcher process. We set
+// Timeout to InfiniteTimeSpan because long completions and streaming
+// SSE sessions can legitimately outlive the BCL default of 100s; the
+// per-request deadline is owned by the worker (it sets the request
+// CancellationToken on the way in). Closes #1168.
+builder.Services.AddHttpClient(LlmEndpoints.ForwardingHttpClientName, client =>
+{
+    client.Timeout = Timeout.InfiniteTimeSpan;
+});
+
 // Bearer-token auth over DispatcherOptions.Tokens. Keeping the scheme minimal
 // — a downstream host that targets multi-tenant K8s deployments can swap in a
 // JWT / mTLS handler by registering a different default scheme before calling
@@ -93,6 +104,7 @@ app.MapGet("/health", () => Results.Ok(new { Status = "Healthy" }))
 app.MapContainerEndpoints();
 app.MapNetworkEndpoints();
 app.MapImageEndpoints();
+app.MapLlmEndpoints();
 
 await app.RunAsync();
 

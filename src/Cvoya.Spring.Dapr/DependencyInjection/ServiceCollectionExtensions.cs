@@ -389,8 +389,24 @@ public static class ServiceCollectionExtensions
         // that construct actors manually keep working.
         services.TryAddSingleton<IExpertiseSeedProvider, DbExpertiseSeedProvider>();
 
-        // Execution — AnthropicProvider needs HttpClient
-        services.AddHttpClient<IAiProvider, AnthropicProvider>();
+        // LLM dispatch seam (ADR 0028 Decision E / #1168) — IAiProvider
+        // implementations talk to a normal HttpClient; the primary
+        // HttpMessageHandler underneath is LlmHttpMessageHandler, which
+        // routes through ILlmDispatcher so the cloud overlay (or an OSS
+        // deployment that has moved Ollama off spring-net) can swap the
+        // transport without touching the providers. Default
+        // implementation is HttpClientLlmDispatcher (direct via
+        // HttpClient on a dedicated named transport that does not
+        // recurse through LlmHttpMessageHandler); deployments opt into
+        // the proxied path with AddCvoyaSpringDispatcherProxiedLlm.
+        services.AddCvoyaSpringDirectLlmDispatcher();
+
+        // Execution — AnthropicProvider needs HttpClient. Primary
+        // handler is LlmHttpMessageHandler so the call flows through
+        // ILlmDispatcher.
+        services.AddHttpClient<IAiProvider, AnthropicProvider>()
+            .ConfigurePrimaryHttpMessageHandler(static sp =>
+                new LlmHttpMessageHandler(sp.GetRequiredService<ILlmDispatcher>()));
         services.AddSingleton<IPromptAssembler, PromptAssembler>();
         services.AddSingleton<IPlatformPromptProvider, PlatformPromptProvider>();
 
@@ -855,7 +871,12 @@ public static class ServiceCollectionExtensions
             services.Remove(descriptor);
         }
 
-        services.AddHttpClient<IAiProvider, OllamaProvider>();
+        // OllamaProvider's HttpClient flows through LlmHttpMessageHandler →
+        // ILlmDispatcher. See AddCvoyaSpringDirectLlmDispatcher /
+        // AddCvoyaSpringDispatcherProxiedLlm for the transport choice.
+        services.AddHttpClient<IAiProvider, OllamaProvider>()
+            .ConfigurePrimaryHttpMessageHandler(static sp =>
+                new LlmHttpMessageHandler(sp.GetRequiredService<ILlmDispatcher>()));
 
         // Health-check: #616 migrated the Ollama probe into the configuration
         // validation framework. The OllamaConfigurationRequirement registers
@@ -955,6 +976,115 @@ public static class ServiceCollectionExtensions
                 client.Timeout = dispatcherOptions.RequestTimeout
                     ?? System.Threading.Timeout.InfiniteTimeSpan;
             });
+    }
+
+    /// <summary>
+    /// Registers the default <see cref="ILlmDispatcher"/> —
+    /// <see cref="HttpClientLlmDispatcher"/> — which sends every LLM
+    /// request directly via an injected <see cref="HttpClient"/>. The
+    /// transport client is registered as a dedicated named client so it
+    /// never recurses through <see cref="LlmHttpMessageHandler"/>: that
+    /// would form an infinite loop because the message handler itself
+    /// resolves <see cref="ILlmDispatcher"/>. Closes #1168 / ADR 0028
+    /// Decision E for OSS deployments where the worker can still resolve
+    /// the LLM endpoint directly (the current default — <c>spring-ollama</c>
+    /// is dual-attached to <c>spring-net</c> and <c>spring-tenant-default</c>).
+    /// </summary>
+    /// <remarks>
+    /// Idempotent. Registered transparently by
+    /// <see cref="AddCvoyaSpringDapr"/> and surfaced as a public
+    /// extension so test harnesses and downstream hosts can compose a
+    /// bare <see cref="ILlmDispatcher"/> registration without taking the
+    /// full Dapr DI graph. <c>TryAdd</c> so a downstream host that has
+    /// already registered an <see cref="ILlmDispatcher"/> (for example
+    /// <see cref="AddCvoyaSpringDispatcherProxiedLlm"/>) wins.
+    /// </remarks>
+    /// <param name="services">The service collection to configure.</param>
+    /// <returns>The same service collection for chaining.</returns>
+    public static IServiceCollection AddCvoyaSpringDirectLlmDispatcher(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        services.AddHttpClient(HttpClientLlmDispatcher.HttpClientName, client =>
+        {
+            // Streaming completions and Anthropic message turns can
+            // legitimately exceed the BCL HttpClient default of 100s.
+            // The per-request CancellationToken passed in by the caller
+            // owns the deadline.
+            client.Timeout = Timeout.InfiniteTimeSpan;
+        });
+
+        services.TryAddSingleton<ILlmDispatcher>(sp => new HttpClientLlmDispatcher(
+            sp.GetRequiredService<IHttpClientFactory>().CreateClient(HttpClientLlmDispatcher.HttpClientName),
+            sp.GetRequiredService<ILoggerFactory>()));
+
+        return services;
+    }
+
+    /// <summary>
+    /// Swaps the default <see cref="ILlmDispatcher"/> for the
+    /// dispatcher-proxied implementation
+    /// (<see cref="DispatcherProxiedLlmDispatcher"/>): every LLM request
+    /// is forwarded to <c>spring-dispatcher</c>'s
+    /// <c>POST /v1/llm/forward</c> endpoint and the dispatcher executes
+    /// the upstream call. Use this in deployments where the worker is
+    /// on <c>spring-net</c> only (ADR 0028 Decision A) and the LLM
+    /// endpoint lives on a tenant network the worker cannot reach
+    /// directly. Closes #1168 / ADR 0028 Decision E.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Hosts call this after <see cref="AddCvoyaSpringDapr"/>; the
+    /// existing direct-dispatcher registration is removed before the
+    /// proxied implementation is registered so there is exactly one
+    /// <see cref="ILlmDispatcher"/> in the container. The dispatcher
+    /// HTTP client used to forward requests is registered as a named
+    /// client with the same infinite timeout and bearer-token plumbing
+    /// as <see cref="AddDispatcherHttpClient"/>: long completions don't
+    /// trip the BCL default, and the worker's per-deployment token
+    /// flows through automatically.
+    /// </para>
+    /// <para>
+    /// Both this and <see cref="AddCvoyaSpringDirectLlmDispatcher"/>
+    /// register the <see cref="HttpClientLlmDispatcher.HttpClientName"/>
+    /// named client too, because some <see cref="IAiProvider"/>
+    /// implementations expose <c>HttpClient</c>-typed test seams that
+    /// resolve it eagerly.
+    /// </para>
+    /// </remarks>
+    /// <param name="services">The service collection to configure.</param>
+    /// <returns>The same service collection for chaining.</returns>
+    public static IServiceCollection AddCvoyaSpringDispatcherProxiedLlm(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        // Make sure DispatcherClientOptions is bound so the proxied
+        // implementation has a base URL / bearer token. This mirrors the
+        // pattern in AddCvoyaSpringDapr; safe to call twice.
+        services.AddOptions<DispatcherClientOptions>().BindConfiguration(DispatcherClientOptions.SectionName);
+
+        // Drop any prior ILlmDispatcher registration so we replace, not
+        // append (DI resolves the *first* registration for a service
+        // type, but multiple registrations with the same lifetime
+        // confuse downstream observers like `IEnumerable<ILlmDispatcher>`).
+        var prior = services.Where(d => d.ServiceType == typeof(ILlmDispatcher)).ToList();
+        foreach (var descriptor in prior)
+        {
+            services.Remove(descriptor);
+        }
+
+        services.AddHttpClient(DispatcherProxiedLlmDispatcher.HttpClientName)
+            .ConfigureHttpClient(static (sp, client) =>
+            {
+                var dispatcherOptions = sp
+                    .GetRequiredService<IOptions<DispatcherClientOptions>>().Value;
+                client.Timeout = dispatcherOptions.RequestTimeout
+                    ?? Timeout.InfiniteTimeSpan;
+            });
+
+        services.AddSingleton<ILlmDispatcher, DispatcherProxiedLlmDispatcher>();
+
+        return services;
     }
 
     /// <summary>

@@ -249,6 +249,72 @@ public record SendContainerHttpJsonResponse
 }
 
 /// <summary>
+/// Request body for <c>POST /v1/llm/forward</c> and
+/// <c>POST /v1/llm/forward/stream</c> — the dispatcher-proxied LLM
+/// primitive that closes the hosted-agent half of ADR 0028 Decision E
+/// (issue #1168). The worker hands the dispatcher the upstream URL it
+/// would have called directly (e.g.
+/// <c>http://tenant-ollama:11434/v1/chat/completions</c>) plus the raw
+/// request body bytes (base64-wrapped on the wire to avoid double-
+/// escaping). The dispatcher executes the POST from its own process and
+/// returns the upstream status / body verbatim.
+/// </summary>
+/// <remarks>
+/// <para>
+/// The shape mirrors <see cref="SendContainerHttpJsonRequest"/> on
+/// purpose — both endpoints are dispatcher-proxied HTTP POSTs and
+/// keeping the wire shapes parallel keeps the security review small.
+/// The differences are the headers field (LLM proxies need to forward
+/// <c>x-api-key</c> / <c>anthropic-version</c> on managed-provider
+/// requests, A2A does not) and the streaming sibling endpoint.
+/// </para>
+/// <para>
+/// Body bytes are carried as base64 (<c>bodyBase64</c>) so the wire
+/// stays pure JSON and neither side has to second-guess content
+/// encoding. An empty <c>bodyBase64</c> is allowed; the dispatcher
+/// sends an empty request body in that case.
+/// </para>
+/// </remarks>
+public record LlmForwardRequest
+{
+    /// <summary>Upstream URL to POST to (e.g. <c>http://tenant-ollama:11434/v1/chat/completions</c>).</summary>
+    [JsonPropertyName("url")]
+    public required string Url { get; init; }
+
+    /// <summary>Base64-encoded UTF-8 request body bytes; empty string when there is no body.</summary>
+    [JsonPropertyName("bodyBase64")]
+    public required string BodyBase64 { get; init; }
+
+    /// <summary>
+    /// Optional request headers to forward verbatim to the upstream
+    /// (typically <c>x-api-key</c>, <c>anthropic-version</c> for
+    /// managed providers). <c>Content-Type</c> defaults to
+    /// <c>application/json</c> when the body is non-empty and no
+    /// override is supplied.
+    /// </summary>
+    [JsonPropertyName("headers")]
+    public IDictionary<string, string>? Headers { get; init; }
+}
+
+/// <summary>
+/// Response body for <c>POST /v1/llm/forward</c>. Carries the HTTP
+/// status the dispatcher observed from the upstream LLM plus the
+/// response body bytes (base64-wrapped). On any transport failure the
+/// dispatcher returns HTTP 502 at the envelope level (the worker
+/// further collapses that to <c>StatusCode = 502, Body = []</c>).
+/// </summary>
+public record LlmForwardResponse
+{
+    /// <summary>HTTP status code observed from the upstream LLM.</summary>
+    [JsonPropertyName("statusCode")]
+    public required int StatusCode { get; init; }
+
+    /// <summary>Base64-encoded response body bytes (empty when the upstream returned no body).</summary>
+    [JsonPropertyName("bodyBase64")]
+    public required string BodyBase64 { get; init; }
+}
+
+/// <summary>
 /// Request body for <c>POST /v1/networks</c>. The dispatcher creates the
 /// network idempotently — repeating the call with the same name is a 200,
 /// not a 409, so callers (notably <c>ContainerLifecycleManager</c>) can
