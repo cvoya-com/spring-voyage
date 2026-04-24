@@ -43,6 +43,10 @@ Agent containers (all hosting modes) and workflow containers live on `spring-ten
 
 OSS uses a single `spring-tenant-default` network. Cloud uses one `spring-tenant-<id>` per tenant.
 
+**daprd sidecars stay off the tenant network.** For Dapr-fronted workflow and unit containers (those launched via `ContainerLifecycleManager.LaunchWithSidecarAsync`), the app container dual-attaches to the per-workflow `spring-net-<guid>` bridge *and* the tenant bridge, but the daprd sidecar stays on the per-workflow bridge only. Three reasons: (1) daprd exposes the Dapr HTTP/gRPC API surface, and putting that on a tenant network lets any tenant-network peer invoke the app's state store, pubsub, and service-invocation endpoints; (2) when configured with production components, daprd needs reach to platform control-plane services (`spring-redis`, `spring-postgres`, `spring-placement`) that live on `spring-net` — the per-workflow bridge preserves that path while keeping tenant peers out of it; (3) the per-workflow bridge is the isolated channel for app↔sidecar Dapr-protocol chatter.
+
+The "no dual-homing" rule in this ADR is about *platform* processes (worker, dispatcher) whose dual-homing would span every tenant's namespace. A tenant-layer app container holding a private link to its own sidecar alongside its tenant home is internal plumbing, not a platform-isolation breach. See #1166 for the implementation.
+
 ### Decision B — Dispatcher-proxied platform→tenant traffic
 
 All platform-initiated traffic into tenant networks routes through the dispatcher. Three cases:
