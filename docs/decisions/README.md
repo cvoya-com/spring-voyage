@@ -41,6 +41,7 @@ For open design questions that have **not** yet been decided, see [`../architect
 | [0025](0025-unified-agent-launch-contract.md) | Unified agent launch contract (single dispatch path, response-capture as a property) | Accepted — `AgentLaunchSpec` + single A2A path; ephemeral is a retention policy |
 | [0026](0026-per-agent-container-scope.md) | Per-agent container scope (one container per agent, not per unit) | Accepted — `Pooled` reserved for [#362](https://github.com/cvoya-com/spring-voyage/issues/362) |
 | [0027](0027-agent-image-conformance-contract.md) | Agent-image conformance contract (A2A 0.3.x on `:8999`, three conformance paths) | Accepted — bridge ships via OCI base, npm, and SEA binary |
+| [0029](0029-tenant-execution-boundary.md) | Tenant execution boundary and agent runtime execution contract | Proposed — V2.1; two directional buckets, A2A 0.3.x wire, per-agent volume |
 
 ## Format
 
