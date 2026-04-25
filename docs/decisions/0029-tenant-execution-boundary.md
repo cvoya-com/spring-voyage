@@ -1,6 +1,6 @@
 # 0029 — Tenant execution boundary and agent runtime execution contract
 
-- **Status:** Proposed — V2.1 work. Defines the contract surface between tenant-scoped execution (agents and whatever composes them) and the Spring Voyage platform. Splits the boundary into two directional buckets: a small agent SDK contract (three lifecycle hooks) that the platform calls into tenant containers, and a minimal public API (one interface: A2A send) that tenant containers call into the platform. All message-shaped exchange across the boundary uses A2A 0.3.x as the wire protocol ([ADR 0027](0027-agent-image-conformance-contract.md)) with streaming responses where useful; container lifecycle and bootstrap stay out-of-band. Durable agent state is a per-agent persistent volume, not an interface. Declares what is **not** abstracted (orchestration substrate, actor host, tool discovery, observability, durable timers, LLM dispatch as a tenant-facing interface, state as a KV interface) and why. Memory is deferred pending the conversation-model design work ([#1123](https://github.com/cvoya-com/spring-voyage/issues/1123)). Does not ship new code — this is the paper decision that later stages of the V2.1 rollout implement.
+- **Status:** Proposed — V2.1 work. Defines the contract surface between tenant-scoped execution (agents and whatever composes them) and the Spring Voyage platform. Splits the boundary into two directional buckets: a small agent SDK contract (three lifecycle hooks) that the platform calls into tenant containers, and a minimal public API (one interface: A2A send) that tenant containers call into the platform. All message-shaped exchange across the boundary uses A2A 0.3.x as the wire protocol ([ADR 0027](0027-agent-image-conformance-contract.md)) with streaming responses where useful; container lifecycle and bootstrap stay out-of-band. Durable agent state is a per-agent persistent volume, not an interface. Capabilities such as durable timers, pub/sub for cross-agent observation, agent registry, and cloning live on the public Web API and reach agents via MCP — they do not grow the boundary. Declares what is **not** abstracted (orchestration substrate, actor host, LLM dispatch as a tenant-facing interface, state as a KV interface, tool discovery, observability) and why. Memory is deferred pending the conversation-model design work ([#1123](https://github.com/cvoya-com/spring-voyage/issues/1123)). Does not ship new code — this is the paper decision that later stages of the V2.1 rollout implement.
 - **Date:** 2026-04-24
 - **Related:** V2.1 milestone [#2](https://github.com/cvoya-com/spring-voyage/milestone/2), [ADR 0028](0028-tenant-scoped-runtime-topology.md) (the topology this boundary sits on; Decision C is revisited in Consequences below), [ADR 0027](0027-agent-image-conformance-contract.md) (every agent container is an A2A 0.3.x server — the precedent this ADR makes explicit as the boundary protocol), [ADR 0021](0021-spring-voyage-is-not-an-agent-runtime.md) (the principle this extends — the platform coordinates runtimes, doesn't implement loops), [ADR 0015](0015-dapr-as-infrastructure-runtime.md) (Dapr stays where it works), [ADR 0012](0012-spring-dispatcher-service-extraction.md) (dispatcher seam this builds on), [ADR 0018](0018-partitioned-mailbox.md) (being reframed by #1123 — this ADR does not re-decide mailbox shape), [PR #1177](https://github.com/cvoya-com/spring-voyage/pull/1177) (`ILlmDispatcher` — precedent for a platform-internal seam; see Consequences), [#1123](https://github.com/cvoya-com/spring-voyage/issues/1123) (conversation = participant-set; memory has two layers — blocks the memory contract).
 - **Related code:** `src/Cvoya.Spring.Dapr/Execution/LlmDispatcher.cs`, `src/Cvoya.Spring.Dispatcher/LlmEndpoints.cs`, `agents/dapr-agent/agent.py`, `src/Cvoya.Spring.Dapr/Execution/A2AExecutionDispatcher.cs`.
@@ -137,17 +137,32 @@ Every interface is load-bearing forever. The ones below were considered and reje
 - **Tool discovery.** MCP is already a cross-tool protocol ([ADR 0021](0021-spring-voyage-is-not-an-agent-runtime.md)). The platform delivers MCP endpoint URLs via `IAgentContext`; the agent speaks MCP. No SV-specific interface.
 - **Observability.** Standardise on OpenTelemetry. The collector endpoint is in `IAgentContext`. No new interface.
 - **Secrets provision.** Agent-scoped credentials are delivered in `IAgentContext`. If an agent needs dynamic secret resolution beyond that, it uses whatever platform secret primitive is exposed (Dapr secrets today); that is not promoted to a tenant-facing interface.
-- **Durable timers / scheduled waits.** The agent pairs workspace checkpoints with whatever scheduling it needs. Platform does not provide a timer primitive at the boundary.
-- **Inbound pub/sub beyond A2A.** Sidecars don't live in tenant containers; agents cannot consume Dapr pub/sub directly. External events the platform wants to deliver to an agent become A2A messages (inbound via `on_message`). No separate subscription interface.
-- **Agent registry / dynamic discovery.** Today, delegation targets are known statically or at init. A dynamic "find me an agent that can do X" query is a real capability but does not have a forcing use case. Deferred.
 - **Memory.** Deferred pending [#1123](https://github.com/cvoya-com/spring-voyage/issues/1123). Not in scope for this ADR; interim use of the workspace volume covers private bookkeeping only.
+
+### Capabilities reached through MCP, not at the boundary
+
+Several capabilities that an earlier draft proposed deferring belong on the **public Web API**, not at the SDK boundary. Agents reach them through the platform's MCP server (which is itself implemented over the public Web API per [ADR 0021](0021-spring-voyage-is-not-an-agent-runtime.md)) and through skills / commands the agent author composes on top. This keeps the boundary minimal — three hooks plus A2A send — while the platform's actual surface area stays comprehensive.
+
+Capabilities that follow this pattern:
+
+- **Durable timers / scheduled waits.** "Wake me at T," "remind agent X every N minutes," "fire when condition Y holds." Public Web API verbs; surfaced as MCP tools the agent invokes.
+- **Pub/sub for cross-agent observation.** "Tell me when agent Y finishes," "stream the steps agent Z performs as they happen," "subscribe to events emitted by unit U." These are subscriptions over the public Web API, surfaced as MCP tools. External events the platform wants to push to an agent still arrive as A2A inbound messages — pub/sub gives the *agent* an explicit subscription verb without inventing a tenant-facing pub/sub bus.
+- **Agent registry / dynamic discovery.** "Find me agents that can do X," "what agents are in unit U," "what's the status of agent Y." Public Web API queries; MCP tools.
+- **Cloning.** The mechanism by which an agent can replicate itself or a unit can request a child be cloned. Public Web API; MCP tool.
+
+Future capabilities of the same shape (anything message-shape-agnostic that the platform exposes uniformly to humans, tools, and agents) follow the same pattern: define on the public Web API, expose via MCP, optionally wrap as agent-side skills.
+
+The boundary contract does not grow when a new such capability is added. Only the public Web API and the platform's MCP server grow.
+
+## Resolved during review (formerly open)
+
+- **Lifecycle control channel.** Resolved: there is no separate channel. **Container lifecycle** is managed by container-runtime APIs (Podman in OSS, K8s in cloud) — that is the platform actor's mechanism. **Agent control messages** ("stop what you are doing," "report status," "drain") are not distinguishable from domain messages at the protocol level — they are A2A messages the agent interprets according to its own conventions. Should a future need ever appear to control the *agent runtime* (e.g. the `claude` CLI process inside a container) independently of the container instance — restart-tool-without-restart-container — an SV sidecar would be added at that point. No forcing case today; not in scope.
+- **Ephemeral-agent provisioning on demand.** Resolved: agents do not know about containers and have no way to ask for one. To delegate work, an agent sends an A2A message to the recipient agent. The platform decides whether the recipient's configuration calls for a fresh ephemeral container instance or routing to a persistent one. The provisioning decision is the platform's, never the calling agent's.
 
 ## Open questions
 
-Two decisions this ADR leaves open because they need a forcing use case to answer well:
-
-- **Lifecycle control channel.** The platform actor lives on `spring-net`; the tenant container lives on `spring-tenant-<id>`. The actor drives the container's lifecycle hooks across that boundary — presumably via control-plane A2A messages through the dispatcher, but this needs to be named explicitly as a mechanism. Resolve before the lifecycle-contract implementation stage.
-- **Ephemeral-agent provisioning on demand.** When an agent (acting as an orchestrator) wants a fresh ephemeral peer spun up for part of its work, is that (a) a well-known A2A message to the dispatcher asking for provisioning, collapsing the case into A2A transport with routing smarts, or (b) a distinct `IAgentProvisioner` interface? Lean toward (a) — no new interface, consistent with Bucket 2's existing shape — but decide explicitly.
+- **Agent-runtime CLI-style commands.** Tools like Claude Code, Codex, etc. expose `/`-prefixed commands (`/help`, `/clear`, `/resume`) that a human user would type into the running tool. If we want to drive these programmatically against an already-running agent — as opposed to terminating the container and starting fresh with different configuration — there is currently no specified channel. Open question whether to model these as A2A messages (with reserved semantics the SDK adapts into the underlying tool's CLI), as a separate runtime control channel (the SV sidecar shape mentioned above), or out of scope entirely. Needs more thinking; not in scope for V2.1 but flagged so the decision lands deliberately when a forcing case appears.
+- **Cloning policies.** The mechanism (a public-Web-API verb, surfaced via MCP) is clear from the section above. The *policy* — when an agent is allowed to clone itself, when a unit can clone a child, who pays, what limits apply — has not been figured out. Out of scope for this ADR.
 
 ## Alternatives considered
 
@@ -169,8 +184,15 @@ Two decisions this ADR leaves open because they need a forcing use case to answe
 - **State freedom for implementers.** Worktrees, SQLite, git, flat files, whatever shape the agent wants. No SV-defined data surface.
 - **Versionable, testable, reusable public API.** Bucket 2 is semver, HTTP-transported, auth-gated, and mockable. A test harness that implements the one interface (plus a tmpdir mounted as "workspace") lets agents run without the platform.
 - **Multi-language SDK story.** Bucket 1 is three hooks; a new-language SDK is a small, bounded task.
-- **Small abstraction surface.** One interface, three hooks, one bootstrap object, one volume. Any addition has to justify why it cannot live inside `IAgentContext`, the lifecycle contract, or the volume. Interfaces are forever.
+- **Small abstraction surface.** One interface, three hooks, one bootstrap object, one volume. Any addition has to justify why it cannot live inside `IAgentContext`, the lifecycle contract, the volume, or the public Web API exposed via MCP. Interfaces are forever.
 - **Dapr stays where it fits.** Storage, pub/sub (platform-internal), platform workflows, actor-based supervision all continue to use Dapr. The boundary is about what tenant code sees, not about ripping out the internal substrate.
+
+### Deliverable shape
+
+The work this ADR opens lands as two artifacts that outlive any specific implementation choice:
+
+- **A well-defined, well-documented public Web API.** Versioned, auth-gated, language-agnostic. Used by the agent boundary (A2A send), by the platform's MCP server (timers, pub/sub, registry, cloning, future capabilities), by external integrators, and by operator tooling. The same surface for everyone.
+- **Requirements and extensibility points for agent runtimes.** A specification for what makes an agent container conformant: A2A 0.3.x server, MCP client, three lifecycle hooks, native-API LLM consumption, workspace-volume convention. Extends [ADR 0027](0027-agent-image-conformance-contract.md). Adding a new agent runtime is a thin adapter against this spec, not platform changes.
 
 ### What this costs
 
