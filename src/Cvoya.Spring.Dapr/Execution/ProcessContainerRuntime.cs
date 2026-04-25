@@ -296,6 +296,60 @@ public class ProcessContainerRuntime(
     }
 
     /// <inheritdoc />
+    public async Task<bool> ProbeHttpFromTransientContainerAsync(
+        string probeImage,
+        string network,
+        string url,
+        CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(probeImage);
+        ArgumentException.ThrowIfNullOrWhiteSpace(network);
+        ArgumentException.ThrowIfNullOrWhiteSpace(url);
+
+        // Mirrors deploy.sh's wait_sidecar_ready helper. --rm cleans the
+        // probe container up after the curl exits; -sf collapses to a
+        // non-zero exit on any non-2xx so the boolean answer is honest;
+        // --max-time bounds each attempt so an unreachable target still
+        // surfaces inside the caller's polling loop.
+        string[] args =
+        [
+            "run",
+            "--rm",
+            "--network",
+            network,
+            probeImage,
+            "-sf",
+            "-o",
+            "/dev/null",
+            "--max-time",
+            "5",
+            url,
+        ];
+
+        try
+        {
+            var (exitCode, _, _) = await RunProcessAsync(binaryName, args, ct);
+            return exitCode == 0;
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            // Local timeout on the underlying RunProcessAsync — propagate
+            // false so the polling loop owns the retry policy.
+            return false;
+        }
+        catch (Exception ex)
+        {
+            // Probe image missing / network unknown / runtime crashed —
+            // collapse to false for the same reason as ProbeContainerHttpAsync.
+            _logger.LogDebug(
+                ex,
+                "Transient probe of {Url} on network {Network} via {Image} failed: {Message}",
+                url, network, probeImage, ex.Message);
+            return false;
+        }
+    }
+
+    /// <inheritdoc />
     public async Task<ContainerHttpResponse> SendHttpJsonAsync(
         string containerId,
         string url,
@@ -306,29 +360,34 @@ public class ProcessContainerRuntime(
         ArgumentException.ThrowIfNullOrWhiteSpace(url);
         ArgumentNullException.ThrowIfNull(body);
 
-        // BusyBox wget honours --post-file=/dev/stdin, so we can stream the
-        // body in over the podman exec stdin pipe without command-line size
-        // limits. -q silences progress so stdout is purely the response body;
-        // -O - writes the body to stdout for capture. The header argument is
-        // a single argv entry (no whitespace splitting via ArgumentList) so
-        // the Content-Type value passes through verbatim.
+        // curl reads the body from stdin via `--data-binary @-` reliably on
+        // both BusyBox and GNU coreutils — unlike `wget --post-file=/dev/stdin`,
+        // which GNU wget on Debian rejects with "Illegal seek" because the
+        // exec pipe is not seekable (the original comment here was written
+        // against BusyBox wget; the spring-voyage-agent-dapr image is
+        // python:3.12-slim and ships GNU wget). `--data-binary` (vs. `-d`)
+        // preserves bytes verbatim — no @ / & interpretation, no newline
+        // stripping. `-f` collapses any non-2xx HTTP into a non-zero exit so
+        // the boolean result below stays meaningful; `-sS` silences progress
+        // but keeps real errors on stderr for the LogDebug below. The header
+        // argument is a single argv entry (no whitespace splitting via
+        // ArgumentList) so the Content-Type value passes through verbatim.
         string[] args =
         [
             "exec",
             "-i",
             containerId,
-            "wget",
-            "-q",
-            "-O",
-            "-",
-            "--post-file=/dev/stdin",
-            "--header=Content-Type: application/json",
+            "curl",
+            "-fsS",
+            "-X", "POST",
+            "-H", "Content-Type: application/json",
+            "--data-binary", "@-",
             url,
         ];
 
         try
         {
-            var (exitCode, stdout, _) = await RunProcessWithStdinAsync(
+            var (exitCode, stdout, stderr) = await RunProcessWithStdinAsync(
                 binaryName, args, body, ct);
 
             if (exitCode == 0)
@@ -341,10 +400,12 @@ public class ProcessContainerRuntime(
             // Any non-zero exit collapses to "agent unreachable" (502). The
             // probe primitive applies the same simplification — finer status
             // discrimination is the caller's job (the A2A SDK retries the
-            // turn at its own layer).
+            // turn at its own layer). Capture stderr in the diagnostic so a
+            // missing curl, a 4xx/5xx from the in-container endpoint, or a
+            // network error each leaves a recoverable hint behind.
             _logger.LogDebug(
-                "POST to {Url} inside container {ContainerId} exited {ExitCode} via {Binary} wget",
-                url, containerId, exitCode, binaryName);
+                "POST to {Url} inside container {ContainerId} exited {ExitCode} via {Binary} curl: {Stderr}",
+                url, containerId, exitCode, binaryName, stderr);
             return new ContainerHttpResponse(StatusCode: 502, Body: []);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)

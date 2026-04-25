@@ -5,7 +5,7 @@ namespace Cvoya.Spring.Dapr.Execution;
 
 using System.Text.Json;
 
-using A2A;
+using A2A.V0_3;
 
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Execution;
@@ -14,7 +14,6 @@ using Cvoya.Spring.Core.Messaging;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-using A2AMessage = A2A.Message;
 using SvMessage = Cvoya.Spring.Core.Messaging.Message;
 
 /// <summary>
@@ -475,16 +474,21 @@ public class A2AExecutionDispatcher(
             userMessage = taskProp.GetString() ?? prompt;
         }
 
-        var request = new SendMessageRequest
+        // A2A v0.3 wire shape: MessageSendParams { message, configuration } —
+        // the JSON-RPC method name is `message/send` (set by the SDK), which
+        // is what the Python a2a-sdk server in the dapr-agent image expects.
+        // Parts is List<Part> with derived TextPart/FilePart/DataPart; the
+        // discriminator (`kind`) is set by the constructor on each subtype.
+        var request = new MessageSendParams
         {
-            Message = new A2AMessage
+            Message = new AgentMessage
             {
-                Role = Role.User,
-                Parts = [new Part { Text = userMessage }],
+                Role = MessageRole.User,
+                Parts = [new TextPart { Text = userMessage }],
                 MessageId = originalMessage.Id.ToString(),
                 ContextId = originalMessage.ConversationId,
             },
-            Configuration = new SendMessageConfiguration
+            Configuration = new MessageSendConfiguration
             {
                 AcceptedOutputModes = ["text/plain"],
             },
@@ -575,21 +579,22 @@ public class A2AExecutionDispatcher(
 
     internal static SvMessage? MapA2AResponseToMessage(
         SvMessage originalMessage,
-        SendMessageResponse response)
+        A2AResponse response)
     {
         string output;
         int exitCode;
 
-        switch (response.PayloadCase)
+        // A2A v0.3 collapses the v1 PayloadCase oneof into a discriminator-based
+        // class hierarchy: A2AResponse is the base, AgentTask / AgentMessage are
+        // the only concrete subtypes the SDK can deliver from `message/send`.
+        switch (response)
         {
-            case SendMessageResponseCase.Task:
-                var task = response.Task!;
-                exitCode = task.Status?.State is TaskState.Completed ? 0 : 1;
+            case AgentTask task:
+                exitCode = task.Status.State is TaskState.Completed ? 0 : 1;
                 output = ExtractTextFromTask(task);
                 break;
 
-            case SendMessageResponseCase.Message:
-                var msg = response.Message!;
+            case AgentMessage msg:
                 exitCode = 0;
                 output = ExtractTextFromParts(msg.Parts);
                 break;
@@ -600,11 +605,24 @@ public class A2AExecutionDispatcher(
                 break;
         }
 
-        var payload = JsonSerializer.SerializeToElement(new
-        {
-            Output = output,
-            ExitCode = exitCode
-        });
+        // AgentActor.TryReadDispatchExit reads `Error` from the payload to
+        // surface the failure text in the ErrorOccurred activity event when
+        // ExitCode != 0. Mirror the agent's text into Error so a Failed task
+        // doesn't render as a blank "Container exit code 1: " in the activity
+        // log — the message body is the only signal we have about why the
+        // agent's workflow failed (e.g. dapr-agents loop error, MCP timeout).
+        var payload = exitCode == 0
+            ? JsonSerializer.SerializeToElement(new
+            {
+                Output = output,
+                ExitCode = exitCode,
+            })
+            : JsonSerializer.SerializeToElement(new
+            {
+                Output = output,
+                ExitCode = exitCode,
+                Error = output,
+            });
 
         return new SvMessage(
             Id: Guid.NewGuid(),
@@ -621,12 +639,10 @@ public class A2AExecutionDispatcher(
         // First try artifacts
         if (task.Artifacts is { Count: > 0 })
         {
-            var texts = task.Artifacts
-                .SelectMany(a => a.Parts ?? [])
-                .Where(p => p.ContentCase == PartContentCase.Text)
-                .Select(p => p.Text)
-                .Where(t => t is not null);
-            var artifactText = string.Join("\n", texts);
+            var artifactText = string.Join("\n", task.Artifacts
+                .SelectMany(a => (IEnumerable<Part>?)a.Parts ?? [])
+                .OfType<TextPart>()
+                .Select(p => p.Text));
             if (!string.IsNullOrEmpty(artifactText))
             {
                 return artifactText;
@@ -634,7 +650,7 @@ public class A2AExecutionDispatcher(
         }
 
         // Fall back to status message
-        if (task.Status?.Message is { } statusMsg)
+        if (task.Status.Message is { } statusMsg)
         {
             return ExtractTextFromParts(statusMsg.Parts);
         }
@@ -642,7 +658,7 @@ public class A2AExecutionDispatcher(
         // Fall back to history
         if (task.History is { Count: > 0 })
         {
-            var lastAgent = task.History.LastOrDefault(m => m.Role == Role.Agent);
+            var lastAgent = task.History.LastOrDefault(m => m.Role == MessageRole.Agent);
             if (lastAgent is not null)
             {
                 return ExtractTextFromParts(lastAgent.Parts);
@@ -659,9 +675,11 @@ public class A2AExecutionDispatcher(
             return string.Empty;
         }
 
+        // V0_3 Parts is a polymorphic list; only TextPart has a `Text` field.
+        // Other kinds (FilePart, DataPart) are intentionally dropped here —
+        // the platform message protocol only carries plain text today.
         return string.Join("\n", parts
-            .Where(p => p.ContentCase == PartContentCase.Text)
-            .Select(p => p.Text)
-            .Where(t => t is not null));
+            .OfType<TextPart>()
+            .Select(p => p.Text));
     }
 }

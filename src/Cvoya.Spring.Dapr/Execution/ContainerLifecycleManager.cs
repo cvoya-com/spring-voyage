@@ -82,7 +82,7 @@ public class ContainerLifecycleManager(
 
             // Step 3: Wait for sidecar health.
             var healthy = await sidecarManager.WaitForHealthyAsync(
-                sidecarInfo.SidecarId, DefaultHealthTimeout, ct);
+                sidecarInfo, DefaultHealthTimeout, ct);
 
             if (!healthy)
             {
@@ -91,12 +91,12 @@ public class ContainerLifecycleManager(
             }
 
             // Step 4: Augment the app config with Dapr env vars and network.
+            // Sibling daprd is not on 127.0.0.1 — only DAPR_HTTP_PORT/GRPC_PORT
+            // makes Dapr + durabletask clients default to loopback and fail
+            // (see deploy.sh: DAPR_HTTP_ENDPOINT / DAPR_GRPC_ENDPOINT per app).
             var augmentedEnv = new Dictionary<string, string>(
-                config.EnvironmentVariables ?? new Dictionary<string, string>())
-            {
-                ["DAPR_HTTP_PORT"] = daprHttpPort.ToString(),
-                ["DAPR_GRPC_PORT"] = daprGrpcPort.ToString()
-            };
+                config.EnvironmentVariables ?? new Dictionary<string, string>());
+            AddDaprSidecarClientEnv(augmentedEnv, sidecarInfo);
 
             var augmentedConfig = config with
             {
@@ -169,7 +169,7 @@ public class ContainerLifecycleManager(
             sidecarInfo = await sidecarManager.StartSidecarAsync(sidecarConfig, ct);
 
             var healthy = await sidecarManager.WaitForHealthyAsync(
-                sidecarInfo.SidecarId, DefaultHealthTimeout, ct);
+                sidecarInfo, DefaultHealthTimeout, ct);
 
             if (!healthy)
             {
@@ -178,11 +178,8 @@ public class ContainerLifecycleManager(
             }
 
             var augmentedEnv = new Dictionary<string, string>(
-                config.EnvironmentVariables ?? new Dictionary<string, string>())
-            {
-                ["DAPR_HTTP_PORT"] = daprHttpPort.ToString(),
-                ["DAPR_GRPC_PORT"] = daprGrpcPort.ToString()
-            };
+                config.EnvironmentVariables ?? new Dictionary<string, string>());
+            AddDaprSidecarClientEnv(augmentedEnv, sidecarInfo);
 
             var augmentedConfig = config with
             {
@@ -210,6 +207,24 @@ public class ContainerLifecycleManager(
             await TeardownAsync(null, sidecarInfo?.SidecarId, networkName, CancellationToken.None);
             throw;
         }
+    }
+
+    /// <summary>
+    /// Publishes how the app container reaches its sibling <c>daprd</c>. When
+    /// only <c>DAPR_GRPC_PORT</c> (and HTTP port) are set, Dapr and durable
+    /// workflow clients default to <c>127.0.0.1</c>, which is wrong for
+    /// separate app + sidecar containers on a Podman/Docker bridge — match
+    /// <c>deploy.sh</c> / <c>docker-compose</c> (<c>spring-worker-dapr:50001</c>).
+    /// </summary>
+    private static void AddDaprSidecarClientEnv(
+        IDictionary<string, string> env,
+        DaprSidecarInfo sidecar)
+    {
+        var host = sidecar.SidecarId;
+        env["DAPR_HTTP_PORT"] = sidecar.DaprHttpPort.ToString();
+        env["DAPR_GRPC_PORT"] = sidecar.DaprGrpcPort.ToString();
+        env["DAPR_HTTP_ENDPOINT"] = $"http://{host}:{sidecar.DaprHttpPort}";
+        env["DAPR_GRPC_ENDPOINT"] = $"http://{host}:{sidecar.DaprGrpcPort}";
     }
 
     private DaprSidecarConfig BuildDaprSidecarConfig(

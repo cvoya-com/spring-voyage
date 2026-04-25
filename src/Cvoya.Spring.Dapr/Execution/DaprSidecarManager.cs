@@ -17,19 +17,22 @@ using Microsoft.Extensions.Options;
 /// <remarks>
 /// <para>
 /// Health polling uses
-/// <see cref="IContainerRuntime.ProbeContainerHttpAsync"/> to ask the
-/// dispatcher to run a one-shot <c>wget --spider</c> against the sidecar's
-/// loopback healthz URL. The sidecar itself runs on a private per-app
-/// network the worker does not share, so a direct
+/// <see cref="IContainerRuntime.ProbeHttpFromTransientContainerAsync"/> — the
+/// dispatcher spawns a throwaway curl container on the sidecar's bridge
+/// network and asks <c>/v1.0/healthz/outbound</c>. The per-container
+/// <c>podman exec wget</c> probe used elsewhere is unusable for daprd
+/// because the upstream <c>daprio/daprd</c> image is effectively distroless
+/// (no shell, no wget, no curl). The sidecar itself runs on a private
+/// per-app network the worker does not share, so a direct
 /// <c>HttpClient</c>-from-worker probe would not reach it; routing through
-/// the dispatcher's container namespace is the shortest path that keeps
-/// the worker free of a podman/docker binding.
+/// the dispatcher keeps the worker free of a podman/docker binding.
 /// </para>
 /// <para>
 /// Image and timeout knobs that used to live as <c>const</c>s in this file
 /// (and inside <see cref="ContainerRuntimeOptions"/>) now bind from
 /// <see cref="DaprSidecarOptions"/> so operators can pin a daprd version
-/// without recompiling.
+/// without recompiling. The probe-container image is also configurable via
+/// <see cref="DaprSidecarOptions.CurlProbeImage"/> for air-gapped sites.
 /// </para>
 /// </remarks>
 public class DaprSidecarManager(
@@ -42,21 +45,26 @@ public class DaprSidecarManager(
 
     /// <summary>
     /// HTTP port the daprd healthz endpoint binds inside the sidecar
-    /// container. Hardcoded because <see cref="WaitForHealthyAsync"/>
-    /// only receives a sidecar id (the contract on
-    /// <see cref="IDaprSidecarManager"/> doesn't carry the configured
-    /// port through). Every <see cref="StartSidecarAsync"/> caller in
-    /// the platform passes <see cref="DaprSidecarConfig.DaprHttpPort"/>
-    /// = 3500, so this matches the previous hardcoded value
-    /// (the pre-Stage-2 implementation also hardcoded 3500). If a
-    /// caller ever needs a non-default port, the right fix is to widen
-    /// the interface — not to plumb the value through state.
+    /// container. Hardcoded because every <see cref="StartSidecarAsync"/>
+    /// caller in the platform passes
+    /// <see cref="DaprSidecarConfig.DaprHttpPort"/> = 3500, matching the
+    /// previous hardcoded value (pre-Stage-2 implementation also hardcoded
+    /// 3500). If a caller ever needs a non-default port, plumb it through
+    /// <see cref="DaprSidecarInfo"/> rather than reintroducing state.
     /// </summary>
     private const int DaprHealthHttpPort = 3500;
 
     /// <inheritdoc />
     public async Task<DaprSidecarInfo> StartSidecarAsync(DaprSidecarConfig config, CancellationToken ct = default)
     {
+        // Probe path needs a network for DNS resolution; require it up front
+        // so callers see a clean validation error rather than a healthz timeout.
+        if (string.IsNullOrEmpty(config.NetworkName))
+        {
+            throw new InvalidOperationException(
+                $"DaprSidecarConfig.NetworkName is required (app {config.AppId}) — health probes resolve the sidecar by name on this network.");
+        }
+
         var sidecarName = $"spring-dapr-{config.AppId}-{Guid.NewGuid():N}"[..48];
         var containerConfig = BuildSidecarContainerConfig(config, sidecarName);
 
@@ -74,11 +82,15 @@ public class DaprSidecarManager(
                 "Dapr sidecar {SidecarName} started with container ID {ContainerId}",
                 sidecarName, containerId);
 
-            // We return the human-readable name (matches the previous
-            // contract) — the runtime resolves either by id or by name on
-            // subsequent calls, and using the name keeps logs symmetric
-            // with the labels we set on the container.
-            return new DaprSidecarInfo(sidecarName, config.DaprHttpPort, config.DaprGrpcPort);
+            // SidecarId is the dispatcher-assigned container name (today
+            // ProcessContainerRuntime.StartAsync overrides --name with its
+            // own spring-persistent-<guid>); the picked sidecarName above
+            // only flows into labels. Returning containerId is what makes
+            // WaitForHealthyAsync's transient curl probe reach the daprd
+            // by DNS on NetworkName — only the dispatcher-assigned name is
+            // registered with the bridge.
+            return new DaprSidecarInfo(
+                containerId, config.DaprHttpPort, config.DaprGrpcPort, config.NetworkName);
         }
         catch (Exception ex)
         {
@@ -112,7 +124,7 @@ public class DaprSidecarManager(
     }
 
     /// <inheritdoc />
-    public async Task<bool> WaitForHealthyAsync(string sidecarId, TimeSpan timeout, CancellationToken ct = default)
+    public async Task<bool> WaitForHealthyAsync(DaprSidecarInfo sidecar, TimeSpan timeout, CancellationToken ct = default)
     {
         // Caller-provided timeout wins over the configured default so call
         // sites that already pass a context-aware deadline (lifecycle
@@ -123,13 +135,19 @@ public class DaprSidecarManager(
         _logger.LogInformation(
             EventIds.SidecarHealthCheck,
             "Waiting for Dapr sidecar {SidecarId} to become healthy (timeout: {Timeout})",
-            sidecarId, effectiveTimeout);
+            sidecar.SidecarId, effectiveTimeout);
 
-        // Loopback URL: we run the probe inside the sidecar container's own
-        // network namespace (the dispatcher's exec routes it there), so
-        // localhost resolves to daprd's bound interface regardless of which
-        // network the sidecar is attached to in the worker / app graph.
-        var healthUrl = $"http://localhost:{DaprHealthHttpPort}/v1.0/healthz";
+        // /v1.0/healthz/outbound (not /v1.0/healthz) so daprd reports ready
+        // as soon as components + control plane are reachable, without also
+        // waiting for the paired app container — which we only start AFTER
+        // this method returns true (chicken-and-egg otherwise). Mirrors
+        // deployment/deploy.sh's wait_sidecar_ready helper.
+        //
+        // The probe runs in a throwaway curl container on the sidecar's
+        // bridge network; the upstream daprio/daprd image is distroless so
+        // the per-container `podman exec wget` probe used elsewhere is
+        // unusable here. See ProbeHttpFromTransientContainerAsync.
+        var healthUrl = $"http://{sidecar.SidecarId}:{DaprHealthHttpPort}/v1.0/healthz/outbound";
 
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeoutCts.CancelAfter(effectiveTimeout);
@@ -138,12 +156,13 @@ public class DaprSidecarManager(
         {
             try
             {
-                var healthy = await runtime.ProbeContainerHttpAsync(sidecarId, healthUrl, timeoutCts.Token);
+                var healthy = await runtime.ProbeHttpFromTransientContainerAsync(
+                    _options.CurlProbeImage, sidecar.NetworkName, healthUrl, timeoutCts.Token);
                 if (healthy)
                 {
                     _logger.LogInformation(
                         EventIds.SidecarHealthy,
-                        "Dapr sidecar {SidecarId} is healthy", sidecarId);
+                        "Dapr sidecar {SidecarId} is healthy", sidecar.SidecarId);
                     return true;
                 }
             }
@@ -165,7 +184,7 @@ public class DaprSidecarManager(
 
         _logger.LogWarning(
             EventIds.SidecarUnhealthy,
-            "Dapr sidecar {SidecarId} did not become healthy within {Timeout}", sidecarId, effectiveTimeout);
+            "Dapr sidecar {SidecarId} did not become healthy within {Timeout}", sidecar.SidecarId, effectiveTimeout);
         return false;
     }
 
