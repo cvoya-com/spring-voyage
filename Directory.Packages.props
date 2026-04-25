@@ -8,7 +8,7 @@
     <PackageVersion Include="Dapr.AspNetCore" Version="1.17.8" />
     <PackageVersion Include="Dapr.Actors" Version="1.17.9" />
     <PackageVersion Include="Dapr.Actors.AspNetCore" Version="1.17.9" />
-    <PackageVersion Include="Dapr.Workflow" Version="1.17.8" />
+    <PackageVersion Include="Dapr.Workflow" Version="1.17.9" />
 
     <!-- GitHub -->
     <PackageVersion Include="Octokit" Version="14.0.0" />
