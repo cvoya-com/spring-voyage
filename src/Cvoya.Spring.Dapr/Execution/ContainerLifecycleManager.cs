@@ -160,11 +160,23 @@ public class ContainerLifecycleManager(
         await CreateNetworkAsync(networkName, ct);
         await CreateNetworkAsync(tenantNetwork, ct);
 
+        // Pre-allocate the agent container's name so the daprd sidecar
+        // can be started knowing which DNS name to reach the app on
+        // (`--app-channel-address`). Without a stable, pre-known name
+        // daprd would default to `127.0.0.1` which is daprd's own
+        // loopback — wrong for separate-container app/sidecar layouts.
+        // The runtime honours config.ContainerName when set, otherwise
+        // it'd assign its own random name and we'd have nothing to hand
+        // to daprd up front.
+        var agentContainerName = config.ContainerName
+            ?? $"spring-persistent-{Guid.NewGuid():N}";
+
         DaprSidecarInfo? sidecarInfo = null;
         try
         {
             var sidecarConfig = BuildDaprSidecarConfig(
-                appId, appPort, daprHttpPort, daprGrpcPort, networkName, tenantNetwork, config);
+                appId, appPort, daprHttpPort, daprGrpcPort, networkName,
+                tenantNetwork, config, appChannelAddress: agentContainerName);
 
             sidecarInfo = await sidecarManager.StartSidecarAsync(sidecarConfig, ct);
 
@@ -185,7 +197,8 @@ public class ContainerLifecycleManager(
             {
                 NetworkName = networkName,
                 AdditionalNetworks = MergeAdditionalNetworks(config.AdditionalNetworks, tenantNetwork),
-                EnvironmentVariables = augmentedEnv
+                EnvironmentVariables = augmentedEnv,
+                ContainerName = agentContainerName,
             };
 
             var containerId = await containerRuntime.StartAsync(augmentedConfig, ct);
@@ -234,7 +247,8 @@ public class ContainerLifecycleManager(
         int daprGrpcPort,
         string primaryNetwork,
         string tenantNetwork,
-        ContainerConfig appConfig)
+        ContainerConfig appConfig,
+        string? appChannelAddress = null)
     {
         // Per-launch override (Dapr Python agent) wins; else the default platform profile.
         var componentsPath = appConfig.DaprSidecarComponentsPath
@@ -259,7 +273,8 @@ public class ContainerLifecycleManager(
             AdditionalNetworks: sidecarAdditional,
             PlacementHostAddress: _sidecarOptions.PlacementHostAddress,
             SchedulerHostAddress: _sidecarOptions.SchedulerHostAddress,
-            DaprConfigFilePath: _sidecarOptions.DaprConfigFilePath);
+            DaprConfigFilePath: _sidecarOptions.DaprConfigFilePath,
+            AppChannelAddress: appChannelAddress);
     }
 
     /// <summary>

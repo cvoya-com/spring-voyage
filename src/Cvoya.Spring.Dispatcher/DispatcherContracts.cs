@@ -75,6 +75,18 @@ public record RunContainerRequest
     public IReadOnlyList<string>? ExtraHosts { get; init; }
 
     /// <summary>
+    /// Optional caller-provided container name. When set, the dispatcher
+    /// passes it to <c>podman run --name</c> so the container is reachable
+    /// by a stable, predictable hostname on the bridge network. The Dapr
+    /// agent lifecycle uses this so the per-launch <c>daprd</c> sidecar
+    /// can dial the agent over the bridge via <c>--app-channel-address</c>
+    /// — a sidecar in a separate network namespace can't fall back to
+    /// <c>127.0.0.1</c> for the app channel.
+    /// </summary>
+    [JsonPropertyName("containerName")]
+    public string? ContainerName { get; init; }
+
+    /// <summary>
     /// When true, run the container in detached mode (equivalent to
     /// <c>IContainerRuntime.StartAsync</c>). When false (default), run to
     /// completion and return the result.

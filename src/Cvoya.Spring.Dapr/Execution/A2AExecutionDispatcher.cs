@@ -496,8 +496,112 @@ public class A2AExecutionDispatcher(
 
         var response = await a2aClient.SendMessageAsync(request, cancellationToken);
 
+        // The Python `a2a-sdk` `message/send` handler returns the *initial*
+        // Task as soon as the executor has accepted the message — typically
+        // `state = Submitted` — and continues running the agent loop in
+        // the background. If we returned that snapshot to the caller every
+        // dispatch would surface as "exit code 1" (the dispatcher reads
+        // anything other than `Completed` as failure) and the container
+        // would be torn down mid-loop.
+        //
+        // A2A v0.3 expects the client to poll `tasks/get` on a
+        // non-terminal Task. Do that here, holding the ephemeral
+        // container's lease open until the workflow reaches a terminal
+        // state or the bounded deadline below trips.
+        if (response is AgentTask initialTask
+            && !IsTerminalTaskState(initialTask.Status.State))
+        {
+            response = await PollTaskUntilTerminalAsync(
+                a2aClient, initialTask, agentId, containerId, cancellationToken);
+        }
+
         return MapA2AResponseToMessage(originalMessage, response);
     }
+
+    /// <summary>
+    /// Maximum wall-clock time to wait for an A2A task to reach a terminal
+    /// state via <c>tasks/get</c> polling. Sized to comfortably cover an
+    /// LLM agentic loop (Ollama on a slow host can stretch into minutes
+    /// per turn). The cancellation token from the dispatch call still
+    /// applies, so an outer cancel (actor-turn deadline, agent
+    /// cancellation) will short-circuit the wait.
+    /// </summary>
+    internal static readonly TimeSpan TaskTerminalTimeout = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// Interval between successive <c>tasks/get</c> polls while waiting on
+    /// a non-terminal task. Tight enough that completed turns surface
+    /// without noticeable extra latency, loose enough to keep dispatcher
+    /// proxy load bounded.
+    /// </summary>
+    internal static readonly TimeSpan TaskPollInterval = TimeSpan.FromMilliseconds(500);
+
+    private async Task<A2AResponse> PollTaskUntilTerminalAsync(
+        A2AClient a2aClient,
+        AgentTask initialTask,
+        string agentId,
+        string containerId,
+        CancellationToken cancellationToken)
+    {
+        _logger.LogInformation(
+            "Polling A2A task {TaskId} for terminal state (initial={InitialState}) — agent {AgentId} container {ContainerId}",
+            initialTask.Id, initialTask.Status.State, agentId, containerId);
+
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(TaskTerminalTimeout);
+
+        var current = initialTask;
+        var attempts = 0;
+        while (!IsTerminalTaskState(current.Status.State))
+        {
+            try
+            {
+                await Task.Delay(TaskPollInterval, timeoutCts.Token);
+            }
+            catch (OperationCanceledException) when (timeoutCts.Token.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+            {
+                _logger.LogWarning(
+                    "A2A task {TaskId} did not reach a terminal state within {Timeout} (last state={State}, attempts={Attempts}) — agent {AgentId} container {ContainerId}",
+                    current.Id, TaskTerminalTimeout, current.Status.State, attempts, agentId, containerId);
+                break;
+            }
+
+            attempts++;
+            try
+            {
+                current = await a2aClient.GetTaskAsync(current.Id, timeoutCts.Token);
+            }
+            catch (OperationCanceledException) when (timeoutCts.Token.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+            {
+                _logger.LogWarning(
+                    "A2A task {TaskId} polling timed out mid-poll (last state={State}, attempts={Attempts}) — agent {AgentId} container {ContainerId}",
+                    current.Id, current.Status.State, attempts, agentId, containerId);
+                break;
+            }
+        }
+
+        _logger.LogInformation(
+            "A2A task {TaskId} terminal-state poll resolved with state={State} after {Attempts} attempts — agent {AgentId} container {ContainerId}",
+            current.Id, current.Status.State, attempts, agentId, containerId);
+
+        return current;
+    }
+
+    /// <summary>
+    /// Whether the A2A v0.3 task state is a terminal one — i.e. the agent
+    /// is finished doing work for this turn. Anything that still has work
+    /// queued (Submitted, Working) means we should keep polling. Note
+    /// <see cref="TaskState.InputRequired"/> is treated as terminal: the
+    /// agent is blocked waiting on the caller, and the platform surfaces
+    /// that state up to the calling actor rather than spinning on
+    /// <c>tasks/get</c> indefinitely.
+    /// </summary>
+    private static bool IsTerminalTaskState(TaskState state) => state switch
+    {
+        TaskState.Submitted => false,
+        TaskState.Working => false,
+        _ => true,
+    };
 
     /// <summary>
     /// Polls the in-container A2A Agent Card endpoint until it answers 200

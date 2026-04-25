@@ -142,7 +142,8 @@ public static class ContainersEndpoints
                 ? null
                 : new Dictionary<string, string>(request.Labels),
             ExtraHosts: request.ExtraHosts,
-            WorkingDirectory: workdir);
+            WorkingDirectory: workdir,
+            ContainerName: request.ContainerName);
 
         if (request.Detached)
         {

@@ -293,7 +293,8 @@ public record ContainerConfig(
     string? DaprSidecarComponentsPath = null,
     IReadOnlyList<string>? ExtraHosts = null,
     string? WorkingDirectory = null,
-    ContainerWorkspace? Workspace = null);
+    ContainerWorkspace? Workspace = null,
+    string? ContainerName = null);
 
 /// <summary>
 /// A per-invocation set of text files the dispatcher must materialise into a

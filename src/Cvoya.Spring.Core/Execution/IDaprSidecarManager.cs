@@ -62,7 +62,8 @@ public record DaprSidecarConfig(
     IReadOnlyList<string>? AdditionalNetworks = null,
     string? PlacementHostAddress = null,
     string? SchedulerHostAddress = null,
-    string? DaprConfigFilePath = null);
+    string? DaprConfigFilePath = null,
+    string? AppChannelAddress = null);
 
 /// <summary>
 /// Information about a running Dapr sidecar container.

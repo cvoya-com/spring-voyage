@@ -26,13 +26,21 @@ public class DaprSidecarOptions
     public const string SectionName = "Dapr:Sidecar";
 
     /// <summary>
-    /// Container image used to launch Dapr sidecars. Defaults to the
-    /// floating <c>latest</c> tag of the official daprd image — operators
-    /// should pin to a specific Dapr minor version (e.g.
-    /// <c>daprio/daprd:1.14.4</c>) for production deployments to keep
-    /// sidecar / control-plane / SDK versions aligned.
+    /// Container image used to launch Dapr sidecars. Defaults to a pinned
+    /// minor (currently <c>daprio/daprd:1.17.4</c>) — the floating
+    /// <c>:latest</c> tag has resolved to <c>1.15.14</c> for a while, and
+    /// dapr-agents' Alpha2 Conversation client refuses to talk to
+    /// anything older than <c>1.16.0</c> (it surfaces as
+    /// <c>!!!!! Dapr Runtime Version 1.15.14 is not supported with Alpha2
+    /// Dapr Chat Client</c> in the agent log when the loop's first LLM
+    /// turn lands). The pinned value must stay aligned with
+    /// <c>deployment/spring.env.example</c>'s <c>DAPR_IMAGE</c> (the
+    /// static placement / scheduler / per-app sidecars) and with the
+    /// Dapr SDK version pinned in <c>Directory.Packages.props</c> so the
+    /// control plane, SDK, and per-launch sidecars all speak the same
+    /// minor.
     /// </summary>
-    public string Image { get; set; } = "daprio/daprd:latest";
+    public string Image { get; set; } = "daprio/daprd:1.17.4";
 
     /// <summary>
     /// Maximum time <c>WaitForHealthyAsync</c> polls
