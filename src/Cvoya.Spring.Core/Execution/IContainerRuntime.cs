@@ -100,7 +100,10 @@ public interface IContainerRuntime
     /// pattern (Stage 2 of #522 / #1063). The probe runs inside the
     /// container so it works for sidecars on a private per-app network the
     /// worker does not share. The container image must carry <c>wget</c> on
-    /// its PATH — the <c>daprio/daprd</c> image does.
+    /// its PATH — the Spring agent images do; the upstream
+    /// <c>daprio/daprd</c> image does <b>not</b> (it is effectively
+    /// distroless), so probes against daprd sidecars must go through
+    /// <see cref="ProbeHttpFromTransientContainerAsync"/> instead.
     /// </para>
     /// <para>
     /// The contract is deliberately narrower than a generic <c>exec</c>: a
@@ -122,9 +125,47 @@ public interface IContainerRuntime
     Task<bool> ProbeContainerHttpAsync(string containerId, string url, CancellationToken ct = default);
 
     /// <summary>
+    /// Probes an HTTP endpoint by spawning a throwaway probe container on the
+    /// named bridge network and resolving the URL via that network's DNS.
+    /// Used when the target container is distroless and therefore cannot host
+    /// the <c>podman exec wget</c> pattern <see cref="ProbeContainerHttpAsync"/>
+    /// relies on — the canonical case is the upstream <c>daprio/daprd</c>
+    /// sidecar image (no shell, no wget).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Mirrors the <c>wait_sidecar_ready</c> helper in
+    /// <c>deployment/deploy.sh</c>: the dispatcher runs
+    /// <c>&lt;runtime&gt; run --rm --network &lt;network&gt; &lt;probeImage&gt; …</c>
+    /// with a short per-attempt deadline so a real outage still surfaces via
+    /// the caller's polling loop. The probe container is removed on exit.
+    /// </para>
+    /// <para>
+    /// The dispatcher does not pre-pull <paramref name="probeImage"/>; the
+    /// underlying runtime auto-pulls on first use, after which subsequent
+    /// probes are sub-second. Operators in air-gapped environments should
+    /// pre-load the image (or override it via configuration) so the first
+    /// probe does not pay an unbounded registry round-trip.
+    /// </para>
+    /// </remarks>
+    /// <param name="probeImage">Container image carrying a curl-or-equivalent binary (defaults to <c>docker.io/curlimages/curl:latest</c> at the call site).</param>
+    /// <param name="network">Bridge network the probe container attaches to. Must already exist; the probe target's hostname must resolve on this network.</param>
+    /// <param name="url">URL to probe (e.g. <c>http://my-sidecar:3500/v1.0/healthz/outbound</c>).</param>
+    /// <param name="ct">A token to cancel the operation.</param>
+    /// <returns>
+    /// <c>true</c> when the endpoint answered 2xx; <c>false</c> on any
+    /// non-2xx, DNS / connection error, or probe-container failure.
+    /// </returns>
+    Task<bool> ProbeHttpFromTransientContainerAsync(
+        string probeImage,
+        string network,
+        string url,
+        CancellationToken ct = default);
+
+    /// <summary>
     /// Forwards a JSON HTTP <c>POST</c> into the named container's network
     /// namespace and returns the response. The dispatcher executes the
-    /// request from inside the container (via <c>podman exec -i ... wget</c>)
+    /// request from inside the container (via <c>podman exec -i ... curl</c>)
     /// so the call works even when the worker process and the agent container
     /// live on different bridge networks — the worker is on the platform
     /// bridge (<c>spring-net</c>) and the agent is on a per-tenant bridge
@@ -151,14 +192,18 @@ public interface IContainerRuntime
     /// a general HTTP relay.
     /// </para>
     /// <para>
-    /// The container image must carry <c>wget</c> on its PATH (BusyBox
-    /// <c>wget</c> in alpine and the Spring agent-base / dapr-agent images
-    /// is sufficient). When <c>wget</c> exits 0 the response body is the
-    /// captured stdout and the status is reported as 200; any non-zero
-    /// exit (DNS failure, connection refused, missing <c>wget</c>, container
-    /// gone) collapses to status 502 with an empty body. Callers that need
-    /// finer status discrimination should keep their retry/timeout policy
-    /// at the call site (the A2A SDK does).
+    /// The container image must carry <c>curl</c> on its PATH — Spring
+    /// agent-base and the spring-voyage-agent-dapr image both ship it.
+    /// (The previous transport used <c>wget --post-file=/dev/stdin</c>;
+    /// that pattern only works for BusyBox wget — GNU wget on Debian
+    /// rejects a non-seekable stdin with "Illegal seek".) Curl reads the
+    /// body via <c>--data-binary @-</c>, returns 0 on a 2xx and non-zero
+    /// on any &gt;=400 (with <c>-f</c>) or transport failure; the
+    /// dispatcher reports 200 + body on success and collapses every
+    /// failure mode (DNS, connection refused, missing curl, non-2xx,
+    /// container gone) into 502 with an empty body. Finer-grained status
+    /// discrimination is the caller's job (the A2A SDK retries the turn
+    /// at its own layer).
     /// </para>
     /// </remarks>
     /// <param name="containerId">Identifier of the container to forward the request into.</param>

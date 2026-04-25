@@ -81,14 +81,19 @@ public class DaprSidecarOptions
     public string? SchedulerHostAddress { get; set; } = "spring-scheduler:50006";
 
     /// <summary>
-    /// Optional path to the bundled <c>delegated-dapr-agent</c> component profile
-    /// (Conversation + Redis state for workflows). Baked at
-    /// <c>/dapr/components/delegated-dapr-agent</c> in the platform image; the
-    /// same path must exist on the dispatcher host in host-side worker setups.
-    /// When unset, <see cref="ComponentsPath"/> is used (may be insufficient for
+    /// Host path to the <c>delegated-dapr-agent</c> component profile (Conversation
+    /// + Redis for workflows) bind-mounted into <c>daprd</c>. Must be a path on
+    /// the <b>machine that runs the dispatcher</b> (e.g.
+    /// <c>${REPO_ROOT}/dapr/components/delegated-dapr-agent</c>); a literal
+    /// <c>/dapr/...</c> only exists inside some container images, not on macOS/Linux
+    /// hosts, and would make Podman fail with <c>statfs ... no such file</c>. The
+    /// worker reads the value from <c>Dapr:Sidecar:DelegatedDaprAgentComponentsPath</c>
+    /// (typically via <c>deployment/spring.env</c>) and forwards it to the dispatcher
+    /// as a bind-mount source. When unset, <see cref="ContainerLifecycleManager"/>
+    /// falls back to <see cref="ComponentsPath"/> (may be insufficient for
     /// <c>dapr-agent</c>).
     /// </summary>
-    public string? DelegatedDaprAgentComponentsPath { get; set; } = "/dapr/components/delegated-dapr-agent";
+    public string? DelegatedDaprAgentComponentsPath { get; set; }
 
     /// <summary>
     /// Optional daprd global config file, bind-mounted in the sidecar. OSS leaves
@@ -96,4 +101,16 @@ public class DaprSidecarOptions
     /// <c>deployment/deploy.sh</c> use <c>/config/config.yaml</c>.
     /// </summary>
     public string? DaprConfigFilePath { get; set; }
+
+    /// <summary>
+    /// Container image used as a throwaway probe container by
+    /// <see cref="DaprSidecarManager.WaitForHealthyAsync"/>. The upstream
+    /// <c>daprio/daprd</c> image is effectively distroless (no <c>wget</c>,
+    /// no <c>curl</c>) so probes must run from a sibling container on the
+    /// same bridge network — this is exactly what
+    /// <c>deployment/deploy.sh</c>'s <c>wait_sidecar_ready</c> already
+    /// does. Defaults to <c>docker.io/curlimages/curl:latest</c>; air-gapped
+    /// deployments should override to a mirrored tag.
+    /// </summary>
+    public string CurlProbeImage { get; set; } = "docker.io/curlimages/curl:latest";
 }

@@ -192,6 +192,42 @@ public record ProbeContainerHttpResponse
 }
 
 /// <summary>
+/// Request body for <c>POST /v1/probes/transient</c>. Mirrors the
+/// <see cref="Cvoya.Spring.Core.Execution.IContainerRuntime.ProbeHttpFromTransientContainerAsync"/>
+/// primitive: the dispatcher spawns a throwaway <c>--rm</c> probe container on
+/// the named bridge network and asks <paramref name="ProbeContainerHttpRequest.Url"/>.
+/// Used for sidecar images that are distroless (no <c>wget</c> / <c>curl</c>
+/// in PATH) and therefore cannot be probed via the
+/// <c>POST /v1/containers/{id}/probe</c> exec route — the canonical case is
+/// the upstream <c>daprio/daprd</c> image.
+/// </summary>
+public record TransientProbeHttpRequest
+{
+    /// <summary>Probe container image (e.g. <c>docker.io/curlimages/curl:latest</c>).</summary>
+    [JsonPropertyName("probeImage")]
+    public required string ProbeImage { get; init; }
+
+    /// <summary>Bridge network the probe container attaches to.</summary>
+    [JsonPropertyName("network")]
+    public required string Network { get; init; }
+
+    /// <summary>The URL to probe. The host portion is resolved via the network's DNS.</summary>
+    [JsonPropertyName("url")]
+    public required string Url { get; init; }
+}
+
+/// <summary>
+/// Response body for <c>POST /v1/probes/transient</c>. Reuses the same
+/// boolean-collapse contract as <see cref="ProbeContainerHttpResponse"/>.
+/// </summary>
+public record TransientProbeHttpResponse
+{
+    /// <summary>Whether the probed URL answered 2xx.</summary>
+    [JsonPropertyName("healthy")]
+    public required bool Healthy { get; init; }
+}
+
+/// <summary>
 /// Request body for <c>POST /v1/containers/{id}/a2a</c> — the dispatcher-
 /// proxied A2A message-send primitive that closes the second half of issue
 /// #1160. The worker hands the dispatcher the in-container URL it would

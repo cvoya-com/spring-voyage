@@ -149,10 +149,11 @@ public class DaprSidecarManagerTests
             Arg.Is<ContainerConfig>(c => c.Image == "daprio/daprd:latest" && c.NetworkName == "n"),
             Arg.Any<CancellationToken>());
 
-        // The contract is "return a sidecar info whose SidecarId is the
-        // human-readable name we picked" — symmetric with the labels we
-        // attach. The dispatcher's container id is logged but not surfaced.
-        info.SidecarId.ShouldStartWith("spring-dapr-my-app-");
+        // SidecarId is the dispatcher-assigned container name (the runtime
+        // overrides --name); WaitForHealthyAsync's transient probe relies
+        // on this id resolving via the bridge DNS, which only happens for
+        // the dispatcher-assigned name, not the human-readable label.
+        info.SidecarId.ShouldBe("dispatcher-assigned-id");
         info.DaprHttpPort.ShouldBe(3500);
     }
 
@@ -185,21 +186,29 @@ public class DaprSidecarManagerTests
     public async Task WaitForHealthyAsync_ReturnsTrueOnFirstHealthyProbe()
     {
         var runtime = Substitute.For<IContainerRuntime>();
-        runtime.ProbeContainerHttpAsync(
+        runtime.ProbeHttpFromTransientContainerAsync(
                 Arg.Any<string>(),
-                Arg.Is<string>(u => u.Contains("/v1.0/healthz")),
+                Arg.Any<string>(),
+                Arg.Is<string>(u => u.Contains("/v1.0/healthz/outbound")),
                 Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(true));
 
         var manager = CreateManager(runtime);
 
         var healthy = await manager.WaitForHealthyAsync(
-            "sidecar-1", TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            new DaprSidecarInfo("sidecar-1", 3500, 50001, "spring-net-test"),
+            TimeSpan.FromSeconds(5),
+            TestContext.Current.CancellationToken);
 
         healthy.ShouldBeTrue();
-        await runtime.Received().ProbeContainerHttpAsync(
-            "sidecar-1",
-            "http://localhost:3500/v1.0/healthz",
+        // Probe target is the sidecar's own DNS name on the bridge (not
+        // localhost), and the URL hits /healthz/outbound so daprd reports
+        // ready before the paired app container is up — the lifecycle only
+        // starts the app after this returns.
+        await runtime.Received().ProbeHttpFromTransientContainerAsync(
+            "docker.io/curlimages/curl:latest",
+            "spring-net-test",
+            "http://sidecar-1:3500/v1.0/healthz/outbound",
             Arg.Any<CancellationToken>());
     }
 
@@ -207,7 +216,8 @@ public class DaprSidecarManagerTests
     public async Task WaitForHealthyAsync_ReturnsFalseOnTimeout()
     {
         var runtime = Substitute.For<IContainerRuntime>();
-        runtime.ProbeContainerHttpAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+        runtime.ProbeHttpFromTransientContainerAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(false));
 
         var manager = CreateManager(runtime, new DaprSidecarOptions
@@ -219,8 +229,47 @@ public class DaprSidecarManagerTests
         });
 
         var healthy = await manager.WaitForHealthyAsync(
-            "sidecar-1", TimeSpan.FromMilliseconds(50), TestContext.Current.CancellationToken);
+            new DaprSidecarInfo("sidecar-1", 3500, 50001, "spring-net-test"),
+            TimeSpan.FromMilliseconds(50),
+            TestContext.Current.CancellationToken);
 
         healthy.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task StartSidecarAsync_RejectsConfigWithoutNetworkName()
+    {
+        var manager = CreateManager();
+        var config = new DaprSidecarConfig(
+            AppId: "no-net",
+            AppPort: 8080,
+            DaprHttpPort: 3500,
+            DaprGrpcPort: 50001);
+
+        // Probe path needs DNS via a bridge network; surfacing the missing
+        // network at start-time keeps the failure mode obvious instead of
+        // burning the full health timeout on a doomed loopback probe.
+        await Should.ThrowAsync<InvalidOperationException>(() =>
+            manager.StartSidecarAsync(config, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task StartSidecarAsync_PopulatesNetworkNameOnReturnedInfo()
+    {
+        var runtime = Substitute.For<IContainerRuntime>();
+        runtime.StartAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult("dispatcher-id"));
+
+        var manager = CreateManager(runtime);
+        var config = new DaprSidecarConfig(
+            AppId: "with-net",
+            AppPort: 8080,
+            DaprHttpPort: 3500,
+            DaprGrpcPort: 50001,
+            NetworkName: "spring-net-xyz");
+
+        var info = await manager.StartSidecarAsync(config, TestContext.Current.CancellationToken);
+
+        info.NetworkName.ShouldBe("spring-net-xyz");
     }
 }

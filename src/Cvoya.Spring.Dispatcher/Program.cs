@@ -105,6 +105,7 @@ app.MapContainerEndpoints();
 app.MapNetworkEndpoints();
 app.MapImageEndpoints();
 app.MapLlmEndpoints();
+app.MapProbeEndpoints();
 
 await app.RunAsync();
 

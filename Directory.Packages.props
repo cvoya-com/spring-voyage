@@ -39,8 +39,13 @@
     <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.1" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.7" />
 
-    <!-- A2A (Agent-to-Agent protocol) -->
-    <PackageVersion Include="A2A" Version="1.0.0-preview2" />
+    <!-- A2A (Agent-to-Agent protocol). The Spring Voyage Dapr agent advertises
+         protocolVersion 0.3.0 in its agent card, and the Python a2a-sdk server
+         expects spec method names (`message/send`, `tasks/get`, …) — so we use
+         the `A2A.V0_3` client which sends those names. The newer top-level
+         `A2A` package targets a draft method-name flavour (PascalCase, e.g.
+         `SendMessage`) the v0.3 server rejects with JSON-RPC -32601. -->
+    <PackageVersion Include="A2A.V0_3" Version="1.0.0-preview2" />
 
     <!-- Reactive Extensions -->
     <PackageVersion Include="System.Reactive" Version="6.1.0" />

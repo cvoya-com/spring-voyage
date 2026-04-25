@@ -131,6 +131,32 @@ public class ContainerLifecycleManagerTests
     }
 
     [Fact]
+    public async Task LaunchWithSidecarAsync_SetsDaprEndpointsToSidecarContainerName()
+    {
+        // App and daprd are two containers: clients must not default to
+        // 127.0.0.1:50001 (Durable Task / dapr-agents gRPC to the sidecar).
+        StubSidecarHappyPath();
+
+        ContainerConfig? launchedConfig = null;
+        _containerRuntime.RunAsync(Arg.Do<ContainerConfig>(c => launchedConfig = c), Arg.Any<CancellationToken>())
+            .Returns(new ContainerResult("app-container", 0, "ok", string.Empty));
+
+        var input = new ContainerConfig(
+            Image: "agent:v1",
+            DaprEnabled: true,
+            DaprAppId: "spring-app-test",
+            DaprAppPort: 8080);
+
+        await _manager.LaunchWithSidecarAsync(input, TestContext.Current.CancellationToken);
+
+        launchedConfig.ShouldNotBeNull();
+        var env = launchedConfig!.EnvironmentVariables;
+        env.ShouldNotBeNull();
+        env!["DAPR_HTTP_ENDPOINT"].ShouldBe("http://sidecar-1:3500");
+        env!["DAPR_GRPC_ENDPOINT"].ShouldBe("http://sidecar-1:50001");
+    }
+
+    [Fact]
     public async Task LaunchWithSidecarAsync_KeepsSidecarOnPerWorkflowBridgeOnly()
     {
         // The sidecar is daprd, which talks to the app over the per-workflow
@@ -141,8 +167,8 @@ public class ContainerLifecycleManagerTests
         _sidecarManager.StartSidecarAsync(
                 Arg.Do<DaprSidecarConfig>(c => capturedSidecarConfig = c),
                 Arg.Any<CancellationToken>())
-            .Returns(new DaprSidecarInfo("sidecar-1", 3500, 50001));
-        _sidecarManager.WaitForHealthyAsync(Arg.Any<string>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+            .Returns(new DaprSidecarInfo("sidecar-1", 3500, 50001, "spring-net-test"));
+        _sidecarManager.WaitForHealthyAsync(Arg.Any<DaprSidecarInfo>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
             .Returns(true);
 
         _containerRuntime.RunAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
@@ -212,8 +238,8 @@ public class ContainerLifecycleManagerTests
     private void StubSidecarHappyPath()
     {
         _sidecarManager.StartSidecarAsync(Arg.Any<DaprSidecarConfig>(), Arg.Any<CancellationToken>())
-            .Returns(new DaprSidecarInfo("sidecar-1", 3500, 50001));
-        _sidecarManager.WaitForHealthyAsync(Arg.Any<string>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+            .Returns(new DaprSidecarInfo("sidecar-1", 3500, 50001, "spring-net-test"));
+        _sidecarManager.WaitForHealthyAsync(Arg.Any<DaprSidecarInfo>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
             .Returns(true);
     }
 }

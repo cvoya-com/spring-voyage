@@ -9,7 +9,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
-using A2A;
+using A2A.V0_3;
 
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Execution;
@@ -27,7 +27,6 @@ using Shouldly;
 
 using Xunit;
 
-using A2AMessage = A2A.Message;
 using SvMessage = Cvoya.Spring.Core.Messaging.Message;
 
 /// <summary>
@@ -584,21 +583,18 @@ public class A2AExecutionDispatcherTests
     public void MapA2AResponseToMessage_TaskCompleted_ReturnsSuccessPayload()
     {
         var originalMessage = CreateMessage();
-        var response = new SendMessageResponse
+        var response = new AgentTask
         {
-            Task = new AgentTask
+            Id = Guid.NewGuid().ToString(),
+            Status = new AgentTaskStatus
             {
-                Id = Guid.NewGuid().ToString(),
-                Status = new A2A.TaskStatus
-                {
-                    State = TaskState.Completed,
-                },
-                Artifacts = [new Artifact
-                {
-                    ArtifactId = Guid.NewGuid().ToString(),
-                    Parts = [new Part { Text = "agent output" }],
-                }],
+                State = TaskState.Completed,
             },
+            Artifacts = [new Artifact
+            {
+                ArtifactId = Guid.NewGuid().ToString(),
+                Parts = [new TextPart { Text = "agent output" }],
+            }],
         };
 
         var result = A2AExecutionDispatcher.MapA2AResponseToMessage(originalMessage, response);
@@ -613,15 +609,12 @@ public class A2AExecutionDispatcherTests
     public void MapA2AResponseToMessage_TaskFailed_ReturnsErrorPayload()
     {
         var originalMessage = CreateMessage();
-        var response = new SendMessageResponse
+        var response = new AgentTask
         {
-            Task = new AgentTask
+            Id = Guid.NewGuid().ToString(),
+            Status = new AgentTaskStatus
             {
-                Id = Guid.NewGuid().ToString(),
-                Status = new A2A.TaskStatus
-                {
-                    State = TaskState.Failed,
-                },
+                State = TaskState.Failed,
             },
         };
 
@@ -636,13 +629,11 @@ public class A2AExecutionDispatcherTests
     public void MapA2AResponseToMessage_MessageResponse_ReturnsTextOutput()
     {
         var originalMessage = CreateMessage();
-        var response = new SendMessageResponse
+        var response = new AgentMessage
         {
-            Message = new A2AMessage
-            {
-                Role = Role.Agent,
-                Parts = [new Part { Text = "direct reply" }],
-            },
+            Role = MessageRole.Agent,
+            MessageId = Guid.NewGuid().ToString(),
+            Parts = [new TextPart { Text = "direct reply" }],
         };
 
         var result = A2AExecutionDispatcher.MapA2AResponseToMessage(originalMessage, response);
@@ -657,13 +648,11 @@ public class A2AExecutionDispatcherTests
     public void MapA2AResponseToMessage_PreservesMessageRouting()
     {
         var originalMessage = CreateMessage();
-        var response = new SendMessageResponse
+        var response = new AgentMessage
         {
-            Message = new A2AMessage
-            {
-                Role = Role.Agent,
-                Parts = [new Part { Text = "ok" }],
-            },
+            Role = MessageRole.Agent,
+            MessageId = Guid.NewGuid().ToString(),
+            Parts = [new TextPart { Text = "ok" }],
         };
 
         var result = A2AExecutionDispatcher.MapA2AResponseToMessage(originalMessage, response);
@@ -711,22 +700,25 @@ internal sealed class SendHttpJsonRecorder(string responseText)
     {
         cancellationToken.ThrowIfCancellationRequested();
         _calls.Add((containerId, url, body));
+        // A2A v0.3 wire shape: result is a flat A2AResponse (AgentTask or
+        // AgentMessage) discriminated by `kind` — no `task`/`message` wrapper —
+        // and TaskState serializes as kebab-case ("completed", not the v1
+        // SDK's "TASK_STATE_COMPLETED"). Mirrors what Python a2a-sdk emits.
         var responseBody = $$"""
             {
               "jsonrpc": "2.0",
               "id": 1,
               "result": {
-                "task": {
-                  "id": "task-1",
-                  "contextId": "ctx",
-                  "status": { "state": "TASK_STATE_COMPLETED" },
-                  "artifacts": [
-                    {
-                      "artifactId": "a-1",
-                      "parts": [ { "kind": "text", "text": "{{System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(_responseText)}}" } ]
-                    }
-                  ]
-                }
+                "kind": "task",
+                "id": "task-1",
+                "contextId": "ctx",
+                "status": { "state": "completed" },
+                "artifacts": [
+                  {
+                    "artifactId": "a-1",
+                    "parts": [ { "kind": "text", "text": "{{System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(_responseText)}}" } ]
+                  }
+                ]
               }
             }
             """;

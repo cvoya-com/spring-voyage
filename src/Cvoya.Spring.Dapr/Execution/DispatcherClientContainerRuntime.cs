@@ -179,6 +179,39 @@ public class DispatcherClientContainerRuntime(
     }
 
     /// <inheritdoc />
+    public async Task<bool> ProbeHttpFromTransientContainerAsync(
+        string probeImage,
+        string network,
+        string url,
+        CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(probeImage);
+        ArgumentException.ThrowIfNullOrWhiteSpace(network);
+        ArgumentException.ThrowIfNullOrWhiteSpace(url);
+
+        var httpClient = CreateClient();
+        var request = new DispatcherTransientProbeRequest
+        {
+            ProbeImage = probeImage,
+            Network = network,
+            Url = url,
+        };
+
+        using var response = await httpClient.PostAsJsonAsync(
+            "v1/probes/transient", request, JsonOptions, ct);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await SafeReadBodyAsync(response, ct);
+            throw new InvalidOperationException(
+                $"Dispatcher returned {(int)response.StatusCode} for transient probe of {url} on {network}: {body}");
+        }
+
+        var parsed = await response.Content.ReadFromJsonAsync<DispatcherTransientProbeResponse>(JsonOptions, ct);
+        return parsed?.Healthy ?? false;
+    }
+
+    /// <inheritdoc />
     public async Task<ContainerHttpResponse> SendHttpJsonAsync(
         string containerId,
         string url,
@@ -499,6 +532,27 @@ public class DispatcherClientContainerRuntime(
     /// Wire shape returned by <c>POST /v1/containers/{id}/probe</c>.
     /// </summary>
     internal record DispatcherProbeResponse
+    {
+        public required bool Healthy { get; init; }
+    }
+
+    /// <summary>
+    /// Wire shape sent to <c>POST /v1/probes/transient</c>. Mirrors
+    /// <c>TransientProbeHttpRequest</c> on the dispatcher side; duplicated
+    /// here so the worker package does not take a build dependency on the
+    /// dispatcher package.
+    /// </summary>
+    internal record DispatcherTransientProbeRequest
+    {
+        public required string ProbeImage { get; init; }
+        public required string Network { get; init; }
+        public required string Url { get; init; }
+    }
+
+    /// <summary>
+    /// Wire shape returned by <c>POST /v1/probes/transient</c>.
+    /// </summary>
+    internal record DispatcherTransientProbeResponse
     {
         public required bool Healthy { get; init; }
     }

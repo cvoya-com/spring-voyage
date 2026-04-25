@@ -26,11 +26,11 @@ public interface IDaprSidecarManager
     /// <summary>
     /// Waits for the Dapr sidecar to become healthy.
     /// </summary>
-    /// <param name="sidecarId">The identifier of the sidecar container.</param>
+    /// <param name="sidecar">Sidecar identity returned from <see cref="StartSidecarAsync"/>; the manager probes <see cref="DaprSidecarInfo.NetworkName"/> via a transient curl container, since the upstream daprd image is distroless and cannot host a <c>podman exec wget</c> probe.</param>
     /// <param name="timeout">The maximum time to wait for the sidecar to become healthy.</param>
     /// <param name="ct">A token to cancel the operation.</param>
     /// <returns>True if the sidecar became healthy within the timeout; false otherwise.</returns>
-    Task<bool> WaitForHealthyAsync(string sidecarId, TimeSpan timeout, CancellationToken ct = default);
+    Task<bool> WaitForHealthyAsync(DaprSidecarInfo sidecar, TimeSpan timeout, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -70,7 +70,9 @@ public record DaprSidecarConfig(
 /// <param name="SidecarId">The identifier of the sidecar container.</param>
 /// <param name="DaprHttpPort">The HTTP port of the sidecar API.</param>
 /// <param name="DaprGrpcPort">The gRPC port of the sidecar API.</param>
+/// <param name="NetworkName">Primary bridge network the sidecar is attached to. Health probes resolve <see cref="SidecarId"/> as a DNS name on this network.</param>
 public record DaprSidecarInfo(
     string SidecarId,
     int DaprHttpPort,
-    int DaprGrpcPort);
+    int DaprGrpcPort,
+    string NetworkName);
