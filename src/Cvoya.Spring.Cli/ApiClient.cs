@@ -896,6 +896,17 @@ public class SpringApiClient
         return result ?? throw new InvalidOperationException("Server returned an empty SendMessage response.");
     }
 
+    /// <summary>
+    /// Fetches a single message (envelope + body) by id (#1209). Backs
+    /// <c>spring message show &lt;id&gt;</c>.
+    /// </summary>
+    public async Task<MessageDetail> GetMessageAsync(Guid messageId, CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Messages[messageId].GetAsync(cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty response for message '{messageId}'.");
+    }
+
     // Conversations (#452)
 
     /// <summary>

@@ -43,12 +43,16 @@ public class HumanActor(
             // waiting on me?". Keep the emission on the hot path (before the
             // rejection branch below) so a denied message still leaves an
             // audit trail.
+            // #1209: persist the message envelope (sender / recipient /
+            // payload) on the event so `spring inbox show` can render the
+            // body inline, not just the summary line.
             if (message.Type == MessageType.Domain)
             {
                 await EmitActivityEventAsync(
                     ActivityEventType.MessageReceived,
                     $"Received Domain message {message.Id} from {message.From}",
                     cancellationToken,
+                    details: MessageReceivedDetails.Build(message),
                     correlationId: message.ConversationId);
             }
 
@@ -80,6 +84,7 @@ public class HumanActor(
         ActivityEventType eventType,
         string description,
         CancellationToken cancellationToken,
+        JsonElement? details = null,
         string? correlationId = null)
     {
         try
@@ -97,7 +102,7 @@ public class HumanActor(
                 EventType: eventType,
                 Severity: severity,
                 Summary: description,
-                Details: null,
+                Details: details,
                 CorrelationId: correlationId,
                 Cost: null);
 

@@ -30,15 +30,6 @@ public static class ConversationCommand
         new("summary", c => Truncate(c.Summary, 60)),
     };
 
-    private static readonly OutputFormatter.Column<ConversationEvent>[] EventColumns =
-    {
-        new("timestamp", e => FormatTimestamp(e.Timestamp)),
-        new("source", e => e.Source),
-        new("type", e => e.EventType),
-        new("severity", e => e.Severity),
-        new("summary", e => Truncate(e.Summary, 80)),
-    };
-
     /// <summary>
     /// Creates the <c>conversation</c> command tree.
     /// </summary>
@@ -127,7 +118,13 @@ public static class ConversationCommand
                 }
 
                 var events = detail.Events ?? new List<ConversationEvent>();
-                Console.WriteLine(OutputFormatter.FormatTable(events, EventColumns));
+                // #1209: render the message body inline for events that
+                // carry one (the activity-projection now stamps the
+                // sender / recipient / body on every MessageReceived
+                // event). The thread reads top-to-bottom oldest-first so
+                // operators can see *what* was said, not just that
+                // something was said.
+                RenderConversationEvents(events);
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
@@ -250,6 +247,39 @@ public static class ConversationCommand
         });
 
         return command;
+    }
+
+    /// <summary>
+    /// Renders the ordered event timeline for a conversation, inlining
+    /// the message body for every <c>MessageReceived</c> event that
+    /// carries one (#1209). Other event types fall back to the existing
+    /// summary-only row so the timeline stays compact.
+    /// </summary>
+    internal static void RenderConversationEvents(IReadOnlyList<ConversationEvent> events)
+    {
+        if (events.Count == 0)
+        {
+            Console.WriteLine("(no events yet)");
+            return;
+        }
+
+        foreach (var evt in events)
+        {
+            var ts = FormatTimestamp(evt.Timestamp);
+            if (string.Equals(evt.EventType, "MessageReceived", StringComparison.Ordinal)
+                && !string.IsNullOrEmpty(evt.Body))
+            {
+                var sender = !string.IsNullOrWhiteSpace(evt.From) ? evt.From : evt.Source;
+                var recipient = !string.IsNullOrWhiteSpace(evt.To) ? evt.To : evt.Source;
+                Console.WriteLine($"[{ts}] {sender} -> {recipient}");
+                Console.WriteLine(evt.Body);
+                Console.WriteLine();
+            }
+            else
+            {
+                Console.WriteLine($"[{ts}] [{evt.Source}] {evt.EventType} — {evt.Summary}");
+            }
+        }
     }
 
     private static string FormatParticipants(IEnumerable<string>? participants)

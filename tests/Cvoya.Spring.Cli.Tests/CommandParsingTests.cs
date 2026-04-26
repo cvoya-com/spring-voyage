@@ -76,6 +76,26 @@ public class CommandParsingTests
     }
 
     [Fact]
+    public void MessageShow_ParsesMessageIdArgument()
+    {
+        // #1209: `spring message show <id>` surfaces the message body so
+        // operators can see *what* was said, not just that something was
+        // said. Parse-level guard so a future flag rename doesn't slip
+        // past CI.
+        var outputOption = CreateOutputOption();
+        var messageCommand = MessageCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(messageCommand);
+
+        var parseResult = rootCommand.Parse(
+            "message show 11111111-2222-3333-4444-555555555555");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<string>("message-id").ShouldBe(
+            "11111111-2222-3333-4444-555555555555");
+    }
+
+    [Fact]
     public void UnitCreate_ParsesNameAndMetadataOptions()
     {
         // After #117 the CLI mirrors the server CreateUnitRequest contract:

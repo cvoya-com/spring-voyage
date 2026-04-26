@@ -697,6 +697,13 @@ public static class ServiceCollectionExtensions
         // scoped implementation without touching the endpoints.
         services.TryAddScoped<IConversationQueryService, ConversationQueryService>();
 
+        // Single-message lookup (#1209). Backs `GET /api/v1/messages/{id}`
+        // and `spring message show <id>`. Like the conversation service
+        // above this is a projection over the activity-event table; cloud
+        // overlays can swap the implementation through DI without touching
+        // call sites.
+        services.TryAddScoped<IMessageQueryService, MessageQueryService>();
+
         // Hosted services that depend on runtime infrastructure (Dapr state store,
         // database). During build-time OpenAPI generation none of this is
         // available, so skip registration to avoid noisy startup errors. See #370.
