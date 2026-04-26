@@ -565,6 +565,31 @@ public class AgentActorTests
     }
 
     [Fact]
+    public async Task ReceiveAsync_MessageReceived_StampsEnvelopeAndBodyOnDetails()
+    {
+        // #1209: the conversation projection / `spring message show` rely
+        // on the MessageReceived event's Details JSON to carry the
+        // sender / recipient / body. Regression-guard the shape so a
+        // future refactor doesn't quietly drop fields the surfaces depend
+        // on.
+        var conversationId = "conv-1209";
+        var payload = JsonSerializer.SerializeToElement("hello world");
+        var message = CreateMessage(conversationId: conversationId, payload: payload);
+
+        await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
+
+        await _activityEventBus.Received().PublishAsync(
+            Arg.Is<ActivityEvent>(e =>
+                e.EventType == ActivityEventType.MessageReceived
+                && e.Details.HasValue
+                && e.Details.Value.GetProperty("messageId").GetString() == message.Id.ToString()
+                && e.Details.Value.GetProperty("from").GetString() == $"{message.From.Scheme}://{message.From.Path}"
+                && e.Details.Value.GetProperty("to").GetString() == $"{message.To.Scheme}://{message.To.Path}"
+                && e.Details.Value.GetProperty("body").GetString() == "hello world"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task ReceiveAsync_ActivityEventBusFailure_DoesNotBreakActor()
     {
         _activityEventBus.PublishAsync(Arg.Any<ActivityEvent>(), Arg.Any<CancellationToken>())

@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Host.Api.Endpoints;
 
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Observability;
 using Cvoya.Spring.Host.Api.Auth;
 using Cvoya.Spring.Host.Api.Models;
 
@@ -29,7 +30,31 @@ public static class MessageEndpoints
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status502BadGateway);
 
+        // #1209: surface the message body so operators can see *what* was
+        // said, not just that a message went by. Backs both the CLI's
+        // `spring message show <id>` and the portal's per-message detail.
+        group.MapGet("/{messageId:guid}", GetMessageAsync)
+            .WithName("GetMessage")
+            .WithSummary("Get a single message (envelope + body) by id")
+            .Produces<MessageDetail>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
         return group;
+    }
+
+    private static async Task<IResult> GetMessageAsync(
+        Guid messageId,
+        IMessageQueryService messageQueryService,
+        CancellationToken cancellationToken)
+    {
+        var detail = await messageQueryService.GetAsync(messageId, cancellationToken);
+        if (detail is null)
+        {
+            return Results.Problem(
+                detail: $"Message '{messageId}' not found",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+        return Results.Ok(detail);
     }
 
     private static async Task<IResult> SendMessageAsync(

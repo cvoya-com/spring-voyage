@@ -3,7 +3,12 @@
 
 namespace Cvoya.Spring.Dapr.Tests.Observability;
 
+using System.Text.Json;
+
+using Cvoya.Spring.Core.Capabilities;
+using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Observability;
+using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
 using Cvoya.Spring.Dapr.Observability;
@@ -293,6 +298,47 @@ public class ConversationQueryServiceTests : IDisposable
         var inbox = await svc.ListInboxAsync("human://savasp", TestContext.Current.CancellationToken);
 
         inbox.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task GetAsync_MessageReceivedWithBody_SurfacesBodyAndEnvelope()
+    {
+        // #1209: the projection should pull the message envelope (id /
+        // from / to / body) out of the activity event Details JSON so
+        // every conversation surface — CLI, portal, future bots — sees
+        // the same shape.
+        var messageId = Guid.NewGuid();
+        var message = new Message(
+            messageId,
+            new Address("human", "savasp"),
+            new Address("agent", "ada"),
+            MessageType.Domain,
+            "c-1",
+            JsonSerializer.SerializeToElement("Approve merge?"),
+            DateTimeOffset.UtcNow);
+
+        _db.ActivityEvents.Add(new ActivityEventRecord
+        {
+            Id = Guid.NewGuid(),
+            Source = "agent:ada",
+            EventType = nameof(ActivityEventType.MessageReceived),
+            Severity = "Info",
+            Summary = $"Received Domain message {message.Id} from human://savasp",
+            Details = MessageReceivedDetails.Build(message),
+            CorrelationId = "c-1",
+            Timestamp = DateTimeOffset.UtcNow,
+        });
+        await _db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var svc = new ConversationQueryService(_db);
+        var detail = await svc.GetAsync("c-1", TestContext.Current.CancellationToken);
+
+        detail.ShouldNotBeNull();
+        var evt = detail!.Events.Single();
+        evt.MessageId.ShouldBe(messageId);
+        evt.From.ShouldBe("human://savasp");
+        evt.To.ShouldBe("agent://ada");
+        evt.Body.ShouldBe("Approve merge?");
     }
 
     private async Task SeedConversationAsync(

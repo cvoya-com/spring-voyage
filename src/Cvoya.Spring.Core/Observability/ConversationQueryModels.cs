@@ -52,13 +52,21 @@ public record ConversationDetail(
 /// <param name="EventType">The event type name.</param>
 /// <param name="Severity">The severity level.</param>
 /// <param name="Summary">Human-readable summary of the event.</param>
+/// <param name="MessageId">The message id this event corresponds to (for <c>MessageReceived</c> events), or <c>null</c>.</param>
+/// <param name="From">The sender address (<c>scheme://path</c>) of the underlying message, or <c>null</c>.</param>
+/// <param name="To">The recipient address of the underlying message, or <c>null</c>.</param>
+/// <param name="Body">The rendered text body of the underlying message when extractable, or <c>null</c> for non-text payloads.</param>
 public record ConversationEvent(
     Guid Id,
     DateTimeOffset Timestamp,
     string Source,
     string EventType,
     string Severity,
-    string Summary);
+    string Summary,
+    Guid? MessageId = null,
+    string? From = null,
+    string? To = null,
+    string? Body = null);
 
 /// <summary>
 /// One row in a human's inbox (<c>GET /api/v1/inbox</c>). A conversation shows
