@@ -1,8 +1,8 @@
 # 0028 — Tenant-scoped runtime topology
 
-- **Status:** Accepted — *V2 operational interim (2026-04):* in OSS, **dual-attach** selected platform services (`spring-placement`, `spring-scheduler`, `spring-redis`, `spring-postgres`) to the single `spring-tenant-default` bridge in addition to `spring-net` so per-launch Dapr `daprd` sidecars for the delegated Python `dapr-agent` can resolve the control plane and Redis state from their tenant-attached interface without the worker or dispatcher joining tenant networks. This keeps the per-tenant isolation *story* and DNS names in place but relaxes the original “platform-only on `spring-net`” hard line until the v2.1 network redesign lands. *Target architecture* remains: per-tenant networks (`spring-tenant-<id>`), agent containers, workflow containers, and Ollama on the tenant network; the dispatcher the only process that bridges platform→tenant; worker single-network on `spring-net`; hosted-agent LLM calls through a dispatcher proxy; tenant→platform via public Web API ingress. The terminal architecture (per-tenant agents-host container, encrypted `AgentActor` state) is tracked separately and is not V2.
-- **Date:** 2026-04-23
-- **Related:** [#1165](https://github.com/cvoya-com/spring-voyage/issues/1165) (umbrella), [#1159](https://github.com/cvoya-com/spring-voyage/issues/1159) and [#1160](https://github.com/cvoya-com/spring-voyage/issues/1160) (origin bugs), [PR #1163](https://github.com/cvoya-com/spring-voyage/pull/1163) (readiness half of #1160), [#1166](https://github.com/cvoya-com/spring-voyage/issues/1166) (workflow containers on tenant networks), [#1167](https://github.com/cvoya-com/spring-voyage/issues/1167) (host MCP server tenancy story), [#1168](https://github.com/cvoya-com/spring-voyage/issues/1168) (dispatcher-proxied LLM calls), [#1169](https://github.com/cvoya-com/spring-voyage/issues/1169) (V2.1 Caddy ingress), [#1164](https://github.com/cvoya-com/spring-voyage/issues/1164) (V2.1 per-tenant Ollama optimizations), [#1170](https://github.com/cvoya-com/spring-voyage/issues/1170) (terminal-architecture backlog tracker), [ADR 0012](0012-spring-dispatcher-service-extraction.md) (the dispatcher seam this builds on).
+- **Status:** Accepted. **Amended 2026-04-26:** Decision C revised — LLM access is a platform-level capability exposed via the public API per [ADR 0029](0029-tenant-execution-boundary.md), not per-tenant infrastructure. Decision E updated and Decision B's LLM-proxy bullet retired (LLM calls flow through the public API, not the dispatcher). The per-tenant Ollama follow-ups originally tracked under #1164 are obsolete. *Operational interim:* selected platform services (`spring-placement`, `spring-scheduler`, `spring-redis`, `spring-postgres`) remain dual-attached to `spring-tenant-default` so per-launch daprd sidecars can reach control-plane / Redis state from their tenant-attached interface without the worker or dispatcher joining tenant networks. *Target architecture:* per-tenant networks (`spring-tenant-<id>`); agent and workflow containers on them; dispatcher as the only platform→tenant bridge; worker single-network on `spring-net`; tenant→platform (including LLM) via public Web API ingress. Terminal architecture (per-tenant agents-host container, encrypted `AgentActor` state) tracked separately.
+- **Date:** 2026-04-23 (original); 2026-04-26 (amendment)
+- **Related:** [#1165](https://github.com/cvoya-com/spring-voyage/issues/1165) (umbrella), [#1159](https://github.com/cvoya-com/spring-voyage/issues/1159) and [#1160](https://github.com/cvoya-com/spring-voyage/issues/1160) (origin bugs), [PR #1163](https://github.com/cvoya-com/spring-voyage/pull/1163) (readiness half of #1160), [#1166](https://github.com/cvoya-com/spring-voyage/issues/1166) (workflow containers on tenant networks), [#1167](https://github.com/cvoya-com/spring-voyage/issues/1167) (host MCP server tenancy story), [#1168](https://github.com/cvoya-com/spring-voyage/issues/1168) (LLM dispatch interface — reframed against the public API by the 2026-04-26 amendment), [#1169](https://github.com/cvoya-com/spring-voyage/issues/1169) (Caddy ingress for tenant→platform), [#1164](https://github.com/cvoya-com/spring-voyage/issues/1164) (per-tenant Ollama optimizations — **obsolete under the 2026-04-26 amendment**), [#1170](https://github.com/cvoya-com/spring-voyage/issues/1170) (terminal-architecture backlog tracker), [ADR 0012](0012-spring-dispatcher-service-extraction.md) (the dispatcher seam this builds on), [ADR 0029](0029-tenant-execution-boundary.md) (the boundary contract the amendment lines up to).
 - **Related code:** `src/Cvoya.Spring.Dapr/Execution/A2AExecutionDispatcher.cs`, `src/Cvoya.Spring.Dapr/Execution/PersistentAgentRegistry.cs`, `src/Cvoya.Spring.Dapr/Execution/ContainerLifecycleManager.cs`, `src/Cvoya.Spring.Dapr/Execution/DaprSidecarManager.cs`, `src/Cvoya.Spring.Dispatcher/`, `deployment/deploy.sh`, `deployment/docker-compose.yml`, `docs/architecture/deployment.md` § *Topology*.
 
 ## Context
@@ -31,7 +31,7 @@ This ADR records the decisions all of the above lines up to.
 
 The decisions below cost more than option 1 from #1160 would have. The reason to pay that cost now is that the project already treats tenancy as a first-class architectural concern (see [`docs/architecture/agent-runtimes-and-tenant-scoping.md`](../architecture/agent-runtimes-and-tenant-scoping.md), which makes every business-data row tenant-scoped at the EF layer): network-layer isolation is the **structural counterpart** to that application-layer scoping. Application-layer scoping requires auditors to trust the code; network and (eventually) crypto boundaries make the property self-evidently true.
 
-The ultimate target is a multi-tenant platform where tenant-specific logic runs only on tenant-specific networks and platform infrastructure sees only encrypted tenant data. Compliance claims like "the platform cannot read tenant agent conversations" become enforceable by construction. V2 doesn't ship that target — the per-tenant agents-host container with encrypted-at-rest `AgentActor` state and KMS integration is multi-issue, multi-release work tracked under #1170. V2 does ship the structural foundation (per-tenant networks, dispatcher-proxied platform→tenant traffic, pluggable LLM dispatch) so the migration is a scoped follow-up rather than a rewrite.
+The ultimate target is a multi-tenant platform where tenant-specific logic runs only on tenant-specific networks and platform infrastructure sees only encrypted tenant data. Compliance claims like "the platform cannot read tenant agent conversations" become enforceable by construction. v0.1 doesn't ship that target — the per-tenant agents-host container with encrypted-at-rest `AgentActor` state and KMS integration is multi-issue, multi-release work tracked under #1170. v0.1 ships the structural foundation (per-tenant networks, dispatcher-proxied platform→tenant traffic, pluggable LLM dispatch) so the migration is a scoped follow-up rather than a rewrite.
 
 ## Decision
 
@@ -49,33 +49,36 @@ The "no dual-homing" rule in this ADR is about *platform* processes (worker, dis
 
 ### Decision B — Dispatcher-proxied platform→tenant traffic
 
-All platform-initiated traffic into tenant networks routes through the dispatcher. Three cases:
+All platform-initiated traffic into tenant networks routes through the dispatcher. Two cases:
 
 - **Readiness probes.** Already shipped in [PR #1163](https://github.com/cvoya-com/spring-voyage/pull/1163) via `IContainerRuntime.ProbeContainerHttpAsync` → `POST /v1/containers/{id}/probe`.
 - **A2A message send.** New endpoint `POST /v1/containers/{id}/a2a` that forwards the worker's A2A message to the in-container endpoint. Closes the message-send half of #1160.
-- **Hosted-agent LLM calls.** New endpoint (e.g. `POST /v1/tenants/{id}/llm`) that forwards LLM requests on behalf of the worker. See Decision E.
 
 This pattern generalizes to "full agent-execution RPC" in the terminal architecture (#1170): the same shape, larger payload.
 
-### Decision C — Per-tenant Ollama, provisioned by the deployment layer
+Hosted-agent LLM calls were originally part of this pattern (dispatcher proxy → per-tenant Ollama). The 2026-04-26 amendment moves them onto the public API per Decision C; see Decision E.
 
-OSS: a single Ollama instance attached to `spring-tenant-default`. Cloud: per-tenant Ollama instances, provisioned by the deployment layer (control plane in cloud), not by the dispatcher. The dispatcher does not gain "Ollama lifecycle" responsibility — provisioning is a deployment concern, runtime container management is a dispatcher concern, and these stay separate.
+### Decision C — Platform-level LLM invocation service, reached via the public API
 
-A uniform DNS name (`tenant-ollama:11434`) resolves on every tenant network, so agents and workflows use the same configuration regardless of tenant.
+LLM access is a platform-level capability, not per-tenant infrastructure. Tenants reach it through the same authenticated public Web API path as any other tenant→platform call (Decision D); the surface is normative under [ADR 0029](0029-tenant-execution-boundary.md)'s public-API bucket. The implementation behind that surface is opaque to tenants — Ollama today, possibly a managed-provider passthrough or a pool of internal models tomorrow, possibly renamed to a generic "LLM invocation service" — without breaking tenants.
 
-Cloud-side optimizations — shared model blob cache vs pre-built per-runtime images, idle GC, lazy provisioning, free-tier-defaults-to-managed-providers — are tracked in #1164 (V2.1) and explicitly not V2.
+Per-tenant LLM provisioning is **not** a deployment concern. The deployment layer provides one LLM service for the platform; tenants do not get their own. This removes the optimization-and-cost-control grab-bag (shared model blob cache, idle GC, lazy provisioning, free-tier-defaults-to-managed-providers) that was previously deferred under #1164 — the shape no longer requires it.
+
+The dispatcher does not gain "LLM lifecycle" responsibility. Provisioning is a deployment concern, runtime container management is a dispatcher concern, and these stay separate.
 
 ### Decision D — Tenant→platform traffic flows via the public Web API through ingress
 
 Tenant containers calling platform services use Caddy ingress (OSS) or cloud ingress, the same authenticated path external API clients use. Authorization is at the application layer (the existing API auth middleware); direct access from tenant networks to internal platform infrastructure (`spring-postgres`, `spring-redis`, internal Dapr endpoints) is forbidden by network layout.
 
-OSS Caddy routing for the tenant→platform path is tracked in #1169 (V2.1). The pattern is normative from V2 so no future implementation introduces dual-homing or direct-infra-access shortcuts before the routing lands; the V2 bug fix doesn't exercise this path so it doesn't block V2.
+OSS Caddy routing for the tenant→platform path is tracked in #1169. The pattern is normative from v0.1 so no future implementation introduces dual-homing or direct-infra-access shortcuts before the routing lands; the v0.1 bug fix doesn't exercise this path so it doesn't block v0.1.
 
-### Decision E — Hosted and delegated agents have symmetric LLM access via the dispatcher proxy
+### Decision E — Hosted and delegated agents have symmetric LLM access via the public API
 
-Both reach tenant-local Ollama through the same mechanism. Hosted agents use Decision B's LLM proxy endpoint; delegated and ephemeral agents call `tenant-ollama:11434` directly from the tenant network. There is no hosted-vs-delegated LLM-provider split. The hosted-agent code path (Dapr Conversation in the worker) introduces a pluggable LLM-dispatch interface (`ILlmDispatcher` or equivalent) so the future migration of hosted execution out of the worker (#1170) is a swap, not a rewrite.
+Both modes reach the platform LLM service (Decision C) through the same authenticated public Web API path as any other tenant→platform call (Decision D). Hosted agents (in-process LLM call from the worker) and delegated / ephemeral agents (containers on the tenant network) make the same call against the same surface. There is no hosted-vs-delegated LLM-provider split.
 
-Tracked as #1168.
+The hosted-agent code path retains a pluggable LLM-dispatch interface (`ILlmDispatcher` or equivalent) targeting the public API surface, so the future migration of hosted execution out of the worker (#1170) is a swap, not a rewrite.
+
+Tracked as #1168 (now framed against the public API surface rather than dispatcher-proxied tenant Ollama).
 
 ## Alternatives rejected
 
@@ -123,7 +126,7 @@ flowchart LR
   worker -- "Dapr Conversation" --> ollama
 ```
 
-**Target** (V2 deliverables; same diagram lives in [`deployment.md`](../architecture/deployment.md) § Topology):
+**Target** (deliverables; same diagram lives in [`deployment.md`](../architecture/deployment.md) § Topology):
 
 ```mermaid
 flowchart LR
@@ -133,35 +136,34 @@ flowchart LR
   end
 
   subgraph springNet [spring-net bridge — platform only]
-    api["spring-api + sidecar"]
+    api["spring-api + sidecar (fronts LLM via public API)"]
     worker["spring-worker + sidecar"]
     web["spring-web"]
-    caddy["spring-caddy (ingress — external + tenant→platform)"]
+    caddy["spring-caddy (ingress — external + tenant→platform incl. LLM)"]
     pg["spring-postgres"]
     redis["spring-redis"]
     placement["spring-placement"]
     scheduler["spring-scheduler"]
+    llm["LLM invocation service (Ollama or managed; platform-level)"]
     mcp["host MCP server (tenancy TBD — #1167)"]
   end
 
   subgraph tenantNet [spring-tenant-default — per-tenant]
-    tenantOllama["tenant-ollama (OSS: single; cloud: per-tenant — see #1164)"]
     delegatedAgent["delegated / ephemeral agent container"]
     persistentAgent["persistent agent container"]
     workflowContainer["workflow container + per-workflow daprd"]
   end
 
-  worker -- "A2A + LLM proxy requests" --> dispatcher
+  worker -- "A2A proxy requests" --> dispatcher
+  worker -- "LLM call (in-network → spring-api)" --> api
+  api -- "forwards" --> llm
   dispatcher -- "shells out" --> podman
   podman -.->|"on tenant net"| delegatedAgent
   podman -.->|"on tenant net"| persistentAgent
   podman -.->|"on tenant net"| workflowContainer
   dispatcher -- "POST /v1/containers/{id}/a2a" --> delegatedAgent
-  dispatcher -- "tenant-ollama:11434 (worker-proxied LLM)" --> tenantOllama
-  delegatedAgent -- "tenant-ollama:11434 (direct)" --> tenantOllama
-  workflowContainer -- "tenant-ollama:11434 (direct)" --> tenantOllama
-  delegatedAgent -- "ingress → spring-api (auth)" --> caddy
-  workflowContainer -- "ingress → spring-api (auth)" --> caddy
+  delegatedAgent -- "ingress → spring-api (auth, incl. LLM)" --> caddy
+  workflowContainer -- "ingress → spring-api (auth, incl. LLM)" --> caddy
 ```
 
 Properties: worker stays single-network; the dispatcher is the only cross-network bridge (platform→tenant); Caddy ingress is the only tenant→platform path; tenant traffic stays in the tenant namespace. The K8s cloud shape maps one-to-one (namespace per tenant, dispatcher = control-plane bridge, ingress = data-plane entry point).
@@ -176,9 +178,9 @@ The worker hosts every Dapr virtual actor (`AgentActor`, `UnitActor`, `Connector
 
 The worker must stay single-network as a structural constraint, not a policy: dual-homing would collapse the isolation the per-tenant network design establishes. The terminal architecture (#1170) goes further and moves hosted-agent execution out of the worker entirely.
 
-### V2 deliverables
+### v0.1 deliverables
 
-The umbrella issue [#1165](https://github.com/cvoya-com/spring-voyage/issues/1165) tracks the V2 work as native sub-issues:
+The umbrella issue [#1165](https://github.com/cvoya-com/spring-voyage/issues/1165) tracks the v0.1 work as native sub-issues:
 
 - **#1160** — dispatcher-proxied A2A message send (Decision B's open half).
 - **#1166** — attach workflow containers to tenant networks (Decision A applied to workflows).
@@ -189,17 +191,18 @@ The agent-container side of Decision A (move agents from the default podman netw
 
 OSS deployment-layer changes (rename network from `spring-net` for agent traffic to `spring-tenant-default`; add Ollama to the tenant network; add the uniform `tenant-ollama` DNS) land alongside the #1160 implementation in `deployment/deploy.sh` and `deployment/docker-compose.yml`.
 
-### V2.1 deliverables
+### Follow-up deliverables (post-v0.1)
 
-- **#1169** — Caddy ingress for tenant → spring-api (OSS routing — Decision D's OSS half).
-- **#1164** — per-tenant Ollama provisioning optimization, idle/cost controls, hosted-vs-delegated split (cloud-only optimizations on top of Decision C).
+- **#1169** — Caddy ingress for tenant → spring-api (OSS routing — Decision D's OSS half; covers LLM-via-public-API under the 2026-04-26 amendment).
 
-### Terminal architecture (not V2)
+The per-tenant Ollama follow-up (#1164) is **obsolete under the 2026-04-26 amendment** and should be closed.
 
-The shape is described inline in #1170. Summary: tenant-specific logic runs only on tenant networks; platform infrastructure sees only encrypted tenant data; per-tenant agents-host container replaces in-process hosted-agent execution; `AgentActor` state encrypted at rest with per-tenant keys; KMS / HSM integration. V2's dispatcher-proxied traffic pattern, per-tenant networks, and pluggable LLM dispatch interface are deliberately chosen so this migration is a scoped follow-up rather than a rewrite.
+### Terminal architecture (not v0.1)
+
+The shape is described inline in #1170. Summary: tenant-specific logic runs only on tenant networks; platform infrastructure sees only encrypted tenant data; per-tenant agents-host container replaces in-process hosted-agent execution; `AgentActor` state encrypted at rest with per-tenant keys; KMS / HSM integration. The v0.1 dispatcher-proxied traffic pattern, per-tenant networks, and pluggable LLM dispatch interface are deliberately chosen so this migration is a scoped follow-up rather than a rewrite.
 
 ### Costs accepted
 
 - One additional HTTP hop for every worker→agent A2A message and every hosted-agent LLM call. Same shape as ADR 0012 already accepted for `IContainerRuntime` operations; the dispatcher runs on the same host so the latency cost is a local TCP call.
 - Network-management complexity: per-tenant networks need to be provisioned and torn down by the deployment layer. OSS lifts this with a single `spring-tenant-default` network created by `deploy.sh`; cloud delegates to K8s namespace lifecycle.
-- The MCP-server tenancy question (#1167) is unresolved — accepted as a `needs-thinking` follow-up rather than blocking V2 on a decision that doesn't have a current forcing function.
+- The MCP-server tenancy question (#1167) is unresolved — accepted as a `needs-thinking` follow-up rather than blocking v0.1 on a decision that doesn't have a current forcing function.
