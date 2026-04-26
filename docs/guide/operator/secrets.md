@@ -1,8 +1,8 @@
 # Managing Secrets
 
-This guide covers day-to-day secret management for operators: storing API tokens and other credentials, rotating them safely, pruning old versions, and deciding which scope a secret belongs to. It does not cover envelope encryption internals or the decorator-based audit pattern — those live in [OSS Secret Store](../developer/secret-store.md) and [Secret Audit Logging](../developer/secret-audit.md) respectively.
+This guide covers day-to-day secret management for operators: storing API tokens and other credentials, rotating them safely, pruning old versions, and deciding which scope a secret belongs to. It does not cover envelope encryption internals or the decorator-based audit pattern — those live in [OSS Secret Store](../../developer/secret-store.md) and [Secret Audit Logging](../../developer/secret-audit.md) respectively.
 
-For the full architectural picture — how the registry, store, resolver, and access policy compose — see [Security architecture — Secrets Stack](../architecture/security.md#secrets-stack), and [Security architecture — Config tiers](../architecture/security.md#config-tiers) for the companion model that describes which layer of the platform owns which kind of credential.
+For the full architectural picture — how the registry, store, resolver, and access policy compose — see [Security architecture — Secrets Stack](../../architecture/security.md#secrets-stack), and [Security architecture — Config tiers](../../architecture/security.md#config-tiers) for the companion model that describes which layer of the platform owns which kind of credential.
 
 ## The three config tiers (#615)
 
@@ -14,7 +14,7 @@ Spring Voyage distinguishes three tiers of configuration so credentials live whe
 | **Tier 2 — tenant-default** | Database (`SecretScope.Tenant`) | LLM provider API keys (`anthropic-api-key`, `openai-api-key`, `google-api-key`), tenant-wide observability / monitoring tokens | Tenant admin post-deploy |
 | **Tier 3 — unit-override** | Database (`SecretScope.Unit`) | Per-unit variants of any tier-2 credential (a unit that calls a different Anthropic account than the tenant default) | Unit operator |
 
-LLM provider credentials explicitly belong to **tier 2**, not tier 1 — they are workload credentials, not deployment identity. The platform's tier-2 resolver ([`ILlmCredentialResolver`](../../src/Cvoya.Spring.Core/Execution/ILlmCredentialResolver.cs)) reads them through the chain:
+LLM provider credentials explicitly belong to **tier 2**, not tier 1 — they are workload credentials, not deployment identity. The platform's tier-2 resolver ([`ILlmCredentialResolver`](../../../src/Cvoya.Spring.Core/Execution/ILlmCredentialResolver.cs)) reads them through the chain:
 
 1. **Unit-scoped secret** (if the caller has a unit in context)
 2. **Tenant-scoped secret** (the inheritance fall-through from unit scope, or the direct read when there is no unit context — e.g. the unit-create wizard fetching the model catalog)
@@ -165,9 +165,9 @@ spring secret rotate \
   --value "sk-live-NEW..."
 ```
 
-The CLI prints the new version number (`Secret 'openai-api-key' rotated (Unit); new version = 2.`), and the `--output json` shape carries the same `version` field that CI pipelines and scripts can pin to for subsequent resolves. Prior versions remain resolvable by version pin until they are pruned — this is the "multi-version coexistence" model introduced in wave 7 A5; see [Security architecture — Multi-version coexistence and rotation](../architecture/security.md#multi-version-coexistence-and-rotation) for the full contract.
+The CLI prints the new version number (`Secret 'openai-api-key' rotated (Unit); new version = 2.`), and the `--output json` shape carries the same `version` field that CI pipelines and scripts can pin to for subsequent resolves. Prior versions remain resolvable by version pin until they are pruned — this is the "multi-version coexistence" model introduced in wave 7 A5; see [Security architecture — Multi-version coexistence and rotation](../../architecture/security.md#multi-version-coexistence-and-rotation) for the full contract.
 
-Rotation can flip the origin: a secret that was originally registered as `ExternalReference` can be rotated to a new `--value` (platform-owned), and vice versa. The registry records the origin transition in the `SecretRotation` summary that audit-log decorators observe — see [Secret Audit Logging](../developer/secret-audit.md) for what decorators can see without touching the inner call.
+Rotation can flip the origin: a secret that was originally registered as `ExternalReference` can be rotated to a new `--value` (platform-owned), and vice versa. The registry records the origin transition in the `SecretRotation` summary that audit-log decorators observe — see [Secret Audit Logging](../../developer/secret-audit.md) for what decorators can see without touching the inner call.
 
 ### Pinning a specific version
 
@@ -210,7 +210,7 @@ Spring Voyage does not have a first-class notion of "environments" — productio
 4. The fall-through is gated by `Secrets:InheritTenantFromUnit` (default `true`). Set it to `false` for strict-isolation deployments where tenant and unit scopes must stay separate.
 5. Tenant → Platform does **not** chain. Platform is an admin-only boundary; a compromised unit cannot probe platform keys by name.
 
-See [ADR 0003 — Secret inheritance semantics (Unit → Tenant)](../decisions/0003-secret-inheritance-unit-to-tenant.md) for the full rationale, rejected alternatives, and revisit criteria.
+See [ADR 0003 — Secret inheritance semantics (Unit → Tenant)](../../decisions/0003-secret-inheritance-unit-to-tenant.md) for the full rationale, rejected alternatives, and revisit criteria.
 
 ### Worked pattern: tenant default with a unit override
 
@@ -232,7 +232,7 @@ spring secret create \
 
 ### Worked pattern: LLM credentials (tier-2 defaults + per-unit overrides)
 
-The tier-2 resolver ([`ILlmCredentialResolver`](../../src/Cvoya.Spring.Core/Execution/ILlmCredentialResolver.cs)) looks up canonical secret names per provider — `anthropic-api-key` for Claude, `openai-api-key` for OpenAI, `google-api-key` for Google / Gemini. Match those names when you set the secrets so the resolver finds them.
+The tier-2 resolver ([`ILlmCredentialResolver`](../../../src/Cvoya.Spring.Core/Execution/ILlmCredentialResolver.cs)) looks up canonical secret names per provider — `anthropic-api-key` for Claude, `openai-api-key` for OpenAI, `google-api-key` for Google / Gemini. Match those names when you set the secrets so the resolver finds them.
 
 ```bash
 # Tenant default: one Anthropic key for every unit in the tenant.
@@ -265,7 +265,7 @@ The unit-creation wizard at `/units/create` and the `spring unit create` / `spri
 3. If the probe reports the credential as **inherited from tenant default**, the wizard shows an **Override** button. Clicking Override opens the same input — use it to set a per-unit override (toggle off) or to rotate the tenant default itself (toggle on).
 4. As soon as the operator finishes entering the key (the input loses focus), the wizard posts it to `POST /api/v1/system/credentials/{provider}/validate` (#655). That endpoint performs a lightweight read-only call against the provider's own API (`GET /v1/models` for Anthropic/OpenAI, `GET /v1beta/models` for Google). On success the Model dropdown appears on the same step, seeded from the returned list so operators pick from what their account actually supports. On failure the error message is surfaced inline under the credential input and the Model dropdown stays hidden. The Override flow runs the same validation, so a per-unit override can reveal a different model list than the tenant default when the override's key has access to different models. Editing the key clears the verdict so the next blur re-validates. If the operator pastes a key and clicks Next before the blur-driven validation completes, the Next button waits for the verdict before advancing.
 
-The wizard **never shows the existing plaintext** — Override clears the input so you type a replacement rather than editing the stored value. Both the probe and the validate endpoints are key-free by construction; see [`docs/architecture/security.md`](../architecture/security.md).
+The wizard **never shows the existing plaintext** — Override clears the input so you type a replacement rather than editing the stored value. Both the probe and the validate endpoints are key-free by construction; see [`docs/architecture/security.md`](../../architecture/security.md).
 
 ### CLI
 
@@ -291,7 +291,7 @@ spring unit create local-dev \
 # → "--api-key / --api-key-from-file is only valid for tools that need an LLM API key ..."
 ```
 
-See [CLI & Web §Inline credential flags (#626)](../architecture/cli-and-web.md#inline-credential-flags-626) for the full rejection matrix.
+See [CLI & Web §Inline credential flags (#626)](../../architecture/cli-and-web.md#inline-credential-flags-626) for the full rejection matrix.
 
 ## Per-agent secrets
 
@@ -299,7 +299,7 @@ The OSS contract stops at unit scope. There is no `SecretScope.Agent`, and the r
 
 Operators who need per-agent isolation today use the unit boundary itself — spin up a single-agent unit for the agent that needs its own keys, and use tenant-scoped secrets only where cross-unit sharing is intentional. This reuses the unit as the isolation primitive instead of inventing a new one.
 
-The full rationale — why an `Agent` scope, an agent-level ACL, and doing nothing were considered, and why "do nothing" was the right call for wave 2 — is captured in [ADR 0004 — Per-agent secrets](../decisions/0004-per-agent-secrets.md). That record also lists the concrete triggers that would cause us to revisit.
+The full rationale — why an `Agent` scope, an agent-level ACL, and doing nothing were considered, and why "do nothing" was the right call for wave 2 — is captured in [ADR 0004 — Per-agent secrets](../../decisions/0004-per-agent-secrets.md). That record also lists the concrete triggers that would cause us to revisit.
 
 ## Advanced: calling the HTTP API directly
 
@@ -324,6 +324,6 @@ Every other lifecycle operation follows the same pattern: `GET` for listing / ve
 - **Rotate on fixed cadences for owned secrets; rotate on revocation for external references.** Pass-through secrets the platform owns end-to-end should follow your compliance clock. External-reference secrets rotate when the upstream vault rotates — the platform is just re-pointing the registry, so there's no value in rotating more often.
 - **Pick the narrowest scope that works, and promote only when genuinely shared.** Dropping a secret into tenant scope because "it might be useful to another unit" widens the audit surface; every unit resolve now includes a tenant-scope access-policy probe. Let the shared-use case appear before paying that cost.
 - **Never paste plaintext into logs or PR descriptions.** The CLI accepts plaintext exactly once on create/rotate; everything else — list responses, rotation responses, version listings — is metadata only. Prefer `--from-file` (piped from a temporary file under `tmpfs`) over `--value` when the plaintext is long-lived, so it never hits shell history.
-- **Rely on the audit decorator for "who read what."** The resolver surface exposes a `SecretResolvePath` (`Direct`, `InheritedFromTenant`, `NotFound`) that audit decorators record for every resolve. If your deployment needs "which units read this tenant secret?" the answer is a log query, not a registry denormalisation — see [Secret Audit Logging](../developer/secret-audit.md).
+- **Rely on the audit decorator for "who read what."** The resolver surface exposes a `SecretResolvePath` (`Direct`, `InheritedFromTenant`, `NotFound`) that audit decorators record for every resolve. If your deployment needs "which units read this tenant secret?" the answer is a log query, not a registry denormalisation — see [Secret Audit Logging](../../developer/secret-audit.md).
 - **Don't hand-edit the Dapr state store.** Backing slots are written through AES-GCM envelope encryption with `"{tenantId}:{storeKey}"` as associated data — a ciphertext cannot be transplanted across tenants or keys. Direct edits break authentication; use the CLI (or API) to rotate or delete.
-- **Treat the ephemeral dev key as dev-only.** If `Secrets:AllowEphemeralDevKey = true`, restarts render previously-written envelopes unreadable. Never enable this outside local `dotnet run`; staging and production deployments **must** source a durable key via `SPRING_SECRETS_AES_KEY` or `Secrets:AesKeyFile` (see [OSS Secret Store](../developer/secret-store.md) for the full key-sources table).
+- **Treat the ephemeral dev key as dev-only.** If `Secrets:AllowEphemeralDevKey = true`, restarts render previously-written envelopes unreadable. Never enable this outside local `dotnet run`; staging and production deployments **must** source a durable key via `SPRING_SECRETS_AES_KEY` or `Secrets:AesKeyFile` (see [OSS Secret Store](../../developer/secret-store.md) for the full key-sources table).

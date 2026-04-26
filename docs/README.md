@@ -35,17 +35,17 @@ How the concepts are realized as a running system.
 - [Agent Runtimes & Tenant Scoping](architecture/agent-runtimes-and-tenant-scoping.md) -- plugin model, tenant installs, credential-health lifecycle (#674)
 - [Open Questions](architecture/open-questions.md) -- design questions, future work
 
-### [User Guide](guide/overview.md)
+### [User Guide](guide/intro/overview.md)
 
 How to use Spring Voyage through the `spring` CLI.
 
-- [Getting Started](guide/getting-started.md) -- first setup, first unit, first agent
-- [Managing Units and Agents](guide/units-and-agents.md) -- creation, configuration, lifecycle
-- [Messaging and Interaction](guide/messaging.md) -- sending messages, conversations
-- [Observing Activity](guide/observing.md) -- streams, cost tracking, dashboards
-- [Declarative Configuration](guide/declarative.md) -- YAML definitions and `spring apply`
-- [Deployment](guide/deployment.md) -- self-hosting on Docker Compose or Podman (including the no-build / registry path)
-- [Register your GitHub App](guide/github-app-setup.md) -- per-deployment GitHub App registration (CLI one-liner or manual github.com walkthrough)
+- [Getting Started](guide/intro/getting-started.md) -- first setup, first unit, first agent
+- [Managing Units and Agents](guide/user/units-and-agents.md) -- creation, configuration, lifecycle
+- [Messaging and Interaction](guide/user/messaging.md) -- sending messages, conversations
+- [Observing Activity](guide/user/observing.md) -- streams, cost tracking, dashboards
+- [Declarative Configuration](guide/user/declarative.md) -- YAML definitions and `spring apply`
+- [Deployment](guide/operator/deployment.md) -- self-hosting on Docker Compose or Podman (including the no-build / registry path)
+- [Register your GitHub App](guide/operator/github-app-setup.md) -- per-deployment GitHub App registration (CLI one-liner or manual github.com walkthrough)
 
 ### Operator Guides
 

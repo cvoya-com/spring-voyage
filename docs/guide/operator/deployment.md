@@ -17,7 +17,7 @@ This guide walks an operator from zero to a working single-host Spring Voyage de
 - [Updating](#updating-to-a-new-version) — rolling to a new image tag.
 - [Troubleshooting](#troubleshooting) — common failures and fixes.
 
-For the architectural picture of how these pieces fit together, read [Architecture — Deployment](../architecture/deployment.md) and [Architecture — Infrastructure](../architecture/infrastructure.md) first. Operator tasks that sit above provisioning (backups, DataProtection keys, migrations) live in [Developer — Operations](../developer/operations.md).
+For the architectural picture of how these pieces fit together, read [Architecture — Deployment](../../architecture/deployment.md) and [Architecture — Infrastructure](../../architecture/infrastructure.md) first. Operator tasks that sit above provisioning (backups, DataProtection keys, migrations) live in [Developer — Operations](../../developer/operations.md).
 
 ## Prerequisites
 
@@ -92,7 +92,7 @@ spring-api ─ http://spring-api-dapr:3500 ─▶ spring-api-dapr
  spring-worker-dapr ◀─ http://spring-worker-dapr:3500 ─ spring-worker
 ```
 
-See [Architecture — Deployment](../architecture/deployment.md) for why the sidecars are container-paired rather than process-paired.
+See [Architecture — Deployment](../../architecture/deployment.md) for why the sidecars are container-paired rather than process-paired.
 
 ## Docker Compose
 
@@ -255,7 +255,7 @@ Disable auto-migrate if you run migrations out-of-band (CI/CD or a scripted SQL 
 Database__AutoMigrate=false
 ```
 
-See [Developer — Operations § Database Migrations](../developer/operations.md#database-migrations) for the manual path (`dotnet ef database update`, idempotent SQL scripts, multi-replica coordination).
+See [Developer — Operations § Database Migrations](../../developer/operations.md#database-migrations) for the manual path (`dotnet ef database update`, idempotent SQL scripts, multi-replica coordination).
 
 ### External PostgreSQL
 
@@ -374,7 +374,7 @@ The GitHub variables follow the .NET `Section__Key` convention and bind to the `
 >
 > The connector strips one matching pair of surrounding quotes from `GitHub__PrivateKeyPem` and decodes literal `\n` -> real newline before `RSA.ImportFromPem`, so the single-quoted single-line PEM round-trips through bash + envsubst + podman without breaking parsing. The same trick can NOT rescue a quoted numeric `GitHub__AppId`: `long` binding happens before the connector sees the value, so a quoted numeric id silently binds as `0` and the connector reports `Disabled` with "GitHub App not configured." **Always leave `GitHub__AppId` unquoted.**
 
-> **GitHub App private key — PEM contents, not a path.** `GitHub__PrivateKeyPem` is the **contents** of the `.pem` file: either inlined verbatim, inlined as a single line with `\n` separators, or an absolute container-visible path whose file contents are valid PEM. `~` is **not** expanded by `--env-file`, so a value like `~/secrets/key.pem` reaches the container as the literal string `~/secrets/key.pem` — mount the file at a known absolute path if you want to reference it by path. Passing a path that does not resolve to a valid PEM fails the host at startup with a targeted error rather than waiting to return a 502 from the first `list-installations` call. See [Architecture — Connectors § disabled-with-reason](../architecture/connectors.md#disabled-with-reason-pattern) for the validation model. If either variable is missing, the GitHub connector boots in a disabled state and `GET /api/v1/connectors/github/actions/list-installations` returns a structured `404` the portal and CLI render as "GitHub App not configured" instead of attempting the JWT sign.
+> **GitHub App private key — PEM contents, not a path.** `GitHub__PrivateKeyPem` is the **contents** of the `.pem` file: either inlined verbatim, inlined as a single line with `\n` separators, or an absolute container-visible path whose file contents are valid PEM. `~` is **not** expanded by `--env-file`, so a value like `~/secrets/key.pem` reaches the container as the literal string `~/secrets/key.pem` — mount the file at a known absolute path if you want to reference it by path. Passing a path that does not resolve to a valid PEM fails the host at startup with a targeted error rather than waiting to return a 502 from the first `list-installations` call. See [Architecture — Connectors § disabled-with-reason](../../architecture/connectors.md#disabled-with-reason-pattern) for the validation model. If either variable is missing, the GitHub connector boots in a disabled state and `GET /api/v1/connectors/github/actions/list-installations` returns a structured `404` the portal and CLI render as "GitHub App not configured" instead of attempting the JWT sign.
 
 ### Tier-2 tenant-default credentials — LLM provider keys (post-deploy)
 
@@ -414,7 +414,7 @@ For local development against a laptop, use `deployment/relay.sh` to open an SSH
 
 ### Cloud-grade secret stores
 
-For Azure Key Vault, HashiCorp Vault, AWS Secrets Manager, or Kubernetes Secrets, replace `dapr/components/production/secretstore.yaml` with the corresponding Dapr component. Leave the component name `secretstore` — the other components reference the store by name so they continue to work unchanged. See [Developer — Secret store](../developer/secret-store.md) for per-agent / per-unit secret scoping details.
+For Azure Key Vault, HashiCorp Vault, AWS Secrets Manager, or Kubernetes Secrets, replace `dapr/components/production/secretstore.yaml` with the corresponding Dapr component. Leave the component name `secretstore` — the other components reference the store by name so they continue to work unchanged. See [Developer — Secret store](../../developer/secret-store.md) for per-agent / per-unit secret scoping details.
 
 ## Health checks
 
@@ -485,7 +485,7 @@ docker compose --env-file spring.env up -d
 - **Before:** `pg_dump` the database (`docker exec spring-postgres pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" > backup.sql`). Back up `spring-dataprotection-keys` as well — it carries the key ring that decrypts auth cookies and OAuth tokens.
 - **After:** confirm `/health` on the API, tail `spring-worker` logs for migration lines, and run the smoke test in [Deeper probes](#deeper-probes). Roll back by checking out the previous tag and running `up -d` again.
 
-**Never delete `spring-dataprotection-keys`** as part of an update. It is preserved across `down`/`up` by default; an explicit `docker volume rm spring-dataprotection-keys` is the only thing that clears it (which invalidates every existing auth cookie, OAuth session token, and anti-forgery token). See [Developer — Operations § DataProtection](../developer/operations.md#dataprotection-keys).
+**Never delete `spring-dataprotection-keys`** as part of an update. It is preserved across `down`/`up` by default; an explicit `docker volume rm spring-dataprotection-keys` is the only thing that clears it (which invalidates every existing auth cookie, OAuth session token, and anti-forgery token). See [Developer — Operations § DataProtection](../../developer/operations.md#dataprotection-keys).
 
 ## Troubleshooting
 
@@ -495,7 +495,7 @@ docker compose --env-file spring.env up -d
 
 ### `spring-worker` logs `42P07: relation "..." already exists`
 
-Two instances are trying to run EF migrations against the same database. The OSS topology runs migrations only on `spring-worker`; confirm `Database__AutoMigrate=false` is set anywhere else and that you only ever run one Worker replica against a given database. Details in [Developer — Operations § Multi-replica deployments](../developer/operations.md#multi-replica-deployments).
+Two instances are trying to run EF migrations against the same database. The OSS topology runs migrations only on `spring-worker`; confirm `Database__AutoMigrate=false` is set anywhere else and that you only ever run one Worker replica against a given database. Details in [Developer — Operations § Multi-replica deployments](../../developer/operations.md#multi-replica-deployments).
 
 ### Dapr sidecar crashes with `components path not found`
 
@@ -544,10 +544,10 @@ If agents still cannot reach the host, confirm the per-user bridge network exist
 
 ## Related documentation
 
-- [Architecture — Deployment](../architecture/deployment.md) — agent hosting modes, persistent agent lifecycle, solution structure.
-- [Architecture — Infrastructure](../architecture/infrastructure.md) — Dapr building blocks, IAddressable, data persistence.
-- [Developer — Setup](../developer/setup.md) — local dev loop without containers (`dapr run` + `dotnet run`).
-- [Developer — Operations](../developer/operations.md) — migrations, DataProtection keys, backups.
-- [Developer — Secret store](../developer/secret-store.md) — per-agent / per-unit secret scoping and rotation.
-- [`deployment/README.md`](../../deployment/README.md) — the deploy.sh reference, remote deploys, webhook relay.
-- [`dapr/README.md`](../../dapr/README.md) — Dapr component and configuration reference.
+- [Architecture — Deployment](../../architecture/deployment.md) — agent hosting modes, persistent agent lifecycle, solution structure.
+- [Architecture — Infrastructure](../../architecture/infrastructure.md) — Dapr building blocks, IAddressable, data persistence.
+- [Developer — Setup](../../developer/setup.md) — local dev loop without containers (`dapr run` + `dotnet run`).
+- [Developer — Operations](../../developer/operations.md) — migrations, DataProtection keys, backups.
+- [Developer — Secret store](../../developer/secret-store.md) — per-agent / per-unit secret scoping and rotation.
+- [`deployment/README.md`](../../../deployment/README.md) — the deploy.sh reference, remote deploys, webhook relay.
+- [`dapr/README.md`](../../../dapr/README.md) — Dapr component and configuration reference.

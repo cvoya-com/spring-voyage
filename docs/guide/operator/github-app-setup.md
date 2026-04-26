@@ -39,7 +39,7 @@ The verb:
 
 Restart the platform after the file changes (`./deploy.sh restart` for Podman, `docker compose --env-file spring.env up -d` for Compose) so the connector picks up the new credentials.
 
-See [`docs/architecture/cli-and-web.md § GitHub App bootstrap verb (#631)`](../architecture/cli-and-web.md#github-app-bootstrap-verb-631) for the full flag list, including `--org`, `--write-secrets`, and `--public-url`.
+See [`docs/architecture/cli-and-web.md § GitHub App bootstrap verb (#631)`](../../architecture/cli-and-web.md#github-app-bootstrap-verb-631) for the full flag list, including `--org`, `--write-secrets`, and `--public-url`.
 
 ## Path B — Manual registration
 
@@ -159,7 +159,7 @@ GitHub Apps require **publicly-reachable** webhook URLs — `localhost` will not
 
 1. **Use Path A's loopback handler for OAuth and skip webhooks.** `spring github-app register` works against `http://localhost:5173/...` callback URLs because the conversion callback is loopback-only. The App's webhook URL still has to be publicly reachable for deliveries; configure the App with a placeholder URL and rely on the connector's polling fallback for local-dev experiments.
 2. **Tunnel a public URL to your laptop.** Use [smee.io](https://smee.io/), [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/), or [ngrok](https://ngrok.com/) to forward a public hostname to `http://localhost:8080/api/v1/connectors/github/webhooks`. Configure the App's webhook URL with the tunnel URL.
-3. **Use the bundled webhook relay.** `deployment/relay.sh` opens an SSH reverse tunnel from a small VPS you already control to the local API host. See [`deployment/README.md § Local-dev webhook tunnel (relay.sh)`](../../deployment/README.md#local-dev-webhook-tunnel-relaysh) for the configuration shape.
+3. **Use the bundled webhook relay.** `deployment/relay.sh` opens an SSH reverse tunnel from a small VPS you already control to the local API host. See [`deployment/README.md § Local-dev webhook tunnel (relay.sh)`](../../../deployment/README.md#local-dev-webhook-tunnel-relaysh) for the configuration shape.
 
 Whichever option you pick, **register a separate "dev" App** pointed at `http://localhost:*` (or your tunnel URL) and use a different `GitHub__AppId` in the local `spring.env` than the one you use in production. Sharing one App across dev and prod cross-contaminates webhook deliveries and rate limits.
 
@@ -187,12 +187,12 @@ If `list-installations` returns a structured `404` with a "GitHub App not config
 - `GitHub__PrivateKeyPem` is a path that does not resolve to a valid PEM inside the container.
 - The platform was not restarted after the env file changed.
 
-See [Architecture — Connectors § disabled-with-reason](../architecture/connectors.md#disabled-with-reason-pattern) for the validation model.
+See [Architecture — Connectors § disabled-with-reason](../../architecture/connectors.md#disabled-with-reason-pattern) for the validation model.
 
 ## Related documentation
 
 - [Deployment guide § Tier-1 platform credentials](deployment.md#tier-1-platform-credentials--github-app-identity-env-only) — env-file shape and quirks.
 - [Managing Secrets § The three config tiers](secrets.md#the-three-config-tiers-615) — why GitHub App credentials are tier-1 (deployment identity) and not tier-2.
-- [GitHub Connector README](../../src/Cvoya.Spring.Connector.GitHub/README.md) — the per-setting configuration table the connector binds.
-- [Architecture — CLI & Web § GitHub App bootstrap verb](../architecture/cli-and-web.md#github-app-bootstrap-verb-631) — `spring github-app register` flag reference.
+- [GitHub Connector README](../../../src/Cvoya.Spring.Connector.GitHub/README.md) — the per-setting configuration table the connector binds.
+- [Architecture — CLI & Web § GitHub App bootstrap verb](../../architecture/cli-and-web.md#github-app-bootstrap-verb-631) — `spring github-app register` flag reference.
 - GitHub docs — [Registering a GitHub App](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app), [Generating a private key](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/managing-private-keys-for-github-apps).

@@ -98,4 +98,4 @@ Add `--force` to skip the prompt in scripts. Uninstall is soft-delete: re-instal
 
 - [Agent Runtimes operator guide](agent-runtimes.md) — parallel guide for per-tenant agent-runtime installs.
 - [Architecture: Agent Runtimes & Tenant Scoping](../../architecture/agent-runtimes-and-tenant-scoping.md) — plugin model, credential-health state machine.
-- [Per-unit connector binding](../units-and-agents.md) — wiring a unit to an installed connector.
+- [Per-unit connector binding](../user/units-and-agents.md) — wiring a unit to an installed connector.

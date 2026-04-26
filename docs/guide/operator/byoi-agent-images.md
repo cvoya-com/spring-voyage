@@ -2,7 +2,7 @@
 
 > **Audience.** Operators and platform engineers who want to ship a custom agent container image — pre-baked with proprietary CLIs, internal trust anchors, a non-Debian distro, or rootless / non-default UID models — and have Spring Voyage's `A2AExecutionDispatcher` invoke it the same way it invokes the built-in launchers (Claude Code, Codex, Gemini, Dapr Agent).
 
-> **Scope.** Step-by-step recipes for each of the three conformance paths defined in [ADR 0027](../decisions/0027-agent-image-conformance-contract.md), with copy-pasteable Dockerfile snippets, the launcher env-var contract (`SPRING_AGENT_ARGV`, `SPRING_MCP_ENDPOINT`, …), version compatibility rules, and debugging tips.
+> **Scope.** Step-by-step recipes for each of the three conformance paths defined in [ADR 0027](../../decisions/0027-agent-image-conformance-contract.md), with copy-pasteable Dockerfile snippets, the launcher env-var contract (`SPRING_AGENT_ARGV`, `SPRING_MCP_ENDPOINT`, …), version compatibility rules, and debugging tips.
 
 ---
 
@@ -30,7 +30,7 @@ Path 1 is the default. Pick path 2 when you can't use the recommended base. Pick
 
 ## Background: how the dispatcher launches your image
 
-When a turn arrives for an `agent://<path>` whose `execution.tool` matches your launcher (or one of the built-in launchers — Claude Code uses path 1, Dapr Agent uses path 3), the dispatcher executes the unified path documented in [ADR 0025](../decisions/0025-unified-agent-launch-contract.md):
+When a turn arrives for an `agent://<path>` whose `execution.tool` matches your launcher (or one of the built-in launchers — Claude Code uses path 1, Dapr Agent uses path 3), the dispatcher executes the unified path documented in [ADR 0025](../../decisions/0025-unified-agent-launch-contract.md):
 
 ```text
 A2AExecutionDispatcher.DispatchAsync(message, context)
@@ -115,7 +115,7 @@ EXPOSE 8999
 ENTRYPOINT ["spring-voyage-agent-sidecar"]
 ```
 
-The in-tree smoke fixture at [`tests/fixtures/byoi-path2/Dockerfile`](../../tests/fixtures/byoi-path2/Dockerfile) is the same recipe sourced from `npm pack` of the working tree instead of `npmjs.org` — useful if you want to see the exact CI shape end-to-end, or if you're iterating on the bridge itself and want to smoke a local change before publishing. See `tests/scripts/smoke-1087.sh --path 2` for the driver.
+The in-tree smoke fixture at [`tests/fixtures/byoi-path2/Dockerfile`](../../../tests/fixtures/byoi-path2/Dockerfile) is the same recipe sourced from `npm pack` of the working tree instead of `npmjs.org` — useful if you want to see the exact CI shape end-to-end, or if you're iterating on the bridge itself and want to smoke a local change before publishing. See `tests/scripts/smoke-1087.sh --path 2` for the driver.
 
 ### Path 2b — SEA binary (Node-less image)
 
@@ -400,9 +400,9 @@ SPRING_RUN_DOCKER_SMOKE=1 dotnet test tests/Cvoya.Spring.Integration.Tests/Cvoya
 
 ## See also
 
-- ADR [0025](../decisions/0025-unified-agent-launch-contract.md) — the unified dispatch path and the launcher contract (`AgentLaunchSpec`).
-- ADR [0026](../decisions/0026-per-agent-container-scope.md) — why containers are per-agent, not per-unit.
-- ADR [0027](../decisions/0027-agent-image-conformance-contract.md) — the canonical statement of the wire contract and the three conformance paths.
-- [`docs/architecture/agent-runtime.md`](../architecture/agent-runtime.md) — full architecture of the dispatcher, the launcher tiers, and the BYOI conformance section that this guide operationalises.
-- [`deployment/agent-sidecar/README.md`](../../deployment/agent-sidecar/README.md) — bridge wire contract reference (response headers, JSON-RPC verbs, env defaults).
-- [`tests/scripts/smoke-agent-images.sh`](../../tests/scripts/smoke-agent-images.sh) — the smoke driver for the in-tree images.
+- ADR [0025](../../decisions/0025-unified-agent-launch-contract.md) — the unified dispatch path and the launcher contract (`AgentLaunchSpec`).
+- ADR [0026](../../decisions/0026-per-agent-container-scope.md) — why containers are per-agent, not per-unit.
+- ADR [0027](../../decisions/0027-agent-image-conformance-contract.md) — the canonical statement of the wire contract and the three conformance paths.
+- [`docs/architecture/agent-runtime.md`](../../architecture/agent-runtime.md) — full architecture of the dispatcher, the launcher tiers, and the BYOI conformance section that this guide operationalises.
+- [`deployment/agent-sidecar/README.md`](../../../deployment/agent-sidecar/README.md) — bridge wire contract reference (response headers, JSON-RPC verbs, env defaults).
+- [`tests/scripts/smoke-agent-images.sh`](../../../tests/scripts/smoke-agent-images.sh) — the smoke driver for the in-tree images.

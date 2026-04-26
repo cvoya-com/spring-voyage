@@ -196,7 +196,7 @@ Notification events include:
 
 Two fast e2e scenarios cover the read-side surfaces this guide depends on:
 
-- [`fast/16-cost-api-shape.sh`](../../tests/e2e/scenarios/fast/16-cost-api-shape.sh) — asserts `/api/v1/costs/{agents,units,tenant}` return well-formed `CostSummary` payloads with zero counters for fresh entities and honour explicit `from`/`to` windows. The shape every cost-reading surface (`spring cost summary`, portal Costs tab, dashboard) relies on.
-- [`fast/17-activity-query-filters.sh`](../../tests/e2e/scenarios/fast/17-activity-query-filters.sh) — asserts `source`, `eventType`, `severity`, and `pageSize` on `/api/v1/activity` all narrow results correctly. The `spring activity list` CLI and the portal activity page both query through this endpoint.
+- [`fast/16-cost-api-shape.sh`](../../../tests/e2e/scenarios/fast/16-cost-api-shape.sh) — asserts `/api/v1/costs/{agents,units,tenant}` return well-formed `CostSummary` payloads with zero counters for fresh entities and honour explicit `from`/`to` windows. The shape every cost-reading surface (`spring cost summary`, portal Costs tab, dashboard) relies on.
+- [`fast/17-activity-query-filters.sh`](../../../tests/e2e/scenarios/fast/17-activity-query-filters.sh) — asserts `source`, `eventType`, `severity`, and `pageSize` on `/api/v1/activity` all narrow results correctly. The `spring activity list` CLI and the portal activity page both query through this endpoint.
 
 See [Runnable Examples](examples.md) for the full catalogue.

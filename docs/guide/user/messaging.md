@@ -2,7 +2,7 @@
 
 This guide covers how to send messages to agents, units, and humans on the Spring Voyage platform, how conversations form and evolve, and how to pick the right address for the job.
 
-For the internals — mailbox partitioning, cancellation semantics, pub/sub streaming — see [Messaging architecture](../architecture/messaging.md).
+For the internals — mailbox partitioning, cancellation semantics, pub/sub streaming — see [Messaging architecture](../../architecture/messaging.md).
 
 ## Concepts at a glance
 
@@ -10,7 +10,7 @@ Spring Voyage models every addressable participant — a named agent, a composit
 
 The platform does not inspect message content to decide routing; it reads the `To` scheme and path, looks the actor up in the directory, and delivers the message once. The actor on the receiving end — an `AgentActor`, `UnitActor`, `HumanActor`, or connector — is responsible for turning the payload into work.
 
-See [Messaging architecture — Addressing](../architecture/messaging.md#addressing) for the full routing model and [Messaging architecture — Agent Mailbox & Message Processing](../architecture/messaging.md#agent-mailbox--message-processing) for how an agent actually processes what it receives.
+See [Messaging architecture — Addressing](../../architecture/messaging.md#addressing) for the full routing model and [Messaging architecture — Agent Mailbox & Message Processing](../../architecture/messaging.md#agent-mailbox--message-processing) for how an agent actually processes what it receives.
 
 ## Sending a message from the CLI
 
@@ -66,7 +66,7 @@ A conversation is the platform's unit of correlated work. Every message carries 
   The platform cancels any in-flight dispatch, removes the active-conversation pointer from each participating agent, emits a `ConversationClosed` activity event (correlated to the conversation id), and promotes the next pending conversation. Closing an unknown id is a no-op so the call is safe to retry.
 - **Auto-close on dispatch failure (#1036).** When the dispatcher returns a non-zero `ExitCode` (e.g. container exit code 125 because the runtime image was missing), the agent now surfaces the failure rather than silently swallowing it: an `ErrorOccurred` event with the exit code + first stderr line is appended to the conversation, the failure response is still routed back to the original sender, and the conversation is cleared off the agent's active slot via the same path the explicit-close API uses. The agent unblocks and the next pending conversation is promoted automatically.
 
-See [Messaging architecture — Partitioned Mailbox with Priority Processing](../architecture/messaging.md#design-partitioned-mailbox-with-priority-processing) for the full lifecycle, including conversation suspension and multi-conversation scheduling.
+See [Messaging architecture — Partitioned Mailbox with Priority Processing](../../architecture/messaging.md#design-partitioned-mailbox-with-priority-processing) for the full lifecycle, including conversation suspension and multi-conversation scheduling.
 
 ### Replies, threading, and multi-turn responses
 
@@ -128,7 +128,7 @@ Two shapes are supported for the path portion:
 - **Path addresses** — human-readable, reflect the organisation's unit hierarchy (`agent://engineering-team/ada`, `agent://engineering-team/backend-team/ada`). Resolved via the directory. Permission checks are applied along the unit path.
 - **Direct addresses (`@<uuid>`)** — stable, independent of the agent's current unit (e.g. `agent://@f47ac10b-58cc-4372-a567-0e02b2c3d479`). Useful when scripts persist references and cannot tolerate hierarchy changes.
 
-See [Messaging architecture — Addressing](../architecture/messaging.md#addressing) for the resolution algorithm and permission model.
+See [Messaging architecture — Addressing](../../architecture/messaging.md#addressing) for the resolution algorithm and permission model.
 
 ## Cross-unit messaging
 
@@ -141,7 +141,7 @@ spring message send agent://research-team/kay "Please review the API design in P
 
 If `engineering-team` does not have permission to reach `agent://research-team/kay` (the receiving unit denies deep access, or the addressed member is private to its unit), the send returns a permission-denied error and the message never reaches the destination actor.
 
-See [Messaging architecture — Routing Mechanism](../architecture/messaging.md#routing-mechanism) for the boundary-resolution semantics.
+See [Messaging architecture — Routing Mechanism](../../architecture/messaging.md#routing-mechanism) for the boundary-resolution semantics.
 
 ## Tips
 
@@ -154,7 +154,7 @@ See [Messaging architecture — Routing Mechanism](../architecture/messaging.md#
 
 Two fast e2e scenarios exercise the messaging plumbing without needing an LLM backend:
 
-- [`fast/13-agent-domain-message.sh`](../../tests/e2e/scenarios/fast/13-agent-domain-message.sh) — sends a Domain message to an agent and verifies the `MessageReceived` activity event lands. Proves the router → actor → activity-bus path end-to-end.
-- [`fast/14-conversation-lifecycle.sh`](../../tests/e2e/scenarios/fast/14-conversation-lifecycle.sh) — starts a fresh conversation on an idle agent and verifies the three lifecycle events fire in order: `MessageReceived` → `ConversationStarted` → `StateChanged (Idle→Active)`.
+- [`fast/13-agent-domain-message.sh`](../../../tests/e2e/scenarios/fast/13-agent-domain-message.sh) — sends a Domain message to an agent and verifies the `MessageReceived` activity event lands. Proves the router → actor → activity-bus path end-to-end.
+- [`fast/14-conversation-lifecycle.sh`](../../../tests/e2e/scenarios/fast/14-conversation-lifecycle.sh) — starts a fresh conversation on an idle agent and verifies the three lifecycle events fire in order: `MessageReceived` → `ConversationStarted` → `StateChanged (Idle→Active)`.
 
-Scenario [`llm/20-message-human-to-agent.sh`](../../tests/e2e/scenarios/llm/20-message-human-to-agent.sh) (requires Ollama) drives the full human-to-agent round-trip through `spring message send`. See [Runnable Examples](examples.md) for the full catalogue.
+Scenario [`llm/20-message-human-to-agent.sh`](../../../tests/e2e/scenarios/llm/20-message-human-to-agent.sh) (requires Ollama) drives the full human-to-agent round-trip through `spring message send`. See [Runnable Examples](examples.md) for the full catalogue.

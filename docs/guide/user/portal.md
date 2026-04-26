@@ -20,7 +20,7 @@ Authentication uses the same token flow as the CLI: when the API Host is running
 
 ## Navigation and shell
 
-The left sidebar ([src/Cvoya.Spring.Web/src/components/sidebar.tsx](../../src/Cvoya.Spring.Web/src/components/sidebar.tsx)) is the top-level navigator. It exposes the following entries:
+The left sidebar ([src/Cvoya.Spring.Web/src/components/sidebar.tsx](../../../src/Cvoya.Spring.Web/src/components/sidebar.tsx)) is the top-level navigator. It exposes the following entries:
 
 | Portal route | What it shows | Primary CLI equivalent |
 |--------------|---------------|------------------------|
@@ -42,7 +42,7 @@ Detail pages (`/units/{id}`, `/agents/{id}`, `/conversations/{id}`) are reached 
 
 A theme toggle (light/dark) sits at the bottom of the sidebar. On mobile the sidebar collapses behind a hamburger button.
 
-A **Settings** trigger ([src/Cvoya.Spring.Web/src/components/sidebar.tsx](../../src/Cvoya.Spring.Web/src/components/sidebar.tsx)) opens a right-aligned drawer that collects the portal's cross-cutting configuration in one place. The drawer is focus-trapped, ESC-dismissable, and keyboard-reachable from any page. Panels are added via the portal extension registry — OSS ships four:
+A **Settings** trigger ([src/Cvoya.Spring.Web/src/components/sidebar.tsx](../../../src/Cvoya.Spring.Web/src/components/sidebar.tsx)) opens a right-aligned drawer that collects the portal's cross-cutting configuration in one place. The drawer is focus-trapped, ESC-dismissable, and keyboard-reachable from any page. Panels are added via the portal extension registry — OSS ships four:
 
 | Panel | What it does | Primary CLI equivalent |
 |-------|--------------|------------------------|
@@ -53,13 +53,13 @@ A **Settings** trigger ([src/Cvoya.Spring.Web/src/components/sidebar.tsx](../../
 
 Token create and revoke from inside the drawer are tracked as a separate follow-up (#557) so the "reveal once" primitive can be designed alongside the flow; use `spring auth token create <name>` / `spring auth token revoke <name>` until that lands.
 
-The **Tenant defaults** panel is the recommended post-deploy place to set LLM provider credentials. After the first `./deploy.sh up`, open the drawer, paste the Anthropic / OpenAI / Google key into the matching row, click **Set**, and every unit in the tenant immediately inherits the default — no container restart needed. Rotating re-posts via `PUT /api/v1/tenant/secrets/{name}`; clearing calls `DELETE`. See [Managing Secrets](secrets.md) for the full three-tier model and resolution order.
+The **Tenant defaults** panel is the recommended post-deploy place to set LLM provider credentials. After the first `./deploy.sh up`, open the drawer, paste the Anthropic / OpenAI / Google key into the matching row, click **Set**, and every unit in the tenant immediately inherits the default — no container restart needed. Rotating re-posts via `PUT /api/v1/tenant/secrets/{name}`; clearing calls `DELETE`. See [Managing Secrets](../operator/secrets.md) for the full three-tier model and resolution order.
 
 Hosted deployments extend the drawer with additional panels (members / RBAC, SSO, etc.) through the same registration surface — see `src/Cvoya.Spring.Web/src/lib/extensions/README.md`.
 
 ## Dashboard (`/`)
 
-The root page ([src/Cvoya.Spring.Web/src/app/page.tsx](../../src/Cvoya.Spring.Web/src/app/page.tsx)) is a three-column overview:
+The root page ([src/Cvoya.Spring.Web/src/app/page.tsx](../../../src/Cvoya.Spring.Web/src/app/page.tsx)) is a three-column overview:
 
 1. **Stats header** — four cards: `Units` (with counts of running / stopped / errored), `Agents`, `Total Cost`, and `System Health`. Health is `Healthy` when at least one unit exists and none are in `Error`; `Degraded` if any unit is `Error`; `No units` otherwise.
 2. **Units** — one card per registered unit with a status dot, display name, address, and relative registration time. Clicking a card navigates to the unit detail page at `/units/{name}`. When no units exist, this section shows a prominent "Create your first unit" call-to-action that links to `/units/create`.
@@ -78,7 +78,7 @@ spring activity list --limit 10
 
 ## Units list (`/units`)
 
-The Units page ([src/Cvoya.Spring.Web/src/app/units/page.tsx](../../src/Cvoya.Spring.Web/src/app/units/page.tsx)) lists every unit registered in the current tenant. Each row shows the display name, address, status badge, relative "Registered" time, and a trash icon that opens a confirmation dialog before deletion. A "New unit" button in the header routes to the create wizard at `/units/create`.
+The Units page ([src/Cvoya.Spring.Web/src/app/units/page.tsx](../../../src/Cvoya.Spring.Web/src/app/units/page.tsx)) lists every unit registered in the current tenant. Each row shows the display name, address, status badge, relative "Registered" time, and a trash icon that opens a confirmation dialog before deletion. A "New unit" button in the header routes to the create wizard at `/units/create`.
 
 | Action | Portal | CLI |
 |--------|--------|-----|
@@ -88,14 +88,14 @@ The Units page ([src/Cvoya.Spring.Web/src/app/units/page.tsx](../../src/Cvoya.Sp
 
 ## Create a unit (`/units/create`)
 
-The create flow ([src/Cvoya.Spring.Web/src/app/units/create/page.tsx](../../src/Cvoya.Spring.Web/src/app/units/create/page.tsx)) is a five-step wizard. The wizard drives the same `/api/v1/units` endpoints the CLI uses; anything created here is indistinguishable from a unit created with `spring unit create`.
+The create flow ([src/Cvoya.Spring.Web/src/app/units/create/page.tsx](../../../src/Cvoya.Spring.Web/src/app/units/create/page.tsx)) is a five-step wizard. The wizard drives the same `/api/v1/units` endpoints the CLI uses; anything created here is indistinguishable from a unit created with `spring unit create`.
 
 ### Top-level vs sub-unit creation (#1150)
 
 The same wizard creates both top-level units (parent = tenant) and sub-units of an existing parent.
 
 - **Top-level unit** — visit `/units/create` directly (e.g. via the **New unit** button on the Units list). The wizard does not send `parentUnitIds`; the server creates the unit at the tenant root.
-- **Sub-unit of an existing parent** — open the parent unit in the Explorer (`/units?node=<parent-id>`) and click **Create sub-unit** in the detail-pane action cluster ([unit-pane-actions.tsx](../../src/Cvoya.Spring.Web/src/components/units/unit-pane-actions.tsx)). The button routes to `/units/create?parent=<parent-id>`. The wizard reads the `parent` query string at mount, fetches the parent unit envelope to display its name in a banner on the Identity step, and threads `parentUnitIds: [<parent-id>]` + `isTopLevel: false` through every create-unit endpoint (scratch / template / YAML).
+- **Sub-unit of an existing parent** — open the parent unit in the Explorer (`/units?node=<parent-id>`) and click **Create sub-unit** in the detail-pane action cluster ([unit-pane-actions.tsx](../../../src/Cvoya.Spring.Web/src/components/units/unit-pane-actions.tsx)). The button routes to `/units/create?parent=<parent-id>`. The wizard reads the `parent` query string at mount, fetches the parent unit envelope to display its name in a banner on the Identity step, and threads `parentUnitIds: [<parent-id>]` + `isTopLevel: false` through every create-unit endpoint (scratch / template / YAML).
 
 The Identity-step banner exposes a **Clear (create top-level unit)** affordance so the operator can drop back to top-level creation without abandoning the wizard. Refreshing the page (`?parent=<id>`) keeps the parent context across the reload — the wizard's session-storage snapshot persists `parentUnitId` (#1132 + #1150).
 
@@ -109,9 +109,9 @@ The Identity-step banner exposes a **Clear (create top-level unit)** affordance 
 
 Collects the unit `name` (URL-safe lowercase/digits/hyphens), `display name`, `description`, execution `tool` (claude-code, codex, gemini, dapr-agent, custom), `hosting mode` (ephemeral or persistent), unit-level `image` + `runtime` defaults (#601 B-wide — inherited by member agents; see [Execution tab](#execution-601-b-wide)), and a UI `color`.
 
-**Provider dropdown is only shown when `tool = dapr-agent`** (#598). Claude Code, Codex, and Gemini hardcode their provider inside the tool CLI, so exposing a Provider dropdown on them would be misleading — the selection would have no runtime effect. See [`docs/architecture/agent-runtime.md`](../architecture/agent-runtime.md) for the full tool × provider matrix. When the `dapr-agent` + `ollama` combination is chosen, the model picker auto-populates from the connected Ollama server's `/api/tags` response.
+**Provider dropdown is only shown when `tool = dapr-agent`** (#598). Claude Code, Codex, and Gemini hardcode their provider inside the tool CLI, so exposing a Provider dropdown on them would be misleading — the selection would have no runtime effect. See [`docs/architecture/agent-runtime.md`](../../architecture/agent-runtime.md) for the full tool × provider matrix. When the `dapr-agent` + `ollama` combination is chosen, the model picker auto-populates from the connected Ollama server's `/api/tags` response.
 
-**The Model dropdown is always rendered for every tool that carries a known model catalog** (#641 — regression fix). Claude Code lists the Anthropic Claude models (`opus` / `sonnet` / `haiku` families), Codex lists the OpenAI chat-capable models, Gemini lists the Google Gemini models, and `dapr-agent` lists the models for the currently-selected provider. The catalog feeds the dropdown through `GET /api/v1/models/{provider}` with the tool-implied provider id (`claude-code` → `claude`, `codex` → `openai`, `gemini` → `google`) and falls back to the static list in [`src/Cvoya.Spring.Web/src/lib/ai-models.ts`](../../src/Cvoya.Spring.Web/src/lib/ai-models.ts) if the probe fails. `custom` is the only tool without a Model dropdown — custom launchers declare their own model contract, so forcing a choice from a known list would be wrong.
+**The Model dropdown is always rendered for every tool that carries a known model catalog** (#641 — regression fix). Claude Code lists the Anthropic Claude models (`opus` / `sonnet` / `haiku` families), Codex lists the OpenAI chat-capable models, Gemini lists the Google Gemini models, and `dapr-agent` lists the models for the currently-selected provider. The catalog feeds the dropdown through `GET /api/v1/models/{provider}` with the tool-implied provider id (`claude-code` → `claude`, `codex` → `openai`, `gemini` → `google`) and falls back to the static list in [`src/Cvoya.Spring.Web/src/lib/ai-models.ts`](../../../src/Cvoya.Spring.Web/src/lib/ai-models.ts) if the probe fails. `custom` is the only tool without a Model dropdown — custom launchers declare their own model contract, so forcing a choice from a known list would be wrong.
 
 **Credential section (#626).** The wizard derives which LLM provider actually needs an API key from the selected tool + provider, then shows one of four shapes:
 
@@ -209,7 +209,7 @@ Shows a summary of every field and submits.
 
 ## Unit detail (`/units/{id}`)
 
-The unit detail page ([src/Cvoya.Spring.Web/src/app/units/[id]/unit-config-client.tsx](../../src/Cvoya.Spring.Web/src/app/units/%5Bid%5D/unit-config-client.tsx)) is a tabbed workspace built on the unit-configuration API. The header carries the unit's color swatch, display name, address, a live status badge, and three lifecycle buttons:
+The unit detail page ([src/Cvoya.Spring.Web/src/app/units/[id]/unit-config-client.tsx](../../../src/Cvoya.Spring.Web/src/app/units/%5Bid%5D/unit-config-client.tsx)) is a tabbed workspace built on the unit-configuration API. The header carries the unit's color swatch, display name, address, a live status badge, and three lifecycle buttons:
 
 | Button | Portal behavior | CLI equivalent |
 |--------|-----------------|----------------|
@@ -229,7 +229,7 @@ Editable display name, description, model, and color. "Save" PATCHes the unit.
 
 ### Agents
 
-One row per membership ([agents-tab.tsx](../../src/Cvoya.Spring.Web/src/app/units/%5Bid%5D/agents-tab.tsx)). Each row shows the agent's display name, disabled/specialty badges, and per-membership overrides (`Model`, `Mode`, `agentAddress`). Actions:
+One row per membership ([agents-tab.tsx](../../../src/Cvoya.Spring.Web/src/app/units/%5Bid%5D/agents-tab.tsx)). Each row shows the agent's display name, disabled/specialty badges, and per-membership overrides (`Model`, `Mode`, `agentAddress`). Actions:
 
 | Action | Portal | CLI |
 |--------|--------|-----|
@@ -243,7 +243,7 @@ The membership dialog now supports both flows. Clicking **Add agent** opens the 
 
 ### Sub-units
 
-Lists every unit-scheme member of this unit ([sub-units-tab.tsx](../../src/Cvoya.Spring.Web/src/app/units/%5Bid%5D/sub-units-tab.tsx)). Add/remove dialogs wrap the scheme-agnostic member endpoints.
+Lists every unit-scheme member of this unit ([sub-units-tab.tsx](../../../src/Cvoya.Spring.Web/src/app/units/%5Bid%5D/sub-units-tab.tsx)). Add/remove dialogs wrap the scheme-agnostic member endpoints.
 
 | Action | Portal | CLI |
 |--------|--------|-----|
@@ -254,13 +254,13 @@ Lists every unit-scheme member of this unit ([sub-units-tab.tsx](../../src/Cvoya
 
 ### Skills
 
-Grid of per-agent skill toggles ([skills-tab.tsx](../../src/Cvoya.Spring.Web/src/app/units/%5Bid%5D/skills-tab.tsx)). Each checkbox fires `PUT /api/v1/agents/{id}/skills` with the agent's full skill list — optimistic update, reconciled on server response.
+Grid of per-agent skill toggles ([skills-tab.tsx](../../../src/Cvoya.Spring.Web/src/app/units/%5Bid%5D/skills-tab.tsx)). Each checkbox fires `PUT /api/v1/agents/{id}/skills` with the agent's full skill list — optimistic update, reconciled on server response.
 
 **CLI equivalent:** none today. **This is a CLI/UI parity gap.** You can declare skills in an agent YAML definition and reapply with `spring apply -f agent.yaml`.
 
 ### Policies
 
-Unified policy tab ([policies-tab.tsx](../../src/Cvoya.Spring.Web/src/app/units/%5Bid%5D/policies-tab.tsx)) covering all five `UnitPolicy` dimensions — **Skill**, **Model**, **Cost**, **Execution mode**, and **Initiative** — plus an **Effective policy** footer that previews the inheritance chain. Every panel has the same "allow list / block list / caps" shape: once you learn one, the others follow.
+Unified policy tab ([policies-tab.tsx](../../../src/Cvoya.Spring.Web/src/app/units/%5Bid%5D/policies-tab.tsx)) covering all five `UnitPolicy` dimensions — **Skill**, **Model**, **Cost**, **Execution mode**, and **Initiative** — plus an **Effective policy** footer that previews the inheritance chain. Every panel has the same "allow list / block list / caps" shape: once you learn one, the others follow.
 
 Edits route through `PUT /api/v1/units/{id}/policy`, the same surface the CLI's `spring unit policy <dim> set|clear` commands ride (PR #473). Per-dimension edits are merged — changing the Skill panel never wipes the Cost caps, and vice versa. A **Clear** button next to each panel removes just that dimension while leaving the others untouched.
 
@@ -277,10 +277,10 @@ The Cost panel links out to `/analytics/costs` so you can compare the caps again
 
 ### Orchestration
 
-Unit orchestration configuration tab ([orchestration-tab.tsx](../../src/Cvoya.Spring.Web/src/app/units/%5Bid%5D/orchestration-tab.tsx)) — #602 / #606. Surfaces the two slices that make up a unit's orchestration contract:
+Unit orchestration configuration tab ([orchestration-tab.tsx](../../../src/Cvoya.Spring.Web/src/app/units/%5Bid%5D/orchestration-tab.tsx)) — #602 / #606. Surfaces the two slices that make up a unit's orchestration contract:
 
 - **Strategy** — dropdown of the three platform-offered strategies (`ai`, `workflow`, `label-routed`) plus an **— inferred / default —** sentinel at the top of the list. Fully editable: picking a key issues `PUT /api/v1/units/{id}/orchestration` and selecting the sentinel issues `DELETE` so the resolver falls back through the precedence ladder. Writes hit the same `UnitDefinitions.Definition` JSON slot a `spring apply -f unit.yaml` manifest writes, so the two entry points stay wire-identical.
-- **Effective strategy** — read-only status line summarising the resolver's current answer per [ADR-0010](../decisions/0010-manifest-orchestration-strategy-selector.md): manifest key → `UnitPolicy.LabelRouting` inference → unkeyed platform default. All three hops are observable through the portal since #606 landed the `GET /api/v1/units/{id}/orchestration` surface.
+- **Effective strategy** — read-only status line summarising the resolver's current answer per [ADR-0010](../../decisions/0010-manifest-orchestration-strategy-selector.md): manifest key → `UnitPolicy.LabelRouting` inference → unkeyed platform default. All three hops are observable through the portal since #606 landed the `GET /api/v1/units/{id}/orchestration` surface.
 - **Label routing** — editable rules that the `label-routed` strategy consumes ([#389](https://github.com/cvoya-com/spring-voyage/issues/389)). Each rule is a `trigger label → target member path` pair; the add-rule form, inline row edits, `AddOnAssign` / `RemoveOnAssign` roundtrip inputs, and **Save** / **Clear** ride the existing `PUT /api/v1/units/{id}/policy` endpoint so the portal and CLI round-trip the same shape.
 
 | Slice | Portal | CLI |
@@ -294,7 +294,7 @@ Unit orchestration configuration tab ([orchestration-tab.tsx](../../src/Cvoya.Sp
 
 ### Expertise
 
-The Expertise tab ([components/expertise/unit-expertise-panel.tsx](../../src/Cvoya.Spring.Web/src/components/expertise/unit-expertise-panel.tsx)) renders two cards side-by-side:
+The Expertise tab ([components/expertise/unit-expertise-panel.tsx](../../../src/Cvoya.Spring.Web/src/components/expertise/unit-expertise-panel.tsx)) renders two cards side-by-side:
 
 - **Own expertise** — editable list of the unit's declared capabilities. Reads/writes `/api/v1/units/{id}/expertise/own`. The list is auto-seeded from the unit YAML's `expertise:` block on first activation (#488 / PR #498); operator edits are authoritative from that point forward. Matches `spring unit expertise set`.
 - **Effective (aggregated) expertise** — read-only view of the unit's recursively-composed expertise directory (#412 / PR #487). Each row shows the originating `agent://` or `unit://` address (click to open its detail page) and the depth from this unit to the origin. Matches `spring unit expertise aggregated`.
@@ -309,11 +309,11 @@ Saving the own-expertise list invalidates every aggregated view in the cache so 
 
 ### Connector
 
-Generic connector host ([connector-tab.tsx](../../src/Cvoya.Spring.Web/src/app/units/%5Bid%5D/connector-tab.tsx)) that delegates to a connector-specific component registered under a `typeSlug`. Currently the GitHub connector ships a UI:
+Generic connector host ([connector-tab.tsx](../../../src/Cvoya.Spring.Web/src/app/units/%5Bid%5D/connector-tab.tsx)) that delegates to a connector-specific component registered under a `typeSlug`. Currently the GitHub connector ships a UI:
 
 #### GitHub connector configuration
 
-The GitHub form ([connector-tab.tsx](../../src/Cvoya.Spring.Connector.GitHub/web/connector-tab.tsx)) collects:
+The GitHub form ([connector-tab.tsx](../../../src/Cvoya.Spring.Connector.GitHub/web/connector-tab.tsx)) collects:
 
 - **Repository** — single dropdown of `{owner}/{repo}` rows aggregated across every GitHub App installation visible to the current operator (sourced from `GET /api/v1/connectors/github/actions/list-repositories`). Picking a row carries its installation id along with `owner` and `repo`, so the operator never has to discover or paste an installation id by hand. Private repositories are tagged inline. If the list is empty, the portal shows an "Install App" banner with a deep-link to the platform's install URL (`/api/v1/connectors/github/install-url`).
 - **Default reviewer** — collaborators of the chosen repository, fetched on demand from `GET /api/v1/connectors/github/actions/list-collaborators`. Optional. When set, agents in this unit request the named login as the reviewer on PRs they open; per-call overrides still win when an agent passes a reviewer explicitly.
@@ -325,7 +325,7 @@ Saving POSTs `/api/v1/connectors/github/units/{unitId}/config` and registers the
 
 ### Secrets
 
-Unit-scoped secrets tab ([secrets-tab.tsx](../../src/Cvoya.Spring.Web/src/app/units/%5Bid%5D/secrets-tab.tsx)). Two modes:
+Unit-scoped secrets tab ([secrets-tab.tsx](../../../src/Cvoya.Spring.Web/src/app/units/%5Bid%5D/secrets-tab.tsx)). Two modes:
 
 - **Pass-through value** — plaintext is POSTed once and stored server-side. The portal never re-reads it. Only the secret name, scope, and creation timestamp are returned by the list endpoint.
 - **External reference** — store a pointer like `kv://vault/secret-id`; the server-side `ISecretResolver` dereferences it at use time.
@@ -345,7 +345,7 @@ Unit-scoped secrets tab ([secrets-tab.tsx](../../src/Cvoya.Spring.Web/src/app/un
 
 ### Boundary
 
-Unit-boundary configuration tab ([boundary-tab.tsx](../../src/Cvoya.Spring.Web/src/app/units/%5Bid%5D/boundary-tab.tsx)) — the portal half of PR-PLAT-BOUND-2 (#413). Surfaces the three dimensions of a unit's outside-facing view so an operator can pick which aggregated expertise entries are hidden, rewritten, or collapsed into a unit-level capability.
+Unit-boundary configuration tab ([boundary-tab.tsx](../../../src/Cvoya.Spring.Web/src/app/units/%5Bid%5D/boundary-tab.tsx)) — the portal half of PR-PLAT-BOUND-2 (#413). Surfaces the three dimensions of a unit's outside-facing view so an operator can pick which aggregated expertise entries are hidden, rewritten, or collapsed into a unit-level capability.
 
 The tab reads `GET /api/v1/units/{id}/boundary`, edits each dimension in place, and PUTs the full boundary on **Save boundary**. **Clear all rules** issues `DELETE` and returns the unit to the transparent default. An empty boundary renders a `Transparent` badge; any configured rule flips the badge to `Configured`.
 
@@ -367,7 +367,7 @@ The tab is **not** a per-dimension API — saving always PUTs the entire boundar
 
 ### Execution (#601 B-wide)
 
-Unit-level defaults for the container-runtime configuration member agents inherit: `image`, `runtime`, `tool`, `provider`, `model`. Implemented at [src/Cvoya.Spring.Web/src/app/units/[id]/execution-tab.tsx](../../src/Cvoya.Spring.Web/src/app/units/%5Bid%5D/execution-tab.tsx); the backend contract landed in PR #628.
+Unit-level defaults for the container-runtime configuration member agents inherit: `image`, `runtime`, `tool`, `provider`, `model`. Implemented at [src/Cvoya.Spring.Web/src/app/units/[id]/execution-tab.tsx](../../../src/Cvoya.Spring.Web/src/app/units/%5Bid%5D/execution-tab.tsx); the backend contract landed in PR #628.
 
 The tab reads `GET /api/v1/units/{id}/execution`, edits each field in place, and writes through `PUT /api/v1/units/{id}/execution` per field (partial update). A per-field **Clear** pill next to every input re-PUTs with the field set to `null` (the remaining fields carry through verbatim) or falls through to `DELETE` when the operator clears the last surviving field — matching PR #628's partial-update contract. A card-level **Clear all** button issues `DELETE` directly.
 
@@ -383,13 +383,13 @@ Each field is independently clearable — the editor lets an operator wipe just 
 
 Whenever Provider is visible and selected, the tab surfaces the credential-status banner reused from the wizard's Step 1 (PR #627): emerald "configured" pill when a secret resolves at unit or tenant scope, warning "not configured" pill otherwise with a deep-link to Settings → Tenant defaults.
 
-The **agent** detail page carries a symmetric **Execution** panel at [src/Cvoya.Spring.Web/src/app/agents/[id]/execution-panel.tsx](../../src/Cvoya.Spring.Web/src/app/agents/%5Bid%5D/execution-panel.tsx): same five fields plus the agent-exclusive **Hosting** dropdown (`ephemeral` / `persistent`). When an agent leaves a field blank and its owning unit has a default for that field, the input renders the inherited value as an italic grey placeholder (`inherited from unit: ghcr.io/...:v1`) so the operator sees the effective value without guessing; the help copy below the input repeats the value for screen readers. Clicking into the field clears the placeholder and lets the operator type their own override; leaving the field blank on save persists `null` on the agent block, and the dispatcher merges the unit default at dispatch (per PR #628). The owning unit is resolved from `agent.parentUnit` on the detail response and its execution defaults are fetched via `GET /api/v1/units/{unitId}/execution` (cached through TanStack Query).
+The **agent** detail page carries a symmetric **Execution** panel at [src/Cvoya.Spring.Web/src/app/agents/[id]/execution-panel.tsx](../../../src/Cvoya.Spring.Web/src/app/agents/%5Bid%5D/execution-panel.tsx): same five fields plus the agent-exclusive **Hosting** dropdown (`ephemeral` / `persistent`). When an agent leaves a field blank and its owning unit has a default for that field, the input renders the inherited value as an italic grey placeholder (`inherited from unit: ghcr.io/...:v1`) so the operator sees the effective value without guessing; the help copy below the input repeats the value for screen readers. Clicking into the field clears the placeholder and lets the operator type their own override; leaving the field blank on save persists `null` on the agent block, and the dispatcher merges the unit default at dispatch (per PR #628). The owning unit is resolved from `agent.parentUnit` on the detail response and its execution defaults are fetched via `GET /api/v1/units/{unitId}/execution` (cached through TanStack Query).
 
 **Save-time validation.** A save is rejected when an agent declares ephemeral hosting and no image is resolvable on either the agent or the unit. The portal surfaces the error inline with a link to whichever surface needs an image. The CLI mirrors the check at `set` time.
 
 ### Activity
 
-Unit-scoped activity feed ([activity-tab.tsx](../../src/Cvoya.Spring.Web/src/app/units/%5Bid%5D/activity-tab.tsx)) — pulls `/api/v1/activity?source=unit:{id}&pageSize=20`.
+Unit-scoped activity feed ([activity-tab.tsx](../../../src/Cvoya.Spring.Web/src/app/units/%5Bid%5D/activity-tab.tsx)) — pulls `/api/v1/activity?source=unit:{id}&pageSize=20`.
 
 **CLI equivalent:**
 
@@ -405,7 +405,7 @@ Shows the unit's running totals: total cost, input/output tokens, record count, 
 
 ## Connectors browser (`/connectors`)
 
-The connectors page ([src/Cvoya.Spring.Web/src/app/connectors/page.tsx](../../src/Cvoya.Spring.Web/src/app/connectors/page.tsx)) is the portal's mirror of `spring connector catalog`. It lists every `IConnectorType` registered with the host — one card per connector — showing the display name, slug, and short description. Cards link to a per-connector detail page at `/connectors/{slug}`.
+The connectors page ([src/Cvoya.Spring.Web/src/app/connectors/page.tsx](../../../src/Cvoya.Spring.Web/src/app/connectors/page.tsx)) is the portal's mirror of `spring connector catalog`. It lists every `IConnectorType` registered with the host — one card per connector — showing the display name, slug, and short description. Cards link to a per-connector detail page at `/connectors/{slug}`.
 
 When no connector packages are installed (i.e. the catalog is empty), the page shows a guided empty state pointing at `/packages` so operators can find the package catalog and learn how to add a connector package.
 
@@ -417,7 +417,7 @@ When no connector packages are installed (i.e. the catalog is empty), the page s
 
 ### Connector detail (`/connectors/{slug}`)
 
-The detail page ([src/Cvoya.Spring.Web/src/app/connectors/[type]/connector-detail-client.tsx](../../src/Cvoya.Spring.Web/src/app/connectors/%5Btype%5D/connector-detail-client.tsx)) renders four sections beneath a `<Breadcrumbs>` trail:
+The detail page ([src/Cvoya.Spring.Web/src/app/connectors/[type]/connector-detail-client.tsx](../../../src/Cvoya.Spring.Web/src/app/connectors/%5Btype%5D/connector-detail-client.tsx)) renders four sections beneath a `<Breadcrumbs>` trail:
 
 1. **Identity** — display name, slug, and stable `typeId` (the same id persisted with every binding).
 2. **Binds to** — the URL templates a unit binding writes to (`configUrl`) and the connector's actions base URL (`actionsBaseUrl`).
@@ -430,7 +430,7 @@ The Connector tab on the unit detail page also carries a **Details** deep-link b
 
 ## Agent creation (`/agents/create`)
 
-The standalone agent-create page ([src/Cvoya.Spring.Web/src/app/agents/create/page.tsx](../../src/Cvoya.Spring.Web/src/app/agents/create/page.tsx)) mirrors `spring agent create` field-for-field so the portal can drive the full registration flow without dropping to the CLI. It is the canonical surface for creating agents that need bespoke execution overrides; for the lightweight "create-and-add to this unit" path, use the **+ New agent** sub-mode of the unit Agents-tab dialog (see [Agents](#agents)).
+The standalone agent-create page ([src/Cvoya.Spring.Web/src/app/agents/create/page.tsx](../../../src/Cvoya.Spring.Web/src/app/agents/create/page.tsx)) mirrors `spring agent create` field-for-field so the portal can drive the full registration flow without dropping to the CLI. It is the canonical surface for creating agents that need bespoke execution overrides; for the lightweight "create-and-add to this unit" path, use the **+ New agent** sub-mode of the unit Agents-tab dialog (see [Agents](#agents)).
 
 | Field | Required | Maps to | CLI flag |
 |-------|----------|---------|----------|
@@ -458,7 +458,7 @@ spring agent create ada \
 
 ## Agents lens (`/agents`)
 
-The Agents list ([src/Cvoya.Spring.Web/src/app/agents/page.tsx](../../src/Cvoya.Spring.Web/src/app/agents/page.tsx)) is the tenant-wide roster view — a first-class peer to `/units` and `/conversations` (#450 / PR-S1 Sub-PR C). It reads the existing `GET /api/v1/agents` roster and filters client-side; the expertise filter runs through the shared `POST /api/v1/directory/search` endpoint so results ride the same ranking the CLI's `spring directory search` does.
+The Agents list ([src/Cvoya.Spring.Web/src/app/agents/page.tsx](../../../src/Cvoya.Spring.Web/src/app/agents/page.tsx)) is the tenant-wide roster view — a first-class peer to `/units` and `/conversations` (#450 / PR-S1 Sub-PR C). It reads the existing `GET /api/v1/agents` roster and filters client-side; the expertise filter runs through the shared `POST /api/v1/directory/search` endpoint so results ride the same ranking the CLI's `spring directory search` does.
 
 The filter bar carries five controls. Each maps to an existing CLI verb so the two surfaces never drift:
 
@@ -483,7 +483,7 @@ Hosting-mode (`ephemeral` / `persistent`) and initiative-level filters need the 
 
 ## Agent detail (`/agents/{id}`)
 
-The agent detail page ([src/Cvoya.Spring.Web/src/app/agents/[id]/page.tsx](../../src/Cvoya.Spring.Web/src/app/agents/%5Bid%5D/page.tsx)) renders a client view configured via `<AgentDetailClient>`. It is linked from the dashboard's Agents column and from the **Analytics → Costs** page (`/analytics/costs`). Use it to review an agent's metadata, budget, expertise, clones, and recent activity.
+The agent detail page ([src/Cvoya.Spring.Web/src/app/agents/[id]/page.tsx](../../../src/Cvoya.Spring.Web/src/app/agents/%5Bid%5D/page.tsx)) renders a client view configured via `<AgentDetailClient>`. It is linked from the dashboard's Agents column and from the **Analytics → Costs** page (`/analytics/costs`). Use it to review an agent's metadata, budget, expertise, clones, and recent activity.
 
 The detail page uses the same tabbed layout as unit detail (#604 / PR `feat-604-agent-detail-tabbed-layout`). Cards are split into four groups; the active tab rides on the `?tab=` query parameter so deep links and browser back/forward preserve the view:
 
@@ -496,7 +496,7 @@ The detail page uses the same tabbed layout as unit detail (#604 / PR `feat-604-
 
 The bare URL (`/agents/<id>`) opens the Runtime tab; `/agents/<id>?tab=settings` and the other values deep-link into the matching group. The trigger chrome ships from `src/components/ui/tabs.tsx`, so keyboard navigation (Arrow keys + Home/End), WAI-ARIA roles (`tablist` / `tab` / `tabpanel`), and the mobile `overflow-x-auto` wrap are inherited from the shared primitive.
 
-The page embeds an **Expertise** card ([components/expertise/agent-expertise-panel.tsx](../../src/Cvoya.Spring.Web/src/components/expertise/agent-expertise-panel.tsx)) that reads/writes `/api/v1/agents/{id}/expertise`. The domain list is auto-seeded from the agent YAML on first activation (#488 / PR #498); operator edits made in the panel become authoritative. Saving a new list also invalidates every unit's aggregated directory in the cache so ancestor unit pages pick up the change without a manual refresh.
+The page embeds an **Expertise** card ([components/expertise/agent-expertise-panel.tsx](../../../src/Cvoya.Spring.Web/src/components/expertise/agent-expertise-panel.tsx)) that reads/writes `/api/v1/agents/{id}/expertise`. The domain list is auto-seeded from the agent YAML on first activation (#488 / PR #498); operator edits made in the panel become authoritative. Saving a new list also invalidates every unit's aggregated directory in the cache so ancestor unit pages pick up the change without a manual refresh.
 
 | Action | Portal | CLI |
 |--------|--------|-----|
@@ -514,7 +514,7 @@ There is no portal flow for creating a brand-new agent today — use `spring age
 
 ### Persistent deployment panel
 
-Right under "Agent Info" the page carries a **Persistent deployment** panel ([lifecycle-panel.tsx](../../src/Cvoya.Spring.Web/src/app/agents/%5Bid%5D/lifecycle-panel.tsx)) that mirrors the `spring agent deploy / undeploy / scale / logs` verbs 1:1. The panel is rendered for every agent so the portal stays on the same surface as the CLI; ephemeral agents simply receive a `400` from the lifecycle endpoints, which the panel surfaces as a toast.
+Right under "Agent Info" the page carries a **Persistent deployment** panel ([lifecycle-panel.tsx](../../../src/Cvoya.Spring.Web/src/app/agents/%5Bid%5D/lifecycle-panel.tsx)) that mirrors the `spring agent deploy / undeploy / scale / logs` verbs 1:1. The panel is rendered for every agent so the portal stays on the same surface as the CLI; ephemeral agents simply receive a `400` from the lifecycle endpoints, which the panel surfaces as a toast.
 
 The header badge flips between **Running** (with a health pill: `healthy` / `unhealthy` / `unknown`) and **Not deployed**. When the agent is running, a details grid shows the image, endpoint, short container id, start time, consecutive health failures, and replica count.
 
@@ -531,7 +531,7 @@ Deployment status is kept fresh by the same activity SSE stream that drives the 
 
 ### Agent Execution panel
 
-Directly below the Persistent deployment panel, the detail page carries an **Execution** card ([execution-panel.tsx](../../src/Cvoya.Spring.Web/src/app/agents/%5Bid%5D/execution-panel.tsx)) that surfaces the agent's own `execution:` block — `image`, `runtime`, `tool`, `provider`, `model`, plus the agent-exclusive `hosting` slot. The card reads / writes `GET|PUT|DELETE /api/v1/agents/{id}/execution` (backend PR #628) with the same per-field clear semantics as the unit Execution tab.
+Directly below the Persistent deployment panel, the detail page carries an **Execution** card ([execution-panel.tsx](../../../src/Cvoya.Spring.Web/src/app/agents/%5Bid%5D/execution-panel.tsx)) that surfaces the agent's own `execution:` block — `image`, `runtime`, `tool`, `provider`, `model`, plus the agent-exclusive `hosting` slot. The card reads / writes `GET|PUT|DELETE /api/v1/agents/{id}/execution` (backend PR #628) with the same per-field clear semantics as the unit Execution tab.
 
 When the agent leaves a field blank AND the owning unit has a default for that field, the control renders the inherited value as an italic grey placeholder (`inherited from unit: ghcr.io/...:v1`). The help copy directly below the control repeats the value in plain text so screen readers can surface it. Clicking into a field clears the placeholder; typing persists the operator's override on save. Leaving the field blank on save writes `null` on the agent block — the dispatcher merges the unit default at runtime (per PR #628).
 
@@ -546,7 +546,7 @@ When the agent leaves a field blank AND the owning unit has a default for that f
 
 ## Directory (`/directory`)
 
-The directory page ([src/Cvoya.Spring.Web/src/app/directory/page.tsx](../../src/Cvoya.Spring.Web/src/app/directory/page.tsx)) is the tenant-wide expertise index. It fans out per-agent `GET /api/v1/agents/{id}/expertise` and per-unit `GET /api/v1/units/{id}/expertise/own` reads, flattens them into a single list, and exposes three filters:
+The directory page ([src/Cvoya.Spring.Web/src/app/directory/page.tsx](../../../src/Cvoya.Spring.Web/src/app/directory/page.tsx)) is the tenant-wide expertise index. It fans out per-agent `GET /api/v1/agents/{id}/expertise` and per-unit `GET /api/v1/units/{id}/expertise/own` reads, flattens them into a single list, and exposes three filters:
 
 - **Search** — free-text match against domain, description, and owner display name / id.
 - **Level** — `beginner` / `intermediate` / `advanced` / `expert`, or `Any`.
@@ -564,7 +564,7 @@ Each row shows the domain name, its level badge (when set), the description (whe
 
 ## Activity (`/activity`)
 
-The activity page ([src/Cvoya.Spring.Web/src/app/activity/page.tsx](../../src/Cvoya.Spring.Web/src/app/activity/page.tsx)) is a paginated view of all activity events in the tenant. Filters:
+The activity page ([src/Cvoya.Spring.Web/src/app/activity/page.tsx](../../../src/Cvoya.Spring.Web/src/app/activity/page.tsx)) is a paginated view of all activity events in the tenant. Filters:
 
 - **Source** — free-text, e.g. `unit:my-unit` or `agent:my-agent`.
 - **Event type** — dropdown across every event type the server emits (`MessageReceived`, `MessageSent`, `ConversationStarted`, `ConversationCompleted`, `DecisionMade`, `ErrorOccurred`, `StateChanged`, `InitiativeTriggered`, `ReflectionCompleted`, `WorkflowStepCompleted`, `CostIncurred`, `TokenDelta`).
@@ -584,7 +584,7 @@ spring activity list --limit 50
 
 ## Inbox (`/inbox`)
 
-The inbox page ([src/Cvoya.Spring.Web/src/app/inbox/page.tsx](../../src/Cvoya.Spring.Web/src/app/inbox/page.tsx)) is the one-to-one portal counterpart of `spring inbox list`. It lists conversations where the latest event is a `MessageReceived` targeting the current `human://` address and the human has not yet replied — a task queue, not an archive (see `docs/design/portal-exploration.md` § 3.4).
+The inbox page ([src/Cvoya.Spring.Web/src/app/inbox/page.tsx](../../../src/Cvoya.Spring.Web/src/app/inbox/page.tsx)) is the one-to-one portal counterpart of `spring inbox list`. It lists conversations where the latest event is a `MessageReceived` targeting the current `human://` address and the human has not yet replied — a task queue, not an archive (see `docs/design/portal-exploration.md` § 3.4).
 
 - **Card grid** — one `<InboxCard>` per row. Each card shows the summary, an `Awaiting you` warning badge, the `from` address (cross-linked to `/agents/{id}` or `/units/{id}` when applicable — `human://` senders render as plain monospace), the `timeAgo(pendingSince)` meta, and an "Open thread" deep-link to `/conversations/{id}`.
 - **No filters** — `spring inbox list` ships without filter flags today, so the portal surface exposes none either. Any future CLI filter grows the same knob on this page in the same PR (CONVENTIONS.md § 14 UI / CLI parity).
@@ -600,7 +600,7 @@ The inbox page ([src/Cvoya.Spring.Web/src/app/inbox/page.tsx](../../src/Cvoya.Sp
 
 ## Conversations (`/conversations`, `/conversations/{id}`)
 
-The conversations surface ([src/Cvoya.Spring.Web/src/app/conversations/](../../src/Cvoya.Spring.Web/src/app/conversations/)) is the chat-shaped projection over the activity event stream. A "conversation" is the set of activity events that share a `correlationId` (which the platform sets to the message envelope's `ConversationId` — see [Messaging — Conversation Surfaces](../architecture/messaging.md#conversation-surfaces)).
+The conversations surface ([src/Cvoya.Spring.Web/src/app/conversations/](../../../src/Cvoya.Spring.Web/src/app/conversations)) is the chat-shaped projection over the activity event stream. A "conversation" is the set of activity events that share a `correlationId` (which the platform sets to the message envelope's `ConversationId` — see [Messaging — Conversation Surfaces](../../architecture/messaging.md#conversation-surfaces)).
 
 ### List (`/conversations`)
 
@@ -644,7 +644,7 @@ The thread page is the one-to-one portal counterpart of `spring conversation sho
 
 ## Initiative (`/initiative`)
 
-The initiative page ([src/Cvoya.Spring.Web/src/app/initiative/page.tsx](../../src/Cvoya.Spring.Web/src/app/initiative/page.tsx)) lists every agent with its current initiative `level` and policy `maxLevel`. Clicking an agent opens an inline policy editor where you set:
+The initiative page ([src/Cvoya.Spring.Web/src/app/initiative/page.tsx](../../../src/Cvoya.Spring.Web/src/app/initiative/page.tsx)) lists every agent with its current initiative `level` and policy `maxLevel`. Clicking an agent opens an inline policy editor where you set:
 
 - **Max level** (`Passive`, `Attentive`, `Proactive`, `Autonomous`).
 - **Require unit approval** (checkbox).
@@ -657,7 +657,7 @@ The bottom of the page streams recent `InitiativeTriggered` / `ReflectionComplet
 
 ## System configuration (`/system/configuration`)
 
-The system-configuration page ([src/Cvoya.Spring.Web/src/app/system/configuration/page.tsx](../../src/Cvoya.Spring.Web/src/app/system/configuration/page.tsx)) renders the cached startup configuration report produced by the platform's tier-1 validator (issue #616). Operators land on it to answer "is the platform deployed correctly?" without reading container logs.
+The system-configuration page ([src/Cvoya.Spring.Web/src/app/system/configuration/page.tsx](../../../src/Cvoya.Spring.Web/src/app/system/configuration/page.tsx)) renders the cached startup configuration report produced by the platform's tier-1 validator (issue #616). Operators land on it to answer "is the platform deployed correctly?" without reading container logs.
 
 - **Overall card** — badge (Healthy / Degraded / Failed) plus the `generatedAt` timestamp. The timestamp does not move until the host restarts — the validator caches the report at boot and never re-runs.
 - **Per-subsystem cards** — collapsible sections, one per subsystem (Database, GitHub Connector, Ollama, …). Cards for subsystems that aren't Healthy expand by default so degradation is visible without a click.
@@ -678,7 +678,7 @@ Both surfaces read `GET /api/v1/system/configuration` — anonymous in the OSS b
 
 ## Analytics (`/analytics`)
 
-The Analytics surface ([src/Cvoya.Spring.Web/src/app/analytics/](../../src/Cvoya.Spring.Web/src/app/analytics/)) is the portal's operational-health lens. It has three tabs that share a window picker (24h / 7d / 30d) and a unit/agent scope filter. All three map 1:1 to `spring analytics` CLI subcommands.
+The Analytics surface ([src/Cvoya.Spring.Web/src/app/analytics/](../../../src/Cvoya.Spring.Web/src/app/analytics)) is the portal's operational-health lens. It has three tabs that share a window picker (24h / 7d / 30d) and a unit/agent scope filter. All three map 1:1 to `spring analytics` CLI subcommands.
 
 ### Costs (`/analytics/costs`)
 
@@ -785,8 +785,8 @@ Parity is a project norm (see the top-level `AGENTS.md`): any time you find your
 
 ## Related reading
 
-- [Getting Started](getting-started.md) — end-to-end setup with the CLI.
+- [Getting Started](../intro/getting-started.md) — end-to-end setup with the CLI.
 - [Managing Units and Agents](units-and-agents.md) — deeper CLI reference.
 - [Observing Activity](observing.md) — activity/cost patterns (note: describes target-state CLI commands, some of which are still in flight).
 - [Declarative Configuration](declarative.md) — YAML authoring and `spring apply`.
-- Architecture: [CLI & Web](../architecture/cli-and-web.md).
+- Architecture: [CLI & Web](../../architecture/cli-and-web.md).
