@@ -57,10 +57,10 @@ Actors and workflows have meaningful differences for this use case:
 - **Dapr Workflow dependency for a first-class user journey.** Previously workflows were only for "domain workflows in containers" ([ADR 0019](0019-workflow-as-container.md)); now they also sit on the unit accept path. If Dapr Workflows are unhealthy, unit creation cannot complete. Mitigated by the `/revalidate` retry surface and by keeping the activities individually short / idempotent.
 - **Progress latency.** The CLI poll loop queries the unit's status; SSE is available in the portal. Neither is sub-second; the workflow's step boundaries are the observable cadence.
 
-### Known follow-ups (V2.1)
+### Known follow-ups
 
 - **[#952](https://github.com/cvoya-com/spring-voyage/issues/952)** — extract the probe-running activities into a `spring-probe-worker` service, so the worker host doesn't carry the container-runtime ownership. Mirrors the `spring-dispatcher` extraction ([ADR 0012](0012-spring-dispatcher-service-extraction.md)).
-- **[#956](https://github.com/cvoya-com/spring-voyage/issues/956)** — switch actor-remoting enum serialization to by-name so a v2.1 release can extend `UnitValidationStep` / `UnitValidationCodes` without wire churn.
+- **[#956](https://github.com/cvoya-com/spring-voyage/issues/956)** — switch actor-remoting enum serialization to by-name so a later release can extend `UnitValidationStep` / `UnitValidationCodes` without wire churn.
 - **[#965](https://github.com/cvoya-com/spring-voyage/issues/965)** — finer-grained per-step CLI progress output (today the `--wait` loop polls terminal state; per-step streaming needs a richer progress channel).
 
 ## Revisit criteria
