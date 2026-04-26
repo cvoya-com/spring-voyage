@@ -110,7 +110,69 @@ Agent containers running on the per-tenant network call into the platform via **
 3. Commit the regenerated spec. CI's `openapi-drift` job will reject the PR otherwise.
 4. The CLI's Kiota client and the portal's TypeScript types regenerate on the next build / dev / test invocation — no manual step.
 5. If the endpoint changes the *operator vs tenant* posture, mention it in the PR body so the [#1247](https://github.com/cvoya-com/spring-voyage/issues/1247) audit captures it.
-6. If the endpoint introduces a breaking change to an existing one, see the deprecation policy ([#1249](https://github.com/cvoya-com/spring-voyage/issues/1249) — pending).
+6. If the endpoint introduces a breaking change to an existing one, see [Versioning and deprecation](#versioning-and-deprecation) below — breaking changes don't ship inside `v1`.
+
+## Versioning and deprecation
+
+The contract for how `v1` evolves and what triggers `v2`. This applies to every endpoint under `/api/v1/...` once it has shipped at least once on `main`.
+
+### Stability levels
+
+There are exactly two:
+
+- **Stable** — every endpoint under `/api/v1/`. Conforming consumers can rely on its shape, status codes, and behaviour for the lifetime of `v1`.
+- **Removed** — gone from `v1`; lives only in the next major (`v2`) if at all.
+
+There is no `experimental`, no `beta`, no `preview` tier. Ship endpoints when they're stable. If a feature genuinely needs to be tested in production before commitment, file an ADR proposing how to do that without polluting `/api/v1/`.
+
+### What counts as a breaking change
+
+Any change that can break a conforming consumer, including:
+
+- Removing an endpoint, route, or query parameter.
+- Removing a property from a response schema.
+- Adding a *required* property to a request schema.
+- Changing the type of a request or response property (including narrowing — e.g. `string | null` → `string`).
+- Changing the meaning of an existing field, status code, or error envelope.
+- Tightening validation on an existing request (rejecting input that was previously accepted).
+
+Anything that breaks a consumer that was correct against the previous spec is breaking. When in doubt, treat it as breaking.
+
+### What is *not* a breaking change
+
+- Adding a new endpoint.
+- Adding an *optional* property to a request schema.
+- Adding a property to a response schema (consumers must ignore unknown properties).
+- Adding a new status code that maps to a new condition the consumer wouldn't have hit before.
+- Adding a new enum value (consumers must ignore unknown values; the spec encodes this by listing only known values without forbidding others).
+
+These are additive and ship inside `v1` without a version bump.
+
+### v1 is strictly additive
+
+`v1` does **not** evolve through minor versions in the URL space. There is no `/api/v1.1/...`. Every additive change ships transparently to consumers; every breaking change waits for `v2`.
+
+If `v2` happens, it lives at `/api/v2/...` parallel to `v1` for the duration of the `v1` deprecation window. Consumers migrate at their own pace; the platform doesn't switch them. The shape of `v2` is out of scope for this document — file an ADR when proposing it.
+
+### Deprecation signals
+
+When an endpoint is scheduled for removal in the next major:
+
+1. **OpenAPI flag.** Mark the operation with `deprecated: true` in the spec. The build emits this from C# attributes — annotate the endpoint with `[Obsolete("Removed in v2; use /api/v2/...")]` (or the equivalent route metadata).
+2. **HTTP response header.** Every response from a deprecated endpoint includes `Deprecation: true` and `Sunset: <RFC 8594 date>` pointing at the planned removal date.
+3. **CLI / portal surface.** The Kiota client and `openapi-typescript` types pick the `deprecated` flag up automatically on the next build. CLI command help should warn when invoking a deprecated path; portal data hooks should log a deprecation notice in non-production builds.
+
+### Sunset window
+
+A deprecated endpoint stays available for **at least 90 days** after the deprecation lands on `main`. Removal happens in `v2`, never inside `v1`. Consumers see deprecation flags and `Sunset` headers throughout the window so they can plan migration.
+
+If an endpoint must be removed before the 90-day window is up (security incident, severe data exposure), the removal is treated as a breaking-change carve-out and gets a security advisory rather than a normal release note. This should be very rare.
+
+### Practical consequences
+
+- A PR that touches a public endpoint shape **and** doesn't deprecate the previous shape is a breaking-change PR; reviewers should reject it for `v1`.
+- The `openapi-drift` CI job catches accidental shape changes; reviewers catch intentional ones.
+- The freeze of `v1` for v0.1 ([#1250](https://github.com/cvoya-com/spring-voyage/issues/1250)) commits the platform to this policy; once v0.1 ships, breaking the policy means breaking real consumers.
 
 ## Cross-references
 
