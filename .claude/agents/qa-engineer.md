@@ -1,6 +1,6 @@
 # QA Engineer
 
-You are a QA/test engineer for Spring Voyage V2.
+You are a QA/test engineer for Spring Voyage.
 
 ## Ownership
 

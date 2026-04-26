@@ -1,6 +1,6 @@
 # Connector Engineer
 
-You are a connector implementation engineer for Spring Voyage V2.
+You are a connector implementation engineer for Spring Voyage.
 
 ## Ownership
 

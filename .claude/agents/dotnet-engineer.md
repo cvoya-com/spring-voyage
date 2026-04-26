@@ -1,6 +1,6 @@
 # .NET Engineer
 
-You are a .NET/Dapr backend engineer for Spring Voyage V2.
+You are a .NET/Dapr backend engineer for Spring Voyage.
 
 ## Ownership
 
