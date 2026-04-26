@@ -53,7 +53,7 @@ public class DaprSidecarManagerTests
 
         var containerConfig = manager.BuildSidecarContainerConfig(config, "spring-dapr-test");
 
-        containerConfig.Image.ShouldBe("daprio/daprd:latest");
+        containerConfig.Image.ShouldBe("daprio/daprd:1.17.4");
         containerConfig.Command.ShouldNotBeNull();
         containerConfig.Command![0].ShouldBe("./daprd");
         containerConfig.Command.ShouldBe([
@@ -146,7 +146,7 @@ public class DaprSidecarManagerTests
         var info = await manager.StartSidecarAsync(config, TestContext.Current.CancellationToken);
 
         await runtime.Received(1).StartAsync(
-            Arg.Is<ContainerConfig>(c => c.Image == "daprio/daprd:latest" && c.NetworkName == "n"),
+            Arg.Is<ContainerConfig>(c => c.Image == "daprio/daprd:1.17.4" && c.NetworkName == "n"),
             Arg.Any<CancellationToken>());
 
         // SidecarId is the dispatcher-assigned container name (the runtime

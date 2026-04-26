@@ -102,6 +102,17 @@ public class DaprAgentLauncher(
             // PR 5 cuts the dispatcher over to the new field.
             ["AGENT_PORT"] = DefaultAgentPort.ToString(),
             ["DAPR_AGENT_PORT"] = DefaultAgentPort.ToString(),
+            // The Python `dapr` SDK defaults its gRPC client deadline to
+            // 60 s (`DAPR_API_TIMEOUT_SECONDS`); the Conversation Alpha2
+            // unary call inherits that deadline. With ~58 MCP tool
+            // schemas in the prompt, llama3.2:3b on CPU takes far longer
+            // than 60 s to produce its first response, so the call hits
+            // the deadline and returns `DEADLINE_EXCEEDED` /
+            // `Received RST_STREAM with error code 8` before the agent's
+            // loop can make progress. 600 s gives Ollama on a slow CPU
+            // enough headroom for a single LLM turn while still bounding
+            // a hung sidecar.
+            ["DAPR_API_TIMEOUT_SECONDS"] = "600",
         };
 
         // Pass the Ollama base URL so the Dapr Conversation component inside

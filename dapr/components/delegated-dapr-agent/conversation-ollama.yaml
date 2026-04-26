@@ -1,5 +1,21 @@
 # Dapr Conversation → Ollama (OpenAI-compatible). The Python agent's
 # dapr_agents DaprChatClient uses component name llm-provider.
+#
+# Notes on metadata values:
+#   * Dapr does NOT do POSIX-style `${VAR:-default}` substitution in
+#     component YAML — daprd treats the literal string as the value
+#     and the conversation call then fails at the OpenAI URL parser
+#     with "first path segment in URL cannot contain colon". The values
+#     below are hardcoded to match the OSS deploy.sh topology
+#     (`spring-ollama` dual-attached to the tenant network, default
+#     model pulled into Ollama at deploy time). Operators who change
+#     the model or move Ollama off the tenant bridge should regenerate
+#     this profile rather than reach for env-var interpolation here.
+#
+#   * `model` lives on the Conversation component (dapr-agents 1.x
+#     dropped the per-call model kwarg from `DaprChatClient`); the
+#     agent's `SPRING_MODEL` env var is kept for telemetry and the
+#     A2A agent card description, but it does not flow into daprd.
 apiVersion: dapr.io/v1alpha1
 kind: Component
 metadata:
@@ -11,6 +27,6 @@ spec:
   - name: key
     value: "ollama"
   - name: model
-    value: "${SPRING_MODEL:-llama3.2:3b}"
+    value: "llama3.2:3b"
   - name: endpoint
-    value: "${OLLAMA_ENDPOINT:-http://spring-ollama:11434/v1}"
+    value: "http://spring-ollama:11434/v1"

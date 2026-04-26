@@ -112,7 +112,15 @@ public class ProcessContainerRuntime(
     /// <returns>The identifier of the started container.</returns>
     public async Task<string> StartAsync(ContainerConfig config, CancellationToken ct = default)
     {
-        var containerName = $"spring-persistent-{Guid.NewGuid():N}";
+        // Caller-provided name wins (the lifecycle uses this so the daprd
+        // sidecar can dial the agent container by DNS via
+        // `--app-channel-address`; see DaprSidecarConfig.AppChannelAddress
+        // and ContainerLifecycleManager.LaunchWithSidecarDetachedAsync).
+        // Fall back to a fresh `spring-persistent-<guid>` so legacy callers
+        // that don't care about a stable name keep working.
+        var containerName = string.IsNullOrWhiteSpace(config.ContainerName)
+            ? $"spring-persistent-{Guid.NewGuid():N}"
+            : config.ContainerName;
         var arguments = BuildStartArguments(config, containerName);
 
         _logger.LogInformation(

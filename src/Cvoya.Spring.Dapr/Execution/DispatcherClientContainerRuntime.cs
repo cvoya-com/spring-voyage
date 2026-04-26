@@ -411,6 +411,7 @@ public class DispatcherClientContainerRuntime(
                 ? null
                 : new Dictionary<string, string>(config.Labels),
             ExtraHosts = config.ExtraHosts,
+            ContainerName = config.ContainerName,
             Detached = detached,
             Workspace = config.Workspace is { } ws
                 ? new DispatcherWorkspace
@@ -477,6 +478,7 @@ public class DispatcherClientContainerRuntime(
 
         public IDictionary<string, string>? Labels { get; init; }
         public IReadOnlyList<string>? ExtraHosts { get; init; }
+        public string? ContainerName { get; init; }
         public bool Detached { get; init; }
 
         /// <summary>

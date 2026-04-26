@@ -239,6 +239,21 @@ public class DaprSidecarManager(
             commandParts.Add(sh);
         }
 
+        if (config.AppChannelAddress is { Length: > 0 } aca)
+        {
+            // daprd defaults the app channel to its own loopback (127.0.0.1).
+            // That works for the sidecar pattern where app + sidecar share a
+            // network namespace; in our setup the agent container and the
+            // daprd sidecar are *separate* containers on the same bridge,
+            // so daprd has to dial the agent by its bridge DNS name. The
+            // lifecycle manager pre-allocates the agent container name and
+            // hands it to us here. Without this, daprd loops on
+            // "waiting for application to listen on port {AppPort}" forever
+            // and every conversation call returns RST_STREAM cancelled.
+            commandParts.Add("--app-channel-address");
+            commandParts.Add(aca);
+        }
+
         if (config.DaprConfigFilePath is { Length: > 0 } dcfp)
         {
             mounts.Add($"{dcfp}:/config/config.yaml:ro");
