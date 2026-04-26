@@ -39,6 +39,7 @@ jobs:
       workflows: ${{ steps.filter.outputs.workflows }}
       dispatcher_host: ${{ steps.filter.outputs.dispatcher_host }}
       agent_images: ${{ steps.filter.outputs.agent_images }}
+      docs: ${{ steps.filter.outputs.docs }}
     steps:
       - uses: actions/checkout@v6
 
@@ -100,6 +101,11 @@ jobs:
               # Dockerfile + a `npm pack` tarball of the in-tree sidecar,
               # so the job needs to re-run when either side changes.
               - 'tests/fixtures/byoi-path2/**'
+            docs:
+              - 'docs/**'
+              - '!docs/decisions/**'
+              - '!docs/plan/**'
+              - '!docs/roadmap/**'
 
   build:
     name: Build
@@ -324,6 +330,39 @@ jobs:
       - name: Validate connector web submodules
         shell: bash
         run: bash scripts/validate-connector-web.sh
+
+  docs-evergreen-framing:
+    name: Lint docs (evergreen framing)
+    runs-on: ubuntu-latest
+    needs: changes
+    # Skipped in the merge queue — pure intra-repo grep with no external deps.
+    if: >
+      github.event_name != 'merge_group' &&
+      (needs.changes.outputs.docs == 'true' || needs.changes.outputs.workflows == 'true')
+    timeout-minutes: 2
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Reject pinned-version framing in user-facing docs
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Docs are evergreen — they should reflect the system in the repo,
+          # not a pinned release tag. Version pins (V2, V2.1, etc.) belong
+          # in ADRs (docs/decisions/) and release plans (docs/plan/), and
+          # only there. The path filter excludes those directories upstream;
+          # this grep is a belt-and-braces check.
+          set +e
+          hits=$(grep -rEn --include='*.md'             --exclude-dir=decisions --exclude-dir=plan --exclude-dir=roadmap             'V2|V2\.1' docs/)
+          set -e
+          if [ -n "$hits" ]; then
+            echo "::error::Pinned-version framing (V2 / V2.1) found in user-facing docs."
+            echo "Move the version reference into docs/decisions/ or docs/plan/, or rephrase to be evergreen."
+            echo
+            echo "$hits"
+            exit 1
+          fi
 
   web-lint:
     name: Lint web (ESLint)
@@ -942,6 +981,7 @@ jobs:
       - dispatcher-smoke
       - audit-no-container-cli
       - agent-images-smoke
+      - docs-evergreen-framing
     # Always runs - branch protection depends on a single "Required checks"
     # context, so this job must report a status even when upstream jobs were
     # path-filtered out.
@@ -971,6 +1011,7 @@ jobs:
           DISPATCHER_SMOKE_RESULT: ${{ needs.dispatcher-smoke.result }}
           AUDIT_RESULT: ${{ needs.audit-no-container-cli.result }}
           AGENT_IMAGES_RESULT: ${{ needs.agent-images-smoke.result }}
+          DOCS_FRAMING_RESULT: ${{ needs.docs-evergreen-framing.result }}
           CHANGES_RESULT: ${{ needs.changes.result }}
         run: |
           echo "changes=$CHANGES_RESULT"
@@ -993,6 +1034,7 @@ jobs:
           echo "dispatcher-smoke=$DISPATCHER_SMOKE_RESULT"
           echo "audit-no-container-cli=$AUDIT_RESULT"
           echo "agent-images-smoke=$AGENT_IMAGES_RESULT"
+          echo "docs-evergreen-framing=$DOCS_FRAMING_RESULT"
 
           # The 'changes' gate itself must have run cleanly - if path detection
           # failed we can't trust the skip decisions downstream.
@@ -1025,3 +1067,4 @@ jobs:
           ok "$DISPATCHER_SMOKE_RESULT" || { echo "::error::dispatcher-smoke failed"; exit 1; }
           ok "$AUDIT_RESULT"            || { echo "::error::audit-no-container-cli failed"; exit 1; }
           ok "$AGENT_IMAGES_RESULT"     || { echo "::error::agent-images-smoke failed"; exit 1; }
+          ok "$DOCS_FRAMING_RESULT"     || { echo "::error::docs-evergreen-framing failed"; exit 1; }
