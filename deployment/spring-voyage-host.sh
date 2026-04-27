@@ -356,6 +356,13 @@ cmd_start() {
         export DOTNET_CLI_TELEMETRY_OPTOUT=true
         export Dispatcher__WorkspaceRoot="${WORKSPACE_ROOT}"
         export "Dispatcher__Tokens__${TOKEN}__TenantId=${TENANT}"
+        # daprd for tool=dapr-agent bind-mounts this directory from the host. The
+        # repo's dapr/components/delegated-dapr-agent is the OSS source; do not
+        # use /dapr/... (image-only) — Podman will fail with statfs (#1197 follow-up).
+        _delegated_components="${REPO_ROOT}/dapr/components/delegated-dapr-agent"
+        if [[ -d "${_delegated_components}" ]]; then
+            export "Dapr__Sidecar__DelegatedDaprAgentComponentsPath=${_delegated_components}"
+        fi
         # Pass through any caller-set ContainerRuntime__* / Logging__*
         # values so operators can tune the dispatcher without re-editing
         # this script.
