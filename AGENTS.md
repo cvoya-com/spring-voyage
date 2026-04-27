@@ -67,6 +67,7 @@ The private repo extends the OSS platform through dependency injection:
 - **Don't bypass `ITenantContext`.** Resolve the current tenant through `ITenantContext.CurrentTenantId`; never hardcode `"default"` or assume only one tenant exists. New persisted entities that should be tenant-scoped must implement `ITenantScopedEntity` so the cloud host can enforce isolation through its scoped overrides.
 - **Don't make services static or use singletons outside DI.** Everything must go through the container so the private repo can control lifetime and scoping.
 - **Don't create internal types that the private repo would need to access.** If a type is part of the extension contract, make it `public`. Use `internal` only for true implementation details.
+- **Don't reference private repo issues, PRs, or branches.** It is fine to acknowledge that a Spring Voyage hosted service exists, but do not link to or create dependencies on `cvoya-com/spring` issues or PRs from this repo. The dependency direction is one-way: the private repo may reference this repo's work, not the reverse.
 
 ### Built-in agent runtimes
 
@@ -111,7 +112,11 @@ When a new admin surface lands, append a bullet to this list — **this section 
 ## Concurrent Agents
 
 Multiple agents work on v2 simultaneously. Rules:
-- Always use worktree isolation.
+- Each agent must operate in its own dedicated worktree — never share a worktree between agents.
 - Small, focused PRs — one issue per PR.
 - Rebase onto `main` before merging.
 - When adding to shared files (`StateKeys`, DI registrations, enums) — append to the end.
+
+## Repository Configuration
+
+`.claude/settings.local.json` is gitignored and is the correct place for user-specific tooling (MCP servers, design tools, personal preferences). Do not add user-specific tool configuration to committed repo files (`settings.json`, agent definitions, or CLAUDE.md). Repo-level config should reflect project requirements shared by all contributors, not individual workflow preferences.

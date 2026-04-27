@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(build)",
+      "Skill(test)",
+      "Skill(lint)"
+    ]
+  },
+  "enabledPlugins": {
+    "csharp-lsp@claude-plugins-official": true,
+    "typescript-lsp@claude-plugins-official": true,
+    "pyright-lsp@claude-plugins-official": true
+  }
+}
