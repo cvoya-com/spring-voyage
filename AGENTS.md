@@ -84,6 +84,20 @@ Operational surfaces (agent-runtime config, connector config, credential health,
 
 User-facing features remain strictly parity-bound — see [`CONVENTIONS.md`](CONVENTIONS.md) § "UI / CLI Feature Parity".
 
+## GitHub writes (commit, push, PR)
+
+Every git/GitHub write operation goes through the `gh-app` CLI — including **the commit itself**, not just push and PR creation:
+
+```bash
+gh-app commit -- -m "..."                  # author/committer = the bot
+gh-app push                                # push current HEAD as the bot
+gh-app pr create -- --title "..." --body "..."
+```
+
+Use `gh-app commit` for **every** commit the agent makes on a branch, not just the final one. Bare `git commit` will record the operator's email as author, and branch rules with `require_last_push_approval: true` check the commit author when deciding whether the operator's approval counts. One operator-authored commit pushed via `gh-app push` still blocks the operator's approval as self-approval, leaving the PR stuck on `BLOCKED` / `REVIEW_REQUIRED`.
+
+`/commit` and `/commit-push-pr` skills should also go through `gh-app commit` rather than bare `git commit`.
+
 ## Agents, Sub-agents, concurrent agents
 
 Multiple coding agents work on this codebase simultaneously.
