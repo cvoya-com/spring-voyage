@@ -10,6 +10,7 @@ using System.Text.Json;
 using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.State;
 using Cvoya.Spring.Host.Api.Models;
 
 using NSubstitute;
@@ -53,7 +54,7 @@ public class ConnectorEndpointsTests : IClassFixture<CustomWebApplicationFactory
         // prior installs may be present. Prime the stub and assert the
         // envelope contains it — not the exact array length.
         var ct = TestContext.Current.CancellationToken;
-        await EnsureStubInstalledAsync(ct);
+        await EnsureStubBoundAsync(ct);
 
         var response = await _client.GetAsync("/api/v1/tenant/connectors", ct);
 
@@ -68,7 +69,7 @@ public class ConnectorEndpointsTests : IClassFixture<CustomWebApplicationFactory
     public async Task GetConnector_BySlug_WhenInstalled_ReturnsInstalledEnvelope()
     {
         var ct = TestContext.Current.CancellationToken;
-        await EnsureStubInstalledAsync(ct);
+        await EnsureStubBoundAsync(ct);
 
         var response = await _client.GetAsync("/api/v1/tenant/connectors/stub", ct);
 
@@ -85,7 +86,7 @@ public class ConnectorEndpointsTests : IClassFixture<CustomWebApplicationFactory
     public async Task GetConnector_ById_WhenInstalled_ResolvesToSlug()
     {
         var ct = TestContext.Current.CancellationToken;
-        await EnsureStubInstalledAsync(ct);
+        await EnsureStubBoundAsync(ct);
 
         var byId = await _client.GetAsync(
             $"/api/v1/tenant/connectors/{_factory.StubConnectorType.TypeId}", ct);
@@ -110,7 +111,7 @@ public class ConnectorEndpointsTests : IClassFixture<CustomWebApplicationFactory
         // installed on the current tenant MUST surface as 404 from the
         // pivoted get endpoint, not as a registry descriptor.
         var ct = TestContext.Current.CancellationToken;
-        await EnsureStubUninstalledAsync(ct);
+        await EnsureStubUnboundAsync(ct);
 
         var response = await _client.GetAsync("/api/v1/tenant/connectors/stub", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
@@ -119,25 +120,25 @@ public class ConnectorEndpointsTests : IClassFixture<CustomWebApplicationFactory
     // ---- Install lifecycle ----
 
     [Fact]
-    public async Task Install_UnknownSlug_Returns404()
+    public async Task Bind_UnknownSlug_Returns404()
     {
         var ct = TestContext.Current.CancellationToken;
         var response = await _client.PostAsJsonAsync(
-            "/api/v1/tenant/connectors/not-a-real-connector/install",
+            "/api/v1/tenant/connectors/not-a-real-connector/bind",
             new ConnectorInstallRequest(null),
             ct);
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
     [Fact]
-    public async Task Install_StubConnector_SurfacesInListAsInstalledEnvelope()
+    public async Task Bind_StubConnector_SurfacesInListAsInstalledEnvelope()
     {
         var ct = TestContext.Current.CancellationToken;
-        var install = await _client.PostAsJsonAsync(
-            "/api/v1/tenant/connectors/stub/install",
+        var bind = await _client.PostAsJsonAsync(
+            "/api/v1/tenant/connectors/stub/bind",
             new ConnectorInstallRequest(null),
             ct);
-        install.StatusCode.ShouldBe(HttpStatusCode.OK);
+        bind.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var listResponse = await _client.GetAsync("/api/v1/tenant/connectors", ct);
         var list = await listResponse.Content.ReadFromJsonAsync<InstalledConnectorResponse[]>(ct);
@@ -147,14 +148,14 @@ public class ConnectorEndpointsTests : IClassFixture<CustomWebApplicationFactory
     }
 
     [Fact]
-    public async Task Install_ByTypeId_ResolvesToSlug()
+    public async Task Bind_ByTypeId_ResolvesToSlug()
     {
         var ct = TestContext.Current.CancellationToken;
-        var install = await _client.PostAsJsonAsync(
-            $"/api/v1/tenant/connectors/{_factory.StubConnectorType.TypeId}/install",
+        var bind = await _client.PostAsJsonAsync(
+            $"/api/v1/tenant/connectors/{_factory.StubConnectorType.TypeId}/bind",
             new ConnectorInstallRequest(null),
             ct);
-        install.StatusCode.ShouldBe(HttpStatusCode.OK);
+        bind.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var getResponse = await _client.GetAsync("/api/v1/tenant/connectors/stub", ct);
         getResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -163,24 +164,94 @@ public class ConnectorEndpointsTests : IClassFixture<CustomWebApplicationFactory
     }
 
     [Fact]
-    public async Task Uninstall_RemovesFromListAndFlipsGetTo404()
+    public async Task Unbind_RemovesFromListAndFlipsGetTo404()
     {
         var ct = TestContext.Current.CancellationToken;
-        await EnsureStubInstalledAsync(ct);
+        await EnsureStubBoundAsync(ct);
 
-        // DELETE /{slugOrId} (was DELETE /{slug}/install pre-#714).
-        var uninstall = await _client.DeleteAsync("/api/v1/tenant/connectors/stub", ct);
-        uninstall.StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        var unbind = await _client.DeleteAsync("/api/v1/tenant/connectors/stub", ct);
+        unbind.StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
         var getResponse = await _client.GetAsync("/api/v1/tenant/connectors/stub", ct);
         getResponse.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
     [Fact]
-    public async Task Uninstall_UnknownSlug_Returns404()
+    public async Task Unbind_UnknownSlug_Returns404()
     {
         var ct = TestContext.Current.CancellationToken;
         var response = await _client.DeleteAsync("/api/v1/tenant/connectors/not-a-real-connector", ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+    }
+
+    // ---- Platform provision / deprovision ----
+
+    [Fact]
+    public async Task Provision_UnknownSlug_Returns404()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var response = await _client.PostAsync(
+            "/api/v1/platform/connectors/not-a-real-connector/provision", content: null, ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Provision_KnownSlug_ReturnsProvisionedRecord()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var response = await _client.PostAsync(
+            "/api/v1/platform/connectors/stub/provision", content: null, ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<ProvisionedConnectorResponse>(ct);
+        body.ShouldNotBeNull();
+        body!.TypeSlug.ShouldBe("stub");
+        body.TypeId.ShouldBe(_factory.StubConnectorType.TypeId);
+        body.ProvisionedAt.ShouldNotBe(default);
+    }
+
+    [Fact]
+    public async Task Provision_Idempotent_BothCallsReturn200()
+    {
+        // With the test stub IStateStore (no persistent state between calls),
+        // we can only verify both calls complete successfully. The idempotent
+        // ProvisionedAt preservation is exercised by the implementation logic
+        // (if existing != null, preserve ProvisionedAt) which is covered at
+        // the unit level.
+        var ct = TestContext.Current.CancellationToken;
+        var first = await _client.PostAsync(
+            "/api/v1/platform/connectors/stub/provision", content: null, ct);
+        first.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var second = await _client.PostAsync(
+            "/api/v1/platform/connectors/stub/provision", content: null, ct);
+        second.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var secondBody = await second.Content.ReadFromJsonAsync<ProvisionedConnectorResponse>(ct);
+        secondBody.ShouldNotBeNull();
+        secondBody!.TypeSlug.ShouldBe("stub");
+    }
+
+    [Fact]
+    public async Task Deprovision_KnownSlug_Returns204()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        // Provision first.
+        var provision = await _client.PostAsync(
+            "/api/v1/platform/connectors/stub/provision", content: null, ct);
+        provision.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        // Now deprovision.
+        var deprovision = await _client.DeleteAsync(
+            "/api/v1/platform/connectors/stub", ct);
+        deprovision.StatusCode.ShouldBe(HttpStatusCode.NoContent);
+    }
+
+    [Fact]
+    public async Task Deprovision_UnknownSlug_Returns404()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var response = await _client.DeleteAsync(
+            "/api/v1/platform/connectors/not-a-real-connector", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
@@ -356,18 +427,18 @@ public class ConnectorEndpointsTests : IClassFixture<CustomWebApplicationFactory
 
     // ---- Helpers ----
 
-    private async Task EnsureStubInstalledAsync(CancellationToken ct)
+    private async Task EnsureStubBoundAsync(CancellationToken ct)
     {
         var response = await _client.PostAsJsonAsync(
-            "/api/v1/tenant/connectors/stub/install",
+            "/api/v1/tenant/connectors/stub/bind",
             new ConnectorInstallRequest(null),
             ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
     }
 
-    private async Task EnsureStubUninstalledAsync(CancellationToken ct)
+    private async Task EnsureStubUnboundAsync(CancellationToken ct)
     {
-        // Idempotent — the server accepts DELETE on an uninstalled connector
+        // Idempotent — the server accepts DELETE on an unbound connector
         // (install service soft-deletes the row, no-op when absent).
         await _client.DeleteAsync("/api/v1/tenant/connectors/stub", ct);
     }

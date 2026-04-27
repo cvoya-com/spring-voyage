@@ -90,8 +90,14 @@ public static class ConnectorCommand
         // bind to it.
         connectorCommand.Subcommands.Add(CreateListInstalledCommand(outputOption));
         connectorCommand.Subcommands.Add(CreateShowInstallCommand(outputOption));
-        connectorCommand.Subcommands.Add(CreateInstallCommand(outputOption));
-        connectorCommand.Subcommands.Add(CreateUninstallCommand());
+        // Platform-level provision verb (PlatformOperator) — make a connector
+        // type available platform-wide. Must be run before any tenant can bind.
+        connectorCommand.Subcommands.Add(CreateProvisionCommand(outputOption));
+        connectorCommand.Subcommands.Add(CreateDeprovisionCommand());
+        // Tenant-level bind/unbind verbs (TenantOperator) — renamed from
+        // install/uninstall in #1259 (C1.2c) to clarify the authz split.
+        connectorCommand.Subcommands.Add(CreateBindCommand2(outputOption));
+        connectorCommand.Subcommands.Add(CreateUnbindCommand());
         connectorCommand.Subcommands.Add(CreateConfigCommand(outputOption));
         connectorCommand.Subcommands.Add(CreateCredentialsCommand(outputOption));
 
@@ -466,13 +472,125 @@ public static class ConnectorCommand
         return command;
     }
 
-    private static Command CreateInstallCommand(Option<string> outputOption)
+    // ---- Platform-level provision / deprovision verbs (PlatformOperator) ----
+
+    private static readonly OutputFormatter.Column<ProvisionedConnectorResponse>[] ProvisionedColumns =
     {
-        // Example: `spring connector install github`
+        new OutputFormatter.Column<ProvisionedConnectorResponse>("slug", c => c.TypeSlug),
+        new OutputFormatter.Column<ProvisionedConnectorResponse>("name", c => c.DisplayName),
+        new OutputFormatter.Column<ProvisionedConnectorResponse>("provisionedAt", c => c.ProvisionedAt?.ToString("u")),
+        new OutputFormatter.Column<ProvisionedConnectorResponse>("updatedAt", c => c.UpdatedAt?.ToString("u")),
+    };
+
+    private static Command CreateProvisionCommand(Option<string> outputOption)
+    {
+        // Example: `spring connector provision github`
+        var idArg = new Argument<string>("slug") { Description = "Connector slug (e.g. 'github')." };
+        var command = new Command(
+            "provision",
+            "Provision a connector type platform-wide (PlatformOperator only; idempotent). " +
+            "Makes the connector available for tenant operators to bind. " +
+            "The connector package must already be installed on the Spring Voyage deployment.");
+        command.Arguments.Add(idArg);
+        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var slug = parseResult.GetValue(idArg)!;
+            var output = parseResult.GetValue(outputOption) ?? "table";
+            var client = ClientFactory.Create();
+            try
+            {
+                var result = await client.ProvisionConnectorAsync(slug, ct);
+                Console.WriteLine(output == "json"
+                    ? OutputFormatter.FormatJson(result)
+                    : OutputFormatter.FormatTable(new[] { result }, ProvisionedColumns));
+            }
+            catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode == 404)
+            {
+                await Console.Error.WriteLineAsync(
+                    $"Connector '{slug}' is not registered with the host. " +
+                    "Only connectors whose package is installed on the deployment can be provisioned.");
+                Environment.Exit(1);
+            }
+            catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode == 403)
+            {
+                await Console.Error.WriteLineAsync(
+                    $"Provisioning connectors requires PlatformOperator role. {ProblemDetailsFormatter.Format(ex)}");
+                Environment.Exit(1);
+            }
+        });
+        return command;
+    }
+
+    private static Command CreateDeprovisionCommand()
+    {
+        // Example: `spring connector deprovision github --force`
+        var idArg = new Argument<string>("slug") { Description = "Connector slug (e.g. 'github')." };
+        var forceOption = new Option<bool>("--force")
+        {
+            Description = "Skip the confirmation prompt.",
+        };
+        var command = new Command(
+            "deprovision",
+            "Deprovision a connector type platform-wide (PlatformOperator only). " +
+            "Does not remove connector bindings from existing tenants — each tenant's bind " +
+            "row remains until that tenant unbinds. After deprovisioning, no new tenants " +
+            "can bind the connector type.");
+        command.Arguments.Add(idArg);
+        command.Options.Add(forceOption);
+        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var slug = parseResult.GetValue(idArg)!;
+            var force = parseResult.GetValue(forceOption);
+            if (!force)
+            {
+                Console.Write($"Deprovision connector '{slug}' platform-wide? [y/N]: ");
+                var answer = Console.ReadLine();
+                if (!string.Equals(answer, "y", StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(answer, "yes", StringComparison.OrdinalIgnoreCase))
+                {
+                    await Console.Error.WriteLineAsync("Deprovision cancelled.");
+                    Environment.Exit(1);
+                    return;
+                }
+            }
+            var client = ClientFactory.Create();
+            try
+            {
+                await client.DeprovisionConnectorAsync(slug, ct);
+                Console.WriteLine($"Deprovisioned connector '{slug}'.");
+            }
+            catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode == 404)
+            {
+                await Console.Error.WriteLineAsync(
+                    $"Connector '{slug}' is not registered with the host. {ProblemDetailsFormatter.Format(ex)}");
+                Environment.Exit(1);
+            }
+            catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode == 403)
+            {
+                await Console.Error.WriteLineAsync(
+                    $"Deprovisioning connectors requires PlatformOperator role. {ProblemDetailsFormatter.Format(ex)}");
+                Environment.Exit(1);
+            }
+        });
+        return command;
+    }
+
+    // ---- Tenant-level bind / unbind verbs (TenantOperator) ----
+    // Renamed from install/uninstall in #1259 (C1.2c). The `bind` verb
+    // targets POST /api/v1/tenant/connectors/{slug}/bind; `unbind` targets
+    // DELETE /api/v1/tenant/connectors/{slug}.
+
+    private static Command CreateBindCommand2(Option<string> outputOption)
+    {
+        // Example: `spring connector bind github`
+        // Note: named CreateBindCommand2 to avoid conflict with the per-unit
+        // `bind` verb (CreateBindCommand) defined earlier in the file.
         var idArg = new Argument<string>("slugOrId") { Description = "Connector slug or type id." };
         var command = new Command(
-            "install",
-            "Install a connector on the current tenant (idempotent). No config flags — connector-specific config flows through the per-unit PUT endpoint each connector owns.");
+            "bind-tenant",
+            "Bind (install) a connector on the current tenant (TenantOperator; idempotent). " +
+            "The connector must first be provisioned platform-wide by a PlatformOperator. " +
+            "No config flags — connector-specific config flows through the per-unit PUT endpoint each connector owns.");
         command.Arguments.Add(idArg);
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
@@ -481,7 +599,7 @@ public static class ConnectorCommand
             var client = ClientFactory.Create();
             try
             {
-                var result = await client.InstallConnectorAsync(slugOrId, ct);
+                var result = await client.BindConnectorAsync(slugOrId, ct);
                 Console.WriteLine(output == "json"
                     ? OutputFormatter.FormatJson(result)
                     : OutputFormatter.FormatTable(new[] { result }, InstalledColumns));
@@ -489,22 +607,24 @@ public static class ConnectorCommand
             catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode == 404)
             {
                 await Console.Error.WriteLineAsync(
-                    $"Connector '{slugOrId}' is not registered with the host. Run 'spring connector catalog' to see available types.");
+                    $"Connector '{slugOrId}' is not registered with the host. " +
+                    $"Run 'spring connector provision {slugOrId}' (PlatformOperator) first, " +
+                    "then retry 'spring connector bind-tenant'.");
                 Environment.Exit(1);
             }
         });
         return command;
     }
 
-    private static Command CreateUninstallCommand()
+    private static Command CreateUnbindCommand()
     {
-        // Example: `spring connector uninstall github --force`
+        // Example: `spring connector unbind github --force`
         var idArg = new Argument<string>("slugOrId") { Description = "Connector slug or type id." };
         var forceOption = new Option<bool>("--force")
         {
             Description = "Skip the confirmation prompt.",
         };
-        var command = new Command("uninstall", "Uninstall a connector from the current tenant.");
+        var command = new Command("unbind", "Unbind (uninstall) a connector from the current tenant (TenantOperator).");
         command.Arguments.Add(idArg);
         command.Options.Add(forceOption);
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
@@ -513,19 +633,19 @@ public static class ConnectorCommand
             var force = parseResult.GetValue(forceOption);
             if (!force)
             {
-                Console.Write($"Uninstall connector '{slugOrId}' from the current tenant? [y/N]: ");
+                Console.Write($"Unbind connector '{slugOrId}' from the current tenant? [y/N]: ");
                 var answer = Console.ReadLine();
                 if (!string.Equals(answer, "y", StringComparison.OrdinalIgnoreCase)
                     && !string.Equals(answer, "yes", StringComparison.OrdinalIgnoreCase))
                 {
-                    await Console.Error.WriteLineAsync("Uninstall cancelled.");
+                    await Console.Error.WriteLineAsync("Unbind cancelled.");
                     Environment.Exit(1);
                     return;
                 }
             }
             var client = ClientFactory.Create();
-            await client.UninstallConnectorAsync(slugOrId, ct);
-            Console.WriteLine($"Uninstalled connector '{slugOrId}'.");
+            await client.UnbindConnectorAsync(slugOrId, ct);
+            Console.WriteLine($"Unbound connector '{slugOrId}'.");
         });
         return command;
     }

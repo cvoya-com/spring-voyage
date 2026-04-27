@@ -7,6 +7,8 @@ using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.CredentialHealth;
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.State;
+using Cvoya.Spring.Host.Api.Auth;
 using Cvoya.Spring.Host.Api.Models;
 
 using Microsoft.AspNetCore.Mvc;
@@ -20,6 +22,45 @@ using Microsoft.AspNetCore.Mvc;
 /// </summary>
 public static class ConnectorEndpoints
 {
+    /// <summary>
+    /// Registers the platform-scoped connector endpoints under
+    /// <c>/api/v1/platform/connectors</c>. These are gated to
+    /// <see cref="RolePolicies.PlatformOperator"/> and cover cross-tenant
+    /// operations: provisioning (making a connector type available
+    /// platform-wide) and deprovisioning (#1259 / C1.2c).
+    /// </summary>
+    public static void MapPlatformConnectorEndpoints(this IEndpointRouteBuilder app)
+    {
+        var platform = app.MapGroup("/api/v1/platform/connectors")
+            .WithTags("Connectors")
+            .RequireAuthorization(RolePolicies.PlatformOperator);
+
+        // Provision: make a connector type available platform-wide. The
+        // connector type must already be registered in DI (i.e. its package
+        // is installed on this Spring Voyage deployment). Records a
+        // platform-level provisioning record in the state store so operators
+        // can audit which connector types have been explicitly provisioned.
+        platform.MapPost("/{slug}/provision", ProvisionConnectorAsync)
+            .WithName("ProvisionConnector")
+            .WithSummary("Provision a connector type platform-wide (PlatformOperator only; idempotent)")
+            .Produces<ProvisionedConnectorResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden);
+
+        // Deprovision: remove the platform-wide provisioning record. Does
+        // not uninstall the connector from any tenant — each tenant's bind
+        // row is separate. A deprovisioned connector type is no longer
+        // eligible for new tenant binds.
+        platform.MapDelete("/{slug}", DeprovisionConnectorAsync)
+            .WithName("DeprovisionConnector")
+            .WithSummary("Deprovision a connector type platform-wide (PlatformOperator only)")
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden);
+    }
+
     /// <summary>
     /// Registers the generic connector endpoints and invokes each
     /// registered <see cref="IConnectorType"/>'s <c>MapRoutes</c> under a
@@ -55,23 +96,23 @@ public static class ConnectorEndpoints
             .Produces<ConnectorUnitBindingResponse[]>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
-        // Tenant install lifecycle. `/install` (POST) is an idempotent
-        // install verb that mirrors the agent-runtime surface
-        // (#693 + AgentRuntimeEndpoints); `DELETE /{slugOrId}` uninstalls
-        // and `PATCH /{slugOrId}/config` replaces the stored tenant-scoped
-        // config. The additive `/installed` list + `GET /{slug}/install`
-        // siblings were retired in #714 — `GET /connectors` and
-        // `GET /connectors/{slugOrId}` now carry tenant-install semantics.
-        connectors.MapPost("/{slugOrId}/install", InstallConnectorAsync)
-            .WithName("InstallConnector")
-            .WithSummary("Install the connector on the current tenant (idempotent)")
+        // Tenant bind lifecycle (#1259 / C1.2c). `/bind` (POST) is the
+        // tenant-scoped counterpart to the platform `/provision` verb —
+        // a TenantOperator binds a provisioned connector to their tenant.
+        // Renamed from `/install` in #1259 to clarify the authz split:
+        // platform provisions, tenant binds. `DELETE /{slugOrId}` unbinds
+        // (was: uninstalls) and `PATCH /{slugOrId}/config` replaces the
+        // stored tenant-scoped config.
+        connectors.MapPost("/{slugOrId}/bind", BindConnectorAsync)
+            .WithName("BindConnector")
+            .WithSummary("Bind (install) the connector on the current tenant (idempotent)")
             .Produces<InstalledConnectorResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .RequireAuthorization();
 
-        connectors.MapDelete("/{slugOrId}", UninstallConnectorAsync)
-            .WithName("UninstallConnector")
-            .WithSummary("Uninstall the connector from the current tenant")
+        connectors.MapDelete("/{slugOrId}", UnbindConnectorAsync)
+            .WithName("UnbindConnector")
+            .WithSummary("Unbind (uninstall) the connector from the current tenant")
             .Produces(StatusCodes.Status204NoContent)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .RequireAuthorization();
@@ -279,6 +320,78 @@ public static class ConnectorEndpoints
         return Results.NoContent();
     }
 
+    // ---- Platform-level provision / deprovision handlers ----
+
+    /// <summary>
+    /// Key prefix for platform-provisioned connector records in the state store.
+    /// </summary>
+    private const string PlatformConnectorProvisionKeyPrefix = "platform:connector:provision:";
+
+    /// <summary>
+    /// State-store record persisted when a connector type is provisioned
+    /// platform-wide. Stored under
+    /// <c>platform:connector:provision:{slug}</c>.
+    /// </summary>
+    private sealed record ProvisionedConnectorRecord(
+        string Slug,
+        DateTimeOffset ProvisionedAt,
+        DateTimeOffset UpdatedAt);
+
+    private static async Task<IResult> ProvisionConnectorAsync(
+        string slug,
+        [FromServices] IEnumerable<IConnectorType> connectorTypes,
+        [FromServices] IStateStore stateStore,
+        CancellationToken cancellationToken)
+    {
+        var type = connectorTypes.FirstOrDefault(
+            c => string.Equals(c.Slug, slug, StringComparison.OrdinalIgnoreCase));
+        if (type is null)
+        {
+            return Results.Problem(
+                detail: $"Connector '{slug}' is not registered with the host. Only connectors " +
+                        "registered via DI (i.e. whose package is installed) can be provisioned.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        var key = PlatformConnectorProvisionKeyPrefix + type.Slug;
+        var existing = await stateStore.GetAsync<ProvisionedConnectorRecord>(key, cancellationToken);
+        var now = DateTimeOffset.UtcNow;
+        var record = existing is null
+            ? new ProvisionedConnectorRecord(type.Slug, now, now)
+            : existing with { UpdatedAt = now };
+        await stateStore.SetAsync(key, record, cancellationToken);
+
+        return Results.Ok(new ProvisionedConnectorResponse(
+            TypeId: type.TypeId,
+            TypeSlug: type.Slug,
+            DisplayName: type.DisplayName,
+            Description: type.Description,
+            ProvisionedAt: record.ProvisionedAt,
+            UpdatedAt: record.UpdatedAt));
+    }
+
+    private static async Task<IResult> DeprovisionConnectorAsync(
+        string slug,
+        [FromServices] IEnumerable<IConnectorType> connectorTypes,
+        [FromServices] IStateStore stateStore,
+        CancellationToken cancellationToken)
+    {
+        var type = connectorTypes.FirstOrDefault(
+            c => string.Equals(c.Slug, slug, StringComparison.OrdinalIgnoreCase));
+        if (type is null)
+        {
+            return Results.Problem(
+                detail: $"Connector '{slug}' is not registered with the host.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        var key = PlatformConnectorProvisionKeyPrefix + type.Slug;
+        await stateStore.DeleteAsync(key, cancellationToken);
+        return Results.NoContent();
+    }
+
+    // ---- Shared resolver ----
+
     private static IConnectorType? ResolveConnector(
         string slugOrId, IEnumerable<IConnectorType> connectorTypes)
     {
@@ -294,7 +407,9 @@ public static class ConnectorEndpoints
             c => string.Equals(c.Slug, slugOrId, StringComparison.OrdinalIgnoreCase));
     }
 
-    private static async Task<IResult> InstallConnectorAsync(
+    // ---- Tenant-level bind / unbind handlers ----
+
+    private static async Task<IResult> BindConnectorAsync(
         string slugOrId,
         [FromBody] ConnectorInstallRequest? body,
         [FromServices] ITenantConnectorInstallService installService,
@@ -314,7 +429,7 @@ public static class ConnectorEndpoints
         return Results.Ok(ToInstalledResponse(install, type));
     }
 
-    private static async Task<IResult> UninstallConnectorAsync(
+    private static async Task<IResult> UnbindConnectorAsync(
         string slugOrId,
         [FromServices] ITenantConnectorInstallService installService,
         [FromServices] IEnumerable<IConnectorType> connectorTypes,
@@ -324,7 +439,7 @@ public static class ConnectorEndpoints
         if (type is null)
         {
             // The resolver treats unknown slugs as 404 on every other route
-            // in this file; surface the same contract for uninstall so a
+            // in this file; surface the same contract for unbind so a
             // typo cannot silently succeed.
             return Results.Problem(
                 detail: $"Connector '{slugOrId}' is not registered.",

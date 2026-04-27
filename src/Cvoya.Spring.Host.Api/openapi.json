@@ -5150,6 +5150,121 @@
         }
       }
     },
+    "/api/v1/platform/connectors/{slug}/provision": {
+      "post": {
+        "tags": [
+          "Connectors"
+        ],
+        "summary": "Provision a connector type platform-wide (PlatformOperator only; idempotent)",
+        "operationId": "ProvisionConnector",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProvisionedConnectorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/platform/connectors/{slug}": {
+      "delete": {
+        "tags": [
+          "Connectors"
+        ],
+        "summary": "Deprovision a connector type platform-wide (PlatformOperator only)",
+        "operationId": "DeprovisionConnector",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tenant/connectors": {
       "get": {
         "tags": [
@@ -5218,8 +5333,8 @@
         "tags": [
           "Connectors"
         ],
-        "summary": "Uninstall the connector from the current tenant",
-        "operationId": "UninstallConnector",
+        "summary": "Unbind (uninstall) the connector from the current tenant",
+        "operationId": "UnbindConnector",
         "parameters": [
           {
             "name": "slugOrId",
@@ -5291,13 +5406,13 @@
         }
       }
     },
-    "/api/v1/tenant/connectors/{slugOrId}/install": {
+    "/api/v1/tenant/connectors/{slugOrId}/bind": {
       "post": {
         "tags": [
           "Connectors"
         ],
-        "summary": "Install the connector on the current tenant (idempotent)",
-        "operationId": "InstallConnector",
+        "summary": "Bind (install) the connector on the current tenant (idempotent)",
+        "operationId": "BindConnector",
         "parameters": [
           {
             "name": "slugOrId",
@@ -10881,6 +10996,40 @@
               "null",
               "string"
             ]
+          }
+        }
+      },
+      "ProvisionedConnectorResponse": {
+        "required": [
+          "typeId",
+          "typeSlug",
+          "displayName",
+          "description",
+          "provisionedAt",
+          "updatedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "typeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "typeSlug": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "provisionedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },

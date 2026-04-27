@@ -98,7 +98,7 @@ public record InstalledConnectorResponse(
     System.Text.Json.JsonElement? Config);
 
 /// <summary>
-/// Request body for <c>POST /api/v1/connectors/{slugOrId}/install</c>.
+/// Request body for <c>POST /api/v1/tenant/connectors/{slugOrId}/bind</c>.
 /// </summary>
 /// <param name="Config">
 /// Opaque tenant-level config payload to persist. <c>null</c> for an empty
@@ -106,3 +106,22 @@ public record InstalledConnectorResponse(
 /// this or omit the body entirely.
 /// </param>
 public record ConnectorInstallRequest(System.Text.Json.JsonElement? Config);
+
+/// <summary>
+/// Response body for <c>POST /api/v1/platform/connectors/{slug}/provision</c>
+/// (#1259 / C1.2c). Returned when a connector type is successfully provisioned
+/// platform-wide by a PlatformOperator.
+/// </summary>
+/// <param name="TypeId">Stable connector identity from <c>IConnectorType.TypeId</c>.</param>
+/// <param name="TypeSlug">URL-safe slug from <c>IConnectorType.Slug</c>.</param>
+/// <param name="DisplayName">Human-facing display name.</param>
+/// <param name="Description">Short description used by the wizard and unit-config UI.</param>
+/// <param name="ProvisionedAt">Timestamp when the connector was first provisioned platform-wide.</param>
+/// <param name="UpdatedAt">Timestamp when the provisioning record was last updated.</param>
+public record ProvisionedConnectorResponse(
+    Guid TypeId,
+    string TypeSlug,
+    string DisplayName,
+    string Description,
+    DateTimeOffset ProvisionedAt,
+    DateTimeOffset UpdatedAt);

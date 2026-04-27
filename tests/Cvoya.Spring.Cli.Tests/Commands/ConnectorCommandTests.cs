@@ -16,10 +16,12 @@ using Xunit;
 /// <summary>
 /// Parser + wire-level tests for the <c>spring connector</c> verb family.
 /// Covers both the legacy per-unit binding verbs (<c>catalog</c>,
-/// <c>unit-binding</c>, <c>bind</c>, <c>bindings</c>) from #455 / C4 and
-/// the tenant-install verbs (<c>list</c>, <c>show</c>, <c>install</c>,
-/// <c>uninstall</c>, <c>config set</c>, <c>credentials status</c>)
-/// landed in #689.
+/// <c>unit-binding</c>, <c>bind</c>, <c>bindings</c>) from #455 / C4,
+/// the tenant-bind verbs (<c>list</c>, <c>show</c>, <c>bind-tenant</c>,
+/// <c>unbind</c>, <c>config set</c>, <c>credentials status</c>)
+/// landed in #689 (renamed from install/uninstall in #1259 / C1.2c), and
+/// the platform provision verbs (<c>provision</c>, <c>deprovision</c>)
+/// from #1259 / C1.2c.
 /// </summary>
 public class ConnectorCommandTests
 {
@@ -37,10 +39,12 @@ public class ConnectorCommandTests
     [Theory]
     [InlineData("connector list")]
     [InlineData("connector show github")]
-    [InlineData("connector install github")]
-    [InlineData("connector uninstall github --force")]
+    [InlineData("connector provision github")]
+    [InlineData("connector deprovision github --force")]
+    [InlineData("connector bind-tenant github")]
+    [InlineData("connector unbind github --force")]
     [InlineData("connector credentials status github")]
-    public void ConnectorTenantInstallVerbs_Parse(string argLine)
+    public void ConnectorVerbs_Parse(string argLine)
     {
         var outputOption = CreateOutputOption();
         var connectorCommand = ConnectorCommand.Create(outputOption);
@@ -389,5 +393,133 @@ public class ConnectorCommandTests
 
         result.ShouldBeNull();
         handler.WasCalled.ShouldBeTrue();
+    }
+
+    // ---- Platform provision / deprovision (#1259 / C1.2c) ----
+
+    [Fact]
+    public async Task ProvisionConnectorAsync_CallsPlatformProvisionEndpoint()
+    {
+        var provisionedAt = DateTimeOffset.UtcNow;
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/platform/connectors/github/provision",
+            expectedMethod: HttpMethod.Post,
+            responseBody: $$"""{"typeId":"6a1e0c1a-3a7b-4a12-8a2f-0a71e1b2fb01","typeSlug":"github","displayName":"GitHub","description":"Bridge to GitHub","provisionedAt":"{{provisionedAt:O}}","updatedAt":"{{provisionedAt:O}}"}""");
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var result = await client.ProvisionConnectorAsync("github", TestContext.Current.CancellationToken);
+
+        result.TypeSlug.ShouldBe("github");
+        result.DisplayName.ShouldBe("GitHub");
+        result.ProvisionedAt.ShouldNotBe(default);
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task DeprovisionConnectorAsync_CallsPlatformDeprovisionEndpoint()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/platform/connectors/github",
+            expectedMethod: HttpMethod.Delete,
+            responseBody: string.Empty,
+            returnStatusCode: HttpStatusCode.NoContent);
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        await client.DeprovisionConnectorAsync("github", TestContext.Current.CancellationToken);
+
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task BindConnectorAsync_CallsTenantBindEndpoint()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/tenant/connectors/github/bind",
+            expectedMethod: HttpMethod.Post,
+            responseBody:
+                """{"typeId":"6a1e0c1a-3a7b-4a12-8a2f-0a71e1b2fb01","typeSlug":"github","displayName":"GitHub","description":"Bridge to GitHub","configUrl":"/api/v1/tenant/connectors/github/units/{unitId}/config","actionsBaseUrl":"/api/v1/tenant/connectors/github/actions","configSchemaUrl":"/api/v1/tenant/connectors/github/config-schema","installedAt":"2025-01-01T00:00:00Z","updatedAt":"2025-01-01T00:00:00Z","config":null}""");
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var result = await client.BindConnectorAsync("github", TestContext.Current.CancellationToken);
+
+        result.TypeSlug.ShouldBe("github");
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task UnbindConnectorAsync_CallsDeleteEndpoint()
+    {
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/tenant/connectors/github",
+            expectedMethod: HttpMethod.Delete,
+            responseBody: string.Empty,
+            returnStatusCode: HttpStatusCode.NoContent);
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        await client.UnbindConnectorAsync("github", TestContext.Current.CancellationToken);
+
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    // ---- New verb parse tests (#1259) ----
+
+    [Fact]
+    public void Provision_RequiresPositional()
+    {
+        var outputOption = CreateOutputOption();
+        var connectorCommand = ConnectorCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(connectorCommand);
+
+        var parseResult = rootCommand.Parse("connector provision");
+
+        parseResult.Errors.ShouldNotBeEmpty();
+    }
+
+    [Fact]
+    public void Deprovision_RequiresPositional()
+    {
+        var outputOption = CreateOutputOption();
+        var connectorCommand = ConnectorCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(connectorCommand);
+
+        var parseResult = rootCommand.Parse("connector deprovision");
+
+        parseResult.Errors.ShouldNotBeEmpty();
+    }
+
+    [Fact]
+    public void BindTenant_RequiresPositional()
+    {
+        var outputOption = CreateOutputOption();
+        var connectorCommand = ConnectorCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(connectorCommand);
+
+        var parseResult = rootCommand.Parse("connector bind-tenant");
+
+        parseResult.Errors.ShouldNotBeEmpty();
+    }
+
+    [Fact]
+    public void Unbind_RequiresPositional()
+    {
+        var outputOption = CreateOutputOption();
+        var connectorCommand = ConnectorCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(connectorCommand);
+
+        var parseResult = rootCommand.Parse("connector unbind");
+
+        parseResult.Errors.ShouldNotBeEmpty();
     }
 }

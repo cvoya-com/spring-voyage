@@ -277,8 +277,12 @@ try
     app.MapTenantTreeEndpoints().RequireAuthorization(RolePolicies.TenantUser);
     app.MapMemoriesEndpoints().RequireAuthorization(RolePolicies.TenantUser);
     app.MapSkillsEndpoints().RequireAuthorization(RolePolicies.TenantUser);
-    // Connectors use per-route .RequireAuthorization() gates internally
-    // (mixed read/write surface). The unit-binding pointer routes
+    // Connectors: platform-level (PlatformOperator-gated) provision /
+    // deprovision. Self-gates internally — do NOT add a second
+    // .RequireAuthorization() here or it would demote the role gate.
+    app.MapPlatformConnectorEndpoints();
+    // Connectors: tenant-level surface uses per-route .RequireAuthorization()
+    // gates (mixed read/write surface). The unit-binding pointer routes
     // mounted by MapUnitConnectorPointerEndpoints chain off the units
     // group, which already carries TenantUser.
     app.MapConnectorEndpoints();

@@ -1752,28 +1752,46 @@ public class SpringApiClient
     public Task DeletePlatformSecretAsync(string name, CancellationToken ct = default)
         => _client.Api.V1.Platform.Secrets[name].DeleteAsync(cancellationToken: ct);
 
-    // Connector tenant-installs (#689). Wrappers over the /install +
-    // /credential-health endpoints landed in #715 / #717; the list/get
-    // surface was pivoted onto `GET /connectors` + `GET /connectors/{id}`
-    // in #714. Sibling to the per-unit connector binding wrappers above —
-    // installs sit one level higher in the data model.
+    // Platform-level connector provision / deprovision (#1259 / C1.2c).
+    // Requires PlatformOperator role.
 
-    /// <summary>Installs a connector on the current tenant (idempotent).</summary>
-    public async Task<InstalledConnectorResponse> InstallConnectorAsync(
-        string slugOrId, CancellationToken ct = default)
+    /// <summary>
+    /// Provisions a connector type platform-wide (idempotent). Requires
+    /// PlatformOperator role.
+    /// </summary>
+    public async Task<ProvisionedConnectorResponse> ProvisionConnectorAsync(
+        string slug, CancellationToken ct = default)
     {
-        var body = new Cvoya.Spring.Cli.Generated.Api.V1.Tenant.Connectors.Item.Install.InstallRequestBuilder.InstallPostRequestBody();
-        var result = await _client.Api.V1.Tenant.Connectors[slugOrId].Install.PostAsync(body, cancellationToken: ct);
+        var result = await _client.Api.V1.Platform.Connectors[slug].Provision.PostAsync(cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
-            $"Server returned an empty install response for connector '{slugOrId}'.");
+            $"Server returned an empty provision response for connector '{slug}'.");
     }
 
     /// <summary>
-    /// Uninstalls a connector from the current tenant. Post-#714 this
-    /// targets <c>DELETE /connectors/{slugOrId}</c> (was
-    /// <c>DELETE /connectors/{slug}/install</c>).
+    /// Deprovisions a connector type platform-wide. Requires PlatformOperator role.
     /// </summary>
-    public Task UninstallConnectorAsync(string slugOrId, CancellationToken ct = default)
+    public Task DeprovisionConnectorAsync(string slug, CancellationToken ct = default)
+        => _client.Api.V1.Platform.Connectors[slug].DeleteAsync(cancellationToken: ct);
+
+    // Connector tenant-bind/unbind (#1259 / C1.2c). The `/install` verb was
+    // renamed to `/bind` to clarify the authz split: platform provisions,
+    // tenant binds.
+
+    /// <summary>Binds (installs) a connector on the current tenant (idempotent).</summary>
+    public async Task<InstalledConnectorResponse> BindConnectorAsync(
+        string slugOrId, CancellationToken ct = default)
+    {
+        var body = new Cvoya.Spring.Cli.Generated.Api.V1.Tenant.Connectors.Item.Bind.BindRequestBuilder.BindPostRequestBody();
+        var result = await _client.Api.V1.Tenant.Connectors[slugOrId].Bind.PostAsync(body, cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty bind response for connector '{slugOrId}'.");
+    }
+
+    /// <summary>
+    /// Unbinds (uninstalls) a connector from the current tenant. Targets
+    /// <c>DELETE /api/v1/tenant/connectors/{slugOrId}</c>.
+    /// </summary>
+    public Task UnbindConnectorAsync(string slugOrId, CancellationToken ct = default)
         => _client.Api.V1.Tenant.Connectors[slugOrId].DeleteAsync(cancellationToken: ct);
 
     /// <summary>
@@ -2041,3 +2059,4 @@ public class SpringApiClient
         }
     }
 }
+
