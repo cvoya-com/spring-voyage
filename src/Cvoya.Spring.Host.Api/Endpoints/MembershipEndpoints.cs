@@ -36,21 +36,21 @@ public static class MembershipEndpoints
     {
         var group = app.MapGroup(string.Empty);
 
-        group.MapGet("/api/v1/agents/{id}/memberships", ListAgentMembershipsAsync)
+        group.MapGet("/api/v1/tenant/agents/{id}/memberships", ListAgentMembershipsAsync)
             .WithTags("Agents")
             .WithName("ListAgentMemberships")
             .WithSummary("List every unit this agent belongs to, with per-membership config overrides")
             .Produces<UnitMembershipResponse[]>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
-        group.MapGet("/api/v1/units/{id}/memberships", ListUnitMembershipsAsync)
+        group.MapGet("/api/v1/tenant/units/{id}/memberships", ListUnitMembershipsAsync)
             .WithTags("Units")
             .WithName("ListUnitMemberships")
             .WithSummary("List every agent that is a member of this unit, with per-membership config overrides")
             .Produces<UnitMembershipResponse[]>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
-        group.MapPut("/api/v1/units/{unitId}/memberships/{agentAddress}", UpsertMembershipAsync)
+        group.MapPut("/api/v1/tenant/units/{unitId}/memberships/{agentAddress}", UpsertMembershipAsync)
             .WithTags("Units")
             .WithName("UpsertUnitMembership")
             .WithSummary("Create or update the per-membership config overrides for an agent in this unit")
@@ -58,7 +58,7 @@ public static class MembershipEndpoints
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
-        group.MapDelete("/api/v1/units/{unitId}/memberships/{agentAddress}", DeleteMembershipAsync)
+        group.MapDelete("/api/v1/tenant/units/{unitId}/memberships/{agentAddress}", DeleteMembershipAsync)
             .WithTags("Units")
             .WithName("DeleteUnitMembership")
             .WithSummary("Remove an agent's membership of this unit")

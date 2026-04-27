@@ -27,7 +27,7 @@ public static class ConnectorEndpoints
     /// </summary>
     public static void MapConnectorEndpoints(this IEndpointRouteBuilder app)
     {
-        var connectors = app.MapGroup("/api/v1/connectors")
+        var connectors = app.MapGroup("/api/v1/tenant/connectors")
             .WithTags("Connectors");
 
         // Tenant-scoped list/get (#714). The list/get endpoints no longer
@@ -103,7 +103,7 @@ public static class ConnectorEndpoints
         var types = app.ServiceProvider.GetServices<IConnectorType>().ToList();
         foreach (var type in types)
         {
-            var slugGroup = app.MapGroup($"/api/v1/connectors/{type.Slug}")
+            var slugGroup = app.MapGroup($"/api/v1/tenant/connectors/{type.Slug}")
                 .RequireAuthorization();
             type.MapRoutes(slugGroup);
         }
@@ -233,8 +233,8 @@ public static class ConnectorEndpoints
                 UnitDisplayName: string.IsNullOrEmpty(entry.DisplayName) ? unitId : entry.DisplayName,
                 TypeId: target.TypeId,
                 TypeSlug: target.Slug,
-                ConfigUrl: $"/api/v1/connectors/{target.Slug}/units/{unitId}/config",
-                ActionsBaseUrl: $"/api/v1/connectors/{target.Slug}/actions"));
+                ConfigUrl: $"/api/v1/tenant/connectors/{target.Slug}/units/{unitId}/config",
+                ActionsBaseUrl: $"/api/v1/tenant/connectors/{target.Slug}/actions"));
         }
 
         return Results.Ok(rows.ToArray());
@@ -262,8 +262,8 @@ public static class ConnectorEndpoints
         return Results.Ok(new UnitConnectorPointerResponse(
             TypeId: binding.TypeId,
             TypeSlug: slug,
-            ConfigUrl: $"/api/v1/connectors/{slug}/units/{id}/config",
-            ActionsBaseUrl: $"/api/v1/connectors/{slug}/actions"));
+            ConfigUrl: $"/api/v1/tenant/connectors/{slug}/units/{id}/config",
+            ActionsBaseUrl: $"/api/v1/tenant/connectors/{slug}/actions"));
     }
 
     private static async Task<IResult> ClearUnitConnectorAsync(
@@ -369,9 +369,9 @@ public static class ConnectorEndpoints
             TypeSlug: type.Slug,
             DisplayName: type.DisplayName,
             Description: type.Description,
-            ConfigUrl: $"/api/v1/connectors/{type.Slug}/units/{{unitId}}/config",
-            ActionsBaseUrl: $"/api/v1/connectors/{type.Slug}/actions",
-            ConfigSchemaUrl: $"/api/v1/connectors/{type.Slug}/config-schema",
+            ConfigUrl: $"/api/v1/tenant/connectors/{type.Slug}/units/{{unitId}}/config",
+            ActionsBaseUrl: $"/api/v1/tenant/connectors/{type.Slug}/actions",
+            ConfigSchemaUrl: $"/api/v1/tenant/connectors/{type.Slug}/config-schema",
             InstalledAt: install.InstalledAt,
             UpdatedAt: install.UpdatedAt,
             Config: install.Config.Config);

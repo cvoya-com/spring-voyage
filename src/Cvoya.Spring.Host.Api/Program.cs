@@ -53,15 +53,16 @@ try
         .AddCvoyaSpringAgentRuntimeOllama(builder.Configuration)
         .AddCvoyaSpringAgentRuntimeOpenAI()
         // Phase 2.8 (#682) replaced the legacy Ollama call-site with the new
-        // agent-runtime registration above, but two host-side bindings still
-        // ride on AddCvoyaSpringOllamaLlm: OllamaOptions (consumed by
-        // OllamaEndpoints + SystemEndpoints for the BaseUrl/timeout knobs
-        // operators set via LanguageModel__Ollama__*) and the
-        // OllamaConfigurationRequirement startup probe (#616). The new
-        // AgentRuntimes:Ollama section + OllamaAgentRuntimeOptions don't
-        // feed those legacy seams yet, so keep the legacy registration
-        // alongside the runtime one until the API-host code paths are
-        // retired — tracked in #728 (follow-up to #711).
+        // agent-runtime registration above, but one host-side binding still
+        // rides on AddCvoyaSpringOllamaLlm: OllamaOptions (consumed by
+        // SystemEndpoints for the BaseUrl/timeout knobs operators set via
+        // LanguageModel__Ollama__*) and the OllamaConfigurationRequirement
+        // startup probe (#616). The new AgentRuntimes:Ollama section +
+        // OllamaAgentRuntimeOptions don't feed those legacy seams yet, so
+        // keep the legacy registration alongside the runtime one until
+        // the API-host code paths are retired — tracked in #728 (follow-up
+        // to #711). C1.2b retired /api/v1/ollama/models; the Ollama probe
+        // path through SystemEndpoints still consumes OllamaOptions.
         .AddCvoyaSpringOllamaLlm(builder.Configuration)
         .AddCvoyaSpringConnectorGitHub(builder.Configuration)
         .AddCvoyaSpringConnectorArxiv(builder.Configuration)
@@ -146,7 +147,17 @@ try
             .AddScheme<AuthenticationSchemeOptions, ApiTokenAuthHandler>(AuthConstants.ApiTokenScheme, null);
     }
 
-    builder.Services.AddAuthorization(options => options.AddUnitPermissionPolicies());
+    builder.Services.AddAuthorization(options =>
+    {
+        options.AddUnitPermissionPolicies();
+        // Platform-role policies (PlatformOperator / TenantOperator /
+        // TenantUser). OSS auth handlers grant all three to every
+        // authenticated caller; the cloud overlay scopes per identity via
+        // its own IRoleClaimSource. Endpoint-by-endpoint application of
+        // these policy names is C1.2b — declared here so the seam is wired
+        // before any caller adds .RequireAuthorization(RolePolicies.X).
+        options.AddPlatformRolePolicies();
+    });
     builder.Services.AddHttpContextAccessor();
     builder.Services.AddSingleton<IAuthorizationHandler, PermissionHandler>();
 
@@ -225,50 +236,77 @@ try
         .WithName("Health")
         .ExcludeFromDescription();
 
+    // Auth/token management — TenantUser scope (caller manages their own
+    // tokens inside their tenant). C1.2b moved the routes under
+    // /api/v1/tenant/auth/.
     app.MapAuthEndpoints();
     // Platform info is deliberately anonymous — the About panel / CLI verb
     // needs to work before a caller has negotiated an auth token. The
     // payload is static version + license metadata; nothing tenant-scoped.
     app.MapPlatformEndpoints();
-    app.MapAgentEndpoints().RequireAuthorization();
-    app.MapUnitEndpoints().RequireAuthorization();
-    app.MapUnitPolicyEndpoints().RequireAuthorization();
-    app.MapMembershipEndpoints().RequireAuthorization();
-    app.MapPackageEndpoints().RequireAuthorization();
-    app.MapMessageEndpoints().RequireAuthorization();
-    app.MapDirectoryEndpoints().RequireAuthorization();
+    // Platform-tenant management surface (#1260 / C1.2d). Self-gates on
+    // the PlatformOperator role inside MapPlatformTenantsEndpoints; do
+    // NOT add a second .RequireAuthorization() here or the call would
+    // re-anchor on the default policy and demote the role gate.
+    app.MapPlatformTenantsEndpoints();
+    // Tenant-user surface (in-product usage). C1.2b applies the
+    // TenantUser role gate via .RequireAuthorization(RolePolicies.TenantUser).
+    app.MapAgentEndpoints().RequireAuthorization(RolePolicies.TenantUser);
+    app.MapUnitEndpoints().RequireAuthorization(RolePolicies.TenantUser);
+    app.MapUnitPolicyEndpoints().RequireAuthorization(RolePolicies.TenantUser);
+    app.MapMembershipEndpoints().RequireAuthorization(RolePolicies.TenantUser);
+    app.MapPackageEndpoints().RequireAuthorization(RolePolicies.TenantUser);
+    app.MapMessageEndpoints().RequireAuthorization(RolePolicies.TenantUser);
+    app.MapDirectoryEndpoints().RequireAuthorization(RolePolicies.TenantUser);
     app.MapExpertiseEndpoints();
     app.MapBoundaryEndpoints();
     app.MapOrchestrationEndpoints();
     app.MapUnitExecutionEndpoints();
-    app.MapCloneEndpoints().RequireAuthorization();
+    app.MapCloneEndpoints().RequireAuthorization(RolePolicies.TenantUser);
     app.MapCloningPolicyEndpoints();
-    app.MapCostEndpoints().RequireAuthorization();
-    app.MapTenantCostEndpoints().RequireAuthorization();
-    app.MapBudgetEndpoints().RequireAuthorization();
-    app.MapInitiativeEndpoints().RequireAuthorization();
-    app.MapActivityEndpoints().RequireAuthorization();
-    app.MapConversationEndpoints().RequireAuthorization();
-    app.MapInboxEndpoints().RequireAuthorization();
-    app.MapAnalyticsEndpoints().RequireAuthorization();
-    app.MapDashboardEndpoints().RequireAuthorization();
-    app.MapTenantTreeEndpoints().RequireAuthorization();
-    app.MapMemoriesEndpoints().RequireAuthorization();
-    app.MapSkillsEndpoints().RequireAuthorization();
+    app.MapCostEndpoints().RequireAuthorization(RolePolicies.TenantUser);
+    app.MapTenantCostEndpoints().RequireAuthorization(RolePolicies.TenantUser);
+    // Budgets are operator-config — gate on TenantOperator.
+    app.MapBudgetEndpoints().RequireAuthorization(RolePolicies.TenantOperator);
+    app.MapInitiativeEndpoints().RequireAuthorization(RolePolicies.TenantUser);
+    app.MapActivityEndpoints().RequireAuthorization(RolePolicies.TenantUser);
+    app.MapConversationEndpoints().RequireAuthorization(RolePolicies.TenantUser);
+    app.MapInboxEndpoints().RequireAuthorization(RolePolicies.TenantUser);
+    app.MapAnalyticsEndpoints().RequireAuthorization(RolePolicies.TenantUser);
+    app.MapDashboardEndpoints().RequireAuthorization(RolePolicies.TenantUser);
+    app.MapTenantTreeEndpoints().RequireAuthorization(RolePolicies.TenantUser);
+    app.MapMemoriesEndpoints().RequireAuthorization(RolePolicies.TenantUser);
+    app.MapSkillsEndpoints().RequireAuthorization(RolePolicies.TenantUser);
+    // Connectors use per-route .RequireAuthorization() gates internally
+    // (mixed read/write surface). The unit-binding pointer routes
+    // mounted by MapUnitConnectorPointerEndpoints chain off the units
+    // group, which already carries TenantUser.
     app.MapConnectorEndpoints();
-    app.MapAgentRuntimeEndpoints().RequireAuthorization();
-    app.MapSecretEndpoints().RequireAuthorization();
-    app.MapOllamaEndpoints().RequireAuthorization();
-    // Provider credential-status probes feed the Execution panels' "is
-    // this provider configured" banner (#598). The per-provider list-models
-    // and validate endpoints were retired in #690 — callers consume
-    // `/api/v1/agent-runtimes/{id}/models` and
-    // `/api/v1/agent-runtimes/{id}/validate-credential` instead.
-    app.MapSystemEndpoints().RequireAuthorization();
-    // #616 startup configuration report. Anonymous in the OSS build — the
-    // report contains env-var names and human-readable reasons but no secret
-    // material. The private cloud host can wrap this with auth middleware.
-    app.MapSystemConfigurationEndpoints();
+    // Agent-runtime install lifecycle — TenantOperator (config / install /
+    // uninstall / config update). The full surface lives at
+    // /api/v1/tenant/agent-runtimes/installs/. A future PR (follow-up to
+    // #1259) introduces a /api/v1/platform/agent-runtimes/ registry view.
+    app.MapAgentRuntimeEndpoints().RequireAuthorization(RolePolicies.TenantOperator);
+    // Secrets endpoint group covers all three scopes (unit / tenant /
+    // platform). The platform-scope routes are gated to PlatformOperator
+    // inside the endpoint via ISecretAccessPolicy; here we apply the
+    // TenantOperator default — endpoints that write to platform scope
+    // also pass through the access-policy gate.
+    app.MapSecretEndpoints().RequireAuthorization(RolePolicies.TenantOperator);
+    // /api/v1/ollama/models was retired in C1.2b. Callers (CLI / portal)
+    // discover Ollama models through the per-runtime install path:
+    // GET /api/v1/tenant/agent-runtimes/installs/ollama/models.
+    // Provider credential-status probe (#598) feeds the unit-creation
+    // wizard's "is this provider configured" banner. Now lives under
+    // /api/v1/platform/credentials/{provider}/status — PlatformOperator.
+    app.MapSystemEndpoints().RequireAuthorization(RolePolicies.PlatformOperator);
+    // #616 startup configuration report. Now under
+    // /api/v1/platform/system/configuration. PlatformOperator gated.
+    app.MapSystemConfigurationEndpoints().RequireAuthorization(RolePolicies.PlatformOperator);
+    // Webhooks (GitHub ingest) authenticate via HMAC, not the API auth
+    // pipeline. They sit at /api/v1/webhooks/... outside both scope groups
+    // because they're an external ingress, not a user-facing tenant or
+    // platform action.
     app.MapWebhookEndpoints();
 
     await app.RunAsync();

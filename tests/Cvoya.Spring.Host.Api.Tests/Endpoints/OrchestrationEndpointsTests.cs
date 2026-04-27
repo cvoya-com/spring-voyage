@@ -46,7 +46,7 @@ public class OrchestrationEndpointsTests
             .ResolveAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
             .Returns((DirectoryEntry?)null);
 
-        var response = await _client.GetAsync("/api/v1/units/ghost/orchestration", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/units/ghost/orchestration", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
@@ -60,7 +60,7 @@ public class OrchestrationEndpointsTests
             .GetStrategyKeyAsync(unitName, Arg.Any<CancellationToken>())
             .Returns((string?)null);
 
-        var response = await _client.GetAsync($"/api/v1/units/{unitName}/orchestration", ct);
+        var response = await _client.GetAsync($"/api/v1/tenant/units/{unitName}/orchestration", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var body = await response.Content.ReadFromJsonAsync<UnitOrchestrationResponse>(cancellationToken: ct);
@@ -88,7 +88,7 @@ public class OrchestrationEndpointsTests
             .Returns(_ => captured);
 
         var putResponse = await _client.PutAsJsonAsync(
-            $"/api/v1/units/{unitName}/orchestration",
+            $"/api/v1/tenant/units/{unitName}/orchestration",
             new UnitOrchestrationResponse("workflow"),
             ct);
         putResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -105,7 +105,7 @@ public class OrchestrationEndpointsTests
         ArrangeResolved(unitName);
 
         var putResponse = await _client.PutAsJsonAsync(
-            $"/api/v1/units/{unitName}/orchestration",
+            $"/api/v1/tenant/units/{unitName}/orchestration",
             new UnitOrchestrationResponse(Strategy: ""),
             ct);
         putResponse.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
@@ -127,7 +127,7 @@ public class OrchestrationEndpointsTests
             .Returns((DirectoryEntry?)null);
 
         var putResponse = await _client.PutAsJsonAsync(
-            "/api/v1/units/ghost/orchestration",
+            "/api/v1/tenant/units/ghost/orchestration",
             new UnitOrchestrationResponse("ai"),
             ct);
         putResponse.StatusCode.ShouldBe(HttpStatusCode.NotFound);
@@ -140,7 +140,7 @@ public class OrchestrationEndpointsTests
         var unitName = NewUnitName();
         ArrangeResolved(unitName);
 
-        var response = await _client.DeleteAsync($"/api/v1/units/{unitName}/orchestration", ct);
+        var response = await _client.DeleteAsync($"/api/v1/tenant/units/{unitName}/orchestration", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
         await _factory.OrchestrationStore.Received().SetStrategyKeyAsync(
@@ -157,7 +157,7 @@ public class OrchestrationEndpointsTests
             .ResolveAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
             .Returns((DirectoryEntry?)null);
 
-        var response = await _client.DeleteAsync("/api/v1/units/ghost/orchestration", ct);
+        var response = await _client.DeleteAsync("/api/v1/tenant/units/ghost/orchestration", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 

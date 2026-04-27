@@ -22,7 +22,7 @@ using System.Threading.Tasks;
 ///   <item><c>spring system configuration --json</c> — prints the raw JSON.</item>
 ///   <item><c>spring system configuration &lt;subsystem&gt;</c> — drills into one subsystem.</item>
 /// </list>
-/// Reads <c>GET /api/v1/system/configuration</c>, which is anonymous in the OSS
+/// Reads <c>GET /api/v1/platform/system/configuration</c>, which is anonymous in the OSS
 /// build and returns a cached snapshot taken at host startup — see
 /// <c>docs/architecture/configuration.md</c>.
 /// </summary>
@@ -76,7 +76,7 @@ public static class SystemCommand
             if (report is null)
             {
                 Console.Error.WriteLine(
-                    "No configuration report returned. Is the API host running and is GET /api/v1/system/configuration reachable?");
+                    "No configuration report returned. Is the API host running and is GET /api/v1/platform/system/configuration reachable?");
                 Environment.Exit(1);
                 return;
             }
@@ -136,11 +136,11 @@ public static class SystemCommand
         };
 
         using var response = await http.GetAsync(
-            "api/v1/system/configuration", ct).ConfigureAwait(false);
+            "api/v1/platform/system/configuration", ct).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
             Console.Error.WriteLine(
-                $"GET /api/v1/system/configuration failed: {(int)response.StatusCode} {response.StatusCode}.");
+                $"GET /api/v1/platform/system/configuration failed: {(int)response.StatusCode} {response.StatusCode}.");
             Environment.Exit(1);
             return null;
         }

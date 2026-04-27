@@ -1,6 +1,6 @@
 # Agents
 
-An **agent** is an autonomous AI-powered entity. It is the fundamental building block of Spring Voyage V2.
+An **agent** is an autonomous AI-powered entity. It is the fundamental building block of Spring Voyage.
 
 Agents are not limited to "workers" -- an agent can be an observer, advisor, monitor, researcher, reviewer, or any other role. What makes something an agent is that it has an identity, can receive messages, and can reason about how to respond.
 

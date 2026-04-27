@@ -39,7 +39,7 @@ e2e::expect_status "0" "${code}" "policy model set succeeds"
 # Raw HTTP GET proves both dimensions survived — the per-dimension verb must
 # never clobber the slots it didn't touch.
 e2e::log "GET /api/v1/units/${unit}/policy (expect skill AND model present)"
-response="$(e2e::http GET "/api/v1/units/${unit}/policy")"
+response="$(e2e::http GET "/api/v1/tenant/units/${unit}/policy")"
 status="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "200" "${status}" "GET /policy returns 200"
@@ -90,7 +90,7 @@ for dim in skill model cost execution-mode initiative label-routing; do
 done
 
 e2e::log "GET /api/v1/units/${unit}/policy (expect empty after all-clear)"
-response="$(e2e::http GET "/api/v1/units/${unit}/policy")"
+response="$(e2e::http GET "/api/v1/tenant/units/${unit}/policy")"
 status="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "200" "${status}" "GET /policy returns 200 after clear"

@@ -3,8 +3,11 @@
 
 namespace Cvoya.Spring.Dapr.Observability;
 
+using System.Text.Json;
+
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Observability;
+using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
 
@@ -67,7 +70,7 @@ public class ConversationQueryService(SpringDbContext dbContext) : IConversation
             .Where(e => e.CorrelationId == conversationId)
             .OrderBy(e => e.Timestamp)
             .Select(e => new ConversationEventRow(
-                e.CorrelationId!, e.Id, e.Source, e.EventType, e.Severity, e.Summary, e.Timestamp))
+                e.CorrelationId!, e.Id, e.Source, e.EventType, e.Severity, e.Summary, e.Timestamp, e.Details))
             .ToListAsync(cancellationToken);
 
         if (rows.Count == 0)
@@ -77,11 +80,70 @@ public class ConversationQueryService(SpringDbContext dbContext) : IConversation
 
         var summary = BuildSummaryForConversation(conversationId, rows);
         var events = rows
-            .Select(r => new ConversationEvent(
-                r.Id, r.Timestamp, NormaliseSource(r.Source), r.EventType, r.Severity, r.Summary))
+            .Select(BuildConversationEvent)
             .ToList();
 
         return new ConversationDetail(summary, events);
+    }
+
+    /// <summary>
+    /// Projects a single activity-event row into a <see cref="ConversationEvent"/>,
+    /// pulling the message envelope (id / from / to / body) out of the
+    /// <c>Details</c> JSON for <c>MessageReceived</c> events (#1209) so the
+    /// conversation surfaces can render the body inline. Non-message events
+    /// surface with the body fields null and the rest of the projection
+    /// unchanged.
+    /// </summary>
+    private static ConversationEvent BuildConversationEvent(ConversationEventRow row)
+    {
+        var (messageId, from, to, body) = ExtractMessageEnvelope(row.Details);
+        return new ConversationEvent(
+            Id: row.Id,
+            Timestamp: row.Timestamp,
+            Source: NormaliseSource(row.Source),
+            EventType: row.EventType,
+            Severity: row.Severity,
+            Summary: row.Summary,
+            MessageId: messageId,
+            From: from,
+            To: to,
+            Body: body);
+    }
+
+    /// <summary>
+    /// Reads the message envelope fields written by
+    /// <see cref="MessageReceivedDetails.Build"/>. Best-effort — a missing
+    /// or malformed <c>Details</c> blob just leaves the projection fields
+    /// null so older events (pre-#1209) still render correctly.
+    /// </summary>
+    private static (Guid? MessageId, string? From, string? To, string? Body) ExtractMessageEnvelope(JsonElement? details)
+    {
+        if (details is not JsonElement element || element.ValueKind != JsonValueKind.Object)
+        {
+            return (null, null, null, null);
+        }
+
+        Guid? messageId = null;
+        if (element.TryGetProperty(MessageReceivedDetails.MessageIdProperty, out var idProp)
+            && idProp.ValueKind == JsonValueKind.String
+            && Guid.TryParse(idProp.GetString(), out var parsedId))
+        {
+            messageId = parsedId;
+        }
+
+        var from = TryReadString(element, MessageReceivedDetails.FromProperty);
+        var to = TryReadString(element, MessageReceivedDetails.ToProperty);
+        var body = TryReadString(element, MessageReceivedDetails.BodyProperty);
+        return (messageId, from, to, body);
+    }
+
+    private static string? TryReadString(JsonElement element, string property)
+    {
+        if (!element.TryGetProperty(property, out var prop))
+        {
+            return null;
+        }
+        return prop.ValueKind == JsonValueKind.String ? prop.GetString() : null;
     }
 
     /// <inheritdoc />
@@ -317,5 +379,6 @@ public class ConversationQueryService(SpringDbContext dbContext) : IConversation
         string EventType,
         string Severity,
         string Summary,
-        DateTimeOffset Timestamp);
+        DateTimeOffset Timestamp,
+        JsonElement? Details = null);
 }

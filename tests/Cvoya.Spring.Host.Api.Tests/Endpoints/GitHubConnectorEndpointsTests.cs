@@ -49,7 +49,7 @@ public class GitHubConnectorEndpointsTests
         var ct = TestContext.Current.CancellationToken;
 
         var response = await client.GetAsync(
-            "/api/v1/connectors/github/actions/list-installations", ct);
+            "/api/v1/tenant/connectors/github/actions/list-installations", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<GitHubInstallationResponse[]>(ct);
@@ -71,7 +71,7 @@ public class GitHubConnectorEndpointsTests
         var ct = TestContext.Current.CancellationToken;
 
         var response = await client.GetAsync(
-            "/api/v1/connectors/github/actions/list-installations", ct);
+            "/api/v1/tenant/connectors/github/actions/list-installations", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadGateway);
     }
@@ -83,7 +83,7 @@ public class GitHubConnectorEndpointsTests
         var client = factory.CreateClient();
         var ct = TestContext.Current.CancellationToken;
 
-        var response = await client.GetAsync("/api/v1/connectors/github/actions/install-url", ct);
+        var response = await client.GetAsync("/api/v1/tenant/connectors/github/actions/install-url", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<GitHubInstallUrlResponse>(ct);
@@ -98,7 +98,7 @@ public class GitHubConnectorEndpointsTests
         var client = factory.CreateClient();
         var ct = TestContext.Current.CancellationToken;
 
-        var response = await client.GetAsync("/api/v1/connectors/github/actions/install-url", ct);
+        var response = await client.GetAsync("/api/v1/tenant/connectors/github/actions/install-url", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadGateway);
     }
@@ -115,7 +115,7 @@ public class GitHubConnectorEndpointsTests
             "acme", "platform", AppInstallationId: 1001, Events: new[] { "issues" });
 
         var response = await client.PutAsJsonAsync(
-            "/api/v1/connectors/github/units/u1/config", request, ct);
+            "/api/v1/tenant/connectors/github/units/u1/config", request, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         await configStore.Received(1).SetAsync(
@@ -147,7 +147,7 @@ public class GitHubConnectorEndpointsTests
             "acme", "platform", AppInstallationId: 1001, Reviewer: "octocat");
 
         var response = await client.PutAsJsonAsync(
-            "/api/v1/connectors/github/units/u1/config", request, ct);
+            "/api/v1/tenant/connectors/github/units/u1/config", request, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         captured.ShouldNotBeNull();
@@ -178,7 +178,7 @@ public class GitHubConnectorEndpointsTests
             "acme", "platform", Reviewer: "   ");
 
         var response = await client.PutAsJsonAsync(
-            "/api/v1/connectors/github/units/u1/config", request, ct);
+            "/api/v1/tenant/connectors/github/units/u1/config", request, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         captured.ShouldNotBeNull();
@@ -196,7 +196,7 @@ public class GitHubConnectorEndpointsTests
         var client = factory.CreateClient();
         var ct = TestContext.Current.CancellationToken;
 
-        var response = await client.GetAsync("/api/v1/connectors/github/units/u1/config", ct);
+        var response = await client.GetAsync("/api/v1/tenant/connectors/github/units/u1/config", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
@@ -213,7 +213,7 @@ public class GitHubConnectorEndpointsTests
         var client = factory.CreateClient();
         var ct = TestContext.Current.CancellationToken;
 
-        var response = await client.GetAsync("/api/v1/connectors/github/units/u1/config", ct);
+        var response = await client.GetAsync("/api/v1/tenant/connectors/github/units/u1/config", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<UnitGitHubConfigResponse>(ct);
         body.ShouldNotBeNull();
@@ -245,7 +245,7 @@ public class GitHubConnectorEndpointsTests
         var client = factory.CreateClient();
         var ct = TestContext.Current.CancellationToken;
 
-        var response = await client.GetAsync("/api/v1/connectors/github/units/u1/config", ct);
+        var response = await client.GetAsync("/api/v1/tenant/connectors/github/units/u1/config", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<UnitGitHubConfigResponse>(ct);
         body.ShouldNotBeNull();
@@ -271,7 +271,7 @@ public class GitHubConnectorEndpointsTests
         var client = factory.CreateClient();
         var ct = TestContext.Current.CancellationToken;
 
-        var response = await client.GetAsync("/api/v1/connectors/github/units/u1/config", ct);
+        var response = await client.GetAsync("/api/v1/tenant/connectors/github/units/u1/config", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<UnitGitHubConfigResponse>(ct);
         body.ShouldNotBeNull();
@@ -295,7 +295,7 @@ public class GitHubConnectorEndpointsTests
         var request = new UnitGitHubConfigRequest("acme", "platform", AppInstallationId: 1001);
 
         var response = await client.PutAsJsonAsync(
-            "/api/v1/connectors/github/units/u1/config", request, ct);
+            "/api/v1/tenant/connectors/github/units/u1/config", request, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<UnitGitHubConfigResponse>(ct);
@@ -329,7 +329,7 @@ public class GitHubConnectorEndpointsTests
         var ct = TestContext.Current.CancellationToken;
 
         var response = await client.GetAsync(
-            "/api/v1/connectors/github/actions/list-installations", ct);
+            "/api/v1/tenant/connectors/github/actions/list-installations", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>(ct);
@@ -365,7 +365,7 @@ public class GitHubConnectorEndpointsTests
         var ct = TestContext.Current.CancellationToken;
 
         var response = await client.GetAsync(
-            "/api/v1/connectors/github/actions/install-url", ct);
+            "/api/v1/tenant/connectors/github/actions/install-url", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>(ct);
@@ -406,7 +406,7 @@ public class GitHubConnectorEndpointsTests
         var ct = TestContext.Current.CancellationToken;
 
         var response = await client.GetAsync(
-            "/api/v1/connectors/github/actions/list-repositories", ct);
+            "/api/v1/tenant/connectors/github/actions/list-repositories", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<GitHubRepositoryResponse[]>(ct);
@@ -456,7 +456,7 @@ public class GitHubConnectorEndpointsTests
         var ct = TestContext.Current.CancellationToken;
 
         var response = await client.GetAsync(
-            "/api/v1/connectors/github/actions/list-repositories", ct);
+            "/api/v1/tenant/connectors/github/actions/list-repositories", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<GitHubRepositoryResponse[]>(ct);
@@ -473,7 +473,7 @@ public class GitHubConnectorEndpointsTests
         var ct = TestContext.Current.CancellationToken;
 
         var response = await client.GetAsync(
-            "/api/v1/connectors/github/actions/list-repositories", ct);
+            "/api/v1/tenant/connectors/github/actions/list-repositories", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>(ct);
@@ -497,7 +497,7 @@ public class GitHubConnectorEndpointsTests
         var ct = TestContext.Current.CancellationToken;
 
         var response = await client.GetAsync(
-            "/api/v1/connectors/github/actions/list-collaborators?installation_id=1001&owner=acme&repo=platform",
+            "/api/v1/tenant/connectors/github/actions/list-collaborators?installation_id=1001&owner=acme&repo=platform",
             ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -518,7 +518,7 @@ public class GitHubConnectorEndpointsTests
         var ct = TestContext.Current.CancellationToken;
 
         var response = await client.GetAsync(
-            "/api/v1/connectors/github/actions/list-collaborators?installation_id=0&owner=&repo=",
+            "/api/v1/tenant/connectors/github/actions/list-collaborators?installation_id=0&owner=&repo=",
             ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
@@ -532,7 +532,7 @@ public class GitHubConnectorEndpointsTests
         var ct = TestContext.Current.CancellationToken;
 
         var response = await client.GetAsync(
-            "/api/v1/connectors/github/actions/list-collaborators?installation_id=1001&owner=acme&repo=platform",
+            "/api/v1/tenant/connectors/github/actions/list-collaborators?installation_id=1001&owner=acme&repo=platform",
             ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
@@ -547,7 +547,7 @@ public class GitHubConnectorEndpointsTests
         var client = factory.CreateClient();
         var ct = TestContext.Current.CancellationToken;
 
-        var response = await client.GetAsync("/api/v1/connectors/github/config-schema", ct);
+        var response = await client.GetAsync("/api/v1/tenant/connectors/github/config-schema", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var body = await response.Content.ReadFromJsonAsync<JsonElement>(ct);

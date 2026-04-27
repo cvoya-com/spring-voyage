@@ -52,7 +52,7 @@ public class SkillsEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         // so adding a new GitHub tool does not break the test.
         var ct = TestContext.Current.CancellationToken;
 
-        var response = await _client.GetAsync("/api/v1/skills", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/skills", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var entries = await response.Content.ReadFromJsonAsync<List<SkillCatalogEntry>>(JsonOptions, ct);
@@ -73,7 +73,7 @@ public class SkillsEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             .ResolveAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
             .Returns((DirectoryEntry?)null);
 
-        var response = await _client.GetAsync("/api/v1/agents/ghost/skills", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/agents/ghost/skills", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
@@ -85,7 +85,7 @@ public class SkillsEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         var proxy = ArrangeAgent("ada", "actor-ada",
             skills: ["github_read_file", "github_write_file"]);
 
-        var response = await _client.GetAsync("/api/v1/agents/ada/skills", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/agents/ada/skills", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<AgentSkillsResponse>(JsonOptions, ct);
@@ -106,7 +106,7 @@ public class SkillsEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             new[] { "github_list_files", "github_create_branch" });
 
         var response = await _client.PutAsync(
-            "/api/v1/agents/ada/skills",
+            "/api/v1/tenant/agents/ada/skills",
             JsonContent.Create(body, options: JsonOptions),
             ct);
 
@@ -129,7 +129,7 @@ public class SkillsEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         var body = new SetAgentSkillsRequest(Array.Empty<string>());
 
         var response = await _client.PutAsync(
-            "/api/v1/agents/ada/skills",
+            "/api/v1/tenant/agents/ada/skills",
             JsonContent.Create(body, options: JsonOptions),
             ct);
 
@@ -150,7 +150,7 @@ public class SkillsEndpointsTests : IClassFixture<CustomWebApplicationFactory>
 
         var body = new SetAgentSkillsRequest(new[] { "github_read_file" });
         var response = await _client.PutAsync(
-            "/api/v1/agents/ghost/skills",
+            "/api/v1/tenant/agents/ghost/skills",
             JsonContent.Create(body, options: JsonOptions),
             ct);
 

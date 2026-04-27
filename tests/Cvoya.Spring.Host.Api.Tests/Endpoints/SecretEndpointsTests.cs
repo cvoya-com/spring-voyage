@@ -58,7 +58,7 @@ public class SecretEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             new Address("unit", "missing"), Arg.Any<CancellationToken>())
             .Returns((DirectoryEntry?)null);
 
-        var response = await _client.GetAsync("/api/v1/units/missing/secrets", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/units/missing/secrets", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
@@ -67,7 +67,7 @@ public class SecretEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     {
         var ct = TestContext.Current.CancellationToken;
 
-        var response = await _client.GetAsync("/api/v1/units/u1/secrets", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/units/u1/secrets", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var body = await response.Content.ReadFromJsonAsync<UnitSecretsListResponse>(JsonOptions, ct);
@@ -83,7 +83,7 @@ public class SecretEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         StubUnit(unit);
 
         var response = await _client.PostAsJsonAsync(
-            $"/api/v1/units/{unit}/secrets",
+            $"/api/v1/tenant/units/{unit}/secrets",
             new CreateSecretRequest("gh-token", "ghp_abc123"),
             ct);
 
@@ -121,7 +121,7 @@ public class SecretEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         StubUnit(unit);
 
         var response = await _client.PostAsJsonAsync(
-            $"/api/v1/units/{unit}/secrets",
+            $"/api/v1/tenant/units/{unit}/secrets",
             new CreateSecretRequest("kv-ref", ExternalStoreKey: "kv://vault1/secret1"),
             ct);
 
@@ -143,7 +143,7 @@ public class SecretEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         StubUnit(unit);
 
         var response = await _client.PostAsJsonAsync(
-            $"/api/v1/units/{unit}/secrets",
+            $"/api/v1/tenant/units/{unit}/secrets",
             new CreateSecretRequest("both", "x", "kv://also"),
             ct);
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
@@ -157,7 +157,7 @@ public class SecretEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         StubUnit(unit);
 
         var response = await _client.PostAsJsonAsync(
-            $"/api/v1/units/{unit}/secrets",
+            $"/api/v1/tenant/units/{unit}/secrets",
             new CreateSecretRequest("neither"),
             ct);
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
@@ -171,7 +171,7 @@ public class SecretEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         StubUnit(unit);
 
         var response = await _client.PostAsJsonAsync(
-            $"/api/v1/units/{unit}/secrets",
+            $"/api/v1/tenant/units/{unit}/secrets",
             new CreateSecretRequest("", "x"),
             ct);
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
@@ -185,13 +185,13 @@ public class SecretEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         StubUnit(unit);
 
         var postResponse = await _client.PostAsJsonAsync(
-            $"/api/v1/units/{unit}/secrets",
+            $"/api/v1/tenant/units/{unit}/secrets",
             new CreateSecretRequest("temp", ExternalStoreKey: "kv://vault/x"),
             ct);
         postResponse.StatusCode.ShouldBe(HttpStatusCode.Created);
 
         var deleteResponse = await _client.DeleteAsync(
-            $"/api/v1/units/{unit}/secrets/temp", ct);
+            $"/api/v1/tenant/units/{unit}/secrets/temp", ct);
         deleteResponse.StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
         using var scope = _factory.Services.CreateScope();
@@ -213,7 +213,7 @@ public class SecretEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         _factory.SecretStore.ClearReceivedCalls();
 
         var postResponse = await _client.PostAsJsonAsync(
-            $"/api/v1/units/{unit}/secrets",
+            $"/api/v1/tenant/units/{unit}/secrets",
             new CreateSecretRequest("owned", "hunter2"),
             ct);
         postResponse.StatusCode.ShouldBe(HttpStatusCode.Created);
@@ -230,7 +230,7 @@ public class SecretEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         }
 
         var deleteResponse = await _client.DeleteAsync(
-            $"/api/v1/units/{unit}/secrets/owned", ct);
+            $"/api/v1/tenant/units/{unit}/secrets/owned", ct);
         deleteResponse.StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
         await _factory.SecretStore.Received(1)
@@ -250,13 +250,13 @@ public class SecretEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         _factory.SecretStore.ClearReceivedCalls();
 
         var postResponse = await _client.PostAsJsonAsync(
-            $"/api/v1/units/{unit}/secrets",
+            $"/api/v1/tenant/units/{unit}/secrets",
             new CreateSecretRequest("ext", ExternalStoreKey: "kv://vault1/secret1"),
             ct);
         postResponse.StatusCode.ShouldBe(HttpStatusCode.Created);
 
         var deleteResponse = await _client.DeleteAsync(
-            $"/api/v1/units/{unit}/secrets/ext", ct);
+            $"/api/v1/tenant/units/{unit}/secrets/ext", ct);
         deleteResponse.StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
         await _factory.SecretStore.DidNotReceive()
@@ -279,7 +279,7 @@ public class SecretEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         StubUnit(unit);
 
         var response = await _client.PostAsJsonAsync(
-            $"/api/v1/units/{unit}/secrets",
+            $"/api/v1/tenant/units/{unit}/secrets",
             new CreateSecretRequest("owned", "hunter2"),
             ct);
         response.StatusCode.ShouldBe(HttpStatusCode.Created);
@@ -299,7 +299,7 @@ public class SecretEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         StubUnit(unit);
 
         var response = await _client.PostAsJsonAsync(
-            $"/api/v1/units/{unit}/secrets",
+            $"/api/v1/tenant/units/{unit}/secrets",
             new CreateSecretRequest("ext", ExternalStoreKey: "kv://vault/x"),
             ct);
         response.StatusCode.ShouldBe(HttpStatusCode.Created);
@@ -322,7 +322,7 @@ public class SecretEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             .IsAuthorizedAsync(SecretAccessAction.List, SecretScope.Unit, unit, Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(false));
 
-        var response = await _client.GetAsync($"/api/v1/units/{unit}/secrets", ct);
+        var response = await _client.GetAsync($"/api/v1/tenant/units/{unit}/secrets", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
 
         // Reset for other tests running against the same factory.
@@ -339,7 +339,7 @@ public class SecretEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         StubUnit(unit);
 
         var response = await _client.DeleteAsync(
-            $"/api/v1/units/{unit}/secrets/nope", ct);
+            $"/api/v1/tenant/units/{unit}/secrets/nope", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
@@ -369,7 +369,7 @@ public class SecretEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             await db.SaveChangesAsync(ct);
         }
 
-        var response = await _client.GetAsync($"/api/v1/units/{unit}/secrets", ct);
+        var response = await _client.GetAsync($"/api/v1/tenant/units/{unit}/secrets", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var body = await response.Content.ReadFromJsonAsync<UnitSecretsListResponse>(JsonOptions, ct);

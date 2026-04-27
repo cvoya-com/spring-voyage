@@ -89,7 +89,7 @@ public class SystemConfigurationEndpointsTests
         var client = factory.CreateClient();
         var ct = TestContext.Current.CancellationToken;
 
-        var response = await client.GetAsync("/api/v1/system/configuration", ct);
+        var response = await client.GetAsync("/api/v1/platform/system/configuration", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         // Anonymous endpoint — no token needed.

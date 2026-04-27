@@ -78,7 +78,7 @@ describe("GET /api/stream/activity", () => {
 
     expect(observedUrl).not.toBeNull();
     const u = new URL(observedUrl!);
-    expect(u.pathname).toBe("/api/v1/activity/stream");
+    expect(u.pathname).toBe("/api/v1/tenant/activity/stream");
     expect(u.searchParams.get("source")).toBe("unit://eng");
     expect(u.searchParams.get("severity")).toBe("Warning");
   });

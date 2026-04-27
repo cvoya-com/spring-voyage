@@ -62,7 +62,7 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
             .ResolveAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
             .Returns((DirectoryEntry?)null);
 
-        var response = await _client.GetAsync($"/api/v1/units/{UnitName}/agents", ct);
+        var response = await _client.GetAsync($"/api/v1/tenant/units/{UnitName}/agents", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
@@ -92,7 +92,7 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
         // state — so arrange a membership row for this agent in this unit.
         await UpsertMembershipAsync(UnitName, "ada");
 
-        var response = await _client.GetAsync($"/api/v1/units/{UnitName}/agents", ct);
+        var response = await _client.GetAsync($"/api/v1/tenant/units/{UnitName}/agents", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var agents = await response.Content.ReadFromJsonAsync<List<AgentResponse>>(JsonOptions, ct);
@@ -170,7 +170,7 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
         });
         var client = probingFactory.CreateClient();
 
-        var response = await client.GetAsync($"/api/v1/units/{UnitName}/agents", ct);
+        var response = await client.GetAsync($"/api/v1/tenant/units/{UnitName}/agents", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var agents = await response.Content.ReadFromJsonAsync<List<AgentResponse>>(JsonOptions, ct);
@@ -194,7 +194,7 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
         ArrangeAgent("ada", "actor-ada", new AgentMetadata());
 
         var response = await _client.PostAsync(
-            $"/api/v1/units/{UnitName}/agents/ada", content: null, ct);
+            $"/api/v1/tenant/units/{UnitName}/agents/ada", content: null, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
@@ -231,7 +231,7 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
                 "cross-tenant")));
 
         var response = await _client.PostAsync(
-            $"/api/v1/units/{UnitName}/agents/foreign-ada", content: null, ct);
+            $"/api/v1/tenant/units/{UnitName}/agents/foreign-ada", content: null, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
         (await GetMembershipAsync(UnitName, "foreign-ada")).ShouldBeNull();
@@ -251,9 +251,9 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
         ArrangeUnit("marketing", "actor-marketing");
         ArrangeAgent("ada", "actor-ada", new AgentMetadata());
 
-        (await _client.PostAsync($"/api/v1/units/{UnitName}/agents/ada", content: null, ct))
+        (await _client.PostAsync($"/api/v1/tenant/units/{UnitName}/agents/ada", content: null, ct))
             .StatusCode.ShouldBe(HttpStatusCode.OK);
-        (await _client.PostAsync("/api/v1/units/marketing/agents/ada", content: null, ct))
+        (await _client.PostAsync("/api/v1/tenant/units/marketing/agents/ada", content: null, ct))
             .StatusCode.ShouldBe(HttpStatusCode.OK);
 
         (await GetMembershipAsync(UnitName, "ada")).ShouldNotBeNull();
@@ -271,7 +271,7 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
         await UpsertMembershipAsync(UnitName, "ada");
 
         var response = await _client.PostAsync(
-            $"/api/v1/units/{UnitName}/agents/ada", content: null, ct);
+            $"/api/v1/tenant/units/{UnitName}/agents/ada", content: null, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         // Re-asserting membership is harmless and makes the endpoint
@@ -298,7 +298,7 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
         await UpsertMembershipAsync("marketing", "ada");
 
         var response = await _client.DeleteAsync(
-            $"/api/v1/units/{UnitName}/agents/ada", ct);
+            $"/api/v1/tenant/units/{UnitName}/agents/ada", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
         (await GetMembershipAsync(UnitName, "ada")).ShouldBeNull();
@@ -323,7 +323,7 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
         await UpsertMembershipAsync(UnitName, "ada");
 
         var response = await _client.DeleteAsync(
-            $"/api/v1/units/{UnitName}/agents/ada", ct);
+            $"/api/v1/tenant/units/{UnitName}/agents/ada", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Conflict);
         // Row must still exist — the invariant is enforced transactionally.
@@ -344,7 +344,7 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
         await UpsertMembershipAsync("marketing", "ada");
 
         var response = await _client.DeleteAsync(
-            $"/api/v1/units/{UnitName}/agents/ada", ct);
+            $"/api/v1/tenant/units/{UnitName}/agents/ada", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
         (await GetMembershipAsync(UnitName, "ada")).ShouldBeNull();
@@ -374,7 +374,7 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
                 "cross-tenant")));
 
         var body = new AddMemberRequest(new AddressDto("unit", "foreign-sub"));
-        using var request = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/units/{UnitName}/members")
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/tenant/units/{UnitName}/members")
         {
             Content = JsonContent.Create(body, options: JsonOptions),
         };
@@ -399,7 +399,7 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
                 ExecutionMode: AgentExecutionMode.Auto));
 
         var patch = new UpdateAgentMetadataRequest(Enabled: false);
-        using var request = new HttpRequestMessage(HttpMethod.Patch, "/api/v1/agents/ada")
+        using var request = new HttpRequestMessage(HttpMethod.Patch, "/api/v1/tenant/agents/ada")
         {
             Content = JsonContent.Create(patch, options: JsonOptions),
         };
@@ -432,7 +432,7 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
             .Returns((DirectoryEntry?)null);
 
         var patch = new UpdateAgentMetadataRequest(Model: "gpt-4");
-        using var request = new HttpRequestMessage(HttpMethod.Patch, "/api/v1/agents/ghost")
+        using var request = new HttpRequestMessage(HttpMethod.Patch, "/api/v1/tenant/agents/ghost")
         {
             Content = JsonContent.Create(patch, options: JsonOptions),
         };

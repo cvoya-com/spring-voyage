@@ -1,6 +1,6 @@
 # CLI & Web
 
-> **[Architecture Index](README.md)** | Related: [Security](security.md), [Deployment](deployment.md), [Units & Agents](units.md)
+> **[Architecture Index](README.md)** | Related: [Public Web API](web-api.md), [Security](security.md), [Deployment](deployment.md), [Units & Agents](units.md)
 
 ---
 

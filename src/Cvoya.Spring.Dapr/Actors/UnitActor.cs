@@ -201,10 +201,14 @@ public class UnitActor : Actor, IUnitActor
         {
             // correlationId carries the conversation id so
             // IConversationQueryService (#452) can group every thread-related
-            // event under the same conversation row.
+            // event under the same conversation row. #1209: stamp the
+            // envelope (messageId, from, to, payload) onto Details so the
+            // conversation surfaces can render the body, not just the
+            // summary.
             await EmitActivityEventAsync(ActivityEventType.MessageReceived,
                 $"Received {message.Type} message {message.Id} from {message.From}",
                 ct,
+                details: MessageReceivedDetails.Build(message),
                 correlationId: message.ConversationId);
 
             return message.Type switch

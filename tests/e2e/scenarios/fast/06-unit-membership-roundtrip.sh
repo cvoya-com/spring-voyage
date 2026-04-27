@@ -62,14 +62,14 @@ e2e::expect_contains "\"agentAddress\": \"${agent}\"" "${body}" "list contains t
 # AND /agents mention the newly-added agent so the direct-create path can't
 # regress into the same drift silently.
 e2e::log "GET /api/v1/units/${unit}/memberships"
-response="$(e2e::http GET "/api/v1/units/${unit}/memberships")"
+response="$(e2e::http GET "/api/v1/tenant/units/${unit}/memberships")"
 status="${response##*$'\n'}"
 mships_body="${response%$'\n'*}"
 e2e::expect_status "200" "${status}" "/memberships returns 200 for unit"
 e2e::expect_contains "\"agentAddress\":\"${agent}\"" "${mships_body}" "/memberships includes the added agent"
 
 e2e::log "GET /api/v1/units/${unit}/agents"
-response="$(e2e::http GET "/api/v1/units/${unit}/agents")"
+response="$(e2e::http GET "/api/v1/tenant/units/${unit}/agents")"
 status="${response##*$'\n'}"
 agents_body="${response%$'\n'*}"
 e2e::expect_status "200" "${status}" "/agents returns 200 for unit"

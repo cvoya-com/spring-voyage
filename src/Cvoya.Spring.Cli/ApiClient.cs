@@ -48,7 +48,7 @@ public class SpringApiClient
     /// <summary>Lists all registered agents.</summary>
     public async Task<IReadOnlyList<AgentResponse>> ListAgentsAsync(CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Agents.GetAsync(cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Agents.GetAsync(cancellationToken: ct);
         return result ?? new List<AgentResponse>();
     }
 
@@ -82,20 +82,20 @@ public class SpringApiClient
             DefinitionJson = string.IsNullOrWhiteSpace(definitionJson) ? null : definitionJson,
         };
 
-        var result = await _client.Api.V1.Agents.PostAsync(request, cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Agents.PostAsync(request, cancellationToken: ct);
         return result ?? throw new InvalidOperationException("Server returned an empty CreateAgent response.");
     }
 
     /// <summary>Gets an agent's status detail.</summary>
     public async Task<AgentDetailResponse> GetAgentStatusAsync(string id, CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Agents[id].GetAsync(cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Agents[id].GetAsync(cancellationToken: ct);
         return result ?? throw new InvalidOperationException($"Server returned an empty status response for agent '{id}'.");
     }
 
     /// <summary>Deletes an agent.</summary>
     public Task DeleteAgentAsync(string id, CancellationToken ct = default)
-        => _client.Api.V1.Agents[id].DeleteAsync(cancellationToken: ct);
+        => _client.Api.V1.Tenant.Agents[id].DeleteAsync(cancellationToken: ct);
 
     // Persistent-agent lifecycle (#396). Each verb maps 1:1 to the endpoint
     // of the same name under /api/v1/agents/{id}. The CLI layer composes
@@ -123,11 +123,11 @@ public class SpringApiClient
             Image = string.IsNullOrWhiteSpace(image) ? null : image,
             Replicas = replicas is int r ? new UntypedInteger(r) : null,
         };
-        var body = new Cvoya.Spring.Cli.Generated.Api.V1.Agents.Item.Deploy.DeployRequestBuilder.DeployPostRequestBody
+        var body = new Cvoya.Spring.Cli.Generated.Api.V1.Tenant.Agents.Item.Deploy.DeployRequestBuilder.DeployPostRequestBody
         {
             DeployPersistentAgentRequest = typed,
         };
-        var result = await _client.Api.V1.Agents[agentId].Deploy.PostAsync(body, cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Agents[agentId].Deploy.PostAsync(body, cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
             $"Server returned an empty deploy response for agent '{agentId}'.");
     }
@@ -141,7 +141,7 @@ public class SpringApiClient
         string agentId,
         CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Agents[agentId].Undeploy.PostAsync(cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Agents[agentId].Undeploy.PostAsync(cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
             $"Server returned an empty undeploy response for agent '{agentId}'.");
     }
@@ -160,7 +160,7 @@ public class SpringApiClient
         {
             Replicas = new UntypedInteger(replicas),
         };
-        var result = await _client.Api.V1.Agents[agentId].Scale.PostAsync(request, cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Agents[agentId].Scale.PostAsync(request, cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
             $"Server returned an empty scale response for agent '{agentId}'.");
     }
@@ -174,7 +174,7 @@ public class SpringApiClient
         int? tail = null,
         CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Agents[agentId].Logs.GetAsync(
+        var result = await _client.Api.V1.Tenant.Agents[agentId].Logs.GetAsync(
             config =>
             {
                 if (tail is int t)
@@ -200,7 +200,7 @@ public class SpringApiClient
         string agentId,
         CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Agents[agentId].Deployment.GetAsync(cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Agents[agentId].Deployment.GetAsync(cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
             $"Server returned an empty deployment response for agent '{agentId}'.");
     }
@@ -215,7 +215,7 @@ public class SpringApiClient
     public async Task<IReadOnlyList<ExpertiseDomainDto>> GetAgentExpertiseAsync(
         string agentId, CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Agents[agentId].Expertise.GetAsync(cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Agents[agentId].Expertise.GetAsync(cancellationToken: ct);
         return result?.Domains ?? new List<ExpertiseDomainDto>();
     }
 
@@ -229,7 +229,7 @@ public class SpringApiClient
         CancellationToken ct = default)
     {
         var body = new SetExpertiseRequest { Domains = domains?.ToList() ?? new List<ExpertiseDomainDto>() };
-        var result = await _client.Api.V1.Agents[agentId].Expertise.PutAsync(body, cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Agents[agentId].Expertise.PutAsync(body, cancellationToken: ct);
         return result?.Domains ?? new List<ExpertiseDomainDto>();
     }
 
@@ -239,7 +239,7 @@ public class SpringApiClient
     public async Task<IReadOnlyList<ExpertiseDomainDto>> GetUnitOwnExpertiseAsync(
         string unitId, CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Units[unitId].Expertise.Own.GetAsync(cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Units[unitId].Expertise.Own.GetAsync(cancellationToken: ct);
         return result?.Domains ?? new List<ExpertiseDomainDto>();
     }
 
@@ -252,7 +252,7 @@ public class SpringApiClient
         CancellationToken ct = default)
     {
         var body = new SetExpertiseRequest { Domains = domains?.ToList() ?? new List<ExpertiseDomainDto>() };
-        var result = await _client.Api.V1.Units[unitId].Expertise.Own.PutAsync(body, cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Units[unitId].Expertise.Own.PutAsync(body, cancellationToken: ct);
         return result?.Domains ?? new List<ExpertiseDomainDto>();
     }
 
@@ -264,7 +264,7 @@ public class SpringApiClient
     public async Task<AggregatedExpertiseResponse> GetUnitAggregatedExpertiseAsync(
         string unitId, CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Units[unitId].Expertise.GetAsync(cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Units[unitId].Expertise.GetAsync(cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
             $"Server returned an empty aggregated-expertise response for unit '{unitId}'.");
     }
@@ -274,7 +274,7 @@ public class SpringApiClient
     /// <summary>Lists all units.</summary>
     public async Task<IReadOnlyList<UnitResponse>> ListUnitsAsync(CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Units.GetAsync(cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Units.GetAsync(cancellationToken: ct);
         return result ?? new List<UnitResponse>();
     }
 
@@ -315,7 +315,7 @@ public class SpringApiClient
             ParentUnitIds = parentUnitIds is { Count: > 0 } ? parentUnitIds.ToList() : null,
             IsTopLevel = isTopLevel,
         };
-        var result = await _client.Api.V1.Units.PostAsync(request, cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Units.PostAsync(request, cancellationToken: ct);
         return result ?? throw new InvalidOperationException("Server returned an empty CreateUnit response.");
     }
 
@@ -356,7 +356,7 @@ public class SpringApiClient
             ParentUnitIds = parentUnitIds is { Count: > 0 } ? parentUnitIds.ToList() : null,
             IsTopLevel = isTopLevel,
         };
-        var result = await _client.Api.V1.Units.FromTemplate.PostAsync(request, cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Units.FromTemplate.PostAsync(request, cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
             "Server returned an empty CreateUnitFromTemplate response.");
     }
@@ -364,14 +364,14 @@ public class SpringApiClient
     /// <summary>Starts a unit by posting to the /start endpoint.</summary>
     public async Task<UnitLifecycleResponse> StartUnitAsync(string id, CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Units[id].Start.PostAsync(cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Units[id].Start.PostAsync(cancellationToken: ct);
         return result ?? throw new InvalidOperationException($"Server returned an empty start response for unit '{id}'.");
     }
 
     /// <summary>Stops a unit by posting to the /stop endpoint.</summary>
     public async Task<UnitLifecycleResponse> StopUnitAsync(string id, CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Units[id].Stop.PostAsync(cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Units[id].Stop.PostAsync(cancellationToken: ct);
         return result ?? throw new InvalidOperationException($"Server returned an empty stop response for unit '{id}'.");
     }
 
@@ -388,7 +388,7 @@ public class SpringApiClient
     /// </summary>
     public async Task<UnitResponse> RevalidateUnitAsync(string id, CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Units[id].Revalidate.PostAsync(cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Units[id].Revalidate.PostAsync(cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
             $"Server returned an empty revalidate response for unit '{id}'.");
     }
@@ -396,14 +396,14 @@ public class SpringApiClient
     /// <summary>Gets the readiness status of a unit.</summary>
     public async Task<UnitReadinessResponse> GetUnitReadinessAsync(string id, CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Units[id].Readiness.GetAsync(cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Units[id].Readiness.GetAsync(cancellationToken: ct);
         return result ?? throw new InvalidOperationException($"Server returned an empty readiness response for unit '{id}'.");
     }
 
     /// <summary>Gets a unit's details.</summary>
     public async Task<UnitDetailResponse> GetUnitAsync(string id, CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Units[id].GetAsync(cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Units[id].GetAsync(cancellationToken: ct);
         return result ?? throw new InvalidOperationException($"Server returned an empty response for unit '{id}'.");
     }
 
@@ -416,7 +416,7 @@ public class SpringApiClient
     /// <c>forceHint</c>.
     /// </summary>
     public Task DeleteUnitAsync(string id, bool force = false, CancellationToken ct = default)
-        => _client.Api.V1.Units[id].DeleteAsync(
+        => _client.Api.V1.Tenant.Units[id].DeleteAsync(
             requestConfiguration: force
                 ? c => c.QueryParameters.Force = true
                 : null,
@@ -430,7 +430,7 @@ public class SpringApiClient
         string unitId,
         CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Units[unitId].Members.GetAsync(cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Units[unitId].Members.GetAsync(cancellationToken: ct);
         return result ?? new List<AddressDto>();
     }
 
@@ -459,12 +459,12 @@ public class SpringApiClient
                 Path = memberPath,
             },
         };
-        return _client.Api.V1.Units[unitId].Members.PostAsync(request, cancellationToken: ct);
+        return _client.Api.V1.Tenant.Units[unitId].Members.PostAsync(request, cancellationToken: ct);
     }
 
     /// <summary>Removes a member from a unit.</summary>
     public Task RemoveMemberAsync(string unitId, string memberId, CancellationToken ct = default)
-        => _client.Api.V1.Units[unitId].Members[memberId].DeleteAsync(cancellationToken: ct);
+        => _client.Api.V1.Tenant.Units[unitId].Members[memberId].DeleteAsync(cancellationToken: ct);
 
     // Unit memberships (per-membership config overrides — #245 / C2b-1).
     //
@@ -480,7 +480,7 @@ public class SpringApiClient
         string unitId,
         CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Units[unitId].Memberships.GetAsync(cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Units[unitId].Memberships.GetAsync(cancellationToken: ct);
         return result ?? new List<UnitMembershipResponse>();
     }
 
@@ -489,7 +489,7 @@ public class SpringApiClient
         string agentId,
         CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Agents[agentId].Memberships.GetAsync(cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Agents[agentId].Memberships.GetAsync(cancellationToken: ct);
         return result ?? new List<UnitMembershipResponse>();
     }
 
@@ -519,7 +519,7 @@ public class SpringApiClient
                     AgentExecutionMode = executionMode,
                 },
         };
-        var result = await _client.Api.V1.Units[unitId].Memberships[agentId]
+        var result = await _client.Api.V1.Tenant.Units[unitId].Memberships[agentId]
             .PutAsync(request, cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
             $"Server returned an empty UpsertMembership response for unit '{unitId}' / agent '{agentId}'.");
@@ -527,7 +527,7 @@ public class SpringApiClient
 
     /// <summary>Removes the membership row for an agent in this unit.</summary>
     public Task DeleteMembershipAsync(string unitId, string agentId, CancellationToken ct = default)
-        => _client.Api.V1.Units[unitId].Memberships[agentId].DeleteAsync(cancellationToken: ct);
+        => _client.Api.V1.Tenant.Units[unitId].Memberships[agentId].DeleteAsync(cancellationToken: ct);
 
     // Unit policy (#453 — unified policy surface across all five UnitPolicy
     // dimensions: skill, model, cost, execution-mode, initiative). The
@@ -556,7 +556,7 @@ public class SpringApiClient
         string unitId,
         CancellationToken ct = default)
     {
-        var url = $"{_baseUrl}/api/v1/units/{Uri.EscapeDataString(unitId)}/policy";
+        var url = $"{_baseUrl}/api/v1/tenant/units/{Uri.EscapeDataString(unitId)}/policy";
         using var response = await _httpClient.GetAsync(url, ct).ConfigureAwait(false);
         await ThrowIfNotSuccessAsync(response, ct).ConfigureAwait(false);
 
@@ -579,7 +579,7 @@ public class SpringApiClient
         UnitPolicyWire policy,
         CancellationToken ct = default)
     {
-        var url = $"{_baseUrl}/api/v1/units/{Uri.EscapeDataString(unitId)}/policy";
+        var url = $"{_baseUrl}/api/v1/tenant/units/{Uri.EscapeDataString(unitId)}/policy";
         var json = System.Text.Json.JsonSerializer.Serialize(policy, UnitPolicyJsonOptions);
         using var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
         using var response = await _httpClient.PutAsync(url, content, ct).ConfigureAwait(false);
@@ -640,7 +640,7 @@ public class SpringApiClient
         string unitId,
         CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Units[unitId].Boundary.GetAsync(cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Units[unitId].Boundary.GetAsync(cancellationToken: ct);
         return result ?? new UnitBoundaryResponse();
     }
 
@@ -654,7 +654,7 @@ public class SpringApiClient
         UnitBoundaryResponse boundary,
         CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Units[unitId].Boundary.PutAsync(boundary, cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Units[unitId].Boundary.PutAsync(boundary, cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
             $"Server returned an empty boundary response for unit '{unitId}'.");
     }
@@ -664,7 +664,7 @@ public class SpringApiClient
     /// unit that never had a boundary is a no-op and returns cleanly.
     /// </summary>
     public Task ClearUnitBoundaryAsync(string unitId, CancellationToken ct = default)
-        => _client.Api.V1.Units[unitId].Boundary.DeleteAsync(cancellationToken: ct);
+        => _client.Api.V1.Tenant.Units[unitId].Boundary.DeleteAsync(cancellationToken: ct);
 
     // Unit orchestration (#606). Dedicated GET/PUT/DELETE surface for the
     // manifest-persisted `orchestration.strategy` key — the one ADR-0010
@@ -682,7 +682,7 @@ public class SpringApiClient
         string unitId,
         CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Units[unitId].Orchestration.GetAsync(cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Units[unitId].Orchestration.GetAsync(cancellationToken: ct);
         return result ?? new UnitOrchestrationResponse();
     }
 
@@ -700,7 +700,7 @@ public class SpringApiClient
         {
             Strategy = strategyKey,
         };
-        var result = await _client.Api.V1.Units[unitId].Orchestration.PutAsync(body, cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Units[unitId].Orchestration.PutAsync(body, cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
             $"Server returned an empty orchestration response for unit '{unitId}'.");
     }
@@ -711,7 +711,7 @@ public class SpringApiClient
     /// cleanly.
     /// </summary>
     public Task ClearUnitOrchestrationAsync(string unitId, CancellationToken ct = default)
-        => _client.Api.V1.Units[unitId].Orchestration.DeleteAsync(cancellationToken: ct);
+        => _client.Api.V1.Tenant.Units[unitId].Orchestration.DeleteAsync(cancellationToken: ct);
 
     // Unit execution (#601 / #603 / #409 B-wide). Dedicated GET/PUT/DELETE
     // surface for the manifest-persisted unit `execution:` block (image /
@@ -729,7 +729,7 @@ public class SpringApiClient
         string unitId,
         CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Units[unitId].Execution.GetAsync(cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Units[unitId].Execution.GetAsync(cancellationToken: ct);
         return result ?? new UnitExecutionResponse();
     }
 
@@ -744,7 +744,7 @@ public class SpringApiClient
         UnitExecutionResponse defaults,
         CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Units[unitId].Execution.PutAsync(defaults, cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Units[unitId].Execution.PutAsync(defaults, cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
             $"Server returned an empty execution response for unit '{unitId}'.");
     }
@@ -755,7 +755,7 @@ public class SpringApiClient
     /// cleanly.
     /// </summary>
     public Task ClearUnitExecutionAsync(string unitId, CancellationToken ct = default)
-        => _client.Api.V1.Units[unitId].Execution.DeleteAsync(cancellationToken: ct);
+        => _client.Api.V1.Tenant.Units[unitId].Execution.DeleteAsync(cancellationToken: ct);
 
     // Agent execution (#601 / #603 / #409 B-wide). Symmetric with the
     // unit-execution surface, plus the agent-owned `hosting` field
@@ -771,7 +771,7 @@ public class SpringApiClient
         string agentId,
         CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Agents[agentId].Execution.GetAsync(cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Agents[agentId].Execution.GetAsync(cancellationToken: ct);
         return result ?? new AgentExecutionResponse();
     }
 
@@ -785,14 +785,14 @@ public class SpringApiClient
         AgentExecutionResponse shape,
         CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Agents[agentId].Execution.PutAsync(shape, cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Agents[agentId].Execution.PutAsync(shape, cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
             $"Server returned an empty execution response for agent '{agentId}'.");
     }
 
     /// <summary>Clears the agent's execution block. Idempotent.</summary>
     public Task ClearAgentExecutionAsync(string agentId, CancellationToken ct = default)
-        => _client.Api.V1.Agents[agentId].Execution.DeleteAsync(cancellationToken: ct);
+        => _client.Api.V1.Tenant.Agents[agentId].Execution.DeleteAsync(cancellationToken: ct);
 
     // Humans (#454). Three verbs — add, remove, list — all target the
     // server's /humans surface. `add` maps to PATCH
@@ -809,7 +809,7 @@ public class SpringApiClient
         string unitId,
         CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Units[unitId].Humans.GetAsync(cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Units[unitId].Humans.GetAsync(cancellationToken: ct);
         return result ?? new List<UnitPermissionEntry>();
     }
 
@@ -832,7 +832,7 @@ public class SpringApiClient
             Identity = string.IsNullOrWhiteSpace(identity) ? null : identity,
             Notifications = notifications,
         };
-        var result = await _client.Api.V1.Units[unitId].Humans[humanId].Permissions
+        var result = await _client.Api.V1.Tenant.Units[unitId].Humans[humanId].Permissions
             .PatchAsync(request, cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
             $"Server returned an empty SetHumanPermission response for unit '{unitId}' / human '{humanId}'.");
@@ -847,7 +847,7 @@ public class SpringApiClient
         string unitId,
         string humanId,
         CancellationToken ct = default)
-        => _client.Api.V1.Units[unitId].Humans[humanId].Permissions.DeleteAsync(cancellationToken: ct);
+        => _client.Api.V1.Tenant.Units[unitId].Humans[humanId].Permissions.DeleteAsync(cancellationToken: ct);
 
     // Activity
 
@@ -859,7 +859,7 @@ public class SpringApiClient
         int? pageSize = null,
         CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Activity.GetAsync(
+        var result = await _client.Api.V1.Tenant.Activity.GetAsync(
             config =>
             {
                 config.QueryParameters.Source = source;
@@ -892,8 +892,19 @@ public class SpringApiClient
             ConversationId = conversationId,
             Payload = new UntypedString(text),
         };
-        var result = await _client.Api.V1.Messages.PostAsync(request, cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Messages.PostAsync(request, cancellationToken: ct);
         return result ?? throw new InvalidOperationException("Server returned an empty SendMessage response.");
+    }
+
+    /// <summary>
+    /// Fetches a single message (envelope + body) by id (#1209). Backs
+    /// <c>spring message show &lt;id&gt;</c>.
+    /// </summary>
+    public async Task<MessageDetail> GetMessageAsync(Guid messageId, CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Tenant.Messages[messageId].GetAsync(cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty response for message '{messageId}'.");
     }
 
     // Conversations (#452)
@@ -910,7 +921,7 @@ public class SpringApiClient
         int? limit = null,
         CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Conversations.GetAsync(
+        var result = await _client.Api.V1.Tenant.Conversations.GetAsync(
             config =>
             {
                 config.QueryParameters.Unit = unit;
@@ -932,7 +943,7 @@ public class SpringApiClient
     /// </summary>
     public async Task<ConversationDetail> GetConversationAsync(string id, CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Conversations[id].GetAsync(cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Conversations[id].GetAsync(cancellationToken: ct);
         return result ?? throw new InvalidOperationException($"Server returned an empty response for conversation '{id}'.");
     }
 
@@ -953,7 +964,7 @@ public class SpringApiClient
             To = new AddressDto { Scheme = toScheme, Path = toPath },
             Text = text,
         };
-        var result = await _client.Api.V1.Conversations[conversationId].Messages.PostAsync(request, cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Conversations[conversationId].Messages.PostAsync(request, cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
             $"Server returned an empty message response for conversation '{conversationId}'.");
     }
@@ -974,7 +985,7 @@ public class SpringApiClient
         {
             Reason = string.IsNullOrWhiteSpace(reason) ? null : reason,
         };
-        var result = await _client.Api.V1.Conversations[conversationId].Close.PostAsync(request, cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Conversations[conversationId].Close.PostAsync(request, cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
             $"Server returned an empty close response for conversation '{conversationId}'.");
     }
@@ -987,7 +998,7 @@ public class SpringApiClient
     /// </summary>
     public async Task<IReadOnlyList<InboxItem>> ListInboxAsync(CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Inbox.GetAsync(cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Inbox.GetAsync(cancellationToken: ct);
         return result ?? new List<InboxItem>();
     }
 
@@ -996,7 +1007,7 @@ public class SpringApiClient
     /// <summary>Lists all directory entries.</summary>
     public async Task<IReadOnlyList<DirectoryEntryResponse>> ListDirectoryAsync(CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Directory.GetAsync(cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Directory.GetAsync(cancellationToken: ct);
         return result ?? new List<DirectoryEntryResponse>();
     }
 
@@ -1042,11 +1053,11 @@ public class SpringApiClient
             };
         }
 
-        var body = new Cvoya.Spring.Cli.Generated.Api.V1.DirectoryNamespace.Search.SearchRequestBuilder.SearchPostRequestBody
+        var body = new Cvoya.Spring.Cli.Generated.Api.V1.Tenant.DirectoryNamespace.Search.SearchRequestBuilder.SearchPostRequestBody
         {
             DirectorySearchRequest = req,
         };
-        var result = await _client.Api.V1.Directory.Search.PostAsync(body, cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Directory.Search.PostAsync(body, cancellationToken: ct);
         return result ?? throw new InvalidOperationException("Server returned an empty search response.");
     }
 
@@ -1069,7 +1080,7 @@ public class SpringApiClient
     public async Task<IReadOnlyList<InstalledConnectorResponse>> ListConnectorsAsync(
         CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Connectors.GetAsync(cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Connectors.GetAsync(cancellationToken: ct);
         return result ?? new List<InstalledConnectorResponse>();
     }
 
@@ -1085,7 +1096,7 @@ public class SpringApiClient
     {
         try
         {
-            return await _client.Api.V1.Connectors[slugOrId].GetAsync(cancellationToken: ct);
+            return await _client.Api.V1.Tenant.Connectors[slugOrId].GetAsync(cancellationToken: ct);
         }
         catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode == 404)
         {
@@ -1103,7 +1114,7 @@ public class SpringApiClient
         string slugOrId,
         CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Connectors[slugOrId].Bindings.GetAsync(cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Connectors[slugOrId].Bindings.GetAsync(cancellationToken: ct);
         return result ?? new List<ConnectorUnitBindingResponse>();
     }
 
@@ -1118,7 +1129,7 @@ public class SpringApiClient
     {
         try
         {
-            return await _client.Api.V1.Units[unitId].Connector.GetAsync(cancellationToken: ct);
+            return await _client.Api.V1.Tenant.Units[unitId].Connector.GetAsync(cancellationToken: ct);
         }
         catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode == 404)
         {
@@ -1160,7 +1171,7 @@ public class SpringApiClient
             Events = events?.ToList(),
             Reviewer = string.IsNullOrWhiteSpace(reviewer) ? null : reviewer,
         };
-        var result = await _client.Api.V1.Connectors.Github.Units[unitId].Config
+        var result = await _client.Api.V1.Tenant.Connectors.Github.Units[unitId].Config
             .PutAsync(request, cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
             $"Server returned an empty PutUnitGitHubConfig response for unit '{unitId}'.");
@@ -1178,7 +1189,7 @@ public class SpringApiClient
     {
         try
         {
-            return await _client.Api.V1.Connectors.Github.Units[unitId].Config
+            return await _client.Api.V1.Tenant.Connectors.Github.Units[unitId].Config
                 .GetAsync(cancellationToken: ct);
         }
         catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode == 404)
@@ -1196,7 +1207,7 @@ public class SpringApiClient
         DateTimeOffset? to = null,
         CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Costs.Tenant.GetAsync(
+        var result = await _client.Api.V1.Tenant.Cost.Tenant.GetAsync(
             config =>
             {
                 config.QueryParameters.From = from;
@@ -1213,7 +1224,7 @@ public class SpringApiClient
         DateTimeOffset? to = null,
         CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Costs.Units[unitId].GetAsync(
+        var result = await _client.Api.V1.Tenant.Cost.Units[unitId].GetAsync(
             config =>
             {
                 config.QueryParameters.From = from;
@@ -1231,7 +1242,7 @@ public class SpringApiClient
         DateTimeOffset? to = null,
         CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Costs.Agents[agentId].GetAsync(
+        var result = await _client.Api.V1.Tenant.Cost.Agents[agentId].GetAsync(
             config =>
             {
                 config.QueryParameters.From = from;
@@ -1258,7 +1269,7 @@ public class SpringApiClient
         DateTimeOffset? to = null,
         CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Analytics.Throughput.GetAsync(
+        var result = await _client.Api.V1.Tenant.Analytics.Throughput.GetAsync(
             config =>
             {
                 config.QueryParameters.Source = source;
@@ -1280,7 +1291,7 @@ public class SpringApiClient
         DateTimeOffset? to = null,
         CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Analytics.Waits.GetAsync(
+        var result = await _client.Api.V1.Tenant.Analytics.Waits.GetAsync(
             config =>
             {
                 config.QueryParameters.Source = source;
@@ -1302,7 +1313,7 @@ public class SpringApiClient
         CancellationToken ct = default)
     {
         var request = new SetBudgetRequest { DailyBudget = (double)dailyBudget };
-        var result = await _client.Api.V1.Agents[agentId].Budget.PutAsync(request, cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Agents[agentId].Budget.PutAsync(request, cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
             $"Server returned an empty SetAgentBudget response for agent '{agentId}'.");
     }
@@ -1314,7 +1325,7 @@ public class SpringApiClient
         CancellationToken ct = default)
     {
         var request = new SetBudgetRequest { DailyBudget = (double)dailyBudget };
-        var result = await _client.Api.V1.Units[unitId].Budget.PutAsync(request, cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Units[unitId].Budget.PutAsync(request, cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
             $"Server returned an empty SetUnitBudget response for unit '{unitId}'.");
     }
@@ -1339,7 +1350,7 @@ public class SpringApiClient
     /// <summary>Gets the daily cost budget for an agent.</summary>
     public async Task<BudgetResponse> GetAgentBudgetAsync(string agentId, CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Agents[agentId].Budget.GetAsync(cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Agents[agentId].Budget.GetAsync(cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
             $"Server returned an empty GetAgentBudget response for agent '{agentId}'.");
     }
@@ -1347,7 +1358,7 @@ public class SpringApiClient
     /// <summary>Gets the daily cost budget for a unit.</summary>
     public async Task<BudgetResponse> GetUnitBudgetAsync(string unitId, CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Units[unitId].Budget.GetAsync(cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Units[unitId].Budget.GetAsync(cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
             $"Server returned an empty GetUnitBudget response for unit '{unitId}'.");
     }
@@ -1388,7 +1399,7 @@ public class SpringApiClient
             CloneType = cloneType,
             AttachmentMode = attachmentMode,
         };
-        var result = await _client.Api.V1.Agents[agentId].Clones.PostAsync(request, cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Agents[agentId].Clones.PostAsync(request, cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
             $"Server returned an empty CreateClone response for agent '{agentId}'.");
     }
@@ -1396,7 +1407,7 @@ public class SpringApiClient
     /// <summary>Lists the clones registered under an agent.</summary>
     public async Task<IReadOnlyList<CloneResponse>> ListClonesAsync(string agentId, CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Agents[agentId].Clones.GetAsync(cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Agents[agentId].Clones.GetAsync(cancellationToken: ct);
         return result ?? new List<CloneResponse>();
     }
 
@@ -1415,7 +1426,7 @@ public class SpringApiClient
         string agentId,
         CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Agents[agentId].CloningPolicy.GetAsync(cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Agents[agentId].CloningPolicy.GetAsync(cancellationToken: ct);
         return result ?? new AgentCloningPolicyResponse();
     }
 
@@ -1425,14 +1436,14 @@ public class SpringApiClient
         AgentCloningPolicyResponse policy,
         CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Agents[agentId].CloningPolicy.PutAsync(policy, cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Agents[agentId].CloningPolicy.PutAsync(policy, cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
             $"Server returned an empty cloning-policy response for agent '{agentId}'.");
     }
 
     /// <summary>Clears the persistent cloning policy for an agent.</summary>
     public Task ClearAgentCloningPolicyAsync(string agentId, CancellationToken ct = default)
-        => _client.Api.V1.Agents[agentId].CloningPolicy.DeleteAsync(cancellationToken: ct);
+        => _client.Api.V1.Tenant.Agents[agentId].CloningPolicy.DeleteAsync(cancellationToken: ct);
 
     /// <summary>Gets the tenant-wide persistent cloning policy.</summary>
     public async Task<AgentCloningPolicyResponse> GetTenantCloningPolicyAsync(CancellationToken ct = default)
@@ -1461,20 +1472,20 @@ public class SpringApiClient
     public async Task<CreateTokenResponse> CreateTokenAsync(string name, CancellationToken ct = default)
     {
         var request = new CreateTokenRequest { Name = name };
-        var result = await _client.Api.V1.Auth.Tokens.PostAsync(request, cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Auth.Tokens.PostAsync(request, cancellationToken: ct);
         return result ?? throw new InvalidOperationException("Server returned an empty CreateToken response.");
     }
 
     /// <summary>Lists all API tokens.</summary>
     public async Task<IReadOnlyList<TokenResponse>> ListTokensAsync(CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Auth.Tokens.GetAsync(cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Auth.Tokens.GetAsync(cancellationToken: ct);
         return result ?? new List<TokenResponse>();
     }
 
     /// <summary>Revokes an API token by name.</summary>
     public Task RevokeTokenAsync(string name, CancellationToken ct = default)
-        => _client.Api.V1.Auth.Tokens[name].DeleteAsync(cancellationToken: ct);
+        => _client.Api.V1.Tenant.Auth.Tokens[name].DeleteAsync(cancellationToken: ct);
 
     // Platform info (#451). The About panel on the portal and the
     // `spring platform info` CLI verb read the same endpoint so version
@@ -1507,7 +1518,7 @@ public class SpringApiClient
     public async Task<IReadOnlyList<SecretMetadata>> ListUnitSecretsAsync(
         string unitId, CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Units[unitId].Secrets.GetAsync(cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Units[unitId].Secrets.GetAsync(cancellationToken: ct);
         return result?.Secrets ?? new List<SecretMetadata>();
     }
 
@@ -1546,7 +1557,7 @@ public class SpringApiClient
             Value = string.IsNullOrEmpty(value) ? null : value,
             ExternalStoreKey = string.IsNullOrWhiteSpace(externalStoreKey) ? null : externalStoreKey,
         };
-        var result = await _client.Api.V1.Units[unitId].Secrets.PostAsync(request, cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Units[unitId].Secrets.PostAsync(request, cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
             $"Server returned an empty CreateSecret response for unit '{unitId}' / '{name}'.");
     }
@@ -1605,7 +1616,7 @@ public class SpringApiClient
             Value = string.IsNullOrEmpty(value) ? null : value,
             ExternalStoreKey = string.IsNullOrWhiteSpace(externalStoreKey) ? null : externalStoreKey,
         };
-        var result = await _client.Api.V1.Units[unitId].Secrets[name].PutAsync(request, cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Units[unitId].Secrets[name].PutAsync(request, cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
             $"Server returned an empty RotateSecret response for unit '{unitId}' / '{name}'.");
     }
@@ -1653,7 +1664,7 @@ public class SpringApiClient
     public async Task<SecretVersionsListResponse> ListUnitSecretVersionsAsync(
         string unitId, string name, CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Units[unitId].Secrets[name].Versions.GetAsync(cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Units[unitId].Secrets[name].Versions.GetAsync(cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
             $"Server returned an empty versions response for unit '{unitId}' / '{name}'.");
     }
@@ -1685,7 +1696,7 @@ public class SpringApiClient
     public async Task<PruneSecretResponse> PruneUnitSecretAsync(
         string unitId, string name, int keep, CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Units[unitId].Secrets[name].Prune.PostAsync(
+        var result = await _client.Api.V1.Tenant.Units[unitId].Secrets[name].Prune.PostAsync(
             config =>
             {
                 // Kiota emits this as a string query parameter because the
@@ -1731,7 +1742,7 @@ public class SpringApiClient
     /// store untouched.
     /// </summary>
     public Task DeleteUnitSecretAsync(string unitId, string name, CancellationToken ct = default)
-        => _client.Api.V1.Units[unitId].Secrets[name].DeleteAsync(cancellationToken: ct);
+        => _client.Api.V1.Tenant.Units[unitId].Secrets[name].DeleteAsync(cancellationToken: ct);
 
     /// <summary>Deletes a tenant-scoped secret (every version).</summary>
     public Task DeleteTenantSecretAsync(string name, CancellationToken ct = default)
@@ -1751,8 +1762,8 @@ public class SpringApiClient
     public async Task<InstalledConnectorResponse> InstallConnectorAsync(
         string slugOrId, CancellationToken ct = default)
     {
-        var body = new Cvoya.Spring.Cli.Generated.Api.V1.Connectors.Item.Install.InstallRequestBuilder.InstallPostRequestBody();
-        var result = await _client.Api.V1.Connectors[slugOrId].Install.PostAsync(body, cancellationToken: ct);
+        var body = new Cvoya.Spring.Cli.Generated.Api.V1.Tenant.Connectors.Item.Install.InstallRequestBuilder.InstallPostRequestBody();
+        var result = await _client.Api.V1.Tenant.Connectors[slugOrId].Install.PostAsync(body, cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
             $"Server returned an empty install response for connector '{slugOrId}'.");
     }
@@ -1763,7 +1774,7 @@ public class SpringApiClient
     /// <c>DELETE /connectors/{slug}/install</c>).
     /// </summary>
     public Task UninstallConnectorAsync(string slugOrId, CancellationToken ct = default)
-        => _client.Api.V1.Connectors[slugOrId].DeleteAsync(cancellationToken: ct);
+        => _client.Api.V1.Tenant.Connectors[slugOrId].DeleteAsync(cancellationToken: ct);
 
     /// <summary>
     /// Returns the current credential-health row for a connector, or
@@ -1776,7 +1787,7 @@ public class SpringApiClient
     {
         try
         {
-            return await _client.Api.V1.Connectors[slugOrId].CredentialHealth.GetAsync(
+            return await _client.Api.V1.Tenant.Connectors[slugOrId].CredentialHealth.GetAsync(
                 config => { if (!string.IsNullOrWhiteSpace(secretName)) config.QueryParameters.SecretName = secretName; },
                 cancellationToken: ct);
         }
@@ -1796,7 +1807,7 @@ public class SpringApiClient
     public async Task<IReadOnlyList<InstalledAgentRuntimeResponse>> ListAgentRuntimesAsync(
         CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.AgentRuntimes.GetAsync(cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.AgentRuntimes.Installs.GetAsync(cancellationToken: ct);
         return result ?? new List<InstalledAgentRuntimeResponse>();
     }
 
@@ -1808,7 +1819,7 @@ public class SpringApiClient
     {
         try
         {
-            return await _client.Api.V1.AgentRuntimes[id].GetAsync(cancellationToken: ct);
+            return await _client.Api.V1.Tenant.AgentRuntimes.Installs[id].GetAsync(cancellationToken: ct);
         }
         catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode == 404)
         {
@@ -1820,7 +1831,7 @@ public class SpringApiClient
     public async Task<IReadOnlyList<AgentRuntimeModelResponse>> GetAgentRuntimeModelsAsync(
         string id, CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.AgentRuntimes[id].Models.GetAsync(cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.AgentRuntimes.Installs[id].Models.GetAsync(cancellationToken: ct);
         return result ?? new List<AgentRuntimeModelResponse>();
     }
 
@@ -1832,7 +1843,7 @@ public class SpringApiClient
         string? baseUrl,
         CancellationToken ct = default)
     {
-        var body = new Cvoya.Spring.Cli.Generated.Api.V1.AgentRuntimes.Item.Install.InstallRequestBuilder.InstallPostRequestBody
+        var body = new Cvoya.Spring.Cli.Generated.Api.V1.Tenant.AgentRuntimes.Installs.Item.Install.InstallRequestBuilder.InstallPostRequestBody
         {
             AgentRuntimeInstallRequest = new AgentRuntimeInstallRequest
             {
@@ -1841,14 +1852,14 @@ public class SpringApiClient
                 BaseUrl = baseUrl,
             },
         };
-        var result = await _client.Api.V1.AgentRuntimes[id].Install.PostAsync(body, cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.AgentRuntimes.Installs[id].Install.PostAsync(body, cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
             $"Server returned an empty install response for agent runtime '{id}'.");
     }
 
     /// <summary>Uninstalls the runtime from the current tenant.</summary>
     public Task UninstallAgentRuntimeAsync(string id, CancellationToken ct = default)
-        => _client.Api.V1.AgentRuntimes[id].DeleteAsync(cancellationToken: ct);
+        => _client.Api.V1.Tenant.AgentRuntimes.Installs[id].DeleteAsync(cancellationToken: ct);
 
     /// <summary>Replaces the tenant-scoped config for an installed runtime.</summary>
     public async Task<InstalledAgentRuntimeResponse> UpdateAgentRuntimeConfigAsync(
@@ -1864,7 +1875,7 @@ public class SpringApiClient
             DefaultModel = defaultModel,
             BaseUrl = baseUrl,
         };
-        var result = await _client.Api.V1.AgentRuntimes[id].Config.PatchAsync(request, cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.AgentRuntimes.Installs[id].Config.PatchAsync(request, cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
             $"Server returned an empty config response for agent runtime '{id}'.");
     }
@@ -1880,7 +1891,7 @@ public class SpringApiClient
     {
         try
         {
-            return await _client.Api.V1.AgentRuntimes[id].CredentialHealth.GetAsync(
+            return await _client.Api.V1.Tenant.AgentRuntimes.Installs[id].CredentialHealth.GetAsync(
                 config => { if (!string.IsNullOrWhiteSpace(secretName)) config.QueryParameters.SecretName = secretName; },
                 cancellationToken: ct);
         }
@@ -1903,7 +1914,7 @@ public class SpringApiClient
     {
         try
         {
-            return await _client.Api.V1.AgentRuntimes[id].Config.GetAsync(cancellationToken: ct);
+            return await _client.Api.V1.Tenant.AgentRuntimes.Installs[id].Config.GetAsync(cancellationToken: ct);
         }
         catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode == 404)
         {
@@ -1925,7 +1936,7 @@ public class SpringApiClient
         string? secretName,
         CancellationToken ct = default)
     {
-        var body = new Cvoya.Spring.Cli.Generated.Api.V1.AgentRuntimes.Item.ValidateCredential.ValidateCredentialRequestBuilder.ValidateCredentialPostRequestBody
+        var body = new Cvoya.Spring.Cli.Generated.Api.V1.Tenant.AgentRuntimes.Installs.Item.ValidateCredential.ValidateCredentialRequestBuilder.ValidateCredentialPostRequestBody
         {
             AgentRuntimeValidateCredentialRequest = new AgentRuntimeValidateCredentialRequest
             {
@@ -1933,7 +1944,7 @@ public class SpringApiClient
                 SecretName = string.IsNullOrWhiteSpace(secretName) ? null : secretName,
             },
         };
-        var result = await _client.Api.V1.AgentRuntimes[id].ValidateCredential.PostAsync(body, cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.AgentRuntimes.Installs[id].ValidateCredential.PostAsync(body, cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
             $"Server returned an empty validate-credential response for agent runtime '{id}'.");
     }
@@ -1949,14 +1960,14 @@ public class SpringApiClient
         string? credential,
         CancellationToken ct = default)
     {
-        var body = new Cvoya.Spring.Cli.Generated.Api.V1.AgentRuntimes.Item.RefreshModels.RefreshModelsRequestBuilder.RefreshModelsPostRequestBody
+        var body = new Cvoya.Spring.Cli.Generated.Api.V1.Tenant.AgentRuntimes.Installs.Item.RefreshModels.RefreshModelsRequestBuilder.RefreshModelsPostRequestBody
         {
             AgentRuntimeRefreshModelsRequest = new AgentRuntimeRefreshModelsRequest
             {
                 Credential = credential,
             },
         };
-        var result = await _client.Api.V1.AgentRuntimes[id].RefreshModels.PostAsync(body, cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.AgentRuntimes.Installs[id].RefreshModels.PostAsync(body, cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
             $"Server returned an empty refresh-models response for agent runtime '{id}'.");
     }
@@ -1975,7 +1986,7 @@ public class SpringApiClient
     /// </summary>
     public async Task<IReadOnlyList<PackageSummary>> ListPackagesAsync(CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Packages.GetAsync(cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Packages.GetAsync(cancellationToken: ct);
         return result ?? new List<PackageSummary>();
     }
 
@@ -1989,7 +2000,7 @@ public class SpringApiClient
     {
         try
         {
-            return await _client.Api.V1.Packages[name].GetAsync(cancellationToken: ct);
+            return await _client.Api.V1.Tenant.Packages[name].GetAsync(cancellationToken: ct);
         }
         catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode == 404)
         {
@@ -2005,7 +2016,7 @@ public class SpringApiClient
     /// </summary>
     public async Task<IReadOnlyList<UnitTemplateSummary>> ListUnitTemplatesAsync(CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Packages.Templates.GetAsync(cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Packages.Templates.GetAsync(cancellationToken: ct);
         return result ?? new List<UnitTemplateSummary>();
     }
 
@@ -2022,7 +2033,7 @@ public class SpringApiClient
     {
         try
         {
-            return await _client.Api.V1.Packages[package].Templates[name].GetAsync(cancellationToken: ct);
+            return await _client.Api.V1.Tenant.Packages[package].Templates[name].GetAsync(cancellationToken: ct);
         }
         catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode == 404)
         {

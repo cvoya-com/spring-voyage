@@ -236,7 +236,7 @@ The platform supports external workflow engines as unit orchestrators via the sa
 
 A2A (Agent-to-Agent) is an open protocol for cross-framework agent communication. It enables:
 
-- **External agents as unit members** — an ADK agent, LangGraph node, or AutoGen agent participates in a Spring unit via A2A, wrapped as an `A2AAgentActor : IMessageReceiver`.
+- **External agents as unit members** — an ADK agent, LangGraph node, or AutoGen agent participates in a Spring unit via A2A, wrapped as an `A2AAgentActor: IMessageReceiver`.
 - **External orchestrators** — an external workflow engine drives a Spring unit's agents via A2A.
 - **Cross-platform collaboration** — Spring agents collaborate with agents built on other frameworks.
 

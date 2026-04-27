@@ -47,7 +47,7 @@ public sealed class AgentRuntimeRefreshModelsEndpointTests : IDisposable
         var ct = TestContext.Current.CancellationToken;
 
         var response = await _client.PostAsJsonAsync(
-            "/api/v1/agent-runtimes/not-a-real-runtime/refresh-models",
+            "/api/v1/tenant/agent-runtimes/installs/not-a-real-runtime/refresh-models",
             new AgentRuntimeRefreshModelsRequest(Credential: "sk-x"),
             ct);
 
@@ -60,7 +60,7 @@ public sealed class AgentRuntimeRefreshModelsEndpointTests : IDisposable
         var ct = TestContext.Current.CancellationToken;
         // Fresh per-test factory — no install row exists for 'openai' yet.
         var response = await _client.PostAsJsonAsync(
-            "/api/v1/agent-runtimes/openai/refresh-models",
+            "/api/v1/tenant/agent-runtimes/installs/openai/refresh-models",
             new AgentRuntimeRefreshModelsRequest(Credential: "sk-x"),
             ct);
 
@@ -76,7 +76,7 @@ public sealed class AgentRuntimeRefreshModelsEndpointTests : IDisposable
         // stubbed live catalog, so the assertion below proves the endpoint
         // actually wrote the new list.
         var install = await _client.PostAsJsonAsync(
-            "/api/v1/agent-runtimes/openai/install",
+            "/api/v1/tenant/agent-runtimes/installs/openai/install",
             new AgentRuntimeInstallRequest(
                 Models: new[] { "stale-model-1", "stale-model-2" },
                 DefaultModel: "stale-model-1",
@@ -96,7 +96,7 @@ public sealed class AgentRuntimeRefreshModelsEndpointTests : IDisposable
             """);
 
         var refresh = await _client.PostAsJsonAsync(
-            "/api/v1/agent-runtimes/openai/refresh-models",
+            "/api/v1/tenant/agent-runtimes/installs/openai/refresh-models",
             new AgentRuntimeRefreshModelsRequest(Credential: "sk-good"),
             ct);
 
@@ -110,7 +110,7 @@ public sealed class AgentRuntimeRefreshModelsEndpointTests : IDisposable
 
         // Follow-up GET confirms the stored config survives beyond the
         // refresh response.
-        var get = await _client.GetAsync("/api/v1/agent-runtimes/openai", ct);
+        var get = await _client.GetAsync("/api/v1/tenant/agent-runtimes/installs/openai", ct);
         var getBody = await get.Content.ReadFromJsonAsync<InstalledAgentRuntimeResponse>(ct);
         getBody.ShouldNotBeNull();
         getBody!.Models.ShouldBe(new[] { "gpt-4o", "gpt-4o-mini", "o4-mini" });
@@ -130,7 +130,7 @@ public sealed class AgentRuntimeRefreshModelsEndpointTests : IDisposable
         // Pre-install with a default model that IS present in the refreshed
         // catalog below — the endpoint should preserve it.
         await _client.PostAsJsonAsync(
-            "/api/v1/agent-runtimes/openai/install",
+            "/api/v1/tenant/agent-runtimes/installs/openai/install",
             new AgentRuntimeInstallRequest(
                 Models: new[] { "gpt-4o", "old-sibling" },
                 DefaultModel: "gpt-4o",
@@ -147,7 +147,7 @@ public sealed class AgentRuntimeRefreshModelsEndpointTests : IDisposable
             """);
 
         var refresh = await _client.PostAsJsonAsync(
-            "/api/v1/agent-runtimes/openai/refresh-models",
+            "/api/v1/tenant/agent-runtimes/installs/openai/refresh-models",
             new AgentRuntimeRefreshModelsRequest(Credential: "sk-good"),
             ct);
 
@@ -163,7 +163,7 @@ public sealed class AgentRuntimeRefreshModelsEndpointTests : IDisposable
         var ct = TestContext.Current.CancellationToken;
 
         await _client.PostAsJsonAsync(
-            "/api/v1/agent-runtimes/openai/install",
+            "/api/v1/tenant/agent-runtimes/installs/openai/install",
             new AgentRuntimeInstallRequest(null, null, null),
             ct);
 
@@ -172,7 +172,7 @@ public sealed class AgentRuntimeRefreshModelsEndpointTests : IDisposable
             """);
 
         var refresh = await _client.PostAsJsonAsync(
-            "/api/v1/agent-runtimes/openai/refresh-models",
+            "/api/v1/tenant/agent-runtimes/installs/openai/refresh-models",
             new AgentRuntimeRefreshModelsRequest(Credential: "sk-bad"),
             ct);
 
@@ -185,14 +185,14 @@ public sealed class AgentRuntimeRefreshModelsEndpointTests : IDisposable
         var ct = TestContext.Current.CancellationToken;
 
         await _client.PostAsJsonAsync(
-            "/api/v1/agent-runtimes/openai/install",
+            "/api/v1/tenant/agent-runtimes/installs/openai/install",
             new AgentRuntimeInstallRequest(null, null, null),
             ct);
 
         _handler.Respond(HttpStatusCode.ServiceUnavailable, "upstream down");
 
         var refresh = await _client.PostAsJsonAsync(
-            "/api/v1/agent-runtimes/openai/refresh-models",
+            "/api/v1/tenant/agent-runtimes/installs/openai/refresh-models",
             new AgentRuntimeRefreshModelsRequest(Credential: "sk-anything"),
             ct);
 

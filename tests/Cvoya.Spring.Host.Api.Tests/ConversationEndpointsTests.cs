@@ -55,7 +55,7 @@ public class ConversationEndpointsTests : IClassFixture<ConversationEndpointsTes
                 new("c-1", new[] { "agent://ada" }, "active", now, now, 1, "agent://ada", "Started"),
             });
 
-        var response = await _client.GetAsync("/api/v1/conversations", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/conversations", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var rows = await response.Content.ReadFromJsonAsync<List<ConversationSummary>>(ct);
@@ -73,7 +73,7 @@ public class ConversationEndpointsTests : IClassFixture<ConversationEndpointsTes
             .Returns(new List<ConversationSummary>());
 
         var response = await _client.GetAsync(
-            "/api/v1/conversations?unit=eng-team&agent=ada&status=active&participant=human%3A%2F%2Fsavasp&limit=25",
+            "/api/v1/tenant/conversations?unit=eng-team&agent=ada&status=active&participant=human%3A%2F%2Fsavasp&limit=25",
             ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -96,7 +96,7 @@ public class ConversationEndpointsTests : IClassFixture<ConversationEndpointsTes
             .GetAsync("c-missing", Arg.Any<CancellationToken>())
             .Returns((ConversationDetail?)null);
 
-        var response = await _client.GetAsync("/api/v1/conversations/c-missing", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/conversations/c-missing", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
@@ -115,7 +115,7 @@ public class ConversationEndpointsTests : IClassFixture<ConversationEndpointsTes
                     new(Guid.NewGuid(), now, "agent://ada", "ConversationStarted", "Info", "Started conversation c-1"),
                 }));
 
-        var response = await _client.GetAsync("/api/v1/conversations/c-1", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/conversations/c-1", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var detail = await response.Content.ReadFromJsonAsync<ConversationDetail>(ct);
@@ -143,7 +143,7 @@ public class ConversationEndpointsTests : IClassFixture<ConversationEndpointsTes
             new AddressDto("agent", "ada"),
             "Looks good — ship it.");
 
-        var response = await _client.PostAsJsonAsync("/api/v1/conversations/c-1/messages", body, ct);
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/conversations/c-1/messages", body, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
@@ -174,7 +174,7 @@ public class ConversationEndpointsTests : IClassFixture<ConversationEndpointsTes
 
         var body = new ConversationMessageRequest(new AddressDto("agent", "ada"), "hi");
 
-        var response = await _client.PostAsJsonAsync("/api/v1/conversations/c-1/messages", body, ct);
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/conversations/c-1/messages", body, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
     }
@@ -197,7 +197,7 @@ public class ConversationEndpointsTests : IClassFixture<ConversationEndpointsTes
 
         var body = new ConversationMessageRequest(new AddressDto("agent", "ada"), "hi");
 
-        var response = await _client.PostAsJsonAsync("/api/v1/conversations/c-1/messages", body, ct);
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/conversations/c-1/messages", body, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         var problem = await response.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>(ct);
@@ -219,7 +219,7 @@ public class ConversationEndpointsTests : IClassFixture<ConversationEndpointsTes
 
         var body = new ConversationMessageRequest(new AddressDto("agent", "ada"), "hi");
 
-        var response = await _client.PostAsJsonAsync("/api/v1/conversations/c-1/messages", body, ct);
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/conversations/c-1/messages", body, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadGateway);
     }
@@ -271,7 +271,7 @@ public class ConversationEndpointsTests : IClassFixture<ConversationEndpointsTes
             .Returns(agentProxy);
 
         var body = new CloseConversationRequest("operator request");
-        var response = await _client.PostAsJsonAsync("/api/v1/conversations/c-close/close", body, ct);
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/conversations/c-close/close", body, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var detail = await response.Content.ReadFromJsonAsync<ConversationDetail>(ct);
@@ -293,7 +293,7 @@ public class ConversationEndpointsTests : IClassFixture<ConversationEndpointsTes
             .Returns((ConversationDetail?)null);
 
         var body = new CloseConversationRequest("oops");
-        var response = await _client.PostAsJsonAsync("/api/v1/conversations/c-missing/close", body, ct);
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/conversations/c-missing/close", body, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
@@ -320,7 +320,7 @@ public class ConversationEndpointsTests : IClassFixture<ConversationEndpointsTes
         _factory.ActorProxyFactory.ClearSubstitute();
 
         var body = new CloseConversationRequest(null);
-        var response = await _client.PostAsJsonAsync("/api/v1/conversations/c-human-only/close", body, ct);
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/conversations/c-human-only/close", body, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         _factory.ActorProxyFactory.DidNotReceive()
@@ -339,7 +339,7 @@ public class ConversationEndpointsTests : IClassFixture<ConversationEndpointsTes
                 new("c-9", "agent://ada", "human://local-dev-user", now, "Approve merge?"),
             });
 
-        var response = await _client.GetAsync("/api/v1/inbox", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/inbox", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var rows = await response.Content.ReadFromJsonAsync<List<InboxItem>>(ct);

@@ -325,7 +325,7 @@ targeting one of those tools has no runtime effect.
   owns the operator-facing feedback. Tenant-default vs unit-override
   resolution for credentials is still authoritative and surfaces
   verbatim on the Execution / Secrets tabs; see
-  [docs/guide/portal.md](../guide/portal.md) for the detail page walkthrough.
+  [docs/guide/portal.md](../guide/user/portal.md) for the detail page walkthrough.
 
 Future changes to this matrix — e.g. a "Claude Code with Vertex AI
 backend" tool that legitimately takes a provider axis — should update
@@ -391,7 +391,7 @@ accepts both the top-level `execution:` block and the legacy
 
 ## 7. BYOI conformance contract
 
-Operators (OSS and Cloud) frequently want to bring their own agent images — pre-baked with proprietary CLIs, custom system tooling, an internal trust anchor, or a non-Debian distro. The contract between an agent image and `A2AExecutionDispatcher` is small enough to fit on one screen, and there are three conformance paths to satisfy it. [ADR 0027](../decisions/0027-agent-image-conformance-contract.md) is the canonical reference; this section is the operational summary. For a step-by-step guide with copy-pasteable Dockerfile snippets, the full `SPRING_*` env contract, version compatibility rules, and debugging tips, see [`docs/guide/byoi-agent-images.md`](../guide/byoi-agent-images.md).
+Operators (OSS and Cloud) frequently want to bring their own agent images — pre-baked with proprietary CLIs, custom system tooling, an internal trust anchor, or a non-Debian distro. The contract between an agent image and `A2AExecutionDispatcher` is small enough to fit on one screen, and there are three conformance paths to satisfy it. [ADR 0027](../decisions/0027-agent-image-conformance-contract.md) is the canonical reference; this section is the operational summary. For a step-by-step guide with copy-pasteable Dockerfile snippets, the full `SPRING_*` env contract, version compatibility rules, and debugging tips, see [`docs/guide/byoi-agent-images.md`](../guide/operator/byoi-agent-images.md).
 
 ### The wire contract
 
@@ -418,7 +418,7 @@ The Tier B native launcher (`DaprAgentLauncher`) is the canonical example of pat
 - The bridge npm package and the OCI tag use semver.
 - N-2 backward compatibility on the bridge package — a worker dialing this bridge accepts versions within the last 2 majors.
 - A2A pinned to `0.3.x`. A bump to `0.4.x` or `1.x` is a deliberate breaking change with a deprecation window on the dispatcher side.
-- The bridge source lives in the same repository as the dispatcher, under [`deployment/agent-sidecar/`](../../deployment/agent-sidecar/). Releases are cut on tags shaped `agent-base-vX.Y.Z`.
+- The bridge source lives in the same repository as the dispatcher, under [`deployment/agent-sidecar/`](../../deployment/agent-sidecar). Releases are cut on tags shaped `agent-base-vX.Y.Z`.
 
 ### Local verification
 

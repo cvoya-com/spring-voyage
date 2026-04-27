@@ -163,7 +163,7 @@ public class ApiTokenAuthHandlerTests : IDisposable
         var client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", rawToken);
 
-        var response = await client.GetAsync("/api/v1/auth/tokens", ct);
+        var response = await client.GetAsync("/api/v1/tenant/auth/tokens", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
     }
@@ -180,7 +180,7 @@ public class ApiTokenAuthHandlerTests : IDisposable
         var client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", rawToken);
 
-        var response = await client.GetAsync("/api/v1/auth/tokens", ct);
+        var response = await client.GetAsync("/api/v1/tenant/auth/tokens", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
     }
@@ -197,7 +197,7 @@ public class ApiTokenAuthHandlerTests : IDisposable
         var client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", rawToken);
 
-        var response = await client.GetAsync("/api/v1/auth/tokens", ct);
+        var response = await client.GetAsync("/api/v1/tenant/auth/tokens", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
     }
@@ -210,7 +210,7 @@ public class ApiTokenAuthHandlerTests : IDisposable
         var client = _factory.CreateClient();
         // No Authorization header set.
 
-        var response = await client.GetAsync("/api/v1/auth/tokens", ct);
+        var response = await client.GetAsync("/api/v1/tenant/auth/tokens", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
     }
@@ -223,7 +223,7 @@ public class ApiTokenAuthHandlerTests : IDisposable
         var client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "completely-bogus-token");
 
-        var response = await client.GetAsync("/api/v1/auth/tokens", ct);
+        var response = await client.GetAsync("/api/v1/tenant/auth/tokens", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
     }

@@ -66,9 +66,9 @@ describe("ConnectorDetailClient", () => {
       typeSlug: "github",
       displayName: "GitHub",
       description: "Listen to GitHub webhooks.",
-      configUrl: "/api/v1/connectors/github/units/{unitId}/config",
-      actionsBaseUrl: "/api/v1/connectors/github/actions",
-      configSchemaUrl: "/api/v1/connectors/github/config-schema",
+      configUrl: "/api/v1/tenant/connectors/github/units/{unitId}/config",
+      actionsBaseUrl: "/api/v1/tenant/connectors/github/actions",
+      configSchemaUrl: "/api/v1/tenant/connectors/github/config-schema",
     } as InstalledConnectorResponse);
     getConnectorConfigSchema.mockResolvedValue({
       type: "object",
@@ -83,8 +83,8 @@ describe("ConnectorDetailClient", () => {
         unitDisplayName: "Alpha",
         typeId: "github-id",
         typeSlug: "github",
-        configUrl: "/api/v1/connectors/github/units/u1/config",
-        actionsBaseUrl: "/api/v1/connectors/github/actions",
+        configUrl: "/api/v1/tenant/connectors/github/units/u1/config",
+        actionsBaseUrl: "/api/v1/tenant/connectors/github/actions",
       } as ConnectorUnitBindingResponse,
     ]);
 
@@ -134,9 +134,9 @@ describe("ConnectorDetailClient", () => {
       // Post-#714 Description is non-nullable on the installed envelope;
       // use an empty string for the "no description" path.
       description: "",
-      configUrl: "/api/v1/connectors/raw/units/{unitId}/config",
-      actionsBaseUrl: "/api/v1/connectors/raw/actions",
-      configSchemaUrl: "/api/v1/connectors/raw/config-schema",
+      configUrl: "/api/v1/tenant/connectors/raw/units/{unitId}/config",
+      actionsBaseUrl: "/api/v1/tenant/connectors/raw/actions",
+      configSchemaUrl: "/api/v1/tenant/connectors/raw/config-schema",
       installedAt: "2026-04-20T00:00:00Z",
       updatedAt: "2026-04-20T00:00:00Z",
       config: null,

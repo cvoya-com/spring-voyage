@@ -126,7 +126,7 @@ public sealed class AgentRuntimeCliEndToEndTests : IDisposable
         // Install OpenAI with explicit config so we can assert the stored
         // shape round-trips through list + show.
         var install = await _client.PostAsJsonAsync(
-            "/api/v1/agent-runtimes/openai/install",
+            "/api/v1/tenant/agent-runtimes/installs/openai/install",
             new AgentRuntimeInstallRequest(
                 Models: new[] { "gpt-4o", "gpt-4o-mini" },
                 DefaultModel: "gpt-4o",
@@ -136,13 +136,13 @@ public sealed class AgentRuntimeCliEndToEndTests : IDisposable
 
         // `spring agent-runtime list` — the CLI's ListAgentRuntimesAsync call.
         var list = await _client.GetFromJsonAsync<InstalledAgentRuntimeResponse[]>(
-            "/api/v1/agent-runtimes", JsonOptions, ct);
+            "/api/v1/tenant/agent-runtimes/installs", JsonOptions, ct);
         list.ShouldNotBeNull();
         list!.ShouldContain(r => r.Id == "openai");
 
         // `spring agent-runtime show openai`.
         var show = await _client.GetFromJsonAsync<InstalledAgentRuntimeResponse>(
-            "/api/v1/agent-runtimes/openai", JsonOptions, ct);
+            "/api/v1/tenant/agent-runtimes/installs/openai", JsonOptions, ct);
         show.ShouldNotBeNull();
         show!.Id.ShouldBe("openai");
         show.DefaultModel.ShouldBe("gpt-4o");
@@ -163,7 +163,7 @@ public sealed class AgentRuntimeCliEndToEndTests : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
         await _client.PostAsJsonAsync(
-            "/api/v1/agent-runtimes/openai/install",
+            "/api/v1/tenant/agent-runtimes/installs/openai/install",
             new AgentRuntimeInstallRequest(null, null, null), ct);
 
         // models set — the CLI implements this as PATCH /config with the
@@ -171,20 +171,20 @@ public sealed class AgentRuntimeCliEndToEndTests : IDisposable
         await PatchModelsAsync("openai", new[] { "gpt-4o", "gpt-4o-mini" }, "gpt-4o", null, ct);
 
         var afterSet = await _client.GetFromJsonAsync<AgentRuntimeModelResponse[]>(
-            "/api/v1/agent-runtimes/openai/models", JsonOptions, ct);
+            "/api/v1/tenant/agent-runtimes/installs/openai/models", JsonOptions, ct);
         afterSet.ShouldNotBeNull();
         afterSet!.Select(m => m.Id).ShouldBe(new[] { "gpt-4o", "gpt-4o-mini" });
 
         // models add — append a model id.
         await PatchModelsAsync("openai", new[] { "gpt-4o", "gpt-4o-mini", "o4-mini" }, "gpt-4o", null, ct);
         var afterAdd = await _client.GetFromJsonAsync<AgentRuntimeModelResponse[]>(
-            "/api/v1/agent-runtimes/openai/models", JsonOptions, ct);
+            "/api/v1/tenant/agent-runtimes/installs/openai/models", JsonOptions, ct);
         afterAdd!.Select(m => m.Id).ShouldBe(new[] { "gpt-4o", "gpt-4o-mini", "o4-mini" });
 
         // models remove — drop the middle entry.
         await PatchModelsAsync("openai", new[] { "gpt-4o", "o4-mini" }, "gpt-4o", null, ct);
         var afterRemove = await _client.GetFromJsonAsync<AgentRuntimeModelResponse[]>(
-            "/api/v1/agent-runtimes/openai/models", JsonOptions, ct);
+            "/api/v1/tenant/agent-runtimes/installs/openai/models", JsonOptions, ct);
         afterRemove!.Select(m => m.Id).ShouldBe(new[] { "gpt-4o", "o4-mini" });
     }
 
@@ -213,7 +213,7 @@ public sealed class AgentRuntimeCliEndToEndTests : IDisposable
 
         // Install the mock connector so list/validate-credential resolve.
         var install = await _client.PostAsJsonAsync(
-            "/api/v1/connectors/github-mock/install",
+            "/api/v1/tenant/connectors/github-mock/install",
             new ConnectorInstallRequest(null), ct);
         install.StatusCode.ShouldBe(HttpStatusCode.OK);
 
@@ -224,7 +224,7 @@ public sealed class AgentRuntimeCliEndToEndTests : IDisposable
             Status: CredentialValidationStatus.Invalid);
 
         var validate = await _client.PostAsJsonAsync(
-            "/api/v1/connectors/github-mock/validate-credential",
+            "/api/v1/tenant/connectors/github-mock/validate-credential",
             new CredentialValidateRequest("ghp_bad", SecretName: "client-secret"), ct);
         validate.StatusCode.ShouldBe(HttpStatusCode.OK);
         var validateBody = await validate.Content
@@ -232,7 +232,7 @@ public sealed class AgentRuntimeCliEndToEndTests : IDisposable
         validateBody!.Status.ShouldBe(CredentialHealthStatus.Invalid);
 
         var healthAfterValidate = await _client.GetFromJsonAsync<CredentialHealthResponse>(
-            "/api/v1/connectors/github-mock/credential-health?secretName=client-secret",
+            "/api/v1/tenant/connectors/github-mock/credential-health?secretName=client-secret",
             JsonOptions, ct);
         healthAfterValidate!.Status.ShouldBe(CredentialHealthStatus.Invalid);
 
@@ -251,7 +251,7 @@ public sealed class AgentRuntimeCliEndToEndTests : IDisposable
         forbidden.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
 
         var statusAfterWatchdog = await _client.GetFromJsonAsync<CredentialHealthResponse>(
-            "/api/v1/connectors/github-mock/credential-health?secretName=client-secret",
+            "/api/v1/tenant/connectors/github-mock/credential-health?secretName=client-secret",
             JsonOptions, ct);
         statusAfterWatchdog!.Status.ShouldBe(CredentialHealthStatus.Revoked);
     }
@@ -358,7 +358,7 @@ public sealed class AgentRuntimeCliEndToEndTests : IDisposable
         CancellationToken ct)
     {
         var patch = new HttpRequestMessage(HttpMethod.Patch,
-            $"/api/v1/agent-runtimes/{runtimeId}/config")
+            $"/api/v1/tenant/agent-runtimes/installs/{runtimeId}/config")
         {
             Content = JsonContent.Create(new { Models = models, DefaultModel = defaultModel, BaseUrl = baseUrl }),
         };

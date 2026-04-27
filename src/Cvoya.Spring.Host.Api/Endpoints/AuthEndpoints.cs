@@ -25,7 +25,7 @@ public static class AuthEndpoints
     /// <returns>The route group builder for chaining.</returns>
     public static RouteGroupBuilder MapAuthEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/v1/auth")
+        var group = app.MapGroup("/api/v1/tenant/auth")
             .WithTags("Auth");
 
         group.MapPost("/tokens", CreateTokenAsync)
@@ -117,7 +117,7 @@ public static class AuthEndpoints
         await dbContext.SaveChangesAsync(cancellationToken);
 
         return Results.Created(
-            $"/api/v1/auth/tokens",
+            $"/api/v1/tenant/auth/tokens",
             new CreateTokenResponse(rawToken, request.Name));
     }
 

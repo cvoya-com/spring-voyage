@@ -108,6 +108,9 @@ public class SpringDbContext : DbContext
     /// <summary>Gets the set of per-tenant skill-bundle binding rows.</summary>
     public DbSet<TenantSkillBundleBindingEntity> TenantSkillBundleBindings => Set<TenantSkillBundleBindingEntity>();
 
+    /// <summary>Gets the set of first-class tenant records (#1260 / C1.2d).</summary>
+    public DbSet<TenantRecordEntity> Tenants => Set<TenantRecordEntity>();
+
     /// <inheritdoc />
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -135,6 +138,7 @@ public class SpringDbContext : DbContext
         modelBuilder.ApplyConfiguration(new TenantConnectorInstallEntityConfiguration());
         modelBuilder.ApplyConfiguration(new CredentialHealthEntityConfiguration());
         modelBuilder.ApplyConfiguration(new TenantSkillBundleBindingEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new TenantRecordEntityConfiguration());
 
         // Combined tenant + soft-delete query filters. Each filter
         // captures <c>this</c>, so EF Core parameterises the tenant-id
@@ -167,6 +171,14 @@ public class SpringDbContext : DbContext
             .HasQueryFilter(e => e.TenantId == CurrentTenantId);
         modelBuilder.Entity<TenantSkillBundleBindingEntity>()
             .HasQueryFilter(e => e.TenantId == CurrentTenantId);
+
+        // First-class tenant records are global by design — no tenant
+        // query filter, only soft-delete. The platform-tenant endpoints
+        // gate access via the PlatformOperator role at the API layer
+        // (#1260 / C1.2d). Callers that need to surface soft-deleted
+        // tenants explicitly call .IgnoreQueryFilters().
+        modelBuilder.Entity<TenantRecordEntity>()
+            .HasQueryFilter(e => e.DeletedAt == null);
     }
 
     /// <inheritdoc />

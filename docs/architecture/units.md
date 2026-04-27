@@ -73,7 +73,7 @@ Agents that don't specify `execution.<field>` inherit the default from their par
 
 ### Agent Cloning
 
-In v1, handling concurrent work of the same type required manually defining multiple identical agents (e.g., three backend engineers). V2 replaces this with platform-managed cloning — the platform spawns copies of an agent on demand, governed by the agent's cloning policy.
+In v1, handling concurrent work of the same type required manually defining multiple identical agents (e.g., three backend engineers). The current platform replaces this with platform-managed cloning — the platform spawns copies of an agent on demand, governed by the agent's cloning policy.
 
 **Cloning policies** (property of the agent definition):
 
@@ -224,7 +224,7 @@ The projection is best-effort by design: a write-through failure logs and contin
 1. The unit-delete cascade in `DirectoryService.CascadeDeleteUnitAsync` deletes every projection row that mentions the deleted unit on either side, in the same EF transaction that flips its `deleted_at`. A surviving ghost would otherwise render a deleted unit as a child node on the next `GET /api/v1/tenant/tree`.
 2. A startup hosted service (`UnitSubunitMembershipReconciliationService`, registered by the Worker host) iterates the directory, asks each unit actor for its current member list, upserts every missing `unit://` edge, and retires every projection row whose edge is no longer present in actor state. The reconciliation runs once per host start, is idempotent, and is the only path that backfills the projection on existing deployments where the column did not exist before this migration.
 
-**Sub-unit creation surfaces.** All three create-unit endpoints (`POST /api/v1/units`, `POST /api/v1/units/from-yaml`, `POST /api/v1/units/from-template`) accept an optional `parentUnitIds: [<parent-id>]` plus `isTopLevel: false` pair. When supplied, `UnitCreationService.ValidateParentRequest` resolves the parent ids through `IDirectoryService`, registers the new unit, and persists the `unit://` membership edge in one server-side transaction (so a partial failure rolls the unit back). Omitting both fields keeps the legacy top-level behaviour. The CLI exposes this via `spring unit create <name> --parent-unit <parent-id>` (`--parent-unit` and `--top-level` are mutually exclusive). The portal exposes it via the **Create sub-unit** action on the parent's detail pane (#1150) — see [docs/guide/portal.md § Top-level vs sub-unit creation](../guide/portal.md#top-level-vs-sub-unit-creation-1150). Cycle detection runs on the resulting `AddMemberAsync` call, so a sub-unit creation that would close a cycle is rejected with the same `CyclicMembershipException` projection as an after-the-fact `members add`. The membership edge is recorded through the same `AddMemberAsync` path, so the persistent projection (#1154) sees sub-units created via this surface immediately — `GET /api/v1/tenant/tree` returns the new unit nested under its parent on the next call.
+**Sub-unit creation surfaces.** All three create-unit endpoints (`POST /api/v1/units`, `POST /api/v1/units/from-yaml`, `POST /api/v1/units/from-template`) accept an optional `parentUnitIds: [<parent-id>]` plus `isTopLevel: false` pair. When supplied, `UnitCreationService.ValidateParentRequest` resolves the parent ids through `IDirectoryService`, registers the new unit, and persists the `unit://` membership edge in one server-side transaction (so a partial failure rolls the unit back). Omitting both fields keeps the legacy top-level behaviour. The CLI exposes this via `spring unit create <name> --parent-unit <parent-id>` (`--parent-unit` and `--top-level` are mutually exclusive). The portal exposes it via the **Create sub-unit** action on the parent's detail pane (#1150) — see [docs/guide/portal.md § Top-level vs sub-unit creation](../guide/user/portal.md#top-level-vs-sub-unit-creation-1150). Cycle detection runs on the resulting `AddMemberAsync` call, so a sub-unit creation that would close a cycle is rejected with the same `CyclicMembershipException` projection as an after-the-fact `members add`. The membership edge is recorded through the same `AddMemberAsync` path, so the persistent projection (#1154) sees sub-units created via this surface immediately — `GET /api/v1/tenant/tree` returns the new unit nested under its parent on the next call.
 
 The unit delegates message handling to an **`IOrchestrationStrategy`**:
 
@@ -550,7 +550,7 @@ PR-PLAT-BOUND-3 (#414) consumes this seam to decide the caller's identity from t
 
 - **HTTP** — `GET / PUT / DELETE /api/v1/units/{id}/boundary`. The empty shape is always returned for units that have never had a boundary persisted, so callers never need to branch on 404 vs empty-boundary.
 - **CLI** — `spring unit boundary get|set|clear`. `set` accepts `--opaque`, `--project`, `--synthesise` repeatable flags (comma-separated key=value pairs) or a YAML fragment via `-f`. `clear` removes every rule.
-- **Portal** — the unit detail page at `/units/{id}` ships a **Boundary** tab (#495) that mirrors the three dimensions one-to-one with the CLI. Save PUTs the full boundary; Clear issues DELETE. See [docs/guide/portal.md §Boundary](../guide/portal.md#boundary).
+- **Portal** — the unit detail page at `/units/{id}` ships a **Boundary** tab (#495) that mirrors the three dimensions one-to-one with the CLI. Save PUTs the full boundary; Clear issues DELETE. See [docs/guide/portal.md §Boundary](../guide/user/portal.md#boundary).
 - **YAML manifest (#494)** — `unit.boundary` follows the same three-list shape (`opacities` / `projections` / `syntheses`), so an operator can check the config in alongside `members` / `policies` and a single `spring apply -f unit.yaml` is wire-equivalent to a subsequent `spring unit boundary set -f`. `ApplyRunner` PUTs the boundary after create; the `/units/from-yaml` HTTP endpoint writes it through `IUnitBoundaryStore` in `UnitCreationService.CreateFromManifestAsync`. An absent or all-empty `boundary:` block is a no-op — the unit keeps the default "transparent" view.
 
 ```yaml
@@ -606,12 +606,12 @@ Every field is **independently optional and independently clearable** — a unit
 - **CLI.** `spring unit execution get|set|clear` and `spring agent execution get|set|clear` with `--image / --runtime / --tool / --provider / --model` (plus `--hosting` on the agent verb). `clear` without arguments strips the whole block; `clear --field X` clears one field.
 - **Portal.** A dedicated Execution tab on the unit detail page and an Execution panel on the agent detail page (delivered in the companion portal PR).
 
-**Extension seams for V2.1.** Two seams are reserved for follow-up issues and **not implemented** in the B-wide PR:
+**Extension seams (future).** Two seams are reserved for follow-up issues and **not implemented** in the B-wide PR:
 
 - **#622 — `IImageReferenceHistory`** — a scoped-registered seam so a hosted downstream can partition recently-dispatched image references per tenant. Shape 2 of the image-selection UX: autocomplete suggestions on the `Image` text field.
 - **#623 — registry integration** — Shape 3: discover images directly from a configured container registry (GHCR / GCR / ECR / Harbor / Quay). Marked `needs-thinking` pending auth-scope and caching decisions.
 
-Both are V2.1 work; today's PR ships Shape 1 (plain text input) with the inheritance merge and the save-time validation.
+Both are deferred work; today's PR ships Shape 1 (plain text input) with the inheritance merge and the save-time validation.
 
 ### Organizational Patterns
 

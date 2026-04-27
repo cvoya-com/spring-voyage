@@ -1,9 +1,9 @@
-# Spring Voyage V2 — Architecture Plan
+# Spring Voyage — Architecture Plan
 
-**Status:** Living document — kept in sync with the V2 implementation.
+**Status:** Living document — kept in sync with the implementation.
 **Last reviewed:** 2026-04-21
 
-This document is the canonical architecture index for V2. The narrow, dated decisions behind each major choice live as Architecture Decision Records under [`docs/decisions/`](../decisions/README.md); reach for those when you want the "why" without re-reading the entire plan.
+This document is the canonical architecture index. The narrow, dated decisions behind each major choice live as Architecture Decision Records under [`docs/decisions/`](../decisions/README.md); reach for those when you want the "why" without re-reading the entire plan.
 
 ---
 
@@ -38,7 +38,7 @@ Spring Voyage v1 is a working proof-of-concept: Claude-powered agents collaborat
 
 ## 2. Vision & Goals
 
-Spring Voyage V2 is a general-purpose AI agent orchestration platform. It enables autonomous AI agents — organized into composable groups called **units** — to collaborate on any domain: software engineering, product management, creative work, research, operations, and more.
+Spring Voyage is a general-purpose AI agent orchestration platform. It enables autonomous AI agents — organized into composable groups called **units** — to collaborate on any domain: software engineering, product management, creative work, research, operations, and more.
 
 Agents connect to external systems through pluggable **connectors**, communicate via typed **messages**, take **initiative** to act autonomously, and can be observed by humans and other agents in real-time.
 

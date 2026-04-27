@@ -195,10 +195,10 @@ public class ConnectorCommandTests
         // Must hit the same endpoint the portal consumes so the CLI stays
         // at parity with what `/connectors` renders on the web side.
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/connectors",
+            expectedPath: "/api/v1/tenant/connectors",
             expectedMethod: HttpMethod.Get,
             responseBody:
-                """[{"typeId":"6a1e0c1a-3a7b-4a12-8a2f-0a71e1b2fb01","typeSlug":"github","displayName":"GitHub","description":"Bridge a unit to a GitHub repository","configUrl":"/api/v1/connectors/github/units/{unitId}/config","actionsBaseUrl":"/api/v1/connectors/github/actions","configSchemaUrl":"/api/v1/connectors/github/config-schema"}]""");
+                """[{"typeId":"6a1e0c1a-3a7b-4a12-8a2f-0a71e1b2fb01","typeSlug":"github","displayName":"GitHub","description":"Bridge a unit to a GitHub repository","configUrl":"/api/v1/tenant/connectors/github/units/{unitId}/config","actionsBaseUrl":"/api/v1/tenant/connectors/github/actions","configSchemaUrl":"/api/v1/tenant/connectors/github/config-schema"}]""");
 
         var httpClient = new HttpClient(handler);
         var client = new SpringApiClient(httpClient, BaseUrl);
@@ -215,10 +215,10 @@ public class ConnectorCommandTests
     public async Task GetUnitConnectorAsync_CallsUnitConnectorPointerEndpoint()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/units/eng-team/connector",
+            expectedPath: "/api/v1/tenant/units/eng-team/connector",
             expectedMethod: HttpMethod.Get,
             responseBody:
-                """{"typeId":"6a1e0c1a-3a7b-4a12-8a2f-0a71e1b2fb01","typeSlug":"github","configUrl":"/api/v1/connectors/github/units/eng-team/config","actionsBaseUrl":"/api/v1/connectors/github/actions"}""");
+                """{"typeId":"6a1e0c1a-3a7b-4a12-8a2f-0a71e1b2fb01","typeSlug":"github","configUrl":"/api/v1/tenant/connectors/github/units/eng-team/config","actionsBaseUrl":"/api/v1/tenant/connectors/github/actions"}""");
 
         var httpClient = new HttpClient(handler);
         var client = new SpringApiClient(httpClient, BaseUrl);
@@ -227,7 +227,7 @@ public class ConnectorCommandTests
 
         result.ShouldNotBeNull();
         result!.TypeSlug.ShouldBe("github");
-        result.ConfigUrl.ShouldBe("/api/v1/connectors/github/units/eng-team/config");
+        result.ConfigUrl.ShouldBe("/api/v1/tenant/connectors/github/units/eng-team/config");
         handler.WasCalled.ShouldBeTrue();
     }
 
@@ -238,7 +238,7 @@ public class ConnectorCommandTests
         // CLI wrapper normalises this to `null` so callers can surface a
         // clean "no binding" message instead of raising a hard error.
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/units/eng-team/connector",
+            expectedPath: "/api/v1/tenant/units/eng-team/connector",
             expectedMethod: HttpMethod.Get,
             responseBody: """{"title":"Not Found","status":404,"detail":"Unit has no active connector binding."}""",
             returnStatusCode: HttpStatusCode.NotFound);
@@ -256,7 +256,7 @@ public class ConnectorCommandTests
     public async Task PutUnitGitHubConfigAsync_SendsOwnerRepoAndEvents()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/connectors/github/units/eng-team/config",
+            expectedPath: "/api/v1/tenant/connectors/github/units/eng-team/config",
             expectedMethod: HttpMethod.Put,
             responseBody:
                 """{"unitId":"eng-team","owner":"acme","repo":"platform","appInstallationId":12345,"events":["issues","pull_request"]}""",
@@ -300,7 +300,7 @@ public class ConnectorCommandTests
         // also verify that a blank reviewer is omitted (the API client
         // normalises whitespace to null before serialising).
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/connectors/github/units/eng-team/config",
+            expectedPath: "/api/v1/tenant/connectors/github/units/eng-team/config",
             expectedMethod: HttpMethod.Put,
             responseBody:
                 """{"unitId":"eng-team","owner":"acme","repo":"platform","appInstallationId":12345,"events":["issues"],"reviewer":"alice"}""",
@@ -333,10 +333,10 @@ public class ConnectorCommandTests
         // endpoint so the portal's N+1 fan-out (per-unit connector lookups
         // introduced in #516) can be retired.
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/connectors/github/bindings",
+            expectedPath: "/api/v1/tenant/connectors/github/bindings",
             expectedMethod: HttpMethod.Get,
             responseBody:
-                """[{"unitId":"alpha","unitName":"alpha","unitDisplayName":"Alpha","typeId":"6a1e0c1a-3a7b-4a12-8a2f-0a71e1b2fb01","typeSlug":"github","configUrl":"/api/v1/connectors/github/units/alpha/config","actionsBaseUrl":"/api/v1/connectors/github/actions"},{"unitId":"beta","unitName":"beta","unitDisplayName":"Beta","typeId":"6a1e0c1a-3a7b-4a12-8a2f-0a71e1b2fb01","typeSlug":"github","configUrl":"/api/v1/connectors/github/units/beta/config","actionsBaseUrl":"/api/v1/connectors/github/actions"}]""");
+                """[{"unitId":"alpha","unitName":"alpha","unitDisplayName":"Alpha","typeId":"6a1e0c1a-3a7b-4a12-8a2f-0a71e1b2fb01","typeSlug":"github","configUrl":"/api/v1/tenant/connectors/github/units/alpha/config","actionsBaseUrl":"/api/v1/tenant/connectors/github/actions"},{"unitId":"beta","unitName":"beta","unitDisplayName":"Beta","typeId":"6a1e0c1a-3a7b-4a12-8a2f-0a71e1b2fb01","typeSlug":"github","configUrl":"/api/v1/tenant/connectors/github/units/beta/config","actionsBaseUrl":"/api/v1/tenant/connectors/github/actions"}]""");
 
         var httpClient = new HttpClient(handler);
         var client = new SpringApiClient(httpClient, BaseUrl);
@@ -347,7 +347,7 @@ public class ConnectorCommandTests
         result[0].UnitId.ShouldBe("alpha");
         result[0].UnitDisplayName.ShouldBe("Alpha");
         result[0].TypeSlug.ShouldBe("github");
-        result[0].ConfigUrl.ShouldBe("/api/v1/connectors/github/units/alpha/config");
+        result[0].ConfigUrl.ShouldBe("/api/v1/tenant/connectors/github/units/alpha/config");
         result[1].UnitId.ShouldBe("beta");
         handler.WasCalled.ShouldBeTrue();
     }
@@ -360,7 +360,7 @@ public class ConnectorCommandTests
         // (not null) so `spring connector bindings` prints the parity
         // empty-state message instead of throwing.
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/connectors/github/bindings",
+            expectedPath: "/api/v1/tenant/connectors/github/bindings",
             expectedMethod: HttpMethod.Get,
             responseBody: "[]");
 
@@ -377,7 +377,7 @@ public class ConnectorCommandTests
     public async Task GetUnitGitHubConfigAsync_ReturnsNullOn404()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/connectors/github/units/eng-team/config",
+            expectedPath: "/api/v1/tenant/connectors/github/units/eng-team/config",
             expectedMethod: HttpMethod.Get,
             responseBody: """{"title":"Not Found","status":404}""",
             returnStatusCode: HttpStatusCode.NotFound);

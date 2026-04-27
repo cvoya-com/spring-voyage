@@ -52,7 +52,7 @@ public class PersistentAgentEndpointsTests : IClassFixture<CustomWebApplicationF
             .Returns((DirectoryEntry?)null);
 
         var response = await _client.PostAsJsonAsync(
-            "/api/v1/agents/ghost/deploy", new DeployPersistentAgentRequest(), ct);
+            "/api/v1/tenant/agents/ghost/deploy", new DeployPersistentAgentRequest(), ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
@@ -71,7 +71,7 @@ public class PersistentAgentEndpointsTests : IClassFixture<CustomWebApplicationF
                 null,
                 DateTimeOffset.UtcNow));
 
-        var response = await _client.PostAsync("/api/v1/agents/idle/undeploy", content: null, ct);
+        var response = await _client.PostAsync("/api/v1/tenant/agents/idle/undeploy", content: null, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content
@@ -97,7 +97,7 @@ public class PersistentAgentEndpointsTests : IClassFixture<CustomWebApplicationF
                 DateTimeOffset.UtcNow));
 
         var response = await _client.PostAsJsonAsync(
-            "/api/v1/agents/a/scale",
+            "/api/v1/tenant/agents/a/scale",
             new ScalePersistentAgentRequest(2),
             ct);
 
@@ -118,7 +118,7 @@ public class PersistentAgentEndpointsTests : IClassFixture<CustomWebApplicationF
                 null,
                 DateTimeOffset.UtcNow));
 
-        var response = await _client.GetAsync("/api/v1/agents/a/deployment", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/agents/a/deployment", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content
@@ -143,7 +143,7 @@ public class PersistentAgentEndpointsTests : IClassFixture<CustomWebApplicationF
                 null,
                 DateTimeOffset.UtcNow));
 
-        var response = await _client.GetAsync("/api/v1/agents/a/logs", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/agents/a/logs", ct);
 
         // The lifecycle service throws SpringException when there's no entry
         // and the endpoint translates that into a 404 so the CLI surfaces a

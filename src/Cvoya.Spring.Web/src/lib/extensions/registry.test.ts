@@ -237,7 +237,7 @@ describe("authHeadersDecorator", () => {
     };
 
     const decorated = authHeadersDecorator(auth)(inner);
-    await decorated("/api/v1/units", { headers: { Accept: "application/json" } });
+    await decorated("/api/v1/tenant/units", { headers: { Accept: "application/json" } });
 
     const headers = new Headers(seenInit?.headers);
     expect(headers.get("Accept")).toBe("application/json");
@@ -261,7 +261,7 @@ describe("authHeadersDecorator", () => {
     };
 
     const decorated = authHeadersDecorator(auth)(inner);
-    await decorated("/api/v1/units", {
+    await decorated("/api/v1/tenant/units", {
       headers: { Accept: "application/json" },
     });
 

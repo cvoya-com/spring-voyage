@@ -1,6 +1,6 @@
 # Units
 
-A **unit** is a composite agent -- a group of agents that appears as a single entity to the outside world. Units are the organizational primitive of Spring Voyage V2.
+A **unit** is a composite agent -- a group of agents that appears as a single entity to the outside world. Units are the organizational primitive of Spring Voyage.
 
 ## The Core Idea: A Unit IS an Agent
 

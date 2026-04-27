@@ -58,7 +58,7 @@ public sealed class AgentRuntimeValidateCredentialEndpointTests : IDisposable
         var ct = TestContext.Current.CancellationToken;
 
         var response = await _client.PostAsJsonAsync(
-            "/api/v1/agent-runtimes/not-a-real-runtime/validate-credential",
+            "/api/v1/tenant/agent-runtimes/installs/not-a-real-runtime/validate-credential",
             new AgentRuntimeValidateCredentialRequest("sk-x", null),
             ct);
 
@@ -76,7 +76,7 @@ public sealed class AgentRuntimeValidateCredentialEndpointTests : IDisposable
         // refresh-models that #1066 introduces.
         var seed = new[] { "stable-1", "stable-2" };
         await _client.PostAsJsonAsync(
-            "/api/v1/agent-runtimes/openai/install",
+            "/api/v1/tenant/agent-runtimes/installs/openai/install",
             new AgentRuntimeInstallRequest(seed, "stable-1", null),
             ct);
 
@@ -85,7 +85,7 @@ public sealed class AgentRuntimeValidateCredentialEndpointTests : IDisposable
             """);
 
         var response = await _client.PostAsJsonAsync(
-            "/api/v1/agent-runtimes/openai/validate-credential",
+            "/api/v1/tenant/agent-runtimes/installs/openai/validate-credential",
             new AgentRuntimeValidateCredentialRequest("sk-good", null),
             ct);
 
@@ -99,7 +99,7 @@ public sealed class AgentRuntimeValidateCredentialEndpointTests : IDisposable
 
         // Health-store row should now exist and match the probe outcome.
         var statusResponse = await _client.GetAsync(
-            "/api/v1/agent-runtimes/openai/credential-health",
+            "/api/v1/tenant/agent-runtimes/installs/openai/credential-health",
             ct);
         statusResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
         var healthRow = await statusResponse.Content.ReadFromJsonAsync<CredentialHealthResponse>(JsonOptions, ct);
@@ -108,7 +108,7 @@ public sealed class AgentRuntimeValidateCredentialEndpointTests : IDisposable
 
         // The model list must be unchanged — `validate-credential` is
         // explicitly NOT a catalog-rotation surface.
-        var configResponse = await _client.GetAsync("/api/v1/agent-runtimes/openai", ct);
+        var configResponse = await _client.GetAsync("/api/v1/tenant/agent-runtimes/installs/openai", ct);
         var config = await configResponse.Content.ReadFromJsonAsync<InstalledAgentRuntimeResponse>(ct);
         config.ShouldNotBeNull();
         config!.Models.ShouldBe(seed);
@@ -120,7 +120,7 @@ public sealed class AgentRuntimeValidateCredentialEndpointTests : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
         await _client.PostAsJsonAsync(
-            "/api/v1/agent-runtimes/openai/install",
+            "/api/v1/tenant/agent-runtimes/installs/openai/install",
             new AgentRuntimeInstallRequest(null, null, null),
             ct);
 
@@ -129,7 +129,7 @@ public sealed class AgentRuntimeValidateCredentialEndpointTests : IDisposable
             """);
 
         var response = await _client.PostAsJsonAsync(
-            "/api/v1/agent-runtimes/openai/validate-credential",
+            "/api/v1/tenant/agent-runtimes/installs/openai/validate-credential",
             new AgentRuntimeValidateCredentialRequest("sk-bad", null),
             ct);
 
@@ -146,7 +146,7 @@ public sealed class AgentRuntimeValidateCredentialEndpointTests : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
         await _client.PostAsJsonAsync(
-            "/api/v1/agent-runtimes/openai/install",
+            "/api/v1/tenant/agent-runtimes/installs/openai/install",
             new AgentRuntimeInstallRequest(null, null, null),
             ct);
 
@@ -154,13 +154,13 @@ public sealed class AgentRuntimeValidateCredentialEndpointTests : IDisposable
         // network blip does NOT regress it.
         _handler.Respond(HttpStatusCode.OK, """{ "data": [ { "id": "gpt-4o" } ] }""");
         await _client.PostAsJsonAsync(
-            "/api/v1/agent-runtimes/openai/validate-credential",
+            "/api/v1/tenant/agent-runtimes/installs/openai/validate-credential",
             new AgentRuntimeValidateCredentialRequest("sk-good", null),
             ct);
 
         _handler.Respond(HttpStatusCode.ServiceUnavailable, "upstream down");
         var response = await _client.PostAsJsonAsync(
-            "/api/v1/agent-runtimes/openai/validate-credential",
+            "/api/v1/tenant/agent-runtimes/installs/openai/validate-credential",
             new AgentRuntimeValidateCredentialRequest("sk-anything", null),
             ct);
 
@@ -175,7 +175,7 @@ public sealed class AgentRuntimeValidateCredentialEndpointTests : IDisposable
         payload.Status.ShouldBe(CredentialHealthStatus.Unknown);
 
         var statusResponse = await _client.GetAsync(
-            "/api/v1/agent-runtimes/openai/credential-health",
+            "/api/v1/tenant/agent-runtimes/installs/openai/credential-health",
             ct);
         var row = await statusResponse.Content.ReadFromJsonAsync<CredentialHealthResponse>(JsonOptions, ct);
         row.ShouldNotBeNull();
@@ -190,7 +190,7 @@ public sealed class AgentRuntimeValidateCredentialEndpointTests : IDisposable
         // short-circuit without touching the upstream HTTP handler or
         // recording a credential-health row.
         var response = await _client.PostAsJsonAsync(
-            "/api/v1/agent-runtimes/ollama/validate-credential",
+            "/api/v1/tenant/agent-runtimes/installs/ollama/validate-credential",
             new AgentRuntimeValidateCredentialRequest(null, null),
             ct);
 

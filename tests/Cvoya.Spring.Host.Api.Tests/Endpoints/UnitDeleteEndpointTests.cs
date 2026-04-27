@@ -46,7 +46,7 @@ public class UnitDeleteEndpointTests : IClassFixture<CustomWebApplicationFactory
         var ct = TestContext.Current.CancellationToken;
         ArrangeUnit(UnitStatus.Stopped);
 
-        var response = await _client.DeleteAsync($"/api/v1/units/{UnitName}", ct);
+        var response = await _client.DeleteAsync($"/api/v1/tenant/units/{UnitName}", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
@@ -61,7 +61,7 @@ public class UnitDeleteEndpointTests : IClassFixture<CustomWebApplicationFactory
         var ct = TestContext.Current.CancellationToken;
         ArrangeUnit(UnitStatus.Draft);
 
-        var response = await _client.DeleteAsync($"/api/v1/units/{UnitName}", ct);
+        var response = await _client.DeleteAsync($"/api/v1/tenant/units/{UnitName}", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
@@ -80,7 +80,7 @@ public class UnitDeleteEndpointTests : IClassFixture<CustomWebApplicationFactory
         var ct = TestContext.Current.CancellationToken;
         ArrangeUnit(status);
 
-        var response = await _client.DeleteAsync($"/api/v1/units/{UnitName}", ct);
+        var response = await _client.DeleteAsync($"/api/v1/tenant/units/{UnitName}", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Conflict);
 
@@ -94,7 +94,7 @@ public class UnitDeleteEndpointTests : IClassFixture<CustomWebApplicationFactory
         var ct = TestContext.Current.CancellationToken;
         ArrangeUnit(UnitStatus.Error);
 
-        var response = await _client.DeleteAsync($"/api/v1/units/{UnitName}?force=true", ct);
+        var response = await _client.DeleteAsync($"/api/v1/tenant/units/{UnitName}?force=true", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
@@ -122,7 +122,7 @@ public class UnitDeleteEndpointTests : IClassFixture<CustomWebApplicationFactory
             .StopUnitAsync(ActorId, Arg.Any<CancellationToken>())
             .Returns(Task.FromException(new InvalidOperationException("container already gone")));
 
-        var response = await _client.DeleteAsync($"/api/v1/units/{UnitName}?force=true", ct);
+        var response = await _client.DeleteAsync($"/api/v1/tenant/units/{UnitName}?force=true", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
@@ -156,7 +156,7 @@ public class UnitDeleteEndpointTests : IClassFixture<CustomWebApplicationFactory
         var ct = TestContext.Current.CancellationToken;
         ArrangeUnit(UnitStatus.Stopped);
 
-        var response = await _client.DeleteAsync($"/api/v1/units/{UnitName}?force=true", ct);
+        var response = await _client.DeleteAsync($"/api/v1/tenant/units/{UnitName}?force=true", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
@@ -177,7 +177,7 @@ public class UnitDeleteEndpointTests : IClassFixture<CustomWebApplicationFactory
             .ResolveAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
             .Returns((DirectoryEntry?)null);
 
-        var response = await _client.DeleteAsync("/api/v1/units/does-not-exist", ct);
+        var response = await _client.DeleteAsync("/api/v1/tenant/units/does-not-exist", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }

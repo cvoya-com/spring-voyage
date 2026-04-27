@@ -25,7 +25,7 @@ public static class CloneEndpoints
     /// <returns>The route group builder for chaining.</returns>
     public static RouteGroupBuilder MapCloneEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/v1/agents/{agentId}/clones")
+        var group = app.MapGroup("/api/v1/tenant/agents/{agentId}/clones")
             .WithTags("Clones");
 
         group.MapPost("/", CreateCloneAsync)
@@ -122,7 +122,7 @@ public static class CloneEndpoints
             "provisioning",
             DateTimeOffset.UtcNow);
 
-        return Results.Accepted($"/api/v1/agents/{agentId}/clones/{cloneId}", response);
+        return Results.Accepted($"/api/v1/tenant/agents/{agentId}/clones/{cloneId}", response);
     }
 
     private static async Task<IResult> ListClonesAsync(
@@ -226,6 +226,6 @@ public static class CloneEndpoints
             nameof(CloneDestructionWorkflow),
             input: input);
 
-        return Results.Accepted($"/api/v1/agents/{agentId}/clones/{cloneId}");
+        return Results.Accepted($"/api/v1/tenant/agents/{agentId}/clones/{cloneId}");
     }
 }

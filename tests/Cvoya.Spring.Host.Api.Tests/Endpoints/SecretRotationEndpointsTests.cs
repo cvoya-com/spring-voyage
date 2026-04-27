@@ -364,7 +364,7 @@ public class SecretRotationEndpointsTests : IClassFixture<CustomWebApplicationFa
         {
             case SecretScope.Unit:
                 var unitId = $"unit-{Guid.NewGuid():N}";
-                return ($"/api/v1/units/{unitId}/secrets", unitId);
+                return ($"/api/v1/tenant/units/{unitId}/secrets", unitId);
             case SecretScope.Tenant:
                 using (var svcScope = _factory.Services.CreateScope())
                 {

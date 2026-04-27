@@ -70,7 +70,7 @@ public class UnitMetadataEndpointTests : IClassFixture<CustomWebApplicationFacto
                 DateTimeOffset.UtcNow));
 
         var createResponse = await _client.PostAsJsonAsync(
-            "/api/v1/units",
+            "/api/v1/tenant/units",
             new CreateUnitRequest(UnitName, "Engineering", "Engineering unit", "claude-opus-4", "#336699", IsTopLevel: true),
             ct);
 
@@ -81,7 +81,7 @@ public class UnitMetadataEndpointTests : IClassFixture<CustomWebApplicationFacto
             Arg.Any<CancellationToken>());
 
         // GET should surface the new fields from actor metadata.
-        var getResponse = await _client.GetAsync($"/api/v1/units/{UnitName}", ct);
+        var getResponse = await _client.GetAsync($"/api/v1/tenant/units/{UnitName}", ct);
         getResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var body = await getResponse.Content.ReadAsStringAsync(ct);
@@ -106,7 +106,7 @@ public class UnitMetadataEndpointTests : IClassFixture<CustomWebApplicationFacto
         ArrangeResolved(proxy);
 
         var patchResponse = await _client.PatchAsJsonAsync(
-            $"/api/v1/units/{UnitName}",
+            $"/api/v1/tenant/units/{UnitName}",
             new UpdateUnitRequest(null, null, "gpt-4o-mini", "#ff00aa"),
             ct);
 
@@ -134,7 +134,7 @@ public class UnitMetadataEndpointTests : IClassFixture<CustomWebApplicationFacto
         ArrangeResolved(proxy);
 
         var patchResponse = await _client.PatchAsJsonAsync(
-            $"/api/v1/units/{UnitName}",
+            $"/api/v1/tenant/units/{UnitName}",
             new UpdateUnitRequest(Model: "gpt-4o"),
             ct);
 
@@ -176,7 +176,7 @@ public class UnitMetadataEndpointTests : IClassFixture<CustomWebApplicationFacto
                 DateTimeOffset.UtcNow));
 
         var patchResponse = await _client.PatchAsJsonAsync(
-            $"/api/v1/units/{UnitName}",
+            $"/api/v1/tenant/units/{UnitName}",
             new UpdateUnitRequest(DisplayName: "Eng Team", Description: "Builds stuff"),
             ct);
 
@@ -214,7 +214,7 @@ public class UnitMetadataEndpointTests : IClassFixture<CustomWebApplicationFacto
         ArrangeResolved(proxy);
 
         var response = await _client.PatchAsJsonAsync(
-            $"/api/v1/units/{UnitName}",
+            $"/api/v1/tenant/units/{UnitName}",
             new UpdateUnitRequest(Model: "gpt-4o"),
             ct);
 
@@ -238,7 +238,7 @@ public class UnitMetadataEndpointTests : IClassFixture<CustomWebApplicationFacto
             .Returns((DirectoryEntry?)null);
 
         var response = await _client.PatchAsJsonAsync(
-            "/api/v1/units/does-not-exist",
+            "/api/v1/tenant/units/does-not-exist",
             new UpdateUnitRequest(Model: "gpt-4o"),
             ct);
 

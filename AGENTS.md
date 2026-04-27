@@ -1,122 +1,94 @@
-# Spring Voyage V2
+# Spring Voyage — Project Rules
 
 AI agent orchestration platform — general-purpose, domain-agnostic. Built on .NET 10 and Dapr. Namespace: `Cvoya.Spring.*`.
 
-## Coding Conventions
+## Coding conventions
 
-Read `CONVENTIONS.md` for all coding patterns, naming, testing, DI, Dapr usage, and error handling conventions. Everything in `CONVENTIONS.md` is mandatory.
-
-### Documentation Updates
-
-When shipping a feature, update the relevant architecture doc(s) under `docs/architecture/` and user guide(s) under `docs/guide/` in the same PR so the docs never lag behind the code. If the feature introduces a new concept, add or update the relevant concept doc under `docs/concepts/`. Treat these updates as part of the feature — a PR that changes user-visible behavior or architecture without touching the corresponding docs is not complete.
-
-When a PR touches `src/Cvoya.Spring.Web/`, it must also keep [`src/Cvoya.Spring.Web/DESIGN.md`](src/Cvoya.Spring.Web/DESIGN.md) in sync. `DESIGN.md` is the portal's visual contract (color palette, typography, spacing, radii, shadows, component patterns, voice & tone, dark-mode behavior) — update it in the same PR whenever the change introduces, modifies, or removes a visual pattern. Leaving the design doc stale is the same kind of drift as leaving architecture docs stale.
+[`CONVENTIONS.md`](CONVENTIONS.md) is mandatory. Read it before writing code.
 
 ## Architecture
 
-The architecture is documented under `docs/architecture/` — see [`docs/architecture/README.md`](docs/architecture/README.md) for the full index. For execution status and phased implementation plan, see [`docs/roadmap/`](docs/roadmap/README.md).
+Architecture lives under [`docs/architecture/`](docs/architecture/README.md); decision records under [`docs/decisions/`](docs/decisions/README.md). Read the relevant doc before working on an issue.
 
-Before working on an issue, read the relevant architecture document(s). Key concepts:
+Key concepts:
 
-- **Agents** are Dapr virtual actors (`AgentActor`) with partitioned mailboxes — see [Units & Agents](docs/architecture/units.md)
-- **Units** are composite agents (`UnitActor`) with pluggable orchestration strategies — see [Units & Agents](docs/architecture/units.md)
-- **Connectors** bridge external systems (GitHub, Slack, etc.) to units — see [Connectors](docs/architecture/connectors.md)
-- **Messages** are typed communications between addressable entities — see [Messaging](docs/architecture/messaging.md)
-- Execution patterns: **hosted** (in-process LLM) and **delegated** (container with tool like Claude Code) — see [Units & Agents](docs/architecture/units.md)
-- Four-layer prompt assembly: platform, unit context, conversation context, agent instructions — see [Units & Agents](docs/architecture/units.md)
-- **Infrastructure**: Dapr building blocks, IAddressable, data persistence — see [Infrastructure](docs/architecture/infrastructure.md)
+- **Agents** — Dapr virtual actors with partitioned mailboxes.
+- **Units** — composite agents with pluggable orchestration strategies.
+- **Connectors** — bridges between external systems and units.
+- **Messages** — typed communications between addressable entities.
+- **Execution patterns** — *hosted* (in-process) and *delegated* (containerised tool execution).
+- **Prompt assembly** — four-layer composition: platform, unit context, conversation context, agent instructions.
 
-## Build & Test
+## Build, test, lint
 
-Use the `/build`, `/test`, and `/lint` skills (defined in `.claude/commands/`). Each points at the canonical CI invocation for its step.
+Use the `/build`, `/test`, and `/lint` skills. Each points at the canonical CI invocation.
 
-Pitfall: bare `dotnet test` or `dotnet test SpringVoyage.slnx` exits 0 without running tests — always use `/test` (or the full invocation it documents).
+Pitfall: bare `dotnet test SpringVoyage.slnx` exits 0 without running tests. Always go through `/test`.
 
-## Open-Source Platform & Extensibility
+## Documentation updates
 
-This is the **public, open-source core** of the Spring Voyage platform. A private repository (Spring Voyage Cloud) extends this codebase via git submodule and dependency injection to add multi-tenancy, OAuth/SSO, billing, and premium features.
+When shipping a feature, update the relevant architecture or guide doc in the same PR. A PR that changes user-visible behaviour or architecture without touching the corresponding docs is not complete. New concepts get a doc entry alongside the change.
 
-**Every design decision in this repo must account for extensibility.** The private repo should be able to extend, override, or compose OSS behavior cleanly — without forking, patching, or working around limitations. Think of this repo as a framework that the private repo consumes.
+For changes under `src/Cvoya.Spring.Web/`, keep `src/Cvoya.Spring.Web/DESIGN.md` in sync — it is the portal's visual contract.
 
-### Extension Model
+## Open-source platform and extensibility
 
-The private repo extends the OSS platform through dependency injection:
-
-- **Tenant-aware overrides** — the OSS core models tenancy as a single contract (`ITenantContext` in `Cvoya.Spring.Core/Tenancy`) and ships a static, single-tenant implementation that reads `Secrets:DefaultTenantId` (defaulting to `"default"`). The cloud host swaps in a scoped implementation that resolves the tenant from the request principal; OSS code must not assume tenancy is unused or hardcode the default tenant id.
-- **DI overrides** — the cloud host replaces OSS service registrations with tenant-aware implementations and layers tenant middleware on top of the API host
-- **Additional actors, strategies, and connectors** that compose OSS building blocks
-- **Plugin contracts** — implement `IAgentRuntime` (LLM backend + execution tool + credential schema + model catalog) or `IConnectorType` (external-system binding) and register with `TryAdd*`; the host picks new implementations up via DI without any core code change. Each agent runtime ships as its own `Cvoya.Spring.AgentRuntimes.<Name>` project that references `Cvoya.Spring.Core` only, exposes a single `AddCvoyaSpringAgentRuntime<Name>()` DI extension, and bundles a seed catalogue at `agent-runtimes/<id>/seed.json` (see the built-in runtimes table below)
-- **Cloud API host** that layers middleware (auth, tenant context) on top of the OSS API host
-
-### Design Principles for Extensibility
-
-1. **Interface-first, always.** Define interfaces in `Cvoya.Spring.Core`, implement in `Cvoya.Spring.Dapr`. The private repo can provide alternative implementations without touching OSS code.
-2. **Use `TryAdd*` for DI registrations.** Use `TryAddSingleton`, `TryAddScoped`, etc. so the private repo can register its own implementations before calling `AddCvoyaSpring*()`, and OSS registrations won't overwrite them. For keyed services, check before registering.
-3. **Don't seal extensible types.** Classes that represent extension points (services, handlers, strategies, middleware) should not be `sealed` unless there is a specific reason. Mark them `sealed` only for leaf types that are not designed for inheritance.
-4. **Favor composition over inheritance.** Prefer injecting collaborators over deep class hierarchies. The private repo extends behavior by wrapping or decorating OSS services, not by subclassing.
-5. **No hardcoded assumptions about single-tenancy.** Don't embed assumptions like "there's one user" or "one set of config." Use injected services for anything that the private repo might scope per-tenant (repositories, configuration, policies).
-6. **Virtual methods on base classes.** When providing base classes (e.g., `ConnectorBase`, `ActorBase`), make hook/template methods `virtual` so the private repo can override behavior.
-7. **Keep `Cvoya.Spring.Core` dependency-free.** It defines the domain contract. The private repo depends on these abstractions directly without pulling in infrastructure packages.
-8. **Extension point checklist.** When adding a new feature, ask:
-   - Can the private repo swap this implementation via DI? → Use an interface.
-   - Can the private repo extend this behavior? → Use decorator/wrapper pattern or virtual methods.
-   - Does this assume a single deployment context? → Parameterize via injected configuration/services.
-
-### What NOT to Do
+This repository is the **public, open-source core** of Spring Voyage. A private repository extends it via git submodule and dependency injection — adding multi-tenancy, OAuth/SSO, billing, and premium features.
 
 - **Don't bypass `ITenantContext`.** Resolve the current tenant through `ITenantContext.CurrentTenantId`; never hardcode `"default"` or assume only one tenant exists. New persisted entities that should be tenant-scoped must implement `ITenantScopedEntity` so the cloud host can enforce isolation through its scoped overrides.
 - **Don't make services static or use singletons outside DI.** Everything must go through the container so the private repo can control lifetime and scoping.
 - **Don't create internal types that the private repo would need to access.** If a type is part of the extension contract, make it `public`. Use `internal` only for true implementation details.
 - **Don't reference private repo issues, PRs, or branches.** It is fine to acknowledge that a Spring Voyage hosted service exists, but do not link to or create dependencies on `cvoya-com/spring` issues or PRs from this repo. The dependency direction is one-way: the private repo may reference this repo's work, not the reverse.
+- **Every design decision must account for extensibility.** The private repo extends, overrides, or composes OSS behaviour cleanly — without forking, patching, or working around limitations. Treat this repo as a framework that consumers use.
 
-### Built-in agent runtimes
+### Extension model
 
-The OSS core ships per-runtime `IAgentRuntime` plugins as sibling projects under `src/Cvoya.Spring.AgentRuntimes.*`. Each one is wired into the host via its own `AddCvoyaSpringAgentRuntime<Name>()` extension and the `IAgentRuntimeRegistry` (in `Cvoya.Spring.Dapr`) picks them up automatically.
+- **Tenant-aware overrides.** The OSS core models tenancy through `ITenantContext` and ships a single-tenant default. The cloud host swaps in a scoped implementation. OSS code must not assume a single tenant or hardcode the default tenant id.
+- **DI overrides.** The cloud host replaces OSS service registrations with tenant-aware implementations using `TryAdd*`-friendly registration on the OSS side.
+- **Plugin contracts.** Implement `IAgentRuntime` (LLM backend + execution tool + credential schema + model catalogue) or `IConnectorType` (external-system binding) and register via DI; the host picks new implementations up without core changes.
+- **Cloud API host.** Layers middleware (auth, tenant context) on top of the OSS API host.
 
-| Runtime id | Project | Tool kind | DI extension |
-|------------|---------|-----------|--------------|
-| `claude` | `Cvoya.Spring.AgentRuntimes.Claude` | `claude-code-cli` | `AddCvoyaSpringAgentRuntimeClaude()` |
-| `google` | `Cvoya.Spring.AgentRuntimes.Google` | `dapr-agent` | `AddCvoyaSpringAgentRuntimeGoogle()` |
-| `ollama` | `Cvoya.Spring.AgentRuntimes.Ollama` | `dapr-agent` | `AddCvoyaSpringAgentRuntimeOllama()` |
-| `openai` | `Cvoya.Spring.AgentRuntimes.OpenAI` | `dapr-agent` | `AddCvoyaSpringAgentRuntimeOpenAI()` |
+### Design principles for extensibility
 
-To add a new runtime, follow the contract in [`src/Cvoya.Spring.Core/AgentRuntimes/README.md`](src/Cvoya.Spring.Core/AgentRuntimes/README.md) and append a row above. Per-runtime READMEs live next to their projects.
+1. **Interface-first.** Define interfaces in `Cvoya.Spring.Core`, implement in `Cvoya.Spring.Dapr`. Alternative implementations slot in via DI.
+2. **`TryAdd*` for DI registrations.** Downstream consumers register their own implementations before calling `AddCvoyaSpring*()`, and OSS registrations don't overwrite them.
+3. **Don't seal extensible types.** Services, handlers, strategies, middleware are not `sealed` unless leaf-only.
+4. **Composition over inheritance.** Inject collaborators; extend by wrapping or decorating.
+5. **No hardcoded single-tenant assumptions.** Use injected services for anything the cloud might scope per tenant.
+6. **Virtual hooks on base classes.** Make template methods on `*Base` classes `virtual`.
+7. **`Cvoya.Spring.Core` stays dependency-free.** Domain abstractions only — zero NuGet packages.
+8. **Extension-point checklist** for new features:
+   - Can the cloud swap this implementation via DI? → interface.
+   - Can it extend behaviour? → decorator/wrapper or virtual methods.
+   - Does it assume a single deployment context? → parameterise via DI.
 
-### Admin surfaces (CLI-only) — relaxation of the parity rule
+### What not to do
 
-The UI / CLI parity rule (`CONVENTIONS.md` § 14) requires every **user-facing** feature to ship on both surfaces. This section declares the **relaxation** introduced by #693 under the #674 refactor: operational surfaces for the OSS core are **CLI-only** by design. The portal MAY expose **read-only** views for visibility, but every mutation goes through the `spring` CLI.
+- **Don't bypass `ITenantContext`.** Resolve the tenant through `ITenantContext.CurrentTenantId`. New persisted entities that should be tenant-scoped implement `ITenantScopedEntity`.
+- **Don't make services static or use singletons outside DI.** Everything goes through the container.
+- **Don't create internal types that the cloud overlay would need access to.** If a type is part of the extension contract, it is `public`.
 
-Under the v2 IA (umbrella #815 § 2), the legacy `/admin/*` top-level routes are retired. The read-only portal views for this carve-out now live inside the regular IA: agent-runtime config under the Settings hub at `/settings/agent-runtimes`, and connector health as a Health tab on the Connectors surface at `/connectors?tab=health`. There is no `/admin/*` route in v2.
+### Plugins (agent runtimes and connectors)
 
-- **Agent-runtime config** (`spring agent-runtime …`) — tenant install / uninstall, model list, base-URL overrides. Includes `spring agent-runtime config get <id>` for a read-only projection of the install row's config slot, and `spring agent-runtime validate-credential <id>` to probe a credential without rotating the model catalog (#1066). Read-only portal view: `/settings/agent-runtimes`.
-- **Connector config** (`spring connector …`) — tenant install / uninstall, per-tenant configuration, credential validation. Read-only portal view: `/connectors?tab=health` (the Health tab on the Connectors surface).
-- **Unit validation** (`spring unit create` default `--wait`, `spring unit revalidate`) — per-unit image-pull / tool / credential / model probing runs inside the chosen container via `UnitValidationWorkflow` (see `docs/architecture/units.md#unit-validation-workflow`). The host-side accept-time probe for agent runtimes was removed in #941.
-- **Credential health** (`spring … credentials status`) — read-only status surfaced via both CLI and portal; writes come from the HTTP watchdog middleware (and, for connectors, accept-time validation). Portal entry points: `/settings/agent-runtimes` for agent-runtime credentials, `/connectors?tab=health` for connector credentials.
-- **Tenant seeds** — default-tenant bootstrap runs once per deployment start in the Worker host; there is no HTTP or CLI surface to trigger re-seeding in V2.
-- **Skill-bundle bindings** — bootstrap binds every discovered package to the default tenant; mutation CLI (`spring skill-bundle …`) is deferred to V2.1.
+Agent runtimes and connectors are first-class plugins. Each ships as its own `Cvoya.Spring.AgentRuntimes.<Name>` or `Cvoya.Spring.Connector.<Name>` project, references only what its contract demands, and registers via a single `AddCvoyaSpring<Kind><Name>()` DI extension. Host-side code references the abstraction only — the registry, install surface, and bootstrap pick up new plugins automatically. Per-project READMEs document each runtime/connector's contract; see also `CONVENTIONS.md` § "Agent Runtimes and Connectors Are Plugins".
 
-When a new admin surface lands, append a bullet to this list — **this section is the authoritative carve-out roster**, not `CONVENTIONS.md` § 14 (which defers here). User-facing features remain strictly parity-bound.
+## Operator surfaces — relaxation of UI/CLI parity
 
+Operational surfaces (agent-runtime config, connector config, credential health, tenant seeds, skill-bundle bindings) are **CLI-only by design**. The portal MAY expose **read-only** views for visibility, but every mutation goes through the `spring` CLI.
 
-## Key Rules
+User-facing features remain strictly parity-bound — see [`CONVENTIONS.md`](CONVENTIONS.md) § "UI / CLI Feature Parity".
 
-- `Cvoya.Spring.Core` must have ZERO external NuGet package references. It defines domain abstractions only.
-- System.Text.Json only. No Newtonsoft.Json.
-- .NET 10 target framework.
-- Interface-first: define interfaces in `Cvoya.Spring.Core`, implement in `Cvoya.Spring.Dapr`.
-- Always create PRs against `main`. Never push directly.
-- After creating a PR, always enable auto-merge with `gh pr merge <number> --auto --squash`.
-- Run `dotnet format` before committing.
-- Reference GitHub issues in commit messages with `Closes #N`.
+## Agents, Sub-agents, concurrent agents
 
-## Concurrent Agents
+Multiple coding agents work on this codebase simultaneously.
 
-Multiple agents work on v2 simultaneously. Rules:
+Rules:
 - Each agent must operate in its own dedicated worktree — never share a worktree between agents.
-- Small, focused PRs — one issue per PR.
+- Small, focused PRs — one issue per PR unless instructed to combine issues into one.
 - Rebase onto `main` before merging.
 - When adding to shared files (`StateKeys`, DI registrations, enums) — append to the end.
+- File follow-up issues before the PR lands and reference concrete numbers in the PR body. Prose-only "we'll file it later" routinely drops follow-ups on the floor.
 
 ## Repository Configuration
 
-`.claude/settings.local.json` is gitignored and is the correct place for user-specific tooling (MCP servers, design tools, personal preferences). Do not add user-specific tool configuration to committed repo files (`settings.json`, agent definitions, or CLAUDE.md). Repo-level config should reflect project requirements shared by all contributors, not individual workflow preferences.
+- `.claude/settings.local.json` is gitignored and is the correct place for user-specific tooling (MCP servers, design tools, personal preferences). Do not add user-specific tool configuration to committed repo files (`settings.json`, agent definitions, or CLAUDE.md). Repo-level config should reflect project requirements shared by all contributors, not individual workflow preferences.

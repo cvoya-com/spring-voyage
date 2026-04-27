@@ -101,7 +101,7 @@ models        claude-opus-4-7,claude-sonnet-4-6,claude-haiku-4-5
 
 ## Unit validation lifecycle
 
-> **Backend-side validation — [#941](https://github.com/cvoya-com/spring-voyage/issues/941) landed in V2.** The accept-time host-side probe was removed in #941. Credential / tool / model checks now run inside the chosen container image via `UnitValidationWorkflow`, a Dapr Workflow dispatched when a unit enters `Validating`. The operator-facing surface is the unit lifecycle and `spring unit revalidate` — not a per-runtime "validate credential" button.
+> **Backend-side validation — [#941](https://github.com/cvoya-com/spring-voyage/issues/941) landed.** The accept-time host-side probe was removed in #941. Credential / tool / model checks now run inside the chosen container image via `UnitValidationWorkflow`, a Dapr Workflow dispatched when a unit enters `Validating`. The operator-facing surface is the unit lifecycle and `spring unit revalidate` — not a per-runtime "validate credential" button.
 
 A new unit walks through:
 

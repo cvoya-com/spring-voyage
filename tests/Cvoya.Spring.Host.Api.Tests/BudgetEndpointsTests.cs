@@ -32,7 +32,7 @@ public class BudgetEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         var ct = TestContext.Current.CancellationToken;
         var request = new SetBudgetRequest(25.50m);
 
-        var response = await _client.PutAsJsonAsync("/api/v1/agents/budget-agent-1/budget", request, ct);
+        var response = await _client.PutAsJsonAsync("/api/v1/tenant/agents/budget-agent-1/budget", request, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
@@ -52,7 +52,7 @@ public class BudgetEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         var ct = TestContext.Current.CancellationToken;
         var request = new SetBudgetRequest(0m);
 
-        var response = await _client.PutAsJsonAsync("/api/v1/agents/budget-agent-2/budget", request, ct);
+        var response = await _client.PutAsJsonAsync("/api/v1/tenant/agents/budget-agent-2/budget", request, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }
@@ -63,7 +63,7 @@ public class BudgetEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         var ct = TestContext.Current.CancellationToken;
         var request = new SetBudgetRequest(-5m);
 
-        var response = await _client.PutAsJsonAsync("/api/v1/agents/budget-agent-3/budget", request, ct);
+        var response = await _client.PutAsJsonAsync("/api/v1/tenant/agents/budget-agent-3/budget", request, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }
@@ -78,7 +78,7 @@ public class BudgetEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             Arg.Any<CancellationToken>())
             .Returns(10.0m);
 
-        var response = await _client.GetAsync("/api/v1/agents/budget-get-agent/budget", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/agents/budget-get-agent/budget", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
@@ -97,7 +97,7 @@ public class BudgetEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             Arg.Any<CancellationToken>())
             .Returns((decimal?)null);
 
-        var response = await _client.GetAsync("/api/v1/agents/no-budget-agent/budget", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/agents/no-budget-agent/budget", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
@@ -164,7 +164,7 @@ public class BudgetEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         var ct = TestContext.Current.CancellationToken;
         var request = new SetBudgetRequest(30.00m);
 
-        var response = await _client.PutAsJsonAsync("/api/v1/units/eng-team/budget", request, ct);
+        var response = await _client.PutAsJsonAsync("/api/v1/tenant/units/eng-team/budget", request, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
@@ -184,7 +184,7 @@ public class BudgetEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         var ct = TestContext.Current.CancellationToken;
         var request = new SetBudgetRequest(0m);
 
-        var response = await _client.PutAsJsonAsync("/api/v1/units/unit-zero/budget", request, ct);
+        var response = await _client.PutAsJsonAsync("/api/v1/tenant/units/unit-zero/budget", request, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }
@@ -199,7 +199,7 @@ public class BudgetEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             Arg.Any<CancellationToken>())
             .Returns(12.5m);
 
-        var response = await _client.GetAsync("/api/v1/units/unit-get/budget", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/units/unit-get/budget", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
@@ -218,7 +218,7 @@ public class BudgetEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             Arg.Any<CancellationToken>())
             .Returns((decimal?)null);
 
-        var response = await _client.GetAsync("/api/v1/units/unit-missing/budget", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/units/unit-missing/budget", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }

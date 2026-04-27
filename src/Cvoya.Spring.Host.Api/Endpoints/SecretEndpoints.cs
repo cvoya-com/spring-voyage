@@ -78,7 +78,7 @@ public static class SecretEndpoints
     /// <returns>The unit-scoped route group builder for chaining.</returns>
     public static RouteGroupBuilder MapSecretEndpoints(this IEndpointRouteBuilder app)
     {
-        var unitGroup = app.MapGroup("/api/v1/units/{id}/secrets")
+        var unitGroup = app.MapGroup("/api/v1/tenant/units/{id}/secrets")
             .WithTags("Secrets");
 
         unitGroup.MapGet("/", ListUnitSecretsAsync)
@@ -1017,7 +1017,7 @@ public static class SecretEndpoints
 
     private static string BuildResourceLocation(SecretScope scope, string ownerId, string name) => scope switch
     {
-        SecretScope.Unit => $"/api/v1/units/{ownerId}/secrets/{name}",
+        SecretScope.Unit => $"/api/v1/tenant/units/{ownerId}/secrets/{name}",
         SecretScope.Tenant => $"/api/v1/tenant/secrets/{name}",
         SecretScope.Platform => $"/api/v1/platform/secrets/{name}",
         _ => $"/api/v1/secrets/{name}",

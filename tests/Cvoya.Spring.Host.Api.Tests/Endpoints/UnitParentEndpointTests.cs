@@ -63,7 +63,7 @@ public class UnitParentEndpointTests : IClassFixture<CustomWebApplicationFactory
             IsTopLevel: null,
             ParentUnitIds: null);
 
-        var response = await _client.PostAsJsonAsync("/api/v1/units", request, ct);
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/units", request, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         // Directory must never see an orphaned registration.
@@ -88,7 +88,7 @@ public class UnitParentEndpointTests : IClassFixture<CustomWebApplicationFactory
             IsTopLevel: true,
             ParentUnitIds: new[] { "some-parent" });
 
-        var response = await _client.PostAsJsonAsync("/api/v1/units", request, ct);
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/units", request, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         await _factory.DirectoryService.DidNotReceive().RegisterAsync(
@@ -139,7 +139,7 @@ public class UnitParentEndpointTests : IClassFixture<CustomWebApplicationFactory
             Description: "Tenant-parented",
             IsTopLevel: true);
 
-        var response = await _client.PostAsJsonAsync("/api/v1/units", request, ct);
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/units", request, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Created);
 
@@ -201,7 +201,7 @@ public class UnitParentEndpointTests : IClassFixture<CustomWebApplicationFactory
             Description: "Parented by eng-team",
             ParentUnitIds: new[] { "eng-team" });
 
-        var response = await _client.PostAsJsonAsync("/api/v1/units", request, ct);
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/units", request, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Created);
         await parentProxy.Received(1).AddMemberAsync(
@@ -225,7 +225,7 @@ public class UnitParentEndpointTests : IClassFixture<CustomWebApplicationFactory
             Description: "Parent does not exist",
             ParentUnitIds: new[] { "ghost-unit" });
 
-        var response = await _client.PostAsJsonAsync("/api/v1/units", request, ct);
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/units", request, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
         await _factory.DirectoryService.DidNotReceive().RegisterAsync(
@@ -267,7 +267,7 @@ public class UnitParentEndpointTests : IClassFixture<CustomWebApplicationFactory
                 + "Attach it to another parent unit first, promote it to top-level, or delete the unit itself."));
 
         var response = await _client.DeleteAsync(
-            "/api/v1/units/parent-a/members/child-unit", ct);
+            "/api/v1/tenant/units/parent-a/members/child-unit", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Conflict);
     }

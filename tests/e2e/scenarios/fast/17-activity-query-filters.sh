@@ -16,8 +16,8 @@ source "${HERE}/../../_lib.sh"
 # --- Shape check: unfiltered query returns paginated payload -----------------
 # ActivityQueryResult is { items, totalCount, page, pageSize }. All four
 # fields must be present even when the store is empty.
-e2e::log "GET /api/v1/activity (unfiltered)"
-response="$(e2e::http GET "/api/v1/activity?limit=3")"
+e2e::log "GET /api/v1/tenant/activity (unfiltered)"
+response="$(e2e::http GET "/api/v1/tenant/activity?limit=3")"
 status="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "200" "${status}" "activity query returns 200"
@@ -30,8 +30,8 @@ e2e::expect_contains "\"pageSize\":" "${body}" "response carries pageSize"
 # The environment has at least one prior unit create, so StateChanged must
 # have at least one row. Using the filter proves the server-side WHERE is
 # wired; a case-sensitivity regression would surface here.
-e2e::log "GET /api/v1/activity?eventType=StateChanged"
-response="$(e2e::http GET "/api/v1/activity?eventType=StateChanged&limit=5")"
+e2e::log "GET /api/v1/tenant/activity?eventType=StateChanged"
+response="$(e2e::http GET "/api/v1/tenant/activity?eventType=StateChanged&limit=5")"
 status="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "200" "${status}" "eventType filter query returns 200"
@@ -41,8 +41,8 @@ e2e::expect_contains "\"StateChanged\"" "${body}" "filtered response contains St
 # The ActivityQueryService treats severity as an exact match, not a minimum;
 # the wire shape still distinguishes Debug from Info, so asserting the
 # filtered response's severity field matches the request is meaningful.
-e2e::log "GET /api/v1/activity?severity=Info"
-response="$(e2e::http GET "/api/v1/activity?severity=Info&limit=5")"
+e2e::log "GET /api/v1/tenant/activity?severity=Info"
+response="$(e2e::http GET "/api/v1/tenant/activity?severity=Info&limit=5")"
 status="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "200" "${status}" "severity filter query returns 200"
@@ -54,8 +54,8 @@ e2e::expect_contains "\"totalCount\":" "${body}" "severity-filtered response car
 # Using a deterministically non-existent source id proves the filter
 # actually narrows results rather than being silently dropped.
 bogus_source="agent:$(e2e::agent_name non-existent-$(date +%s%N))"
-e2e::log "GET /api/v1/activity?source=${bogus_source}"
-response="$(e2e::http GET "/api/v1/activity?source=${bogus_source}&limit=5")"
+e2e::log "GET /api/v1/tenant/activity?source=${bogus_source}"
+response="$(e2e::http GET "/api/v1/tenant/activity?source=${bogus_source}&limit=5")"
 status="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "200" "${status}" "source filter for non-existent source returns 200"
@@ -66,8 +66,8 @@ e2e::expect_contains "\"items\":[]" "${body}" "non-existent source yields empty 
 # pageSize must bound the returned array length. Ask for 1 item and verify
 # the items array carries at most one entry — the shape change from "items":
 # []" to "items":[{...}]" is a reliable tell without parsing JSON.
-e2e::log "GET /api/v1/activity?pageSize=1"
-response="$(e2e::http GET "/api/v1/activity?pageSize=1")"
+e2e::log "GET /api/v1/tenant/activity?pageSize=1"
+response="$(e2e::http GET "/api/v1/tenant/activity?pageSize=1")"
 status="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "200" "${status}" "pageSize=1 query returns 200"

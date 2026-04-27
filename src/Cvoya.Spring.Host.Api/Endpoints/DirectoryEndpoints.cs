@@ -22,7 +22,7 @@ public static class DirectoryEndpoints
     /// <returns>The route group builder for chaining.</returns>
     public static RouteGroupBuilder MapDirectoryEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/v1/directory")
+        var group = app.MapGroup("/api/v1/tenant/directory")
             .WithTags("Directory");
 
         group.MapGet("/", ListEntriesAsync)

@@ -54,7 +54,7 @@ public class MembershipEndpointTests : IClassFixture<CustomWebApplicationFactory
             .ResolveAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
             .Returns((DirectoryEntry?)null);
 
-        var response = await _client.GetAsync("/api/v1/agents/ghost/memberships", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/agents/ghost/memberships", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
@@ -69,7 +69,7 @@ public class MembershipEndpointTests : IClassFixture<CustomWebApplicationFactory
         await UpsertAsync("engineering", "ada");
         await UpsertAsync("marketing", "ada", model: "gpt-4o");
 
-        var response = await _client.GetAsync("/api/v1/agents/ada/memberships", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/agents/ada/memberships", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var list = await response.Content.ReadFromJsonAsync<List<UnitMembershipResponse>>(JsonOptions, ct);
@@ -88,7 +88,7 @@ public class MembershipEndpointTests : IClassFixture<CustomWebApplicationFactory
             .ResolveAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
             .Returns((DirectoryEntry?)null);
 
-        var response = await _client.GetAsync("/api/v1/units/ghost/memberships", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/units/ghost/memberships", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
@@ -102,7 +102,7 @@ public class MembershipEndpointTests : IClassFixture<CustomWebApplicationFactory
         await UpsertAsync("engineering", "ada", specialty: "reviewer");
         await UpsertAsync("engineering", "hopper", enabled: false);
 
-        var response = await _client.GetAsync("/api/v1/units/engineering/memberships", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/units/engineering/memberships", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var list = await response.Content.ReadFromJsonAsync<List<UnitMembershipResponse>>(JsonOptions, ct);
@@ -128,7 +128,7 @@ public class MembershipEndpointTests : IClassFixture<CustomWebApplicationFactory
         await UpsertAsync("engineering", "ada");
         await UpsertAsync("engineering", "hopper");
 
-        var response = await _client.GetAsync("/api/v1/units/engineering/memberships", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/units/engineering/memberships", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var list = await response.Content.ReadFromJsonAsync<List<UnitMembershipResponse>>(JsonOptions, ct);
@@ -149,7 +149,7 @@ public class MembershipEndpointTests : IClassFixture<CustomWebApplicationFactory
         await UpsertAsync("engineering", "ada");
         await UpsertAsync("marketing", "ada");
 
-        var response = await _client.GetAsync("/api/v1/agents/ada/memberships", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/agents/ada/memberships", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var list = await response.Content.ReadFromJsonAsync<List<UnitMembershipResponse>>(JsonOptions, ct);
@@ -172,7 +172,7 @@ public class MembershipEndpointTests : IClassFixture<CustomWebApplicationFactory
             ExecutionMode: AgentExecutionMode.OnDemand);
 
         var response = await _client.PutAsJsonAsync(
-            "/api/v1/units/engineering/memberships/ada", body, JsonOptions, ct);
+            "/api/v1/tenant/units/engineering/memberships/ada", body, JsonOptions, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var persisted = await GetAsync("engineering", "ada");
@@ -193,7 +193,7 @@ public class MembershipEndpointTests : IClassFixture<CustomWebApplicationFactory
             .Returns((DirectoryEntry?)null);
 
         var response = await _client.PutAsJsonAsync(
-            "/api/v1/units/ghost/memberships/ada", new UpsertMembershipRequest(), JsonOptions, ct);
+            "/api/v1/tenant/units/ghost/memberships/ada", new UpsertMembershipRequest(), JsonOptions, ct);
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
@@ -209,7 +209,7 @@ public class MembershipEndpointTests : IClassFixture<CustomWebApplicationFactory
         await UpsertAsync("marketing", "ada");
 
         var response = await _client.DeleteAsync(
-            "/api/v1/units/engineering/memberships/ada", ct);
+            "/api/v1/tenant/units/engineering/memberships/ada", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
         (await GetAsync("engineering", "ada")).ShouldBeNull();
         (await GetAsync("marketing", "ada")).ShouldNotBeNull();
@@ -222,7 +222,7 @@ public class MembershipEndpointTests : IClassFixture<CustomWebApplicationFactory
         ClearMemberships();
 
         var response = await _client.DeleteAsync(
-            "/api/v1/units/engineering/memberships/ghost", ct);
+            "/api/v1/tenant/units/engineering/memberships/ghost", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
@@ -237,7 +237,7 @@ public class MembershipEndpointTests : IClassFixture<CustomWebApplicationFactory
         await UpsertAsync("engineering", "ada");
 
         var response = await _client.DeleteAsync(
-            "/api/v1/units/engineering/memberships/ada", ct);
+            "/api/v1/tenant/units/engineering/memberships/ada", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.Conflict);
 
         // The membership must still exist — the rejection was not a soft fail.
@@ -264,7 +264,7 @@ public class MembershipEndpointTests : IClassFixture<CustomWebApplicationFactory
         await Task.Delay(20, ct);
         await UpsertAsync("marketing", "ada");
 
-        var response = await _client.GetAsync("/api/v1/agents/ada", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/agents/ada", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var detail = await response.Content.ReadFromJsonAsync<AgentDetailResponse>(JsonOptions, ct);
@@ -295,7 +295,7 @@ public class MembershipEndpointTests : IClassFixture<CustomWebApplicationFactory
 
         await UpsertAsync("engineering", "ada");
 
-        var response = await _client.GetAsync("/api/v1/agents/ada", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/agents/ada", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var raw = await response.Content.ReadAsStringAsync(ct);
@@ -320,7 +320,7 @@ public class MembershipEndpointTests : IClassFixture<CustomWebApplicationFactory
         await Task.Delay(10, ct);
         await UpsertAsync("marketing", "ada");
 
-        var response = await _client.GetAsync("/api/v1/agents/ada/memberships", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/agents/ada/memberships", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var list = await response.Content.ReadFromJsonAsync<List<UnitMembershipResponse>>(JsonOptions, ct);

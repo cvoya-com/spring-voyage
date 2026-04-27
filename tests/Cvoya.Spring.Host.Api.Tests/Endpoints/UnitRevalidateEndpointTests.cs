@@ -56,7 +56,7 @@ public class UnitRevalidateEndpointTests : IClassFixture<CustomWebApplicationFac
         ArrangeResolved(proxy);
 
         var response = await _client.PostAsync(
-            $"/api/v1/units/{UnitName}/revalidate", content: null, ct);
+            $"/api/v1/tenant/units/{UnitName}/revalidate", content: null, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
         await proxy.Received(1).TransitionAsync(
@@ -78,7 +78,7 @@ public class UnitRevalidateEndpointTests : IClassFixture<CustomWebApplicationFac
         ArrangeResolved(proxy);
 
         var response = await _client.PostAsync(
-            $"/api/v1/units/{UnitName}/revalidate", content: null, ct);
+            $"/api/v1/tenant/units/{UnitName}/revalidate", content: null, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Conflict);
         await proxy.DidNotReceive().TransitionAsync(
@@ -102,7 +102,7 @@ public class UnitRevalidateEndpointTests : IClassFixture<CustomWebApplicationFac
             .Returns((DirectoryEntry?)null);
 
         var response = await _client.PostAsync(
-            "/api/v1/units/nope/revalidate", content: null, ct);
+            "/api/v1/tenant/units/nope/revalidate", content: null, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }

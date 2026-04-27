@@ -47,7 +47,7 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             "conv-1",
             JsonSerializer.SerializeToElement(new { Text = "hello" }));
 
-        var response = await _client.PostAsJsonAsync("/api/v1/messages", request, ct);
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/messages", request, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
@@ -63,7 +63,7 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             null,
             JsonSerializer.SerializeToElement(new { Text = "hello" }));
 
-        var response = await _client.PostAsJsonAsync("/api/v1/messages", request, ct);
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/messages", request, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }
@@ -106,7 +106,7 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             "conv-1",
             JsonSerializer.SerializeToElement(new { Text = "hello" }));
 
-        var response = await _client.PostAsJsonAsync("/api/v1/messages", request, ct);
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/messages", request, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         observed.ShouldNotBeNull();
@@ -156,7 +156,7 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             null,
             JsonSerializer.SerializeToElement(new { Text = "hello" }));
 
-        var response = await _client.PostAsJsonAsync("/api/v1/messages", request, ct);
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/messages", request, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<MessageResponse>(cancellationToken: ct);
@@ -205,7 +205,7 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             suppliedId,
             JsonSerializer.SerializeToElement(new { Text = "hello" }));
 
-        var response = await _client.PostAsJsonAsync("/api/v1/messages", request, ct);
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/messages", request, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<MessageResponse>(cancellationToken: ct);
@@ -259,7 +259,7 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             null,
             JsonSerializer.SerializeToElement(new { Text = "hello" }));
 
-        var response = await _client.PostAsJsonAsync("/api/v1/messages", request, ct);
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/messages", request, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<MessageResponse>(cancellationToken: ct);
@@ -304,7 +304,7 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             null,
             JsonSerializer.SerializeToElement(new { }));
 
-        var response = await _client.PostAsJsonAsync("/api/v1/messages", request, ct);
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/messages", request, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<MessageResponse>(cancellationToken: ct);
@@ -357,7 +357,7 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             null,
             JsonSerializer.SerializeToElement(new { }));
 
-        var response = await _client.PostAsJsonAsync("/api/v1/messages", request, ct);
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/messages", request, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
 
@@ -400,7 +400,7 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             "conv-x",
             JsonSerializer.SerializeToElement(new { }));
 
-        var response = await _client.PostAsJsonAsync("/api/v1/messages", request, ct);
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/messages", request, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         var problem = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
@@ -449,7 +449,7 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             null,
             JsonSerializer.SerializeToElement(new { }));
 
-        var response = await _client.PostAsJsonAsync("/api/v1/messages", request, ct);
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/messages", request, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         var problem = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
@@ -491,7 +491,7 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             null,
             JsonSerializer.SerializeToElement(new { }));
 
-        var response = await _client.PostAsJsonAsync("/api/v1/messages", request, ct);
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/messages", request, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadGateway);
     }

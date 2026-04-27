@@ -41,7 +41,7 @@ public class ActivityEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         _factory.ActivityQueryService.QueryAsync(Arg.Any<ActivityQueryParameters>(), Arg.Any<CancellationToken>())
             .Returns(emptyResult);
 
-        var response = await _client.GetAsync("/api/v1/activity", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/activity", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
@@ -63,7 +63,7 @@ public class ActivityEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         _factory.ActivityQueryService.QueryAsync(Arg.Any<ActivityQueryParameters>(), Arg.Any<CancellationToken>())
             .Returns(filteredResult);
 
-        var response = await _client.GetAsync("/api/v1/activity?source=agent://test&eventType=TaskCompleted&page=1&pageSize=10", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/activity?source=agent://test&eventType=TaskCompleted&page=1&pageSize=10", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
@@ -90,7 +90,7 @@ public class ActivityEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(TimeSpan.FromSeconds(3));
 
-        var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/activity/stream");
+        var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/tenant/activity/stream");
 
         try
         {
@@ -139,7 +139,7 @@ public class ActivityEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(TimeSpan.FromSeconds(10));
 
-        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/activity/stream");
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/tenant/activity/stream");
         using var response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cts.Token);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
@@ -251,7 +251,7 @@ public class ActivityEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         _factory.ActivityQueryService.QueryAsync(Arg.Any<ActivityQueryParameters>(), Arg.Any<CancellationToken>())
             .Returns(new ActivityQueryResult(items, 1, 1, 50));
 
-        var response = await _client.GetAsync($"/api/v1/activity?source=unit:{slug}&pageSize=5", ct);
+        var response = await _client.GetAsync($"/api/v1/tenant/activity?source=unit:{slug}&pageSize=5", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
@@ -283,7 +283,7 @@ public class ActivityEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         _factory.ActivityQueryService.QueryAsync(Arg.Any<ActivityQueryParameters>(), Arg.Any<CancellationToken>())
             .Returns(new ActivityQueryResult([], 0, 1, 50));
 
-        var response = await _client.GetAsync($"/api/v1/activity?source=agent:{slug}", ct);
+        var response = await _client.GetAsync($"/api/v1/tenant/activity?source=agent:{slug}", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
@@ -308,7 +308,7 @@ public class ActivityEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         _factory.ActivityQueryService.QueryAsync(Arg.Any<ActivityQueryParameters>(), Arg.Any<CancellationToken>())
             .Returns(new ActivityQueryResult([], 0, 1, 50));
 
-        var response = await _client.GetAsync("/api/v1/activity?source=unit:ghost", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/activity?source=unit:ghost", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
@@ -334,7 +334,7 @@ public class ActivityEndpointsTests : IClassFixture<CustomWebApplicationFactory>
                 Arg.Any<string>(), "locked-unit", Arg.Any<CancellationToken>())
             .Returns((PermissionLevel?)null);
 
-        var response = await _client.GetAsync("/api/v1/activity/stream?unitId=locked-unit", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/activity/stream?unitId=locked-unit", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
     }
@@ -361,7 +361,7 @@ public class ActivityEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(TimeSpan.FromSeconds(3));
 
-        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/activity/stream?unitId=open-unit");
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/tenant/activity/stream?unitId=open-unit");
 
         try
         {

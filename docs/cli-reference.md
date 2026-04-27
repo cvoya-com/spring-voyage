@@ -79,7 +79,7 @@ claude / default → Valid (last checked 2026-04-20 09:03:12Z)
 
 Reads the shared credential-health store, which is now fed by the **use-time** watchdog only — the host-side accept-time `POST /validate-credential` endpoint was removed in #941. A 404 means no watchdog observation has landed yet; exercise the runtime once (create a unit, or run `spring unit revalidate <name>`) to prime the row. Pass `--secret-name` for multi-credential runtimes.
 
-> **Backend-side validation — [#941](https://github.com/cvoya-com/spring-voyage/issues/941) landed in V2.** Accept-time probes now run inside the chosen container image via `UnitValidationWorkflow`, a Dapr Workflow dispatched when a unit enters `Validating`. Four steps (image pull → tool verify → credential validate → model resolve) run in order; the first failure short-circuits with a structured `UnitValidationError`. The CLI surfaces progress via `spring unit create` (default `--wait`) and exposes `spring unit revalidate <name>` for retries. Exit codes 20–27 map one-to-one onto `UnitValidationCodes`.
+> **Backend-side validation — [#941](https://github.com/cvoya-com/spring-voyage/issues/941) landed.** Accept-time probes now run inside the chosen container image via `UnitValidationWorkflow`, a Dapr Workflow dispatched when a unit enters `Validating`. Four steps (image pull → tool verify → credential validate → model resolve) run in order; the first failure short-circuits with a structured `UnitValidationError`. The CLI surfaces progress via `spring unit create` (default `--wait`) and exposes `spring unit revalidate <name>` for retries. Exit codes 20–27 map one-to-one onto `UnitValidationCodes`.
 
 ### `refresh-models <id> [--credential <value>]`
 

@@ -52,7 +52,7 @@ public class UnitLifecycleEndpointTests : IClassFixture<CustomWebApplicationFact
         var proxy = ArrangeUnit(startingResult: new TransitionResult(true, UnitStatus.Starting, null),
             finalResult: new TransitionResult(true, UnitStatus.Running, null));
 
-        var response = await _client.PostAsync($"/api/v1/units/{UnitName}/start", content: null, ct);
+        var response = await _client.PostAsync($"/api/v1/tenant/units/{UnitName}/start", content: null, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
 
@@ -74,7 +74,7 @@ public class UnitLifecycleEndpointTests : IClassFixture<CustomWebApplicationFact
 
         ArrangeResolved(proxy);
 
-        var response = await _client.PostAsync($"/api/v1/units/{UnitName}/start", content: null, ct);
+        var response = await _client.PostAsync($"/api/v1/tenant/units/{UnitName}/start", content: null, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Conflict);
 
@@ -95,7 +95,7 @@ public class UnitLifecycleEndpointTests : IClassFixture<CustomWebApplicationFact
 
         ArrangeResolved(proxy);
 
-        var response = await _client.PostAsync($"/api/v1/units/{UnitName}/stop", content: null, ct);
+        var response = await _client.PostAsync($"/api/v1/tenant/units/{UnitName}/stop", content: null, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
 
@@ -119,7 +119,7 @@ public class UnitLifecycleEndpointTests : IClassFixture<CustomWebApplicationFact
         proxy.GetConnectorBindingAsync(Arg.Any<CancellationToken>())
             .Returns(new UnitConnectorBinding(boundTypeId, boundConfig));
 
-        var response = await _client.PostAsync($"/api/v1/units/{UnitName}/start", content: null, ct);
+        var response = await _client.PostAsync($"/api/v1/tenant/units/{UnitName}/start", content: null, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
         await _factory.StubConnectorType.Received(1)
@@ -141,7 +141,7 @@ public class UnitLifecycleEndpointTests : IClassFixture<CustomWebApplicationFact
         _factory.StubConnectorType.OnUnitStartingAsync(UnitName, Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("external 502"));
 
-        var response = await _client.PostAsync($"/api/v1/units/{UnitName}/start", content: null, ct);
+        var response = await _client.PostAsync($"/api/v1/tenant/units/{UnitName}/start", content: null, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
         await proxy.Received(1).TransitionAsync(UnitStatus.Running, Arg.Any<CancellationToken>());
@@ -164,7 +164,7 @@ public class UnitLifecycleEndpointTests : IClassFixture<CustomWebApplicationFact
 
         ArrangeResolved(proxy);
 
-        var response = await _client.PostAsync($"/api/v1/units/{UnitName}/stop", content: null, ct);
+        var response = await _client.PostAsync($"/api/v1/tenant/units/{UnitName}/stop", content: null, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
         await _factory.StubConnectorType.Received(1)
@@ -186,7 +186,7 @@ public class UnitLifecycleEndpointTests : IClassFixture<CustomWebApplicationFact
 
         ArrangeResolved(proxy);
 
-        var response = await _client.PostAsync($"/api/v1/units/{UnitName}/stop", content: null, ct);
+        var response = await _client.PostAsync($"/api/v1/tenant/units/{UnitName}/stop", content: null, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
         await _factory.StubConnectorType.DidNotReceive()
@@ -204,7 +204,7 @@ public class UnitLifecycleEndpointTests : IClassFixture<CustomWebApplicationFact
 
         ArrangeResolved(proxy);
 
-        var response = await _client.PostAsync($"/api/v1/units/{UnitName}/stop", content: null, ct);
+        var response = await _client.PostAsync($"/api/v1/tenant/units/{UnitName}/stop", content: null, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Conflict);
 

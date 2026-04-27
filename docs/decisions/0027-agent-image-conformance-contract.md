@@ -4,7 +4,7 @@
 - **Date:** 2026-04-22
 - **Closes:** [#1087](https://github.com/cvoya-com/spring-voyage/issues/1087)
 - **Related code:** `deployment/agent-sidecar/` (bridge source), `deployment/Dockerfile.agent-base`, `deployment/Dockerfile.agent.claude-code`, `deployment/Dockerfile.agent.dapr`, `.github/workflows/release-agent-base.yml`, `src/Cvoya.Spring.Dapr/Execution/A2AExecutionDispatcher.cs`, `src/Cvoya.Spring.Core/Execution/IAgentToolLauncher.cs` (`AgentLaunchSpec.A2APort`).
-- **Related docs:** [`docs/architecture/agent-runtime.md` § 7 BYOI conformance contract](../architecture/agent-runtime.md#7-byoi-conformance-contract), [`docs/guide/byoi-agent-images.md`](../guide/byoi-agent-images.md), [`deployment/agent-sidecar/README.md`](../../deployment/agent-sidecar/README.md), [ADR 0025 — Unified agent launch contract](0025-unified-agent-launch-contract.md), [ADR 0026 — Per-agent container scope](0026-per-agent-container-scope.md).
+- **Related docs:** [`docs/architecture/agent-runtime.md` § 7 BYOI conformance contract](../architecture/agent-runtime.md#7-byoi-conformance-contract), [`docs/guide/byoi-agent-images.md`](../guide/operator/byoi-agent-images.md), [`deployment/agent-sidecar/README.md`](../../deployment/agent-sidecar/README.md), [ADR 0025 — Unified agent launch contract](0025-unified-agent-launch-contract.md), [ADR 0026 — Per-agent container scope](0026-per-agent-container-scope.md).
 
 ## Context
 

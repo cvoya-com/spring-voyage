@@ -77,7 +77,7 @@ public static class SystemEndpoints
     /// </summary>
     public static RouteGroupBuilder MapSystemEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/v1/system")
+        var group = app.MapGroup("/api/v1/platform")
             .WithTags("System");
 
         group.MapGet("/credentials/{provider}/status", GetCredentialStatusAsync)

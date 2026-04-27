@@ -46,7 +46,7 @@ public static class ActivityEndpoints
     /// <returns>The route group builder for chaining.</returns>
     public static RouteGroupBuilder MapActivityEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/v1/activity")
+        var group = app.MapGroup("/api/v1/tenant/activity")
             .WithTags("Activity");
 
         group.MapGet("/", QueryActivityAsync)

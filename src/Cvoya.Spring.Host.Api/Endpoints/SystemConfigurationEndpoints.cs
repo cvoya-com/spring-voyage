@@ -18,12 +18,13 @@ using Microsoft.AspNetCore.Routing;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Auth.</b> Anonymous in the OSS build — the report does not contain
-/// secret material (env-var names only, no values), and the anonymous About
-/// panel / CLI verb need to work before a caller has negotiated a token.
-/// The private cloud host can layer <c>RequireAuthorization()</c> by
-/// overriding the route map or wrapping the endpoint in tenant-aware
-/// middleware.
+/// <b>Auth.</b> Gated to <c>PlatformOperator</c> per the v0.1 role taxonomy
+/// (see <c>docs/architecture/web-api.md</c>). The configuration report is
+/// platform-operator information — env-var names, startup probe results —
+/// and the principle "if the CLI uses it, it lives on the public API"
+/// applies: the <c>spring system configuration</c> verb authenticates and
+/// then reads. There is no anonymous surface for this endpoint in the OSS
+/// build.
 /// </para>
 /// <para>
 /// <b>Shape.</b> The response body IS the <see cref="ConfigurationReport"/>
@@ -38,7 +39,7 @@ public static class SystemConfigurationEndpoints
     /// </summary>
     public static RouteGroupBuilder MapSystemConfigurationEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/v1/system")
+        var group = app.MapGroup("/api/v1/platform/system")
             .WithTags("System");
 
         group.MapGet("/configuration", ([FromServices] IStartupConfigurationValidator validator) =>

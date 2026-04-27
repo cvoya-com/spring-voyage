@@ -113,8 +113,8 @@ public class ApiExceptionRendererTests
             Status = new UntypedInteger(409),
             AdditionalData = new Dictionary<string, object>
             {
-                ["Hint"] = "POST /api/v1/units/demo/stop",
-                ["ForceHint"] = "DELETE /api/v1/units/demo?force=true bypasses the gate.",
+                ["Hint"] = "POST /api/v1/tenant/units/demo/stop",
+                ["ForceHint"] = "DELETE /api/v1/tenant/units/demo?force=true bypasses the gate.",
                 ["CurrentStatus"] = "Running",
             },
         };
@@ -158,8 +158,8 @@ public class ApiExceptionRendererTests
             Status = new UntypedInteger(409),
             AdditionalData = new Dictionary<string, object>
             {
-                ["Hint"] = "POST /api/v1/units/demo/stop",
-                ["ForceHint"] = "DELETE /api/v1/units/demo?force=true bypasses the gate.",
+                ["Hint"] = "POST /api/v1/tenant/units/demo/stop",
+                ["ForceHint"] = "DELETE /api/v1/tenant/units/demo?force=true bypasses the gate.",
             },
         };
         problem.ResponseStatusCode = 409;
@@ -172,7 +172,7 @@ public class ApiExceptionRendererTests
         stderr.ShouldContain("Failed to purge unit 'demo' [409]");
         stderr.ShouldContain("Unit is not stopped");
         stderr.ShouldContain("next:");
-        stderr.ShouldContain("POST /api/v1/units/demo/stop");
+        stderr.ShouldContain("POST /api/v1/tenant/units/demo/stop");
         stderr.ShouldContain("force=true");
     }
 

@@ -165,10 +165,10 @@ public class ApplyCommandTests
 
         handler.Calls.Count().ShouldBe(4);
         handler.Calls[0].Method.ShouldBe(HttpMethod.Post);
-        handler.Calls[0].Path.ShouldBe("/api/v1/units");
-        handler.Calls[1].Path.ShouldBe("/api/v1/units/engineering-team/members");
-        handler.Calls[2].Path.ShouldBe("/api/v1/units/engineering-team/members");
-        handler.Calls[3].Path.ShouldBe("/api/v1/units/engineering-team/members");
+        handler.Calls[0].Path.ShouldBe("/api/v1/tenant/units");
+        handler.Calls[1].Path.ShouldBe("/api/v1/tenant/units/engineering-team/members");
+        handler.Calls[2].Path.ShouldBe("/api/v1/tenant/units/engineering-team/members");
+        handler.Calls[3].Path.ShouldBe("/api/v1/tenant/units/engineering-team/members");
 
         // The create-unit POST must carry the full server-side contract
         // (Name + DisplayName + Description) so CreateUnitRequest binds
@@ -331,10 +331,10 @@ public class ApplyCommandTests
         // Expected: POST unit, POST member, PUT boundary — exactly three
         // calls in that order.
         handler.Calls.Count().ShouldBe(3);
-        handler.Calls[0].Path.ShouldBe("/api/v1/units");
-        handler.Calls[1].Path.ShouldBe("/api/v1/units/triage-cell/members");
+        handler.Calls[0].Path.ShouldBe("/api/v1/tenant/units");
+        handler.Calls[1].Path.ShouldBe("/api/v1/tenant/units/triage-cell/members");
         handler.Calls[2].Method.ShouldBe(HttpMethod.Put);
-        handler.Calls[2].Path.ShouldBe("/api/v1/units/triage-cell/boundary");
+        handler.Calls[2].Path.ShouldBe("/api/v1/tenant/units/triage-cell/boundary");
 
         using var boundaryBody = System.Text.Json.JsonDocument.Parse(handler.Calls[2].Body);
         var root = boundaryBody.RootElement;

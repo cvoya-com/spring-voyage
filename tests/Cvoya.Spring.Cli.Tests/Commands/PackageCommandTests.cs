@@ -156,7 +156,7 @@ public class PackageCommandTests
         // Must hit the same endpoint the portal consumes so the CLI
         // stays at parity with what /packages renders on the web side.
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/packages",
+            expectedPath: "/api/v1/tenant/packages",
             expectedMethod: HttpMethod.Get,
             responseBody:
                 """[{"name":"software-engineering","description":"Engineering package","unitTemplateCount":1,"agentTemplateCount":3,"skillCount":2,"connectorCount":0,"workflowCount":1}]""");
@@ -176,7 +176,7 @@ public class PackageCommandTests
     public async Task GetPackageAsync_CallsPackageDetailEndpoint()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/packages/software-engineering",
+            expectedPath: "/api/v1/tenant/packages/software-engineering",
             expectedMethod: HttpMethod.Get,
             responseBody:
                 """{"name":"software-engineering","description":null,"unitTemplates":[],"agentTemplates":[],"skills":[],"connectors":[],"workflows":[]}""");
@@ -199,7 +199,7 @@ public class PackageCommandTests
         // 404 to null so callers surface a clean "not found" message
         // instead of a hard failure.
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/packages/missing",
+            expectedPath: "/api/v1/tenant/packages/missing",
             expectedMethod: HttpMethod.Get,
             responseBody: """{"title":"Not Found","status":404}""",
             returnStatusCode: HttpStatusCode.NotFound);
@@ -218,7 +218,7 @@ public class PackageCommandTests
     public async Task GetUnitTemplateAsync_CallsTemplateDetailEndpoint()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/packages/software-engineering/templates/engineering-team",
+            expectedPath: "/api/v1/tenant/packages/software-engineering/templates/engineering-team",
             expectedMethod: HttpMethod.Get,
             responseBody:
                 """{"package":"software-engineering","name":"engineering-team","path":"software-engineering/units/engineering-team.yaml","yaml":"unit:\n  name: engineering-team\n"}""");
@@ -242,7 +242,7 @@ public class PackageCommandTests
     public async Task GetUnitTemplateAsync_ReturnsNullOn404()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/packages/software-engineering/templates/missing",
+            expectedPath: "/api/v1/tenant/packages/software-engineering/templates/missing",
             expectedMethod: HttpMethod.Get,
             responseBody: """{"title":"Not Found","status":404}""",
             returnStatusCode: HttpStatusCode.NotFound);
@@ -263,7 +263,7 @@ public class PackageCommandTests
     public async Task ListUnitTemplatesAsync_CallsTemplatesEndpoint()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/packages/templates",
+            expectedPath: "/api/v1/tenant/packages/templates",
             expectedMethod: HttpMethod.Get,
             responseBody:
                 """[{"package":"software-engineering","name":"engineering-team","description":"Engineering team","path":"software-engineering/units/engineering-team.yaml"}]""");

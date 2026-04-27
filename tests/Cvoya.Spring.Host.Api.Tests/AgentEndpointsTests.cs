@@ -52,7 +52,7 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         };
         _factory.DirectoryService.ListAllAsync(Arg.Any<CancellationToken>()).Returns(entries);
 
-        var response = await _client.GetAsync("/api/v1/agents", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/agents", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
@@ -74,10 +74,10 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             "new-agent", "New Agent", "A brand new agent", "frontend",
             UnitIds: new[] { "engineering" });
 
-        var response = await _client.PostAsJsonAsync("/api/v1/agents", request, ct);
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/agents", request, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Created);
-        response.Headers.Location!.ToString().ShouldContain("/api/v1/agents/new-agent");
+        response.Headers.Location!.ToString().ShouldContain("/api/v1/tenant/agents/new-agent");
 
         await _factory.DirectoryService.Received(1).RegisterAsync(
             Arg.Is<DirectoryEntry>(e =>
@@ -102,7 +102,7 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             "orphan", "Orphan", "A would-be orphan", "frontend",
             UnitIds: Array.Empty<string>());
 
-        var response = await _client.PostAsJsonAsync("/api/v1/agents", request, ct);
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/agents", request, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         await _factory.DirectoryService.DidNotReceive().RegisterAsync(
@@ -122,7 +122,7 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             "lost", "Lost", "Unit does not exist", "frontend",
             UnitIds: new[] { "ghost-unit" });
 
-        var response = await _client.PostAsJsonAsync("/api/v1/agents", request, ct);
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/agents", request, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
         await _factory.DirectoryService.DidNotReceive().RegisterAsync(

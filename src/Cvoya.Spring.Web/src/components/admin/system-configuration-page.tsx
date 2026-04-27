@@ -52,12 +52,12 @@ interface ConfigurationReportDto {
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 async function fetchReport(): Promise<ConfigurationReportDto> {
-  const resp = await fetch(`${BASE}/api/v1/system/configuration`, {
+  const resp = await fetch(`${BASE}/api/v1/platform/system/configuration`, {
     cache: "no-store",
   });
   if (!resp.ok) {
     throw new Error(
-      `GET /api/v1/system/configuration failed: ${resp.status} ${resp.statusText}`,
+      `GET /api/v1/platform/system/configuration failed: ${resp.status} ${resp.statusText}`,
     );
   }
   return (await resp.json()) as ConfigurationReportDto;

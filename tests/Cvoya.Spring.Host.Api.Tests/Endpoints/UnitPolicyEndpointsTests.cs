@@ -67,7 +67,7 @@ public class UnitPolicyEndpointsTests : IClassFixture<CustomWebApplicationFactor
                 AuthConstants.DefaultLocalUserId, "ghost", Arg.Any<CancellationToken>())
             .Returns(PermissionLevel.Owner);
 
-        var response = await _client.GetAsync($"/api/v1/units/ghost/policy", ct);
+        var response = await _client.GetAsync($"/api/v1/tenant/units/ghost/policy", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
@@ -79,7 +79,7 @@ public class UnitPolicyEndpointsTests : IClassFixture<CustomWebApplicationFactor
         var unitName = NewUnitName();
         ArrangeResolved(unitName);
 
-        var response = await _client.GetAsync($"/api/v1/units/{unitName}/policy", ct);
+        var response = await _client.GetAsync($"/api/v1/tenant/units/{unitName}/policy", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<UnitPolicyResponse>(
@@ -101,11 +101,11 @@ public class UnitPolicyEndpointsTests : IClassFixture<CustomWebApplicationFactor
                 Blocked: new[] { "delete_repo" }));
 
         var putResponse = await _client.PutAsJsonAsync(
-            $"/api/v1/units/{unitName}/policy", putBody, ct);
+            $"/api/v1/tenant/units/{unitName}/policy", putBody, ct);
         putResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var getResponse = await _client.GetAsync(
-            $"/api/v1/units/{unitName}/policy", ct);
+            $"/api/v1/tenant/units/{unitName}/policy", ct);
         getResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var stored = await getResponse.Content.ReadFromJsonAsync<UnitPolicyResponse>(
@@ -124,17 +124,17 @@ public class UnitPolicyEndpointsTests : IClassFixture<CustomWebApplicationFactor
         ArrangeResolved(unitName);
 
         await _client.PutAsJsonAsync(
-            $"/api/v1/units/{unitName}/policy",
+            $"/api/v1/tenant/units/{unitName}/policy",
             new UnitPolicyResponse(new SkillPolicy(Blocked: new[] { "old" })),
             ct);
 
         await _client.PutAsJsonAsync(
-            $"/api/v1/units/{unitName}/policy",
+            $"/api/v1/tenant/units/{unitName}/policy",
             new UnitPolicyResponse(new SkillPolicy(Blocked: new[] { "new" })),
             ct);
 
         var stored = await _client
-            .GetFromJsonAsync<UnitPolicyResponse>($"/api/v1/units/{unitName}/policy", ct);
+            .GetFromJsonAsync<UnitPolicyResponse>($"/api/v1/tenant/units/{unitName}/policy", ct);
         stored!.Skill!.Blocked.ShouldBe(new[] { "new" });
     }
 
@@ -146,18 +146,18 @@ public class UnitPolicyEndpointsTests : IClassFixture<CustomWebApplicationFactor
         ArrangeResolved(unitName);
 
         await _client.PutAsJsonAsync(
-            $"/api/v1/units/{unitName}/policy",
+            $"/api/v1/tenant/units/{unitName}/policy",
             new UnitPolicyResponse(new SkillPolicy(Blocked: new[] { "x" })),
             ct);
 
         var clearResponse = await _client.PutAsJsonAsync(
-            $"/api/v1/units/{unitName}/policy",
+            $"/api/v1/tenant/units/{unitName}/policy",
             new UnitPolicyResponse(null),
             ct);
         clearResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var stored = await _client
-            .GetFromJsonAsync<UnitPolicyResponse>($"/api/v1/units/{unitName}/policy", ct);
+            .GetFromJsonAsync<UnitPolicyResponse>($"/api/v1/tenant/units/{unitName}/policy", ct);
         stored!.Skill.ShouldBeNull();
     }
 
@@ -176,11 +176,11 @@ public class UnitPolicyEndpointsTests : IClassFixture<CustomWebApplicationFactor
             Initiative: new InitiativePolicy(BlockedActions: new[] { "delete-repo" }));
 
         var putResponse = await _client.PutAsJsonAsync(
-            $"/api/v1/units/{unitName}/policy", putBody, WireJson, ct);
+            $"/api/v1/tenant/units/{unitName}/policy", putBody, WireJson, ct);
         putResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var stored = await _client
-            .GetFromJsonAsync<UnitPolicyResponse>($"/api/v1/units/{unitName}/policy", WireJson, ct);
+            .GetFromJsonAsync<UnitPolicyResponse>($"/api/v1/tenant/units/{unitName}/policy", WireJson, ct);
         stored.ShouldNotBeNull();
         stored!.Skill!.Allowed.ShouldBe(new[] { "search" });
         stored.Model!.Blocked.ShouldBe(new[] { "gpt-4" });
@@ -201,10 +201,10 @@ public class UnitPolicyEndpointsTests : IClassFixture<CustomWebApplicationFactor
         var putBody = new UnitPolicyResponse(
             Model: new ModelPolicy(Blocked: new[] { "gpt-4" }));
 
-        await _client.PutAsJsonAsync($"/api/v1/units/{unitName}/policy", putBody, ct);
+        await _client.PutAsJsonAsync($"/api/v1/tenant/units/{unitName}/policy", putBody, ct);
 
         var stored = await _client
-            .GetFromJsonAsync<UnitPolicyResponse>($"/api/v1/units/{unitName}/policy", ct);
+            .GetFromJsonAsync<UnitPolicyResponse>($"/api/v1/tenant/units/{unitName}/policy", ct);
         stored!.Skill.ShouldBeNull();
         stored.Model!.Blocked.ShouldBe(new[] { "gpt-4" });
         stored.Cost.ShouldBeNull();
@@ -220,7 +220,7 @@ public class UnitPolicyEndpointsTests : IClassFixture<CustomWebApplicationFactor
         ArrangeResolved(unitName);
 
         await _client.PutAsJsonAsync(
-            $"/api/v1/units/{unitName}/policy",
+            $"/api/v1/tenant/units/{unitName}/policy",
             new UnitPolicyResponse(
                 Skill: new SkillPolicy(Blocked: new[] { "dangerous" }),
                 Model: new ModelPolicy(Blocked: new[] { "gpt-4" })),
@@ -228,13 +228,13 @@ public class UnitPolicyEndpointsTests : IClassFixture<CustomWebApplicationFactor
 
         // Clear model but keep skill.
         await _client.PutAsJsonAsync(
-            $"/api/v1/units/{unitName}/policy",
+            $"/api/v1/tenant/units/{unitName}/policy",
             new UnitPolicyResponse(
                 Skill: new SkillPolicy(Blocked: new[] { "dangerous" })),
             ct);
 
         var stored = await _client
-            .GetFromJsonAsync<UnitPolicyResponse>($"/api/v1/units/{unitName}/policy", ct);
+            .GetFromJsonAsync<UnitPolicyResponse>($"/api/v1/tenant/units/{unitName}/policy", ct);
         stored!.Skill!.Blocked.ShouldBe(new[] { "dangerous" });
         stored.Model.ShouldBeNull();
     }
@@ -256,7 +256,7 @@ public class UnitPolicyEndpointsTests : IClassFixture<CustomWebApplicationFactor
             .Returns(PermissionLevel.Owner);
 
         var response = await _client.PutAsJsonAsync(
-            $"/api/v1/units/ghost/policy",
+            $"/api/v1/tenant/units/ghost/policy",
             new UnitPolicyResponse(new SkillPolicy(Blocked: new[] { "x" })),
             ct);
 

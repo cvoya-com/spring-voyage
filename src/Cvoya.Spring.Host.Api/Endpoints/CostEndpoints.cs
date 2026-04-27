@@ -18,7 +18,7 @@ public static class CostEndpoints
     /// <returns>The route group builder for chaining.</returns>
     public static RouteGroupBuilder MapCostEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/v1/costs")
+        var group = app.MapGroup("/api/v1/tenant/cost")
             .WithTags("Costs");
 
         group.MapGet("/agents/{id}", GetAgentCostAsync)

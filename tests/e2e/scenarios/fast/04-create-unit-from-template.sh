@@ -78,7 +78,7 @@ fi
 # Must agree with the CLI list above; if not, there's drift between the
 # CLI route and the DB read (the exact bug class #340 captured).
 e2e::log "GET /api/v1/units/${template_unit}/memberships"
-response="$(e2e::http GET "/api/v1/units/${template_unit}/memberships")"
+response="$(e2e::http GET "/api/v1/tenant/units/${template_unit}/memberships")"
 status="${response##*$'\n'}"
 mships_body="${response%$'\n'*}"
 e2e::expect_status "200" "${status}" "/memberships returns 200 for template unit"
@@ -97,7 +97,7 @@ fi
 # must agree with /memberships on count. #340 had this path returning []
 # while the CLI-less /members actor view was correctly populated.
 e2e::log "GET /api/v1/units/${template_unit}/agents"
-response="$(e2e::http GET "/api/v1/units/${template_unit}/agents")"
+response="$(e2e::http GET "/api/v1/tenant/units/${template_unit}/agents")"
 status="${response##*$'\n'}"
 agents_body="${response%$'\n'*}"
 e2e::expect_status "200" "${status}" "/agents returns 200 for template unit"

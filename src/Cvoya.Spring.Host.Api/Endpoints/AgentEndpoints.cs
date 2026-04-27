@@ -37,7 +37,7 @@ public static class AgentEndpoints
     /// <returns>The route group builder for chaining.</returns>
     public static RouteGroupBuilder MapAgentEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/v1/agents")
+        var group = app.MapGroup("/api/v1/tenant/agents")
             .WithTags("Agents");
 
         group.MapGet("/", ListAgentsAsync)
@@ -689,7 +689,7 @@ public static class AgentEndpoints
         }
 
         var response = ToAgentResponse(entry, new AgentMetadata(ParentUnit: primaryUnit));
-        return Results.Created($"/api/v1/agents/{request.Name}", response);
+        return Results.Created($"/api/v1/tenant/agents/{request.Name}", response);
     }
 
     private static async Task<IResult> DeleteAgentAsync(

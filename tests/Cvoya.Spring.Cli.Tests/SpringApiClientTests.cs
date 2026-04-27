@@ -18,7 +18,7 @@ public class SpringApiClientTests
     public async Task ListAgentsAsync_CallsCorrectEndpoint()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/agents",
+            expectedPath: "/api/v1/tenant/agents",
             expectedMethod: HttpMethod.Get,
             responseBody: "[]");
 
@@ -35,7 +35,7 @@ public class SpringApiClientTests
     public async Task CreateAgentAsync_SendsContractFieldsAndDeserialisesResponse()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/agents",
+            expectedPath: "/api/v1/tenant/agents",
             expectedMethod: HttpMethod.Post,
             responseBody: """{"id":"ada","name":"ada","displayName":"Ada","role":"coder"}""",
             validateRequestBody: body =>
@@ -69,7 +69,7 @@ public class SpringApiClientTests
     public async Task SendMessageAsync_WrapsTextAsDomainPayload()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/messages",
+            expectedPath: "/api/v1/tenant/messages",
             expectedMethod: HttpMethod.Post,
             responseBody: $$"""{"messageId":"{{Guid.NewGuid()}}"}""",
             validateRequestBody: body =>
@@ -123,7 +123,7 @@ public class SpringApiClientTests
         """;
 
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/agents/ada",
+            expectedPath: "/api/v1/tenant/agents/ada",
             expectedMethod: HttpMethod.Get,
             responseBody: responseBody);
 
@@ -150,7 +150,7 @@ public class SpringApiClientTests
     public async Task DeleteAgentAsync_CallsCorrectEndpoint()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/agents/ada",
+            expectedPath: "/api/v1/tenant/agents/ada",
             expectedMethod: HttpMethod.Delete,
             responseBody: "",
             returnStatusCode: HttpStatusCode.NoContent);
@@ -167,7 +167,7 @@ public class SpringApiClientTests
     public async Task ListTokensAsync_CallsCorrectEndpoint()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/auth/tokens",
+            expectedPath: "/api/v1/tenant/auth/tokens",
             expectedMethod: HttpMethod.Get,
             responseBody: """[{"name":"dev","createdAt":"2026-01-01T00:00:00Z"}]""");
 
@@ -187,7 +187,7 @@ public class SpringApiClientTests
     public async Task ListUnitMembershipsAsync_CallsCorrectEndpoint()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/units/eng-team/memberships",
+            expectedPath: "/api/v1/tenant/units/eng-team/memberships",
             expectedMethod: HttpMethod.Get,
             responseBody: """[{"unitId":"eng-team","agentAddress":"ada","model":null,"specialty":null,"enabled":true,"executionMode":null,"createdAt":"2026-04-01T00:00:00Z","updatedAt":"2026-04-01T00:00:00Z"}]""");
 
@@ -207,7 +207,7 @@ public class SpringApiClientTests
     public async Task ListAgentMembershipsAsync_CallsCorrectEndpoint()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/agents/ada/memberships",
+            expectedPath: "/api/v1/tenant/agents/ada/memberships",
             expectedMethod: HttpMethod.Get,
             responseBody: """[{"unitId":"eng-team","agentAddress":"ada","model":null,"specialty":null,"enabled":true,"executionMode":null,"createdAt":"2026-04-01T00:00:00Z","updatedAt":"2026-04-01T00:00:00Z"}]""");
 
@@ -225,7 +225,7 @@ public class SpringApiClientTests
     public async Task UpsertMembershipAsync_SendsOverridesAndParsesResponse()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/units/eng-team/memberships/ada",
+            expectedPath: "/api/v1/tenant/units/eng-team/memberships/ada",
             expectedMethod: HttpMethod.Put,
             responseBody: """{"unitId":"eng-team","agentAddress":"ada","model":"claude-opus-4","specialty":"coding","enabled":true,"executionMode":"OnDemand","createdAt":"2026-04-01T00:00:00Z","updatedAt":"2026-04-01T00:00:00Z"}""",
             validateRequestBody: body =>
@@ -258,7 +258,7 @@ public class SpringApiClientTests
     public async Task UpsertMembershipAsync_OmitsExecutionModeWhenNull()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/units/eng-team/memberships/ada",
+            expectedPath: "/api/v1/tenant/units/eng-team/memberships/ada",
             expectedMethod: HttpMethod.Put,
             responseBody: """{"unitId":"eng-team","agentAddress":"ada","model":null,"specialty":null,"enabled":true,"executionMode":null,"createdAt":"2026-04-01T00:00:00Z","updatedAt":"2026-04-01T00:00:00Z"}""",
             validateRequestBody: body =>
@@ -292,7 +292,7 @@ public class SpringApiClientTests
     public async Task DeleteMembershipAsync_CallsCorrectEndpoint()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/units/eng-team/memberships/ada",
+            expectedPath: "/api/v1/tenant/units/eng-team/memberships/ada",
             expectedMethod: HttpMethod.Delete,
             responseBody: "",
             returnStatusCode: HttpStatusCode.NoContent);
@@ -311,7 +311,7 @@ public class SpringApiClientTests
     public async Task QueryActivityAsync_CallsCorrectEndpointAndParsesResponse()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/activity",
+            expectedPath: "/api/v1/tenant/activity",
             expectedMethod: HttpMethod.Get,
             responseBody: """{"items":[{"id":"00000000-0000-0000-0000-000000000001","source":"unit://eng-team","eventType":"StateChanged","severity":"Info","summary":"Unit started","correlationId":null,"cost":0.0042,"timestamp":"2026-04-01T00:00:00Z"}],"totalCount":1,"page":1,"pageSize":50}""");
 
@@ -333,7 +333,7 @@ public class SpringApiClientTests
     public async Task QueryActivityAsync_WithFilters_PassesQueryParameters()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/activity",
+            expectedPath: "/api/v1/tenant/activity",
             expectedMethod: HttpMethod.Get,
             responseBody: """{"items":[],"totalCount":0,"page":1,"pageSize":10}""",
             validateQuery: query =>
@@ -363,7 +363,7 @@ public class SpringApiClientTests
     public async Task CreateUnitAsync_WithModelAndColor_SendsBothOnRequestBody()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/units",
+            expectedPath: "/api/v1/tenant/units",
             expectedMethod: HttpMethod.Post,
             responseBody: """{"id":"actor-eng","name":"eng-team","displayName":"eng-team","description":"","registeredAt":"2026-04-01T00:00:00Z","status":"Draft","model":"claude-sonnet-4","color":"#6366f1"}""",
             validateRequestBody: body =>
@@ -396,7 +396,7 @@ public class SpringApiClientTests
         // Typical happy path: server returns 202 Accepted with the unit
         // flipped to Validating + a fresh workflow instance id.
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/units/eng-team/revalidate",
+            expectedPath: "/api/v1/tenant/units/eng-team/revalidate",
             expectedMethod: HttpMethod.Post,
             responseBody: """{"id":"actor-eng","name":"eng-team","displayName":"eng-team","description":"","registeredAt":"2026-04-01T00:00:00Z","status":"Validating","model":"claude-sonnet-4","color":"#6366f1","tool":"claude-code","lastValidationError":null,"lastValidationRunId":"run-42"}""",
             returnStatusCode: HttpStatusCode.Accepted);
@@ -421,7 +421,7 @@ public class SpringApiClientTests
         // so the wrapper must surface it as an ApiException the caller can
         // branch on via ResponseStatusCode.
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/units/eng-team/revalidate",
+            expectedPath: "/api/v1/tenant/units/eng-team/revalidate",
             expectedMethod: HttpMethod.Post,
             responseBody: """{"type":"about:blank","title":"Invalid state","detail":"Unit 'eng-team' is Running; revalidation is only allowed from Error or Stopped.","status":409,"code":"InvalidState","currentStatus":"Running"}""",
             returnStatusCode: HttpStatusCode.Conflict);
@@ -442,7 +442,7 @@ public class SpringApiClientTests
     public async Task CreateUnitFromTemplateAsync_SendsUnitNameOverrideAndMetadata()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/units/from-template",
+            expectedPath: "/api/v1/tenant/units/from-template",
             expectedMethod: HttpMethod.Post,
             responseBody: """{"unit":{"id":"actor-eng","name":"run42-eng","displayName":"Engineering (run 42)","description":"","registeredAt":"2026-04-01T00:00:00Z","status":"Draft","model":"claude-sonnet-4","color":"#336699"},"warnings":["skill 'demo' declares tool 'missing'"],"membersAdded":0}""",
             returnStatusCode: HttpStatusCode.Created,
@@ -485,7 +485,7 @@ public class SpringApiClientTests
     public async Task GetUnitPolicyAsync_CallsCorrectEndpointAndParsesEmptyPolicy()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/units/eng-team/policy",
+            expectedPath: "/api/v1/tenant/units/eng-team/policy",
             expectedMethod: HttpMethod.Get,
             responseBody: "{\"skill\":null,\"model\":null,\"cost\":null,\"executionMode\":null,\"initiative\":null,\"labelRouting\":null}");
 
@@ -513,7 +513,7 @@ public class SpringApiClientTests
         // — so a populated `skill` slot came back with Allowed/Blocked both
         // null. The raw HTTP path must surface the fields verbatim.
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/units/eng-team/policy",
+            expectedPath: "/api/v1/tenant/units/eng-team/policy",
             expectedMethod: HttpMethod.Get,
             responseBody:
                 "{\"skill\":{\"allowed\":[\"github\",\"filesystem\"],\"blocked\":[\"shell\"]}," +
@@ -533,7 +533,7 @@ public class SpringApiClientTests
     public async Task SetUnitPolicyAsync_PutsFullPolicyBodyAndDeserialisesResponse()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/units/eng-team/policy",
+            expectedPath: "/api/v1/tenant/units/eng-team/policy",
             expectedMethod: HttpMethod.Put,
             responseBody: "{\"skill\":{\"allowed\":[\"github\"],\"blocked\":[\"shell\"]}}",
             validateRequestBody: body =>
@@ -580,7 +580,7 @@ public class SpringApiClientTests
         // wrapper serialized as an empty object stuck in property-name mode.
         // The plain-DTO path must round-trip cleanly end-to-end.
         var getHandler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/units/eng-team/policy",
+            expectedPath: "/api/v1/tenant/units/eng-team/policy",
             expectedMethod: HttpMethod.Get,
             responseBody: "{\"skill\":{\"allowed\":[\"github\"],\"blocked\":null}}");
 
@@ -590,7 +590,7 @@ public class SpringApiClientTests
         current.Model = new ModelPolicyWire { Allowed = new List<string> { "gpt-4o-mini" } };
 
         var putHandler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/units/eng-team/policy",
+            expectedPath: "/api/v1/tenant/units/eng-team/policy",
             expectedMethod: HttpMethod.Put,
             responseBody:
                 "{\"skill\":{\"allowed\":[\"github\"]},\"model\":{\"allowed\":[\"gpt-4o-mini\"]}}",
@@ -614,7 +614,7 @@ public class SpringApiClientTests
     public async Task ListUnitHumanPermissionsAsync_CallsCorrectEndpoint()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/units/eng-team/humans",
+            expectedPath: "/api/v1/tenant/units/eng-team/humans",
             expectedMethod: HttpMethod.Get,
             responseBody: "[{\"humanId\":\"alice\",\"permission\":\"Owner\",\"identity\":\"alice@example.com\",\"notifications\":true}]");
 
@@ -632,7 +632,7 @@ public class SpringApiClientTests
     public async Task SetUnitHumanPermissionAsync_PatchesWithContractFields()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/units/eng-team/humans/alice/permissions",
+            expectedPath: "/api/v1/tenant/units/eng-team/humans/alice/permissions",
             expectedMethod: HttpMethod.Patch,
             responseBody: "{\"humanId\":\"alice\",\"permission\":\"Operator\"}",
             validateRequestBody: body =>
@@ -662,7 +662,7 @@ public class SpringApiClientTests
     public async Task RemoveUnitHumanPermissionAsync_DeletesAtCorrectEndpoint()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/units/eng-team/humans/alice/permissions",
+            expectedPath: "/api/v1/tenant/units/eng-team/humans/alice/permissions",
             expectedMethod: HttpMethod.Delete,
             responseBody: "",
             returnStatusCode: HttpStatusCode.NoContent);
@@ -681,7 +681,7 @@ public class SpringApiClientTests
     public async Task GetTenantCostAsync_CallsCorrectEndpoint_AndHonoursWindow()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/costs/tenant",
+            expectedPath: "/api/v1/tenant/cost/tenant",
             expectedMethod: HttpMethod.Get,
             responseBody: """{"totalCost":12.34,"totalInputTokens":100,"totalOutputTokens":50,"recordCount":3,"workCost":10.00,"initiativeCost":2.34,"from":"2026-04-01T00:00:00Z","to":"2026-04-16T00:00:00Z"}""",
             validateQuery: query =>
@@ -708,7 +708,7 @@ public class SpringApiClientTests
     public async Task GetUnitCostAsync_CallsCorrectEndpoint()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/costs/units/eng-team",
+            expectedPath: "/api/v1/tenant/cost/units/eng-team",
             expectedMethod: HttpMethod.Get,
             responseBody: """{"totalCost":0.0,"totalInputTokens":0,"totalOutputTokens":0,"recordCount":0,"workCost":0.0,"initiativeCost":0.0,"from":"2026-04-01T00:00:00Z","to":"2026-04-16T00:00:00Z"}""");
 
@@ -725,7 +725,7 @@ public class SpringApiClientTests
     public async Task GetAgentCostAsync_CallsCorrectEndpoint()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/costs/agents/ada",
+            expectedPath: "/api/v1/tenant/cost/agents/ada",
             expectedMethod: HttpMethod.Get,
             responseBody: """{"totalCost":1.25,"totalInputTokens":1,"totalOutputTokens":1,"recordCount":1,"workCost":1.25,"initiativeCost":0.0,"from":"2026-04-01T00:00:00Z","to":"2026-04-16T00:00:00Z"}""");
 
@@ -742,7 +742,7 @@ public class SpringApiClientTests
     public async Task GetThroughputAsync_CallsCorrectEndpoint_WithSourceFilter()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/analytics/throughput",
+            expectedPath: "/api/v1/tenant/analytics/throughput",
             expectedMethod: HttpMethod.Get,
             responseBody: """{"entries":[{"source":"agent://ada","messagesReceived":3,"messagesSent":2,"turns":1,"toolCalls":4}],"from":"2026-04-01T00:00:00Z","to":"2026-04-16T00:00:00Z"}""",
             validateQuery: query =>
@@ -769,7 +769,7 @@ public class SpringApiClientTests
     public async Task GetThroughputAsync_WithoutSource_RetrievesCrossAgentRollup()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/analytics/throughput",
+            expectedPath: "/api/v1/tenant/analytics/throughput",
             expectedMethod: HttpMethod.Get,
             responseBody: """{"entries":[{"source":"agent://ada","messagesReceived":1,"messagesSent":1,"turns":1,"toolCalls":0},{"source":"agent://grace","messagesReceived":2,"messagesSent":0,"turns":0,"toolCalls":3}],"from":"2026-04-01T00:00:00Z","to":"2026-04-16T00:00:00Z"}""");
 
@@ -787,7 +787,7 @@ public class SpringApiClientTests
     public async Task GetWaitTimesAsync_CallsCorrectEndpoint_AndDeserializesEntries()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/analytics/waits",
+            expectedPath: "/api/v1/tenant/analytics/waits",
             expectedMethod: HttpMethod.Get,
             responseBody: """{"entries":[{"source":"agent://ada","idleSeconds":0.0,"busySeconds":0.0,"waitingForHumanSeconds":0.0,"stateTransitions":7}],"from":"2026-04-01T00:00:00Z","to":"2026-04-16T00:00:00Z"}""");
 
@@ -830,7 +830,7 @@ public class SpringApiClientTests
     public async Task SetUnitBudgetAsync_PutsEndpointAndReturnsDailyBudget()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/units/eng-team/budget",
+            expectedPath: "/api/v1/tenant/units/eng-team/budget",
             expectedMethod: HttpMethod.Put,
             responseBody: """{"dailyBudget":20.0}""",
             validateRequestBody: body =>
@@ -855,7 +855,7 @@ public class SpringApiClientTests
     public async Task SetAgentBudgetAsync_PutsEndpointAndReturnsDailyBudget()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/agents/ada/budget",
+            expectedPath: "/api/v1/tenant/agents/ada/budget",
             expectedMethod: HttpMethod.Put,
             responseBody: """{"dailyBudget":5.0}""",
             validateRequestBody: body =>
@@ -880,7 +880,7 @@ public class SpringApiClientTests
     public async Task CreateCloneAsync_PostsDefaultsMatchingPortalAction()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/agents/ada/clones",
+            expectedPath: "/api/v1/tenant/agents/ada/clones",
             expectedMethod: HttpMethod.Post,
             responseBody: $$"""{"cloneId":"{{Guid.NewGuid()}}","parentAgentId":"ada","cloneType":"ephemeral-no-memory","attachmentMode":"detached","status":"provisioning","createdAt":"2026-04-16T00:00:00Z"}""",
             returnStatusCode: System.Net.HttpStatusCode.Accepted,
@@ -910,7 +910,7 @@ public class SpringApiClientTests
     public async Task CreateCloneAsync_ForwardsExplicitCloneTypeAndAttachment()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/agents/ada/clones",
+            expectedPath: "/api/v1/tenant/agents/ada/clones",
             expectedMethod: HttpMethod.Post,
             responseBody: $$"""{"cloneId":"{{Guid.NewGuid()}}","parentAgentId":"ada","cloneType":"ephemeral-with-memory","attachmentMode":"attached","status":"provisioning","createdAt":"2026-04-16T00:00:00Z"}""",
             returnStatusCode: System.Net.HttpStatusCode.Accepted,
@@ -937,7 +937,7 @@ public class SpringApiClientTests
     public async Task ListClonesAsync_CallsCorrectEndpoint_AndDeserializesList()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/agents/ada/clones",
+            expectedPath: "/api/v1/tenant/agents/ada/clones",
             expectedMethod: HttpMethod.Get,
             responseBody: """[{"cloneId":"11111111-1111-1111-1111-111111111111","parentAgentId":"ada","cloneType":"ephemeral-no-memory","attachmentMode":"detached","status":"active","createdAt":"2026-04-16T00:00:00Z"}]""");
 
@@ -959,7 +959,7 @@ public class SpringApiClientTests
     public async Task AddUnitMemberAsync_PostsUnitSchemeAddress()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/units/parent-unit/members",
+            expectedPath: "/api/v1/tenant/units/parent-unit/members",
             expectedMethod: HttpMethod.Post,
             responseBody: "",
             returnStatusCode: HttpStatusCode.NoContent,
@@ -986,7 +986,7 @@ public class SpringApiClientTests
     public async Task ListUnitSecretsAsync_CallsCorrectEndpoint()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/units/eng-team/secrets",
+            expectedPath: "/api/v1/tenant/units/eng-team/secrets",
             expectedMethod: HttpMethod.Get,
             responseBody:
                 """{"secrets":[{"name":"openai-api-key","scope":"Unit","createdAt":"2026-04-01T00:00:00Z"}]}""");
@@ -1041,7 +1041,7 @@ public class SpringApiClientTests
     public async Task CreateUnitSecretAsync_SendsPlaintextBody()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/units/eng-team/secrets",
+            expectedPath: "/api/v1/tenant/units/eng-team/secrets",
             expectedMethod: HttpMethod.Post,
             responseBody:
                 """{"name":"openai-api-key","scope":"Unit","createdAt":"2026-04-01T00:00:00Z"}""",
@@ -1106,7 +1106,7 @@ public class SpringApiClientTests
     public async Task RotateUnitSecretAsync_PutsPlaintextAndReturnsNewVersion()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/units/eng-team/secrets/openai-api-key",
+            expectedPath: "/api/v1/tenant/units/eng-team/secrets/openai-api-key",
             expectedMethod: HttpMethod.Put,
             responseBody: """{"name":"openai-api-key","scope":"Unit","version":2}""",
             validateRequestBody: body =>
@@ -1136,7 +1136,7 @@ public class SpringApiClientTests
     public async Task ListUnitSecretVersionsAsync_CallsCorrectEndpoint()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/units/eng-team/secrets/openai-api-key/versions",
+            expectedPath: "/api/v1/tenant/units/eng-team/secrets/openai-api-key/versions",
             expectedMethod: HttpMethod.Get,
             responseBody:
                 """{"name":"openai-api-key","scope":"Unit","versions":[{"version":1,"origin":"PlatformOwned","createdAt":"2026-04-01T00:00:00Z","isCurrent":false},{"version":2,"origin":"PlatformOwned","createdAt":"2026-04-02T00:00:00Z","isCurrent":true}]}""");
@@ -1157,7 +1157,7 @@ public class SpringApiClientTests
     {
         string? capturedQuery = null;
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/units/eng-team/secrets/openai-api-key/prune",
+            expectedPath: "/api/v1/tenant/units/eng-team/secrets/openai-api-key/prune",
             expectedMethod: HttpMethod.Post,
             responseBody: """{"name":"openai-api-key","scope":"Unit","keep":2,"pruned":3}""",
             validateQuery: q => capturedQuery = q);
@@ -1179,7 +1179,7 @@ public class SpringApiClientTests
     public async Task DeleteUnitSecretAsync_CallsCorrectEndpoint()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/units/eng-team/secrets/openai-api-key",
+            expectedPath: "/api/v1/tenant/units/eng-team/secrets/openai-api-key",
             expectedMethod: HttpMethod.Delete,
             responseBody: "",
             returnStatusCode: HttpStatusCode.NoContent);
@@ -1225,7 +1225,7 @@ public class SpringApiClientTests
     public async Task SetUnitBoundaryAsync_SerialisesBodyAsPlainObject()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/units/eng-team/boundary",
+            expectedPath: "/api/v1/tenant/units/eng-team/boundary",
             expectedMethod: HttpMethod.Put,
             responseBody: """{"opacities":[],"projections":[],"syntheses":[]}""",
             validateRequestBody: body =>
@@ -1260,7 +1260,7 @@ public class SpringApiClientTests
     public async Task CloseConversationAsync_PostsCloseEndpointWithReason()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/conversations/c-1/close",
+            expectedPath: "/api/v1/tenant/conversations/c-1/close",
             expectedMethod: HttpMethod.Post,
             responseBody: """{"summary":{"id":"c-1","participants":["agent://ada"],"status":"closed","createdAt":"2026-04-01T00:00:00Z","lastActivity":"2026-04-01T00:00:01Z","messageCount":2,"lastSpeaker":"agent://ada","lastSummary":"Conversation closed"},"events":[]}""",
             validateRequestBody: body =>
@@ -1284,7 +1284,7 @@ public class SpringApiClientTests
     public async Task SetAgentCloningPolicyAsync_SerialisesBodyAsPlainObject()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/agents/ada/cloning-policy",
+            expectedPath: "/api/v1/tenant/agents/ada/cloning-policy",
             expectedMethod: HttpMethod.Put,
             responseBody: """{"enabled":true}""",
             validateRequestBody: body =>

@@ -44,7 +44,7 @@ public static class UnitPolicyEndpoints
     /// <returns>The route group for chaining.</returns>
     public static RouteGroupBuilder MapUnitPolicyEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/v1/units/{id}/policy")
+        var group = app.MapGroup("/api/v1/tenant/units/{id}/policy")
             .WithTags("UnitPolicy");
 
         group.MapGet("/", GetPolicyAsync)

@@ -66,7 +66,7 @@ If a critical fix needs to ship on an older minor line (e.g., current is `0.3.x`
 
 ### Observed state
 
-The repository has two GitHub Actions workflows today, both under [`.github/workflows/`](../../.github/workflows/):
+The repository has two GitHub Actions workflows today, both under [`.github/workflows/`](../../.github/workflows):
 
 - **[`ci.yml`](../../.github/workflows/ci.yml)** — runs on `push` to `main`, on `pull_request` targeting `main`, and in the merge queue. Jobs:
   - `changes` — path-filter gate for downstream jobs.

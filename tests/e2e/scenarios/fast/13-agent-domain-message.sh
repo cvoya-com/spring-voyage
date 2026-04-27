@@ -2,7 +2,7 @@
 # A2A / human-to-agent messaging observability (#404).
 #
 # Exercises the message plumbing end-to-end without an LLM backend: create an
-# agent, send a Domain message via POST /api/v1/messages, and assert the
+# agent, send a Domain message via POST /api/v1/tenant/messages, and assert the
 # receiver-side `MessageReceived` activity event lands in the activity query
 # store. This covers the wiring that every real agent-to-agent or
 # human-to-agent path depends on (message routing → actor dispatch →
@@ -62,8 +62,8 @@ payload=$(cat <<EOF
 {"to":{"scheme":"agent","path":"${agent}"},"type":"Domain","conversationId":"${conv_id}","payload":"hello"}
 EOF
 )
-e2e::log "POST /api/v1/messages (Domain → agent://${agent}, conv=${conv_id})"
-response="$(e2e::http POST /api/v1/messages "${payload}")"
+e2e::log "POST /api/v1/tenant/messages (Domain → agent://${agent}, conv=${conv_id})"
+response="$(e2e::http POST /api/v1/tenant/messages "${payload}")"
 status="${response##*$'\n'}"
 # The server may respond 200 (dispatch chained cleanly) or 502 (dispatch
 # tail failed because no execution tool is configured); either outcome means
@@ -81,7 +81,7 @@ fi
 expected_source="agent:${agent_id}"
 found=0
 for attempt in 1 2 3 4 5 6 7 8 9 10; do
-    query_response="$(e2e::http GET "/api/v1/activity?source=${expected_source}&eventType=MessageReceived&limit=5")"
+    query_response="$(e2e::http GET "/api/v1/tenant/activity?source=${expected_source}&eventType=MessageReceived&limit=5")"
     query_status="${query_response##*$'\n'}"
     query_body="${query_response%$'\n'*}"
     if [[ "${query_status}" == "200" ]] && [[ "${query_body}" == *"MessageReceived"* ]]; then

@@ -45,7 +45,7 @@ public class BoundaryEndpointsTests : IClassFixture<BoundaryEndpointsTests.Bound
             .ResolveAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
             .Returns((DirectoryEntry?)null);
 
-        var response = await _client.GetAsync("/api/v1/units/ghost/boundary", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/units/ghost/boundary", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
@@ -59,7 +59,7 @@ public class BoundaryEndpointsTests : IClassFixture<BoundaryEndpointsTests.Bound
             Arg.Is<Address>(a => a.Path == unitName),
             Arg.Any<CancellationToken>()).Returns(UnitBoundary.Empty);
 
-        var response = await _client.GetAsync($"/api/v1/units/{unitName}/boundary", ct);
+        var response = await _client.GetAsync($"/api/v1/tenant/units/{unitName}/boundary", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var body = await response.Content.ReadFromJsonAsync<UnitBoundaryResponse>(cancellationToken: ct);
@@ -101,11 +101,11 @@ public class BoundaryEndpointsTests : IClassFixture<BoundaryEndpointsTests.Bound
             });
 
         var putResponse = await _client.PutAsJsonAsync(
-            $"/api/v1/units/{unitName}/boundary", putBody, ct);
+            $"/api/v1/tenant/units/{unitName}/boundary", putBody, ct);
         putResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var stored = await _client.GetFromJsonAsync<UnitBoundaryResponse>(
-            $"/api/v1/units/{unitName}/boundary", ct);
+            $"/api/v1/tenant/units/{unitName}/boundary", ct);
         stored!.Opacities!.ShouldHaveSingleItem().DomainPattern.ShouldBe("internal-*");
         stored.Projections!.ShouldHaveSingleItem().RenameTo.ShouldBe("backend-apis");
         stored.Syntheses!.ShouldHaveSingleItem().Name.ShouldBe("team-react");
@@ -122,7 +122,7 @@ public class BoundaryEndpointsTests : IClassFixture<BoundaryEndpointsTests.Bound
         var unitName = NewUnitName();
         ArrangeResolved(unitName);
 
-        var response = await _client.DeleteAsync($"/api/v1/units/{unitName}/boundary", ct);
+        var response = await _client.DeleteAsync($"/api/v1/tenant/units/{unitName}/boundary", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
         await _factory.BoundaryStore.Received().SetAsync(
@@ -139,7 +139,7 @@ public class BoundaryEndpointsTests : IClassFixture<BoundaryEndpointsTests.Bound
             .ResolveAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
             .Returns((DirectoryEntry?)null);
 
-        var response = await _client.DeleteAsync("/api/v1/units/ghost/boundary", ct);
+        var response = await _client.DeleteAsync("/api/v1/tenant/units/ghost/boundary", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 

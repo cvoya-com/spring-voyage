@@ -35,7 +35,7 @@ public static class PackageEndpoints
     /// </summary>
     public static RouteGroupBuilder MapPackageEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/v1/packages")
+        var group = app.MapGroup("/api/v1/tenant/packages")
             .WithTags("Packages");
 
         // Use an empty route template (not "/") so the effective path

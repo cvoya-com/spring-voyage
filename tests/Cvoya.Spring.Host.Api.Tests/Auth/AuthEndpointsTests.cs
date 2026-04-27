@@ -30,7 +30,7 @@ public class AuthEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         var ct = TestContext.Current.CancellationToken;
         var request = new CreateTokenRequest("my-token");
 
-        var response = await _client.PostAsJsonAsync("/api/v1/auth/tokens", request, ct);
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/auth/tokens", request, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Created);
 
@@ -47,10 +47,10 @@ public class AuthEndpointsTests : IClassFixture<CustomWebApplicationFactory>
 
         // Create a token first.
         var createRequest = new CreateTokenRequest("list-test-token", ["read", "write"]);
-        var createResponse = await _client.PostAsJsonAsync("/api/v1/auth/tokens", createRequest, ct);
+        var createResponse = await _client.PostAsJsonAsync("/api/v1/tenant/auth/tokens", createRequest, ct);
         createResponse.StatusCode.ShouldBe(HttpStatusCode.Created);
 
-        var response = await _client.GetAsync("/api/v1/auth/tokens", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/auth/tokens", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
@@ -69,15 +69,15 @@ public class AuthEndpointsTests : IClassFixture<CustomWebApplicationFactory>
 
         // Create a token.
         var createRequest = new CreateTokenRequest("revoke-test-token");
-        var createResponse = await _client.PostAsJsonAsync("/api/v1/auth/tokens", createRequest, ct);
+        var createResponse = await _client.PostAsJsonAsync("/api/v1/tenant/auth/tokens", createRequest, ct);
         createResponse.StatusCode.ShouldBe(HttpStatusCode.Created);
 
         // Revoke it.
-        var revokeResponse = await _client.DeleteAsync("/api/v1/auth/tokens/revoke-test-token", ct);
+        var revokeResponse = await _client.DeleteAsync("/api/v1/tenant/auth/tokens/revoke-test-token", ct);
         revokeResponse.StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
         // Verify it no longer appears in the list.
-        var listResponse = await _client.GetAsync("/api/v1/auth/tokens", ct);
+        var listResponse = await _client.GetAsync("/api/v1/tenant/auth/tokens", ct);
         var tokens = await listResponse.Content.ReadFromJsonAsync<List<TokenResponse>>(ct);
         tokens.ShouldNotBeNull();
         tokens.ShouldNotContain(t => t.Name == "revoke-test-token");
@@ -88,7 +88,7 @@ public class AuthEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     {
         var ct = TestContext.Current.CancellationToken;
 
-        var response = await _client.DeleteAsync("/api/v1/auth/tokens/nonexistent-token", ct);
+        var response = await _client.DeleteAsync("/api/v1/tenant/auth/tokens/nonexistent-token", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }

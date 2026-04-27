@@ -1,11 +1,7 @@
-# Spring Voyage V2 — Claude Code Configuration
+# Spring Voyage — Claude Code Configuration
 
-Read `AGENTS.md` for project rules, architecture, build commands, extensibility requirements, and coding conventions. Read `CONVENTIONS.md` for coding patterns. Both are mandatory.
+Read [`AGENTS.md`](AGENTS.md) and [`CONVENTIONS.md`](CONVENTIONS.md). Both are mandatory.
 
-This is the **open-source core platform**. A private repository extends it via git submodule and DI. Every change must be designed for clean extension — read `AGENTS.md` § "Open-Source Platform & Extensibility" before starting work.
+## Active release: v0.1
 
-## Claude Code-Specific
-
-- Specialized agent definitions in `.claude/agents/`
-- Custom skills in `.claude/commands/` (`/build`, `/test`, `/lint`)
-- Always use worktrees for implementation work
+Plan-of-record: [`docs/plan/v0.1/README.md`](docs/plan/v0.1/README.md). Use **v0.1** in new artefacts; do not use "V2" / "V2.1".

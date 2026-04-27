@@ -53,7 +53,7 @@ e2e::expect_status "0" "${code}" "add child as member of parent via CLI succeeds
 # list; we assert the child's address appears in the raw JSON rather than
 # parsing the full shape (which would couple us to the actor's reply schema).
 e2e::log "GET /api/v1/units/${parent}"
-response="$(e2e::http GET "/api/v1/units/${parent}")"
+response="$(e2e::http GET "/api/v1/tenant/units/${parent}")"
 status="${response##*$'\n'}"
 resp_body="${response%$'\n'*}"
 e2e::expect_status "200" "${status}" "get parent unit returns 200"

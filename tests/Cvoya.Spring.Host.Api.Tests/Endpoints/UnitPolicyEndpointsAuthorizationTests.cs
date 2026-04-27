@@ -65,7 +65,7 @@ public class UnitPolicyEndpointsAuthorizationTests : IClassFixture<CustomWebAppl
         ArrangePermission(unitName, AuthConstants.DefaultLocalUserId, PermissionLevel.Owner);
 
         var response = await _client.PutAsJsonAsync(
-            $"/api/v1/units/{unitName}/policy",
+            $"/api/v1/tenant/units/{unitName}/policy",
             new UnitPolicyResponse(new SkillPolicy(Blocked: new[] { "delete_repo" })),
             ct);
 
@@ -81,7 +81,7 @@ public class UnitPolicyEndpointsAuthorizationTests : IClassFixture<CustomWebAppl
         ArrangePermission(unitName, AuthConstants.DefaultLocalUserId, PermissionLevel.Viewer);
 
         var response = await _client.GetAsync(
-            $"/api/v1/units/{unitName}/policy", ct);
+            $"/api/v1/tenant/units/{unitName}/policy", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
     }
@@ -102,7 +102,7 @@ public class UnitPolicyEndpointsAuthorizationTests : IClassFixture<CustomWebAppl
             .Returns((PermissionLevel?)null);
 
         var response = await _client.PutAsJsonAsync(
-            $"/api/v1/units/{unitName}/policy",
+            $"/api/v1/tenant/units/{unitName}/policy",
             new UnitPolicyResponse(new SkillPolicy(Blocked: new[] { "delete_repo" })),
             ct);
 
@@ -121,7 +121,7 @@ public class UnitPolicyEndpointsAuthorizationTests : IClassFixture<CustomWebAppl
         ArrangePermission(unitName, AuthConstants.DefaultLocalUserId, PermissionLevel.Viewer);
 
         var response = await _client.PutAsJsonAsync(
-            $"/api/v1/units/{unitName}/policy",
+            $"/api/v1/tenant/units/{unitName}/policy",
             new UnitPolicyResponse(new SkillPolicy(Blocked: new[] { "delete_repo" })),
             ct);
 
@@ -141,7 +141,7 @@ public class UnitPolicyEndpointsAuthorizationTests : IClassFixture<CustomWebAppl
             .Returns((PermissionLevel?)null);
 
         var response = await _client.GetAsync(
-            $"/api/v1/units/{unitName}/policy", ct);
+            $"/api/v1/tenant/units/{unitName}/policy", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
     }
@@ -167,7 +167,7 @@ public class UnitPolicyEndpointsAuthorizationTests : IClassFixture<CustomWebAppl
             .Returns((PermissionLevel?)null);
 
         var response = await _client.GetAsync(
-            $"/api/v1/units/{unitName}/policy", ct);
+            $"/api/v1/tenant/units/{unitName}/policy", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
@@ -189,7 +189,7 @@ public class UnitPolicyEndpointsAuthorizationTests : IClassFixture<CustomWebAppl
             .Returns((PermissionLevel?)null);
 
         var response = await _client.PutAsJsonAsync(
-            $"/api/v1/units/{unitName}/policy",
+            $"/api/v1/tenant/units/{unitName}/policy",
             new UnitPolicyResponse(new SkillPolicy(Blocked: new[] { "delete_repo" })),
             ct);
 
@@ -340,7 +340,7 @@ public class UnitPolicyEndpointsUnauthenticatedTests : IDisposable
         var ct = TestContext.Current.CancellationToken;
         using var client = _factory.CreateClient();
 
-        var response = await client.GetAsync("/api/v1/units/any-unit/policy", ct);
+        var response = await client.GetAsync("/api/v1/tenant/units/any-unit/policy", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
     }
@@ -352,7 +352,7 @@ public class UnitPolicyEndpointsUnauthenticatedTests : IDisposable
         using var client = _factory.CreateClient();
 
         var response = await client.PutAsJsonAsync(
-            "/api/v1/units/any-unit/policy",
+            "/api/v1/tenant/units/any-unit/policy",
             new UnitPolicyResponse(new SkillPolicy(Blocked: new[] { "x" })),
             ct);
 

@@ -70,7 +70,7 @@ public class UnitHumansEndpointsTests : IClassFixture<CustomWebApplicationFactor
         ArrangePermission(unitName, AuthConstants.DefaultLocalUserId, PermissionLevel.Owner);
 
         var response = await _client.PatchAsJsonAsync(
-            $"/api/v1/units/{unitName}/humans/alice/permissions",
+            $"/api/v1/tenant/units/{unitName}/humans/alice/permissions",
             new SetHumanPermissionRequest("Operator"),
             ct);
 
@@ -93,7 +93,7 @@ public class UnitHumansEndpointsTests : IClassFixture<CustomWebApplicationFactor
             .Returns(proxy);
 
         var response = await _client.GetAsync(
-            $"/api/v1/units/{unitName}/humans", ct);
+            $"/api/v1/tenant/units/{unitName}/humans", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
     }
@@ -107,7 +107,7 @@ public class UnitHumansEndpointsTests : IClassFixture<CustomWebApplicationFactor
         ArrangePermission(unitName, AuthConstants.DefaultLocalUserId, PermissionLevel.Owner);
 
         var response = await _client.DeleteAsync(
-            $"/api/v1/units/{unitName}/humans/alice/permissions", ct);
+            $"/api/v1/tenant/units/{unitName}/humans/alice/permissions", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
     }
@@ -131,7 +131,7 @@ public class UnitHumansEndpointsTests : IClassFixture<CustomWebApplicationFactor
             .Returns((PermissionLevel?)null);
 
         var response = await _client.PatchAsJsonAsync(
-            $"/api/v1/units/{unitName}/humans/alice/permissions",
+            $"/api/v1/tenant/units/{unitName}/humans/alice/permissions",
             new SetHumanPermissionRequest("Operator"),
             ct);
 
@@ -150,7 +150,7 @@ public class UnitHumansEndpointsTests : IClassFixture<CustomWebApplicationFactor
         ArrangePermission(unitName, AuthConstants.DefaultLocalUserId, PermissionLevel.Viewer);
 
         var response = await _client.PatchAsJsonAsync(
-            $"/api/v1/units/{unitName}/humans/alice/permissions",
+            $"/api/v1/tenant/units/{unitName}/humans/alice/permissions",
             new SetHumanPermissionRequest("Operator"),
             ct);
 
@@ -170,7 +170,7 @@ public class UnitHumansEndpointsTests : IClassFixture<CustomWebApplicationFactor
         ArrangePermission(unitName, AuthConstants.DefaultLocalUserId, PermissionLevel.Owner);
 
         await _client.PatchAsJsonAsync(
-            $"/api/v1/units/{unitName}/humans/alice/permissions",
+            $"/api/v1/tenant/units/{unitName}/humans/alice/permissions",
             new SetHumanPermissionRequest("Operator"),
             ct);
 
@@ -200,7 +200,7 @@ public class UnitHumansEndpointsTests : IClassFixture<CustomWebApplicationFactor
             .Returns((PermissionLevel?)null);
 
         var response = await _client.PatchAsJsonAsync(
-            $"/api/v1/units/{unitName}/humans/alice/permissions",
+            $"/api/v1/tenant/units/{unitName}/humans/alice/permissions",
             new SetHumanPermissionRequest("Operator"),
             ct);
 
@@ -220,7 +220,7 @@ public class UnitHumansEndpointsTests : IClassFixture<CustomWebApplicationFactor
             .Returns((PermissionLevel?)null);
 
         var response = await _client.GetAsync(
-            $"/api/v1/units/{unitName}/humans", ct);
+            $"/api/v1/tenant/units/{unitName}/humans", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
@@ -238,7 +238,7 @@ public class UnitHumansEndpointsTests : IClassFixture<CustomWebApplicationFactor
             .Returns((PermissionLevel?)null);
 
         var response = await _client.DeleteAsync(
-            $"/api/v1/units/{unitName}/humans/alice/permissions", ct);
+            $"/api/v1/tenant/units/{unitName}/humans/alice/permissions", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
@@ -389,7 +389,7 @@ public class UnitHumansEndpointsUnauthenticatedTests : IDisposable
         // No Authorization header set.
 
         var response = await client.PatchAsJsonAsync(
-            "/api/v1/units/any-unit/humans/alice/permissions",
+            "/api/v1/tenant/units/any-unit/humans/alice/permissions",
             new SetHumanPermissionRequest("Operator"),
             ct);
 
@@ -402,7 +402,7 @@ public class UnitHumansEndpointsUnauthenticatedTests : IDisposable
         var ct = TestContext.Current.CancellationToken;
         using var client = _factory.CreateClient();
 
-        var response = await client.GetAsync("/api/v1/units/any-unit/humans", ct);
+        var response = await client.GetAsync("/api/v1/tenant/units/any-unit/humans", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
     }

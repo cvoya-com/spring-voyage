@@ -19,7 +19,7 @@ public static class BudgetEndpoints
     /// <returns>The route group builder for chaining.</returns>
     public static RouteGroupBuilder MapBudgetEndpoints(this IEndpointRouteBuilder app)
     {
-        var agentGroup = app.MapGroup("/api/v1/agents/{agentId}/budget")
+        var agentGroup = app.MapGroup("/api/v1/tenant/agents/{agentId}/budget")
             .WithTags("Budgets");
 
         agentGroup.MapGet("/", GetAgentBudgetAsync)
@@ -52,7 +52,7 @@ public static class BudgetEndpoints
         // Unit-scoped budget (PR-C3 / #459). Mirrors the agent surface so the
         // CLI's `spring cost set-budget --scope unit` and the portal's
         // per-unit "Edit budget" action target the same endpoint.
-        var unitGroup = app.MapGroup("/api/v1/units/{unitId}/budget")
+        var unitGroup = app.MapGroup("/api/v1/tenant/units/{unitId}/budget")
             .WithTags("Budgets");
 
         unitGroup.MapGet("/", GetUnitBudgetAsync)

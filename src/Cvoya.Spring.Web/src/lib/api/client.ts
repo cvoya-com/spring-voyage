@@ -131,21 +131,21 @@ function withDefaultParentParent<T>(body: T): T {
 export const api = {
   // Dashboard
   getDashboardSummary: async (): Promise<DashboardSummary> => {
-    const resp = await fetch(`${BASE}/api/v1/dashboard/summary`);
+    const resp = await fetch(`${BASE}/api/v1/tenant/dashboard/summary`);
     if (!resp.ok) {
       throw new ApiError(resp.status, resp.statusText, await resp.text());
     }
     return resp.json() as Promise<DashboardSummary>;
   },
   getDashboardAgents: async () =>
-    unwrap(await fetchClient.GET("/api/v1/dashboard/agents")),
+    unwrap(await fetchClient.GET("/api/v1/tenant/dashboard/agents")),
   getDashboardUnits: async () =>
-    unwrap(await fetchClient.GET("/api/v1/dashboard/units")),
+    unwrap(await fetchClient.GET("/api/v1/tenant/dashboard/units")),
   getDashboardCosts: async () =>
-    unwrap(await fetchClient.GET("/api/v1/dashboard/costs")),
+    unwrap(await fetchClient.GET("/api/v1/tenant/dashboard/costs")),
 
   // Agents
-  listAgents: async () => unwrap(await fetchClient.GET("/api/v1/agents")),
+  listAgents: async () => unwrap(await fetchClient.GET("/api/v1/tenant/agents")),
   /**
    * Create a new agent. Mirrors the CLI's `spring agent create` 1:1 —
    * the server requires at least one unit assignment (#744) and accepts
@@ -157,7 +157,7 @@ export const api = {
    */
   createAgent: async (body: CreateAgentRequest): Promise<AgentResponse> =>
     unwrap(
-      await fetchClient.POST("/api/v1/agents", { body }),
+      await fetchClient.POST("/api/v1/tenant/agents", { body }),
     ) as AgentResponse,
   // The generated type for GET /api/v1/agents/{id} is AgentDetailResponse;
   // the handler falls back to returning `{ agent, status: null }` when the
@@ -165,33 +165,33 @@ export const api = {
   // AgentDetailResponse, so surface that directly.
   getAgent: async (id: string): Promise<AgentDetailResponse> =>
     unwrap(
-      await fetchClient.GET("/api/v1/agents/{id}", {
+      await fetchClient.GET("/api/v1/tenant/agents/{id}", {
         params: { path: { id } },
       }),
     ) as AgentDetailResponse,
   updateAgentMetadata: async (id: string, patch: UpdateAgentMetadataRequest) =>
     unwrap(
-      await fetchClient.PATCH("/api/v1/agents/{id}", {
+      await fetchClient.PATCH("/api/v1/tenant/agents/{id}", {
         params: { path: { id } },
         body: patch,
       }),
     ),
   getAgentSkills: async (id: string) =>
     unwrap(
-      await fetchClient.GET("/api/v1/agents/{id}/skills", {
+      await fetchClient.GET("/api/v1/tenant/agents/{id}/skills", {
         params: { path: { id } },
       }),
     ),
   setAgentSkills: async (id: string, skills: string[]) =>
     unwrap(
-      await fetchClient.PUT("/api/v1/agents/{id}/skills", {
+      await fetchClient.PUT("/api/v1/tenant/agents/{id}/skills", {
         params: { path: { id } },
         body: { skills },
       }),
     ),
   deleteAgent: async (id: string): Promise<void> => {
     assertOk(
-      await fetchClient.DELETE("/api/v1/agents/{id}", {
+      await fetchClient.DELETE("/api/v1/tenant/agents/{id}", {
         params: { path: { id } },
       }),
     );
@@ -207,7 +207,7 @@ export const api = {
     body?: DeployPersistentAgentRequest,
   ): Promise<PersistentAgentDeploymentResponse> =>
     unwrap(
-      await fetchClient.POST("/api/v1/agents/{id}/deploy", {
+      await fetchClient.POST("/api/v1/tenant/agents/{id}/deploy", {
         params: { path: { id } },
         // The server's request body is optional (oneOf null). Omit the
         // body entirely when no overrides are supplied so the openapi
@@ -219,7 +219,7 @@ export const api = {
     id: string,
   ): Promise<PersistentAgentDeploymentResponse> =>
     unwrap(
-      await fetchClient.POST("/api/v1/agents/{id}/undeploy", {
+      await fetchClient.POST("/api/v1/tenant/agents/{id}/undeploy", {
         params: { path: { id } },
       }),
     ) as PersistentAgentDeploymentResponse,
@@ -228,7 +228,7 @@ export const api = {
     body: ScalePersistentAgentRequest,
   ): Promise<PersistentAgentDeploymentResponse> =>
     unwrap(
-      await fetchClient.POST("/api/v1/agents/{id}/scale", {
+      await fetchClient.POST("/api/v1/tenant/agents/{id}/scale", {
         params: { path: { id } },
         body,
       }),
@@ -239,7 +239,7 @@ export const api = {
   ): Promise<PersistentAgentLogsResponse> => {
     const query = tail != null ? { tail } : undefined;
     return unwrap(
-      await fetchClient.GET("/api/v1/agents/{id}/logs", {
+      await fetchClient.GET("/api/v1/tenant/agents/{id}/logs", {
         params: {
           path: { id },
           ...(query ? { query: query as never } : {}),
@@ -251,7 +251,7 @@ export const api = {
     id: string,
   ): Promise<PersistentAgentDeploymentResponse> =>
     unwrap(
-      await fetchClient.GET("/api/v1/agents/{id}/deployment", {
+      await fetchClient.GET("/api/v1/tenant/agents/{id}/deployment", {
         params: { path: { id } },
       }),
     ) as PersistentAgentDeploymentResponse,
@@ -261,13 +261,13 @@ export const api = {
   // Lightweight list of every unit the caller can see. Used by the
   // sub-units picker (#352) to offer candidates when adding a child
   // unit to a parent.
-  listUnits: async () => unwrap(await fetchClient.GET("/api/v1/units")),
+  listUnits: async () => unwrap(await fetchClient.GET("/api/v1/tenant/units")),
   // Detailed unit read — includes Members and raw status payload. Used by
   // the legacy query-string detail view under /units?id=... and still
   // useful for anything that needs the members/details blob.
   getUnitDetail: async (id: string) =>
     unwrap(
-      await fetchClient.GET("/api/v1/units/{id}", {
+      await fetchClient.GET("/api/v1/tenant/units/{id}", {
         params: { path: { id } },
       }),
     ),
@@ -276,7 +276,7 @@ export const api = {
   // independently.
   getUnit: async (id: string): Promise<UnitResponse> => {
     const detail = unwrap(
-      await fetchClient.GET("/api/v1/units/{id}", {
+      await fetchClient.GET("/api/v1/tenant/units/{id}", {
         params: { path: { id } },
       }),
     );
@@ -308,35 +308,35 @@ export const api = {
     isTopLevel?: boolean;
   }) =>
     unwrap(
-      await fetchClient.POST("/api/v1/units", {
+      await fetchClient.POST("/api/v1/tenant/units", {
         body: withDefaultParentParent(body),
       }),
     ),
   createUnitFromYaml: async (body: CreateUnitFromYamlRequest) =>
     unwrap(
-      await fetchClient.POST("/api/v1/units/from-yaml", {
+      await fetchClient.POST("/api/v1/tenant/units/from-yaml", {
         body: withDefaultParentParent(body),
       }),
     ),
   createUnitFromTemplate: async (body: CreateUnitFromTemplateRequest) =>
     unwrap(
-      await fetchClient.POST("/api/v1/units/from-template", {
+      await fetchClient.POST("/api/v1/tenant/units/from-template", {
         body: withDefaultParentParent(body),
       }),
     ),
   listUnitTemplates: async () =>
-    unwrap(await fetchClient.GET("/api/v1/packages/templates")),
+    unwrap(await fetchClient.GET("/api/v1/tenant/packages/templates")),
   // Package browse (#395 / PR-PLAT-PKG-1). The /packages and
   // /packages/{name} endpoints are the same data the CLI's
   // `spring package list` / `spring package show` consume, keeping
   // CLI and portal at parity per CONVENTIONS.md § ui-cli-parity.
   listPackages: async () =>
-    unwrap(await fetchClient.GET("/api/v1/packages")),
+    unwrap(await fetchClient.GET("/api/v1/tenant/packages")),
   getPackage: async (name: string) => {
     // Surface 404 as null so the detail page can render a clean
     // "not found" state instead of bubbling an ApiError up to the
     // error boundary.
-    const result = await fetchClient.GET("/api/v1/packages/{name}", {
+    const result = await fetchClient.GET("/api/v1/tenant/packages/{name}", {
       params: { path: { name } },
     });
     if (result.response.status === 404) {
@@ -346,7 +346,7 @@ export const api = {
   },
   getUnitTemplate: async (pkg: string, name: string) => {
     const result = await fetchClient.GET(
-      "/api/v1/packages/{package}/templates/{name}",
+      "/api/v1/tenant/packages/{package}/templates/{name}",
       { params: { path: { package: pkg, name } } },
     );
     if (result.response.status === 404) {
@@ -364,26 +364,26 @@ export const api = {
     }>,
   ) =>
     unwrap(
-      await fetchClient.PATCH("/api/v1/units/{id}", {
+      await fetchClient.PATCH("/api/v1/tenant/units/{id}", {
         params: { path: { id } },
         body: patch,
       }),
     ),
   startUnit: async (id: string) =>
     unwrap(
-      await fetchClient.POST("/api/v1/units/{id}/start", {
+      await fetchClient.POST("/api/v1/tenant/units/{id}/start", {
         params: { path: { id } },
       }),
     ),
   stopUnit: async (id: string) =>
     unwrap(
-      await fetchClient.POST("/api/v1/units/{id}/stop", {
+      await fetchClient.POST("/api/v1/tenant/units/{id}/stop", {
         params: { path: { id } },
       }),
     ),
   getUnitReadiness: async (id: string) =>
     unwrap(
-      await fetchClient.GET("/api/v1/units/{id}/readiness", {
+      await fetchClient.GET("/api/v1/tenant/units/{id}/readiness", {
         params: { path: { id } },
       }),
     ),
@@ -397,7 +397,7 @@ export const api = {
     options?: { force?: boolean },
   ): Promise<void> => {
     assertOk(
-      await fetchClient.DELETE("/api/v1/units/{id}", {
+      await fetchClient.DELETE("/api/v1/tenant/units/{id}", {
         params: {
           path: { id },
           query: options?.force ? { force: true } : undefined,
@@ -411,7 +411,7 @@ export const api = {
     memberPath: string,
   ): Promise<void> => {
     assertOk(
-      await fetchClient.POST("/api/v1/units/{id}/members", {
+      await fetchClient.POST("/api/v1/tenant/units/{id}/members", {
         params: { path: { id: unitId } },
         body: { memberAddress: { scheme: memberScheme, path: memberPath } },
       }),
@@ -419,7 +419,7 @@ export const api = {
   },
   removeMember: async (unitId: string, memberId: string): Promise<void> => {
     assertOk(
-      await fetchClient.DELETE("/api/v1/units/{id}/members/{memberId}", {
+      await fetchClient.DELETE("/api/v1/tenant/units/{id}/members/{memberId}", {
         params: { path: { id: unitId, memberId } },
       }),
     );
@@ -431,13 +431,13 @@ export const api = {
   // fields are owned by the agent, not by the unit.
   listUnitAgents: async (unitId: string) =>
     unwrap(
-      await fetchClient.GET("/api/v1/units/{id}/agents", {
+      await fetchClient.GET("/api/v1/tenant/units/{id}/agents", {
         params: { path: { id: unitId } },
       }),
     ),
   assignUnitAgent: async (unitId: string, agentId: string) =>
     unwrap(
-      await fetchClient.POST("/api/v1/units/{id}/agents/{agentId}", {
+      await fetchClient.POST("/api/v1/tenant/units/{id}/agents/{agentId}", {
         params: { path: { id: unitId, agentId } },
       }),
     ),
@@ -446,7 +446,7 @@ export const api = {
     agentId: string,
   ): Promise<void> => {
     assertOk(
-      await fetchClient.DELETE("/api/v1/units/{id}/agents/{agentId}", {
+      await fetchClient.DELETE("/api/v1/tenant/units/{id}/agents/{agentId}", {
         params: { path: { id: unitId, agentId } },
       }),
     );
@@ -457,13 +457,13 @@ export const api = {
   // per-membership config overrides directly.
   listAgentMemberships: async (agentId: string) =>
     unwrap(
-      await fetchClient.GET("/api/v1/agents/{id}/memberships", {
+      await fetchClient.GET("/api/v1/tenant/agents/{id}/memberships", {
         params: { path: { id: agentId } },
       }),
     ),
   listUnitMemberships: async (unitId: string) =>
     unwrap(
-      await fetchClient.GET("/api/v1/units/{id}/memberships", {
+      await fetchClient.GET("/api/v1/tenant/units/{id}/memberships", {
         params: { path: { id: unitId } },
       }),
     ),
@@ -479,7 +479,7 @@ export const api = {
   ) =>
     unwrap(
       await fetchClient.PUT(
-        "/api/v1/units/{unitId}/memberships/{agentAddress}",
+        "/api/v1/tenant/units/{unitId}/memberships/{agentAddress}",
         {
           params: { path: { unitId, agentAddress } },
           body,
@@ -492,7 +492,7 @@ export const api = {
   ): Promise<void> => {
     assertOk(
       await fetchClient.DELETE(
-        "/api/v1/units/{unitId}/memberships/{agentAddress}",
+        "/api/v1/tenant/units/{unitId}/memberships/{agentAddress}",
         {
           params: { path: { unitId, agentAddress } },
         },
@@ -515,7 +515,7 @@ export const api = {
     if (range?.from) query.from = range.from;
     if (range?.to) query.to = range.to;
     return unwrap(
-      await fetchClient.GET("/api/v1/costs/agents/{id}", {
+      await fetchClient.GET("/api/v1/tenant/cost/agents/{id}", {
         params: { path: { id }, query: query as never },
       }),
     );
@@ -528,7 +528,7 @@ export const api = {
     if (range?.from) query.from = range.from;
     if (range?.to) query.to = range.to;
     return unwrap(
-      await fetchClient.GET("/api/v1/costs/units/{id}", {
+      await fetchClient.GET("/api/v1/tenant/cost/units/{id}", {
         params: { path: { id }, query: query as never },
       }),
     );
@@ -544,7 +544,7 @@ export const api = {
     if (range?.from) query.from = range.from;
     if (range?.to) query.to = range.to;
     return unwrap(
-      await fetchClient.GET("/api/v1/costs/tenant", {
+      await fetchClient.GET("/api/v1/tenant/cost/tenant", {
         params: { query: query as never },
       }),
     );
@@ -574,20 +574,20 @@ export const api = {
   // Clones
   getClones: async (agentId: string) =>
     unwrap(
-      await fetchClient.GET("/api/v1/agents/{agentId}/clones", {
+      await fetchClient.GET("/api/v1/tenant/agents/{agentId}/clones", {
         params: { path: { agentId } },
       }),
     ),
   createClone: async (agentId: string, body: CreateCloneRequest) =>
     unwrap(
-      await fetchClient.POST("/api/v1/agents/{agentId}/clones", {
+      await fetchClient.POST("/api/v1/tenant/agents/{agentId}/clones", {
         params: { path: { agentId } },
         body,
       }),
     ),
   deleteClone: async (agentId: string, cloneId: string): Promise<void> => {
     assertOk(
-      await fetchClient.DELETE("/api/v1/agents/{agentId}/clones/{cloneId}", {
+      await fetchClient.DELETE("/api/v1/tenant/agents/{agentId}/clones/{cloneId}", {
         params: { path: { agentId, cloneId } },
       }),
     );
@@ -596,13 +596,13 @@ export const api = {
   // Budgets
   getAgentBudget: async (agentId: string) =>
     unwrap(
-      await fetchClient.GET("/api/v1/agents/{agentId}/budget", {
+      await fetchClient.GET("/api/v1/tenant/agents/{agentId}/budget", {
         params: { path: { agentId } },
       }),
     ),
   setAgentBudget: async (agentId: string, body: SetBudgetRequest) =>
     unwrap(
-      await fetchClient.PUT("/api/v1/agents/{agentId}/budget", {
+      await fetchClient.PUT("/api/v1/tenant/agents/{agentId}/budget", {
         params: { path: { agentId } },
         body,
       }),
@@ -621,7 +621,7 @@ export const api = {
   // `[AsParameters]`.
   queryActivity: async (params?: Record<string, string>) =>
     unwrap(
-      await fetchClient.GET("/api/v1/activity", {
+      await fetchClient.GET("/api/v1/tenant/activity", {
         params: { query: params as never },
       }),
     ),
@@ -642,7 +642,7 @@ export const api = {
     if (params?.from) query.from = params.from;
     if (params?.to) query.to = params.to;
     return unwrap(
-      await fetchClient.GET("/api/v1/analytics/throughput", {
+      await fetchClient.GET("/api/v1/tenant/analytics/throughput", {
         params: { query: query as never },
       }),
     );
@@ -655,7 +655,7 @@ export const api = {
     if (params?.from) query.from = params.from;
     if (params?.to) query.to = params.to;
     return unwrap(
-      await fetchClient.GET("/api/v1/analytics/waits", {
+      await fetchClient.GET("/api/v1/tenant/analytics/waits", {
         params: { query: query as never },
       }),
     );
@@ -678,13 +678,13 @@ export const api = {
     if (filters?.participant) query.Participant = filters.participant;
     if (filters?.limit !== undefined) query.Limit = filters.limit;
     return unwrap(
-      await fetchClient.GET("/api/v1/conversations", {
+      await fetchClient.GET("/api/v1/tenant/conversations", {
         params: { query: query as never },
       }),
     );
   },
   getConversation: async (id: string) => {
-    const result = await fetchClient.GET("/api/v1/conversations/{id}", {
+    const result = await fetchClient.GET("/api/v1/tenant/conversations/{id}", {
       params: { path: { id } },
     });
     if (result.response.status === 404) {
@@ -697,7 +697,7 @@ export const api = {
     body: ConversationMessageRequest,
   ) =>
     unwrap(
-      await fetchClient.POST("/api/v1/conversations/{id}/messages", {
+      await fetchClient.POST("/api/v1/tenant/conversations/{id}/messages", {
         params: { path: { id } },
         body,
       }),
@@ -712,16 +712,16 @@ export const api = {
    */
   sendMessage: async (body: SendMessageRequest): Promise<MessageResponse> =>
     unwrap(
-      await fetchClient.POST("/api/v1/messages", {
+      await fetchClient.POST("/api/v1/tenant/messages", {
         body,
       }),
     ),
-  listInbox: async () => unwrap(await fetchClient.GET("/api/v1/inbox")),
+  listInbox: async () => unwrap(await fetchClient.GET("/api/v1/tenant/inbox")),
 
   // Initiative
   getAgentInitiativePolicy: async (id: string) =>
     unwrap(
-      await fetchClient.GET("/api/v1/agents/{id}/initiative/policy", {
+      await fetchClient.GET("/api/v1/tenant/agents/{id}/initiative/policy", {
         params: { path: { id } },
       }),
     ),
@@ -730,7 +730,7 @@ export const api = {
     policy: InitiativePolicy,
   ): Promise<void> => {
     assertOk(
-      await fetchClient.PUT("/api/v1/agents/{id}/initiative/policy", {
+      await fetchClient.PUT("/api/v1/tenant/agents/{id}/initiative/policy", {
         params: { path: { id } },
         body: policy,
       }),
@@ -738,13 +738,13 @@ export const api = {
   },
   getAgentInitiativeLevel: async (id: string) =>
     unwrap(
-      await fetchClient.GET("/api/v1/agents/{id}/initiative/level", {
+      await fetchClient.GET("/api/v1/tenant/agents/{id}/initiative/level", {
         params: { path: { id } },
       }),
     ),
   getUnitInitiativePolicy: async (id: string) =>
     unwrap(
-      await fetchClient.GET("/api/v1/units/{id}/initiative/policy", {
+      await fetchClient.GET("/api/v1/tenant/units/{id}/initiative/policy", {
         params: { path: { id } },
       }),
     ),
@@ -753,7 +753,7 @@ export const api = {
     policy: InitiativePolicy,
   ): Promise<void> => {
     assertOk(
-      await fetchClient.PUT("/api/v1/units/{id}/initiative/policy", {
+      await fetchClient.PUT("/api/v1/tenant/units/{id}/initiative/policy", {
         params: { path: { id } },
         body: policy,
       }),
@@ -771,7 +771,7 @@ export const api = {
   // carried through verbatim).
   getUnitPolicy: async (id: string): Promise<UnitPolicyResponse> =>
     unwrap(
-      await fetchClient.GET("/api/v1/units/{id}/policy", {
+      await fetchClient.GET("/api/v1/tenant/units/{id}/policy", {
         params: { path: { id } },
       }),
     ),
@@ -780,24 +780,24 @@ export const api = {
     policy: UnitPolicyResponse,
   ): Promise<UnitPolicyResponse> =>
     unwrap(
-      await fetchClient.PUT("/api/v1/units/{id}/policy", {
+      await fetchClient.PUT("/api/v1/tenant/units/{id}/policy", {
         params: { path: { id } },
         body: policy,
       }),
     ),
 
   // Skills catalog
-  listSkills: async () => unwrap(await fetchClient.GET("/api/v1/skills")),
+  listSkills: async () => unwrap(await fetchClient.GET("/api/v1/tenant/skills")),
 
   // Connectors — generic surface
-  listConnectors: async () => unwrap(await fetchClient.GET("/api/v1/connectors")),
+  listConnectors: async () => unwrap(await fetchClient.GET("/api/v1/tenant/connectors")),
   /**
    * Returns the connector type metadata, or `null` when the slug/id
    * isn't registered. Normalising 404 → null lets the detail page
    * render a clean "not found" state without a try/catch.
    */
   getConnector: async (slugOrId: string) => {
-    const result = await fetchClient.GET("/api/v1/connectors/{slugOrId}", {
+    const result = await fetchClient.GET("/api/v1/tenant/connectors/{slugOrId}", {
       params: { path: { slugOrId } },
     });
     if (result.response.status === 404) {
@@ -814,7 +814,7 @@ export const api = {
    */
   getConnectorConfigSchema: async (slug: string): Promise<unknown | null> => {
     const resp = await fetch(
-      `${BASE}/api/v1/connectors/${encodeURIComponent(slug)}/config-schema`,
+      `${BASE}/api/v1/tenant/connectors/${encodeURIComponent(slug)}/config-schema`,
     );
     if (resp.status === 404) {
       return null;
@@ -840,7 +840,7 @@ export const api = {
    */
   listConnectorBindings: async (slugOrId: string) =>
     unwrap(
-      await fetchClient.GET("/api/v1/connectors/{slugOrId}/bindings", {
+      await fetchClient.GET("/api/v1/tenant/connectors/{slugOrId}/bindings", {
         params: { path: { slugOrId } },
       }),
     ),
@@ -851,7 +851,7 @@ export const api = {
    * error.
    */
   getUnitConnector: async (unitId: string) => {
-    const result = await fetchClient.GET("/api/v1/units/{id}/connector", {
+    const result = await fetchClient.GET("/api/v1/tenant/units/{id}/connector", {
       params: { path: { id: unitId } },
     });
     if (result.response.status === 404) {
@@ -861,7 +861,7 @@ export const api = {
   },
   clearUnitConnector: async (unitId: string): Promise<void> => {
     assertOk(
-      await fetchClient.DELETE("/api/v1/units/{id}/connector", {
+      await fetchClient.DELETE("/api/v1/tenant/units/{id}/connector", {
         params: { path: { id: unitId } },
       }),
     );
@@ -871,7 +871,7 @@ export const api = {
   listGitHubInstallations: async () =>
     unwrap(
       await fetchClient.GET(
-        "/api/v1/connectors/github/actions/list-installations",
+        "/api/v1/tenant/connectors/github/actions/list-installations",
       ),
     ),
   /**
@@ -885,7 +885,7 @@ export const api = {
   listGitHubRepositories: async () =>
     unwrap(
       await fetchClient.GET(
-        "/api/v1/connectors/github/actions/list-repositories",
+        "/api/v1/tenant/connectors/github/actions/list-repositories",
       ),
     ),
   /**
@@ -901,7 +901,7 @@ export const api = {
   ) =>
     unwrap(
       await fetchClient.GET(
-        "/api/v1/connectors/github/actions/list-collaborators",
+        "/api/v1/tenant/connectors/github/actions/list-collaborators",
         {
           params: {
             query: { installation_id: installationId, owner, repo } as never,
@@ -911,11 +911,11 @@ export const api = {
     ),
   getGitHubInstallUrl: async () =>
     unwrap(
-      await fetchClient.GET("/api/v1/connectors/github/actions/install-url"),
+      await fetchClient.GET("/api/v1/tenant/connectors/github/actions/install-url"),
     ),
   getUnitGitHubConfig: async (unitId: string) => {
     const result = await fetchClient.GET(
-      "/api/v1/connectors/github/units/{unitId}/config",
+      "/api/v1/tenant/connectors/github/units/{unitId}/config",
       { params: { path: { unitId } } },
     );
     if (result.response.status === 404) {
@@ -929,7 +929,7 @@ export const api = {
   ) =>
     unwrap(
       await fetchClient.PUT(
-        "/api/v1/connectors/github/units/{unitId}/config",
+        "/api/v1/tenant/connectors/github/units/{unitId}/config",
         { params: { path: { unitId } }, body },
       ),
     ),
@@ -940,20 +940,20 @@ export const api = {
   // browser POSTs the value once and never holds it beyond the fetch.
   listUnitSecrets: async (unitId: string) =>
     unwrap(
-      await fetchClient.GET("/api/v1/units/{id}/secrets", {
+      await fetchClient.GET("/api/v1/tenant/units/{id}/secrets", {
         params: { path: { id: unitId } },
       }),
     ),
   createUnitSecret: async (unitId: string, body: CreateSecretRequest) =>
     unwrap(
-      await fetchClient.POST("/api/v1/units/{id}/secrets", {
+      await fetchClient.POST("/api/v1/tenant/units/{id}/secrets", {
         params: { path: { id: unitId } },
         body,
       }),
     ),
   deleteUnitSecret: async (unitId: string, name: string): Promise<void> => {
     assertOk(
-      await fetchClient.DELETE("/api/v1/units/{id}/secrets/{name}", {
+      await fetchClient.DELETE("/api/v1/tenant/units/{id}/secrets/{name}", {
         params: { path: { id: unitId, name } },
       }),
     );
@@ -990,7 +990,7 @@ export const api = {
   // the current boundary or an ApiError.
   getUnitBoundary: async (unitId: string): Promise<UnitBoundaryResponse> =>
     unwrap(
-      await fetchClient.GET("/api/v1/units/{id}/boundary", {
+      await fetchClient.GET("/api/v1/tenant/units/{id}/boundary", {
         params: { path: { id: unitId } },
       }),
     ),
@@ -999,14 +999,14 @@ export const api = {
     body: UnitBoundaryResponse,
   ): Promise<UnitBoundaryResponse> =>
     unwrap(
-      await fetchClient.PUT("/api/v1/units/{id}/boundary", {
+      await fetchClient.PUT("/api/v1/tenant/units/{id}/boundary", {
         params: { path: { id: unitId } },
         body,
       }),
     ),
   clearUnitBoundary: async (unitId: string): Promise<void> => {
     assertOk(
-      await fetchClient.DELETE("/api/v1/units/{id}/boundary", {
+      await fetchClient.DELETE("/api/v1/tenant/units/{id}/boundary", {
         params: { path: { id: unitId } },
       }),
     );
@@ -1021,7 +1021,7 @@ export const api = {
     unitId: string,
   ): Promise<UnitOrchestrationResponse> =>
     unwrap(
-      await fetchClient.GET("/api/v1/units/{id}/orchestration", {
+      await fetchClient.GET("/api/v1/tenant/units/{id}/orchestration", {
         params: { path: { id: unitId } },
       }),
     ),
@@ -1030,14 +1030,14 @@ export const api = {
     body: UnitOrchestrationResponse,
   ): Promise<UnitOrchestrationResponse> =>
     unwrap(
-      await fetchClient.PUT("/api/v1/units/{id}/orchestration", {
+      await fetchClient.PUT("/api/v1/tenant/units/{id}/orchestration", {
         params: { path: { id: unitId } },
         body,
       }),
     ),
   clearUnitOrchestration: async (unitId: string): Promise<void> => {
     assertOk(
-      await fetchClient.DELETE("/api/v1/units/{id}/orchestration", {
+      await fetchClient.DELETE("/api/v1/tenant/units/{id}/orchestration", {
         params: { path: { id: unitId } },
       }),
     );
@@ -1053,7 +1053,7 @@ export const api = {
   // remaining fields (or DELETE if every field ends up null).
   getUnitExecution: async (unitId: string): Promise<UnitExecutionResponse> =>
     unwrap(
-      await fetchClient.GET("/api/v1/units/{id}/execution", {
+      await fetchClient.GET("/api/v1/tenant/units/{id}/execution", {
         params: { path: { id: unitId } },
       }),
     ),
@@ -1062,14 +1062,14 @@ export const api = {
     body: UnitExecutionResponse,
   ): Promise<UnitExecutionResponse> =>
     unwrap(
-      await fetchClient.PUT("/api/v1/units/{id}/execution", {
+      await fetchClient.PUT("/api/v1/tenant/units/{id}/execution", {
         params: { path: { id: unitId } },
         body,
       }),
     ),
   clearUnitExecution: async (unitId: string): Promise<void> => {
     assertOk(
-      await fetchClient.DELETE("/api/v1/units/{id}/execution", {
+      await fetchClient.DELETE("/api/v1/tenant/units/{id}/execution", {
         params: { path: { id: unitId } },
       }),
     );
@@ -1086,7 +1086,7 @@ export const api = {
     agentId: string,
   ): Promise<AgentExecutionResponse> =>
     unwrap(
-      await fetchClient.GET("/api/v1/agents/{id}/execution", {
+      await fetchClient.GET("/api/v1/tenant/agents/{id}/execution", {
         params: { path: { id: agentId } },
       }),
     ),
@@ -1095,14 +1095,14 @@ export const api = {
     body: AgentExecutionResponse,
   ): Promise<AgentExecutionResponse> =>
     unwrap(
-      await fetchClient.PUT("/api/v1/agents/{id}/execution", {
+      await fetchClient.PUT("/api/v1/tenant/agents/{id}/execution", {
         params: { path: { id: agentId } },
         body,
       }),
     ),
   clearAgentExecution: async (agentId: string): Promise<void> => {
     assertOk(
-      await fetchClient.DELETE("/api/v1/agents/{id}/execution", {
+      await fetchClient.DELETE("/api/v1/tenant/agents/{id}/execution", {
         params: { path: { id: agentId } },
       }),
     );
@@ -1115,7 +1115,7 @@ export const api = {
   // `spring {agent|unit} expertise {get|set[|aggregated]}`.
   getAgentExpertise: async (id: string): Promise<ExpertiseDomainDto[]> => {
     const res = unwrap(
-      await fetchClient.GET("/api/v1/agents/{id}/expertise", {
+      await fetchClient.GET("/api/v1/tenant/agents/{id}/expertise", {
         params: { path: { id } },
       }),
     );
@@ -1126,7 +1126,7 @@ export const api = {
     domains: ExpertiseDomainDto[],
   ): Promise<ExpertiseDomainDto[]> => {
     const res = unwrap(
-      await fetchClient.PUT("/api/v1/agents/{id}/expertise", {
+      await fetchClient.PUT("/api/v1/tenant/agents/{id}/expertise", {
         params: { path: { id } },
         body: { domains },
       }),
@@ -1135,7 +1135,7 @@ export const api = {
   },
   getUnitOwnExpertise: async (id: string): Promise<ExpertiseDomainDto[]> => {
     const res = unwrap(
-      await fetchClient.GET("/api/v1/units/{id}/expertise/own", {
+      await fetchClient.GET("/api/v1/tenant/units/{id}/expertise/own", {
         params: { path: { id } },
       }),
     );
@@ -1146,7 +1146,7 @@ export const api = {
     domains: ExpertiseDomainDto[],
   ): Promise<ExpertiseDomainDto[]> => {
     const res = unwrap(
-      await fetchClient.PUT("/api/v1/units/{id}/expertise/own", {
+      await fetchClient.PUT("/api/v1/tenant/units/{id}/expertise/own", {
         params: { path: { id } },
         body: { domains },
       }),
@@ -1155,7 +1155,7 @@ export const api = {
   },
   getUnitAggregatedExpertise: async (id: string) =>
     unwrap(
-      await fetchClient.GET("/api/v1/units/{id}/expertise", {
+      await fetchClient.GET("/api/v1/tenant/units/{id}/expertise", {
         params: { path: { id } },
       }),
     ),
@@ -1168,7 +1168,7 @@ export const api = {
     body: DirectorySearchRequest,
   ): Promise<DirectorySearchResponse> =>
     unwrap(
-      await fetchClient.POST("/api/v1/directory/search", { body }),
+      await fetchClient.POST("/api/v1/tenant/directory/search", { body }),
     ) as DirectorySearchResponse,
 
   // Platform metadata (#451). Anonymous read — the About panel and
@@ -1182,22 +1182,27 @@ export const api = {
   // `spring auth token {list,create,revoke}`. The create/revoke wiring
   // is tracked as a follow-up (needs a "reveal once" primitive).
   getCurrentUser: async () =>
-    unwrap(await fetchClient.GET("/api/v1/auth/me")),
+    unwrap(await fetchClient.GET("/api/v1/tenant/auth/me")),
   listAuthTokens: async () =>
-    unwrap(await fetchClient.GET("/api/v1/auth/tokens")),
+    unwrap(await fetchClient.GET("/api/v1/tenant/auth/tokens")),
 
-  // Ollama model discovery (#350) — uses a manual fetch because the
-  // endpoint is new and may not be present in the generated schema yet.
+  // Ollama model discovery (#350) — C1.2b retired the legacy
+  // /api/v1/ollama/models route. Callers now read the per-runtime
+  // tenant-install model catalogue via getAgentRuntimeModels("ollama"),
+  // which returns the union of the runtime's seed catalogue and any
+  // tenant-configured overrides. Kept as a thin shim to preserve the
+  // existing portal hook shape; the wizard's hook layer maps the
+  // AgentRuntimeModelResponse to the legacy `{name, size, modifiedAt}`
+  // tuple it consumed.
   listOllamaModels: async (): Promise<
     { name: string; size: number; modifiedAt: string | null }[]
   > => {
-    const resp = await fetch(`${BASE}/api/v1/ollama/models`);
-    if (!resp.ok) {
-      throw new ApiError(resp.status, resp.statusText, await resp.text());
-    }
-    return resp.json() as Promise<
-      { name: string; size: number; modifiedAt: string | null }[]
-    >;
+    const models = await api.getAgentRuntimeModels("ollama");
+    return models.map((m) => ({
+      name: m.id,
+      size: 0,
+      modifiedAt: null,
+    }));
   },
 
   // Provider credential-status probe (#598). The server answers whether
@@ -1210,7 +1215,7 @@ export const api = {
     provider: string,
   ): Promise<import("./types").ProviderCredentialStatusResponse> => {
     const resp = await fetch(
-      `${BASE}/api/v1/system/credentials/${encodeURIComponent(provider)}/status`,
+      `${BASE}/api/v1/platform/credentials/${encodeURIComponent(provider)}/status`,
     );
     if (!resp.ok) {
       throw new ApiError(resp.status, resp.statusText, await resp.text());
@@ -1229,13 +1234,13 @@ export const api = {
   listAgentRuntimes: async (): Promise<
     import("./types").InstalledAgentRuntimeResponse[]
   > =>
-    unwrap(await fetchClient.GET("/api/v1/agent-runtimes")) as import("./types").InstalledAgentRuntimeResponse[],
+    unwrap(await fetchClient.GET("/api/v1/tenant/agent-runtimes/installs")) as import("./types").InstalledAgentRuntimeResponse[],
 
   getAgentRuntimeModels: async (
     id: string,
   ): Promise<import("./types").AgentRuntimeModelResponse[]> =>
     unwrap(
-      await fetchClient.GET("/api/v1/agent-runtimes/{id}/models", {
+      await fetchClient.GET("/api/v1/tenant/agent-runtimes/installs/{id}/models", {
         params: { path: { id } },
       }),
     ) as import("./types").AgentRuntimeModelResponse[],
@@ -1248,7 +1253,7 @@ export const api = {
   // is bubbled as an ApiError by `assertOk`.
   revalidateUnit: async (id: string): Promise<void> => {
     assertOk(
-      await fetchClient.POST("/api/v1/units/{id}/revalidate", {
+      await fetchClient.POST("/api/v1/tenant/units/{id}/revalidate", {
         params: { path: { id } },
       }),
     );
@@ -1267,7 +1272,7 @@ export const api = {
     const query: Record<string, string> = {};
     if (secretName) query.secretName = secretName;
     const result = await fetchClient.GET(
-      "/api/v1/agent-runtimes/{id}/credential-health",
+      "/api/v1/tenant/agent-runtimes/installs/{id}/credential-health",
       {
         params: { path: { id }, query: query as never },
       },
@@ -1285,7 +1290,7 @@ export const api = {
     const query: Record<string, string> = {};
     if (secretName) query.secretName = secretName;
     const result = await fetchClient.GET(
-      "/api/v1/connectors/{slugOrId}/credential-health",
+      "/api/v1/tenant/connectors/{slugOrId}/credential-health",
       {
         params: { path: { slugOrId }, query: query as never },
       },
@@ -1305,13 +1310,13 @@ export const api = {
   // always returns empty short-term + long-term lists.
   getUnitMemories: async (id: string) =>
     unwrap(
-      await fetchClient.GET("/api/v1/units/{id}/memories", {
+      await fetchClient.GET("/api/v1/tenant/units/{id}/memories", {
         params: { path: { id } },
       }),
     ),
   getAgentMemories: async (id: string) =>
     unwrap(
-      await fetchClient.GET("/api/v1/agents/{id}/memories", {
+      await fetchClient.GET("/api/v1/tenant/agents/{id}/memories", {
         params: { path: { id } },
       }),
     ),

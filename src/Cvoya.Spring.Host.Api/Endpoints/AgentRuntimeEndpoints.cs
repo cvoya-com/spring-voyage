@@ -27,7 +27,7 @@ public static class AgentRuntimeEndpoints
     /// </summary>
     public static RouteGroupBuilder MapAgentRuntimeEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/v1/agent-runtimes")
+        var group = app.MapGroup("/api/v1/tenant/agent-runtimes/installs")
             .WithTags("AgentRuntimes");
 
         group.MapGet("/", ListAsync)

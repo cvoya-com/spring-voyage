@@ -34,7 +34,7 @@ e2e::expect_status "0" "${code}" "agent create succeeds"
 # field set even when nothing has been spent; a missing field here would
 # break every dashboard client. Assert the zero-state shape explicitly.
 e2e::log "GET /api/v1/costs/agents/${agent}"
-response="$(e2e::http GET "/api/v1/costs/agents/${agent}")"
+response="$(e2e::http GET "/api/v1/tenant/cost/agents/${agent}")"
 status="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "200" "${status}" "cost query for new agent returns 200"
@@ -49,7 +49,7 @@ e2e::expect_contains "\"to\":" "${body}" "response includes the aggregation wind
 
 # --- Per-unit cost: a fresh unit has no records -----------------------------
 e2e::log "GET /api/v1/costs/units/${unit}"
-response="$(e2e::http GET "/api/v1/costs/units/${unit}")"
+response="$(e2e::http GET "/api/v1/tenant/cost/units/${unit}")"
 status="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "200" "${status}" "cost query for new unit returns 200"
@@ -61,7 +61,7 @@ e2e::expect_contains "\"recordCount\":0" "${body}" "fresh unit: recordCount is z
 # bare tenant endpoint. The value may be non-zero on a shared environment
 # (previous runs' residue), so we only assert the shape here.
 e2e::log "GET /api/v1/costs/tenant"
-response="$(e2e::http GET "/api/v1/costs/tenant")"
+response="$(e2e::http GET "/api/v1/tenant/cost/tenant")"
 status="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "200" "${status}" "tenant cost query returns 200"
@@ -77,7 +77,7 @@ e2e::expect_contains "\"to\":" "${body}" "tenant payload carries window end"
 past_from="2020-01-01T00:00:00Z"
 past_to="2020-01-02T00:00:00Z"
 e2e::log "GET /api/v1/costs/agents/${agent}?from=${past_from}&to=${past_to}"
-response="$(e2e::http GET "/api/v1/costs/agents/${agent}?from=${past_from}&to=${past_to}")"
+response="$(e2e::http GET "/api/v1/tenant/cost/agents/${agent}?from=${past_from}&to=${past_to}")"
 status="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "200" "${status}" "cost query with explicit from/to returns 200"

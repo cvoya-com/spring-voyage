@@ -93,8 +93,8 @@ describe("queries", () => {
         unitDisplayName: "Alpha",
         typeId: "github-id",
         typeSlug: "github",
-        configUrl: "/api/v1/connectors/github/units/u1/config",
-        actionsBaseUrl: "/api/v1/connectors/github/actions",
+        configUrl: "/api/v1/tenant/connectors/github/units/u1/config",
+        actionsBaseUrl: "/api/v1/tenant/connectors/github/actions",
       },
     ]);
 

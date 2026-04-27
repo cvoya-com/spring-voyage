@@ -40,7 +40,7 @@ public class CloneEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             $"test-agent:{StateKeys.CloneChildren}", Arg.Any<CancellationToken>())
             .Returns((List<string>?)null);
 
-        var response = await _client.GetAsync("/api/v1/agents/test-agent/clones", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/agents/test-agent/clones", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
@@ -78,7 +78,7 @@ public class CloneEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         var cloneEntryB = new DirectoryEntry(new Address("agent", "clone-b"), "clone-b", "Clone:clone-b", "Clone of list-parent", null, DateTimeOffset.UtcNow);
         _factory.DirectoryService.ResolveAsync(new Address("agent", "clone-b"), Arg.Any<CancellationToken>()).Returns(cloneEntryB);
 
-        var response = await _client.GetAsync($"/api/v1/agents/{agentId}/clones", ct);
+        var response = await _client.GetAsync($"/api/v1/tenant/agents/{agentId}/clones", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
@@ -104,7 +104,7 @@ public class CloneEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         var agentAddress = new Address("agent", "nonexistent-list-agent");
         _factory.DirectoryService.ResolveAsync(agentAddress, Arg.Any<CancellationToken>()).Returns((DirectoryEntry?)null);
 
-        var response = await _client.GetAsync("/api/v1/agents/nonexistent-list-agent/clones", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/agents/nonexistent-list-agent/clones", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
@@ -125,7 +125,7 @@ public class CloneEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
         };
         var response = await _client.PostAsJsonAsync(
-            "/api/v1/agents/nonexistent-agent/clones", request, jsonOptions, ct);
+            "/api/v1/tenant/agents/nonexistent-agent/clones", request, jsonOptions, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
@@ -145,7 +145,7 @@ public class CloneEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             $"{cloneId}:{StateKeys.CloneIdentity}", Arg.Any<CancellationToken>())
             .Returns(identity);
 
-        var response = await _client.GetAsync($"/api/v1/agents/{parentId}/clones/{cloneId}", ct);
+        var response = await _client.GetAsync($"/api/v1/tenant/agents/{parentId}/clones/{cloneId}", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
@@ -172,7 +172,7 @@ public class CloneEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         var cloneAddress = new Address("agent", "nonexistent-clone");
         _factory.DirectoryService.ResolveAsync(cloneAddress, Arg.Any<CancellationToken>()).Returns((DirectoryEntry?)null);
 
-        var response = await _client.GetAsync("/api/v1/agents/test-agent/clones/nonexistent-clone", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/agents/test-agent/clones/nonexistent-clone", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
@@ -184,7 +184,7 @@ public class CloneEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         var cloneAddress = new Address("agent", "nonexistent-clone");
         _factory.DirectoryService.ResolveAsync(cloneAddress, Arg.Any<CancellationToken>()).Returns((DirectoryEntry?)null);
 
-        var response = await _client.DeleteAsync("/api/v1/agents/test-agent/clones/nonexistent-clone", ct);
+        var response = await _client.DeleteAsync("/api/v1/tenant/agents/test-agent/clones/nonexistent-clone", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }

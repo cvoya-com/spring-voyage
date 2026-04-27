@@ -6,7 +6,7 @@
 >
 > **Closes:** [#406](https://github.com/cvoya-com/spring-voyage/issues/406)
 >
-> **Related:** [ADR 0001 — Web portal rendering strategy](../decisions/0001-web-portal-rendering-strategy.md) (superseded — see [#436](https://github.com/cvoya-com/spring-voyage/issues/436)), [Architecture: CLI & Web](../architecture/cli-and-web.md), [Guide: Observing](../guide/observing.md).
+> **Related:** [ADR 0001 — Web portal rendering strategy](../decisions/0001-web-portal-rendering-strategy.md) (superseded — see [#436](https://github.com/cvoya-com/spring-voyage/issues/436)), [Architecture: CLI & Web](../architecture/cli-and-web.md), [Guide: Observing](../guide/user/observing.md).
 
 ---
 

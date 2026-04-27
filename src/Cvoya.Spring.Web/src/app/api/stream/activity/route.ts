@@ -35,7 +35,7 @@ const UPSTREAM_BASE =
 
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);
-  const upstreamUrl = new URL("/api/v1/activity/stream", UPSTREAM_BASE);
+  const upstreamUrl = new URL("/api/v1/tenant/activity/stream", UPSTREAM_BASE);
   // Pass filter params through unchanged.
   for (const [key, value] of url.searchParams.entries()) {
     upstreamUrl.searchParams.append(key, value);

@@ -33,7 +33,7 @@ public static class ConversationEndpoints
     /// <returns>The route group for chaining.</returns>
     public static RouteGroupBuilder MapConversationEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/v1/conversations")
+        var group = app.MapGroup("/api/v1/tenant/conversations")
             .WithTags("Conversations");
 
         group.MapGet("/", ListConversationsAsync)
@@ -313,7 +313,7 @@ public static class InboxEndpoints
     /// <returns>The route group for chaining.</returns>
     public static RouteGroupBuilder MapInboxEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/v1/inbox")
+        var group = app.MapGroup("/api/v1/tenant/inbox")
             .WithTags("Inbox");
 
         group.MapGet("/", ListInboxAsync)

@@ -47,7 +47,7 @@ public class MemoriesEndpointTests : IClassFixture<CustomWebApplicationFactory>
         var ct = TestContext.Current.CancellationToken;
         ArrangeDirectoryHit("unit", "engineering", "actor-eng");
 
-        var response = await _client.GetAsync("/api/v1/units/engineering/memories", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/units/engineering/memories", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var body = await response.Content.ReadFromJsonAsync<MemoriesResponse>(JsonOptions, ct);
@@ -62,7 +62,7 @@ public class MemoriesEndpointTests : IClassFixture<CustomWebApplicationFactory>
         var ct = TestContext.Current.CancellationToken;
         ArrangeDirectoryMiss();
 
-        var response = await _client.GetAsync("/api/v1/units/ghost/memories", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/units/ghost/memories", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
@@ -72,7 +72,7 @@ public class MemoriesEndpointTests : IClassFixture<CustomWebApplicationFactory>
         var ct = TestContext.Current.CancellationToken;
         ArrangeDirectoryHit("agent", "ada", "actor-ada");
 
-        var response = await _client.GetAsync("/api/v1/agents/ada/memories", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/agents/ada/memories", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var body = await response.Content.ReadFromJsonAsync<MemoriesResponse>(JsonOptions, ct);
@@ -87,7 +87,7 @@ public class MemoriesEndpointTests : IClassFixture<CustomWebApplicationFactory>
         var ct = TestContext.Current.CancellationToken;
         ArrangeDirectoryMiss();
 
-        var response = await _client.GetAsync("/api/v1/agents/ghost/memories", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/agents/ghost/memories", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 

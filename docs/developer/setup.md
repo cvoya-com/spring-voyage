@@ -1,6 +1,6 @@
 # Development Setup
 
-This guide covers setting up a local development environment for contributing to Spring Voyage V2.
+This guide covers setting up a local development environment for contributing to Spring Voyage.
 
 ## Prerequisites
 

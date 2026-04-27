@@ -22,7 +22,7 @@ public static class InitiativeEndpoints
     /// <returns>The route group builder for chaining.</returns>
     public static RouteGroupBuilder MapInitiativeEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/v1")
+        var group = app.MapGroup("/api/v1/tenant")
             .WithTags("Initiative");
 
         group.MapGet("/agents/{id}/initiative/policy", GetAgentInitiativePolicyAsync)

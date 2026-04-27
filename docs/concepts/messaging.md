@@ -1,6 +1,6 @@
 # Messaging and Addressing
 
-Communication in Spring Voyage V2 is built on two primitives: **addresses** (how entities are identified) and **messages** (how they communicate).
+Communication in Spring Voyage is built on two primitives: **addresses** (how entities are identified) and **messages** (how they communicate).
 
 ## Addressable Entities
 

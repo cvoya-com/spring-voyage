@@ -40,7 +40,7 @@ public static class UnitEndpoints
     /// <returns>The route group builder for chaining.</returns>
     public static RouteGroupBuilder MapUnitEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/v1/units")
+        var group = app.MapGroup("/api/v1/tenant/units")
             .WithTags("Units");
 
         group.MapGet("/", ListUnitsAsync)

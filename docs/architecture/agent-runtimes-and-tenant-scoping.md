@@ -1,10 +1,10 @@
 # Agent Runtimes & Tenant Scoping
 
-> Canonical architecture reference for the #674 refactor. Read this to understand how Spring Voyage V2 models tenant-scoped data, plugin-registered agent runtimes and connectors, and the operator-facing install / credential-health surface — without having to page through every phase issue.
+> Canonical architecture reference for the #674 refactor. Read this to understand how Spring Voyage models tenant-scoped data, plugin-registered agent runtimes and connectors, and the operator-facing install / credential-health surface — without having to page through every phase issue.
 
 ## Overview
 
-V2 makes the platform **tenant-scoped end-to-end** and turns AI "providers + execution tools" into a single unified **Agent Runtime** plugin concept, parallel to the existing **Connector** plugin. Every business-data row carries a `tenant_id`; every plugin registers in DI and becomes _available_ to the host; per-tenant install tables decide which plugins are _visible_ to a given tenant's workflows. A shared credential-health store tracks whether each tenant's stored credentials currently work.
+the platform is **tenant-scoped end-to-end** and turns AI "providers + execution tools" into a single unified **Agent Runtime** plugin concept, parallel to the existing **Connector** plugin. Every business-data row carries a `tenant_id`; every plugin registers in DI and becomes _available_ to the host; per-tenant install tables decide which plugins are _visible_ to a given tenant's workflows. A shared credential-health store tracks whether each tenant's stored credentials currently work.
 
 The OSS core ships single-tenant at runtime (the literal `"default"` tenant is materialised by a first-start bootstrap). The private cloud repo swaps in a request-scoped `ITenantContext` to turn the same schema into a multi-tenant deployment without forking.
 
@@ -74,7 +74,7 @@ The filter lives on `SpringDbContext.OnModelCreating` rather than the per-entity
 
 ## Connector plugin model
 
-Connectors existed before V2 (`IConnectorType` in `Cvoya.Spring.Connectors.Abstractions`). The refactor adds:
+Connectors existed before this design (`IConnectorType` in `Cvoya.Spring.Connectors.Abstractions`). The refactor adds:
 
 - **Per-tenant install table** — `tenant_connector_installs (tenant_id, connector_id, config_json, installed_at, updated_at)`. `connector_id` is the connector `Slug`. `ConnectorInstallConfig` wraps an opaque `JsonElement?` because each connector's tenant-level config shape is its own concern.
 - **Credential hooks on `IConnectorType`** — optional default-`null` `ValidateCredentialAsync` + `VerifyContainerBaselineAsync` overrides. Connectors that don't carry auth (Arxiv, WebSearch) inherit the no-op; connectors that do (GitHub) override.
@@ -114,8 +114,8 @@ Every admin/operator mutation is **CLI-only**. The portal MAY expose read-only v
 - Connector install/config → `spring connector …`
 - Unit validation → `spring unit create` (default `--wait`) / `spring unit revalidate <name>`
 - Credential health → `spring … credentials status` (reads only; writes come from the watchdog + the unit-scoped `UnitValidationWorkflow`)
-- Tenant seeds → Worker bootstrap (no HTTP / CLI re-seed in V2)
-- Skill-bundle bindings → Worker bootstrap in V2; `spring skill-bundle …` mutation CLI deferred to V2.1
+- Tenant seeds → Worker bootstrap (no HTTP / CLI re-seed.)
+- Skill-bundle bindings → Worker bootstrap.; `spring skill-bundle …` mutation CLI deferred to a future release
 
 This is ADDITIVE to `CONVENTIONS.md` § 14 (UI / CLI parity for user-facing features). See `AGENTS.md` § "Admin surfaces (CLI-only)" for the canonical version.
 

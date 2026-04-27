@@ -24,7 +24,7 @@ public class ConversationClientTests
     public async Task ListConversationsAsync_CallsCorrectEndpointAndParsesResponse()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/conversations",
+            expectedPath: "/api/v1/tenant/conversations",
             expectedMethod: HttpMethod.Get,
             responseBody: """[{"id":"c-1","participants":["agent://ada","human://savasp"],"status":"active","lastActivity":"2026-04-01T10:00:00Z","createdAt":"2026-04-01T09:55:00Z","eventCount":4,"origin":"agent://ada","summary":"Starting review."}]""");
 
@@ -47,7 +47,7 @@ public class ConversationClientTests
     public async Task ListConversationsAsync_WithFilters_ForwardsQueryParameters()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/conversations",
+            expectedPath: "/api/v1/tenant/conversations",
             expectedMethod: HttpMethod.Get,
             responseBody: "[]",
             validateQuery: query =>
@@ -74,7 +74,7 @@ public class ConversationClientTests
     public async Task GetConversationAsync_CallsCorrectEndpointAndParsesDetail()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/conversations/c-1",
+            expectedPath: "/api/v1/tenant/conversations/c-1",
             expectedMethod: HttpMethod.Get,
             responseBody: """{"summary":{"id":"c-1","participants":["agent://ada"],"status":"active","lastActivity":"2026-04-01T10:00:00Z","createdAt":"2026-04-01T09:55:00Z","eventCount":2,"origin":"agent://ada","summary":"Started"},"events":[{"id":"00000000-0000-0000-0000-000000000001","timestamp":"2026-04-01T09:55:00Z","source":"agent://ada","eventType":"ConversationStarted","severity":"Info","summary":"Started conversation c-1"}]}""");
 
@@ -97,7 +97,7 @@ public class ConversationClientTests
     {
         var conversationId = "c-1";
         var handler = new MockHttpMessageHandler(
-            expectedPath: $"/api/v1/conversations/{conversationId}/messages",
+            expectedPath: $"/api/v1/tenant/conversations/{conversationId}/messages",
             expectedMethod: HttpMethod.Post,
             responseBody: $$"""{"messageId":"{{Guid.NewGuid()}}","conversationId":"{{conversationId}}"}""",
             validateRequestBody: body =>
@@ -125,7 +125,7 @@ public class ConversationClientTests
     public async Task ListInboxAsync_CallsCorrectEndpointAndParsesResponse()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/inbox",
+            expectedPath: "/api/v1/tenant/inbox",
             expectedMethod: HttpMethod.Get,
             responseBody: """[{"conversationId":"c-9","from":"agent://ada","human":"human://savasp","pendingSince":"2026-04-01T10:00:00Z","summary":"Needs your approval to merge."}]""");
 
@@ -144,7 +144,7 @@ public class ConversationClientTests
     public async Task ListInboxAsync_EmptyList_ReturnsEmpty()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/inbox",
+            expectedPath: "/api/v1/tenant/inbox",
             expectedMethod: HttpMethod.Get,
             responseBody: "[]",
             returnStatusCode: HttpStatusCode.OK);

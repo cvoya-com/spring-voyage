@@ -83,7 +83,7 @@ public class DashboardEndpointsTests : IClassFixture<CustomWebApplicationFactory
             .GetTotalCostAsync(null, null, null, Arg.Any<CancellationToken>())
             .Returns(25.50m);
 
-        var response = await _client.GetAsync("/api/v1/dashboard/summary", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/dashboard/summary", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
@@ -122,7 +122,7 @@ public class DashboardEndpointsTests : IClassFixture<CustomWebApplicationFactory
         };
         _factory.DirectoryService.ListAllAsync(Arg.Any<CancellationToken>()).Returns(entries);
 
-        var response = await _client.GetAsync("/api/v1/dashboard/agents", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/dashboard/agents", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
@@ -146,7 +146,7 @@ public class DashboardEndpointsTests : IClassFixture<CustomWebApplicationFactory
         };
         _factory.DirectoryService.ListAllAsync(Arg.Any<CancellationToken>()).Returns(entries);
 
-        var response = await _client.GetAsync("/api/v1/dashboard/units", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/dashboard/units", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
@@ -171,7 +171,7 @@ public class DashboardEndpointsTests : IClassFixture<CustomWebApplicationFactory
         _factory.ActivityQueryService.GetTotalCostAsync(null, Arg.Any<DateTimeOffset?>(), Arg.Any<DateTimeOffset?>(), Arg.Any<CancellationToken>())
             .Returns(15.75m);
 
-        var response = await _client.GetAsync("/api/v1/dashboard/costs", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/dashboard/costs", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 

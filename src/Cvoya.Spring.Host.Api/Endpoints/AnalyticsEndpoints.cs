@@ -21,7 +21,7 @@ public static class AnalyticsEndpoints
     /// <returns>The route group builder for chaining.</returns>
     public static RouteGroupBuilder MapAnalyticsEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/v1/analytics")
+        var group = app.MapGroup("/api/v1/tenant/analytics")
             .WithTags("Analytics");
 
         group.MapGet("/throughput", GetThroughputAsync)

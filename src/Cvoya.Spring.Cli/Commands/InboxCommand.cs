@@ -110,12 +110,11 @@ public static class InboxCommand
                     Console.WriteLine();
                 }
 
+                // #1209: thin alias of `spring conversation show` — share
+                // the renderer so message bodies surface inline on inbox
+                // show too.
                 var events = detail.Events ?? new List<ConversationEvent>();
-                foreach (var evt in events)
-                {
-                    Console.WriteLine(
-                        $"{FormatTimestamp(evt.Timestamp)}  [{evt.Source}]  {evt.EventType}  {evt.Summary}");
-                }
+                ConversationCommand.RenderConversationEvents(events);
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {

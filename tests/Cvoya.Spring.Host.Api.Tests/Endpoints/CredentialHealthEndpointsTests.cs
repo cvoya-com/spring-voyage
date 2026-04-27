@@ -45,7 +45,7 @@ public class CredentialHealthEndpointsTests : IClassFixture<CustomWebApplication
         var ct = TestContext.Current.CancellationToken;
         // Use a secretName unlikely to collide with other tests.
         var response = await _client.GetAsync(
-            "/api/v1/agent-runtimes/claude/credential-health?secretName=probe-404",
+            "/api/v1/tenant/agent-runtimes/installs/claude/credential-health?secretName=probe-404",
             ct);
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
@@ -55,7 +55,7 @@ public class CredentialHealthEndpointsTests : IClassFixture<CustomWebApplication
     {
         var ct = TestContext.Current.CancellationToken;
         var response = await _client.GetAsync(
-            "/api/v1/agent-runtimes/not-a-real-runtime/credential-health", ct);
+            "/api/v1/tenant/agent-runtimes/installs/not-a-real-runtime/credential-health", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
@@ -74,7 +74,7 @@ public class CredentialHealthEndpointsTests : IClassFixture<CustomWebApplication
         // the endpoint surfaces an Unknown status with a friendly message.
         var ct = TestContext.Current.CancellationToken;
         var response = await _client.PostAsJsonAsync(
-            "/api/v1/connectors/stub/validate-credential",
+            "/api/v1/tenant/connectors/stub/validate-credential",
             new CredentialValidateRequest("anything", SecretName: null),
             ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -93,7 +93,7 @@ public class CredentialHealthEndpointsTests : IClassFixture<CustomWebApplication
     {
         var ct = TestContext.Current.CancellationToken;
         var response = await _client.GetAsync(
-            "/api/v1/connectors/not-a-real-connector/credential-health", ct);
+            "/api/v1/tenant/connectors/not-a-real-connector/credential-health", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 }

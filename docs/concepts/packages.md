@@ -1,6 +1,6 @@
 # Packages and Skills
 
-Spring Voyage V2 is domain-agnostic by design. The platform provides primitives (agents, units, messaging, orchestration); **packages** provide domain expertise.
+Spring Voyage is domain-agnostic by design. The platform provides primitives (agents, units, messaging, orchestration); **packages** provide domain expertise.
 
 ## What is a Package?
 

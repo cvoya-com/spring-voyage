@@ -1,6 +1,6 @@
 # Glossary
 
-Definitions of key terms used throughout the Spring Voyage V2 documentation.
+Definitions of key terms used throughout the Spring Voyage documentation.
 
 ---
 
@@ -44,7 +44,7 @@ A partition of the agent's mailbox holding messages for a specific conversation.
 A partition of the agent's mailbox for platform control messages (Cancel, StatusQuery, HealthCheck, PolicyUpdate). Control messages are never blocked behind work.
 
 **Dapr**
-A distributed application runtime providing building blocks (actors, pub/sub, state, secrets, workflows) as a sidecar process. The infrastructure foundation of Spring Voyage V2.
+A distributed application runtime providing building blocks (actors, pub/sub, state, secrets, workflows) as a sidecar process. The infrastructure foundation of Spring Voyage.
 
 **Delegated Execution**
 An execution pattern where the agent actor dispatches work to an isolated execution environment (container) running a tool like Claude Code. The tool drives its own agentic loop.

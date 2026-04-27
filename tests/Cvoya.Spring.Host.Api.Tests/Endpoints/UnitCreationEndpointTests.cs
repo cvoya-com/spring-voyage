@@ -86,7 +86,7 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
             """;
 
         var response = await _client.PostAsJsonAsync(
-            "/api/v1/units/from-yaml",
+            "/api/v1/tenant/units/from-yaml",
             new CreateUnitFromYamlRequest(Yaml, DisplayName: "From YAML", IsTopLevel: true),
             ct);
 
@@ -130,7 +130,7 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
         var ct = TestContext.Current.CancellationToken;
 
         var response = await _client.PostAsJsonAsync(
-            "/api/v1/units/from-yaml",
+            "/api/v1/tenant/units/from-yaml",
             new CreateUnitFromYamlRequest("not-a-unit: 1"),
             ct);
 
@@ -143,7 +143,7 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
         var ct = TestContext.Current.CancellationToken;
 
         var response = await _client.PostAsJsonAsync(
-            "/api/v1/units/from-yaml",
+            "/api/v1/tenant/units/from-yaml",
             new CreateUnitFromYamlRequest(string.Empty),
             ct);
 
@@ -155,7 +155,7 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
     {
         var ct = TestContext.Current.CancellationToken;
 
-        var response = await _client.GetAsync("/api/v1/packages/templates", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/packages/templates", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var body = await response.Content.ReadAsStringAsync(ct);
@@ -173,7 +173,7 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
         var ct = TestContext.Current.CancellationToken;
 
         var response = await _client.PostAsJsonAsync(
-            "/api/v1/units/from-template",
+            "/api/v1/tenant/units/from-template",
             new CreateUnitFromTemplateRequest("does-not-exist", "nope"),
             ct);
 
@@ -196,7 +196,7 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
             .Returns(Task.CompletedTask);
 
         var response = await _client.PostAsJsonAsync(
-            "/api/v1/units/from-template",
+            "/api/v1/tenant/units/from-template",
             new CreateUnitFromTemplateRequest("sample-pkg", "sample-unit", IsTopLevel: true),
             ct);
 
@@ -262,7 +262,7 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
             """;
 
         var createResponse = await _client.PostAsJsonAsync(
-            "/api/v1/units/from-yaml",
+            "/api/v1/tenant/units/from-yaml",
             new CreateUnitFromYamlRequest(Yaml, IsTopLevel: true),
             ct);
 
@@ -276,7 +276,7 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
 
         // Read the memberships endpoint — the surface that was broken pre-fix.
         var listResponse = await _client.GetAsync(
-            "/api/v1/units/memberships-template-unit/memberships", ct);
+            "/api/v1/tenant/units/memberships-template-unit/memberships", ct);
         listResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var listBody = await listResponse.Content.ReadAsStringAsync(ct);
@@ -344,14 +344,14 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
             """;
 
         var createResponse = await _client.PostAsJsonAsync(
-            "/api/v1/units/from-yaml",
+            "/api/v1/tenant/units/from-yaml",
             new CreateUnitFromYamlRequest(Yaml, IsTopLevel: true),
             ct);
 
         createResponse.StatusCode.ShouldBe(HttpStatusCode.Created);
 
         var listResponse = await _client.GetAsync(
-            "/api/v1/units/mixed-membership-unit/memberships", ct);
+            "/api/v1/tenant/units/mixed-membership-unit/memberships", ct);
         listResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var listBody = await listResponse.Content.ReadAsStringAsync(ct);
@@ -388,7 +388,7 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
             .Returns((DirectoryEntry?)null);
 
         var response = await _client.PostAsJsonAsync(
-            "/api/v1/units/from-template",
+            "/api/v1/tenant/units/from-template",
             new CreateUnitFromTemplateRequest(
                 "sample-pkg",
                 "sample-unit",
@@ -428,7 +428,7 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
             .Returns(Task.CompletedTask);
 
         var response = await _client.PostAsJsonAsync(
-            "/api/v1/units/from-template",
+            "/api/v1/tenant/units/from-template",
             new CreateUnitFromTemplateRequest("sample-pkg", "sample-unit", IsTopLevel: true),
             ct);
 
@@ -476,7 +476,7 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
                 DateTimeOffset.UtcNow));
 
         var response = await _client.PostAsJsonAsync(
-            "/api/v1/units/from-template",
+            "/api/v1/tenant/units/from-template",
             new CreateUnitFromTemplateRequest(
                 "sample-pkg",
                 "sample-unit",
@@ -512,7 +512,7 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
             .Returns(Task.CompletedTask);
 
         var response = await _client.PostAsJsonAsync(
-            "/api/v1/units/from-template",
+            "/api/v1/tenant/units/from-template",
             new CreateUnitFromTemplateRequest("sample-pkg", "sample-unit", IsTopLevel: true),
             ct);
 
@@ -558,7 +558,7 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
             isTopLevel = true,
         };
 
-        var response = await _client.PostAsJsonAsync("/api/v1/units", request, ct);
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/units", request, ct);
         response.StatusCode.ShouldBe(HttpStatusCode.Created);
 
         var body = await response.Content.ReadAsStringAsync(ct);
@@ -597,7 +597,7 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
             .Returns(Task.CompletedTask);
 
         var response = await _client.PostAsJsonAsync(
-            "/api/v1/units/from-template",
+            "/api/v1/tenant/units/from-template",
             new CreateUnitFromTemplateRequest("sample-pkg", "sample-unit", IsTopLevel: true),
             ct);
 
@@ -642,7 +642,7 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
             // No 'connector' field — the wizard omits it for the skip case.
         };
 
-        var response = await _client.PostAsJsonAsync("/api/v1/units", request, ct);
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/units", request, ct);
         response.StatusCode.ShouldBe(HttpStatusCode.Created);
 
         await _factory.DirectoryService.Received(1).RegisterAsync(
@@ -690,7 +690,7 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
             },
         };
 
-        var response = await _client.PostAsJsonAsync("/api/v1/units", request, ct);
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/units", request, ct);
         response.StatusCode.ShouldBe(HttpStatusCode.Created);
 
         await _factory.DirectoryService.Received(1).RegisterAsync(
@@ -732,7 +732,7 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
             },
         };
 
-        var response = await _client.PostAsJsonAsync("/api/v1/units", request, ct);
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/units", request, ct);
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
 
         // Validation is up-front — nothing should have been written or
@@ -776,7 +776,7 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
             },
         };
 
-        var response = await _client.PostAsJsonAsync("/api/v1/units", request, ct);
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/units", request, ct);
         response.StatusCode.ShouldBe(HttpStatusCode.BadGateway);
 
         // The unit was registered, then rolled back via UnregisterAsync.
@@ -807,7 +807,7 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
             },
         };
 
-        var response = await _client.PostAsJsonAsync("/api/v1/units", request, ct);
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/units", request, ct);
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
 
         await _factory.DirectoryService.DidNotReceive().RegisterAsync(
@@ -839,7 +839,7 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
             """;
 
         var response = await _client.PostAsJsonAsync(
-            "/api/v1/units/from-yaml",
+            "/api/v1/tenant/units/from-yaml",
             new CreateUnitFromYamlRequest(Yaml, IsTopLevel: true),
             ct);
 
@@ -878,7 +878,7 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
             """;
 
         var response = await _client.PostAsJsonAsync(
-            "/api/v1/units/from-yaml",
+            "/api/v1/tenant/units/from-yaml",
             new CreateUnitFromYamlRequest(Yaml, IsTopLevel: true),
             ct);
 
@@ -919,7 +919,7 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
             """;
 
         var response = await _client.PostAsJsonAsync(
-            "/api/v1/units/from-yaml",
+            "/api/v1/tenant/units/from-yaml",
             new CreateUnitFromYamlRequest(Yaml, IsTopLevel: true),
             ct);
 
@@ -946,7 +946,7 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
         var ct = TestContext.Current.CancellationToken;
 
         var response = await _client.PostAsJsonAsync(
-            "/api/v1/units/from-template",
+            "/api/v1/tenant/units/from-template",
             new CreateUnitFromTemplateRequest("..", "sample-unit"),
             ct);
 

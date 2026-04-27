@@ -1,6 +1,6 @@
 # Tenants and Permissions
 
-Spring Voyage V2 supports multiple organizations on a single platform deployment through **tenants**. Each tenant is an isolated organizational unit with its own users, units, agents, and resources.
+Spring Voyage supports multiple organizations on a single platform deployment through **tenants**. Each tenant is an isolated organizational unit with its own users, units, agents, and resources.
 
 ## What is a Tenant?
 

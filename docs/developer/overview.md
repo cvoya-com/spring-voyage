@@ -1,6 +1,6 @@
 # Developer Guide
 
-This guide is for developers contributing to the Spring Voyage V2 platform itself -- the .NET infrastructure, connectors, workflows, agents, and tooling.
+This guide is for developers contributing to the Spring Voyage platform itself -- the .NET infrastructure, connectors, workflows, agents, and tooling.
 
 ## Document Map
 

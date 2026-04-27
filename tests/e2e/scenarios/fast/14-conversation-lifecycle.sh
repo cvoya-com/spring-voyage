@@ -71,7 +71,7 @@ fi
 poll_for_event_type() {
     local event_type="$1" attempt query_response query_status query_body
     for attempt in 1 2 3 4 5 6 7 8 9 10; do
-        query_response="$(e2e::http GET "/api/v1/activity?source=${expected_source}&eventType=${event_type}&limit=5")"
+        query_response="$(e2e::http GET "/api/v1/tenant/activity?source=${expected_source}&eventType=${event_type}&limit=5")"
         query_status="${query_response##*$'\n'}"
         query_body="${query_response%$'\n'*}"
         if [[ "${query_status}" == "200" ]] && [[ "${query_body}" == *"${event_type}"* ]]; then

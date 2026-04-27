@@ -19,11 +19,19 @@ using Microsoft.Extensions.Options;
 /// ASP.NET Core authentication handler that validates bearer tokens against
 /// hashed API tokens stored in the database.
 /// </summary>
+/// <remarks>
+/// Role claims are appended via the registered <see cref="IRoleClaimSource"/>.
+/// The OSS default grants every authenticated caller all three platform
+/// roles; the cloud overlay (private repo) supplies its own
+/// <see cref="IRoleClaimSource"/> via <c>TryAddSingleton</c> ahead of the
+/// OSS extension call so its identity-scoped subset wins.
+/// </remarks>
 public class ApiTokenAuthHandler(
     IOptionsMonitor<AuthenticationSchemeOptions> options,
     ILoggerFactory loggerFactory,
     UrlEncoder encoder,
-    IServiceScopeFactory scopeFactory)
+    IServiceScopeFactory scopeFactory,
+    IRoleClaimSource roleClaimSource)
     : AuthenticationHandler<AuthenticationSchemeOptions>(options, loggerFactory, encoder)
 {
     /// <inheritdoc />
@@ -86,6 +94,11 @@ public class ApiTokenAuthHandler(
         }
 
         var identity = new ClaimsIdentity(claims, AuthConstants.ApiTokenScheme);
+
+        // Append platform-role claims emitted by the registered source.
+        // OSS grants all three; cloud overlays scope per identity.
+        identity.AddClaims(roleClaimSource.GetRoleClaims(identity));
+
         var principal = new ClaimsPrincipal(identity);
         var ticket = new AuthenticationTicket(principal, AuthConstants.ApiTokenScheme);
 

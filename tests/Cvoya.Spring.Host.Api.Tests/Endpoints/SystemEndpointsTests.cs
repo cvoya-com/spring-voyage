@@ -51,7 +51,7 @@ public class SystemEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         var ct = TestContext.Current.CancellationToken;
 
         var response = await _client.GetAsync(
-            "/api/v1/system/credentials/no-such-provider/status", ct);
+            "/api/v1/platform/credentials/no-such-provider/status", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         var body = await response.Content.ReadAsStringAsync(ct);
@@ -65,7 +65,7 @@ public class SystemEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         await ClearSecretsAsync(ct);
 
         var response = await _client.GetAsync(
-            "/api/v1/system/credentials/anthropic/status", ct);
+            "/api/v1/platform/credentials/anthropic/status", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<ProviderCredentialStatusResponse>(ct);
@@ -102,7 +102,7 @@ public class SystemEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             .Returns<string?>(_ => throw new SecretUnreadableException());
 
         var response = await _client.GetAsync(
-            "/api/v1/system/credentials/anthropic/status", ct);
+            "/api/v1/platform/credentials/anthropic/status", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
@@ -126,7 +126,7 @@ public class SystemEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         await SeedTenantSecretAsync("anthropic-api-key", "sk-top-secret", ct);
 
         var response = await _client.GetAsync(
-            "/api/v1/system/credentials/anthropic/status", ct);
+            "/api/v1/platform/credentials/anthropic/status", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
@@ -151,7 +151,7 @@ public class SystemEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         await SeedTenantSecretAsync("openai-api-key", "sk-openai-value", ct);
 
         var response = await _client.GetAsync(
-            "/api/v1/system/credentials/openai/status", ct);
+            "/api/v1/platform/credentials/openai/status", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         (await response.Content.ReadAsStringAsync(ct)).ShouldNotContain("sk-openai-value");
@@ -169,7 +169,7 @@ public class SystemEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         await ClearSecretsAsync(ct);
 
         var response = await _client.GetAsync(
-            "/api/v1/system/credentials/google/status", ct);
+            "/api/v1/platform/credentials/google/status", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<ProviderCredentialStatusResponse>(ct);
@@ -189,7 +189,7 @@ public class SystemEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         var ct = TestContext.Current.CancellationToken;
 
         var response = await _client.GetAsync(
-            "/api/v1/system/credentials/ollama/status", ct);
+            "/api/v1/platform/credentials/ollama/status", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<ProviderCredentialStatusResponse>(ct);
@@ -209,7 +209,7 @@ public class SystemEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         await SeedTenantSecretAsync("anthropic-api-key", "sk-claude-alias", ct);
 
         var response = await _client.GetAsync(
-            "/api/v1/system/credentials/claude/status", ct);
+            "/api/v1/platform/credentials/claude/status", ct);
 
         // "claude" is accepted as an alias only inside the resolver's
         // provider-id mapping. At the HTTP layer only the canonical
@@ -235,7 +235,7 @@ public class SystemEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         await SeedTenantSecretAsync("anthropic-api-key", "sk-ant-oat-fake-token", ct);
 
         var response = await _client.GetAsync(
-            "/api/v1/system/credentials/anthropic/status?dispatchPath=rest", ct);
+            "/api/v1/platform/credentials/anthropic/status?dispatchPath=rest", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
@@ -264,7 +264,7 @@ public class SystemEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         await SeedTenantSecretAsync("anthropic-api-key", "sk-ant-oat-fake-token", ct);
 
         var response = await _client.GetAsync(
-            "/api/v1/system/credentials/anthropic/status?dispatchPath=agent-runtime", ct);
+            "/api/v1/platform/credentials/anthropic/status?dispatchPath=agent-runtime", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
@@ -289,7 +289,7 @@ public class SystemEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         foreach (var path in new[] { "rest", "agent-runtime" })
         {
             var response = await _client.GetAsync(
-                $"/api/v1/system/credentials/anthropic/status?dispatchPath={path}", ct);
+                $"/api/v1/platform/credentials/anthropic/status?dispatchPath={path}", ct);
 
             response.StatusCode.ShouldBe(HttpStatusCode.OK);
             var body = await response.Content.ReadFromJsonAsync<ProviderCredentialStatusResponse>(ct);
@@ -311,7 +311,7 @@ public class SystemEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         await SeedTenantSecretAsync("anthropic-api-key", "sk-ant-oat-fake-token", ct);
 
         var response = await _client.GetAsync(
-            "/api/v1/system/credentials/anthropic/status", ct);
+            "/api/v1/platform/credentials/anthropic/status", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
@@ -328,7 +328,7 @@ public class SystemEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         await ClearSecretsAsync(ct);
 
         var response = await _client.GetAsync(
-            "/api/v1/system/credentials/anthropic/status?dispatchPath=not-a-path", ct);
+            "/api/v1/platform/credentials/anthropic/status?dispatchPath=not-a-path", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         var body = await response.Content.ReadAsStringAsync(ct);

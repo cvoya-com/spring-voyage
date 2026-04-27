@@ -46,7 +46,7 @@ Per-unit config — the GitHub repo, organisation, webhook events — is set via
 
 ## Checking credential health
 
-> **Connector credential validation — scope note for [#941](https://github.com/cvoya-com/spring-voyage/issues/941).** The in-container validation rework in V2 retired the host-side probe for **agent runtimes** only; connector `POST /validate-credential` still runs on the API host (connectors don't yet have a container-image contract). The use-time watchdog described below remains the durable source of `Invalid` / `Revoked` signals for connectors. Rework tracked separately if/when connector probes move in-container.
+> **Connector credential validation — scope note for [#941](https://github.com/cvoya-com/spring-voyage/issues/941).** The in-container validation rework. retired the host-side probe for **agent runtimes** only; connector `POST /validate-credential` still runs on the API host (connectors don't yet have a container-image contract). The use-time watchdog described below remains the durable source of `Invalid` / `Revoked` signals for connectors. Rework tracked separately if/when connector probes move in-container.
 
 The credential-health store feeds two paths:
 - **Accept-time validation** — hitting `POST /api/v1/connectors/{slug}/validate-credential` writes the outcome. Subject to the rework banner above.
@@ -98,4 +98,4 @@ Add `--force` to skip the prompt in scripts. Uninstall is soft-delete: re-instal
 
 - [Agent Runtimes operator guide](agent-runtimes.md) — parallel guide for per-tenant agent-runtime installs.
 - [Architecture: Agent Runtimes & Tenant Scoping](../../architecture/agent-runtimes-and-tenant-scoping.md) — plugin model, credential-health state machine.
-- [Per-unit connector binding](../units-and-agents.md) — wiring a unit to an installed connector.
+- [Per-unit connector binding](../user/units-and-agents.md) — wiring a unit to an installed connector.

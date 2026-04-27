@@ -48,7 +48,7 @@ public class CloningPolicyEndpointsTests : IClassFixture<CustomWebApplicationFac
             .ResolveAsync(new Address("agent", "missing-agent"), Arg.Any<CancellationToken>())
             .Returns((DirectoryEntry?)null);
 
-        var response = await _client.GetAsync("/api/v1/agents/missing-agent/cloning-policy", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/agents/missing-agent/cloning-policy", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
@@ -64,7 +64,7 @@ public class CloningPolicyEndpointsTests : IClassFixture<CustomWebApplicationFac
             .GetAsync<AgentCloningPolicy>(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns((AgentCloningPolicy?)null);
 
-        var response = await _client.GetAsync("/api/v1/agents/ada-get/cloning-policy", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/agents/ada-get/cloning-policy", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<AgentCloningPolicyResponse>(_jsonOptions, ct);
@@ -91,7 +91,7 @@ public class CloningPolicyEndpointsTests : IClassFixture<CustomWebApplicationFac
             Budget: 7m);
 
         var putResponse = await _client.PutAsJsonAsync(
-            "/api/v1/agents/ada-set/cloning-policy", request, _jsonOptions, ct);
+            "/api/v1/tenant/agents/ada-set/cloning-policy", request, _jsonOptions, ct);
 
         putResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await putResponse.Content.ReadFromJsonAsync<AgentCloningPolicyResponse>(_jsonOptions, ct);
@@ -111,7 +111,7 @@ public class CloningPolicyEndpointsTests : IClassFixture<CustomWebApplicationFac
             .Returns((DirectoryEntry?)null);
 
         var response = await _client.DeleteAsync(
-            "/api/v1/agents/missing-clear/cloning-policy", ct);
+            "/api/v1/tenant/agents/missing-clear/cloning-policy", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }

@@ -26,7 +26,7 @@ public static class DashboardEndpoints
     /// <returns>The route group builder for chaining.</returns>
     public static RouteGroupBuilder MapDashboardEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/v1/dashboard")
+        var group = app.MapGroup("/api/v1/tenant/dashboard")
             .WithTags("Dashboard");
 
         group.MapGet("/summary", GetDashboardSummaryAsync)

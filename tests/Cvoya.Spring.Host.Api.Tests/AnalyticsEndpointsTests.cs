@@ -53,7 +53,7 @@ public class AnalyticsEndpointsTests : IClassFixture<CustomWebApplicationFactory
                 Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(rollup));
 
-        var response = await _client.GetAsync("/api/v1/analytics/throughput", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/analytics/throughput", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<ThroughputRollupResponse>(ct);
@@ -77,7 +77,7 @@ public class AnalyticsEndpointsTests : IClassFixture<CustomWebApplicationFactory
                 new List<ThroughputEntry>(), DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow)));
 
         var response = await _client.GetAsync(
-            "/api/v1/analytics/throughput?source=unit%3A%2F%2Feng-team", ct);
+            "/api/v1/tenant/analytics/throughput?source=unit%3A%2F%2Feng-team", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
@@ -113,7 +113,7 @@ public class AnalyticsEndpointsTests : IClassFixture<CustomWebApplicationFactory
                 Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(rollup));
 
-        var response = await _client.GetAsync("/api/v1/analytics/waits", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/analytics/waits", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<WaitTimeRollupResponse>(ct);

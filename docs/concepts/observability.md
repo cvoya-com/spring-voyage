@@ -1,6 +1,6 @@
 # Observability
 
-Observability is a first-class architectural concern in Spring Voyage V2. Every agent, unit, and connector emits a structured activity stream that can be observed in real-time by humans and other agents.
+Observability is a first-class architectural concern in Spring Voyage. Every agent, unit, and connector emits a structured activity stream that can be observed in real-time by humans and other agents.
 
 ## Activity Events
 

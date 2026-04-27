@@ -283,6 +283,15 @@ public static class ServiceCollectionExtensions
         services.TryAddEnumerable(
             ServiceDescriptor.Singleton<ITenantSeedProvider, ConnectorInstallSeedProvider>());
 
+        // Platform-tenant registry (#1260 / C1.2d). Scoped because it
+        // depends on SpringDbContext. The endpoints that consume this
+        // surface are gated to PlatformOperator at the API layer; the
+        // cloud overlay can register a permission-checked variant ahead
+        // of this TryAdd* call.
+        services.TryAddScoped<ITenantRegistry, TenantRegistry>();
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<ITenantSeedProvider, DefaultTenantRecordSeedProvider>());
+
         // Credential-health store (#686). Scoped because it holds a
         // SpringDbContext. The DelegatingHandler that feeds this store at
         // use-time opens a child DI scope per write so it can be invoked
@@ -696,6 +705,13 @@ public static class ServiceCollectionExtensions
         // store yet. TryAdd so the private cloud host can swap in a tenant-
         // scoped implementation without touching the endpoints.
         services.TryAddScoped<IConversationQueryService, ConversationQueryService>();
+
+        // Single-message lookup (#1209). Backs `GET /api/v1/messages/{id}`
+        // and `spring message show <id>`. Like the conversation service
+        // above this is a projection over the activity-event table; cloud
+        // overlays can swap the implementation through DI without touching
+        // call sites.
+        services.TryAddScoped<IMessageQueryService, MessageQueryService>();
 
         // Hosted services that depend on runtime infrastructure (Dapr state store,
         // database). During build-time OpenAPI generation none of this is

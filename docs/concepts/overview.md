@@ -1,8 +1,8 @@
-# Spring Voyage V2 -- Concepts Overview
+# Spring Voyage -- Concepts Overview
 
-Spring Voyage V2 is a general-purpose AI agent orchestration platform. It enables autonomous AI agents -- organized into composable groups called **units** -- to collaborate on any domain: software engineering, product management, creative work, research, operations, and more.
+Spring Voyage is a general-purpose AI agent orchestration platform. It enables autonomous AI agents -- organized into composable groups called **units** -- to collaborate on any domain: software engineering, product management, creative work, research, operations, and more.
 
-This document series describes the core concepts and abstractions that make up the Spring Voyage V2 model. No code is shown here -- these documents focus on *what* the system is, not *how* it is built.
+This document series describes the core concepts and abstractions that make up the Spring Voyage model. No code is shown here -- these documents focus on *what* the system is, not *how* it is built.
 
 ## Document Map
 

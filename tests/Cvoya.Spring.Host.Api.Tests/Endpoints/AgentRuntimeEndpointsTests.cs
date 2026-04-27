@@ -37,7 +37,7 @@ public class AgentRuntimeEndpointsTests : IClassFixture<CustomWebApplicationFact
         // Assert the envelope, not the contents — later tests cover the
         // install-then-list round-trip against a known slug.
         var ct = TestContext.Current.CancellationToken;
-        var response = await _client.GetAsync("/api/v1/agent-runtimes", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/agent-runtimes/installs", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<InstalledAgentRuntimeResponse[]>(ct);
@@ -49,7 +49,7 @@ public class AgentRuntimeEndpointsTests : IClassFixture<CustomWebApplicationFact
     {
         var ct = TestContext.Current.CancellationToken;
         var response = await _client.PostAsJsonAsync(
-            "/api/v1/agent-runtimes/not-a-real-runtime/install",
+            "/api/v1/tenant/agent-runtimes/installs/not-a-real-runtime/install",
             new AgentRuntimeInstallRequest(null, null, null),
             ct);
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
@@ -60,12 +60,12 @@ public class AgentRuntimeEndpointsTests : IClassFixture<CustomWebApplicationFact
     {
         var ct = TestContext.Current.CancellationToken;
         var install = await _client.PostAsJsonAsync(
-            "/api/v1/agent-runtimes/claude/install",
+            "/api/v1/tenant/agent-runtimes/installs/claude/install",
             new AgentRuntimeInstallRequest(null, null, null),
             ct);
         install.StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        var listResponse = await _client.GetAsync("/api/v1/agent-runtimes", ct);
+        var listResponse = await _client.GetAsync("/api/v1/tenant/agent-runtimes/installs", ct);
         var list = await listResponse.Content.ReadFromJsonAsync<InstalledAgentRuntimeResponse[]>(ct);
         list.ShouldNotBeNull();
         list.ShouldContain(r => r.Id == "claude");
@@ -80,15 +80,15 @@ public class AgentRuntimeEndpointsTests : IClassFixture<CustomWebApplicationFact
         // each `IAgentRuntime.CredentialSecretName`.
         var ct = TestContext.Current.CancellationToken;
         await _client.PostAsJsonAsync(
-            "/api/v1/agent-runtimes/claude/install",
+            "/api/v1/tenant/agent-runtimes/installs/claude/install",
             new AgentRuntimeInstallRequest(null, null, null),
             ct);
         await _client.PostAsJsonAsync(
-            "/api/v1/agent-runtimes/ollama/install",
+            "/api/v1/tenant/agent-runtimes/installs/ollama/install",
             new AgentRuntimeInstallRequest(null, null, null),
             ct);
 
-        var listResponse = await _client.GetAsync("/api/v1/agent-runtimes", ct);
+        var listResponse = await _client.GetAsync("/api/v1/tenant/agent-runtimes/installs", ct);
         var list = await listResponse.Content.ReadFromJsonAsync<InstalledAgentRuntimeResponse[]>(ct);
         list.ShouldNotBeNull();
 
@@ -107,11 +107,11 @@ public class AgentRuntimeEndpointsTests : IClassFixture<CustomWebApplicationFact
     {
         var ct = TestContext.Current.CancellationToken;
         await _client.PostAsJsonAsync(
-            "/api/v1/agent-runtimes/claude/install",
+            "/api/v1/tenant/agent-runtimes/installs/claude/install",
             new AgentRuntimeInstallRequest(null, null, null),
             ct);
 
-        var response = await _client.GetAsync("/api/v1/agent-runtimes/claude/models", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/agent-runtimes/installs/claude/models", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var models = await response.Content.ReadFromJsonAsync<AgentRuntimeModelResponse[]>(ct);
         models.ShouldNotBeNull();
@@ -124,8 +124,8 @@ public class AgentRuntimeEndpointsTests : IClassFixture<CustomWebApplicationFact
         var ct = TestContext.Current.CancellationToken;
         // Pre-clean because tests share the factory's in-memory DB;
         // another test may have installed the runtime we're probing.
-        await _client.DeleteAsync("/api/v1/agent-runtimes/ollama", ct);
-        var response = await _client.GetAsync("/api/v1/agent-runtimes/ollama", ct);
+        await _client.DeleteAsync("/api/v1/tenant/agent-runtimes/installs/ollama", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/agent-runtimes/installs/ollama", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
@@ -134,14 +134,14 @@ public class AgentRuntimeEndpointsTests : IClassFixture<CustomWebApplicationFact
     {
         var ct = TestContext.Current.CancellationToken;
         await _client.PostAsJsonAsync(
-            "/api/v1/agent-runtimes/openai/install",
+            "/api/v1/tenant/agent-runtimes/installs/openai/install",
             new AgentRuntimeInstallRequest(null, null, null),
             ct);
 
-        var uninstall = await _client.DeleteAsync("/api/v1/agent-runtimes/openai", ct);
+        var uninstall = await _client.DeleteAsync("/api/v1/tenant/agent-runtimes/installs/openai", ct);
         uninstall.StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
-        var getResponse = await _client.GetAsync("/api/v1/agent-runtimes/openai", ct);
+        var getResponse = await _client.GetAsync("/api/v1/tenant/agent-runtimes/installs/openai", ct);
         getResponse.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
@@ -154,7 +154,7 @@ public class AgentRuntimeEndpointsTests : IClassFixture<CustomWebApplicationFact
         // "registered-but-not-installed" 404 below.
         var ct = TestContext.Current.CancellationToken;
         var response = await _client.GetAsync(
-            "/api/v1/agent-runtimes/not-a-real-runtime/config", ct);
+            "/api/v1/tenant/agent-runtimes/installs/not-a-real-runtime/config", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
@@ -164,9 +164,9 @@ public class AgentRuntimeEndpointsTests : IClassFixture<CustomWebApplicationFact
         var ct = TestContext.Current.CancellationToken;
         // Pre-clean: tests share the in-memory DB; another test may have
         // installed `ollama` already.
-        await _client.DeleteAsync("/api/v1/agent-runtimes/ollama", ct);
+        await _client.DeleteAsync("/api/v1/tenant/agent-runtimes/installs/ollama", ct);
         var response = await _client.GetAsync(
-            "/api/v1/agent-runtimes/ollama/config", ct);
+            "/api/v1/tenant/agent-runtimes/installs/ollama/config", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
@@ -180,12 +180,12 @@ public class AgentRuntimeEndpointsTests : IClassFixture<CustomWebApplicationFact
         var ct = TestContext.Current.CancellationToken;
         var seedModels = new[] { "claude-opus-4-7", "claude-sonnet-4-6" };
         await _client.PostAsJsonAsync(
-            "/api/v1/agent-runtimes/claude/install",
+            "/api/v1/tenant/agent-runtimes/installs/claude/install",
             new AgentRuntimeInstallRequest(seedModels, "claude-opus-4-7", null),
             ct);
 
         var response = await _client.GetAsync(
-            "/api/v1/agent-runtimes/claude/config", ct);
+            "/api/v1/tenant/agent-runtimes/installs/claude/config", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var body = await response.Content.ReadFromJsonAsync<AgentRuntimeConfigResponse>(ct);
@@ -201,7 +201,7 @@ public class AgentRuntimeEndpointsTests : IClassFixture<CustomWebApplicationFact
     {
         var ct = TestContext.Current.CancellationToken;
         await _client.PostAsJsonAsync(
-            "/api/v1/agent-runtimes/google/install",
+            "/api/v1/tenant/agent-runtimes/installs/google/install",
             new AgentRuntimeInstallRequest(null, null, null),
             ct);
 
@@ -211,14 +211,14 @@ public class AgentRuntimeEndpointsTests : IClassFixture<CustomWebApplicationFact
             DefaultModel = "gemini-2.0-flash",
             BaseUrl = (string?)null,
         };
-        var patch = new HttpRequestMessage(HttpMethod.Patch, "/api/v1/agent-runtimes/google/config")
+        var patch = new HttpRequestMessage(HttpMethod.Patch, "/api/v1/tenant/agent-runtimes/installs/google/config")
         {
             Content = JsonContent.Create(newConfig),
         };
         var patchResponse = await _client.SendAsync(patch, ct);
         patchResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        var getResponse = await _client.GetAsync("/api/v1/agent-runtimes/google", ct);
+        var getResponse = await _client.GetAsync("/api/v1/tenant/agent-runtimes/installs/google", ct);
         var body = await getResponse.Content.ReadFromJsonAsync<InstalledAgentRuntimeResponse>(ct);
         body.ShouldNotBeNull();
         body!.DefaultModel.ShouldBe("gemini-2.0-flash");

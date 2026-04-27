@@ -45,6 +45,12 @@ interface ConversationEventRowProps {
  * activity page filtered to this event's source — useful when an
  * operator wants the full event payload rather than the chat-style
  * summary rendered here.
+ *
+ * #1209: when the event carries a message body (the projection now
+ * stamps it on every `MessageReceived` event), render the body in
+ * place of the envelope summary so the thread reads as a real
+ * conversation rather than a list of "Received Domain message X from Y"
+ * lines.
  */
 export function ConversationEventRow({ event }: ConversationEventRowProps) {
   const role = roleFromEvent(event.source, event.eventType);
@@ -54,6 +60,8 @@ export function ConversationEventRow({ event }: ConversationEventRowProps) {
   const [expanded, setExpanded] = useState(!collapsible);
 
   const timestamp = new Date(event.timestamp);
+  const bodyText =
+    event.eventType === "MessageReceived" && event.body ? event.body : null;
 
   return (
     <div
@@ -114,7 +122,9 @@ export function ConversationEventRow({ event }: ConversationEventRowProps) {
               </span>
             </button>
           ) : (
-            <p className="whitespace-pre-wrap break-words">{event.summary}</p>
+            <p className="whitespace-pre-wrap break-words">
+              {bodyText ?? event.summary}
+            </p>
           )}
 
           {expanded && collapsible && (

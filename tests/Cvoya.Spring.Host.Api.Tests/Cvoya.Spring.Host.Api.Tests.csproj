@@ -25,6 +25,22 @@
     <PackageReference Include="Dapr.Actors" />
     <PackageReference Include="Dapr.Workflow" />
     <PackageReference Include="System.Reactive" />
+    <!-- #1248: OpenAPI 3.1 component schemas are JSON Schema 2020-12.
+         Contract tests validate response bodies against the committed
+         openapi.json so semantic drift (required→optional, status-code
+         changes, error-envelope shape) fails CI. -->
+    <PackageReference Include="JsonSchema.Net" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- #1248: copy the committed openapi.json into the test output so
+         contract tests can load it via AppContext.BaseDirectory without
+         walking the source tree. The drift between this file and the
+         compiled host is caught by the openapi-drift CI job; here we
+         only need the committed contract. -->
+    <None Include="..\..\src\Cvoya.Spring.Host.Api\openapi.json"
+          Link="openapi.json"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

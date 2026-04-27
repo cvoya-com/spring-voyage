@@ -42,7 +42,7 @@ public class GitHubOAuthEndpointsTests
         var ct = TestContext.Current.CancellationToken;
 
         var response = await client.PostAsJsonAsync(
-            "/api/v1/connectors/github/oauth/authorize",
+            "/api/v1/tenant/connectors/github/oauth/authorize",
             new OAuthAuthorizeRequest(Scopes: new[] { "repo" }, ClientState: "resume"),
             ct);
 
@@ -65,7 +65,7 @@ public class GitHubOAuthEndpointsTests
         var ct = TestContext.Current.CancellationToken;
 
         var response = await client.PostAsJsonAsync(
-            "/api/v1/connectors/github/oauth/authorize",
+            "/api/v1/tenant/connectors/github/oauth/authorize",
             new OAuthAuthorizeRequest(null, null),
             ct);
 
@@ -84,7 +84,7 @@ public class GitHubOAuthEndpointsTests
         var ct = TestContext.Current.CancellationToken;
 
         var response = await client.GetAsync(
-            "/api/v1/connectors/github/oauth/callback?code=the-code&state=the-state", ct);
+            "/api/v1/tenant/connectors/github/oauth/callback?code=the-code&state=the-state", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<OAuthCallbackResponse>(ct);
@@ -105,7 +105,7 @@ public class GitHubOAuthEndpointsTests
         var ct = TestContext.Current.CancellationToken;
 
         var response = await client.GetAsync(
-            "/api/v1/connectors/github/oauth/callback?code=c&state=s", ct);
+            "/api/v1/tenant/connectors/github/oauth/callback?code=c&state=s", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }
@@ -119,7 +119,7 @@ public class GitHubOAuthEndpointsTests
         var ct = TestContext.Current.CancellationToken;
 
         var response = await client.GetAsync(
-            "/api/v1/connectors/github/oauth/callback?error=access_denied&error_description=User%20declined", ct);
+            "/api/v1/tenant/connectors/github/oauth/callback?error=access_denied&error_description=User%20declined", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         var content = await response.Content.ReadAsStringAsync(ct);
@@ -137,7 +137,7 @@ public class GitHubOAuthEndpointsTests
         var ct = TestContext.Current.CancellationToken;
 
         var response = await client.PostAsync(
-            "/api/v1/connectors/github/oauth/revoke/sess-1",
+            "/api/v1/tenant/connectors/github/oauth/revoke/sess-1",
             content: null,
             ct);
 
@@ -155,7 +155,7 @@ public class GitHubOAuthEndpointsTests
         var ct = TestContext.Current.CancellationToken;
 
         var response = await client.PostAsync(
-            "/api/v1/connectors/github/oauth/revoke/nope",
+            "/api/v1/tenant/connectors/github/oauth/revoke/nope",
             content: null,
             ct);
 
@@ -183,7 +183,7 @@ public class GitHubOAuthEndpointsTests
         var ct = TestContext.Current.CancellationToken;
 
         var response = await client.GetAsync(
-            "/api/v1/connectors/github/oauth/session/sess-1", ct);
+            "/api/v1/tenant/connectors/github/oauth/session/sess-1", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<OAuthSessionResponse>(ct);
@@ -213,7 +213,7 @@ public class GitHubOAuthEndpointsTests
         var client = factory.CreateClient();
         var ct = TestContext.Current.CancellationToken;
 
-        var response = await client.GetAsync("/api/v1/connectors/github/oauth/session/nope", ct);
+        var response = await client.GetAsync("/api/v1/tenant/connectors/github/oauth/session/nope", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 

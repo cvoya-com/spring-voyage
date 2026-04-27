@@ -142,10 +142,13 @@ public class AgentActor(
             // projection (IConversationQueryService, #452) can group every
             // thread-related event. Null when the caller didn't supply a
             // conversation id — still acceptable on standalone messages like
-            // StatusQuery / HealthCheck.
+            // StatusQuery / HealthCheck. #1209: persist the message envelope
+            // (sender / recipient / payload) on the event so the conversation
+            // view can render the body inline, not just the summary line.
             await EmitActivityEventAsync(ActivityEventType.MessageReceived,
                 $"Received {message.Type} message {message.Id} from {message.From}",
                 cancellationToken,
+                details: MessageReceivedDetails.Build(message),
                 correlationId: message.ConversationId);
 
             return message.Type switch

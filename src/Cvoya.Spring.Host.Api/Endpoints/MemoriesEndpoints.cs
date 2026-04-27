@@ -29,14 +29,14 @@ public static class MemoriesEndpoints
     {
         var group = app.MapGroup(string.Empty);
 
-        group.MapGet("/api/v1/units/{id}/memories", GetUnitMemoriesAsync)
+        group.MapGet("/api/v1/tenant/units/{id}/memories", GetUnitMemoriesAsync)
             .WithTags("Units")
             .WithName("GetUnitMemories")
             .WithSummary("Read the unit's short-term and long-term memory entries (stub-empty in v2.0)")
             .Produces<MemoriesResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
-        group.MapGet("/api/v1/agents/{id}/memories", GetAgentMemoriesAsync)
+        group.MapGet("/api/v1/tenant/agents/{id}/memories", GetAgentMemoriesAsync)
             .WithTags("Agents")
             .WithName("GetAgentMemories")
             .WithSummary("Read the agent's short-term and long-term memory entries (stub-empty in v2.0)")

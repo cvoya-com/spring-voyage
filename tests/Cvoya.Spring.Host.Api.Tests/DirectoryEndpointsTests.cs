@@ -39,7 +39,7 @@ public class DirectoryEndpointsTests : IClassFixture<CustomWebApplicationFactory
         };
         _factory.DirectoryService.ListAllAsync(Arg.Any<CancellationToken>()).Returns(entries);
 
-        var response = await _client.GetAsync("/api/v1/directory", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/directory", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
@@ -59,7 +59,7 @@ public class DirectoryEndpointsTests : IClassFixture<CustomWebApplicationFactory
         };
         _factory.DirectoryService.ResolveByRoleAsync("backend", Arg.Any<CancellationToken>()).Returns(entries);
 
-        var response = await _client.GetAsync("/api/v1/directory/role/backend", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/directory/role/backend", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
@@ -95,7 +95,7 @@ public class DirectoryEndpointsTests : IClassFixture<CustomWebApplicationFactory
             Text: "python",
             TypedOnly: true);
 
-        var response = await _client.PostAsJsonAsync("/api/v1/directory/search", request, ct);
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/directory/search", request, ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var result = await response.Content.ReadFromJsonAsync<DirectorySearchResponse>(ct);
@@ -143,7 +143,7 @@ public class DirectoryEndpointsTests : IClassFixture<CustomWebApplicationFactory
                 Offset: 0));
 
         var response = await _client.PostAsJsonAsync(
-            "/api/v1/directory/search",
+            "/api/v1/tenant/directory/search",
             new DirectorySearchRequest(Text: "translation"),
             ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -185,7 +185,7 @@ public class DirectoryEndpointsTests : IClassFixture<CustomWebApplicationFactory
                 Offset: 0));
 
         var response = await _client.PostAsJsonAsync(
-            "/api/v1/directory/search",
+            "/api/v1/tenant/directory/search",
             new DirectorySearchRequest(Text: "python"),
             ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -212,7 +212,7 @@ public class DirectoryEndpointsTests : IClassFixture<CustomWebApplicationFactory
                 Offset: 0));
 
         // Explicit null body to exercise the route's "null → empty query" path.
-        var response = await _client.PostAsync("/api/v1/directory/search",
+        var response = await _client.PostAsync("/api/v1/tenant/directory/search",
             new StringContent("null", System.Text.Encoding.UTF8, "application/json"), ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);

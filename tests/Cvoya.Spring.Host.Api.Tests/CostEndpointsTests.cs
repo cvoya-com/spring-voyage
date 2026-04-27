@@ -44,7 +44,7 @@ public class CostEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         var from = Uri.EscapeDataString(now.AddHours(-1).ToString("O"));
         var to = Uri.EscapeDataString(now.AddHours(1).ToString("O"));
         var response = await _client.GetAsync(
-            $"/api/v1/costs/agents/cost-agent-1?from={from}&to={to}", ct);
+            $"/api/v1/tenant/cost/agents/cost-agent-1?from={from}&to={to}", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
@@ -65,7 +65,7 @@ public class CostEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         var from = Uri.EscapeDataString(now.AddHours(-1).ToString("O"));
         var to = Uri.EscapeDataString(now.AddHours(1).ToString("O"));
         var response = await _client.GetAsync(
-            $"/api/v1/costs/agents/nonexistent-agent?from={from}&to={to}", ct);
+            $"/api/v1/tenant/cost/agents/nonexistent-agent?from={from}&to={to}", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
@@ -92,7 +92,7 @@ public class CostEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         var from = Uri.EscapeDataString(now.AddHours(-1).ToString("O"));
         var to = Uri.EscapeDataString(now.AddHours(1).ToString("O"));
         var response = await _client.GetAsync(
-            $"/api/v1/costs/agents/split-agent?from={from}&to={to}", ct);
+            $"/api/v1/tenant/cost/agents/split-agent?from={from}&to={to}", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
@@ -119,7 +119,7 @@ public class CostEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         var from = Uri.EscapeDataString(now.AddHours(-1).ToString("O"));
         var to = Uri.EscapeDataString(now.AddHours(1).ToString("O"));
         var response = await _client.GetAsync(
-            $"/api/v1/costs/units/cost-unit-1?from={from}&to={to}", ct);
+            $"/api/v1/tenant/cost/units/cost-unit-1?from={from}&to={to}", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
@@ -153,7 +153,7 @@ public class CostEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         var from = Uri.EscapeDataString(testWindow.AddHours(-1).ToString("O"));
         var to = Uri.EscapeDataString(testWindow.AddHours(1).ToString("O"));
         var response = await _client.GetAsync(
-            $"/api/v1/costs/tenant?tenantId=default&from={from}&to={to}", ct);
+            $"/api/v1/tenant/cost/tenant?tenantId=default&from={from}&to={to}", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 

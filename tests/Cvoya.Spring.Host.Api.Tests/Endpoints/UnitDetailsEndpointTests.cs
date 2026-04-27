@@ -69,7 +69,7 @@ public class UnitDetailsEndpointTests : IClassFixture<CustomWebApplicationFactor
 
         ArrangeResolved(proxy);
 
-        var response = await _client.GetAsync($"/api/v1/units/{UnitName}", ct);
+        var response = await _client.GetAsync($"/api/v1/tenant/units/{UnitName}", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
@@ -107,7 +107,7 @@ public class UnitDetailsEndpointTests : IClassFixture<CustomWebApplicationFactor
 
         ArrangeResolved(proxy);
 
-        var response = await _client.GetAsync($"/api/v1/units/{UnitName}", ct);
+        var response = await _client.GetAsync($"/api/v1/tenant/units/{UnitName}", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         // Regression anchor: the endpoint must read state directly through
@@ -137,7 +137,7 @@ public class UnitDetailsEndpointTests : IClassFixture<CustomWebApplicationFactor
             .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "unit" && a.Path == "ghost"), Arg.Any<CancellationToken>())
             .Returns((DirectoryEntry?)null);
 
-        var response = await _client.GetAsync("/api/v1/units/ghost", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/units/ghost", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
@@ -161,7 +161,7 @@ public class UnitDetailsEndpointTests : IClassFixture<CustomWebApplicationFactor
 
         ArrangeResolved(proxy);
 
-        var response = await _client.GetAsync($"/api/v1/units/{UnitName}", ct);
+        var response = await _client.GetAsync($"/api/v1/tenant/units/{UnitName}", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var body = await response.Content.ReadAsStringAsync(ct);
@@ -213,7 +213,7 @@ public class UnitDetailsEndpointTests : IClassFixture<CustomWebApplicationFactor
             await db.SaveChangesAsync(ct);
         }
 
-        var response = await _client.GetAsync($"/api/v1/units/{UnitName}", ct);
+        var response = await _client.GetAsync($"/api/v1/tenant/units/{UnitName}", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var body = await response.Content.ReadAsStringAsync(ct);
@@ -257,7 +257,7 @@ public class UnitDetailsEndpointTests : IClassFixture<CustomWebApplicationFactor
 
         ArrangeResolved(proxy);
 
-        var response = await _client.GetAsync($"/api/v1/units/{UnitName}", ct);
+        var response = await _client.GetAsync($"/api/v1/tenant/units/{UnitName}", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var body = await response.Content.ReadAsStringAsync(ct);
