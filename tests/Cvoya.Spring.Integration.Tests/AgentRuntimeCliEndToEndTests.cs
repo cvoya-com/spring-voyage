@@ -211,9 +211,9 @@ public sealed class AgentRuntimeCliEndToEndTests : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
 
-        // Install the mock connector so list/validate-credential resolve.
+        // Bind the mock connector so list/validate-credential resolve.
         var install = await _client.PostAsJsonAsync(
-            "/api/v1/tenant/connectors/github-mock/install",
+            "/api/v1/tenant/connectors/github-mock/bind",
             new ConnectorInstallRequest(null), ct);
         install.StatusCode.ShouldBe(HttpStatusCode.OK);
 
