@@ -15,6 +15,7 @@ using Cvoya.Spring.Connector.GitHub.Auth;
 using Cvoya.Spring.Connector.GitHub.Auth.OAuth;
 using Cvoya.Spring.Core.CredentialHealth;
 using Cvoya.Spring.Dapr.Data;
+using Cvoya.Spring.Dapr.DependencyInjection;
 
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -57,6 +58,18 @@ public sealed class CredentialHealthWatchdogWiringTests : IDisposable
 
                 builder.ConfigureServices(services =>
                 {
+                    // Strip the Dapr Workflow IHostedService — same #568
+                    // workaround CustomWebApplicationFactory applies. This
+                    // test class drives WebApplicationFactory<Program>
+                    // directly (it needs the real plugin HttpClient
+                    // composition under test, not the mock-heavy stack
+                    // CustomWebApplicationFactory builds), so the worker
+                    // would otherwise spin up a gRPC stream, fail to reach
+                    // a sidecar, and surface ObjectDisposedException on
+                    // factory disposal — flaking ~one Theory iteration per
+                    // CI run.
+                    services.RemoveDaprWorkflowWorker();
+
                     // Swap the DbContext for in-memory. The watchdog write
                     // goes through ICredentialHealthStore which we replace
                     // below, so the in-memory context is just to keep other
