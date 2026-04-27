@@ -36,18 +36,20 @@ See [`decisions.md`](decisions.md) for the dated decision log.
 
 Each area gets its own planning session, narrative file under `areas/`, and umbrella issue.
 
-| ID | Area | File | Umbrella |
-| --- | --- | --- | --- |
-| A | Coding-agent config | [areas/a-agent-config.md](areas/a-agent-config.md) | [#1214](https://github.com/cvoya-com/spring-voyage/issues/1214) |
-| B | Documentation overhaul | [areas/b-docs.md](areas/b-docs.md) | [#1215](https://github.com/cvoya-com/spring-voyage/issues/1215) |
-| C | Public Web API + OpenAPI | [areas/c-web-api.md](areas/c-web-api.md) | [#1216](https://github.com/cvoya-com/spring-voyage/issues/1216) |
-| D | ADR-0029 boundaries + component APIs | [areas/d-adr-0029.md](areas/d-adr-0029.md) | [#1217](https://github.com/cvoya-com/spring-voyage/issues/1217) |
-| E1 | CLI as primary UX | [areas/e1-cli.md](areas/e1-cli.md) | [#1218](https://github.com/cvoya-com/spring-voyage/issues/1218) |
-| E2 | New unit/agent-interaction UX | [areas/e2-new-ux.md](areas/e2-new-ux.md) | [#1219](https://github.com/cvoya-com/spring-voyage/issues/1219) |
-| F | Conversation concept (#1123) | [areas/f-conversation.md](areas/f-conversation.md) | [#1220](https://github.com/cvoya-com/spring-voyage/issues/1220) |
-| G | Code review + decomposition | [areas/g-code-cleanup.md](areas/g-code-cleanup.md) | [#1221](https://github.com/cvoya-com/spring-voyage/issues/1221) |
-| H | Issue triage (milestone-blind) | [areas/h-triage.md](areas/h-triage.md) | [#1222](https://github.com/cvoya-com/spring-voyage/issues/1222) |
-| J | ADR audit + re-evaluation | [areas/j-adr-audit.md](areas/j-adr-audit.md) | [#1223](https://github.com/cvoya-com/spring-voyage/issues/1223) |
+| ID | Area | File | Umbrella | Status |
+| --- | --- | --- | --- | --- |
+| A | Coding-agent config | [areas/a-agent-config.md](areas/a-agent-config.md) | [#1214](https://github.com/cvoya-com/spring-voyage/issues/1214) | ✅ Done |
+| B | Documentation overhaul | [areas/b-docs.md](areas/b-docs.md) | [#1215](https://github.com/cvoya-com/spring-voyage/issues/1215) | 🟢 First wave done; B2 deferred |
+| C | Public Web API + OpenAPI | [areas/c-web-api.md](areas/c-web-api.md) | [#1216](https://github.com/cvoya-com/spring-voyage/issues/1216) | 🟢 C1 nearly done; C1.2c open; C2 deferred |
+| D | ADR-0029 boundaries + component APIs | [areas/d-adr-0029.md](areas/d-adr-0029.md) | [#1217](https://github.com/cvoya-com/spring-voyage/issues/1217) | 🔵 Open; ADR-0029 accepted; planning not started |
+| E1 | CLI as primary UX | [areas/e1-cli.md](areas/e1-cli.md) | [#1218](https://github.com/cvoya-com/spring-voyage/issues/1218) | 🔵 Open; gated by C2 |
+| E2 | New unit/agent-interaction UX | [areas/e2-new-ux.md](areas/e2-new-ux.md) | [#1219](https://github.com/cvoya-com/spring-voyage/issues/1219) | 🔵 Open; gated by D, F |
+| F | Conversation concept (#1123) | [areas/f-conversation.md](areas/f-conversation.md) | [#1220](https://github.com/cvoya-com/spring-voyage/issues/1220) | 🔵 Open; planning not started |
+| G | Code review + decomposition | [areas/g-code-cleanup.md](areas/g-code-cleanup.md) | [#1221](https://github.com/cvoya-com/spring-voyage/issues/1221) | 🔵 Open; can start any time |
+| H | Issue triage (milestone-blind) | [areas/h-triage.md](areas/h-triage.md) | [#1222](https://github.com/cvoya-com/spring-voyage/issues/1222) | 🟢 First-wave sweep done; ongoing for new issues |
+| J | ADR audit + re-evaluation | [areas/j-adr-audit.md](areas/j-adr-audit.md) | [#1223](https://github.com/cvoya-com/spring-voyage/issues/1223) | ✅ Audit complete; deferred items folded into Area F |
+
+Legend: ✅ done, 🟢 in-progress / partial, 🔵 not started.
 
 ## Dependency picture
 
