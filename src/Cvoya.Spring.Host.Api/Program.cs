@@ -146,7 +146,17 @@ try
             .AddScheme<AuthenticationSchemeOptions, ApiTokenAuthHandler>(AuthConstants.ApiTokenScheme, null);
     }
 
-    builder.Services.AddAuthorization(options => options.AddUnitPermissionPolicies());
+    builder.Services.AddAuthorization(options =>
+    {
+        options.AddUnitPermissionPolicies();
+        // Platform-role policies (PlatformOperator / TenantOperator /
+        // TenantUser). OSS auth handlers grant all three to every
+        // authenticated caller; the cloud overlay scopes per identity via
+        // its own IRoleClaimSource. Endpoint-by-endpoint application of
+        // these policy names is C1.2b — declared here so the seam is wired
+        // before any caller adds .RequireAuthorization(RolePolicies.X).
+        options.AddPlatformRolePolicies();
+    });
     builder.Services.AddHttpContextAccessor();
     builder.Services.AddSingleton<IAuthorizationHandler, PermissionHandler>();
 

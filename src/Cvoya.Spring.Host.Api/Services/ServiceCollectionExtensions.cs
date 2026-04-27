@@ -30,6 +30,12 @@ public static class ServiceCollectionExtensions
         services.TryAddScoped<IUnitCreationService, UnitCreationService>();
         services.TryAddScoped<IAuthenticatedCallerAccessor, AuthenticatedCallerAccessor>();
 
+        // OSS default: grant every authenticated caller all three platform
+        // roles (PlatformOperator / TenantOperator / TenantUser). The cloud
+        // overlay registers its own IRoleClaimSource via TryAddSingleton
+        // ahead of this call to scope the granted subset per identity.
+        services.TryAddSingleton<IRoleClaimSource, OssAllRolesClaimSource>();
+
         var configuredRoot = configuration["Packages:Root"]
             ?? System.Environment.GetEnvironmentVariable("SPRING_PACKAGES_ROOT");
 
