@@ -40,7 +40,22 @@ jobs:
       dispatcher_host: ${{ steps.filter.outputs.dispatcher_host }}
       agent_images: ${{ steps.filter.outputs.agent_images }}
       docs: ${{ steps.filter.outputs.docs }}
+      runner: ${{ steps.runner.outputs.runner }}
     steps:
+      - id: runner
+        name: Select runner
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPO: ${{ github.repository }}
+        run: |
+          if [[ "$EVENT_NAME" != "pull_request" || "$HEAD_REPO" == "$BASE_REPO" ]]; then
+            echo "runner=vpr-spring-voyage-runner" >> "$GITHUB_OUTPUT"
+          else
+            echo "runner=ubuntu-latest" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@v6
 
       - uses: dorny/paths-filter@v4
@@ -109,7 +124,7 @@ jobs:
 
   build:
     name: Build
-    runs-on: ubuntu-latest
+    runs-on: ${{ needs.changes.outputs.runner }}
     needs: changes
     if: needs.changes.outputs.dotnet == 'true' || needs.changes.outputs.workflows == 'true'
     timeout-minutes: 20
@@ -138,7 +153,7 @@ jobs:
 
   test:
     name: Test
-    runs-on: ubuntu-latest
+    runs-on: ${{ needs.changes.outputs.runner }}
     needs: [changes, build]
     if: needs.changes.outputs.dotnet == 'true' || needs.changes.outputs.workflows == 'true'
     timeout-minutes: 30
@@ -207,7 +222,7 @@ jobs:
 
   format:
     name: Format check
-    runs-on: ubuntu-latest
+    runs-on: ${{ needs.changes.outputs.runner }}
     needs: changes
     # Skipped in the merge queue: formatting is a static-input check of the
     # PR's own code (no dependency on the state of main), so a pass on the
@@ -246,7 +261,7 @@ jobs:
 
   agent-definitions-lint:
     name: Lint agent definitions
-    runs-on: ubuntu-latest
+    runs-on: ${{ needs.changes.outputs.runner }}
     needs: changes
     # Skipped in the merge queue: this validates static intra-file references
     # that don't depend on any integration. Another PR merging ahead can't
@@ -314,7 +329,7 @@ jobs:
 
   connector-web-lint:
     name: Lint connector web submodules
-    runs-on: ubuntu-latest
+    runs-on: ${{ needs.changes.outputs.runner }}
     needs: changes
     # Skipped in the merge queue: like agent-definitions-lint this
     # validates static intra-repo references that don't depend on any
@@ -333,7 +348,7 @@ jobs:
 
   docs-evergreen-framing:
     name: Lint docs (evergreen framing)
-    runs-on: ubuntu-latest
+    runs-on: ${{ needs.changes.outputs.runner }}
     needs: changes
     # Skipped in the merge queue — pure intra-repo grep with no external deps.
     if: >
@@ -366,7 +381,7 @@ jobs:
 
   web-lint:
     name: Lint web (ESLint)
-    runs-on: ubuntu-latest
+    runs-on: ${{ needs.changes.outputs.runner }}
     needs: changes
     # Skipped in the merge queue: ESLint is a static-input check of the
     # PR's own code. A pass on the pull_request run stays valid through
@@ -392,7 +407,7 @@ jobs:
 
   web-knip:
     name: Dead-code check (knip)
-    runs-on: ubuntu-latest
+    runs-on: ${{ needs.changes.outputs.runner }}
     needs: changes
     # Skipped in the merge queue: knip is a static-input check of the
     # PR's own sources. Catches unused files, unlisted dependencies, and
@@ -422,7 +437,7 @@ jobs:
 
   web-typecheck:
     name: Typecheck web (tsc)
-    runs-on: ubuntu-latest
+    runs-on: ${{ needs.changes.outputs.runner }}
     needs: changes
     # Skipped in the merge queue: tsc --noEmit is a static-input check of
     # the PR's own sources. Catches type regressions in test files
@@ -452,7 +467,7 @@ jobs:
 
   web-build:
     name: Build web (Next.js)
-    runs-on: ubuntu-latest
+    runs-on: ${{ needs.changes.outputs.runner }}
     needs: changes
     # Skipped in the merge queue: a successful production build of the
     # Next.js app is a static-input check of the PR's own sources - it
@@ -510,7 +525,7 @@ jobs:
 
   web-test:
     name: Test web (vitest)
-    runs-on: ubuntu-latest
+    runs-on: ${{ needs.changes.outputs.runner }}
     needs: changes
     # Skipped in the merge queue: vitest runs the portal's own unit tests
     # against committed sources, so a pass on the pull_request run stays
@@ -552,7 +567,7 @@ jobs:
 
   web-e2e:
     name: E2E web (Playwright smoke)
-    runs-on: ubuntu-latest
+    runs-on: ${{ needs.changes.outputs.runner }}
     needs: [changes, web-build]
     # Skipped in the merge queue: smoke tests run against the artifact
     # produced by web-build. Their pass/fail is a function of the PR's
@@ -626,7 +641,7 @@ jobs:
 
   web-lighthouse:
     name: Lighthouse CI (web)
-    runs-on: ubuntu-latest
+    runs-on: ${{ needs.changes.outputs.runner }}
     needs: [changes, web-build]
     # Skipped in the merge queue: Lighthouse runs against the same
     # PR-built artifact and is bounded by the assertion thresholds in
@@ -682,7 +697,7 @@ jobs:
 
   python-lint:
     name: Lint Python agents
-    runs-on: ubuntu-latest
+    runs-on: ${{ needs.changes.outputs.runner }}
     needs: changes
     # Skipped in the merge queue: linting is a static-input check of the
     # PR's own code, so a pass on the pull_request run stays valid through
@@ -710,7 +725,7 @@ jobs:
 
   python-test:
     name: Test Python agents
-    runs-on: ubuntu-latest
+    runs-on: ${{ needs.changes.outputs.runner }}
     needs: changes
     if: needs.changes.outputs.python_agents == 'true' || needs.changes.outputs.workflows == 'true'
     timeout-minutes: 5
@@ -730,7 +745,7 @@ jobs:
 
   openapi-drift:
     name: OpenAPI contract drift
-    runs-on: ubuntu-latest
+    runs-on: ${{ needs.changes.outputs.runner }}
     needs: changes
     if: needs.changes.outputs.openapi == 'true' || needs.changes.outputs.workflows == 'true'
     timeout-minutes: 15
@@ -791,7 +806,7 @@ jobs:
 
   host-script-idempotence:
     name: Host script idempotence
-    runs-on: ubuntu-latest
+    runs-on: ${{ needs.changes.outputs.runner }}
     needs: changes
     # Skipped in the merge queue: the host script is a static-input
     # check (drives spring-voyage-host.sh through start/stop/restart
@@ -816,9 +831,6 @@ jobs:
             global.json
             NuGet.config
 
-      # ubuntu-latest runners ship podman preinstalled; assert it
-      # so a runner-image regression is loud rather than mistaken
-      # for a host-script bug.
       - name: Verify container runtime is on PATH
         shell: bash
         run: |
@@ -835,7 +847,7 @@ jobs:
 
   dispatcher-smoke:
     name: Dispatcher smoke (Tier 1)
-    runs-on: ubuntu-latest
+    runs-on: ${{ needs.changes.outputs.runner }}
     needs: changes
     # Skipped in the merge queue: same reasoning as host-script-idempotence
     # — the smoke driver runs against the PR's own dispatcher sources and
@@ -876,7 +888,7 @@ jobs:
 
   audit-no-container-cli:
     name: Audit (no worker-side podman/docker)
-    runs-on: ubuntu-latest
+    runs-on: ${{ needs.changes.outputs.runner }}
     needs: changes
     # Stage 2 of #522 / #1063: the worker container holds no
     # podman/docker binding any more — every container operation routes
@@ -897,7 +909,7 @@ jobs:
 
   agent-images-smoke:
     name: Agent images build + smoke
-    runs-on: ubuntu-latest
+    runs-on: ${{ needs.changes.outputs.runner }}
     needs: changes
     # PR 3b of #1087 (#1096): build the three tool-bearing agent images
     # (`agent-base`, `agent-claude-code`, `agent-dapr`) the dispatcher
