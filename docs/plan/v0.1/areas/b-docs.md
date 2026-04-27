@@ -1,6 +1,10 @@
 # Area B: Documentation overhaul
 
-**Status:** Planning session pending. Splits into B1 (early) and B2 (continuous).
+**Status:** 🟢 **First wave done.** B1.1 (V2 framing scrub), B1.2 (audience-led `guide/` restructure: `intro/`, `user/`, `operator/`, `developer/`), B1.3 (audience-led navigation in `docs/README.md`), and B1.4 (`docs-evergreen-framing` CI lint) merged. B2.1 (content compression — including `guide/user/portal.md` trim and CLI-vs-portal section split) and B2.2 (`architecture/units.md` decomposition) are deferred behind Areas D / F / G.
+
+Original planning notes preserved below.
+
+---
 
 ## Scope (provisional)
 

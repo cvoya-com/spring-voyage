@@ -1,6 +1,10 @@
 # Area H: Issue triage (milestone-blind)
 
-**Status:** Planning session pending. Independent, parallelisable.
+**Status:** 🟢 **First-wave sweep complete.** ~108 open issues classified into clusters and routed: 2 closed as obsolete, 39 routed to v0.1 areas (sub-issues of the area umbrellas with the matching `area:*` label and `v0.1` milestone), 43 to backlog, 10 to needs-thinking, 3 to ambient. Umbrella [#1222](https://github.com/cvoya-com/spring-voyage/issues/1222) stays open as the anchor for any new issues that need v0.1-area routing — use the `/triage <N>` skill for the routine.
+
+Original planning notes preserved below.
+
+---
 
 ## Scope (provisional)
 
