@@ -82,14 +82,14 @@ The public API is gated by **three authz roles**, applied per endpoint:
 
 OSS overlay: every authenticated caller is granted all three claims (single-user OSS deployments). Cloud overlay: per-identity scoping.
 
-The URL space is grouped by **scope**, not by role:
+The URL space is grouped by **scope**, with the major version *outside* the scope group so the contract version is a single number across the whole API:
 
 ```text
-/api/platform/v1/...    →  PlatformOperator only
-/api/tenant/v1/...      →  TenantOperator or TenantUser, per endpoint
+/api/v1/platform/...    →  PlatformOperator only
+/api/v1/tenant/...      →  TenantOperator or TenantUser, per endpoint
 ```
 
-`v1` is the major contract version — both scope groups share it; there is no `v1.platform` / `v1.tenant`. See [Versioning and deprecation](#versioning-and-deprecation) for evolution rules.
+`v1` covers both scope groups together — there is no independent `platform/v1` / `tenant/v1` evolution. A breaking change to either group bumps the whole API to `/api/v2/...`. See [Versioning and deprecation](#versioning-and-deprecation).
 
 **Principle: if the CLI consumes an endpoint, it lives on the public API.** The CLI is the canonical mutation surface for operator workflows (per [`CONVENTIONS.md` § "UI / CLI Feature Parity"](../../CONVENTIONS.md)) and builds on the public Web API — there is no CLI-private API. An operator endpoint with no portal exposure still belongs in the public spec, gated to `PlatformOperator` or `TenantOperator`.
 
@@ -121,7 +121,7 @@ Agent containers running on the per-tenant network call into the platform via **
 2. Build: `dotnet build SpringVoyage.slnx`. The post-build step regenerates `src/Cvoya.Spring.Host.Api/openapi.json`.
 3. Commit the regenerated spec. CI's `openapi-drift` job will reject the PR otherwise.
 4. The CLI's Kiota client and the portal's TypeScript types regenerate on the next build / dev / test invocation — no manual step.
-5. Pick the right scope group (`/api/platform/v1/...` for `PlatformOperator`-gated, `/api/tenant/v1/...` for tenant-scoped) and apply the role gate explicitly. See [Roles and URL scope](#roles-and-url-scope).
+5. Pick the right scope group (`/api/v1/platform/...` for `PlatformOperator`-gated, `/api/v1/tenant/...` for tenant-scoped) and apply the role gate explicitly. See [Roles and URL scope](#roles-and-url-scope).
 6. If the endpoint introduces a breaking change to an existing one, see [Versioning and deprecation](#versioning-and-deprecation) below — breaking changes don't ship inside `v1`.
 
 ## Versioning and deprecation
