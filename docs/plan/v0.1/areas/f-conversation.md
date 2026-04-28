@@ -4,13 +4,16 @@
 
 ## Reframing anchor
 
-The conceptual anchor for this area is the participant-set reframing of "conversation":
+The conceptual anchor for this area is the participant-set reframing — the system-level concept formerly called "conversation":
 
-- "Conversation" → **participant-set relationship** (the participant set IS the identity).
-- Users see a **dialog surface** (one per relationship with an agent, like iMessage DMs) + an **ambient task surface**. No "new conversation" button, no thread picker, no session list.
-- Per-conversation mailbox; memory has two layers (per-conversation + agent-level spanning); cross-conversation flow is policy-governed.
+- The system stores a **Thread** — the unique, persistent record for a participant set (the participant set IS the identity).
+- The product presents it as an **Engagement** — the enduring relationship surface that users navigate to, like an iMessage DM.
+- The user works inside a **Collaboration** — the active workspace where the engagement happens, including the task panel. No "new conversation" button, no thread picker, no session list.
+- Per-thread mailbox; memory has two layers (per-thread + agent-level spanning); cross-thread flow is policy-governed.
 
 The system-design sub-issue (tracked on the umbrella) resolves the open questions — naming, container/execution model, dispatch semantics, memory flow, participant-set change UX, initiative messages, misinference correction, cold start, multi-party, migration — before implementation begins. The execution-plan issue is **deliberately deferred** until system design converges.
+
+> **Terminology:** the three terms — **Thread** (system / architectural), **Engagement** (UX product narrative), **Collaboration** (UX active workspace) — are defined canonically in [`docs/architecture/thread-model.md`](../../../architecture/thread-model.md) and the [glossary](../../../glossary.md). Use those anchors in downstream artefacts.
 
 ## Dependencies
 

@@ -28,6 +28,9 @@ A platform-managed copy of an agent, spawned to handle concurrent work. Governed
 **Cognition Loop**
 The five-step reasoning process agents use during initiative: Perceive, Reflect, Decide, Act, Learn.
 
+**Collaboration**
+The active shared space where participants converse, coordinate, and get work done. The UX active-workspace surface — what a user opens to do something today. Recorded by the system as a **Thread** and presented in product navigation as an **Engagement**. Example phrasing: "Open collaboration with the writing agent."
+
 **Connector**
 A pluggable adapter bridging an external system (GitHub, Slack, Figma, etc.) to a unit. Provides event translation (external events become platform messages) and skills (capabilities agents can use).
 
@@ -35,10 +38,10 @@ A pluggable adapter bridging an external system (GitHub, Slack, Figma, etc.) to 
 The Dapr virtual actor implementing a connector. Manages event translation, outbound skills, and connection lifecycle.
 
 **Conversation**
-A sequence of related messages identified by a ConversationId. Each agent works on one active conversation at a time, with others queued as pending.
+**Superseded by Thread.** The pre-v0.1 term for what is now a thread; the field name `ConversationId` survives in pre-v0.1 data but new work uses Thread terminology. See **Thread**.
 
 **Conversation Channel**
-A partition of the agent's mailbox holding messages for a specific conversation. At most one conversation channel is active at a time.
+**Superseded — now described as the per-thread queue inside the agent's mailbox.** See `docs/architecture/messaging.md` (F2 will refresh) and **Thread**.
 
 **Control Channel**
 A partition of the agent's mailbox for platform control messages (Cancel, StatusQuery, HealthCheck, PolicyUpdate). Control messages are never blocked behind work.
@@ -54,6 +57,9 @@ A registry of agent expertise, queryable within and across units. Each unit main
 
 **Domain Package**
 See Package.
+
+**Engagement**
+The ongoing shared context between participants over time. The UX product-narrative term for the enduring relationship between participants — used in product navigation, lists, and continuity-of-relationship copy. Recorded by the system as one or more **Threads** (a participant-set change produces a new thread; the engagement absorbs the transition) and worked in as a **Collaboration**. Example phrasing: "Continue this engagement."
 
 **Execution Environment**
 An isolated runtime (container) where a delegated agent's work runs. Separate from the agent actor. Sandboxed by default.
@@ -102,6 +108,9 @@ The first tier of the initiative cognition model. A small, locally-hosted LLM pe
 
 **Tier 2 (Reflection)**
 The second tier of the initiative cognition model. The agent's primary LLM (Claude, GPT-4, etc.) performs full cognition: perceive, reflect, decide, act, learn. Invoked selectively.
+
+**Thread**
+The unique, persistent, system-level record for a set of two or more participants, containing their lifelong shared exchanges and activity. The participant set IS the identity: there is exactly one thread per unique participant set; adding or removing a participant produces a different thread. This is the system / architectural concept — used in code, schema, APIs, and architecture docs. Users do not see threads directly: the product presents the thread as an **Engagement**, and the user works inside it as a **Collaboration**. See `docs/architecture/thread-model.md`.
 
 **Topic**
 A named pub/sub channel for event distribution. Namespaced by unit.
