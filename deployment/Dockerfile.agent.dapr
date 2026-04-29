@@ -82,6 +82,14 @@ COPY agents/dapr-agent/requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt \
  && rm /tmp/requirements.txt
 
+# Install the Spring Voyage Agent SDK from source — the SDK package
+# isn't on PyPI yet and `agent.py` imports it at module top-level, so
+# missing it causes the container to exit on import before uvicorn
+# binds (smoke test would never see /.well-known/agent.json).
+COPY agents/spring-voyage-agent /tmp/spring-voyage-agent
+RUN pip install --no-cache-dir /tmp/spring-voyage-agent \
+ && rm -rf /tmp/spring-voyage-agent
+
 # Copy the Python source last so iterative changes to agent.py /
 # a2a_server.py / mcp_bridge.py don't bust the dep-install layer cache.
 COPY agents/dapr-agent/agent.py        ./agent.py

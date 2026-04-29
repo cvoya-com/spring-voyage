@@ -27,10 +27,18 @@ RUN groupadd --gid "${AGENT_GID}" agent \
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy the Spring Voyage Agent SDK source so it can be installed from /sdk.
+# The SDK is a sibling directory (../spring-voyage-agent) relative to this
+# Dockerfile; the Docker build context must be set to the agents/ parent.
+# If building with: docker build -f dapr-agent/Dockerfile agents/
+# the COPY paths below work as-is.
+COPY spring-voyage-agent/ /sdk/
 
-COPY . .
+COPY dapr-agent/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt \
+ && pip install --no-cache-dir /sdk
+
+COPY dapr-agent/ .
 
 RUN chown -R agent:agent /app
 USER agent
