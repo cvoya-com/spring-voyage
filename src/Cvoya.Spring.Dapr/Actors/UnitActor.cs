@@ -13,6 +13,7 @@ using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Auth;
+using Cvoya.Spring.Dapr.Units;
 
 using global::Dapr.Actors;
 using global::Dapr.Actors.Client;
@@ -42,8 +43,7 @@ public class UnitActor : Actor, IUnitActor
     private readonly IActorProxyFactory _actorProxyFactory;
     private readonly IExpertiseSeedProvider? _expertiseSeedProvider;
     private readonly IOrchestrationStrategyResolver? _strategyResolver;
-    private readonly IUnitValidationWorkflowScheduler? _validationWorkflowScheduler;
-    private readonly IUnitValidationTracker? _validationTracker;
+    private readonly IUnitValidationCoordinator? _validationCoordinator;
     private readonly IUnitSubunitMembershipProjector? _subunitProjector;
 
     /// <summary>
@@ -77,20 +77,13 @@ public class UnitActor : Actor, IUnitActor
     /// directly — the injected <paramref name="orchestrationStrategy"/>
     /// handles every message in that path, matching pre-#491 behaviour.
     /// </param>
-    /// <param name="validationWorkflowScheduler">
-    /// Optional scheduler for <c>UnitValidationWorkflow</c> (#947 / T-05).
+    /// <param name="validationCoordinator">
+    /// Optional coordinator for the validation-scheduling concern (#1280).
     /// When present, every transition into <see cref="UnitStatus.Validating"/>
-    /// asks the scheduler to start a new probe workflow and persists the
-    /// returned instance id through <paramref name="validationTracker"/>.
-    /// Null in legacy test harnesses constructed before T-05 — the
-    /// transition still succeeds but no workflow is scheduled.
-    /// </param>
-    /// <param name="validationTracker">
-    /// Optional seam for persisting <c>LastValidationRunId</c> /
-    /// <c>LastValidationErrorJson</c> on the unit definition row (#947 /
-    /// T-05). Null in legacy test harnesses; when null, transition
-    /// bookkeeping proceeds without the entity write so older tests keep
-    /// passing.
+    /// delegates to the coordinator to schedule the workflow and persist the
+    /// run id; terminal callbacks are also routed through it. Null in legacy
+    /// test harnesses that construct the actor directly — the transition still
+    /// succeeds but no workflow is scheduled and no tracker writes occur.
     /// </param>
     /// <param name="subunitProjector">
     /// Optional write-through projector for the parent → child unit
@@ -113,7 +106,8 @@ public class UnitActor : Actor, IUnitActor
         IOrchestrationStrategyResolver? strategyResolver = null,
         IUnitValidationWorkflowScheduler? validationWorkflowScheduler = null,
         IUnitValidationTracker? validationTracker = null,
-        IUnitSubunitMembershipProjector? subunitProjector = null)
+        IUnitSubunitMembershipProjector? subunitProjector = null,
+        IUnitValidationCoordinator? validationCoordinator = null)
         : base(host)
     {
         _logger = loggerFactory.CreateLogger<UnitActor>();
@@ -123,10 +117,21 @@ public class UnitActor : Actor, IUnitActor
         _actorProxyFactory = actorProxyFactory;
         _expertiseSeedProvider = expertiseSeedProvider;
         _strategyResolver = strategyResolver;
-        _validationWorkflowScheduler = validationWorkflowScheduler;
-        _validationTracker = validationTracker;
+        _validationCoordinator = validationCoordinator
+            ?? (validationWorkflowScheduler is not null || validationTracker is not null
+                ? BuildDefaultCoordinator(validationWorkflowScheduler, validationTracker, loggerFactory)
+                : null);
         _subunitProjector = subunitProjector;
     }
+
+    private static IUnitValidationCoordinator BuildDefaultCoordinator(
+        IUnitValidationWorkflowScheduler? scheduler,
+        IUnitValidationTracker? tracker,
+        ILoggerFactory loggerFactory)
+        => new UnitValidationCoordinator(
+            scheduler,
+            tracker,
+            loggerFactory.CreateLogger<UnitValidationCoordinator>());
 
     /// <summary>
     /// Gets the address of this unit actor.
@@ -413,14 +418,14 @@ public class UnitActor : Actor, IUnitActor
         // the terminal callback can detect stale runs. The schedule + entity
         // write happens AFTER the state-store status write.
         // #1136: scheduling failure used to leave the unit stuck in
-        // Validating; we now flip to Error inside
-        // TryStartValidationWorkflowAsync. When that happens the helper
+        // Validating; the coordinator now flips to Error on failure and
         // returns the post-recovery TransitionResult so the caller sees
         // the actual final state (Error) instead of the intermediate
-        // Validating leg.
-        if (result.Success && target == UnitStatus.Validating)
+        // Validating leg (#1280: this logic lives in UnitValidationCoordinator).
+        if (result.Success && target == UnitStatus.Validating && _validationCoordinator is not null)
         {
-            var recoveryResult = await TryStartValidationWorkflowAsync(ct);
+            var recoveryResult = await _validationCoordinator.TryStartWorkflowAsync(
+                Id.GetId(), PersistTransitionAsync, ct);
             if (recoveryResult is not null)
             {
                 return recoveryResult;
@@ -436,208 +441,38 @@ public class UnitActor : Actor, IUnitActor
     {
         ArgumentNullException.ThrowIfNull(completion);
 
-        var current = await GetStatusInternalAsync(ct);
+        // #1280: validation-completion logic lives in UnitValidationCoordinator.
+        // When no coordinator is wired (legacy test harnesses that construct the
+        // actor without scheduler/tracker), fall back to the minimal inline path
+        // so older tests keep passing: read current status, guard against terminal
+        // states, and apply the appropriate transition.
+        if (_validationCoordinator is not null)
+        {
+            return await _validationCoordinator.CompleteValidationAsync(
+                Id.GetId(),
+                completion,
+                GetStatusInternalAsync,
+                PersistTransitionAsync,
+                ct);
+        }
 
-        // Terminal-status guard: if we're already Stopped / Error (e.g. a
-        // second workflow superseded this one), silently drop the callback
-        // rather than overwriting current state.
+        // Legacy fallback (no coordinator wired — e.g. UnitActorValidationTransitionTests
+        // that construct the actor without a scheduler or tracker).
+        var current = await GetStatusInternalAsync(ct);
         if (current == UnitStatus.Stopped || current == UnitStatus.Error)
         {
-            _logger.LogInformation(
-                "Unit {ActorId} ignoring validation completion from workflow {WorkflowInstanceId}: status is already terminal ({Status}).",
-                Id.GetId(), completion.WorkflowInstanceId, current);
-            return new TransitionResult(
-                false, current,
-                $"validation completion ignored: unit already {current}");
+            return new TransitionResult(false, current, $"validation completion ignored: unit already {current}");
         }
 
-        // Stale-run guard: compare against the persisted LastValidationRunId.
-        // A completion whose instance id does not match the current run id
-        // is from an older workflow that was superseded by a revalidate.
-        if (_validationTracker is not null)
-        {
-            var currentRunId = await _validationTracker
-                .GetLastValidationRunIdAsync(Id.GetId(), ct);
-            if (!string.Equals(currentRunId, completion.WorkflowInstanceId, StringComparison.Ordinal))
-            {
-                _logger.LogInformation(
-                    "Unit {ActorId} ignoring validation completion from workflow {WorkflowInstanceId}: stale run (current {CurrentRunId}).",
-                    Id.GetId(), completion.WorkflowInstanceId, currentRunId ?? "<none>");
-                return new TransitionResult(
-                    false, current,
-                    "validation completion ignored: stale workflow run id");
-            }
-        }
-
-        // A completion only makes sense from Validating; any other non-
-        // terminal state means a transition was racing. Accept the
-        // callback but refuse to apply the transition — the caller (the
-        // workflow's terminal activity) logs the result and moves on.
         if (current != UnitStatus.Validating)
         {
-            _logger.LogWarning(
-                "Unit {ActorId} received validation completion but current status is {Status}; expected Validating.",
-                Id.GetId(), current);
-            return new TransitionResult(
-                false, current,
-                $"validation completion ignored: status is {current}, expected Validating");
+            return new TransitionResult(false, current, $"validation completion ignored: status is {current}, expected Validating");
         }
 
-        if (completion.Success)
-        {
-            // Clear any prior failure payload first — redundant with
-            // BeginRunAsync (which clears it on every new run) but guards
-            // against a test harness that skipped BeginRunAsync.
-            if (_validationTracker is not null)
-            {
-                await _validationTracker.SetFailureAsync(Id.GetId(), null, ct);
-            }
-
-            return await PersistTransitionAsync(UnitStatus.Validating, UnitStatus.Stopped, ct);
-        }
-
-        // Failure: serialize the payload and persist before the transition
-        // write so any downstream reader of Error status also sees the
-        // failure blob on the same row.
-        if (_validationTracker is not null)
-        {
-            var payload = completion.Failure is null
-                ? null
-                : JsonSerializer.Serialize(completion.Failure);
-            await _validationTracker.SetFailureAsync(Id.GetId(), payload, ct);
-        }
-
-        return await PersistTransitionAsync(UnitStatus.Validating, UnitStatus.Error, ct);
-    }
-
-    /// <summary>
-    /// Schedules a new <c>UnitValidationWorkflow</c> run through the
-    /// injected <see cref="IUnitValidationWorkflowScheduler"/> and persists
-    /// the returned instance id to the unit's
-    /// <c>LastValidationRunId</c> column. Also clears
-    /// <c>LastValidationErrorJson</c> so observers see "clean slate + fresh
-    /// run" during revalidation.
-    /// </summary>
-    /// <returns>
-    /// <see langword="null"/> on the happy path (scheduling succeeded; the
-    /// caller's existing <c>Draft|Stopped|Error -> Validating</c>
-    /// transition stands). A non-null <see cref="TransitionResult"/> when
-    /// the scheduler threw and the actor recovered by tombstoning into
-    /// <see cref="UnitStatus.Error"/> — the caller should return the
-    /// recovery result so observers see the final state without a separate
-    /// status read (#1136).
-    /// </returns>
-    private async Task<TransitionResult?> TryStartValidationWorkflowAsync(CancellationToken ct)
-    {
-        if (_validationWorkflowScheduler is null)
-        {
-            _logger.LogDebug(
-                "Unit {ActorId} transitioned to Validating without a validation workflow scheduler; no probe will run.",
-                Id.GetId());
-            return null;
-        }
-
-        try
-        {
-            var schedule = await _validationWorkflowScheduler
-                .ScheduleAsync(Id.GetId(), ct);
-
-            if (_validationTracker is not null)
-            {
-                await _validationTracker.BeginRunAsync(
-                    Id.GetId(), schedule.WorkflowInstanceId, ct);
-            }
-
-            _logger.LogInformation(
-                "Unit {ActorId} scheduled validation workflow {WorkflowInstanceId} for unit {UnitName}.",
-                Id.GetId(), schedule.WorkflowInstanceId, schedule.UnitName);
-
-            return null;
-        }
-        catch (UnitValidationSchedulingException ex)
-        {
-            // #1144: the scheduler determined — without running any
-            // in-container probes — that the unit cannot validate (e.g. no
-            // image configured). Persist the *structured* failure (with
-            // the scheduler-supplied step + ConfigurationIncomplete code +
-            // missing-field details) and flip the unit straight to Error
-            // so the wizard can render field-specific recovery copy
-            // ("Image is required") rather than the generic ScheduleFailed
-            // catch-all. Recovery is via /revalidate after the operator
-            // fixes the underlying configuration.
-            _logger.LogWarning(
-                "Unit {ActorId} validation rejected by scheduler ({Code}): {Message}",
-                Id.GetId(), ex.Error.Code, ex.Error.Message);
-
-            return await PersistSchedulerFailureAsync(ex.Error, ct);
-        }
-        catch (Exception ex)
-        {
-            // #1136: a scheduler-side failure used to leave the unit
-            // permanently in Validating with no LastValidationRunId —
-            // every lifecycle endpoint (start/stop/delete) was then gated
-            // and the only operator escape was DELETE ?force=true. We now
-            // treat it as a validation failure and tombstone the unit
-            // into Error with a structured ScheduleFailed payload so the
-            // standard recovery paths (delete without force, revalidate
-            // from Error) work without operator knowledge of the force
-            // escape hatch.
-            _logger.LogError(
-                ex,
-                "Unit {ActorId} failed to schedule validation workflow; flipping to Error.",
-                Id.GetId());
-
-            var failure = new UnitValidationError(
-                Step: UnitValidationStep.SchedulingWorkflow,
-                Code: UnitValidationCodes.ScheduleFailed,
-                Message: $"Failed to schedule validation workflow: {ex.GetType().Name}: {ex.Message}",
-                Details: null);
-            return await PersistSchedulerFailureAsync(failure, ct);
-        }
-    }
-
-    /// <summary>
-    /// Persists a scheduler-side failure: writes the structured error blob
-    /// via <see cref="IUnitValidationTracker"/> and transitions the unit
-    /// out of <see cref="UnitStatus.Validating"/> into
-    /// <see cref="UnitStatus.Error"/>. Returns the recovery
-    /// <see cref="TransitionResult"/> so the caller (and the actor turn)
-    /// observe the actual final state — the original
-    /// <c>Draft|Stopped|Error -> Validating</c> result is replaced by the
-    /// post-recovery <c>Validating -> Error</c> result. Best-effort: a
-    /// tracker-write failure here does not block the recovery transition
-    /// (operators still get a clean Error status; the missing payload is
-    /// diagnosable from the warning log).
-    /// </summary>
-    private async Task<TransitionResult?> PersistSchedulerFailureAsync(
-        UnitValidationError error, CancellationToken ct)
-    {
-        if (_validationTracker is not null)
-        {
-            try
-            {
-                var payload = JsonSerializer.Serialize(error);
-                await _validationTracker.SetFailureAsync(Id.GetId(), payload, ct);
-            }
-            catch (Exception persistEx)
-            {
-                _logger.LogWarning(
-                    persistEx,
-                    "Unit {ActorId}: failed to persist scheduler-failure payload ({Code}) before Error transition.",
-                    Id.GetId(), error.Code);
-            }
-        }
-
-        // Bypass the IsTransitionAllowed gate: we know the actor is in
-        // Validating because we just transitioned there a few lines up.
-        // The Validating -> Error transition is otherwise the same one
-        // CompleteValidationAsync uses on the probe-failure path, so the
-        // StateChanged activity event publishes identically and downstream
-        // observers cannot tell whether the failure was host-side or
-        // probe-side from the transition alone — only the payload's Code
-        // distinguishes them.
         return await PersistTransitionAsync(
-            UnitStatus.Validating, UnitStatus.Error, ct);
+            UnitStatus.Validating,
+            completion.Success ? UnitStatus.Stopped : UnitStatus.Error,
+            ct);
     }
 
     /// <inheritdoc />

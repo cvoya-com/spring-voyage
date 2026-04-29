@@ -629,6 +629,14 @@ public static class ServiceCollectionExtensions
         // single-field updates. TryAdd keeps the cloud-overlay hook open.
         services.TryAddSingleton<IUnitValidationTracker, DbUnitValidationTracker>();
 
+        // #1280: validation-scheduling collaborator extracted from UnitActor.
+        // Owns the scheduling trigger, run-id persistence, and terminal-
+        // callback logic that used to live inline in the actor. TryAdd so the
+        // cloud overlay can substitute a tenant-aware coordinator (e.g. one
+        // that routes workflows to per-tenant Dapr app ids or adds audit
+        // logging) without touching the actor.
+        services.TryAddSingleton<IUnitValidationCoordinator, UnitValidationCoordinator>();
+
         // #601 B-wide: companion read/write seam for the agent's own
         // execution block on AgentDefinitions.Definition. Shared between
         // manifest apply and the dedicated /api/v1/agents/{id}/execution
