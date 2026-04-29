@@ -4,6 +4,8 @@
 
 ---
 
+> The implementation-neutral contract that downstream agent runtimes (in any language) implement is specified in [`docs/specs/agent-runtime-boundary.md`](../specs/agent-runtime-boundary.md). This document describes the Spring Voyage platform's implementation of that contract; an SDK in another language follows the spec, not this doc.
+
 This document describes how the platform turns a single inbound message to an
 `agent://` address into an actual agent turn. The layers, in order of
 appearance on the dispatch path, are:

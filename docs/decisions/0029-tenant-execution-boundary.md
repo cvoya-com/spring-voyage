@@ -4,6 +4,7 @@
 - **Date:** 2026-04-24
 - **Related:** v0.1 milestone [#1](https://github.com/cvoya-com/spring-voyage/milestone/1), [ADR 0028](0028-tenant-scoped-runtime-topology.md) (the topology this boundary sits on; Decision C amended 2026-04-26 to make LLM access a public-API surface), [ADR 0027](0027-agent-image-conformance-contract.md) (every agent container is an A2A 0.3.x server — the precedent this ADR makes explicit as the boundary protocol), [ADR 0021](0021-spring-voyage-is-not-an-agent-runtime.md) (the principle this extends — the platform coordinates runtimes, doesn't implement loops), [ADR 0015](0015-dapr-as-infrastructure-runtime.md) (Dapr stays where it works), [ADR 0012](0012-spring-dispatcher-service-extraction.md) (dispatcher seam this builds on), [ADR 0018](0018-partitioned-mailbox.md) (being reframed by #1123 — this ADR does not re-decide mailbox shape), [PR #1177](https://github.com/cvoya-com/spring-voyage/pull/1177) (`ILlmDispatcher` — precedent for a platform-internal seam; see Consequences), [#1123](https://github.com/cvoya-com/spring-voyage/issues/1123) (conversation = participant-set; memory has two layers — blocks the memory contract).
 - **Related code:** `src/Cvoya.Spring.Dapr/Execution/LlmDispatcher.cs`, `src/Cvoya.Spring.Dispatcher/LlmEndpoints.cs`, `agents/dapr-agent/agent.py`, `src/Cvoya.Spring.Dapr/Execution/A2AExecutionDispatcher.cs`.
+- **Related specs:** [`docs/specs/agent-runtime-boundary.md`](../specs/agent-runtime-boundary.md) — Stage 1 contract-surface specification implementing this ADR.
 
 ## Context
 
