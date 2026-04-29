@@ -98,21 +98,30 @@ public static class ActorTestHost
         unitPolicyEnforcer
             .EvaluateInitiativeActionAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(PolicyDecision.Allowed);
+
+        // Wire the real AgentObservationCoordinator with mocked seams so
+        // integration tests exercise the coordinator's end-to-end path.
+        // The scoped seams (IUnitPolicyEnforcer, IAgentInitiativeEvaluator)
+        // are owned by AgentActor and passed to the coordinator as delegates.
         var initiativeEvaluator = Substitute.For<IAgentInitiativeEvaluator>();
         initiativeEvaluator
             .EvaluateAsync(Arg.Any<InitiativeEvaluationContext>(), Arg.Any<CancellationToken>())
             .Returns(InitiativeEvaluationResult.Autonomously(InitiativeLevel.Autonomous));
+        var observationCoordinator = new Cvoya.Spring.Dapr.Initiative.AgentObservationCoordinator(
+            initiativeEngine,
+            reflectionRegistry,
+            router,
+            Substitute.For<ILogger<Cvoya.Spring.Dapr.Initiative.AgentObservationCoordinator>>());
+
         var actor = new AgentActor(
             host,
             activityEventBus,
-            initiativeEngine,
-            policyStore,
+            observationCoordinator,
             dispatcher,
             router,
             definitionProvider,
             Array.Empty<ISkillRegistry>(),
             membershipRepository,
-            reflectionRegistry,
             unitPolicyEnforcer,
             initiativeEvaluator,
             loggerFactory);

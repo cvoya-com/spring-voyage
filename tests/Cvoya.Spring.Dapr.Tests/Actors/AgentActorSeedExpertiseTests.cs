@@ -173,21 +173,18 @@ public class AgentActorSeedExpertiseTests
 
         var policyEnforcer = Substitute.For<IUnitPolicyEnforcer>();
         policyEnforcer.WithAllowByDefault();
-        var initiativeEvaluator = Substitute.For<IAgentInitiativeEvaluator>().WithActAutonomouslyByDefault();
 
         var actor = new AgentActor(
             host,
             Substitute.For<IActivityEventBus>(),
-            Substitute.For<IInitiativeEngine>(),
-            Substitute.For<IAgentPolicyStore>(),
+            Substitute.For<IAgentObservationCoordinator>(),
             Substitute.For<IExecutionDispatcher>(),
             router,
             Substitute.For<IAgentDefinitionProvider>(),
             Array.Empty<ISkillRegistry>(),
             membership,
-            Substitute.For<IReflectionActionHandlerRegistry>(),
             policyEnforcer,
-            initiativeEvaluator,
+            Substitute.For<IAgentInitiativeEvaluator>(),
             loggerFactory,
             seedProvider);
 

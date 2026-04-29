@@ -40,15 +40,11 @@ public class AgentActorTests
     private readonly IActorStateManager _stateManager = Substitute.For<IActorStateManager>();
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
     private readonly IActivityEventBus _activityEventBus = Substitute.For<IActivityEventBus>();
-    private readonly IInitiativeEngine _initiativeEngine = Substitute.For<IInitiativeEngine>();
-    private readonly IAgentPolicyStore _policyStore = Substitute.For<IAgentPolicyStore>();
     private readonly IExecutionDispatcher _dispatcher = Substitute.For<IExecutionDispatcher>();
     private readonly MessageRouter _router;
     private readonly IAgentDefinitionProvider _definitionProvider = Substitute.For<IAgentDefinitionProvider>();
     private readonly IUnitMembershipRepository _membershipRepository = Substitute.For<IUnitMembershipRepository>();
-    private readonly IReflectionActionHandlerRegistry _reflectionRegistry = Substitute.For<IReflectionActionHandlerRegistry>();
     private readonly IUnitPolicyEnforcer _unitPolicyEnforcer = Substitute.For<IUnitPolicyEnforcer>();
-    private readonly IAgentInitiativeEvaluator _initiativeEvaluator = Substitute.For<IAgentInitiativeEvaluator>();
     private readonly AgentActor _actor;
 
     public AgentActorTests()
@@ -69,23 +65,19 @@ public class AgentActorTests
         _membershipRepository
             .GetAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns((UnitMembership?)null);
-        _reflectionRegistry.Find(Arg.Any<string?>()).Returns((IReflectionActionHandler?)null);
         _unitPolicyEnforcer.WithAllowByDefault();
-        _initiativeEvaluator.WithActAutonomouslyByDefault();
 
         _actor = new AgentActor(
             host,
             _activityEventBus,
-            _initiativeEngine,
-            _policyStore,
+            Substitute.For<IAgentObservationCoordinator>(),
             _dispatcher,
             _router,
             _definitionProvider,
             Array.Empty<ISkillRegistry>(),
             _membershipRepository,
-            _reflectionRegistry,
             _unitPolicyEnforcer,
-            _initiativeEvaluator,
+            Substitute.For<IAgentInitiativeEvaluator>(),
             _loggerFactory);
         SetStateManager(_actor, _stateManager);
 

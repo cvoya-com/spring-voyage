@@ -17,6 +17,7 @@ using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
+using Cvoya.Spring.Dapr.Initiative;
 using Cvoya.Spring.Dapr.Routing;
 using Cvoya.Spring.Dapr.Tests.TestHelpers;
 
@@ -54,7 +55,6 @@ public class AgentActorReflectionDispatchTests
     private readonly IActorStateManager _stateManager = Substitute.For<IActorStateManager>();
     private readonly IActivityEventBus _activityEventBus = Substitute.For<IActivityEventBus>();
     private readonly IInitiativeEngine _initiativeEngine = Substitute.For<IInitiativeEngine>();
-    private readonly IAgentPolicyStore _policyStore = Substitute.For<IAgentPolicyStore>();
     private readonly IExecutionDispatcher _dispatcher = Substitute.For<IExecutionDispatcher>();
     private readonly MessageRouter _router;
     private readonly IAgentDefinitionProvider _definitionProvider = Substitute.For<IAgentDefinitionProvider>();
@@ -88,26 +88,33 @@ public class AgentActorReflectionDispatchTests
 
         _unitPolicyEnforcer.WithAllowByDefault();
 
-        _policyStore.GetPolicyAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(new InitiativePolicy(MaxLevel: InitiativeLevel.Autonomous));
-
         // Default: evaluator green-lights the action autonomously so tests
         // that don't care about the initiative seam can progress straight
         // through dispatch. Individual tests override this to exercise
         // Defer / ActWithConfirmation.
         _initiativeEvaluator.WithActAutonomouslyByDefault();
 
+        // Wire the real AgentObservationCoordinator with the mocked seams so
+        // initiative-dispatch tests exercise the coordinator's logic end-to-end
+        // without going through a full actor stack. The scoped seams
+        // (IUnitPolicyEnforcer, IAgentInitiativeEvaluator) are injected into
+        // AgentActor (which owns the scoped lifetime) and passed to the
+        // coordinator as delegates on each reminder tick.
+        var observationCoordinator = new AgentObservationCoordinator(
+            _initiativeEngine,
+            _registry,
+            _router,
+            Substitute.For<ILogger<AgentObservationCoordinator>>());
+
         _actor = new AgentActor(
             host,
             _activityEventBus,
-            _initiativeEngine,
-            _policyStore,
+            observationCoordinator,
             _dispatcher,
             _router,
             _definitionProvider,
             Array.Empty<ISkillRegistry>(),
             _membershipRepository,
-            _registry,
             _unitPolicyEnforcer,
             _initiativeEvaluator,
             loggerFactory);
