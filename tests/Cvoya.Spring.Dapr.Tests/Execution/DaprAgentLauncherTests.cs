@@ -58,11 +58,18 @@ public class DaprAgentLauncherTests
 
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
-        prep.EnvironmentVariables["SPRING_AGENT_ID"].ShouldBe(context.AgentId);
+        // #1322: SPRING_AGENT_ID, SPRING_MCP_ENDPOINT, SPRING_AGENT_TOKEN removed —
+        // AgentContextBuilder emits the D1-canonical names for all launchers.
+        prep.EnvironmentVariables.ContainsKey("SPRING_AGENT_ID").ShouldBeFalse(
+            "SPRING_AGENT_ID is now emitted by AgentContextBuilder, not the launcher");
+        prep.EnvironmentVariables.ContainsKey("SPRING_MCP_ENDPOINT").ShouldBeFalse(
+            "SPRING_MCP_ENDPOINT superseded by D1-canonical SPRING_MCP_URL (AgentContextBuilder)");
+        prep.EnvironmentVariables.ContainsKey("SPRING_AGENT_TOKEN").ShouldBeFalse(
+            "SPRING_AGENT_TOKEN superseded by D1-canonical SPRING_MCP_TOKEN (AgentContextBuilder)");
         prep.EnvironmentVariables["SPRING_THREAD_ID"].ShouldBe(context.ThreadId);
-        prep.EnvironmentVariables["SPRING_MCP_ENDPOINT"].ShouldBe(context.McpEndpoint);
-        prep.EnvironmentVariables["SPRING_AGENT_TOKEN"].ShouldBe(context.McpToken);
         prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldBe(context.Prompt);
+        // SPRING_MODEL / SPRING_LLM_PROVIDER / OLLAMA_ENDPOINT kept until
+        // Dapr component YAML migration (#1327, #1328).
         prep.EnvironmentVariables["SPRING_MODEL"].ShouldBe("llama3.2:3b");
         prep.EnvironmentVariables["SPRING_LLM_PROVIDER"].ShouldBe("ollama");
         prep.EnvironmentVariables["AGENT_PORT"].ShouldBe("8999");

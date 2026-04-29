@@ -67,12 +67,14 @@ public class GeminiLauncher(ILoggerFactory loggerFactory) : IAgentToolLauncher
             "Prepared Gemini workspace request ({FileCount} files) for agent {AgentId} thread {ThreadId}",
             workspaceFiles.Count, context.AgentId, context.ThreadId);
 
+        // #1322: SPRING_AGENT_ID, SPRING_MCP_ENDPOINT, SPRING_AGENT_TOKEN are
+        // removed — AgentContextBuilder now emits the D1-canonical equivalents
+        // (SPRING_AGENT_ID, SPRING_MCP_URL, SPRING_MCP_TOKEN) for every launcher.
+        // SPRING_THREAD_ID, SPRING_SYSTEM_PROMPT have no D1-spec equivalent and
+        // are retained here as launcher-specific vars.
         var envVars = new Dictionary<string, string>
         {
-            ["SPRING_AGENT_ID"] = context.AgentId,
             ["SPRING_THREAD_ID"] = context.ThreadId,
-            ["SPRING_MCP_ENDPOINT"] = context.McpEndpoint,
-            ["SPRING_AGENT_TOKEN"] = context.McpToken,
             ["SPRING_SYSTEM_PROMPT"] = context.Prompt,
             // D3c: canonical path where the per-agent workspace volume is
             // mounted (D1 spec § 2.2.1, `SPRING_WORKSPACE_PATH`).

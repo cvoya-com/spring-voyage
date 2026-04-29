@@ -86,12 +86,23 @@ public class DaprAgentLauncher(
             ? context.Model!
             : opts.DefaultModel ?? "llama3.2:3b";
 
+        // #1322: SPRING_AGENT_ID, SPRING_MCP_ENDPOINT, SPRING_AGENT_TOKEN are
+        // removed — AgentContextBuilder now emits the D1-canonical equivalents
+        // (SPRING_AGENT_ID, SPRING_MCP_URL, SPRING_MCP_TOKEN) for every launcher.
+        //
+        // SPRING_MODEL, SPRING_LLM_PROVIDER, SPRING_LLM_COMPONENT, and
+        // OLLAMA_ENDPOINT are NOT D1-spec canonical names. They remain here
+        // because the Dapr agent's Python code (agent.py) and Dapr Conversation
+        // component YAML (conversation-ollama.yaml, conversation-openai.yaml)
+        // still read them. Tracked for future removal:
+        //   SPRING_MODEL / SPRING_LLM_PROVIDER / SPRING_LLM_COMPONENT → #1327
+        //   OLLAMA_ENDPOINT → #1328 (blocked on Dapr component YAML migration)
+        //
+        // SPRING_THREAD_ID and SPRING_SYSTEM_PROMPT have no D1-spec equivalents
+        // and are retained as launcher-specific vars.
         var envVars = new Dictionary<string, string>
         {
-            ["SPRING_AGENT_ID"] = context.AgentId,
             ["SPRING_THREAD_ID"] = context.ThreadId,
-            ["SPRING_MCP_ENDPOINT"] = context.McpEndpoint,
-            ["SPRING_AGENT_TOKEN"] = context.McpToken,
             ["SPRING_SYSTEM_PROMPT"] = context.Prompt,
             ["SPRING_MODEL"] = model,
             ["SPRING_LLM_PROVIDER"] = provider,
@@ -118,9 +129,9 @@ public class DaprAgentLauncher(
             [AgentVolumeManager.WorkspacePathEnvVar] = AgentVolumeManager.WorkspaceMountPath,
         };
 
-        // Pass the Ollama base URL so the Dapr Conversation component inside
-        // the agent container can reach the Ollama instance.  The agent's Dapr
-        // sidecar resolves this via the conversation-ollama.yaml component.
+        // OLLAMA_ENDPOINT: kept for the Dapr Conversation component YAML which
+        // reads it at sidecar start (conversation-ollama.yaml). Remove once the
+        // component YAML is migrated to read SPRING_LLM_PROVIDER_URL (#1328).
         if (!string.IsNullOrEmpty(opts.BaseUrl))
         {
             envVars["OLLAMA_ENDPOINT"] = opts.BaseUrl;

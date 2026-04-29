@@ -46,10 +46,10 @@ deployments:
                           clock that would fight the upstream LLM
                           timeout.
 
-  The MCP endpoint and token are now read from IAgentContext
-  (SPRING_MCP_URL / SPRING_MCP_TOKEN) instead of the legacy
-  SPRING_MCP_ENDPOINT / SPRING_AGENT_TOKEN names.  Both names are
-  supported for now; the canonical names take precedence.
+  The MCP endpoint and token are read from IAgentContext
+  (SPRING_MCP_URL / SPRING_MCP_TOKEN) — the canonical D1-spec names
+  emitted by AgentContextBuilder.  The legacy SPRING_MCP_ENDPOINT /
+  SPRING_AGENT_TOKEN fallback was removed in #1322.
 """
 
 from __future__ import annotations
@@ -109,11 +109,11 @@ async def initialize(context: IAgentContext) -> None:
     """
     global _agent_build
 
-    # MCP endpoint: prefer the canonical IAgentContext fields; fall back to
-    # the legacy SPRING_MCP_ENDPOINT / SPRING_AGENT_TOKEN names used in the
-    # pre-SDK agent so existing deployments are not broken.
-    mcp_endpoint = context.mcp_url or os.environ.get("SPRING_MCP_ENDPOINT", "")
-    mcp_token = context.mcp_token or os.environ.get("SPRING_AGENT_TOKEN", "")
+    # MCP endpoint: read from IAgentContext (SPRING_MCP_URL / SPRING_MCP_TOKEN).
+    # The legacy SPRING_MCP_ENDPOINT / SPRING_AGENT_TOKEN fallback was removed
+    # in #1322 — AgentContextBuilder always emits the canonical D1-spec names.
+    mcp_endpoint = context.mcp_url
+    mcp_token = context.mcp_token
 
     model = os.environ.get("SPRING_MODEL", "llama3.2:3b")
     provider = os.environ.get("SPRING_LLM_PROVIDER", "ollama")

@@ -10,9 +10,13 @@ using A2A.V0_3;
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Tenancy;
 
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+
+using YamlDotNet.Serialization;
+using YamlDotNet.Serialization.NamingConventions;
 
 using SvMessage = Cvoya.Spring.Core.Messaging.Message;
 
@@ -48,6 +52,7 @@ public class A2AExecutionDispatcher(
     IMcpServer mcpServer,
     IEnumerable<IAgentToolLauncher> launchers,
     IAgentContextBuilder agentContextBuilder,
+    ITenantContext tenantContext,
     PersistentAgentRegistry persistentAgentRegistry,
     EphemeralAgentRegistry ephemeralAgentRegistry,
     ContainerLifecycleManager containerLifecycleManager,
@@ -56,12 +61,19 @@ public class A2AExecutionDispatcher(
     IA2ATransportFactory transportFactory,
     ILoggerFactory loggerFactory) : IExecutionDispatcher
 {
+    private static readonly ISerializer _yamlSerializer = new SerializerBuilder()
+        .WithNamingConvention(UnderscoredNamingConvention.Instance)
+        .ConfigureDefaultValuesHandling(DefaultValuesHandling.OmitNull)
+        .Build();
+
     private readonly ILogger _logger = loggerFactory.CreateLogger<A2AExecutionDispatcher>();
     private readonly DaprSidecarOptions _daprSidecarOptions = daprSidecarOptions.Value;
     private readonly IA2ATransportFactory _transportFactory = transportFactory
         ?? throw new ArgumentNullException(nameof(transportFactory));
     private readonly IAgentContextBuilder _agentContextBuilder = agentContextBuilder
         ?? throw new ArgumentNullException(nameof(agentContextBuilder));
+    private readonly ITenantContext _tenantContext = tenantContext
+        ?? throw new ArgumentNullException(nameof(tenantContext));
     private readonly Dictionary<string, IAgentToolLauncher> _launchersByTool =
         launchers.ToDictionary(l => l.Tool, StringComparer.OrdinalIgnoreCase);
 
@@ -163,12 +175,24 @@ public class A2AExecutionDispatcher(
 
         var prompt = await promptAssembler.AssembleAsync(message, context, cancellationToken);
         var session = mcpServer.IssueSession(agentId, threadId);
+
+        // #1321: serialise AgentDefinition → YAML for the /spring/context/
+        // agent-definition.yaml file (D1 spec § 2.2.2). Tenant config is
+        // delivered as a minimal JSON with the current tenant id — the OSS
+        // platform has no separate tenant-config blob.
+        var agentDefinitionYaml = SerialiseAgentDefinitionYaml(definition);
+        var tenantId = _tenantContext.CurrentTenantId;
+        var tenantConfigJson = SerialiseTenantConfigJson(tenantId);
+
         var launchContext = new AgentLaunchContext(
             AgentId: agentId,
             ThreadId: threadId,
             Prompt: prompt,
             McpEndpoint: mcpServer.Endpoint,
             McpToken: session.Token,
+            TenantId: tenantId,
+            AgentDefinitionYaml: agentDefinitionYaml,
+            TenantConfigJson: tenantConfigJson,
             Provider: definition.Execution.Provider,
             Model: definition.Execution.Model,
             // D3a: populate D1-spec metadata so the context builder can mint the
@@ -479,12 +503,21 @@ public class A2AExecutionDispatcher(
         var prompt = definition.Instructions ?? string.Empty;
         var session = mcpServer.IssueSession(agentId, sessionId);
 
+        // #1321: populate agent definition YAML + tenant config JSON for the
+        // /spring/context/ mount (D1 spec § 2.2.2).
+        var agentDefinitionYaml = SerialiseAgentDefinitionYaml(definition);
+        var tenantId = _tenantContext.CurrentTenantId;
+        var tenantConfigJson = SerialiseTenantConfigJson(tenantId);
+
         var launchContext = new AgentLaunchContext(
             AgentId: agentId,
             ThreadId: sessionId,
             Prompt: prompt,
             McpEndpoint: mcpServer.Endpoint,
             McpToken: session.Token,
+            TenantId: tenantId,
+            AgentDefinitionYaml: agentDefinitionYaml,
+            TenantConfigJson: tenantConfigJson,
             Provider: definition.Execution.Provider,
             Model: definition.Execution.Model,
             // D3a: populate D1-spec metadata for context builder.
@@ -826,6 +859,43 @@ public class A2AExecutionDispatcher(
             "A2A endpoint {Endpoint} did not become ready after {Attempts} attempt(s) within {Timeout} (container {ContainerId}). Last error: {LastError}",
             endpoint, attempts, timeout, containerId, lastException?.Message ?? "(none)");
         return false;
+    }
+
+    /// <summary>
+    /// Serialises an <see cref="AgentDefinition"/> to YAML for the
+    /// <c>/spring/context/agent-definition.yaml</c> file (D1 spec § 2.2.2).
+    /// Uses underscore_case field names so the Python SDK's <c>yaml.safe_load</c>
+    /// round-trips cleanly with the spec's example payload.
+    /// </summary>
+    private static string SerialiseAgentDefinitionYaml(AgentDefinition definition)
+    {
+        var doc = new
+        {
+            agent_id = definition.AgentId,
+            name = definition.Name,
+            instructions = definition.Instructions,
+            execution = definition.Execution is null ? null : new
+            {
+                tool = definition.Execution.Tool,
+                image = definition.Execution.Image,
+                hosting = definition.Execution.Hosting.ToString().ToLowerInvariant(),
+                provider = definition.Execution.Provider,
+                model = definition.Execution.Model,
+                concurrent_threads = definition.Execution.ConcurrentThreads,
+            },
+        };
+        return _yamlSerializer.Serialize(doc);
+    }
+
+    /// <summary>
+    /// Serialises a minimal tenant-config JSON for the
+    /// <c>/spring/context/tenant-config.json</c> file (D1 spec § 2.2.2).
+    /// The OSS platform has no separate tenant-config blob; the tenant id
+    /// is the only tenant-level datum available at launch time.
+    /// </summary>
+    private static string SerialiseTenantConfigJson(string tenantId)
+    {
+        return JsonSerializer.Serialize(new { tenant_id = tenantId });
     }
 
     internal static SvMessage? MapA2AResponseToMessage(
