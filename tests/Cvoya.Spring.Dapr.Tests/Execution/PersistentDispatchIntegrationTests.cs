@@ -91,6 +91,8 @@ public class PersistentDispatchIntegrationTests
         var clmD = new ContainerLifecycleManager(
             _containerRuntime, daprD, Options.Create(daprOptions), _loggerFactory);
 
+        var transportFactory = new DispatcherProxyA2ATransportFactory(_containerRuntime);
+
         _dispatcher = new A2AExecutionDispatcher(
             _containerRuntime,
             _promptAssembler,
@@ -101,6 +103,7 @@ public class PersistentDispatchIntegrationTests
             new EphemeralAgentRegistry(_containerRuntime, clmEph, _loggerFactory),
             clmD,
             Options.Create(daprOptions),
+            transportFactory,
             _loggerFactory);
     }
 

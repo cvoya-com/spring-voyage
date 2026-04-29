@@ -454,6 +454,15 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IDaprSidecarManager, DaprSidecarManager>();
         services.AddSingleton<ContainerLifecycleManager>();
         services.TryAddSingleton<IUnitContainerLifecycle, UnitContainerLifecycle>();
+        // D2 / Stage 2 of ADR-0029: A2A transport seam. The default
+        // implementation routes every outbound A2A POST through the
+        // dispatcher proxy (DispatcherProxyA2ATransport) when a container
+        // id is available, and falls back to direct-HTTP (DirectA2ATransport)
+        // when it is not (test harnesses, future dual-homed deployments).
+        // Private-cloud or dual-homed hosts that want direct-HTTP for all
+        // containers pre-register their own IA2ATransportFactory before
+        // calling AddCvoyaSpringDapr; TryAdd ensures their registration wins.
+        services.TryAddSingleton<IA2ATransportFactory, DispatcherProxyA2ATransportFactory>();
         services.TryAddSingleton<IExecutionDispatcher, A2AExecutionDispatcher>();
 
         // Agent definition + tool launchers used by A2AExecutionDispatcher.
