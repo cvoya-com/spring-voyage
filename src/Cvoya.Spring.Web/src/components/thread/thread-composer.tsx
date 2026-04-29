@@ -9,9 +9,9 @@ import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/query-keys";
 
-import { parseConversationSource } from "./role";
+import { parseThreadSource } from "./role";
 
-interface ConversationComposerProps {
+interface ThreadComposerProps {
   threadId: string;
   /**
    * Default `scheme://path` recipient pre-selected in the picker. The
@@ -41,11 +41,11 @@ interface ConversationComposerProps {
  * belt-and-braces fallback for environments where SSE is proxied /
  * disabled.
  */
-export function ConversationComposer({
+export function ThreadComposer({
   threadId,
   defaultRecipient,
   participants = [],
-}: ConversationComposerProps) {
+}: ThreadComposerProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   // The recipient is seeded once from the default — re-syncing on
@@ -64,7 +64,7 @@ export function ConversationComposer({
       if (!target) {
         throw new Error("Recipient address is required.");
       }
-      const { scheme, path } = parseConversationSource(target);
+      const { scheme, path } = parseThreadSource(target);
       if (!scheme || !path) {
         throw new Error(
           "Recipient must be in scheme://path form (e.g. agent://ada).",

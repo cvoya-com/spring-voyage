@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  parseConversationSource,
+  parseThreadSource,
   ROLE_STYLES,
   roleFromEvent,
 } from "./role";
 
-describe("parseConversationSource", () => {
+describe("parseThreadSource", () => {
   it("splits scheme and path", () => {
-    expect(parseConversationSource("agent://ada")).toEqual({
+    expect(parseThreadSource("agent://ada")).toEqual({
       scheme: "agent",
       path: "ada",
       raw: "agent://ada",
@@ -16,7 +16,7 @@ describe("parseConversationSource", () => {
   });
 
   it("preserves nested paths", () => {
-    expect(parseConversationSource("agent://team/ada")).toEqual({
+    expect(parseThreadSource("agent://team/ada")).toEqual({
       scheme: "agent",
       path: "team/ada",
       raw: "agent://team/ada",
@@ -24,7 +24,7 @@ describe("parseConversationSource", () => {
   });
 
   it("falls back to system scheme when no separator is present", () => {
-    expect(parseConversationSource("scheduler")).toEqual({
+    expect(parseThreadSource("scheduler")).toEqual({
       scheme: "system",
       path: "scheduler",
       raw: "scheduler",
@@ -32,7 +32,7 @@ describe("parseConversationSource", () => {
   });
 
   it("lowercases the scheme", () => {
-    expect(parseConversationSource("HUMAN://savas")).toEqual({
+    expect(parseThreadSource("HUMAN://savas")).toEqual({
       scheme: "human",
       path: "savas",
       raw: "HUMAN://savas",

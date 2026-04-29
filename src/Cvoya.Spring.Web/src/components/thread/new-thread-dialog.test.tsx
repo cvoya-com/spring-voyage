@@ -1,5 +1,5 @@
 /**
- * Tests for `NewConversationDialog` (#980 item 2).
+ * Tests for `NewThreadDialog` (#980 item 2).
  *
  * Covers:
  *   - Blocks submit while the body is empty and renders a validation
@@ -24,7 +24,7 @@ vi.mock("@/lib/api/client", () => ({
   },
 }));
 
-import { NewConversationDialog } from "./new-conversation-dialog";
+import { NewThreadDialog } from "./new-thread-dialog";
 
 function wrap(node: ReactNode) {
   const client = new QueryClient({
@@ -40,11 +40,11 @@ beforeEach(() => {
   sendMessageMock.mockReset();
 });
 
-describe("NewConversationDialog", () => {
+describe("NewThreadDialog", () => {
   it("disables submit until the body has content", () => {
     render(
       wrap(
-        <NewConversationDialog
+        <NewThreadDialog
           open
           onClose={() => {}}
           targetScheme="unit"
@@ -70,7 +70,7 @@ describe("NewConversationDialog", () => {
     const onCreated = vi.fn();
     render(
       wrap(
-        <NewConversationDialog
+        <NewThreadDialog
           open
           onClose={() => {}}
           targetScheme="agent"
@@ -109,7 +109,7 @@ describe("NewConversationDialog", () => {
     });
     render(
       wrap(
-        <NewConversationDialog
+        <NewThreadDialog
           open
           onClose={() => {}}
           targetScheme="unit"
@@ -138,7 +138,7 @@ describe("NewConversationDialog", () => {
     const onCreated = vi.fn();
     render(
       wrap(
-        <NewConversationDialog
+        <NewThreadDialog
           open
           onClose={() => {}}
           targetScheme="unit"

@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 import type { ThreadEvent } from "@/lib/api/types";
 
 import {
-  parseConversationSource,
+  parseThreadSource,
   ROLE_STYLES,
   roleFromEvent,
   type ConversationRole,
@@ -31,7 +31,7 @@ function isCollapsibleByDefault(eventType: string, role: ConversationRole) {
   );
 }
 
-interface ConversationEventRowProps {
+interface ThreadEventRowProps {
   event: ThreadEvent;
 }
 
@@ -52,10 +52,10 @@ interface ConversationEventRowProps {
  * conversation rather than a list of "Received Domain message X from Y"
  * lines.
  */
-export function ConversationEventRow({ event }: ConversationEventRowProps) {
+export function ThreadEventRow({ event }: ThreadEventRowProps) {
   const role = roleFromEvent(event.source, event.eventType);
   const style = ROLE_STYLES[role];
-  const source = parseConversationSource(event.source);
+  const source = parseThreadSource(event.source);
   const collapsible = isCollapsibleByDefault(event.eventType, role);
   const [expanded, setExpanded] = useState(!collapsible);
 

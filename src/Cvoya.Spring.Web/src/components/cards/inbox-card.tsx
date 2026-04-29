@@ -6,9 +6,9 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import {
-  parseConversationSource,
-  type ParsedConversationSource,
-} from "@/components/conversation/role";
+  parseThreadSource,
+  type ParsedThreadSource,
+} from "@/components/thread/role";
 import type { InboxItem } from "@/lib/api/types";
 import { cn, timeAgo } from "@/lib/utils";
 
@@ -21,7 +21,7 @@ import { cn, timeAgo } from "@/lib/utils";
  * today, so the caller renders the address as plain mono text.
  * Mirrors the cross-link rules in DESIGN.md § 7.14.
  */
-function fromHref(parsed: ParsedConversationSource): string | null {
+function fromHref(parsed: ParsedThreadSource): string | null {
   if (parsed.scheme === "agent") {
     return `/units?node=${encodeURIComponent(parsed.path)}&tab=Overview`;
   }
@@ -51,8 +51,8 @@ export function InboxCard({ item, className }: InboxCardProps) {
   // surface lands, the card navigates back to `/inbox` so the click
   // is never a 404. The query string preserves the conversation id so
   // future routing can scroll/highlight the corresponding row.
-  const href = `/inbox?conversation=${encodeURIComponent(item.threadId)}`;
-  const from = parseConversationSource(item.from);
+  const href = `/inbox?thread=${encodeURIComponent(item.threadId)}`;
+  const from = parseThreadSource(item.from);
   const fromLink = fromHref(from);
   const title = item.summary?.trim() || item.threadId;
 

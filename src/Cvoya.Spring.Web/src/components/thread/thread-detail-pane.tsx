@@ -5,8 +5,8 @@
  * Messages tabs (#937 / #815 §2). Replaces the retired
  * `/conversations/[id]` route with an in-tab thread view.
  *
- * Renders the event timeline via `ConversationEventRow` and a reply
- * composer via `ConversationComposer`. Loading / error / 404 are all
+ * Renders the event timeline via `ThreadEventRow` and a reply
+ * composer via `ThreadComposer`. Loading / error / 404 are all
  * handled locally so neither Messages tab has to know about the
  * fetching story.
  */
@@ -17,11 +17,11 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useThread } from "@/lib/api/queries";
 
-import { ConversationComposer } from "./conversation-composer";
-import { ConversationEventRow } from "./conversation-event-row";
-import { parseConversationSource } from "./role";
+import { ThreadComposer } from "./thread-composer";
+import { ThreadEventRow } from "./thread-event-row";
+import { parseThreadSource } from "./role";
 
-interface ConversationDetailPaneProps {
+interface ThreadDetailPaneProps {
   threadId: string;
   /**
    * Address of the node hosting the Messages tab (scheme://path). Used
@@ -31,10 +31,10 @@ interface ConversationDetailPaneProps {
   selfAddress?: string;
 }
 
-export function ConversationDetailPane({
+export function ThreadDetailPane({
   threadId,
   selfAddress,
-}: ConversationDetailPaneProps) {
+}: ThreadDetailPaneProps) {
   const query = useThread(threadId);
 
   const detail = query.data;
@@ -116,7 +116,7 @@ export function ConversationDetailPane({
         {participants.length > 0 ? (
           <span className="truncate text-muted-foreground">
             {participants
-              .map((p) => parseConversationSource(p).raw)
+              .map((p) => parseThreadSource(p).raw)
               .join(" · ")}
           </span>
         ) : null}
@@ -132,12 +132,12 @@ export function ConversationDetailPane({
           </p>
         ) : (
           events.map((event) => (
-            <ConversationEventRow key={event.id} event={event} />
+            <ThreadEventRow key={event.id} event={event} />
           ))
         )}
       </div>
 
-      <ConversationComposer
+      <ThreadComposer
         threadId={threadId}
         defaultRecipient={defaultRecipient}
         participants={participants}

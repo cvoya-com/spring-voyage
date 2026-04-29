@@ -11,7 +11,7 @@
 
 export type ConversationRole = "human" | "agent" | "unit" | "tool" | "system";
 
-export interface ParsedConversationSource {
+export interface ParsedThreadSource {
   scheme: string;
   path: string;
   /** Original `scheme://path` source string. */
@@ -24,9 +24,9 @@ export interface ParsedConversationSource {
  * separator — the projection layer can emit shorthand on
  * platform-internal events.
  */
-export function parseConversationSource(
+export function parseThreadSource(
   source: string,
-): ParsedConversationSource {
+): ParsedThreadSource {
   const idx = source.indexOf("://");
   if (idx <= 0) {
     return { scheme: "system", path: source, raw: source };
@@ -50,7 +50,7 @@ export function roleFromEvent(
   if (eventType === "DecisionMade") {
     return "tool";
   }
-  const { scheme } = parseConversationSource(source);
+  const { scheme } = parseThreadSource(source);
   if (scheme === "human") return "human";
   if (scheme === "agent") return "agent";
   if (scheme === "unit") return "unit";

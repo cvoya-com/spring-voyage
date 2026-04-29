@@ -41,7 +41,7 @@ describe("InboxCard", () => {
   it("deep-links 'Open thread' back to /inbox with the conversation id", () => {
     render(<InboxCard item={baseItem} />);
     const link = screen.getByTestId("inbox-open-conv-42");
-    expect(link).toHaveAttribute("href", "/inbox?conversation=conv-42");
+    expect(link).toHaveAttribute("href", "/inbox?thread=conv-42");
   });
 
   it("links agent:// senders to the Explorer Overview tab", () => {
@@ -83,7 +83,7 @@ describe("InboxCard", () => {
   it("exposes a full-card primary link that navigates to the inbox with the conversation id (#593)", () => {
     render(<InboxCard item={baseItem} />);
     const link = screen.getByTestId("inbox-card-link-conv-42");
-    expect(link).toHaveAttribute("href", "/inbox?conversation=conv-42");
+    expect(link).toHaveAttribute("href", "/inbox?thread=conv-42");
     expect(link).toHaveAttribute(
       "aria-label",
       "Open conversation Need your call on the migration plan",

@@ -52,7 +52,7 @@ describe("ConversationCard", () => {
     );
     expect(screen.getByTestId("conversation-open-conv-1")).toHaveAttribute(
       "href",
-      "/units?node=ada&tab=Messages&conversation=conv-1",
+      "/units?node=ada&tab=Messages&thread=conv-1",
     );
   });
 
@@ -68,7 +68,7 @@ describe("ConversationCard", () => {
     );
     expect(screen.getByTestId("conversation-open-conv-2")).toHaveAttribute(
       "href",
-      "/inbox?conversation=conv-2",
+      "/inbox?thread=conv-2",
     );
   });
 
@@ -94,7 +94,7 @@ describe("ConversationCard", () => {
     );
     const link = screen.getByTestId("conversation-card-link-conv-1");
     // With no unit/agent participant the link falls back to inbox.
-    expect(link).toHaveAttribute("href", "/inbox?conversation=conv-1");
+    expect(link).toHaveAttribute("href", "/inbox?thread=conv-1");
     expect(link).toHaveAttribute(
       "aria-label",
       "Open conversation PR review thread",

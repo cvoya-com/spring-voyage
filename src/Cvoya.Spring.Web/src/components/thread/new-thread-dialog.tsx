@@ -8,7 +8,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { api } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/query-keys";
 
-interface NewConversationDialogProps {
+interface NewThreadDialogProps {
   open: boolean;
   onClose: () => void;
   /** Target address scheme — "unit" or "agent". */
@@ -32,13 +32,13 @@ interface NewConversationDialogProps {
  * server's #985 auto-gen assigns a fresh UUID and returns it on
  * `MessageResponse.threadId`.
  */
-export function NewConversationDialog({
+export function NewThreadDialog({
   open,
   onClose,
   targetScheme,
   targetPath,
   onCreated,
-}: NewConversationDialogProps) {
+}: NewThreadDialogProps) {
   const queryClient = useQueryClient();
   const [body, setBody] = useState("");
 

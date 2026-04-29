@@ -85,7 +85,7 @@ describe("InboxPage", () => {
     );
     await waitFor(() => {
       const open = screen.getByTestId("inbox-open-conv-1");
-      expect(open).toHaveAttribute("href", "/inbox?conversation=conv-1");
+      expect(open).toHaveAttribute("href", "/inbox?thread=conv-1");
     });
   });
 

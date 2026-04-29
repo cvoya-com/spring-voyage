@@ -37,8 +37,8 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(searchParamsStateMock.value),
 }));
 
-vi.mock("@/components/conversation/conversation-detail-pane", () => ({
-  ConversationDetailPane: ({
+vi.mock("@/components/thread/thread-detail-pane", () => ({
+  ThreadDetailPane: ({
     threadId,
     selfAddress,
   }: {
@@ -57,8 +57,8 @@ vi.mock("@/components/conversation/conversation-detail-pane", () => ({
 // `onCreated` callback without pulling the real composer (which has its
 // own test file and would drag in TanStack Query setup).
 const dialogRenders = vi.fn();
-vi.mock("@/components/conversation/new-conversation-dialog", () => ({
-  NewConversationDialog: (props: {
+vi.mock("@/components/thread/new-thread-dialog", () => ({
+  NewThreadDialog: (props: {
     open: boolean;
     onClose: () => void;
     targetScheme: "unit" | "agent";
@@ -178,7 +178,7 @@ describe("UnitMessagesTab", () => {
     fireEvent.click(screen.getByTestId("new-conversation-trigger"));
     fireEvent.click(screen.getByTestId("stub-emit-created"));
     expect(routerReplaceMock).toHaveBeenCalledWith(
-      expect.stringMatching(/conversation=conv-new/),
+      expect.stringMatching(/thread=conv-new/),
       expect.any(Object),
     );
     // #1053: navigation must be `/units?…`, not bare `?…`. Next.js 16
@@ -190,8 +190,8 @@ describe("UnitMessagesTab", () => {
     );
   });
 
-  it("mounts the detail pane when the URL carries ?conversation=<id>", () => {
-    searchParamsStateMock.value = "conversation=abc";
+  it("mounts the detail pane when the URL carries ?thread=<id>", () => {
+    searchParamsStateMock.value = "thread=abc";
     useThreadsMock.mockReturnValueOnce({
       data: [
         {

@@ -1,5 +1,5 @@
 /**
- * Tests for `ConversationEventRow` body rendering (#1209).
+ * Tests for `ThreadEventRow` body rendering (#1209).
  *
  * The row renders a chat-style bubble per activity event. When the
  * underlying activity event carries a message body — populated by the
@@ -14,7 +14,7 @@ import { describe, expect, it } from "vitest";
 
 import type { ThreadEvent } from "@/lib/api/types";
 
-import { ConversationEventRow } from "./conversation-event-row";
+import { ThreadEventRow } from "./thread-event-row";
 
 function makeEvent(overrides: Partial<ThreadEvent> = {}): ThreadEvent {
   return {
@@ -28,10 +28,10 @@ function makeEvent(overrides: Partial<ThreadEvent> = {}): ThreadEvent {
   };
 }
 
-describe("ConversationEventRow", () => {
+describe("ThreadEventRow", () => {
   it("renders the body when the MessageReceived event carries one", () => {
     render(
-      <ConversationEventRow
+      <ThreadEventRow
         event={makeEvent({ body: "Hello, ada!" })}
       />,
     );
@@ -44,7 +44,7 @@ describe("ConversationEventRow", () => {
 
   it("falls back to the summary line when no body is present", () => {
     render(
-      <ConversationEventRow event={makeEvent()} />,
+      <ThreadEventRow event={makeEvent()} />,
     );
 
     expect(
@@ -54,7 +54,7 @@ describe("ConversationEventRow", () => {
 
   it("ignores body on non-MessageReceived events", () => {
     render(
-      <ConversationEventRow
+      <ThreadEventRow
         event={makeEvent({
           eventType: "ConversationStarted",
           summary: "Started conv",

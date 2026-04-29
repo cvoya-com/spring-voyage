@@ -56,7 +56,7 @@ function conversationHref(source: string, correlationId: string): string | null 
   const [, scheme, path] = m;
   const s = scheme.toLowerCase();
   if (s !== "agent" && s !== "unit") return null;
-  return `/units?node=${encodeURIComponent(path)}&tab=Messages&conversation=${encodeURIComponent(correlationId)}`;
+  return `/units?node=${encodeURIComponent(path)}&tab=Messages&thread=${encodeURIComponent(correlationId)}`;
 }
 
 const severityVariant: Record<

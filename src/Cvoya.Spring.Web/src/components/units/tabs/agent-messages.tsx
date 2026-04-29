@@ -5,7 +5,7 @@
 //
 // Master/detail layout: conversation list on the left, selected
 // thread's events + reply composer on the right. Selection lives in
-// the URL as `?conversation=<id>` so deep-links survive refresh. This
+// the URL as `?thread=<id>` so deep-links survive refresh. This
 // replaces the old list-only view whose rows linked out to the
 // retired `/conversations/[id]` route.
 //
@@ -19,8 +19,8 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Plus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { ConversationDetailPane } from "@/components/conversation/conversation-detail-pane";
-import { NewConversationDialog } from "@/components/conversation/new-conversation-dialog";
+import { ThreadDetailPane } from "@/components/thread/thread-detail-pane";
+import { NewThreadDialog } from "@/components/thread/new-thread-dialog";
 import { cn } from "@/lib/utils";
 import { useThreads } from "@/lib/api/queries";
 
@@ -34,15 +34,15 @@ function AgentMessagesTab({ node }: TabContentProps) {
   const { data, isLoading, error } = useThreads({ agent: node.id });
   const [composerOpen, setComposerOpen] = useState(false);
 
-  const selectedId = searchParams.get("conversation");
+  const selectedId = searchParams.get("thread");
 
   const setSelected = useCallback(
     (id: string | null) => {
       const params = new URLSearchParams(searchParams.toString());
       if (id) {
-        params.set("conversation", id);
+        params.set("thread", id);
       } else {
-        params.delete("conversation");
+        params.delete("thread");
       }
       const qs = params.toString();
       // #1039 / #1053: Next.js 16 drops the canonical-URL update for
@@ -127,7 +127,7 @@ function AgentMessagesTab({ node }: TabContentProps) {
             )}
           >
             {selectedId ? (
-              <ConversationDetailPane
+              <ThreadDetailPane
                 threadId={selectedId}
                 selfAddress={`agent://${node.id}`}
               />
@@ -140,7 +140,7 @@ function AgentMessagesTab({ node }: TabContentProps) {
           </div>
         </div>
       )}
-      <NewConversationDialog
+      <NewThreadDialog
         open={composerOpen}
         onClose={() => setComposerOpen(false)}
         targetScheme="agent"

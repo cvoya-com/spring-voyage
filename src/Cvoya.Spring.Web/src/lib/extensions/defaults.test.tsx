@@ -85,7 +85,7 @@ describe("defaultActions (palette)", () => {
       "/units",
     );
     expect(
-      defaultActions.find((a) => a.id === "conversation.list")!.href,
+      defaultActions.find((a) => a.id === "thread.list")!.href,
     ).toBe("/units");
   });
 });

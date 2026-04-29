@@ -52,7 +52,7 @@ const statusVariant: Record<
  * routes` (umbrella #815 §2) — every node has a Messages tab now. The
  * card synthesises a deep-link into the first `unit://` or `agent://`
  * participant's Messages tab with the selection carried in the URL
- * query, falling back to a plain `/inbox?conversation=<id>` shortcut
+ * query, falling back to a plain `/inbox?thread=<id>` shortcut
  * when no unit/agent anchor is available.
  */
 function resolveMessagesHref(
@@ -65,12 +65,12 @@ function resolveMessagesHref(
     const scheme = p.slice(0, idx).toLowerCase();
     const path = p.slice(idx + 3);
     if (scheme === "unit" || scheme === "agent") {
-      return `/units?node=${encodeURIComponent(path)}&tab=Messages&conversation=${encodeURIComponent(threadId)}`;
+      return `/units?node=${encodeURIComponent(path)}&tab=Messages&thread=${encodeURIComponent(threadId)}`;
     }
   }
   // No unit/agent anchor — send the user to inbox with the selection
   // carried as a hint; the inbox card already renders a matching URL.
-  return `/inbox?conversation=${encodeURIComponent(threadId)}`;
+  return `/inbox?thread=${encodeURIComponent(threadId)}`;
 }
 
 export function ConversationCard({

@@ -243,7 +243,7 @@ export function queryKeysAffectedBySource(source: {
       queryKeys.threads.all,
     ];
   }
-  if (scheme === "conversation") {
+  if (scheme === "thread") {
     return [
       queryKeys.activity.all,
       queryKeys.threads.all,

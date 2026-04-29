@@ -132,7 +132,7 @@ export const defaultRoutes: readonly RouteEntry[] = [
       "human",
       "spring inbox list",
     ],
-    description: "Conversations awaiting a response from you.",
+    description: "Engagements awaiting a response from you.",
   },
   {
     path: "/discovery",
@@ -279,12 +279,12 @@ export const defaultActions: readonly PaletteAction[] = [
     href: "/activity",
   },
   {
-    id: "conversation.list",
-    label: "List conversations",
+    id: "thread.list",
+    label: "List engagements",
     icon: MessagesSquare,
     section: "actions",
     orderHint: 55,
-    keywords: ["spring conversation list", "threads", "chat", "messages"],
+    keywords: ["spring thread list", "engagements", "threads", "messages"],
     description:
       "Browse message threads (Explorer → Messages tab on any unit or agent).",
     href: "/units",
@@ -301,7 +301,7 @@ export const defaultActions: readonly PaletteAction[] = [
       "pending",
       "human",
     ],
-    description: "Conversations awaiting a response from you.",
+    description: "Engagements awaiting a response from you.",
     href: "/inbox",
   },
   {
