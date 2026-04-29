@@ -72,24 +72,19 @@ public class AgentActorEffectiveMetadataTests
             ActorId = new ActorId(AgentId),
         });
 
-        var reflectionRegistry = Substitute.For<IReflectionActionHandlerRegistry>();
-        reflectionRegistry.Find(Arg.Any<string?>()).Returns((IReflectionActionHandler?)null);
         var unitPolicyEnforcer = Substitute.For<IUnitPolicyEnforcer>().WithAllowByDefault();
-        var initiativeEvaluator = Substitute.For<IAgentInitiativeEvaluator>().WithActAutonomouslyByDefault();
 
         _actor = new AgentActor(
             host,
             _activityEventBus,
-            Substitute.For<IInitiativeEngine>(),
-            Substitute.For<IAgentPolicyStore>(),
+            Substitute.For<IAgentObservationCoordinator>(),
             _dispatcher,
             _router,
             _definitionProvider,
             Array.Empty<ISkillRegistry>(),
             _membershipRepository,
-            reflectionRegistry,
             unitPolicyEnforcer,
-            initiativeEvaluator,
+            Substitute.For<IAgentInitiativeEvaluator>(),
             loggerFactory);
 
         SetStateManager(_actor, _stateManager);

@@ -8,11 +8,13 @@ using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Configuration;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Initiative;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.AgentRuntimes;
 using Cvoya.Spring.Dapr.Capabilities;
 using Cvoya.Spring.Dapr.Configuration;
 using Cvoya.Spring.Dapr.Execution;
+using Cvoya.Spring.Dapr.Initiative;
 using Cvoya.Spring.Dapr.Mcp;
 using Cvoya.Spring.Dapr.Prompts;
 
@@ -63,6 +65,12 @@ internal static class ServiceCollectionExtensionsExecution
                 new LlmHttpMessageHandler(sp.GetRequiredService<ILlmDispatcher>()));
         services.AddSingleton<IPromptAssembler, PromptAssembler>();
         services.AddSingleton<IPlatformPromptProvider, PlatformPromptProvider>();
+
+        // Agent observation / initiative-dispatch coordinator (#1276).
+        // Singleton: stateless across agents; uses per-call delegates for all
+        // state access. TryAdd so the private cloud repo can layer a
+        // tenant-aware decorator without touching this registration.
+        services.TryAddSingleton<IAgentObservationCoordinator, AgentObservationCoordinator>();
 
         // Agent-runtime plugin registry (#678, cornerstone of the #674
         // refactor). Enumerates every DI-registered IAgentRuntime so the

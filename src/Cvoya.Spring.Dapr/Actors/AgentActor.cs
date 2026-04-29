@@ -32,14 +32,12 @@ using Microsoft.Extensions.Logging;
 public class AgentActor(
     ActorHost host,
     IActivityEventBus activityEventBus,
-    IInitiativeEngine initiativeEngine,
-    IAgentPolicyStore policyStore,
+    IAgentObservationCoordinator observationCoordinator,
     IExecutionDispatcher executionDispatcher,
     MessageRouter messageRouter,
     IAgentDefinitionProvider agentDefinitionProvider,
     IEnumerable<ISkillRegistry> skillRegistries,
     IUnitMembershipRepository membershipRepository,
-    IReflectionActionHandlerRegistry reflectionActionHandlers,
     IUnitPolicyEnforcer unitPolicyEnforcer,
     IAgentInitiativeEvaluator initiativeEvaluator,
     ILoggerFactory loggerFactory,
@@ -50,12 +48,6 @@ public class AgentActor(
     /// Name of the Dapr reminder that drives periodic initiative checks.
     /// </summary>
     internal const string InitiativeReminderName = "initiative-check";
-
-    /// <summary>
-    /// Maximum number of observations retained in the observation channel.
-    /// Older entries are trimmed when the list exceeds this bound.
-    /// </summary>
-    internal const int MaxObservationChannelEntries = 100;
 
     private readonly ILogger _logger = loggerFactory.CreateLogger<AgentActor>();
     private readonly IReadOnlyList<ISkillRegistry> _skillRegistries = skillRegistries.ToList();
@@ -1725,29 +1717,24 @@ public class AgentActor(
     /// </summary>
     /// <param name="observation">The observation payload.</param>
     /// <param name="ct">A token to cancel the operation.</param>
-    public async Task RecordObservationAsync(JsonElement observation, CancellationToken ct)
+    public Task RecordObservationAsync(JsonElement observation, CancellationToken ct)
     {
-        var existing = await StateManager
-            .TryGetStateAsync<List<JsonElement>>(StateKeys.ObservationChannel, ct);
-
-        var list = existing.HasValue ? existing.Value : new List<JsonElement>();
-        list.Add(observation);
-
-        // Bound the list to the most recent MaxObservationChannelEntries.
-        if (list.Count > MaxObservationChannelEntries)
-        {
-            list.RemoveRange(0, list.Count - MaxObservationChannelEntries);
-        }
-
-        await StateManager.SetStateAsync(StateKeys.ObservationChannel, list, ct);
-
-        await RegisterInitiativeReminderAsync(ct);
-
-        var summary = SummarizeObservation(observation);
-        await EmitActivityEventAsync(
-            ActivityEventType.InitiativeTriggered,
-            $"Observation recorded: {summary}",
-            ct);
+        return observationCoordinator.RecordObservationAsync(
+            agentId: Id.GetId(),
+            agentAddress: Address,
+            observation: observation,
+            getObservations: async cancellationToken =>
+            {
+                var existing = await StateManager
+                    .TryGetStateAsync<List<JsonElement>>(StateKeys.ObservationChannel, cancellationToken);
+                return existing.HasValue ? existing.Value : new List<JsonElement>();
+            },
+            setObservations: (list, cancellationToken) =>
+                StateManager.SetStateAsync(StateKeys.ObservationChannel, list, cancellationToken),
+            registerReminder: RegisterInitiativeReminderAsync,
+            emitActivity: (activityEvent, cancellationToken) =>
+                activityEventBus.PublishAsync(activityEvent, cancellationToken),
+            cancellationToken: ct);
     }
 
     /// <inheritdoc />
@@ -1760,7 +1747,24 @@ public class AgentActor(
         switch (reminderName)
         {
             case InitiativeReminderName:
-                await RunInitiativeCheckAsync(CancellationToken.None);
+                await observationCoordinator.RunInitiativeCheckAsync(
+                    agentId: Id.GetId(),
+                    agentAddress: Address,
+                    getObservations: async cancellationToken =>
+                    {
+                        var existing = await StateManager
+                            .TryGetStateAsync<List<JsonElement>>(StateKeys.ObservationChannel, cancellationToken);
+                        return existing.HasValue ? existing.Value : null;
+                    },
+                    setObservations: (list, cancellationToken) =>
+                        StateManager.SetStateAsync(StateKeys.ObservationChannel, list, cancellationToken),
+                    evaluateSkillPolicy: (actionType, cancellationToken) =>
+                        unitPolicyEnforcer.EvaluateSkillInvocationAsync(Id.GetId(), actionType, cancellationToken),
+                    evaluateInitiative: (context, cancellationToken) =>
+                        initiativeEvaluator.EvaluateAsync(context, cancellationToken),
+                    emitActivity: (activityEvent, cancellationToken) =>
+                        activityEventBus.PublishAsync(activityEvent, cancellationToken),
+                    cancellationToken: CancellationToken.None);
                 break;
             default:
                 _logger.LogDebug("Actor {ActorId} ignored unknown reminder {ReminderName}",
@@ -1770,364 +1774,13 @@ public class AgentActor(
     }
 
     /// <summary>
-    /// Drains the observation channel through <see cref="IInitiativeEngine"/> and, if
-    /// Tier 2 decides to act, emits a <see cref="ActivityEventType.ReflectionCompleted"/>
-    /// activity event. The observation list is cleared only on a successful engine call.
-    /// </summary>
-    private async Task RunInitiativeCheckAsync(CancellationToken ct)
-    {
-        var existing = await StateManager
-            .TryGetStateAsync<List<JsonElement>>(StateKeys.ObservationChannel, ct);
-
-        if (!existing.HasValue || existing.Value.Count == 0)
-        {
-            return;
-        }
-
-        var observations = existing.Value;
-        var agentId = Id.GetId();
-
-        ReflectionOutcome? outcome;
-        try
-        {
-            outcome = await initiativeEngine.ProcessObservationsAsync(agentId, observations, ct);
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex,
-                "Initiative engine threw for actor {ActorId}; retaining observations for next tick.",
-                agentId);
-            return;
-        }
-
-        // Only clear observations after a successful engine call.
-        await StateManager.SetStateAsync(StateKeys.ObservationChannel, new List<JsonElement>(), ct);
-
-        if (outcome is null || !outcome.ShouldAct)
-        {
-            return;
-        }
-
-        var details = JsonSerializer.SerializeToElement(new
-        {
-            actionType = outcome.ActionType,
-            reasoning = outcome.Reasoning,
-            actionPayload = outcome.ActionPayload,
-        });
-
-        await EmitActivityEventAsync(
-            ActivityEventType.ReflectionCompleted,
-            $"Reflection decided to act: {outcome.ActionType ?? "(unknown)"}",
-            ct,
-            details: details);
-
-        await DispatchReflectionActionAsync(outcome, observations, ct);
-    }
-
-    /// <summary>
-    /// Translates a <see cref="ReflectionOutcome"/> into a concrete message,
-    /// gates it through the initiative-evaluator seam
-    /// (<see cref="IAgentInitiativeEvaluator"/>, #415 / PR #550 / #552), and
-    /// routes it via <see cref="MessageRouter"/>. The evaluator is the single
-    /// source of truth for initiative-specific composed enforcement (unit
-    /// initiative-action allow / block list per #250, cost caps per #474,
-    /// boundary / hierarchy permissions / cloning as they come online) — this
-    /// caller must not re-run those gates.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Decision mapping from the evaluator:
-    /// <list type="bullet">
-    ///   <item><description><c>Defer</c> — no dispatch, no activity emission (the
-    ///     observation has already been drained; the log line covers the
-    ///     internal record).</description></item>
-    ///   <item><description><c>ActWithConfirmation</c> — the translated message is
-    ///     <em>not</em> routed inline; a <c>ReflectionActionProposed</c>
-    ///     activity event surfaces the proposal for the parent unit / human
-    ///     member to approve. The <c>failedClosed</c> flag is propagated so
-    ///     operator dashboards can distinguish "operator asked for confirmation"
-    ///     from "a gate could not be evaluated."</description></item>
-    ///   <item><description><c>ActAutonomously</c> — the translated message is routed
-    ///     and a <c>ReflectionActionDispatched</c> activity event is emitted
-    ///     (unchanged from the pre-evaluator Reactive baseline).</description></item>
-    /// </list>
-    /// </para>
-    /// <para>
-    /// Upstream, the <see cref="InitiativeEngine"/> has already scrubbed the
-    /// outcome against the agent's own <see cref="InitiativePolicy.AllowedActions"/>
-    /// / <see cref="InitiativePolicy.BlockedActions"/> slots via
-    /// <c>ApplyPolicyToOutcome</c>; the evaluator owns the unit-scoped
-    /// initiative-action + cost overlays. The unit-level skill-invocation gate
-    /// (#163 / C3) is orthogonal — it governs any skill call, not just
-    /// initiative-driven ones — so it stays on the dispatch path.
-    /// </para>
-    /// </remarks>
-    private async Task DispatchReflectionActionAsync(
-        ReflectionOutcome outcome,
-        IReadOnlyList<JsonElement> signals,
-        CancellationToken ct)
-    {
-        var agentId = Id.GetId();
-        var actionType = outcome.ActionType;
-
-        if (string.IsNullOrWhiteSpace(actionType))
-        {
-            await EmitReflectionSkippedAsync(
-                outcome,
-                reason: "UnknownActionType",
-                detail: "Outcome has no ActionType.",
-                ct);
-            return;
-        }
-
-        // Unit skill policy (#163 / C3) — a cross-cutting skill-allowlist
-        // gate that applies to any skill invocation, not just initiative-driven
-        // ones. Kept on the dispatch path because the initiative evaluator
-        // does not own this concern.
-        PolicyDecision unitDecision;
-        try
-        {
-            unitDecision = await unitPolicyEnforcer
-                .EvaluateSkillInvocationAsync(agentId, actionType, ct);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex,
-                "Unit policy enforcer threw evaluating action {ActionType} for agent {AgentId}; allowing to avoid losing the action.",
-                actionType, agentId);
-            unitDecision = PolicyDecision.Allowed;
-        }
-
-        if (!unitDecision.IsAllowed)
-        {
-            await EmitReflectionSkippedAsync(
-                outcome,
-                reason: "BlockedByUnitPolicy",
-                detail: unitDecision.Reason ?? $"Action '{actionType}' blocked by unit policy.",
-                ct,
-                unitId: unitDecision.DenyingUnitId);
-            return;
-        }
-
-        var handler = reflectionActionHandlers.Find(actionType);
-        if (handler is null)
-        {
-            await EmitReflectionSkippedAsync(
-                outcome,
-                reason: "UnknownActionType",
-                detail: $"No handler registered for action type '{actionType}'.",
-                ct);
-            return;
-        }
-
-        Message? translated;
-        try
-        {
-            translated = await handler.TranslateAsync(Address, outcome, ct);
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex,
-                "Reflection action handler for {ActionType} threw for agent {AgentId}.",
-                actionType, agentId);
-            await EmitReflectionSkippedAsync(
-                outcome,
-                reason: "HandlerThrew",
-                detail: ex.Message,
-                ct);
-            return;
-        }
-
-        if (translated is null)
-        {
-            await EmitReflectionSkippedAsync(
-                outcome,
-                reason: "MalformedPayload",
-                detail: $"Handler for '{actionType}' rejected the payload.",
-                ct);
-            return;
-        }
-
-        // Initiative evaluator (#415 / PR #550). Composes the unit-scoped
-        // initiative-action policy (#250), cost caps (#474), boundary /
-        // hierarchy / cloning gates, and projects the result onto the
-        // three-valued decision that drives Reactive / Proactive / Autonomous
-        // semantics at runtime. The evaluator re-reads policy on every call,
-        // so runtime policy edits propagate here on the next drain.
-        var action = new InitiativeAction(
-            ActionType: actionType,
-            EstimatedCost: 0m,
-            IsReversible: true,
-            TargetAddress: $"{translated.To.Scheme}://{translated.To.Path}");
-
-        InitiativeEvaluationResult evaluation;
-        try
-        {
-            evaluation = await initiativeEvaluator.EvaluateAsync(
-                new InitiativeEvaluationContext(agentId, action, signals),
-                ct);
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            // Evaluator infrastructure failure — fail closed to confirmation.
-            _logger.LogWarning(ex,
-                "Initiative evaluator threw for agent {AgentId}, action {ActionType}; surfacing as confirmation-required proposal.",
-                agentId, actionType);
-
-            await EmitProposalAsync(
-                outcome,
-                translated,
-                reason: $"initiative evaluator threw: {ex.Message}",
-                effectiveLevel: null,
-                failedClosed: true,
-                ct);
-            return;
-        }
-
-        switch (evaluation.Decision)
-        {
-            case InitiativeEvaluationDecision.Defer:
-                // Issue #552: Defer takes no action and emits no activity
-                // event. The internal log line keeps the decision traceable.
-                _logger.LogInformation(
-                    "Reflection action '{ActionType}' deferred for agent {AgentId}: {Reason}",
-                    actionType, agentId, evaluation.Reason ?? "(no reason)");
-                return;
-
-            case InitiativeEvaluationDecision.ActWithConfirmation:
-                await EmitProposalAsync(
-                    outcome,
-                    translated,
-                    reason: evaluation.Reason,
-                    effectiveLevel: evaluation.EffectiveLevel,
-                    failedClosed: evaluation.FailedClosed,
-                    ct);
-                return;
-
-            case InitiativeEvaluationDecision.ActAutonomously:
-                // Fall through to inline routing.
-                break;
-
-            default:
-                _logger.LogWarning(
-                    "Initiative evaluator returned unknown decision {Decision} for agent {AgentId}; treating as Defer.",
-                    evaluation.Decision, agentId);
-                return;
-        }
-
-        var routing = await messageRouter.RouteAsync(translated, ct);
-        if (!routing.IsSuccess)
-        {
-            _logger.LogWarning(
-                "Routing reflection action {ActionType} for agent {AgentId} failed: {Error}",
-                actionType, agentId, routing.Error);
-            await EmitReflectionSkippedAsync(
-                outcome,
-                reason: "RoutingFailed",
-                detail: routing.Error?.Message ?? "router returned failure",
-                ct);
-            return;
-        }
-
-        var dispatchDetails = JsonSerializer.SerializeToElement(new
-        {
-            actionType,
-            messageId = translated.Id,
-            target = new { scheme = translated.To.Scheme, path = translated.To.Path },
-            threadId = translated.ThreadId,
-            effectiveLevel = evaluation.EffectiveLevel.ToString(),
-        });
-
-        await EmitActivityEventAsync(
-            ActivityEventType.ReflectionActionDispatched,
-            $"Reflection action '{actionType}' dispatched to {translated.To.Scheme}://{translated.To.Path}.",
-            ct,
-            details: dispatchDetails,
-            correlationId: translated.ThreadId);
-    }
-
-    /// <summary>
-    /// Emits a <see cref="ActivityEventType.ReflectionActionProposed"/>
-    /// activity event for a reflection action the evaluator flagged as
-    /// requiring confirmation. The proposal is surfaced to downstream
-    /// observers (dashboards, audit, the private-cloud approval UI) via the
-    /// activity bus; the translated message is intentionally <em>not</em>
-    /// routed inline so a human / unit owner can approve it first.
-    /// </summary>
-    private Task EmitProposalAsync(
-        ReflectionOutcome outcome,
-        Message translated,
-        string? reason,
-        InitiativeLevel? effectiveLevel,
-        bool failedClosed,
-        CancellationToken ct)
-    {
-        var details = JsonSerializer.SerializeToElement(new
-        {
-            actionType = outcome.ActionType,
-            messageId = translated.Id,
-            target = new { scheme = translated.To.Scheme, path = translated.To.Path },
-            threadId = translated.ThreadId,
-            reason,
-            effectiveLevel = effectiveLevel?.ToString(),
-            failedClosed,
-        });
-
-        var summary = failedClosed
-            ? $"Reflection action '{outcome.ActionType}' proposal (fail-closed): {reason ?? "(no reason)"}"
-            : $"Reflection action '{outcome.ActionType}' proposal pending confirmation: {reason ?? "(no reason)"}";
-
-        return EmitActivityEventAsync(
-            ActivityEventType.ReflectionActionProposed,
-            summary,
-            ct,
-            details: details,
-            correlationId: translated.ThreadId);
-    }
-
-    private Task EmitReflectionSkippedAsync(
-        ReflectionOutcome outcome,
-        string reason,
-        string detail,
-        CancellationToken ct,
-        string? unitId = null)
-    {
-        _logger.LogInformation(
-            "Reflection action skipped for actor {ActorId}: {Reason} ({Detail})",
-            Id.GetId(), reason, detail);
-
-        var details = JsonSerializer.SerializeToElement(new
-        {
-            reason,
-            detail,
-            actionType = outcome.ActionType,
-            denyingUnitId = unitId,
-        });
-
-        return EmitActivityEventAsync(
-            ActivityEventType.ReflectionActionSkipped,
-            $"Reflection action skipped: {reason}",
-            ct,
-            details: details);
-    }
-
-    /// <summary>
     /// Lazily registers the Dapr reminder that drives periodic initiative checks.
     /// The registration is idempotent — the persisted
     /// <see cref="StateKeys.InitiativeReminderRegistered"/> flag prevents duplicate work.
-    /// The reminder period is derived from <see cref="Tier2Config.MaxCallsPerHour"/>.
+    /// The reminder period defaults to 12 minutes (5 calls/hour) when no policy is
+    /// configured. The coordinator owns the frequency calculation; this method simply
+    /// wraps the Dapr <see cref="RegisterReminderAsync"/> call so the coordinator
+    /// can remain free of Dapr actor dependencies.
     /// </summary>
     private async Task RegisterInitiativeReminderAsync(CancellationToken ct)
     {
@@ -2139,23 +1792,8 @@ public class AgentActor(
             return;
         }
 
-        var maxCallsPerHour = 5;
-        try
-        {
-            var policy = await policyStore.GetPolicyAsync($"agent:{Id.GetId()}", ct);
-            if (policy.Tier2 is not null)
-            {
-                maxCallsPerHour = policy.Tier2.MaxCallsPerHour;
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex,
-                "Could not read initiative policy for {ActorId}; using default reminder period.",
-                Id.GetId());
-        }
-
-        var period = TimeSpan.FromHours(1.0 / Math.Max(1, maxCallsPerHour));
+        // Default reminder period: 5 calls per hour = one call every 12 minutes.
+        var period = TimeSpan.FromMinutes(12);
 
         try
         {
@@ -2170,21 +1808,4 @@ public class AgentActor(
         }
     }
 
-    /// <summary>
-    /// Produces a short, human-readable summary for an observation. If the observation is
-    /// an object with a <c>summary</c> string property, that value is used. Otherwise the
-    /// raw JSON is truncated to 200 characters.
-    /// </summary>
-    private static string SummarizeObservation(JsonElement observation)
-    {
-        if (observation.ValueKind == JsonValueKind.Object &&
-            observation.TryGetProperty("summary", out var summary) &&
-            summary.ValueKind == JsonValueKind.String)
-        {
-            return summary.GetString() ?? observation.ToString();
-        }
-
-        var raw = observation.ToString();
-        return raw.Length <= 200 ? raw : raw[..200];
-    }
 }

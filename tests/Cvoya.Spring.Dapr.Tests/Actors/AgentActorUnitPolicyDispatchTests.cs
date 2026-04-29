@@ -78,25 +78,19 @@ public class AgentActorUnitPolicyDispatchTests
         _membershipRepository.GetAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns((UnitMembership?)null);
 
-        var reflectionRegistry = Substitute.For<IReflectionActionHandlerRegistry>();
-        reflectionRegistry.Find(Arg.Any<string?>()).Returns((IReflectionActionHandler?)null);
-
         _enforcer.WithAllowByDefault();
-        var initiativeEvaluator = Substitute.For<IAgentInitiativeEvaluator>().WithActAutonomouslyByDefault();
 
         _actor = new AgentActor(
             host,
             _activityEventBus,
-            Substitute.For<IInitiativeEngine>(),
-            Substitute.For<IAgentPolicyStore>(),
+            Substitute.For<IAgentObservationCoordinator>(),
             _dispatcher,
             _router,
             _definitionProvider,
             Array.Empty<ISkillRegistry>(),
             _membershipRepository,
-            reflectionRegistry,
             _enforcer,
-            initiativeEvaluator,
+            Substitute.For<IAgentInitiativeEvaluator>(),
             loggerFactory);
 
         SetStateManager(_actor, _stateManager);
