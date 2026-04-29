@@ -152,6 +152,8 @@ public static class WorkerComposition
             options.Actors.RegisterActor<UnitActor>();
             options.Actors.RegisterActor<ConnectorActor>();
             options.Actors.RegisterActor<HumanActor>();
+            // D3d: platform supervisor actor — one per agent container.
+            options.Actors.RegisterActor<ContainerSupervisorActor>();
 
             options.ActorIdleTimeout = TimeSpan.FromHours(1);
             options.ActorScanInterval = TimeSpan.FromSeconds(30);

@@ -320,6 +320,14 @@ public static class StateKeys
     public const string UnitProvider = "Unit:Provider";
 
     /// <summary>
+    /// State key for the <see cref="ContainerSupervisorActor"/>'s persisted
+    /// supervision state (container id, hosting mode, restart count, etc.).
+    /// Stored on the <c>ContainerSupervisorActor</c> (keyed by agent id).
+    /// D3d — ADR-0029 § "Failure recovery".
+    /// </summary>
+    public const string SupervisorState = "Supervisor:State";
+
+    /// <summary>
     /// State key for the unit's hosting hint
     /// (e.g. <c>ephemeral</c>, <c>persistent</c>). Surfaced through
     /// <see cref="Core.Units.UnitMetadata"/>. See #1065.
