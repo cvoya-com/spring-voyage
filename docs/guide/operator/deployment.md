@@ -1,23 +1,8 @@
 # Deployment
 
-This guide walks an operator from zero to a working single-host Spring Voyage deployment using Docker Compose or Podman. Kubernetes and multi-region deployments are covered separately in the Spring Voyage Cloud repository — this guide targets the open-source single-host scenario (your workstation, a home server, or one VPS).
+This guide walks an operator from zero to a working single-host Spring Voyage deployment using Docker Compose or Podman. Kubernetes and multi-region deployments are covered in the Spring Voyage Cloud repository; this guide targets the open-source single-host scenario (workstation, home server, or a VPS).
 
-## Document map
-
-- [Zero-to-running walkthrough](#zero-to-running-walkthrough) — the ten-minute path.
-- [Container stack](#container-stack) — what runs, why, and on which ports.
-- [Docker Compose](#docker-compose) — the `deployment/docker-compose.yml` reference.
-- [Podman (rootless)](#podman-rootless) — the `deployment/deploy.sh` reference.
-- [Dapr components](#dapr-components) — the state store / pub/sub / secret store YAML.
-- [PostgreSQL setup](#postgresql-setup) — connection string, database, migrations.
-- [Redis setup](#redis-setup) — pub/sub + distributed state.
-- [TLS with Caddy](#tls-with-caddy) — automatic Let's Encrypt certificates.
-- [Secrets bootstrap](#secrets-bootstrap) — API keys, GitHub App, OAuth.
-- [Health checks](#health-checks) — verifying the stack is live.
-- [Updating](#updating-to-a-new-version) — rolling to a new image tag.
-- [Troubleshooting](#troubleshooting) — common failures and fixes.
-
-For the architectural picture of how these pieces fit together, read [Architecture — Deployment](../../architecture/deployment.md) and [Architecture — Infrastructure](../../architecture/infrastructure.md) first. Operator tasks that sit above provisioning (backups, DataProtection keys, migrations) live in [Developer — Operations](../../developer/operations.md).
+For the architectural picture read [Architecture — Deployment](../../architecture/deployment.md) and [Architecture — Infrastructure](../../architecture/infrastructure.md) first. Operator tasks above provisioning (backups, DataProtection keys, migrations) live in [Developer — Operations](../../developer/operations.md).
 
 ## Prerequisites
 
@@ -64,284 +49,142 @@ curl -fsS http://localhost/health
 
 ## Container stack
 
-The same stack runs under both Docker Compose and Podman. Every container attaches to a single bridge network called `spring-net`.
+Every container attaches to a single bridge network called `spring-net`. `deployment/Dockerfile` produces one `localhost/spring-voyage:<tag>` image; the container `command` selects which process to run.
 
-| Container            | Image                                 | Role                                                    |
-| -------------------- | ------------------------------------- | ------------------------------------------------------- |
-| `spring-postgres`    | `postgres:17`                         | Primary database + Dapr state store backend.            |
-| `spring-redis`       | `redis:7`                             | Dapr pub/sub backend.                                   |
-| `spring-placement`   | `daprio/dapr:<tag>`                   | Dapr actor placement service.                           |
-| `spring-scheduler`   | `daprio/dapr:<tag>`                   | Dapr actor reminder / scheduler service.                |
-| `spring-api-dapr`    | `daprio/dapr:<tag>`                   | daprd sidecar paired with `spring-api`.                 |
-| `spring-worker-dapr` | `daprio/dapr:<tag>`                   | daprd sidecar paired with `spring-worker`.              |
-| `spring-worker`      | `localhost/spring-voyage:<tag>`       | Dapr actor host (agents, units, connectors). Runs EF migrations. |
-| `spring-api`         | `localhost/spring-voyage:<tag>`       | ASP.NET Core REST API (port 8080 inside the network).   |
-| `spring-web`         | `localhost/spring-voyage:<tag>`       | Next.js dashboard (port 3000 inside the network).       |
-| `spring-caddy`       | `caddy:2`                             | Reverse proxy + automatic TLS (binds host `:80`, `:443`). |
+| Container | Image | Role |
+|-----------|-------|------|
+| `spring-postgres` | `postgres:17` | Primary database + Dapr state store backend |
+| `spring-redis` | `redis:7` | Dapr pub/sub backend |
+| `spring-placement` | `daprio/dapr:<tag>` | Dapr actor placement |
+| `spring-scheduler` | `daprio/dapr:<tag>` | Dapr actor reminders / scheduling |
+| `spring-api-dapr` | `daprio/dapr:<tag>` | daprd sidecar for `spring-api` |
+| `spring-worker-dapr` | `daprio/dapr:<tag>` | daprd sidecar for `spring-worker` |
+| `spring-worker` | `localhost/spring-voyage:<tag>` | Dapr actor host + EF migrations |
+| `spring-api` | `localhost/spring-voyage:<tag>` | ASP.NET Core REST API (port 8080) |
+| `spring-web` | `localhost/spring-voyage:<tag>` | Next.js portal (port 3000) |
+| `spring-caddy` | `caddy:2` | Reverse proxy + TLS (host `:80`/`:443`) |
 
-Three image roles, one built image: `deployment/Dockerfile` produces a single `localhost/spring-voyage:<tag>` image that contains the published API, Worker, and Web outputs side-by-side. The container's `command` selects which process to run.
-
-**Sidecar topology.** Each .NET host talks to its own daprd container — not a localhost sidecar. The Dapr .NET SDK honors `DAPR_HTTP_ENDPOINT` / `DAPR_GRPC_ENDPOINT`, which the stack sets per app:
-
-```
-spring-api ─ http://spring-api-dapr:3500 ─▶ spring-api-dapr
-                                                 │
-           ┌──────── spring-placement:50005 ─────┤
-           │                                     │
-           ▼                                     ▼
- spring-worker-dapr ◀─ http://spring-worker-dapr:3500 ─ spring-worker
-```
-
-See [Architecture — Deployment](../../architecture/deployment.md) for why the sidecars are container-paired rather than process-paired.
+Each .NET host talks to its own daprd sidecar container. See [Architecture — Deployment](../../architecture/deployment.md) for the topology rationale.
 
 ## Docker Compose
 
-The reference compose file is at `deployment/docker-compose.yml`. It is a working, minimal example — the same services, volumes, and network the Podman script manages. Run it from the `deployment/` directory so relative `../dapr/` bind mounts resolve:
+Reference file: `deployment/docker-compose.yml`. Run from the `deployment/` directory so `../dapr/` bind mounts resolve.
 
 ```bash
 cd deployment/
-cp spring.env.example spring.env
-$EDITOR spring.env
+cp spring.env.example spring.env && $EDITOR spring.env
 
-docker compose --env-file spring.env build    # build the platform image from source
-docker compose --env-file spring.env up -d    # start the stack
+docker compose --env-file spring.env build    # build platform image
+docker compose --env-file spring.env up -d    # start stack
 docker compose --env-file spring.env ps       # status
 docker compose --env-file spring.env logs -f spring-api
 docker compose --env-file spring.env down     # stop (volumes preserved)
 ```
 
-Volumes (`spring-postgres-data`, `spring-redis-data`, `spring-caddy-data`, `spring-caddy-config`, `spring-dataprotection-keys`, etc.) persist across `down`/`up` cycles. Remove them with `docker volume rm` when you want a clean slate.
-
-**Image registry flow.** If you publish the platform image to a registry, set `SPRING_PLATFORM_IMAGE` in `spring.env` to the registry path and skip the `build` step — `up -d` will pull on demand.
+Volumes persist across `down`/`up` cycles; `docker volume rm` clears them. To use a registry image, set `SPRING_PLATFORM_IMAGE` in `spring.env` and skip the `build` step.
 
 ## Podman (rootless)
 
-`deployment/deploy.sh` is the Podman-native driver. It issues `podman` calls directly (no compose shim) so behaviour is deterministic across Podman versions, and it exposes Podman-specific operations like `ensure-user-net` for per-user agent isolation.
+`deployment/deploy.sh` is the Podman-native driver (no compose shim).
 
 ```bash
 cd deployment/
-cp spring.env.example spring.env
-$EDITOR spring.env
+cp spring.env.example spring.env && $EDITOR spring.env
 
 ./deploy.sh build              # build platform + agent images
-./deploy.sh up                 # create network, start the full stack
+./deploy.sh up                 # create network, start stack
 ./deploy.sh status             # list running containers
 ./deploy.sh logs spring-api    # tail one service
-./deploy.sh down               # stop containers (volumes preserved)
+./deploy.sh down               # stop (volumes preserved)
 ./deploy.sh restart            # down + up
 ```
 
 Rootless notes:
+- Podman 4.4+ required.
+- Ports 80 and 443 need `CAP_NET_BIND_SERVICE` or `net.ipv4.ip_unprivileged_port_start` lowered.
+- `host.containers.internal` requires Podman 4.1+ on Linux; older versions get `--add-host` added automatically.
 
-- Podman 4.4+ is required (earlier releases miss `podman network exists` and leak networking state).
-- Ports 80 and 443 need either `CAP_NET_BIND_SERVICE` granted to the Podman user, or a line in `/etc/sysctl.d/` lowering `net.ipv4.ip_unprivileged_port_start`.
-- The default `host.containers.internal` DNS name that delegated agents rely on works on Linux with Podman 4.1+; older versions require an explicit `--add-host` which the runtime adds automatically.
-
-See `deployment/README.md` for the full Podman story (remote deploy via `deploy-remote.sh`, per-user agent networks, webhook relay for local-dev).
+See `deployment/README.md` for remote deploy, per-user agent networks, and webhook relay.
 
 ## Dapr components
 
-Components and the Dapr Configuration live under `dapr/` at the repo root. Two profiles ship in-tree:
-
-```
-dapr/
-├── components/
-│   ├── local/         # dev loop (dapr run; env-var secret store)
-│   │   ├── statestore.yaml     # state.redis on localhost:6379
-│   │   ├── pubsub.yaml         # pubsub.redis on localhost:6379
-│   │   └── secretstore.yaml    # secretstores.local.env
-│   └── production/    # Docker Compose / Podman stack
-│       ├── statestore.yaml     # state.postgresql via spring-postgres
-│       ├── pubsub.yaml         # pubsub.redis via spring-redis
-│       └── secretstore.yaml    # secretstores.local.env
-└── config/
-    ├── local.yaml              # tracing stdout, resiliency on
-    └── production.yaml         # tracing 10% sampling, resiliency on
-```
-
-Both stacks bind-mount `dapr/components/production/` at `/components` inside each sidecar and `dapr/config/production.yaml` at `/config/config.yaml`. That means **you can edit a component YAML and restart the sidecar to apply the change** — you do not need to rebuild the image.
+Components live under `dapr/` at the repo root. Two profiles ship in-tree: `dapr/components/local/` (dev loop) and `dapr/components/production/` (Docker Compose / Podman). Both stacks bind-mount the production directory at `/components` inside each sidecar. **Edit a component YAML and restart the sidecar to apply — no image rebuild needed.**
 
 ### State store (`statestore`)
 
-`dapr/components/production/statestore.yaml`:
-
-```yaml
-apiVersion: dapr.io/v1alpha1
-kind: Component
-auth:
-  secretStore: secretstore
-metadata:
-  name: statestore
-spec:
-  type: state.postgresql
-  version: v1
-  metadata:
-    - name: connectionString
-      secretKeyRef:
-        name: SPRING_POSTGRES_CONNECTION_STRING
-        key: SPRING_POSTGRES_CONNECTION_STRING
-    - name: actorStateStore
-      value: "true"
-```
-
-The Dapr actor runtime (the backbone of every `AgentActor`, `UnitActor`, `ConnectorActor`) reads and writes actor state through this component. The connection string is pulled from the paired `secretstore` component rather than being inlined — which keeps the Postgres password out of git and out of the image.
+`dapr/components/production/statestore.yaml` uses `state.postgresql` backed by `spring-postgres`. The connection string is pulled from the `secretstore` component (never inlined in the YAML). Swap to `state.redis` in this file to trade ACID semantics for speed — keep the component name `statestore`.
 
 ### Pub/sub (`pubsub`)
 
-`dapr/components/production/pubsub.yaml`:
-
-```yaml
-apiVersion: dapr.io/v1alpha1
-kind: Component
-auth:
-  secretStore: secretstore
-metadata:
-  name: pubsub
-spec:
-  type: pubsub.redis
-  version: v1
-  metadata:
-    - name: redisHost
-      value: "spring-redis:6379"
-    - name: redisPassword
-      secretKeyRef:
-        name: REDIS_PASSWORD
-        key: REDIS_PASSWORD
-```
-
-Redis Streams is the default pub/sub backend — it is cheap, single-node-friendly, and survives restarts. For multi-broker deployments (NATS, RabbitMQ, Kafka, cloud services) swap this file for the Dapr component you want. The platform keys off the component **name** (`pubsub`), not the implementation, so no code changes are required.
+`dapr/components/production/pubsub.yaml` uses `pubsub.redis` (Redis Streams). For multi-broker deployments (NATS, RabbitMQ, Kafka) swap this file. The platform keys off the component **name** (`pubsub`), not the implementation.
 
 ### Secret store (`secretstore`)
 
-`dapr/components/production/secretstore.yaml`:
-
-```yaml
-apiVersion: dapr.io/v1alpha1
-kind: Component
-metadata:
-  name: secretstore
-spec:
-  type: secretstores.local.env
-  version: v1
-```
-
-`secretstores.local.env` reads secrets from the sidecar process environment — the stack passes `spring.env` to every sidecar via `--env-file`, so any `secretKeyRef` resolves against the variables defined there. For cloud-grade secret management replace this file with the Dapr Azure Key Vault, HashiCorp Vault, or Kubernetes Secrets component. Keep the component name `secretstore` and the other components keep working unchanged.
+`dapr/components/production/secretstore.yaml` uses `secretstores.local.env`, which reads secrets from the sidecar process environment (`spring.env` is passed via `--env-file`). For cloud-grade management replace this file with the Dapr Azure Key Vault, HashiCorp Vault, or Kubernetes Secrets component — keep the name `secretstore`.
 
 ## PostgreSQL setup
 
-### Defaults
+The stack runs PostgreSQL 17 in `spring-postgres` with a named volume (`spring-postgres-data`). The image creates the user, password, and database on first start from `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB` in `spring.env`.
 
-The default stack runs PostgreSQL 17 in a container (`spring-postgres`) with a named volume for data (`spring-postgres-data`). The postgres image's entrypoint creates the user, password, and database on first start from the environment variables `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` — all driven by `spring.env`.
+Two connection strings must be kept in sync:
 
-### Connection strings
+| Variable | Consumer | Format |
+|----------|----------|--------|
+| `ConnectionStrings__SpringDb` | Platform hosts (EF Core) | Npgsql (`Host=…;Database=…;Username=…;Password=…`) |
+| `SPRING_POSTGRES_CONNECTION_STRING` | Dapr state store | libpq-style (`host=… user=… password=… dbname=…`) |
 
-Two connection strings reach Postgres, and both are defined in `spring.env.example`:
+A missing `ConnectionStrings__SpringDb` is a hard startup error. `spring.env.example` wires both from the three `POSTGRES_*` variables via `envsubst`.
 
-| Variable                            | Consumer                                     | Format                                          |
-| ----------------------------------- | -------------------------------------------- | ----------------------------------------------- |
-| `ConnectionStrings__SpringDb`       | Platform hosts (EF Core, via `IConfiguration.GetConnectionString("SpringDb")`). | Npgsql (`Host=...;Port=...;Database=...;Username=...;Password=...`). |
-| `SPRING_POSTGRES_CONNECTION_STRING` | Dapr state store component (`state.postgresql`). | libpq-style (`host=... port=... user=... password=... dbname=... sslmode=...`). |
-
-A missing or empty `ConnectionStrings__SpringDb` is a hard configuration error — the host refuses to start so a misconfigured deployment cannot silently fall back to an in-memory store. Keep both variables in sync with the Postgres credentials you set; `spring.env.example` wires them up with `envsubst` so you only edit `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB` once.
-
-### Migrations
-
-EF Core migrations target the Npgsql provider and live under `src/Cvoya.Spring.Dapr/Data/Migrations/`. The **Worker host owns migrations** and runs them automatically on startup via `DatabaseMigrator` (a hosted service). The API host does not run migrations — it trusts the schema is in place. This is why the compose file declares `spring-api` as `depends_on: spring-worker`.
-
-Disable auto-migrate if you run migrations out-of-band (CI/CD or a scripted SQL deploy):
+**Migrations:** the Worker host runs EF Core migrations automatically at startup via `DatabaseMigrator`. The API host trusts the schema is in place (hence `depends_on: spring-worker`). To run migrations out-of-band:
 
 ```ini
 # spring.env
 Database__AutoMigrate=false
 ```
 
-See [Developer — Operations § Database Migrations](../../developer/operations.md#database-migrations) for the manual path (`dotnet ef database update`, idempotent SQL scripts, multi-replica coordination).
+See [Developer — Operations § Database Migrations](../../developer/operations.md#database-migrations) for the manual path.
 
-### External PostgreSQL
-
-To point at an externally managed Postgres (RDS, Cloud SQL, a dedicated VM), remove the `spring-postgres` service from your compose file and update both connection strings in `spring.env`. Make sure the host resolves from inside `spring-net` (add an `extra_hosts:` entry or use a public DNS name) and that `sslmode=require` is set on a non-local database.
+**External Postgres (RDS, Cloud SQL, etc.):** remove `spring-postgres` from your compose file, update both connection strings, and set `sslmode=require` for a non-local database.
 
 ## Redis setup
 
-### Defaults
+Redis 7 runs as `spring-redis` with AOF persistence (`appendonly yes`). Set `REDIS_PASSWORD` for any public-facing deployment; leave it empty only on a laptop.
 
-Redis 7 runs as `spring-redis` with `appendonly yes` and a named volume (`spring-redis-data`) for AOF persistence. When `REDIS_PASSWORD` is set the container starts with `--requirepass`; when empty it runs without auth (acceptable for a laptop, not for a public VPS).
+Redis carries the pub/sub building block (Redis Streams, at-least-once). The default state store is PostgreSQL; swap `dapr/components/production/statestore.yaml` to `state.redis` if you need faster but non-ACID state.
 
-### Roles
-
-Redis carries two Dapr building blocks in this stack:
-
-- **Pub/sub** — Redis Streams topic per channel. At-least-once delivery; survives restarts while the AOF is intact.
-- **Distributed state (optional).** The default `statestore` uses PostgreSQL, but you can swap it for `state.redis` by editing `dapr/components/production/statestore.yaml`. Redis is faster but lacks ACID semantics — the trade-off is appropriate for short-lived agent state that does not need cross-table durability.
-
-### External Redis
-
-Point `redisHost` in `dapr/components/production/pubsub.yaml` at your managed instance (`redis.example.com:6380`), set `REDIS_PASSWORD` in `spring.env`, and remove the `spring-redis` service from the compose file. Enable TLS in the Dapr component metadata (`enableTLS: "true"`) for a public-facing Redis.
+**External Redis:** update `redisHost` in `pubsub.yaml`, set `REDIS_PASSWORD` in `spring.env`, and remove `spring-redis` from your compose file. Add `enableTLS: "true"` to the Dapr component metadata for a TLS-protected instance.
 
 ## TLS with Caddy
 
-Caddy is the stack's reverse proxy and TLS terminator. It fronts three upstreams:
-
-- `spring-api:8080` (REST API, OpenAPI docs, `/health`)
-- `spring-api:8080` via `/api/v1/webhooks/*` (third-party webhook ingress)
-- `spring-web:3000` (Next.js dashboard — everything else)
+Caddy fronts three upstreams: `spring-api:8080` (API + `/health`), `/api/v1/webhooks/*` (webhook ingress), and `spring-web:3000` (portal).
 
 Two Caddyfile variants ship in `deployment/`:
+- **`Caddyfile`** — single hostname, path-routed (default).
+- **`Caddyfile.multi-host`** — one FQDN per service. Select with `SPRING_CADDYFILE=Caddyfile.multi-host`.
 
-- **`Caddyfile`** — single public hostname, path-routed. The default.
-- **`Caddyfile.multi-host`** — one FQDN per service (`app.example.com`, `api.example.com`, `hooks.example.com`). Select by setting `SPRING_CADDYFILE=Caddyfile.multi-host` in `spring.env`.
+**Let's Encrypt (automatic):** set `DEPLOY_HOSTNAME=app.example.com`, `DEPLOY_SCHEME=https`, and `ACME_EMAIL` in `spring.env`. Point DNS `A`/`AAAA` at the host and ensure ports 80 and 443 are open. Caddy issues a certificate on the first request.
 
-### Automatic Let's Encrypt
+**Local / private:** hostnames ending in `.localhost` or `localhost` fall back to plain HTTP. Set `DEPLOY_SCHEME=http` explicitly.
 
-Caddy obtains a Let's Encrypt certificate for any FQDN it serves when three conditions hold:
-
-1. The hostname's public DNS `A`/`AAAA` record points at this host.
-2. Ports `80` and `443` on the host are reachable from the public internet. The ACME HTTP-01 challenge requires port 80 specifically.
-3. `ACME_EMAIL` is set in `spring.env` so Let's Encrypt can email expiry and revocation notices.
-
-Set `DEPLOY_HOSTNAME=app.example.com` and `DEPLOY_SCHEME=https` in `spring.env`, point DNS at the host, and `docker compose up -d` — a certificate lands automatically on the first HTTPS request.
-
-### Local / private deployments
-
-Hostnames ending in `.localhost`, set to `localhost`, or private LAN names like `*.local` fall back to plain HTTP. This is the right default for a laptop stack. Set `DEPLOY_SCHEME=http` explicitly to be safe.
-
-### Using nginx instead
-
-If you already run nginx for other services, terminate TLS there and proxy to the compose stack. Point the nginx upstream at the host ports that Caddy binds (`:80`/`:443`) or remove `spring-caddy` entirely and proxy directly to `spring-api:8080` and `spring-web:3000` (expose them via `ports:` in your compose override). A minimal upstream block:
-
-```nginx
-upstream spring_api { server 127.0.0.1:8080; }
-upstream spring_web { server 127.0.0.1:3000; }
-
-server {
-    listen 443 ssl http2;
-    server_name app.example.com;
-
-    location /api/  { proxy_pass http://spring_api; }
-    location /health { proxy_pass http://spring_api; }
-    location /      { proxy_pass http://spring_web; }
-}
-```
-
-You lose automatic certificate issuance — arrange your own certbot / cert-manager flow.
+**nginx instead:** remove `spring-caddy` and proxy directly to `spring-api:8080` and `spring-web:3000`. You are responsible for TLS (certbot / cert-manager).
 
 ## Secrets bootstrap
 
-All secrets live in `deployment/spring.env`. The file is **not** committed — only `spring.env.example` is — and `deploy.sh` / the compose file load it at container start via `--env-file`. Restrict its permissions on the host:
+All secrets live in `deployment/spring.env`. The file is **not** committed (only `spring.env.example` is). Restrict its permissions:
 
 ```bash
 chmod 600 /opt/spring-voyage/deployment/spring.env
 ```
 
-### Mandatory
+### Mandatory variables
 
-| Variable                            | Purpose                                          |
-| ----------------------------------- | ------------------------------------------------ |
-| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | Create the initial Postgres user, password, and database. |
-| `ConnectionStrings__SpringDb`       | Npgsql connection string the .NET hosts use. The template in `spring.env.example` interpolates the three variables above. |
-| `SPRING_POSTGRES_CONNECTION_STRING` | libpq-style connection string the Dapr state-store component uses. |
-| `REDIS_PASSWORD`                    | Redis `requirepass`. Leave empty only on a laptop. |
-| `DEPLOY_HOSTNAME`                   | Public FQDN (or `localhost` for a local stack). |
+| Variable | Purpose |
+|----------|---------|
+| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | Initial Postgres credentials |
+| `ConnectionStrings__SpringDb` | Npgsql connection string (interpolated from the three above in `spring.env.example`) |
+| `SPRING_POSTGRES_CONNECTION_STRING` | libpq-style connection string for the Dapr state store |
+| `REDIS_PASSWORD` | Redis `requirepass` (leave empty only on a laptop) |
+| `DEPLOY_HOSTNAME` | Public FQDN or `localhost` |
 
 ### Tier-1 platform credentials — GitHub App identity (env only)
 
@@ -418,47 +261,33 @@ For Azure Key Vault, HashiCorp Vault, AWS Secrets Manager, or Kubernetes Secrets
 
 ## Health checks
 
-The API and Worker hosts each expose a single `/health` liveness endpoint. They return `200 OK` with a JSON body `{"Status":"Healthy"}` once the host has bound its HTTP listener. There is no separate `/ready` endpoint today — readiness is signalled by the Dapr sidecar's `/v1.0/healthz` probe, which confirms components loaded and the control plane is reachable.
-
-### Checking the stack
-
 ```bash
 # API host (behind Caddy)
 curl -fsS http://localhost/health
-
-# Directly (inside the network / with ports exposed)
+# Directly
 docker exec spring-api curl -fsS http://localhost:8080/health
-
 # Dapr sidecar readiness
 docker exec spring-api-dapr wget -q -O- http://localhost:3500/v1.0/healthz
 ```
 
-### What each signal means
+- `spring-api /health` — HTTP listener is up. Does not imply database or Dapr reachability.
+- `spring-worker /health` — Worker is up; migrations completed.
+- Dapr sidecar `/v1.0/healthz/outbound` — components loaded and control plane reachable.
+- `docker compose ps` — shows `(healthy)` for Postgres (`pg_isready`) and Redis (`redis-cli ping`).
 
-- `spring-api` `/health` — the API host is accepting HTTP traffic. Does not imply the database, Dapr sidecar, or any downstream is reachable.
-- `spring-worker` `/health` — the Worker host is up. Migrations completed (`DatabaseMigrator` ran to completion before the listener bound).
-- Dapr sidecar `/v1.0/healthz/outbound` — the sidecar loaded its component YAML and can reach its control plane. If this fails, the app will still start but `Actor` / `pubsub` / `state` calls error.
-- Container-level healthchecks — `spring-postgres` runs `pg_isready` and `spring-redis` runs `redis-cli ping`. `docker compose ps` shows `(healthy)` once they pass.
-
-### Deeper probes
-
-Run a few CLI calls against the API to confirm actors and state persist end-to-end:
+End-to-end smoke test:
 
 ```bash
-spring auth                         # only for hosted/remote deployments
 spring unit create deployment-smoke
-spring unit list                    # must list the unit
+spring unit list        # must include deployment-smoke
 spring unit delete deployment-smoke
 ```
 
 ## Updating to a new version
 
-Spring Voyage is currently pre-1.0, so treat every update as a potentially-breaking change: read the release notes, run the update in a staging environment first, and take a database backup before rolling production.
-
-### Pull the new image
+Treat every update as potentially breaking: read the release notes, test in staging first, and back up the database before rolling production.
 
 **Registry flow:**
-
 ```bash
 cd deployment/
 sed -i 's/^SPRING_IMAGE_TAG=.*/SPRING_IMAGE_TAG=0.2.0/' spring.env
@@ -466,26 +295,19 @@ docker compose --env-file spring.env pull
 docker compose --env-file spring.env up -d
 ```
 
-`up -d` recreates changed services and leaves unchanged services alone. Migrations run automatically when `spring-worker` restarts (before `spring-api` comes back up).
-
 **Source flow:**
-
 ```bash
-cd /path/to/spring-voyage
-git fetch --tags
-git checkout v0.2.0
-
+git fetch --tags && git checkout v0.2.0
 cd deployment/
 docker compose --env-file spring.env build
 docker compose --env-file spring.env up -d
 ```
 
-### Before / after checklist
+`up -d` recreates only changed services. Migrations run automatically on `spring-worker` restart before `spring-api` comes up.
 
-- **Before:** `pg_dump` the database (`docker exec spring-postgres pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" > backup.sql`). Back up `spring-dataprotection-keys` as well — it carries the key ring that decrypts auth cookies and OAuth tokens.
-- **After:** confirm `/health` on the API, tail `spring-worker` logs for migration lines, and run the smoke test in [Deeper probes](#deeper-probes). Roll back by checking out the previous tag and running `up -d` again.
+**Before:** `pg_dump` the database and back up the `spring-dataprotection-keys` volume — it holds the key ring for auth cookies and OAuth tokens. **Never `docker volume rm spring-dataprotection-keys`** during an update.
 
-**Never delete `spring-dataprotection-keys`** as part of an update. It is preserved across `down`/`up` by default; an explicit `docker volume rm spring-dataprotection-keys` is the only thing that clears it (which invalidates every existing auth cookie, OAuth session token, and anti-forgery token). See [Developer — Operations § DataProtection](../../developer/operations.md#dataprotection-keys).
+**After:** confirm `/health`, tail `spring-worker` logs for migration lines, run the smoke test above. Roll back by checking out the previous tag and re-running `up -d`. See [Developer — Operations § DataProtection](../../developer/operations.md#dataprotection-keys).
 
 ## Troubleshooting
 
