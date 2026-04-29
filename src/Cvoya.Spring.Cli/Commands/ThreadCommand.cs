@@ -67,7 +67,7 @@ public static class ThreadCommand
             var output = parseResult.GetValue(outputOption) ?? "table";
             var client = ClientFactory.Create();
 
-            var result = await client.ListConversationsAsync(
+            var result = await client.ListThreadsAsync(
                 unit: parseResult.GetValue(unitOption),
                 agent: parseResult.GetValue(agentOption),
                 status: parseResult.GetValue(statusOption),
@@ -98,7 +98,7 @@ public static class ThreadCommand
 
             try
             {
-                var detail = await client.GetConversationAsync(id, ct);
+                var detail = await client.GetThreadAsync(id, ct);
 
                 if (output == "json")
                 {
@@ -172,7 +172,7 @@ public static class ThreadCommand
 
             try
             {
-                var result = await client.SendConversationMessageAsync(
+                var result = await client.SendThreadMessageAsync(
                     threadId, scheme, path, text, ct);
 
                 Console.WriteLine(output == "json"
@@ -218,7 +218,7 @@ public static class ThreadCommand
 
             try
             {
-                var detail = await client.CloseConversationAsync(id, reason, ct);
+                var detail = await client.CloseThreadAsync(id, reason, ct);
 
                 if (output == "json")
                 {

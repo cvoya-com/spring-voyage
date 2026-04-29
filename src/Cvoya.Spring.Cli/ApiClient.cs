@@ -913,7 +913,7 @@ public class SpringApiClient
     /// Lists thread summaries, optionally filtered by unit, agent,
     /// status, or participant. Backs <c>spring thread list</c>.
     /// </summary>
-    public async Task<IReadOnlyList<ThreadSummary>> ListConversationsAsync(
+    public async Task<IReadOnlyList<ThreadSummary>> ListThreadsAsync(
         string? unit = null,
         string? agent = null,
         string? status = null,
@@ -941,7 +941,7 @@ public class SpringApiClient
     /// Fetches the detail view (summary + ordered events) for a single
     /// thread. Backs <c>spring thread show</c>.
     /// </summary>
-    public async Task<ThreadDetail> GetConversationAsync(string id, CancellationToken ct = default)
+    public async Task<ThreadDetail> GetThreadAsync(string id, CancellationToken ct = default)
     {
         var result = await _client.Api.V1.Tenant.Threads[id].GetAsync(cancellationToken: ct);
         return result ?? throw new InvalidOperationException($"Server returned an empty response for thread '{id}'.");
@@ -952,7 +952,7 @@ public class SpringApiClient
     /// <c>spring thread send --thread &lt;id&gt;</c> (and its
     /// <c>spring inbox respond</c> alias) both ride this single endpoint.
     /// </summary>
-    public async Task<ThreadMessageResponse> SendConversationMessageAsync(
+    public async Task<ThreadMessageResponse> SendThreadMessageAsync(
         string threadId,
         string toScheme,
         string toPath,
@@ -976,7 +976,7 @@ public class SpringApiClient
     /// confirmation and the trailing event timeline including the
     /// <c>ThreadClosed</c> events the actors just emitted.
     /// </summary>
-    public async Task<ThreadDetail> CloseConversationAsync(
+    public async Task<ThreadDetail> CloseThreadAsync(
         string threadId,
         string? reason = null,
         CancellationToken ct = default)

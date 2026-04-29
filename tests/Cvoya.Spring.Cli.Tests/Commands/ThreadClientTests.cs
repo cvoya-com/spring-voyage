@@ -21,7 +21,7 @@ public class ThreadClientTests
     private const string BaseUrl = "http://localhost:5000";
 
     [Fact]
-    public async Task ListConversationsAsync_CallsCorrectEndpointAndParsesResponse()
+    public async Task ListThreadsAsync_CallsCorrectEndpointAndParsesResponse()
     {
         var handler = new MockHttpMessageHandler(
             expectedPath: "/api/v1/tenant/threads",
@@ -31,7 +31,7 @@ public class ThreadClientTests
         var httpClient = new HttpClient(handler);
         var client = new SpringApiClient(httpClient, BaseUrl);
 
-        var result = await client.ListConversationsAsync(ct: TestContext.Current.CancellationToken);
+        var result = await client.ListThreadsAsync(ct: TestContext.Current.CancellationToken);
 
         result.ShouldNotBeNull();
         result.Count.ShouldBe(1);
@@ -44,7 +44,7 @@ public class ThreadClientTests
     }
 
     [Fact]
-    public async Task ListConversationsAsync_WithFilters_ForwardsQueryParameters()
+    public async Task ListThreadsAsync_WithFilters_ForwardsQueryParameters()
     {
         var handler = new MockHttpMessageHandler(
             expectedPath: "/api/v1/tenant/threads",
@@ -60,7 +60,7 @@ public class ThreadClientTests
         var httpClient = new HttpClient(handler);
         var client = new SpringApiClient(httpClient, BaseUrl);
 
-        var result = await client.ListConversationsAsync(
+        var result = await client.ListThreadsAsync(
             unit: "eng-team",
             status: "active",
             limit: 25,
@@ -71,7 +71,7 @@ public class ThreadClientTests
     }
 
     [Fact]
-    public async Task GetConversationAsync_CallsCorrectEndpointAndParsesDetail()
+    public async Task GetThreadAsync_CallsCorrectEndpointAndParsesDetail()
     {
         var handler = new MockHttpMessageHandler(
             expectedPath: "/api/v1/tenant/threads/c-1",
@@ -81,7 +81,7 @@ public class ThreadClientTests
         var httpClient = new HttpClient(handler);
         var client = new SpringApiClient(httpClient, BaseUrl);
 
-        var result = await client.GetConversationAsync("c-1", TestContext.Current.CancellationToken);
+        var result = await client.GetThreadAsync("c-1", TestContext.Current.CancellationToken);
 
         result.ShouldNotBeNull();
         result.Summary.ShouldNotBeNull();
@@ -93,7 +93,7 @@ public class ThreadClientTests
     }
 
     [Fact]
-    public async Task SendConversationMessageAsync_PostsToCorrectEndpointWithWrappedBody()
+    public async Task SendThreadMessageAsync_PostsToCorrectEndpointWithWrappedBody()
     {
         var threadId = "c-1";
         var handler = new MockHttpMessageHandler(
@@ -111,7 +111,7 @@ public class ThreadClientTests
         var httpClient = new HttpClient(handler);
         var client = new SpringApiClient(httpClient, BaseUrl);
 
-        var result = await client.SendConversationMessageAsync(
+        var result = await client.SendThreadMessageAsync(
             threadId, "agent", "ada", "Looks good — ship it.",
             TestContext.Current.CancellationToken);
 
