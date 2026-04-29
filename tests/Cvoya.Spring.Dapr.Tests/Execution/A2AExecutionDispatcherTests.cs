@@ -116,6 +116,12 @@ public class A2AExecutionDispatcherTests
         var clmD = new ContainerLifecycleManager(
             _containerRuntime, daprD, Options.Create(daprOptions), _loggerFactory);
 
+        // D2 / Stage 2 of ADR-0029: supply the transport factory that the
+        // dispatcher now requires. The factory wraps _containerRuntime so
+        // the existing stub wiring (SendHttpJsonAsync → recorder) is
+        // preserved end-to-end.
+        var transportFactory = new DispatcherProxyA2ATransportFactory(_containerRuntime);
+
         _dispatcher = new A2AExecutionDispatcher(
             _containerRuntime,
             _promptAssembler,
@@ -126,6 +132,7 @@ public class A2AExecutionDispatcherTests
             _ephemeralRegistry,
             clmD,
             Options.Create(daprOptions),
+            transportFactory,
             _loggerFactory);
     }
 

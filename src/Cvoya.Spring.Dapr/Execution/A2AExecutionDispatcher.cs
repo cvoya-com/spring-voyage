@@ -34,6 +34,12 @@ using SvMessage = Cvoya.Spring.Core.Messaging.Message;
 /// This is the change that fixes the symptom in #1087 — ephemeral agents no
 /// longer get stuck on <c>sleep infinity</c> because the dispatcher no longer
 /// waits for the container's stdout to terminate.
+/// <para>
+/// D2 / Stage 2 of ADR-0029: all A2A message-send calls now flow through
+/// <see cref="IA2ATransportFactory"/> so auth, routing, and network-position
+/// decisions are encapsulated in the transport and not threaded inline here.
+/// This subsumes the "extract IAgentTransport" cleanup noted in #1277.
+/// </para>
 /// </summary>
 public class A2AExecutionDispatcher(
     IContainerRuntime containerRuntime,
@@ -45,10 +51,13 @@ public class A2AExecutionDispatcher(
     EphemeralAgentRegistry ephemeralAgentRegistry,
     ContainerLifecycleManager containerLifecycleManager,
     IOptions<DaprSidecarOptions> daprSidecarOptions,
+    IA2ATransportFactory transportFactory,
     ILoggerFactory loggerFactory) : IExecutionDispatcher
 {
     private readonly ILogger _logger = loggerFactory.CreateLogger<A2AExecutionDispatcher>();
     private readonly DaprSidecarOptions _daprSidecarOptions = daprSidecarOptions.Value;
+    private readonly IA2ATransportFactory _transportFactory = transportFactory
+        ?? throw new ArgumentNullException(nameof(transportFactory));
     private readonly Dictionary<string, IAgentToolLauncher> _launchersByTool =
         launchers.ToDictionary(l => l.Tool, StringComparer.OrdinalIgnoreCase);
 
@@ -297,14 +306,19 @@ public class A2AExecutionDispatcher(
         if (string.IsNullOrEmpty(containerId))
         {
             // Legacy externally-registered persistent agents have no container
-            // id, so the dispatcher-proxied transport can't reach them. The
-            // OSS deployment never registers an agent without a container id;
-            // the rare integration test that does should keep using the
-            // legacy direct-HTTP path, but warn loudly so the gap is visible.
-            throw new SpringException(
-                $"Persistent agent '{agentId}' is registered without a container id; the dispatcher-proxied " +
-                "A2A transport requires one. Re-deploy the agent through the standard persistent path so the " +
-                "registry captures the container id (#1160).");
+            // id. Without one the transport factory cannot select the
+            // dispatcher-proxy path and falls back to the direct-HTTP path,
+            // which requires the caller to have L3 reachability to the agent
+            // endpoint. The OSS deployment never registers an agent without a
+            // container id; the rare integration test that does should ensure
+            // the agent endpoint is reachable from the test process directly.
+            // Log a warning so the gap is visible in production deployments.
+            _logger.LogWarning(
+                "Persistent agent {AgentId} is registered without a container id; " +
+                "falling back to direct-HTTP transport (requires L3 reachability to {Endpoint}). " +
+                "Re-deploy the agent through the standard persistent path so the registry captures " +
+                "the container id (#1160).",
+                agentId, endpoint);
         }
 
         var prompt = await promptAssembler.AssembleAsync(message, context, cancellationToken);
@@ -443,27 +457,30 @@ public class A2AExecutionDispatcher(
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The HTTP transport under the A2A SDK is wrapped in
-    /// <see cref="DispatcherProxyHttpMessageHandler"/> so the JSON-RPC
-    /// roundtrip executes inside the agent container's network namespace
-    /// rather than from the worker's loopback. This is the message-send
-    /// half of issue #1160 (the readiness half is already covered by
-    /// <see cref="IContainerRuntime.ProbeContainerHttpAsync"/>) and is the
-    /// reason agent containers can sit on a separate
-    /// <c>spring-tenant-&lt;id&gt;</c> bridge from the worker without
-    /// breaking dispatch.
+    /// D2 / Stage 2 of ADR-0029: the HTTP transport is now selected by
+    /// <see cref="IA2ATransportFactory"/> rather than being hardwired to
+    /// <see cref="DispatcherProxyHttpMessageHandler"/>. The factory returns
+    /// the correct transport for the caller's network position (proxy via
+    /// the dispatcher, or direct HTTP when the caller can reach the agent
+    /// container). This is the named seam that subsumes #1277.
+    /// </para>
+    /// <para>
+    /// The readiness probe still goes through
+    /// <see cref="IContainerRuntime.ProbeContainerHttpAsync"/> (unchanged),
+    /// which is the mechanism that works regardless of network topology per
+    /// issue #1160.
     /// </para>
     /// </remarks>
     internal async Task<SvMessage?> SendA2AMessageAsync(
         Uri endpoint,
         string agentId,
-        string containerId,
+        string? containerId,
         SvMessage originalMessage,
         string prompt,
         CancellationToken cancellationToken)
     {
-        using var proxyHandler = new DispatcherProxyHttpMessageHandler(containerRuntime, containerId);
-        using var httpClient = new HttpClient(proxyHandler, disposeHandler: false);
+        using var transport = _transportFactory.CreateTransport(containerId);
+        using var httpClient = transport.CreateHttpClient(endpoint);
         var a2aClient = new A2AClient(endpoint, httpClient);
 
         var userMessage = prompt;
@@ -540,7 +557,7 @@ public class A2AExecutionDispatcher(
         A2AClient a2aClient,
         AgentTask initialTask,
         string agentId,
-        string containerId,
+        string? containerId,
         CancellationToken cancellationToken)
     {
         _logger.LogInformation(
