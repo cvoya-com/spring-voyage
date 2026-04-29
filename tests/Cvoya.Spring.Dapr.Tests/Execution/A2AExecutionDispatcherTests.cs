@@ -14,6 +14,7 @@ using A2A.V0_3;
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Execution;
 
 using Microsoft.Extensions.DependencyInjection;
@@ -46,6 +47,7 @@ public class A2AExecutionDispatcherTests
     private readonly IMcpServer _mcpServer = Substitute.For<IMcpServer>();
     private readonly IAgentToolLauncher _launcher = Substitute.For<IAgentToolLauncher>();
     private readonly IAgentContextBuilder _agentContextBuilder = Substitute.For<IAgentContextBuilder>();
+    private readonly ITenantContext _tenantContext = Substitute.For<ITenantContext>();
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
     private readonly IHttpClientFactory _httpClientFactory = Substitute.For<IHttpClientFactory>();
     private readonly IContainerRuntime _persistentContainerRuntime = Substitute.For<IContainerRuntime>();
@@ -117,6 +119,7 @@ public class A2AExecutionDispatcherTests
         _mcpServer.Endpoint.Returns("http://host.docker.internal:12345/mcp/");
         _mcpServer.IssueSession(Arg.Any<string>(), Arg.Any<string>())
             .Returns(ci => new McpSession("test-token", ci.ArgAt<string>(0), ci.ArgAt<string>(1)));
+        _tenantContext.CurrentTenantId.Returns("default");
 
         _agentProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
             .Returns(new AgentDefinition(
@@ -151,6 +154,7 @@ public class A2AExecutionDispatcherTests
             _mcpServer,
             [_launcher],
             _agentContextBuilder,
+            _tenantContext,
             _persistentRegistry,
             _ephemeralRegistry,
             clmD,
@@ -709,6 +713,56 @@ public class A2AExecutionDispatcherTests
 
         await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
         await _containerRuntime.Received(1).StartAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DispatchAsync_EphemeralAgent_PopulatesAgentDefinitionYamlAndTenantIdOnLaunchContext()
+    {
+        // #1321: dispatcher must populate AgentDefinitionYaml and TenantId on
+        // the AgentLaunchContext so AgentContextBuilder can write the
+        // /spring/context/ files.
+        var message = CreateMessage();
+        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns("p");
+        _tenantContext.CurrentTenantId.Returns("acme-corp");
+        InstallA2AStub();
+
+        await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
+
+        await _launcher.Received(1).PrepareAsync(
+            Arg.Is<AgentLaunchContext>(ctx =>
+                ctx.TenantId == "acme-corp" &&
+                ctx.AgentDefinitionYaml != null &&
+                ctx.AgentDefinitionYaml.Contains("agent_id") &&
+                ctx.TenantConfigJson != null &&
+                ctx.TenantConfigJson.Contains("acme-corp")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DispatchAsync_EphemeralAgent_AgentDefinitionYaml_ContainsExpectedFields()
+    {
+        // #1321: the serialised YAML must include the core agent definition
+        // fields so the in-container SDK can read them from agent-definition.yaml.
+        var message = CreateMessage();
+        _promptAssembler.AssembleAsync(message, Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns("p");
+        InstallA2AStub();
+
+        AgentLaunchContext? capturedCtx = null;
+        _launcher.PrepareAsync(Arg.Do<AgentLaunchContext>(ctx => capturedCtx = ctx), Arg.Any<CancellationToken>())
+            .Returns(new AgentLaunchSpec(
+                WorkspaceFiles: new Dictionary<string, string>(),
+                EnvironmentVariables: new Dictionary<string, string>(),
+                WorkspaceMountPath: "/workspace"));
+
+        await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
+
+        capturedCtx.ShouldNotBeNull();
+        capturedCtx!.AgentDefinitionYaml.ShouldNotBeNullOrEmpty();
+        capturedCtx.AgentDefinitionYaml.ShouldContain(AgentId);  // agent_id field
+        capturedCtx.AgentDefinitionYaml.ShouldContain("claude-code");  // execution.tool
+        capturedCtx.TenantConfigJson.ShouldNotBeNullOrEmpty();
     }
 
     [Fact]

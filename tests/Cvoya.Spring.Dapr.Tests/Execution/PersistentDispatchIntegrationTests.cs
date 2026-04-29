@@ -8,6 +8,7 @@ using System.Text.Json;
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Execution;
 
 using Microsoft.Extensions.DependencyInjection;
@@ -35,6 +36,7 @@ public class PersistentDispatchIntegrationTests
     private readonly IMcpServer _mcpServer = Substitute.For<IMcpServer>();
     private readonly IAgentToolLauncher _launcher = Substitute.For<IAgentToolLauncher>();
     private readonly IAgentContextBuilder _agentContextBuilder = Substitute.For<IAgentContextBuilder>();
+    private readonly ITenantContext _tenantContext = Substitute.For<ITenantContext>();
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
     private readonly IHttpClientFactory _httpClientFactory = Substitute.For<IHttpClientFactory>();
     private readonly PersistentAgentRegistry _persistentRegistry;
@@ -66,6 +68,7 @@ public class PersistentDispatchIntegrationTests
         _mcpServer.Endpoint.Returns("http://host.docker.internal:12345/mcp/");
         _mcpServer.IssueSession(Arg.Any<string>(), Arg.Any<string>())
             .Returns(ci => new McpSession("test-token", ci.ArgAt<string>(0), ci.ArgAt<string>(1)));
+        _tenantContext.CurrentTenantId.Returns("default");
 
         _agentProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
             .Returns(new AgentDefinition(
@@ -113,6 +116,7 @@ public class PersistentDispatchIntegrationTests
             _mcpServer,
             [_launcher],
             _agentContextBuilder,
+            _tenantContext,
             _persistentRegistry,
             new EphemeralAgentRegistry(_containerRuntime, clmEph, volumeManager, _loggerFactory),
             clmD,

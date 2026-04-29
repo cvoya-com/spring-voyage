@@ -67,10 +67,15 @@ public class CodexLauncherTests
         server.GetProperty("headers").GetProperty("Authorization").GetString()
             .ShouldBe("Bearer codex-secret-token");
 
-        prep.EnvironmentVariables["SPRING_AGENT_ID"].ShouldBe(context.AgentId);
+        // #1322: SPRING_AGENT_ID, SPRING_MCP_ENDPOINT, SPRING_AGENT_TOKEN removed —
+        // AgentContextBuilder emits the D1-canonical names for all launchers.
+        prep.EnvironmentVariables.ContainsKey("SPRING_AGENT_ID").ShouldBeFalse(
+            "SPRING_AGENT_ID is now emitted by AgentContextBuilder, not the launcher");
+        prep.EnvironmentVariables.ContainsKey("SPRING_MCP_ENDPOINT").ShouldBeFalse(
+            "SPRING_MCP_ENDPOINT superseded by D1-canonical SPRING_MCP_URL (AgentContextBuilder)");
+        prep.EnvironmentVariables.ContainsKey("SPRING_AGENT_TOKEN").ShouldBeFalse(
+            "SPRING_AGENT_TOKEN superseded by D1-canonical SPRING_MCP_TOKEN (AgentContextBuilder)");
         prep.EnvironmentVariables["SPRING_THREAD_ID"].ShouldBe(context.ThreadId);
-        prep.EnvironmentVariables["SPRING_MCP_ENDPOINT"].ShouldBe(context.McpEndpoint);
-        prep.EnvironmentVariables["SPRING_AGENT_TOKEN"].ShouldBe(context.McpToken);
         prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldBe(context.Prompt);
 
         prep.ExtraVolumeMounts.ShouldBeNull();
