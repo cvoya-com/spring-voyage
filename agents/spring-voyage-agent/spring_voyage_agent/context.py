@@ -118,8 +118,7 @@ class IAgentContext:
         concurrent_threads_raw = os.environ[_ENV_CONCURRENT_THREADS].lower()
         if concurrent_threads_raw not in ("true", "false"):
             raise ContextLoadError(
-                f"SPRING_CONCURRENT_THREADS must be 'true' or 'false', "
-                f"got: {os.environ[_ENV_CONCURRENT_THREADS]!r}"
+                f"SPRING_CONCURRENT_THREADS must be 'true' or 'false', got: {os.environ[_ENV_CONCURRENT_THREADS]!r}"
             )
 
         agent_definition = _load_agent_definition()

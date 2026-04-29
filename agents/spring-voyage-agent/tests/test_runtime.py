@@ -6,18 +6,21 @@ Covers:
   - error chunk terminates stream with failed status
   - concurrent_threads=False serialisation lock
   - cancel enqueues canceled status
+  - bare-startup (no env vars): _load_and_initialize logs a warning and
+    leaves _initialize_done unset without crashing (smoke-test contract)
 """
 
 from __future__ import annotations
 
 import asyncio
+import os
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from spring_voyage_agent.hooks import AgentHooks
-from spring_voyage_agent.runtime import _SdkAgentExecutor
+from spring_voyage_agent.runtime import AgentRuntime, _SdkAgentExecutor
 from spring_voyage_agent.types import Message, Response
 
 
@@ -90,6 +93,7 @@ class TestSdkAgentExecutor:
         # Last event is completed status.
         last_call = eq.enqueue_event.call_args_list[-1][0][0]
         from a2a.types import TaskState, TaskStatusUpdateEvent
+
         assert isinstance(last_call, TaskStatusUpdateEvent)
         assert last_call.status.state == TaskState.completed
 
@@ -115,6 +119,7 @@ class TestSdkAgentExecutor:
         await executor.execute(ctx, eq)
 
         from a2a.types import TaskState, TaskStatusUpdateEvent
+
         last_call = eq.enqueue_event.call_args_list[-1][0][0]
         assert isinstance(last_call, TaskStatusUpdateEvent)
         assert last_call.status.state == TaskState.completed
@@ -141,6 +146,7 @@ class TestSdkAgentExecutor:
         await executor.execute(ctx, eq)
 
         from a2a.types import TaskState, TaskStatusUpdateEvent
+
         last_call = eq.enqueue_event.call_args_list[-1][0][0]
         assert isinstance(last_call, TaskStatusUpdateEvent)
         assert last_call.status.state == TaskState.failed
@@ -168,6 +174,7 @@ class TestSdkAgentExecutor:
         await executor.execute(ctx, eq)
 
         from a2a.types import TaskState, TaskStatusUpdateEvent
+
         last_call = eq.enqueue_event.call_args_list[-1][0][0]
         assert isinstance(last_call, TaskStatusUpdateEvent)
         assert last_call.status.state == TaskState.failed
@@ -225,6 +232,7 @@ class TestSdkAgentExecutor:
         await executor.cancel(ctx, eq)
 
         from a2a.types import TaskState, TaskStatusUpdateEvent
+
         assert eq.enqueue_event.call_count == 1
         call = eq.enqueue_event.call_args_list[0][0][0]
         assert isinstance(call, TaskStatusUpdateEvent)
@@ -257,3 +265,104 @@ class TestSdkAgentExecutor:
         )
 
         assert executor._serial_lock is None
+
+
+class TestBareStartup:
+    """Verify the uvicorn-first startup contract.
+
+    The smoke-test harness starts the dapr-agent container with *no*
+    platform env vars set.  The SDK must:
+      1. Not crash when IAgentContext.load() raises ContextLoadError.
+      2. Leave _initialize_done unset (agent card reachable, on_message
+         blocked — but no crash).
+
+    This is the unit-level analogue of the container smoke test.
+    """
+
+    @pytest.mark.asyncio
+    async def test_load_and_initialize_no_env_vars_leaves_done_unset(self, monkeypatch):
+        """Without platform env vars, _load_and_initialize warns and returns
+        without setting _initialize_done or raising."""
+        # Strip all SPRING_* vars from the environment.
+        spring_vars = [k for k in os.environ if k.startswith("SPRING_")]
+        for v in spring_vars:
+            monkeypatch.delenv(v, raising=False)
+
+        async def _noop_initialize(ctx):
+            pass
+
+        async def _noop_on_message(msg):
+            yield Response(text="ok")
+
+        async def _noop_shutdown(reason):
+            pass
+
+        hooks = AgentHooks(
+            initialize=_noop_initialize,
+            on_message=_noop_on_message,
+            on_shutdown=_noop_shutdown,
+        )
+        runtime = AgentRuntime(hooks, port=0)
+
+        executor = _SdkAgentExecutor(
+            hooks=hooks,
+            concurrent_threads=True,
+            initialize_done=runtime._initialize_done,
+        )
+
+        # _load_and_initialize must complete without raising.
+        await runtime._load_and_initialize(executor)
+
+        # _initialize_done must NOT be set — no context, no initialize call.
+        assert not runtime._initialize_done.is_set()
+
+    @pytest.mark.asyncio
+    async def test_load_and_initialize_with_context_sets_done(self, monkeypatch):
+        """When all required env vars are present, _load_and_initialize calls
+        initialize() and sets _initialize_done."""
+        required = {
+            "SPRING_TENANT_ID": "t1",
+            "SPRING_AGENT_ID": "a1",
+            "SPRING_BUCKET2_URL": "http://b2",
+            "SPRING_BUCKET2_TOKEN": "tok",
+            "SPRING_LLM_PROVIDER_URL": "http://llm",
+            "SPRING_LLM_PROVIDER_TOKEN": "llmtok",
+            "SPRING_MCP_URL": "http://mcp",
+            "SPRING_MCP_TOKEN": "mcptok",
+            "SPRING_TELEMETRY_URL": "http://tel",
+            "SPRING_WORKSPACE_PATH": "/tmp/ws",
+            "SPRING_CONCURRENT_THREADS": "true",
+        }
+        for k, v in required.items():
+            monkeypatch.setenv(k, v)
+
+        initialized_with: list = []
+
+        async def _record_initialize(ctx):
+            initialized_with.append(ctx)
+
+        async def _noop_on_message(msg):
+            yield Response(text="ok")
+
+        async def _noop_shutdown(reason):
+            pass
+
+        hooks = AgentHooks(
+            initialize=_record_initialize,
+            on_message=_noop_on_message,
+            on_shutdown=_noop_shutdown,
+        )
+        runtime = AgentRuntime(hooks, port=0)
+
+        executor = _SdkAgentExecutor(
+            hooks=hooks,
+            concurrent_threads=True,
+            initialize_done=runtime._initialize_done,
+        )
+
+        await runtime._load_and_initialize(executor)
+
+        # initialize() must have been called and _initialize_done must be set.
+        assert runtime._initialize_done.is_set()
+        assert len(initialized_with) == 1
+        assert initialized_with[0].tenant_id == "t1"

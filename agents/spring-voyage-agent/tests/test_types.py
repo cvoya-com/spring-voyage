@@ -36,17 +36,21 @@ class TestMessageText:
         )
 
     def test_dict_text_parts(self):
-        msg = self._make_message([
-            {"kind": "text", "text": "hello "},
-            {"kind": "text", "text": "world"},
-        ])
+        msg = self._make_message(
+            [
+                {"kind": "text", "text": "hello "},
+                {"kind": "text", "text": "world"},
+            ]
+        )
         assert msg.text == "hello world"
 
     def test_dict_skips_non_text_parts(self):
-        msg = self._make_message([
-            {"kind": "file", "file": "x"},
-            {"kind": "text", "text": "ok"},
-        ])
+        msg = self._make_message(
+            [
+                {"kind": "file", "file": "x"},
+                {"kind": "text", "text": "ok"},
+            ]
+        )
         assert msg.text == "ok"
 
     def test_sdk_discriminated_union_parts(self):

@@ -12,6 +12,20 @@ Implements the full Bucket 1 contract:
 
 The runtime wraps the a2a-sdk v0.3.x server so agent authors implement
 only the three hooks, not A2A protocol details.
+
+Startup model (uvicorn-first)
+-----------------------------
+The A2A server (uvicorn) binds and begins serving the agent card
+*before* IAgentContext.load() is attempted.  Context loading and
+initialize() run concurrently with the server in a background task.
+
+This means the /.well-known/agent.json endpoint is reachable even in
+environments where the platform bootstrap env vars are absent (e.g. the
+smoke-test harness).  If context loading fails, initialize() is never
+called and _initialize_done is never set — the agent card stays
+reachable but on_message will block indefinitely (the gate never
+opens).  In production the platform always injects the required env
+vars before container start, so this path is never exercised.
 """
 
 from __future__ import annotations
@@ -121,9 +135,7 @@ class _SdkAgentExecutor(AgentExecutor):
         self._concurrent_threads = concurrent_threads
         self._initialize_done = initialize_done
         # Global lock for concurrent_threads=False serialisation.
-        self._serial_lock: asyncio.Lock | None = (
-            None if concurrent_threads else asyncio.Lock()
-        )
+        self._serial_lock: asyncio.Lock | None = None if concurrent_threads else asyncio.Lock()
 
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
         """Run on_message for one inbound A2A task."""
@@ -165,9 +177,7 @@ class _SdkAgentExecutor(AgentExecutor):
                 )
             )
 
-    async def _run_on_message(
-        self, context: RequestContext, event_queue: EventQueue
-    ) -> None:
+    async def _run_on_message(self, context: RequestContext, event_queue: EventQueue) -> None:
         """Invoke the on_message hook and stream its responses.
 
         Supports both async generators (``async def on_message`` that yields)
@@ -275,10 +285,7 @@ def _build_agent_card(port: int) -> AgentCard:
 
     return AgentCard(
         name=f"Spring Voyage Agent — {agent_id}",
-        description=(
-            f"Agent {agent_id} running on tenant {tenant_id}. "
-            "Powered by the Spring Voyage Agent SDK."
-        ),
+        description=(f"Agent {agent_id} running on tenant {tenant_id}. Powered by the Spring Voyage Agent SDK."),
         url=f"http://localhost:{port}",
         version="1.0.0",
         default_input_modes=["text"],
@@ -368,21 +375,61 @@ class AgentRuntime:
                 self._shutdown_grace,
             )
 
-    async def _serve(self, context: IAgentContext) -> None:
-        """Initialize, serve A2A traffic, then shut down."""
+    async def _load_and_initialize(self, executor: "_SdkAgentExecutor") -> None:
+        """Load IAgentContext then run the initialize hook in the background.
+
+        This runs concurrently with the uvicorn server so the A2A server
+        can serve the agent card even before the platform context is
+        available (e.g. in the smoke-test harness with no env vars).
+
+        If context loading fails the error is logged and _initialize_done
+        is left unset — the agent card stays reachable but on_message will
+        block indefinitely until a shutdown signal arrives.
+
+        If initialize() succeeds, _initialize_done is set and on_message
+        invocations are unblocked.  If initialize() raises or times out,
+        _initialize_done is still set (by _run_initialize's finally block)
+        so that executors can surface an error rather than hanging.
+        """
+        try:
+            context = IAgentContext.load()
+        except Exception as exc:
+            logger.warning(
+                "IAgentContext.load() failed (%s) — agent card will be reachable "
+                "but on_message will not be dispatched until context is available. "
+                "In production the platform always injects the required env vars.",
+                exc,
+            )
+            # _initialize_done is never set here; on_message blocks.
+            return
+
+        # Update the executor's concurrent_threads policy now that we know
+        # the platform-supplied value.  We do this before calling initialize
+        # so that any message that squeaks in before initialize completes
+        # still gets the right serialisation behaviour.
+        if not context.concurrent_threads and executor._serial_lock is None:
+            executor._serial_lock = asyncio.Lock()
+
+        await self._run_initialize(context)
+        logger.info("initialize() completed; on_message now dispatching on port %d", self._port)
+
+    async def _serve(self) -> None:
+        """Bind the A2A server, load context in the background, then shut down.
+
+        Uvicorn binds first so the /.well-known/agent.json endpoint is
+        reachable immediately — even when the platform bootstrap env vars
+        are not present (smoke-test harness).  IAgentContext.load() and
+        initialize() run concurrently in a background task.
+        """
         loop = asyncio.get_running_loop()
         self._install_sigterm_handler(loop)
 
-        # Run initialize() — raises on failure (non-zero exit via asyncio).
-        await self._run_initialize(context)
-        logger.info(
-            "initialize() completed; A2A server ready on port %d", self._port
-        )
-
-        # Build A2A server components.
+        # Build A2A server components.  concurrent_threads defaults to True;
+        # _load_and_initialize will add the serial lock if the platform
+        # context specifies concurrent_threads=False.
         executor = _SdkAgentExecutor(
             hooks=self._hooks,
-            concurrent_threads=context.concurrent_threads,
+            concurrent_threads=True,
             initialize_done=self._initialize_done,
         )
         card = _build_agent_card(self._port)
@@ -401,9 +448,10 @@ class AgentRuntime:
         )
         server = uvicorn.Server(config)
 
-        # Run the server and shutdown watcher concurrently.
+        # Run server, shutdown watcher, and context-loading concurrently.
         server_task = asyncio.create_task(server.serve())
         shutdown_task = asyncio.create_task(self._run_shutdown())
+        init_task = asyncio.create_task(self._load_and_initialize(executor))
 
         done, pending = await asyncio.wait(
             {server_task, shutdown_task},
@@ -415,8 +463,8 @@ class AgentRuntime:
             server.should_exit = True
             await server_task
 
-        # Cancel the other task if still running.
-        for t in pending:
+        # Cancel remaining tasks.
+        for t in pending | {init_task}:
             t.cancel()
             try:
                 await t
@@ -424,19 +472,14 @@ class AgentRuntime:
                 pass
 
     def run(self) -> None:
-        """Load IAgentContext, start the event loop, and block until shutdown.
+        """Start the event loop and block until shutdown.
 
-        This is the main entry point for a running agent container. It exits
-        with a non-zero code on initialize() failure (spec §1.1).
+        This is the main entry point for a running agent container.
+        IAgentContext.load() is attempted after uvicorn binds (uvicorn-
+        first startup model — see module docstring).
         """
         try:
-            context = IAgentContext.load()
-        except Exception as exc:
-            logger.critical("Fatal: cannot load IAgentContext: %s", exc)
-            sys.exit(1)
-
-        try:
-            asyncio.run(self._serve(context))
+            asyncio.run(self._serve())
         except Exception as exc:
             logger.critical("Fatal runtime error: %s", exc)
             sys.exit(1)

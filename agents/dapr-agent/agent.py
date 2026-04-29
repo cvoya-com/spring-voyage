@@ -144,13 +144,10 @@ async def initialize(context: IAgentContext) -> None:
     # agent_definition.instructions from the mounted context file.
     system_prompt = os.environ.get("SPRING_SYSTEM_PROMPT", "")
     if not system_prompt:
-        system_prompt = (
-            context.agent_definition.get("instructions", "") or "You are a helpful AI assistant."
-        )
+        system_prompt = context.agent_definition.get("instructions", "") or "You are a helpful AI assistant."
 
     logger.info(
-        "Dapr Agent initialized (workflow-free per ADR 0029 Stage 0): "
-        "provider=%s, model=%s, component=%s, tools=%d",
+        "Dapr Agent initialized (workflow-free per ADR 0029 Stage 0): provider=%s, model=%s, component=%s, tools=%d",
         provider,
         model,
         component_name,
