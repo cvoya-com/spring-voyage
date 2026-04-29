@@ -20,7 +20,7 @@ An autonomous AI-powered entity. The fundamental building block of the platform.
 The Dapr virtual actor implementing an agent. Manages runtime state, AI cognition, pub/sub subscriptions, and the mailbox.
 
 **AgentMemory**
-The agent's single, ordered, append-only memory store. Entries are **MemoryEntry** records with optional `thread_id` and `threadOnly` attributes. When the agent is operating in any thread, it reads the visible subset — entries whose `thread_id == current_thread`, or `threadOnly == false`, or `thread_id == null` (thread-less). Writes go through the `store(memory)` MCP tool; reads through `recall(query)`. Visibility is governed at write time by the thread's **ThreadMemoryPolicy**. See `docs/architecture/thread-model.md` § Q4 (and ADR-0030 for the durable decision).
+The agent's single, ordered, append-only memory store. Entries are **MemoryEntry** records with optional `thread_id` and `threadOnly` attributes. When the agent is operating in any thread, it reads the visible subset — entries whose `thread_id == current_thread`, or `threadOnly == false`, or `thread_id == null` (thread-less). Writes go through the `store(memory)` MCP tool; reads through `recall(query)`. Visibility is governed at write time by the thread's **ThreadMemoryPolicy**. See `docs/concepts/threads.md` for positioning, `docs/architecture/thread-model.md` § Q4 for design detail, and ADR-0030 for the durable decision.
 
 **AgentThreadMemory**
 **Superseded — was a separate-store framing in an early F1 draft.** The current model (see `docs/architecture/thread-model.md` § Q4) collapses to a single **AgentMemory** store with per-entry `thread_id` and `threadOnly` attributes; the term "per-thread memory" is now informally a filter view over `AgentMemory` (the entries with `thread_id == T`).
@@ -35,7 +35,7 @@ A platform-managed copy of an agent, spawned to handle concurrent work. Governed
 The five-step reasoning process agents use during initiative: Perceive, Reflect, Decide, Act, Learn.
 
 **Collaboration**
-The active shared space where participants converse, coordinate, and get work done. The UX active-workspace surface — what a user opens to do something today. Recorded by the system as a **Thread** and presented in product navigation as an **Engagement**. Example phrasing: "Open collaboration with the writing agent."
+The active shared space where participants converse, coordinate, and get work done. The UX active-workspace surface — what a user opens to do something today. Recorded by the system as a **Thread** and presented in product navigation as an **Engagement**. Example phrasing: "Open collaboration with the writing agent." See `docs/concepts/threads.md` for positioning across the three layers (Thread / Engagement / Collaboration).
 
 **Connector**
 A pluggable adapter bridging an external system (GitHub, Slack, Figma, etc.) to a unit. Provides event translation (external events become platform messages) and skills (capabilities agents can use).
@@ -65,7 +65,7 @@ A registry of agent expertise, queryable within and across units. Each unit main
 See Package.
 
 **Engagement**
-The ongoing shared context between participants over time. The UX product-narrative term for the enduring relationship between participants — used in product navigation, lists, and continuity-of-relationship copy. Recorded by the system as one or more **Threads** (a participant-set change produces a new thread; the engagement absorbs the transition) and worked in as a **Collaboration**. Example phrasing: "Continue this engagement."
+The ongoing shared context between participants over time. The UX product-narrative term for the enduring relationship between participants — used in product navigation, lists, and continuity-of-relationship copy. Recorded by the system as one or more **Threads** (a participant-set change produces a new thread; the engagement absorbs the transition) and worked in as a **Collaboration**. Example phrasing: "Continue this engagement." See `docs/concepts/threads.md` for positioning across the three layers (Thread / Engagement / Collaboration).
 
 **Execution Environment**
 An isolated runtime (container) where a delegated agent's work runs. Separate from the agent actor. Sandboxed by default.
@@ -89,7 +89,7 @@ An agent's capacity to autonomously decide to act without external triggers. Ran
 An agent's inbound message system, logically partitioned into control, conversation, and observation channels.
 
 **MemoryEntry**
-A single record in an agent's **AgentMemory**. Shape: `{ id, timestamp, payload, thread_id?, threadOnly? }`. The `payload` may be any kind of memory artifact (fact, lesson, generalised pattern, observation, reasoning step, etc.) — the platform stores them uniformly and the agent's cognition decides what each represents. The `threadOnly` attribute is stamped at write time from the thread's **ThreadMemoryPolicy** and controls cross-thread visibility for the entry. See `docs/architecture/thread-model.md` § Q4 (and ADR-0030 for the durable decision).
+A single record in an agent's **AgentMemory**. Shape: `{ id, timestamp, payload, thread_id?, threadOnly? }`. The `payload` may be any kind of memory artifact (fact, lesson, generalised pattern, observation, reasoning step, etc.) — the platform stores them uniformly and the agent's cognition decides what each represents. The `threadOnly` attribute is stamped at write time from the thread's **ThreadMemoryPolicy** and controls cross-thread visibility for the entry. See `docs/concepts/threads.md` for positioning, `docs/architecture/thread-model.md` § Q4 for design detail, and ADR-0030 for the durable decision.
 
 **MemoryPromotionPolicy**
 **Superseded by ThreadMemoryPolicy.** The prior draft's framing of "promotion between two stores" is replaced by "visibility attribute on a single store"; the underlying intent — a per-thread privacy knob — is preserved under the new name. See `docs/architecture/thread-model.md` § Q4.
@@ -122,10 +122,10 @@ The first tier of the initiative cognition model. A small, locally-hosted LLM pe
 The second tier of the initiative cognition model. The agent's primary LLM (Claude, GPT-4, etc.) performs full cognition: perceive, reflect, decide, act, learn. Invoked selectively.
 
 **Thread**
-The unique, persistent, system-level record for a set of two or more participants, containing their lifelong shared exchanges and activity. The participant set IS the identity: there is exactly one thread per unique participant set; adding or removing a participant produces a different thread. This is the system / architectural concept — used in code, schema, APIs, and architecture docs. Users do not see threads directly: the product presents the thread as an **Engagement**, and the user works inside it as a **Collaboration**. See `docs/architecture/thread-model.md` (and ADR-0030 for the durable decision).
+The unique, persistent, system-level record for a set of two or more participants, containing their lifelong shared exchanges and activity. The participant set IS the identity: there is exactly one thread per unique participant set; adding or removing a participant produces a different thread. This is the system / architectural concept — used in code, schema, APIs, and architecture docs. Users do not see threads directly: the product presents the thread as an **Engagement**, and the user works inside it as a **Collaboration**. See `docs/concepts/threads.md` for positioning across the three layers, `docs/architecture/thread-model.md` for design detail, and ADR-0030 for the durable decision.
 
 **ThreadMemoryPolicy**
-Per-thread policy that sets the default `threadOnly` attribute for memory entries (**MemoryEntry**) stored by an agent operating in that thread. `threadOnly: true` (default) restricts the entry's visibility to the originating thread; `threadOnly: false` allows the entry to be visible to that agent across its other threads. The only memory-flow knob in v0.1. See `docs/architecture/thread-model.md` § Q4 (and ADR-0030 for the durable decision).
+Per-thread policy that sets the default `threadOnly` attribute for memory entries (**MemoryEntry**) stored by an agent operating in that thread. `threadOnly: true` (default) restricts the entry's visibility to the originating thread; `threadOnly: false` allows the entry to be visible to that agent across its other threads. The only memory-flow knob in v0.1. See `docs/concepts/threads.md` for positioning, `docs/architecture/thread-model.md` § Q4 for design detail, and ADR-0030 for the durable decision.
 
 **Timeline**
 The ordered, timestamped record of all artifacts within a thread: messages (user / agent / initiative), task lifecycle events, **ParticipantStateChanged** events, retractions, and system events. Append-only at the platform level; corrections and retractions are new Timeline events that reference prior artifacts, not in-place mutations. Per-thread FIFO is the ordering invariant. See `docs/architecture/thread-model.md` § Q7.

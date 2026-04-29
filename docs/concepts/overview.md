@@ -11,6 +11,7 @@ This document series describes the core concepts and abstractions that make up t
 | [Agents](agents.md) | The autonomous AI entities at the heart of the platform |
 | [Units](units.md) | Composable groups of agents that act as a single entity |
 | [Messaging and Addressing](messaging.md) | How entities communicate and are identified |
+| [Threads, Engagements, and Collaborations](threads.md) | The participant-set model: system concept, product narrative, working surface |
 | [Connectors](connectors.md) | Pluggable bridges to external systems |
 | [Initiative](initiative.md) | How agents autonomously decide to act |
 | [Observability](observability.md) | Real-time visibility into agent activity, cost, and decisions |
