@@ -12,6 +12,7 @@ using Cvoya.Spring.Core.Policies;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
+using Cvoya.Spring.Dapr.Initiative;
 using Cvoya.Spring.Dapr.Routing;
 using Cvoya.Spring.Dapr.Tests.TestHelpers;
 
@@ -67,6 +68,7 @@ public class AgentMetadataTests
             host,
             _activityEventBus,
             Substitute.For<IAgentObservationCoordinator>(),
+            new AgentMailboxCoordinator(Substitute.For<ILogger<AgentMailboxCoordinator>>()),
             Substitute.For<IExecutionDispatcher>(),
             Substitute.For<MessageRouter>(
                 Substitute.For<Cvoya.Spring.Core.Directory.IDirectoryService>(),

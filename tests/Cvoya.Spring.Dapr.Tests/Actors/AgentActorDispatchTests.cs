@@ -17,6 +17,7 @@ using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
+using Cvoya.Spring.Dapr.Initiative;
 using Cvoya.Spring.Dapr.Routing;
 using Cvoya.Spring.Dapr.Tests.TestHelpers;
 
@@ -81,6 +82,7 @@ public class AgentActorDispatchTests
             host,
             Substitute.For<IActivityEventBus>(),
             Substitute.For<IAgentObservationCoordinator>(),
+            new AgentMailboxCoordinator(Substitute.For<ILogger<AgentMailboxCoordinator>>()),
             _dispatcher,
             _router,
             _definitionProvider,

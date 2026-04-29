@@ -186,6 +186,7 @@ public class AgentActorSeedExpertiseTests
             host,
             Substitute.For<IActivityEventBus>(),
             Substitute.For<IAgentObservationCoordinator>(),
+            new AgentMailboxCoordinator(Substitute.For<ILogger<AgentMailboxCoordinator>>()),
             Substitute.For<IExecutionDispatcher>(),
             router,
             Substitute.For<IAgentDefinitionProvider>(),

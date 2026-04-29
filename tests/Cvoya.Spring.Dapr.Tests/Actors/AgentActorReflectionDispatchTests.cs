@@ -110,6 +110,7 @@ public class AgentActorReflectionDispatchTests
             host,
             _activityEventBus,
             observationCoordinator,
+            new AgentMailboxCoordinator(Substitute.For<ILogger<AgentMailboxCoordinator>>()),
             _dispatcher,
             _router,
             _definitionProvider,

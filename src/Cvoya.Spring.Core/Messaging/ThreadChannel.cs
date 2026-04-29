@@ -1,9 +1,7 @@
 // Copyright CVOYA LLC. Licensed under the Business Source License 1.1.
 // See LICENSE.md in the project root for full license terms.
 
-namespace Cvoya.Spring.Dapr.Actors;
-
-using Cvoya.Spring.Core.Messaging;
+namespace Cvoya.Spring.Core.Messaging;
 
 /// <summary>
 /// Represents a thread channel within an agent's partitioned mailbox.

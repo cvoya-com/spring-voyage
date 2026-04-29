@@ -9,12 +9,14 @@ using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Initiative;
+using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Policies;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
+using Cvoya.Spring.Dapr.Initiative;
 using Cvoya.Spring.Dapr.Routing;
 
 using global::Dapr.Actors;
@@ -117,6 +119,7 @@ public static class ActorTestHost
             host,
             activityEventBus,
             observationCoordinator,
+            new AgentMailboxCoordinator(Substitute.For<ILogger<AgentMailboxCoordinator>>()),
             dispatcher,
             router,
             definitionProvider,

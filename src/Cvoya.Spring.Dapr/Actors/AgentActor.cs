@@ -33,6 +33,7 @@ public class AgentActor(
     ActorHost host,
     IActivityEventBus activityEventBus,
     IAgentObservationCoordinator observationCoordinator,
+    IAgentMailboxCoordinator mailboxCoordinator,
     IExecutionDispatcher executionDispatcher,
     MessageRouter messageRouter,
     IAgentDefinitionProvider agentDefinitionProvider,
@@ -542,71 +543,22 @@ public class AgentActor(
             return CreateAckResponse(message);
         }
 
-        var activeConversation = await StateManager
-            .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, cancellationToken)
-            ;
-
-        // Case 1: No active thread — make this the active one and dispatch.
-        if (!activeConversation.HasValue)
-        {
-            var channel = new ThreadChannel
+        await mailboxCoordinator.HandleDomainMessageAsync(
+            agentId: Id.GetId(),
+            message: message,
+            effective: effective,
+            getActiveConversation: ct => GetActiveConversationAsync(ct),
+            setActiveConversation: (ch, ct) => StateManager.SetStateAsync(StateKeys.ActiveConversation, ch, ct),
+            getPendingList: ct => GetPendingListAsync(ct),
+            setPendingList: (list, ct) => StateManager.SetStateAsync(StateKeys.PendingConversations, list, ct),
+            activateAndDispatch: async (ch, eff, ct) =>
             {
-                ThreadId = threadId,
-                Messages = [message],
-                CreatedAt = DateTimeOffset.UtcNow
-            };
-
-            await StateManager.SetStateAsync(StateKeys.ActiveConversation, channel, cancellationToken);
-            _activeWorkCancellation = new CancellationTokenSource();
-
-            _logger.LogInformation("Actor {ActorId} activated thread {ThreadId}",
-                Id.GetId(), threadId);
-
-            await EmitActivityEventAsync(ActivityEventType.ThreadStarted,
-                $"Started thread {threadId}",
-                cancellationToken,
-                correlationId: threadId);
-
-            await EmitActivityEventAsync(ActivityEventType.StateChanged,
-                "State changed from Idle to Active",
-                cancellationToken,
-                details: JsonSerializer.SerializeToElement(new { from = "Idle", to = "Active" }));
-
-            var context = await BuildPromptAssemblyContextAsync(channel, effective, cancellationToken);
-            PendingDispatchTask = RunDispatchAsync(message, context, _activeWorkCancellation.Token);
-
-            return CreateAckResponse(message);
-        }
-
-        // Case 2: Message belongs to the active thread — append to it.
-        if (activeConversation.Value.ThreadId == threadId)
-        {
-            var channel = activeConversation.Value;
-            channel.Messages.Add(message);
-            await StateManager.SetStateAsync(StateKeys.ActiveConversation, channel, cancellationToken);
-
-            _logger.LogInformation("Actor {ActorId} appended message to active thread {ThreadId}",
-                Id.GetId(), threadId);
-
-            return CreateAckResponse(message);
-        }
-
-        // Case 3: Different thread — route to pending.
-        await EnqueuePendingMessageAsync(threadId, message, cancellationToken);
-
-        _logger.LogInformation("Actor {ActorId} queued message for pending thread {ThreadId}",
-            Id.GetId(), threadId);
-
-        await EmitActivityEventAsync(ActivityEventType.DecisionMade,
-            $"Queued thread {threadId} as pending (active: {activeConversation.Value.ThreadId})",
-            cancellationToken,
-            details: JsonSerializer.SerializeToElement(new
-            {
-                decision = "QueueAsPending",
-                activeThreadId = activeConversation.Value.ThreadId,
-                pendingThreadId = threadId
-            }),
-            correlationId: threadId);
+                _activeWorkCancellation = new CancellationTokenSource();
+                var context = await BuildPromptAssemblyContextAsync(ch, eff, ct);
+                PendingDispatchTask = RunDispatchAsync(message, context, _activeWorkCancellation.Token);
+            },
+            emitActivity: EmitActivityEventAsync,
+            cancellationToken: cancellationToken);
 
         return CreateAckResponse(message);
     }
@@ -1186,147 +1138,58 @@ public class AgentActor(
     /// </summary>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     /// <returns>A task representing the asynchronous operation.</returns>
-    internal async Task SuspendActiveConversationAsync(CancellationToken cancellationToken = default)
-    {
-        var activeConversation = await StateManager
-            .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, cancellationToken)
-            ;
-
-        if (!activeConversation.HasValue)
-        {
-            return;
-        }
-
-        if (_activeWorkCancellation is not null)
-        {
-            await _activeWorkCancellation.CancelAsync();
-            _activeWorkCancellation.Dispose();
-            _activeWorkCancellation = null;
-        }
-
-        var pending = await StateManager
-            .TryGetStateAsync<List<ThreadChannel>>(StateKeys.PendingConversations, cancellationToken)
-            ;
-
-        var pendingList = pending.HasValue ? pending.Value : [];
-        pendingList.Add(activeConversation.Value);
-
-        await StateManager.SetStateAsync(StateKeys.PendingConversations, pendingList, cancellationToken);
-        await StateManager.TryRemoveStateAsync(StateKeys.ActiveConversation, cancellationToken);
-
-        _logger.LogInformation("Actor {ActorId} suspended thread {ThreadId}",
-            Id.GetId(), activeConversation.Value.ThreadId);
-
-        await EmitActivityEventAsync(ActivityEventType.StateChanged,
-            "State changed from Active to Suspended",
-            cancellationToken,
-            details: JsonSerializer.SerializeToElement(new { from = "Active", to = "Suspended" }));
-    }
+    internal Task SuspendActiveConversationAsync(CancellationToken cancellationToken = default)
+        => mailboxCoordinator.SuspendActiveConversationAsync(
+            agentId: Id.GetId(),
+            getActiveConversation: ct => GetActiveConversationAsync(ct),
+            removeActiveConversation: ct => StateManager.TryRemoveStateAsync(StateKeys.ActiveConversation, ct),
+            getPendingList: ct => GetPendingListAsync(ct),
+            setPendingList: (list, ct) => StateManager.SetStateAsync(StateKeys.PendingConversations, list, ct),
+            cancelActiveWork: async () =>
+            {
+                if (_activeWorkCancellation is not null)
+                {
+                    await _activeWorkCancellation.CancelAsync();
+                    _activeWorkCancellation.Dispose();
+                    _activeWorkCancellation = null;
+                }
+            },
+            emitActivity: EmitActivityEventAsync,
+            cancellationToken: cancellationToken);
 
     /// <summary>
     /// Promotes the next pending thread to active status.
     /// </summary>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     /// <returns>A task representing the asynchronous operation.</returns>
-    internal async Task PromoteNextPendingAsync(CancellationToken cancellationToken = default)
-    {
-        var pending = await StateManager
-            .TryGetStateAsync<List<ThreadChannel>>(StateKeys.PendingConversations, cancellationToken)
-            ;
-
-        if (!pending.HasValue || pending.Value.Count == 0)
-        {
-            return;
-        }
-
-        var pendingList = pending.Value;
-        var next = pendingList[0];
-        pendingList.RemoveAt(0);
-
-        await StateManager.SetStateAsync(StateKeys.ActiveConversation, next, cancellationToken);
-
-        if (pendingList.Count > 0)
-        {
-            await StateManager.SetStateAsync(StateKeys.PendingConversations, pendingList, cancellationToken);
-        }
-        else
-        {
-            await StateManager.TryRemoveStateAsync(StateKeys.PendingConversations, cancellationToken);
-        }
-
-        _activeWorkCancellation = new CancellationTokenSource();
-
-        _logger.LogInformation("Actor {ActorId} promoted thread {ThreadId} to active",
-            Id.GetId(), next.ThreadId);
-
-        // Promotion alone is not enough: the queued head message must be
-        // dispatched, otherwise the actor sits Active-but-idle and the
-        // user never gets a response. The first-message path in
-        // HandleDomainMessageAsync (Case 1) explicitly schedules
-        // RunDispatchAsync after activating; promotion has to do the
-        // same. Discovered post-Stage-2 cutover (#1063 / #522 follow-up):
-        // after a previous turn was cleared, the queued thread
-        // got "promoted" but never dispatched until the user sent a new
-        // message, and even then it stayed in Case 2 (append) which
-        // also doesn't dispatch.
-        if (next.Messages is { Count: > 0 } messages)
-        {
-            var head = messages[0];
-            try
+    internal Task PromoteNextPendingAsync(CancellationToken cancellationToken = default)
+        => mailboxCoordinator.PromoteNextPendingAsync(
+            agentId: Id.GetId(),
+            getPendingList: ct => GetPendingListAsync(ct),
+            setPendingList: (list, ct) => StateManager.SetStateAsync(StateKeys.PendingConversations, list, ct),
+            removePendingList: ct => StateManager.TryRemoveStateAsync(StateKeys.PendingConversations, ct),
+            setActiveConversation: (ch, ct) => StateManager.SetStateAsync(StateKeys.ActiveConversation, ch, ct),
+            activateAndDispatch: async (ch, eff, ct) =>
             {
-                var effective = await ResolveEffectiveMetadataAsync(head, cancellationToken);
-                if (effective.Enabled == false)
-                {
-                    _logger.LogInformation(
-                        "Actor {ActorId} skipping promoted thread {ThreadId}: membership Enabled=false.",
-                        Id.GetId(), next.ThreadId);
-                    return;
-                }
-
-                var context = await BuildPromptAssemblyContextAsync(next, effective, cancellationToken);
+                _activeWorkCancellation = new CancellationTokenSource();
+                var context = await BuildPromptAssemblyContextAsync(ch, eff, ct);
+                var head = ch.Messages[0];
                 PendingDispatchTask = RunDispatchAsync(head, context, _activeWorkCancellation.Token);
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex,
-                    "Actor {ActorId} failed to dispatch promoted thread {ThreadId}.",
-                    Id.GetId(), next.ThreadId);
-            }
-        }
-    }
+            },
+            resolveEffectiveMetadata: (msg, ct) => ResolveEffectiveMetadataAsync(msg, ct),
+            cancellationToken: cancellationToken);
 
     /// <summary>
     /// Enqueues a message for a pending thread, creating the channel if it does not exist.
     /// </summary>
-    private async Task EnqueuePendingMessageAsync(string threadId, Message message, CancellationToken cancellationToken)
-    {
-        var pending = await StateManager
-            .TryGetStateAsync<List<ThreadChannel>>(StateKeys.PendingConversations, cancellationToken)
-            ;
-
-        var pendingList = pending.HasValue ? pending.Value : [];
-
-        var existingChannel = pendingList.Find(c => c.ThreadId == threadId);
-        if (existingChannel is not null)
-        {
-            existingChannel.Messages.Add(message);
-        }
-        else
-        {
-            pendingList.Add(new ThreadChannel
-            {
-                ThreadId = threadId,
-                Messages = [message],
-                CreatedAt = DateTimeOffset.UtcNow
-            });
-        }
-
-        await StateManager.SetStateAsync(StateKeys.PendingConversations, pendingList, cancellationToken);
-    }
+    private Task EnqueuePendingMessageAsync(string threadId, Message message, CancellationToken cancellationToken)
+        => mailboxCoordinator.EnqueuePendingMessageAsync(
+            agentId: Id.GetId(),
+            threadId: threadId,
+            message: message,
+            getPendingList: ct => GetPendingListAsync(ct),
+            setPendingList: (list, ct) => StateManager.SetStateAsync(StateKeys.PendingConversations, list, ct),
+            cancellationToken: cancellationToken);
 
     /// <summary>
     /// Gets the current status of the agent based on its state.
@@ -1343,6 +1206,30 @@ public class AgentActor(
         }
 
         return AgentStatus.Active;
+    }
+
+    /// <summary>
+    /// Reads the current active <see cref="ThreadChannel"/> from actor state.
+    /// Returns <c>null</c> when no thread is active. Used as a delegate by
+    /// <see cref="IAgentMailboxCoordinator"/> calls.
+    /// </summary>
+    private async Task<ThreadChannel?> GetActiveConversationAsync(CancellationToken cancellationToken)
+    {
+        var result = await StateManager
+            .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, cancellationToken);
+        return result.HasValue ? result.Value : null;
+    }
+
+    /// <summary>
+    /// Reads the pending <see cref="ThreadChannel"/> list from actor state.
+    /// Returns <c>null</c> when no pending list is stored. Used as a delegate
+    /// by <see cref="IAgentMailboxCoordinator"/> calls.
+    /// </summary>
+    private async Task<List<ThreadChannel>?> GetPendingListAsync(CancellationToken cancellationToken)
+    {
+        var result = await StateManager
+            .TryGetStateAsync<List<ThreadChannel>>(StateKeys.PendingConversations, cancellationToken);
+        return result.HasValue ? result.Value : null;
     }
 
     /// <summary>
@@ -1378,6 +1265,25 @@ public class AgentActor(
     {
         var identity = await GetCloneIdentityAsync(cancellationToken);
         return identity?.ParentAgentId;
+    }
+
+    /// <summary>
+    /// Emits a pre-built <see cref="ActivityEvent"/> through the activity event bus.
+    /// Failures are logged but never allowed to escape the actor turn.
+    /// Satisfies the <c>Func&lt;ActivityEvent, CancellationToken, Task&gt;</c>
+    /// delegate shape expected by coordinator seams.
+    /// </summary>
+    private async Task EmitActivityEventAsync(ActivityEvent activityEvent, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await activityEventBus.PublishAsync(activityEvent, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to emit activity event {EventType} for actor {ActorId}.",
+                activityEvent.EventType, Id.GetId());
+        }
     }
 
     /// <summary>

@@ -9,6 +9,7 @@ using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Configuration;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Initiative;
+using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.AgentRuntimes;
 using Cvoya.Spring.Dapr.Capabilities;
@@ -75,9 +76,16 @@ internal static class ServiceCollectionExtensionsExecution
         // Agent lifecycle / activation coordinator (concern 7 of #1276).
         // Singleton: stateless across agents; uses per-call delegates for
         // StateManager access and the optional IExpertiseSeedProvider. TryAdd
-        // so the private cloud repo can substitute a tenant-aware coordinator
-        // (e.g. one that layers audit logging on every seeding event).
+        // so the private cloud repo can layer a tenant-aware coordinator
+        // (e.g. one that adds audit logging on every seeding event).
         services.TryAddSingleton<IAgentLifecycleCoordinator, AgentLifecycleCoordinator>();
+
+        // Agent thread-mailbox coordinator (#1335 / #1276 concern 2).
+        // Singleton: stateless across agents; all actor-state reads and writes
+        // flow through per-call delegates so no Dapr actor types are captured.
+        // TryAdd so the private cloud repo can substitute a tenant-aware
+        // implementation without touching this registration.
+        services.TryAddSingleton<IAgentMailboxCoordinator, AgentMailboxCoordinator>();
 
         // Agent-runtime plugin registry (#678, cornerstone of the #674
         // refactor). Enumerates every DI-registered IAgentRuntime so the
