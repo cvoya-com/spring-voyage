@@ -644,6 +644,13 @@ public static class ServiceCollectionExtensions
         // logging) without touching the actor.
         services.TryAddSingleton<IUnitValidationCoordinator, UnitValidationCoordinator>();
 
+        // #1310: membership-management + cycle-detection collaborator extracted
+        // from UnitActor. Owns duplicate detection, BFS cycle-detection for
+        // unit:// members, and subunit projection mirroring. TryAdd so the cloud
+        // overlay can substitute a tenant-aware coordinator (e.g. one that adds
+        // cross-tenant guards or audit logging) without touching the actor.
+        services.TryAddSingleton<IUnitMembershipCoordinator, UnitMembershipCoordinator>();
+
         // #601 B-wide: companion read/write seam for the agent's own
         // execution block on AgentDefinitions.Definition. Shared between
         // manifest apply and the dedicated /api/v1/agents/{id}/execution

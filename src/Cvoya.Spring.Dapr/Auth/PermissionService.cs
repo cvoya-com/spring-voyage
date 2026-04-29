@@ -7,6 +7,7 @@ using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
+using Cvoya.Spring.Dapr.Units;
 
 using global::Dapr.Actors;
 using global::Dapr.Actors.Client;
@@ -41,12 +42,12 @@ public class PermissionService(
     ILoggerFactory loggerFactory) : IPermissionService
 {
     /// <summary>
-    /// Matches <c>UnitActor.MaxCycleDetectionDepth</c> so the permission walk
-    /// agrees with the membership cycle detector on "maximum sensible
-    /// nesting." Exceeding the bound stops the walk and returns whatever
-    /// grant has been seen so far — pathological graphs never loop.
+    /// Matches <c>UnitMembershipCoordinator.MaxCycleDetectionDepth</c> so the
+    /// permission walk agrees with the membership cycle detector on "maximum
+    /// sensible nesting." Exceeding the bound stops the walk and returns
+    /// whatever grant has been seen so far — pathological graphs never loop.
     /// </summary>
-    internal const int MaxHierarchyDepth = UnitActor.MaxCycleDetectionDepth;
+    internal const int MaxHierarchyDepth = UnitMembershipCoordinator.MaxCycleDetectionDepth;
 
     private readonly ILogger _logger = loggerFactory.CreateLogger<PermissionService>();
 

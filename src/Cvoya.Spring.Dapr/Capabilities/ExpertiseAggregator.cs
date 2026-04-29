@@ -10,6 +10,7 @@ using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
+using Cvoya.Spring.Dapr.Units;
 
 using global::Dapr.Actors;
 using global::Dapr.Actors.Client;
@@ -31,8 +32,8 @@ using Microsoft.Extensions.Logging;
 /// </para>
 /// <para>
 /// <b>Recursion bound.</b> The walk is bounded by
-/// <see cref="UnitActor.MaxCycleDetectionDepth"/>. Exceeding the bound
-/// throws <see cref="ExpertiseAggregationException"/> — matching the
+/// <see cref="UnitMembershipCoordinator.MaxCycleDetectionDepth"/>. Exceeding
+/// the bound throws <see cref="ExpertiseAggregationException"/> — matching the
 /// membership cycle-detection contract so operators see the same diagnostic
 /// for both kinds of pathological graphs.
 /// </para>
@@ -88,11 +89,11 @@ public class ExpertiseAggregator(
     }
 
     /// <summary>
-    /// Matches the membership cycle-detection bound on <see cref="UnitActor"/>
-    /// so the aggregator and the member-add validation agree on what
-    /// "maximum sensible nesting" means.
+    /// Matches <c>UnitMembershipCoordinator.MaxCycleDetectionDepth</c> so the
+    /// aggregator and the member-add cycle detector agree on what "maximum
+    /// sensible nesting" means.
     /// </summary>
-    internal const int MaxAggregationDepth = UnitActor.MaxCycleDetectionDepth;
+    internal const int MaxAggregationDepth = UnitMembershipCoordinator.MaxCycleDetectionDepth;
 
     private readonly ILogger _logger = loggerFactory.CreateLogger<ExpertiseAggregator>();
     private readonly ConcurrentDictionary<string, AggregatedExpertise> _cache = new();
