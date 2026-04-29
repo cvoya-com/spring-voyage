@@ -35,7 +35,8 @@ WORKDIR /app
 COPY spring-voyage-agent/ /sdk/
 
 COPY dapr-agent/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt \
+ && pip install --no-cache-dir /sdk
 
 COPY dapr-agent/ .
 
