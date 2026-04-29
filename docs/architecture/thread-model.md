@@ -285,6 +285,43 @@ Each is a real concern for richer multi-human / multi-unit deployments (1–3) o
 - The engagement stitching across distinct threads (case b) is a UX projection, not a new persisted entity at the API surface. The engagement is a relationship narrative; the threads it spans are the persisted records.
 - **Hosted-service foundation:** the per-(thread, participant) state field is cheap to store and cheap to filter on; no problem.
 
+**Visibility filter — what a participant sees on the Timeline.**
+
+The blackout window is enforced by a precise read-time filter. The Timeline (Q7) doesn't change shape; the filter is computed from data the Timeline already carries — each participant's `ParticipantStateChanged` events plus each artifact's timestamp.
+
+For participant `P` viewing thread `T`'s Timeline, an entry `E` is visible iff **either**:
+
+1. **`E` is a `ParticipantStateChanged` event whose target is `P`.** P always sees their own state transitions — they need to know they were removed and re-added, even when the events flank a blackout window.
+
+   **OR**
+
+2. **`P`'s state at `E.timestamp` is `active`,** where state is determined by:
+   - The most-recent `ParticipantStateChanged` event affecting `P` with timestamp **strictly less than** `E.timestamp`, OR
+   - The default state `active` if `P` is a member and no state-change event has occurred yet (thread creation puts all members in `active`).
+
+   The strict `<` matters: at `t_leave` (when P transitions `active → removed`), the most-recent affecting event is the leave event itself — but using strict-less-than, P's state at `t_leave` is computed from before the leave (which is `active`). So the leave event itself is captured cleanly by clause 1, and entries strictly after `t_leave` get state `removed`.
+
+Pseudocode:
+
+```
+def visible(E, P, T):
+  if E.type == "ParticipantStateChanged" and E.target == P:
+    return True
+  events = [e for e in T.timeline
+              if e.type == "ParticipantStateChanged"
+              and e.target == P
+              and e.timestamp < E.timestamp]
+  state = events[-1].new_state if events else "active"   # default for members
+  return state == "active"
+```
+
+**Two clarifications about what is *not* Timeline-filtered:**
+
+- **Membership set and current per-participant state are live thread properties, not Timeline content.** Any participant of the thread sees the full membership set + every participant's *current* state at all times. (Otherwise re-joining feels broken — "is Q in the room right now?" needs an answer regardless of when P was last active.) Only the *historical Timeline* is filtered.
+- **Other participants' state-change *trajectory* during P's blackout is invisible to P.** P sees current state, but not the path through it. Example: while P is removed, Q transitions `removed → active → removed → active`. When P rejoins, P sees Q's current state is `active` but does not see the three intervening transitions.
+
+**Implementation note.** Optimisations (caching P's active intervals per `(P, T)`, binary search at query time) are straightforward and don't touch the model.
+
 **Settled rejection — subset memory access.** During PR review the user explored a "subset memory access" idea: if T2's participant set is a subset of T1's, agents in T2 would get read-side access to their T1-scoped memory entries. **Rejected for v0.1** because it sidesteps `ThreadMemoryPolicy` and re-introduces leakage the policy is meant to prevent. The continuity story for users moving between threads relies on the standard primitives: cross-thread visibility via `threadOnly: false` (when policy allows), or explicit user-driven manual quoting / referencing of prior thread content. This is a settled rejection, not an open question.
 
 ---
@@ -302,6 +339,7 @@ Every thread has a single, ordered, timestamped **Timeline** of artifacts. The T
 - The Timeline is **append-only at the platform level.** Edits and retractions (Q8) appear as new Timeline events that reference the prior artifact, not as in-place mutations.
 - **Per-thread FIFO** (Q3) is the ordering invariant on the Timeline.
 - Initiative messages, user messages, and agent reply messages are all Messages on the same Timeline — distinguishable only by sender role and by the optional `context` UX hint.
+- **The per-participant view of the Timeline is filtered**, not a separate copy. The filter rule (visibility based on the participant's `active` intervals + their own state-change events) is specified in Q6.
 
 **Rationale.**
 
