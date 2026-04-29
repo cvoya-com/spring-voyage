@@ -119,6 +119,14 @@ internal static class ServiceCollectionExtensionsOrchestration
         services.TryAddSingleton<IUnitValidationCoordinator, UnitValidationCoordinator>();
         services.TryAddSingleton<IUnitMembershipCoordinator, UnitMembershipCoordinator>();
 
+        // #1311: permission-management collaborator extracted from UnitActor.
+        // Owns the human-permission grant/revocation logic and the
+        // UnitPermissionInheritance flag management (ADR-0013). TryAdd so the
+        // cloud overlay can substitute a tenant-aware coordinator (e.g. one
+        // that enforces cross-tenant permission guards or adds audit logging on
+        // every grant / revocation) without touching the actor.
+        services.TryAddSingleton<IUnitPermissionCoordinator, UnitPermissionCoordinator>();
+
         // #601 B-wide: companion read/write seam for the agent's own
         // execution block on AgentDefinitions.Definition. Shared between
         // manifest apply and the dedicated /api/v1/agents/{id}/execution

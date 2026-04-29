@@ -38,6 +38,7 @@ public class UnitActor : Actor, IUnitActor
     private readonly IOrchestrationStrategyResolver? _strategyResolver;
     private readonly IUnitValidationCoordinator? _validationCoordinator;
     private readonly IUnitMembershipCoordinator _membershipCoordinator;
+    private readonly IUnitPermissionCoordinator _permissionCoordinator;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="UnitActor"/> class.
@@ -96,6 +97,18 @@ public class UnitActor : Actor, IUnitActor
     /// from the remaining optional parameters so legacy test harnesses
     /// that construct the actor directly continue to work.
     /// </param>
+    /// <param name="permissionCoordinator">
+    /// Optional coordinator for the permission-management concern (#1311).
+    /// When present, every <see cref="SetHumanPermissionAsync"/>,
+    /// <see cref="GetHumanPermissionAsync"/>,
+    /// <see cref="RemoveHumanPermissionAsync"/>,
+    /// <see cref="GetHumanPermissionsAsync"/>,
+    /// <see cref="GetPermissionInheritanceAsync"/>, and
+    /// <see cref="SetPermissionInheritanceAsync"/> call delegates entirely
+    /// to the coordinator. When absent, a default
+    /// <see cref="UnitPermissionCoordinator"/> is constructed so legacy
+    /// test harnesses that construct the actor directly continue to work.
+    /// </param>
     public UnitActor(
         ActorHost host,
         ILoggerFactory loggerFactory,
@@ -109,7 +122,8 @@ public class UnitActor : Actor, IUnitActor
         IUnitValidationTracker? validationTracker = null,
         IUnitSubunitMembershipProjector? subunitProjector = null,
         IUnitValidationCoordinator? validationCoordinator = null,
-        IUnitMembershipCoordinator? membershipCoordinator = null)
+        IUnitMembershipCoordinator? membershipCoordinator = null,
+        IUnitPermissionCoordinator? permissionCoordinator = null)
         : base(host)
     {
         _logger = loggerFactory.CreateLogger<UnitActor>();
@@ -127,6 +141,9 @@ public class UnitActor : Actor, IUnitActor
             ?? new UnitMembershipCoordinator(
                 subunitProjector,
                 loggerFactory.CreateLogger<UnitMembershipCoordinator>());
+        _permissionCoordinator = permissionCoordinator
+            ?? new UnitPermissionCoordinator(
+                loggerFactory.CreateLogger<UnitPermissionCoordinator>());
     }
 
     private static IUnitValidationCoordinator BuildDefaultValidationCoordinator(
@@ -309,52 +326,38 @@ public class UnitActor : Actor, IUnitActor
     }
 
     /// <inheritdoc />
-    public async Task SetHumanPermissionAsync(string humanId, UnitPermissionEntry entry, CancellationToken ct = default)
-    {
-        var permissions = await GetHumanPermissionsMapAsync(ct);
-        permissions[humanId] = entry;
-        await StateManager.SetStateAsync(StateKeys.HumanPermissions, permissions, ct);
-
-        _logger.LogInformation(
-            "Unit {ActorId} set permission for human {HumanId} to {Permission}",
-            Id.GetId(), humanId, entry.Permission);
-    }
+    public Task SetHumanPermissionAsync(string humanId, UnitPermissionEntry entry, CancellationToken ct = default)
+        => _permissionCoordinator.SetHumanPermissionAsync(
+            unitActorId: Id.GetId(),
+            humanId: humanId,
+            entry: entry,
+            getPermissions: GetHumanPermissionsMapAsync,
+            persistPermissions: (map, c) => StateManager.SetStateAsync(StateKeys.HumanPermissions, map, c),
+            cancellationToken: ct);
 
     /// <inheritdoc />
-    public async Task<PermissionLevel?> GetHumanPermissionAsync(string humanId, CancellationToken ct = default)
-    {
-        var permissions = await GetHumanPermissionsMapAsync(ct);
-        return permissions.TryGetValue(humanId, out var entry) ? entry.Permission : null;
-    }
+    public Task<PermissionLevel?> GetHumanPermissionAsync(string humanId, CancellationToken ct = default)
+        => _permissionCoordinator.GetHumanPermissionAsync(
+            unitActorId: Id.GetId(),
+            humanId: humanId,
+            getPermissions: GetHumanPermissionsMapAsync,
+            cancellationToken: ct);
 
     /// <inheritdoc />
-    public async Task<bool> RemoveHumanPermissionAsync(string humanId, CancellationToken ct = default)
-    {
-        var permissions = await GetHumanPermissionsMapAsync(ct);
-        if (!permissions.Remove(humanId))
-        {
-            // Idempotent: removing an entry that does not exist is a no-op.
-            // The DELETE endpoint still returns 204 to match `spring unit
-            // humans remove` ergonomics — the CLI should not have to branch
-            // on 404 vs 204 when the desired end state is "no such entry".
-            return false;
-        }
-
-        await StateManager.SetStateAsync(StateKeys.HumanPermissions, permissions, ct);
-
-        _logger.LogInformation(
-            "Unit {ActorId} removed permission for human {HumanId}",
-            Id.GetId(), humanId);
-
-        return true;
-    }
+    public Task<bool> RemoveHumanPermissionAsync(string humanId, CancellationToken ct = default)
+        => _permissionCoordinator.RemoveHumanPermissionAsync(
+            unitActorId: Id.GetId(),
+            humanId: humanId,
+            getPermissions: GetHumanPermissionsMapAsync,
+            persistPermissions: (map, c) => StateManager.SetStateAsync(StateKeys.HumanPermissions, map, c),
+            cancellationToken: ct);
 
     /// <inheritdoc />
-    public async Task<UnitPermissionEntry[]> GetHumanPermissionsAsync(CancellationToken ct = default)
-    {
-        var permissions = await GetHumanPermissionsMapAsync(ct);
-        return permissions.Values.ToArray();
-    }
+    public Task<UnitPermissionEntry[]> GetHumanPermissionsAsync(CancellationToken ct = default)
+        => _permissionCoordinator.GetHumanPermissionsAsync(
+            unitActorId: Id.GetId(),
+            getPermissions: GetHumanPermissionsMapAsync,
+            cancellationToken: ct);
 
     /// <inheritdoc />
     public Task<UnitStatus> GetStatusAsync(CancellationToken ct = default)
@@ -536,30 +539,26 @@ public class UnitActor : Actor, IUnitActor
     }
 
     /// <inheritdoc />
-    public async Task<UnitPermissionInheritance> GetPermissionInheritanceAsync(CancellationToken ct = default)
-    {
-        var result = await StateManager
-            .TryGetStateAsync<UnitPermissionInheritance>(StateKeys.UnitPermissionInheritance, ct);
-        return result.HasValue ? result.Value : UnitPermissionInheritance.Inherit;
-    }
+    public Task<UnitPermissionInheritance> GetPermissionInheritanceAsync(CancellationToken ct = default)
+        => _permissionCoordinator.GetPermissionInheritanceAsync(
+            unitActorId: Id.GetId(),
+            getInheritance: async c =>
+            {
+                var result = await StateManager
+                    .TryGetStateAsync<UnitPermissionInheritance>(StateKeys.UnitPermissionInheritance, c);
+                return result.HasValue ? result.Value : null;
+            },
+            cancellationToken: ct);
 
     /// <inheritdoc />
     public async Task SetPermissionInheritanceAsync(UnitPermissionInheritance inheritance, CancellationToken ct = default)
     {
-        if (inheritance == UnitPermissionInheritance.Inherit)
-        {
-            // Represent the default as an absent row so clearing the flag
-            // returns to the default without leaving a no-op state entry.
-            await StateManager.RemoveStateAsync(StateKeys.UnitPermissionInheritance, ct);
-        }
-        else
-        {
-            await StateManager.SetStateAsync(StateKeys.UnitPermissionInheritance, inheritance, ct);
-        }
-
-        _logger.LogInformation(
-            "Unit {ActorId} permission inheritance set to {Inheritance}",
-            Id.GetId(), inheritance);
+        await _permissionCoordinator.SetPermissionInheritanceAsync(
+            unitActorId: Id.GetId(),
+            inheritance: inheritance,
+            persistInheritance: (value, c) => StateManager.SetStateAsync(StateKeys.UnitPermissionInheritance, value, c),
+            removeInheritance: c => StateManager.RemoveStateAsync(StateKeys.UnitPermissionInheritance, c),
+            cancellationToken: ct);
 
         await EmitActivityEventAsync(ActivityEventType.StateChanged,
             $"Unit permission inheritance updated to {inheritance}",
