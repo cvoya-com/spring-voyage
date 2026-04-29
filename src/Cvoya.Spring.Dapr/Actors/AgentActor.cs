@@ -43,6 +43,7 @@ public class AgentActor(
     IAgentInitiativeEvaluator initiativeEvaluator,
     ILoggerFactory loggerFactory,
     IAgentLifecycleCoordinator lifecycleCoordinator,
+    IAgentStateCoordinator stateCoordinator,
     IExpertiseSeedProvider? expertiseSeedProvider = null,
     IActorProxyFactory? actorProxyFactory = null) : Actor(host), IAgentActor, IRemindable
 {
@@ -1328,84 +1329,51 @@ public class AgentActor(
     }
 
     /// <inheritdoc />
-    public async Task<AgentMetadata> GetMetadataAsync(CancellationToken cancellationToken = default)
+    public Task<AgentMetadata> GetMetadataAsync(CancellationToken cancellationToken = default)
     {
-        var model = await StateManager.TryGetStateAsync<string>(StateKeys.AgentModel, cancellationToken);
-        var specialty = await StateManager.TryGetStateAsync<string>(StateKeys.AgentSpecialty, cancellationToken);
-        var enabled = await StateManager.TryGetStateAsync<bool>(StateKeys.AgentEnabled, cancellationToken);
-        var executionMode = await StateManager.TryGetStateAsync<AgentExecutionMode>(StateKeys.AgentExecutionMode, cancellationToken);
-        var parentUnit = await StateManager.TryGetStateAsync<string>(StateKeys.AgentParentUnit, cancellationToken);
-
-        return new AgentMetadata(
-            Model: model.HasValue ? model.Value : null,
-            Specialty: specialty.HasValue ? specialty.Value : null,
-            Enabled: enabled.HasValue ? enabled.Value : null,
-            ExecutionMode: executionMode.HasValue ? executionMode.Value : null,
-            ParentUnit: parentUnit.HasValue ? parentUnit.Value : null);
+        return stateCoordinator.GetMetadataAsync(
+            Id.GetId(),
+            async ct =>
+            {
+                var v = await StateManager.TryGetStateAsync<string>(StateKeys.AgentModel, ct);
+                return (v.HasValue, v.HasValue ? v.Value : null);
+            },
+            async ct =>
+            {
+                var v = await StateManager.TryGetStateAsync<string>(StateKeys.AgentSpecialty, ct);
+                return (v.HasValue, v.HasValue ? v.Value : null);
+            },
+            async ct =>
+            {
+                var v = await StateManager.TryGetStateAsync<bool>(StateKeys.AgentEnabled, ct);
+                return (v.HasValue, v.HasValue ? v.Value : default);
+            },
+            async ct =>
+            {
+                var v = await StateManager.TryGetStateAsync<AgentExecutionMode>(StateKeys.AgentExecutionMode, ct);
+                return (v.HasValue, v.HasValue ? v.Value : default);
+            },
+            async ct =>
+            {
+                var v = await StateManager.TryGetStateAsync<string>(StateKeys.AgentParentUnit, ct);
+                return (v.HasValue, v.HasValue ? v.Value : null);
+            },
+            cancellationToken);
     }
 
     /// <inheritdoc />
-    public async Task SetMetadataAsync(AgentMetadata metadata, CancellationToken cancellationToken = default)
+    public Task SetMetadataAsync(AgentMetadata metadata, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(metadata);
-
-        var writtenFields = new List<string>();
-
-        if (metadata.Model is not null)
-        {
-            await StateManager.SetStateAsync(StateKeys.AgentModel, metadata.Model, cancellationToken);
-            writtenFields.Add(nameof(metadata.Model));
-        }
-
-        if (metadata.Specialty is not null)
-        {
-            await StateManager.SetStateAsync(StateKeys.AgentSpecialty, metadata.Specialty, cancellationToken);
-            writtenFields.Add(nameof(metadata.Specialty));
-        }
-
-        if (metadata.Enabled is not null)
-        {
-            await StateManager.SetStateAsync(StateKeys.AgentEnabled, metadata.Enabled.Value, cancellationToken);
-            writtenFields.Add(nameof(metadata.Enabled));
-        }
-
-        if (metadata.ExecutionMode is not null)
-        {
-            await StateManager.SetStateAsync(StateKeys.AgentExecutionMode, metadata.ExecutionMode.Value, cancellationToken);
-            writtenFields.Add(nameof(metadata.ExecutionMode));
-        }
-
-        if (metadata.ParentUnit is not null)
-        {
-            await StateManager.SetStateAsync(StateKeys.AgentParentUnit, metadata.ParentUnit, cancellationToken);
-            writtenFields.Add(nameof(metadata.ParentUnit));
-        }
-
-        if (writtenFields.Count == 0)
-        {
-            _logger.LogDebug(
-                "Agent {ActorId} SetMetadataAsync called with no fields; nothing to emit.",
-                Id.GetId());
-            return;
-        }
-
-        _logger.LogInformation(
-            "Agent {ActorId} metadata updated: {Fields}",
-            Id.GetId(), string.Join(",", writtenFields));
-
-        await EmitActivityEventAsync(ActivityEventType.StateChanged,
-            $"Agent metadata updated: {string.Join(", ", writtenFields)}",
-            cancellationToken,
-            details: JsonSerializer.SerializeToElement(new
-            {
-                action = "AgentMetadataUpdated",
-                fields = writtenFields,
-                model = metadata.Model,
-                specialty = metadata.Specialty,
-                enabled = metadata.Enabled,
-                executionMode = metadata.ExecutionMode?.ToString(),
-                parentUnit = metadata.ParentUnit,
-            }));
+        return stateCoordinator.SetMetadataAsync(
+            Id.GetId(),
+            metadata,
+            (v, ct) => StateManager.SetStateAsync(StateKeys.AgentModel, v, ct),
+            (v, ct) => StateManager.SetStateAsync(StateKeys.AgentSpecialty, v, ct),
+            (v, ct) => StateManager.SetStateAsync(StateKeys.AgentEnabled, v, ct),
+            (v, ct) => StateManager.SetStateAsync(StateKeys.AgentExecutionMode, v, ct),
+            (v, ct) => StateManager.SetStateAsync(StateKeys.AgentParentUnit, v, ct),
+            EmitActivityEventAsync,
+            cancellationToken);
     }
 
     /// <summary>
@@ -1415,96 +1383,61 @@ public class AgentActor(
     /// in sync. Separated from <see cref="SetMetadataAsync"/> because the
     /// partial-patch semantics there treat <c>null</c> as "leave untouched."
     /// </summary>
-    public async Task ClearParentUnitAsync(CancellationToken cancellationToken = default)
+    public Task ClearParentUnitAsync(CancellationToken cancellationToken = default)
     {
-        await StateManager.RemoveStateAsync(StateKeys.AgentParentUnit, cancellationToken);
+        return stateCoordinator.ClearParentUnitAsync(
+            Id.GetId(),
+            ct => StateManager.RemoveStateAsync(StateKeys.AgentParentUnit, ct),
+            EmitActivityEventAsync,
+            cancellationToken);
+    }
 
-        _logger.LogInformation("Agent {ActorId} parent-unit pointer cleared.", Id.GetId());
-
-        await EmitActivityEventAsync(ActivityEventType.StateChanged,
-            "Agent parent-unit cleared",
-            cancellationToken,
-            details: JsonSerializer.SerializeToElement(new
+    /// <inheritdoc />
+    public Task<string[]> GetSkillsAsync(CancellationToken cancellationToken = default)
+    {
+        return stateCoordinator.GetSkillsAsync(
+            Id.GetId(),
+            async ct =>
             {
-                action = "AgentParentUnitCleared",
-            }));
+                var v = await StateManager.TryGetStateAsync<List<string>>(StateKeys.AgentSkills, ct);
+                return (v.HasValue, v.HasValue ? v.Value : null);
+            },
+            cancellationToken);
     }
 
     /// <inheritdoc />
-    public async Task<string[]> GetSkillsAsync(CancellationToken cancellationToken = default)
+    public Task SetSkillsAsync(string[] skills, CancellationToken cancellationToken = default)
     {
-        var result = await StateManager.TryGetStateAsync<List<string>>(StateKeys.AgentSkills, cancellationToken);
-        return result.HasValue ? result.Value.ToArray() : [];
+        return stateCoordinator.SetSkillsAsync(
+            Id.GetId(),
+            skills,
+            (normalised, ct) => StateManager.SetStateAsync(StateKeys.AgentSkills, normalised, ct),
+            EmitActivityEventAsync,
+            cancellationToken);
     }
 
     /// <inheritdoc />
-    public async Task SetSkillsAsync(string[] skills, CancellationToken cancellationToken = default)
+    public Task<ExpertiseDomain[]> GetExpertiseAsync(CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(skills);
-
-        // Canonicalise: drop null / whitespace entries, collapse duplicates,
-        // sort. Ordering is semantically meaningless — the list is a set —
-        // but a stable order makes diffs in logs and activity events
-        // predictable.
-        var normalised = skills
-            .Where(s => !string.IsNullOrWhiteSpace(s))
-            .Select(s => s.Trim())
-            .Distinct(StringComparer.Ordinal)
-            .OrderBy(s => s, StringComparer.Ordinal)
-            .ToList();
-
-        await StateManager.SetStateAsync(StateKeys.AgentSkills, normalised, cancellationToken);
-
-        _logger.LogInformation(
-            "Agent {ActorId} skills replaced. Count: {Count}", Id.GetId(), normalised.Count);
-
-        await EmitActivityEventAsync(ActivityEventType.StateChanged,
-            $"Agent skills replaced: {normalised.Count} skill(s).",
-            cancellationToken,
-            details: JsonSerializer.SerializeToElement(new
+        return stateCoordinator.GetExpertiseAsync(
+            Id.GetId(),
+            async ct =>
             {
-                action = "AgentSkillsReplaced",
-                count = normalised.Count,
-                skills = normalised,
-            }));
+                var v = await StateManager.TryGetStateAsync<List<ExpertiseDomain>>(StateKeys.AgentExpertise, ct);
+                return (v.HasValue, v.HasValue ? v.Value : null);
+            },
+            cancellationToken);
     }
 
     /// <inheritdoc />
-    public async Task<ExpertiseDomain[]> GetExpertiseAsync(CancellationToken cancellationToken = default)
+    public Task SetExpertiseAsync(ExpertiseDomain[] domains, CancellationToken cancellationToken = default)
     {
-        var result = await StateManager.TryGetStateAsync<List<ExpertiseDomain>>(StateKeys.AgentExpertise, cancellationToken);
-        return result.HasValue ? result.Value.ToArray() : Array.Empty<ExpertiseDomain>();
-    }
-
-    /// <inheritdoc />
-    public async Task SetExpertiseAsync(ExpertiseDomain[] domains, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(domains);
-
-        // De-dup by domain name case-insensitively; the last write for a given
-        // name wins so a caller can PATCH a level or description by re-listing
-        // the same domain.
-        var normalised = domains
-            .Where(d => !string.IsNullOrWhiteSpace(d.Name))
-            .GroupBy(d => d.Name, StringComparer.OrdinalIgnoreCase)
-            .Select(g => g.Last())
-            .OrderBy(d => d.Name, StringComparer.Ordinal)
-            .ToList();
-
-        await StateManager.SetStateAsync(StateKeys.AgentExpertise, normalised, cancellationToken);
-
-        _logger.LogInformation(
-            "Agent {ActorId} expertise replaced. Count: {Count}", Id.GetId(), normalised.Count);
-
-        await EmitActivityEventAsync(ActivityEventType.StateChanged,
-            $"Agent expertise replaced: {normalised.Count} domain(s).",
-            cancellationToken,
-            details: JsonSerializer.SerializeToElement(new
-            {
-                action = "AgentExpertiseReplaced",
-                count = normalised.Count,
-                domains = normalised.Select(d => new { d.Name, d.Description, Level = d.Level?.ToString() }),
-            }));
+        return stateCoordinator.SetExpertiseAsync(
+            Id.GetId(),
+            domains,
+            (normalised, ct) => StateManager.SetStateAsync(StateKeys.AgentExpertise, normalised, ct),
+            EmitActivityEventAsync,
+            cancellationToken);
     }
 
     /// <summary>

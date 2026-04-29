@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Dapr.DependencyInjection;
 
 using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.AgentRuntimes;
+using Cvoya.Spring.Core.Agents;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Configuration;
 using Cvoya.Spring.Core.Execution;
@@ -86,6 +87,14 @@ internal static class ServiceCollectionExtensionsExecution
         // TryAdd so the private cloud repo can substitute a tenant-aware
         // implementation without touching this registration.
         services.TryAddSingleton<IAgentMailboxCoordinator, AgentMailboxCoordinator>();
+
+        // Agent metadata/state coordinator (#1339 / #1276 concern 6).
+        // Singleton: stateless across agents; all actor-state reads and writes
+        // flow through per-call delegates so no Dapr actor types are captured.
+        // TryAdd so the private cloud repo can substitute a tenant-aware
+        // implementation (e.g. one that layers audit logging or gates skill
+        // assignment on per-tenant allowlists) without touching this registration.
+        services.TryAddSingleton<IAgentStateCoordinator, AgentStateCoordinator>();
 
         // Agent-runtime plugin registry (#678, cornerstone of the #674
         // refactor). Enumerates every DI-registered IAgentRuntime so the

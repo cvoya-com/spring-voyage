@@ -128,7 +128,8 @@ public static class ActorTestHost
             unitPolicyEnforcer,
             initiativeEvaluator,
             loggerFactory,
-            Substitute.For<IAgentLifecycleCoordinator>());
+            Substitute.For<IAgentLifecycleCoordinator>(),
+            new AgentStateCoordinator(Substitute.For<ILogger<AgentStateCoordinator>>()));
         SetStateManager(actor, stateManager);
 
         // Default: no active conversation, no pending conversations.

@@ -119,7 +119,8 @@ public class AgentActorReflectionDispatchTests
             _unitPolicyEnforcer,
             _initiativeEvaluator,
             loggerFactory,
-            Substitute.For<IAgentLifecycleCoordinator>());
+            Substitute.For<IAgentLifecycleCoordinator>(),
+            new AgentStateCoordinator(Substitute.For<ILogger<AgentStateCoordinator>>()));
 
         SetStateManager(_actor, _stateManager);
 
