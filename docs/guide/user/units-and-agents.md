@@ -28,18 +28,21 @@ spring unit list
 
 ### Configuring a Unit
 
-Set orchestration, execution defaults, and structure:
+Set execution defaults (image, runtime, tool, provider, model) and orchestration strategy independently:
 
+```bash
+# Set one or more execution defaults (partial update — pass only flags you want to change)
+spring unit execution set <name> \
+  --tool claude-code \
+  --image localhost/spring-voyage-agent-claude-code:latest \
+  --runtime podman \
+  --model claude-sonnet-4-6
+
+# Set orchestration strategy
+spring unit orchestration set <name> --strategy ai
 ```
-spring unit set <name> \
-  --structure hierarchical \
-  --ai-execution delegated \
-  --ai-tool software-dev-cycle \
-  --ai-environment-image spring-workflows/software-dev-cycle:latest \
-  --ai-environment-runtime podman \
-  --execution-image spring-agent:latest \
-  --execution-runtime podman
-```
+
+There is no `spring unit set` verb. Execution defaults and orchestration are separate verb groups (`execution` and `orchestration`). Use `spring unit execution get <name>` to inspect current defaults and `spring unit execution clear <name>` to strip the block.
 
 ### Setting Policies
 

@@ -5049,7 +5049,7 @@
         "tags": [
           "Units"
         ],
-        "summary": "Read the unit's short-term and long-term memory entries (stub-empty in v2.0)",
+        "summary": "Read the unit's short-term and long-term memory entries (stub; full contract deferred to ADR-0029 Stage 4)",
         "operationId": "GetUnitMemories",
         "parameters": [
           {
@@ -5090,7 +5090,7 @@
         "tags": [
           "Agents"
         ],
-        "summary": "Read the agent's short-term and long-term memory entries (stub-empty in v2.0)",
+        "summary": "Read the agent's short-term and long-term memory entries (stub; full contract deferred to ADR-0029 Stage 4)",
         "operationId": "GetAgentMemories",
         "parameters": [
           {

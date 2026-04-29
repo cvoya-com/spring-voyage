@@ -14,8 +14,9 @@ using Microsoft.AspNetCore.Mvc;
 /// §4 / §13). Two endpoints mirror the Explorer's Memory tab:
 /// <c>GET /api/v1/units/{id}/memories</c> and
 /// <c>GET /api/v1/agents/{id}/memories</c>. Both return empty short-term +
-/// long-term lists in v2.0 — the real backing store ships in
-/// <c>V21-memory-write</c>.
+/// long-term lists — the full memory contract (wire shape of
+/// <c>store(memory)</c> / <c>recall(query)</c> MCP tools, <c>MemoryEntry</c>
+/// schema, <c>ThreadMemoryPolicy</c>) is deferred pending ADR-0029 Stage 4.
 /// </summary>
 public static class MemoriesEndpoints
 {
@@ -32,14 +33,14 @@ public static class MemoriesEndpoints
         group.MapGet("/api/v1/tenant/units/{id}/memories", GetUnitMemoriesAsync)
             .WithTags("Units")
             .WithName("GetUnitMemories")
-            .WithSummary("Read the unit's short-term and long-term memory entries (stub-empty in v2.0)")
+            .WithSummary("Read the unit's short-term and long-term memory entries (stub; full contract deferred to ADR-0029 Stage 4)")
             .Produces<MemoriesResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapGet("/api/v1/tenant/agents/{id}/memories", GetAgentMemoriesAsync)
             .WithTags("Agents")
             .WithName("GetAgentMemories")
-            .WithSummary("Read the agent's short-term and long-term memory entries (stub-empty in v2.0)")
+            .WithSummary("Read the agent's short-term and long-term memory entries (stub; full contract deferred to ADR-0029 Stage 4)")
             .Produces<MemoriesResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 

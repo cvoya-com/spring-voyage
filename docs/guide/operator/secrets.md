@@ -19,7 +19,7 @@ LLM provider credentials explicitly belong to **tier 2**, not tier 1 — they ar
 1. **Unit-scoped secret** (if the caller has a unit in context)
 2. **Tenant-scoped secret** (the inheritance fall-through from unit scope, or the direct read when there is no unit context — e.g. the unit-create wizard fetching the model catalog)
 
-When nothing resolves, the platform fails cleanly — the operator-facing error names the exact secret the resolver looked for ("no LLM credentials configured for this unit; set via `spring secret --scope unit` or configure tenant defaults at `spring secret --scope tenant create <name>` / the portal's Tenant defaults panel"). There is no environment-variable fallback: credentials must be set at tenant or unit scope. The private cloud build layers its own per-tenant resolver on top.
+When nothing resolves, the platform fails cleanly — the operator-facing error names the exact secret the resolver looked for ("no LLM credentials configured for this unit; set via `spring secret --scope unit` or configure tenant defaults at `spring secret --scope tenant create <name>` / the portal's **Tenant defaults** panel at `/settings`"). There is no environment-variable fallback: credentials must be set at tenant or unit scope. The private cloud build layers its own per-tenant resolver on top.
 
 ## Concepts at a glance
 
@@ -38,7 +38,7 @@ Plaintext enters exactly once (on `create` or `rotate`) and is never returned in
 
 - **CLI — `spring secret`.** Seven verbs: `create`, `list`, `get`, `rotate`, `versions`, `prune`, `delete`. Every scope is reachable with `--scope <scope> [--unit <name>]`. Accepts `--output json`. This guide uses the CLI as the primary example.
 - **HTTP API.** Scope-keyed endpoints under `/api/v1/units/{id}/secrets`, `/api/v1/tenant/secrets`, `/api/v1/platform/secrets`. Useful from CI runners or foreign services — one example is at the end of this guide.
-- **Portal.** Two surfaces: the **Tenant defaults** panel (set / rotate tier-2 LLM credentials inherited by every unit — recommended first-run step) and the unit's **Secrets** tab (list, create, delete unit-scoped secrets with an **inherited from tenant** / **set on unit** badge). Rotation, version listing, and pruning are CLI-only.
+- **Portal.** Two surfaces: the **Tenant defaults** panel at `/settings` (set / rotate tier-2 LLM credentials inherited by every unit — recommended first-run step) and the unit's **Secrets** tab (list, create, delete unit-scoped secrets with an **inherited from tenant** / **set on unit** badge). Rotation, version listing, and pruning are CLI-only.
 
 Authenticate the CLI: `spring auth token create --name "<label>"` — the token is persisted to `~/.spring/config.json`.
 
@@ -172,7 +172,7 @@ spring secret create --scope unit --unit research-team \
   anthropic-api-key --value "sk-ant-research-..."
 ```
 
-Via portal: **Tenant defaults** panel for the tenant-wide key; unit's **Secrets** tab for per-unit overrides. The Secrets tab shows an "inherited from tenant" badge for transitively inherited secrets.
+Via portal: **Tenant defaults** panel at `/settings` for the tenant-wide key; unit's **Secrets** tab for per-unit overrides. The Secrets tab shows an "inherited from tenant" badge for transitively inherited secrets.
 
 ## Supplying a credential during unit creation
 

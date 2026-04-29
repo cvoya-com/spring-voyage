@@ -34,7 +34,7 @@ The left sidebar lists all top-level routes:
 
 Detail pages (`/units/{id}`, `/agents/{id}`, `/conversations/{id}`) are reached by clicking entity cards. A breadcrumb trail keeps navigation depth visible.
 
-A **Settings** drawer (bottom of the sidebar) collects cross-cutting configuration:
+A **Settings** hub at `/settings` collects cross-cutting configuration (the in-shell Settings drawer was retired in the #815 redesign):
 
 | Panel | What it does | CLI equivalent |
 |-------|--------------|----------------|

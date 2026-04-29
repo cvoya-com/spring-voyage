@@ -78,7 +78,7 @@ spring conversation close <conversation-id>
 spring conversation close <conversation-id> --reason "container missing image"
 ```
 
-The platform cancels any in-flight dispatch on every participating agent, removes the active-conversation pointer, emits a `ConversationClosed` activity event correlated to the conversation, and promotes the next pending conversation. The verb is idempotent — closing an unknown id is a safe no-op — so it's fine to script as a recovery step. Failures translate via `ProblemDetails`, mirroring the `POST /api/v1/conversations/{id}/close` HTTP surface.
+The platform cancels any in-flight dispatch on every participating agent, removes the active-conversation pointer, emits a `ThreadClosed` activity event correlated to the conversation, and promotes the next pending conversation. The verb is idempotent — closing an unknown id is a safe no-op — so it's fine to script as a recovery step. Failures translate via `ProblemDetails`, mirroring the `POST /api/v1/conversations/{id}/close` HTTP surface.
 
 ### Inbox: Things Awaiting You
 

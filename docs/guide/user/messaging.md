@@ -63,7 +63,7 @@ A conversation is the platform's unit of correlated work. Every message carries 
   - CLI: `spring conversation close <id> [--reason <text>]`
   - HTTP: `POST /api/v1/conversations/{id}/close`
 
-  The platform cancels any in-flight dispatch, removes the active-conversation pointer from each participating agent, emits a `ConversationClosed` activity event (correlated to the conversation id), and promotes the next pending conversation. Closing an unknown id is a no-op so the call is safe to retry.
+  The platform cancels any in-flight dispatch, removes the active-conversation pointer from each participating agent, emits a `ThreadClosed` activity event (correlated to the conversation id), and promotes the next pending conversation. Closing an unknown id is a no-op so the call is safe to retry.
 - **Auto-close on dispatch failure (#1036).** When the dispatcher returns a non-zero `ExitCode` (e.g. container exit code 125 because the runtime image was missing), the agent now surfaces the failure rather than silently swallowing it: an `ErrorOccurred` event with the exit code + first stderr line is appended to the conversation, the failure response is still routed back to the original sender, and the conversation is cleared off the agent's active slot via the same path the explicit-close API uses. The agent unblocks and the next pending conversation is promoted automatically.
 
 See [Messaging architecture — Partitioned Mailbox with Priority Processing](../../architecture/messaging.md#design-partitioned-mailbox-with-priority-processing) for the full lifecycle, including conversation suspension and multi-conversation scheduling.
@@ -155,6 +155,6 @@ See [Messaging architecture — Routing Mechanism](../../architecture/messaging.
 Two fast e2e scenarios exercise the messaging plumbing without needing an LLM backend:
 
 - [`fast/13-agent-domain-message.sh`](../../../tests/e2e/scenarios/fast/13-agent-domain-message.sh) — sends a Domain message to an agent and verifies the `MessageReceived` activity event lands. Proves the router → actor → activity-bus path end-to-end.
-- [`fast/14-conversation-lifecycle.sh`](../../../tests/e2e/scenarios/fast/14-conversation-lifecycle.sh) — starts a fresh conversation on an idle agent and verifies the three lifecycle events fire in order: `MessageReceived` → `ConversationStarted` → `StateChanged (Idle→Active)`.
+- [`fast/14-conversation-lifecycle.sh`](../../../tests/e2e/scenarios/fast/14-conversation-lifecycle.sh) — starts a fresh conversation on an idle agent and verifies the three lifecycle events fire in order: `MessageReceived` → `ThreadStarted` → `StateChanged (Idle→Active)`.
 
 Scenario [`llm/20-message-human-to-agent.sh`](../../../tests/e2e/scenarios/llm/20-message-human-to-agent.sh) (requires Ollama) drives the full human-to-agent round-trip through `spring message send`. See [Runnable Examples](examples.md) for the full catalogue.
