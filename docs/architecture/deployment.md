@@ -1,6 +1,6 @@
 # Deployment
 
-> **[Architecture Index](README.md)** | Related: [Infrastructure](infrastructure.md), [Workflows](workflows.md), [CLI & Web](cli-and-web.md), [Units & Agents](units.md)
+> **[Architecture Index](README.md)** | Related: [Infrastructure](infrastructure.md), [Workflows](workflows.md), [CLI & Web](cli-and-web.md), [Units](units.md), [Agents](agents.md)
 
 ---
 

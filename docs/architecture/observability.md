@@ -1,6 +1,6 @@
 # Observability
 
-> **[Architecture Index](README.md)** | Related: [Infrastructure](infrastructure.md), [Units & Agents](units.md), [Initiative](initiative.md)
+> **[Architecture Index](README.md)** | Related: [Infrastructure](infrastructure.md), [Units](units.md), [Agents](agents.md), [Initiative](initiative.md)
 
 ---
 

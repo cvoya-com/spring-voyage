@@ -1,6 +1,6 @@
 # Connectors
 
-> **[Architecture Index](README.md)** | Related: [Units & Agents](units.md), [Workflows](workflows.md), [Packages](packages.md)
+> **[Architecture Index](README.md)** | Related: [Units](units.md), [Agents](agents.md), [Workflows](workflows.md), [Packages](packages.md)
 
 ---
 

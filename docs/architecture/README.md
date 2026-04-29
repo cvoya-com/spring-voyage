@@ -90,7 +90,12 @@ Each goal directly addresses a v1 limitation:
 | --- | --- |
 | [Infrastructure](infrastructure.md) | Dapr building blocks, actor model, IAddressable, data persistence |
 | [Messaging](messaging.md) | Mailbox, message processing, addressing, activation model |
-| [Units & Agents](units.md) | Agent model, execution patterns, cloning, unit model, orchestration strategies, unit policy framework, expertise discovery, unit lifecycle |
+| [Units & Agents](units.md) | Unit entity model (identity, membership, nested units, composite pattern); entry point to the units-and-agents cluster |
+| [Agents](agents.md) | Agent model, execution pattern, cloning policies, role, prompt assembly, platform tools |
+| [Orchestration](orchestration.md) | Orchestration strategies (AI, workflow, label-routed), unit boundary, execution-defaults resolution chain |
+| [Policies](policies.md) | Unit policy framework (skill, model, cost, execution mode, initiative), root unit |
+| [Expertise](expertise.md) | Expertise profiles, directory, recursive aggregation, directory search, YAML seeding |
+| [Unit Lifecycle](unit-lifecycle.md) | Status DAG, validation workflow, imperative and declarative creation paths, observe and teardown |
 | [Initiative](initiative.md) | Initiative levels, tiered cognition, initiative policies |
 | [Workflows](workflows.md) | Workflow-as-container, platform-internal workflows, A2A execution dispatch, agent tool launchers, A2A sidecar protocol, workflow patterns |
 | [Agent Runtime](agent-runtime.md) | A2A dispatcher tiers, launcher contract, MCP callback, Dapr Conversation provider/model YAML contract (Ollama / OpenAI / Anthropic / Google), adding a new launcher |

@@ -1,12 +1,12 @@
 # Workflows
 
-> **[Architecture Index](README.md)** | Related: [Units & Agents](units.md), [Infrastructure](infrastructure.md), [Connectors](connectors.md), [Deployment](deployment.md)
+> **[Architecture Index](README.md)** | Related: [Units](units.md), [Orchestration](orchestration.md), [Agents](agents.md), [Infrastructure](infrastructure.md), [Connectors](connectors.md), [Deployment](deployment.md)
 
 ---
 
 ## Workflows & External Orchestration
 
-The orchestration strategies defined in the [Units & Agents](units.md) document determine *how* a unit routes messages to members. This document covers:
+The orchestration strategies defined in the [Orchestration](orchestration.md) document determine *how* a unit routes messages to members. This document covers:
 
 - The two workflow models (container-based and platform-internal)
 - External workflow engine integration via A2A

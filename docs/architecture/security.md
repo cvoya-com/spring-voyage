@@ -1,6 +1,6 @@
 # Security
 
-> **[Architecture Index](README.md)** | Related: [Infrastructure](infrastructure.md), [Units & Agents](units.md), [Deployment](deployment.md)
+> **[Architecture Index](README.md)** | Related: [Infrastructure](infrastructure.md), [Units](units.md), [Policies](policies.md), [Deployment](deployment.md)
 >
 > **Note:** Multi-tenancy, OAuth/SSO, tenant administration, and platform operations are commercial extensions developed in the private repository. This document covers the OSS security model.
 

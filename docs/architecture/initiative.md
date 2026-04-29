@@ -1,6 +1,6 @@
 # Initiative
 
-> **[Architecture Index](README.md)** | Related: [Units & Agents](units.md), [Messaging](messaging.md), [Observability](observability.md)
+> **[Architecture Index](README.md)** | Related: [Units](units.md), [Agents](agents.md), [Policies](policies.md), [Messaging](messaging.md), [Observability](observability.md)
 
 ---
 

@@ -1,6 +1,6 @@
 # Packages
 
-> **[Architecture Index](README.md)** | Related: [Connectors](connectors.md), [Units & Agents](units.md), [Roadmap](../roadmap/README.md)
+> **[Architecture Index](README.md)** | Related: [Connectors](connectors.md), [Units](units.md), [Agents](agents.md), [Roadmap](../roadmap/README.md)
 
 ---
 

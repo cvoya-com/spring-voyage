@@ -1,6 +1,6 @@
 # Agent Runtime
 
-> **[Architecture Index](README.md)** | Related: [Workflows](workflows.md), [Units & Agents](units.md), [Deployment](deployment.md), [Messaging](messaging.md)
+> **[Architecture Index](README.md)** | Related: [Workflows](workflows.md), [Units](units.md), [Agents](agents.md), [Expertise](expertise.md), [Deployment](deployment.md), [Messaging](messaging.md)
 
 ---
 
@@ -69,9 +69,7 @@ through `IUnitExecutionStore`, and runs a field-level precedence merge:
 - `hosting` is **agent-exclusive** — never inherits. A unit cannot change
   whether an agent is ephemeral or persistent.
 
-See `docs/architecture/units.md § Unit execution defaults and the agent →
-unit → fail resolution chain` for the full contract and the HTTP / CLI / portal
-surfaces that edit the same persisted JSON the merge reads.
+See [Orchestration — Unit execution defaults and the agent → unit → fail resolution chain](orchestration.md#unit-execution-defaults-and-the-agent--unit--fail-resolution-chain-601-b-wide) for the full contract and the HTTP / CLI / portal surfaces that edit the same persisted JSON the merge reads.
 
 ```text
 AgentActor.ExecuteTurn()

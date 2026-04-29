@@ -1,6 +1,6 @@
 # Infrastructure
 
-> **[Architecture Index](README.md)** | Related: [Messaging](messaging.md), [Deployment](deployment.md), [Units & Agents](units.md)
+> **[Architecture Index](README.md)** | Related: [Messaging](messaging.md), [Deployment](deployment.md), [Units](units.md), [Agents](agents.md)
 
 ---
 
