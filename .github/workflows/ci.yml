@@ -65,6 +65,7 @@ jobs:
               - 'packages/**/agents/**'
             python_agents:
               - 'agents/dapr-agent/**'
+              - 'agents/spring-voyage-agent/**'
             connectors_web:
               - 'src/Cvoya.Spring.Connector.*/web/**'
               - 'src/Cvoya.Spring.Web/src/connectors/**'
@@ -703,10 +704,14 @@ jobs:
         run: pip install ruff
 
       - name: Lint
-        run: ruff check agents/dapr-agent/
+        run: |
+          ruff check agents/dapr-agent/
+          ruff check agents/spring-voyage-agent/
 
       - name: Check formatting
-        run: ruff format --check agents/dapr-agent/
+        run: |
+          ruff format --check agents/dapr-agent/
+          ruff format --check agents/spring-voyage-agent/
 
   python-test:
     name: Test Python agents
@@ -722,10 +727,19 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install dependencies
+      - name: Install spring-voyage-agent SDK
+        run: pip install -e agents/spring-voyage-agent[dev]
+
+      - name: Install dapr-agent dependencies
         run: pip install -r agents/dapr-agent/requirements.txt -r agents/dapr-agent/requirements-dev.txt
 
-      - name: Run tests
+      - name: Test spring-voyage-agent SDK
+        run: pytest agents/spring-voyage-agent/tests/ -v
+
+      - name: Lint spring-voyage-agent SDK
+        run: ruff check agents/spring-voyage-agent/
+
+      - name: Run dapr-agent tests
         run: pytest agents/dapr-agent/tests/ -v
 
   openapi-drift:
