@@ -92,19 +92,19 @@ public interface IAgentActor : IAgent
     Task SetExpertiseAsync(ExpertiseDomain[] domains, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Closes the supplied conversation (#1038). Idempotent — a conversation
+    /// Closes the supplied thread (#1038). Idempotent — a thread
     /// id that matches neither the active channel nor any pending channel
     /// returns silently. When the id matches the currently active
-    /// conversation the actor cancels in-flight dispatch, removes the
-    /// active state, emits a <c>ConversationClosed</c> activity event, and
-    /// promotes the next pending conversation onto the active slot. When
+    /// thread the actor cancels in-flight dispatch, removes the
+    /// active state, emits a <c>ThreadClosed</c> activity event, and
+    /// promotes the next pending thread onto the active slot. When
     /// the id matches a pending channel that channel is dropped and the
     /// active slot is left untouched.
     /// </summary>
-    /// <param name="conversationId">The conversation identifier to close.</param>
+    /// <param name="conversationId">The thread identifier to close.</param>
     /// <param name="reason">
     /// Optional human-readable reason — surfaced on the
-    /// <c>ConversationClosed</c> activity event's <c>details</c> payload so
+    /// <c>ThreadClosed</c> activity event's <c>details</c> payload so
     /// operators can see <em>why</em> the close happened (operator request,
     /// non-zero dispatch exit, etc.).
     /// </param>
@@ -120,7 +120,7 @@ public interface IAgentActor : IAgent
     /// non-zero container exit (#1036) or an exception in the dispatcher
     /// itself. Mutates persistent actor state — removes
     /// <c>StateKeys.ActiveConversation</c>, emits a <c>StateChanged</c>
-    /// (Active → Idle) event, and promotes the next pending conversation —
+    /// (Active → Idle) event, and promotes the next pending thread —
     /// so it must run on an actor turn. Surfaced on <see cref="IAgentActor"/>
     /// (rather than left as an internal helper) precisely so the off-turn
     /// dispatch task can call it through the actor proxy.

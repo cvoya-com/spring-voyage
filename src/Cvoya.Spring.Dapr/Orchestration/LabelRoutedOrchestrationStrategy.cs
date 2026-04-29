@@ -211,7 +211,7 @@ public class LabelRoutedOrchestrationStrategy : IOrchestrationStrategy
                 Severity: ActivitySeverity.Info,
                 Summary: $"Label-routed message {message.Id} via {matchedLabel} to {target}",
                 Details: details,
-                CorrelationId: message.ConversationId);
+                CorrelationId: message.ThreadId);
             await bus.PublishAsync(evt, cancellationToken);
         }
         catch (Exception ex)

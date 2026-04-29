@@ -69,11 +69,11 @@ public class CreateCloneActorActivity(
     {
         // Copy active conversation state.
         var parentActiveKey = $"{parentId}:{StateKeys.ActiveConversation}";
-        var activeConversation = await stateStore.GetAsync<object>(parentActiveKey);
-        if (activeConversation is not null)
+        var activeThread = await stateStore.GetAsync<object>(parentActiveKey);
+        if (activeThread is not null)
         {
             var cloneActiveKey = $"{cloneId}:{StateKeys.ActiveConversation}";
-            await stateStore.SetAsync(cloneActiveKey, activeConversation);
+            await stateStore.SetAsync(cloneActiveKey, activeThread);
         }
 
         // Copy initiative state.

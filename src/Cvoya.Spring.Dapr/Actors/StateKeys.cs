@@ -10,12 +10,12 @@ namespace Cvoya.Spring.Dapr.Actors;
 public static class StateKeys
 {
     /// <summary>
-    /// State key for the currently active conversation channel.
+    /// State key for the currently active thread channel.
     /// </summary>
     public const string ActiveConversation = "Agent:ActiveConversation";
 
     /// <summary>
-    /// State key for the list of pending conversation channels.
+    /// State key for the list of pending thread channels.
     /// </summary>
     public const string PendingConversations = "Agent:PendingConversations";
 
@@ -30,8 +30,8 @@ public static class StateKeys
     public const string AgentDefinition = "Agent:Definition";
 
     /// <summary>
-    /// State key prefix for agent checkpoints, suffixed with the conversation ID.
-    /// Full key format: <c>Agent:Checkpoint:{ConversationId}</c>.
+    /// State key prefix for agent checkpoints, suffixed with the thread ID.
+    /// Full key format: <c>Agent:Checkpoint:{ThreadId}</c>.
     /// </summary>
     public const string CheckpointPrefix = "Agent:Checkpoint:";
 

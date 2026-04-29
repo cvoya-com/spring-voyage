@@ -38,7 +38,7 @@ public class HumanActor(
         {
             // #456: humans are first-class observers — every domain message
             // addressed to them is published to the activity bus as a
-            // MessageReceived event, correlated to the conversation id. This
+            // MessageReceived event, correlated to the thread id. This
             // is what the Inbox query service consumes to answer "what's
             // waiting on me?". Keep the emission on the hot path (before the
             // rejection branch below) so a denied message still leaves an
@@ -53,7 +53,7 @@ public class HumanActor(
                     $"Received Domain message {message.Id} from {message.From}",
                     cancellationToken,
                     details: MessageReceivedDetails.Build(message),
-                    correlationId: message.ConversationId);
+                    correlationId: message.ThreadId);
             }
 
             return message.Type switch
@@ -209,7 +209,7 @@ public class HumanActor(
             Address,
             message.From,
             MessageType.StatusQuery,
-            message.ConversationId,
+            message.ThreadId,
             statusPayload,
             DateTimeOffset.UtcNow);
     }
@@ -226,7 +226,7 @@ public class HumanActor(
             Address,
             message.From,
             MessageType.HealthCheck,
-            message.ConversationId,
+            message.ThreadId,
             healthPayload,
             DateTimeOffset.UtcNow);
     }
@@ -264,7 +264,7 @@ public class HumanActor(
             Address,
             originalMessage.From,
             MessageType.Domain,
-            originalMessage.ConversationId,
+            originalMessage.ThreadId,
             ackPayload,
             DateTimeOffset.UtcNow);
     }
@@ -280,7 +280,7 @@ public class HumanActor(
             Address,
             originalMessage.From,
             MessageType.Domain,
-            originalMessage.ConversationId,
+            originalMessage.ThreadId,
             errorPayload,
             DateTimeOffset.UtcNow);
     }

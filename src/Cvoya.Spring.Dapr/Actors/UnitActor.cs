@@ -199,17 +199,17 @@ public class UnitActor : Actor, IUnitActor
     {
         try
         {
-            // correlationId carries the conversation id so
-            // IConversationQueryService (#452) can group every thread-related
-            // event under the same conversation row. #1209: stamp the
+            // correlationId carries the thread id so
+            // IThreadQueryService (#452) can group every thread-related
+            // event under the same thread row. #1209: stamp the
             // envelope (messageId, from, to, payload) onto Details so the
-            // conversation surfaces can render the body, not just the
+            // thread surfaces can render the body, not just the
             // summary.
             await EmitActivityEventAsync(ActivityEventType.MessageReceived,
                 $"Received {message.Type} message {message.Id} from {message.From}",
                 ct,
                 details: MessageReceivedDetails.Build(message),
-                correlationId: message.ConversationId);
+                correlationId: message.ThreadId);
 
             return message.Type switch
             {
@@ -1064,8 +1064,8 @@ public class UnitActor : Actor, IUnitActor
     private Task<Message?> HandleCancelAsync(Message message, CancellationToken ct)
     {
         _ = ct;
-        _logger.LogInformation("Unit {ActorId} received cancel for conversation {ConversationId}",
-            Id.GetId(), message.ConversationId);
+        _logger.LogInformation("Unit {ActorId} received cancel for thread {ThreadId}",
+            Id.GetId(), message.ThreadId);
 
         return Task.FromResult<Message?>(CreateAckResponse(message));
     }
@@ -1112,7 +1112,7 @@ public class UnitActor : Actor, IUnitActor
             Address,
             message.From,
             MessageType.HealthCheck,
-            message.ConversationId,
+            message.ThreadId,
             healthPayload,
             DateTimeOffset.UtcNow);
     }
@@ -1161,7 +1161,7 @@ public class UnitActor : Actor, IUnitActor
                     messageId = message.Id,
                     memberCount = members.Count,
                 }),
-                correlationId: message.ConversationId);
+                correlationId: message.ThreadId);
 
             return await _orchestrationStrategy.OrchestrateAsync(message, context, ct);
         }
@@ -1182,7 +1182,7 @@ public class UnitActor : Actor, IUnitActor
                 memberCount = members.Count,
                 strategyKey = lease.ResolvedKey,
             }),
-            correlationId: message.ConversationId);
+            correlationId: message.ThreadId);
 
         return await lease.Strategy.OrchestrateAsync(message, context, ct);
     }
@@ -1378,7 +1378,7 @@ public class UnitActor : Actor, IUnitActor
             Address,
             originalMessage.From,
             MessageType.Domain,
-            originalMessage.ConversationId,
+            originalMessage.ThreadId,
             ackPayload,
             DateTimeOffset.UtcNow);
     }
@@ -1394,7 +1394,7 @@ public class UnitActor : Actor, IUnitActor
             Address,
             originalMessage.From,
             MessageType.Domain,
-            originalMessage.ConversationId,
+            originalMessage.ThreadId,
             errorPayload,
             DateTimeOffset.UtcNow);
     }

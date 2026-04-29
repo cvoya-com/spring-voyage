@@ -101,10 +101,10 @@ public class AgentActorUnitPolicyDispatchTests
 
         SetStateManager(_actor, _stateManager);
 
-        _stateManager.TryGetStateAsync<ConversationChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<ConversationChannel>(false, default!));
-        _stateManager.TryGetStateAsync<List<ConversationChannel>>(StateKeys.PendingConversations, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<List<ConversationChannel>>(false, default!));
+        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<ThreadChannel>(false, default!));
+        _stateManager.TryGetStateAsync<List<ThreadChannel>>(StateKeys.PendingConversations, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<List<ThreadChannel>>(false, default!));
         _stateManager.TryGetStateAsync<string>(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<string>(false, default!));
         _stateManager.TryGetStateAsync<bool>(Arg.Any<string>(), Arg.Any<CancellationToken>())

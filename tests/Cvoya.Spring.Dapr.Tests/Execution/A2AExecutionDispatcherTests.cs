@@ -131,14 +131,14 @@ public class A2AExecutionDispatcherTests
 
     private static SvMessage CreateMessage(
         string toPath = AgentId,
-        string? conversationId = null)
+        string? threadId = null)
     {
         return new SvMessage(
             Guid.NewGuid(),
             new Address("agent", "sender"),
             new Address("agent", toPath),
             MessageType.Domain,
-            conversationId ?? Guid.NewGuid().ToString(),
+            threadId ?? Guid.NewGuid().ToString(),
             JsonSerializer.SerializeToElement(new { Task = "do-work" }),
             DateTimeOffset.UtcNow);
     }
@@ -271,11 +271,11 @@ public class A2AExecutionDispatcherTests
 
         await _dispatcher.DispatchAsync(message, context: null, TestContext.Current.CancellationToken);
 
-        _mcpServer.Received(1).IssueSession(AgentId, message.ConversationId!);
+        _mcpServer.Received(1).IssueSession(AgentId, message.ThreadId!);
         await _launcher.Received(1).PrepareAsync(
             Arg.Is<AgentLaunchContext>(ctx =>
                 ctx.AgentId == AgentId &&
-                ctx.ConversationId == message.ConversationId &&
+                ctx.ThreadId == message.ThreadId &&
                 ctx.McpToken == "test-token" &&
                 ctx.McpEndpoint == "http://host.docker.internal:12345/mcp/" &&
                 ctx.Prompt == "the prompt"),
@@ -372,7 +372,7 @@ public class A2AExecutionDispatcherTests
         result.ShouldNotBeNull();
         result!.From.ShouldBe(message.To);
         result.To.ShouldBe(message.From);
-        result.ConversationId.ShouldBe(message.ConversationId);
+        result.ThreadId.ShouldBe(message.ThreadId);
         result.Type.ShouldBe(MessageType.Domain);
 
         var payload = result.Payload.Deserialize<JsonElement>();
@@ -660,7 +660,7 @@ public class A2AExecutionDispatcherTests
         result.ShouldNotBeNull();
         result!.From.ShouldBe(originalMessage.To);
         result.To.ShouldBe(originalMessage.From);
-        result.ConversationId.ShouldBe(originalMessage.ConversationId);
+        result.ThreadId.ShouldBe(originalMessage.ThreadId);
         result.Type.ShouldBe(MessageType.Domain);
     }
 

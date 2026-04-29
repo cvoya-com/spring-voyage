@@ -20,7 +20,7 @@ using System.Text.Json;
 /// <param name="From">The address of the message sender.</param>
 /// <param name="To">The address of the message recipient.</param>
 /// <param name="Type">The type of message.</param>
-/// <param name="ConversationId">An optional conversation identifier for correlating related messages.</param>
+/// <param name="ThreadId">An optional thread identifier for correlating related messages.</param>
 /// <param name="Payload">The message payload as a JSON element.</param>
 /// <param name="Timestamp">The timestamp when the message was created.</param>
 [DataContract]
@@ -29,6 +29,6 @@ public record Message(
     [property: DataMember(Order = 1)] Address From,
     [property: DataMember(Order = 2)] Address To,
     [property: DataMember(Order = 3)] MessageType Type,
-    [property: DataMember(Order = 4)] string? ConversationId,
+    [property: DataMember(Order = 4)] string? ThreadId,
     [property: DataMember(Order = 5)] JsonElement Payload,
     [property: DataMember(Order = 6)] DateTimeOffset Timestamp);

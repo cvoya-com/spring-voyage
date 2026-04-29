@@ -44,7 +44,7 @@ public class AnalyticsQueryService(SpringDbContext dbContext) : IAnalyticsQueryS
         // rather than calling .ToString() inside the LINQ expression.
         var receivedName = nameof(ActivityEventType.MessageReceived);
         var sentName = nameof(ActivityEventType.MessageSent);
-        var turnName = nameof(ActivityEventType.ConversationStarted);
+        var turnName = nameof(ActivityEventType.ThreadStarted);
         var toolCallName = nameof(ActivityEventType.DecisionMade);
 
         var grouped = await query

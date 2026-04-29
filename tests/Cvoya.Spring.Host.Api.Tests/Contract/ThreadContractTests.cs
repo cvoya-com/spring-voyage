@@ -27,92 +27,92 @@ using Xunit;
 
 /// <summary>
 /// Semantic contract tests for the <c>/api/v1/conversations</c> surface
-/// (#1248 / C1.3). The conversation read-side talks to <see cref="IConversationQueryService"/>;
+/// (#1248 / C1.3). The conversation read-side talks to <see cref="IThreadQueryService"/>;
 /// we wire a substitute via a custom factory subclass so contract tests
 /// stay focused on wire shape without spinning up the EF projection.
 /// </summary>
-public class ConversationContractTests : IClassFixture<ConversationContractTests.Factory>
+public class ThreadContractTests : IClassFixture<ThreadContractTests.Factory>
 {
     private readonly Factory _factory;
     private readonly HttpClient _client;
 
-    public ConversationContractTests(Factory factory)
+    public ThreadContractTests(Factory factory)
     {
         _factory = factory;
         _client = factory.CreateClient();
     }
 
     [Fact]
-    public async Task ListConversations_MatchesContract()
+    public async Task ListThreads_MatchesContract()
     {
         var ct = TestContext.Current.CancellationToken;
         var now = DateTimeOffset.UtcNow;
-        _factory.ConversationQueryService.ClearSubstitute();
-        _factory.ConversationQueryService
-            .ListAsync(Arg.Any<ConversationQueryFilters>(), Arg.Any<CancellationToken>())
-            .Returns(new List<ConversationSummary>
+        _factory.ThreadQueryService.ClearSubstitute();
+        _factory.ThreadQueryService
+            .ListAsync(Arg.Any<ThreadQueryFilters>(), Arg.Any<CancellationToken>())
+            .Returns(new List<ThreadSummary>
             {
                 new("contract-conv-list", new[] { "agent://contract-bot" },
                     "active", now, now, 1, "agent://contract-bot", "Started"),
             });
 
-        var response = await _client.GetAsync("/api/v1/tenant/conversations", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/threads", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var body = await response.Content.ReadAsStringAsync(ct);
-        OpenApiContract.AssertResponse("/api/v1/tenant/conversations", "get", "200", body);
+        OpenApiContract.AssertResponse("/api/v1/tenant/threads", "get", "200", body);
     }
 
     [Fact]
-    public async Task GetConversation_HappyPath_MatchesContract()
+    public async Task GetThread_HappyPath_MatchesContract()
     {
         var ct = TestContext.Current.CancellationToken;
         var now = DateTimeOffset.UtcNow;
-        _factory.ConversationQueryService.ClearSubstitute();
-        _factory.ConversationQueryService
+        _factory.ThreadQueryService.ClearSubstitute();
+        _factory.ThreadQueryService
             .GetAsync("contract-conv-detail", Arg.Any<CancellationToken>())
-            .Returns(new ConversationDetail(
-                new ConversationSummary("contract-conv-detail",
+            .Returns(new ThreadDetail(
+                new ThreadSummary("contract-conv-detail",
                     new[] { "agent://contract-bot" },
                     "active", now, now, 1, "agent://contract-bot", "Started"),
-                new List<ConversationEvent>
+                new List<ThreadEvent>
                 {
                     new(Guid.NewGuid(), now, "agent://contract-bot",
-                        "ConversationStarted", "Info", "Started"),
+                        "ThreadStarted", "Info", "Started"),
                 }));
 
-        var response = await _client.GetAsync("/api/v1/tenant/conversations/contract-conv-detail", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/threads/contract-conv-detail", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var body = await response.Content.ReadAsStringAsync(ct);
         OpenApiContract.AssertResponse(
-            "/api/v1/tenant/conversations/{id}", "get", "200", body);
+            "/api/v1/tenant/threads/{id}", "get", "200", body);
     }
 
     [Fact]
-    public async Task GetConversation_NotFound_MatchesProblemDetailsContract()
+    public async Task GetThread_NotFound_MatchesProblemDetailsContract()
     {
         var ct = TestContext.Current.CancellationToken;
-        _factory.ConversationQueryService.ClearSubstitute();
-        _factory.ConversationQueryService
+        _factory.ThreadQueryService.ClearSubstitute();
+        _factory.ThreadQueryService
             .GetAsync("contract-conv-missing", Arg.Any<CancellationToken>())
-            .Returns((ConversationDetail?)null);
+            .Returns((ThreadDetail?)null);
 
-        var response = await _client.GetAsync("/api/v1/tenant/conversations/contract-conv-missing", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/threads/contract-conv-missing", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
 
         var body = await response.Content.ReadAsStringAsync(ct);
         OpenApiContract.AssertResponse(
-            "/api/v1/tenant/conversations/{id}", "get", "404", body, "application/problem+json");
+            "/api/v1/tenant/threads/{id}", "get", "404", body, "application/problem+json");
     }
 
     [Fact]
-    public async Task PostConversationMessage_HappyPath_MatchesContract()
+    public async Task PostThreadMessage_HappyPath_MatchesContract()
     {
         var ct = TestContext.Current.CancellationToken;
         _factory.MessageRouter.ClearSubstitute();
 
-        // Return a non-null reply so ConversationMessageResponse.responsePayload
+        // Return a non-null reply so ThreadMessageResponse.responsePayload
         // is a JSON object on the wire. The committed openapi.json declares it
         // as `oneOf: [null, JsonElement]` (with JsonElement = empty schema);
         // a null payload matches both branches and oneOf rejects. See follow-up
@@ -129,59 +129,59 @@ public class ConversationContractTests : IClassFixture<ConversationContractTests
             .RouteAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
             .Returns(Result<Message?, RoutingError>.Success(reply));
 
-        var body = new ConversationMessageRequest(
+        var body = new ThreadMessageRequest(
             new AddressDto("agent", "contract-bot"),
             "Hello from contract test");
 
         var response = await _client.PostAsJsonAsync(
-            "/api/v1/tenant/conversations/contract-conv-post/messages", body, ct);
+            "/api/v1/tenant/threads/contract-conv-post/messages", body, ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var responseBody = await response.Content.ReadAsStringAsync(ct);
         OpenApiContract.AssertResponse(
-            "/api/v1/tenant/conversations/{id}/messages", "post", "200", responseBody);
+            "/api/v1/tenant/threads/{id}/messages", "post", "200", responseBody);
     }
 
     [Fact]
-    public async Task CloseConversation_NotFound_MatchesProblemDetailsContract()
+    public async Task CloseThread_NotFound_MatchesProblemDetailsContract()
     {
         var ct = TestContext.Current.CancellationToken;
-        _factory.ConversationQueryService.ClearSubstitute();
-        _factory.ConversationQueryService
+        _factory.ThreadQueryService.ClearSubstitute();
+        _factory.ThreadQueryService
             .GetAsync("contract-close-missing", Arg.Any<CancellationToken>())
-            .Returns((ConversationDetail?)null);
+            .Returns((ThreadDetail?)null);
 
-        var body = new CloseConversationRequest("contract test");
+        var body = new CloseThreadRequest("contract test");
         var response = await _client.PostAsJsonAsync(
-            "/api/v1/tenant/conversations/contract-close-missing/close", body, ct);
+            "/api/v1/tenant/threads/contract-close-missing/close", body, ct);
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
 
         var responseBody = await response.Content.ReadAsStringAsync(ct);
         OpenApiContract.AssertResponse(
-            "/api/v1/tenant/conversations/{id}/close", "post", "404",
+            "/api/v1/tenant/threads/{id}/close", "post", "404",
             responseBody, "application/problem+json");
     }
 
     [Fact]
-    public async Task CloseConversation_HappyPath_MatchesContract()
+    public async Task CloseThread_HappyPath_MatchesContract()
     {
         var ct = TestContext.Current.CancellationToken;
         var now = DateTimeOffset.UtcNow;
-        var summary = new ConversationSummary(
+        var summary = new ThreadSummary(
             "contract-close-ok",
             new[] { "agent://contract-bot" },
             "active", now, now, 1, "agent://contract-bot", "Started");
-        var beforeDetail = new ConversationDetail(summary, new List<ConversationEvent>());
-        var afterDetail = new ConversationDetail(
+        var beforeDetail = new ThreadDetail(summary, new List<ThreadEvent>());
+        var afterDetail = new ThreadDetail(
             summary with { Status = "closed" },
-            new List<ConversationEvent>
+            new List<ThreadEvent>
             {
                 new(Guid.NewGuid(), now, "agent://contract-bot",
-                    "ConversationClosed", "Info", "Closed"),
+                    "ThreadClosed", "Info", "Closed"),
             });
 
-        _factory.ConversationQueryService.ClearSubstitute();
-        _factory.ConversationQueryService
+        _factory.ThreadQueryService.ClearSubstitute();
+        _factory.ThreadQueryService
             .GetAsync("contract-close-ok", Arg.Any<CancellationToken>())
             .Returns(beforeDetail, afterDetail);
 
@@ -207,23 +207,23 @@ public class ConversationContractTests : IClassFixture<ConversationContractTests
                 nameof(AgentActor))
             .Returns(agentProxy);
 
-        var body = new CloseConversationRequest("contract test");
+        var body = new CloseThreadRequest("contract test");
         var response = await _client.PostAsJsonAsync(
-            "/api/v1/tenant/conversations/contract-close-ok/close", body, ct);
+            "/api/v1/tenant/threads/contract-close-ok/close", body, ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var responseBody = await response.Content.ReadAsStringAsync(ct);
         OpenApiContract.AssertResponse(
-            "/api/v1/tenant/conversations/{id}/close", "post", "200", responseBody);
+            "/api/v1/tenant/threads/{id}/close", "post", "200", responseBody);
     }
 
     /// <summary>
     /// Custom factory that swaps the conversation query service and message
-    /// router for substitutes — mirrors <c>ConversationEndpointsTests.Factory</c>.
+    /// router for substitutes — mirrors ThreadEndpointsTests.Factory</c>.
     /// </summary>
     public sealed class Factory : CustomWebApplicationFactory
     {
-        public IConversationQueryService ConversationQueryService { get; } = Substitute.For<IConversationQueryService>();
+        public IThreadQueryService ThreadQueryService { get; } = Substitute.For<IThreadQueryService>();
 
         public IMessageRouter MessageRouter { get; } = Substitute.For<IMessageRouter>();
 
@@ -233,14 +233,14 @@ public class ConversationContractTests : IClassFixture<ConversationContractTests
             builder.ConfigureServices(services =>
             {
                 var descriptors = services
-                    .Where(d => d.ServiceType == typeof(IConversationQueryService)
+                    .Where(d => d.ServiceType == typeof(IThreadQueryService)
                              || d.ServiceType == typeof(IMessageRouter))
                     .ToList();
                 foreach (var d in descriptors)
                 {
                     services.Remove(d);
                 }
-                services.AddSingleton(ConversationQueryService);
+                services.AddSingleton(ThreadQueryService);
                 services.AddSingleton(MessageRouter);
             });
         }

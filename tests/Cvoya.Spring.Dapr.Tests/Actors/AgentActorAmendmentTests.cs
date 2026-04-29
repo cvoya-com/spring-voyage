@@ -93,8 +93,8 @@ public class AgentActorAmendmentTests
 
         SetStateManager(_actor, _stateManager);
 
-        _stateManager.TryGetStateAsync<ConversationChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<ConversationChannel>(false, default!));
+        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<ThreadChannel>(false, default!));
         _stateManager.TryGetStateAsync<List<PendingAmendment>>(StateKeys.AgentPendingAmendments, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<List<PendingAmendment>>(false, default!));
     }
@@ -120,19 +120,19 @@ public class AgentActorAmendmentTests
         Address from,
         string text = "please rebase before pushing",
         AmendmentPriority priority = AmendmentPriority.Informational,
-        string? conversationId = "conv-live")
+        string? threadId = "conv-live")
     {
         var payload = JsonSerializer.SerializeToElement(new AmendmentPayload(
             Text: text,
             Priority: priority,
-            CorrelationId: conversationId));
+            CorrelationId: threadId));
 
         return new Message(
             Guid.NewGuid(),
             from,
             new Address("agent", AgentId),
             MessageType.Amendment,
-            conversationId,
+            threadId,
             payload,
             DateTimeOffset.UtcNow);
     }

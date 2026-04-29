@@ -14,35 +14,35 @@ using Cvoya.Spring.Dapr.Data.Entities;
 using Microsoft.EntityFrameworkCore;
 
 /// <summary>
-/// Default <see cref="IConversationQueryService"/>. Conversations are
+/// Default <see cref="IThreadQueryService"/>. Threads are
 /// materialised from the existing <see cref="SpringDbContext.ActivityEvents"/>
 /// table: each activity event persisted with a non-null
-/// <see cref="ActivityEventRecord.CorrelationId"/> carries the conversation id
+/// <see cref="ActivityEventRecord.CorrelationId"/> carries the thread id
 /// assigned by the messaging layer. Grouping those events by correlation id
 /// reconstructs the thread without a separate message store.
 /// </summary>
 /// <remarks>
 /// This is an observability projection — it intentionally reads only from the
 /// activity table, which is the single place the platform already persists
-/// conversation-correlated events. A future PR can add a dedicated message
+/// thread-correlated events. A future PR can add a dedicated message
 /// table (see #410) and swap this service out; every call site depends on the
 /// interface only.
 /// </remarks>
-public class ConversationQueryService(SpringDbContext dbContext) : IConversationQueryService
+public class ThreadQueryService(SpringDbContext dbContext) : IThreadQueryService
 {
     private static readonly string[] TerminalEventTypes =
     {
-        nameof(ActivityEventType.ConversationCompleted),
+        nameof(ActivityEventType.ThreadCompleted),
     };
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<ConversationSummary>> ListAsync(
-        ConversationQueryFilters filters,
+    public async Task<IReadOnlyList<ThreadSummary>> ListAsync(
+        ThreadQueryFilters filters,
         CancellationToken cancellationToken)
     {
         var rows = await dbContext.ActivityEvents
             .Where(e => e.CorrelationId != null)
-            .Select(e => new ConversationEventRow(
+            .Select(e => new ThreadEventRow(
                 e.CorrelationId!, e.Id, e.Source, e.EventType, e.Severity, e.Summary, e.Timestamp))
             .ToListAsync(cancellationToken);
 
@@ -57,19 +57,19 @@ public class ConversationQueryService(SpringDbContext dbContext) : IConversation
     }
 
     /// <inheritdoc />
-    public async Task<ConversationDetail?> GetAsync(
-        string conversationId,
+    public async Task<ThreadDetail?> GetAsync(
+        string threadId,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(conversationId))
+        if (string.IsNullOrWhiteSpace(threadId))
         {
             return null;
         }
 
         var rows = await dbContext.ActivityEvents
-            .Where(e => e.CorrelationId == conversationId)
+            .Where(e => e.CorrelationId == threadId)
             .OrderBy(e => e.Timestamp)
-            .Select(e => new ConversationEventRow(
+            .Select(e => new ThreadEventRow(
                 e.CorrelationId!, e.Id, e.Source, e.EventType, e.Severity, e.Summary, e.Timestamp, e.Details))
             .ToListAsync(cancellationToken);
 
@@ -78,26 +78,26 @@ public class ConversationQueryService(SpringDbContext dbContext) : IConversation
             return null;
         }
 
-        var summary = BuildSummaryForConversation(conversationId, rows);
+        var summary = BuildSummaryForThread(threadId, rows);
         var events = rows
-            .Select(BuildConversationEvent)
+            .Select(BuildThreadEvent)
             .ToList();
 
-        return new ConversationDetail(summary, events);
+        return new ThreadDetail(summary, events);
     }
 
     /// <summary>
-    /// Projects a single activity-event row into a <see cref="ConversationEvent"/>,
+    /// Projects a single activity-event row into a <see cref="ThreadEvent"/>,
     /// pulling the message envelope (id / from / to / body) out of the
     /// <c>Details</c> JSON for <c>MessageReceived</c> events (#1209) so the
-    /// conversation surfaces can render the body inline. Non-message events
+    /// thread surfaces can render the body inline. Non-message events
     /// surface with the body fields null and the rest of the projection
     /// unchanged.
     /// </summary>
-    private static ConversationEvent BuildConversationEvent(ConversationEventRow row)
+    private static ThreadEvent BuildThreadEvent(ThreadEventRow row)
     {
         var (messageId, from, to, body) = ExtractMessageEnvelope(row.Details);
-        return new ConversationEvent(
+        return new ThreadEvent(
             Id: row.Id,
             Timestamp: row.Timestamp,
             Source: NormaliseSource(row.Source),
@@ -163,31 +163,31 @@ public class ConversationQueryService(SpringDbContext dbContext) : IConversation
 
         var rows = await dbContext.ActivityEvents
             .Where(e => e.CorrelationId != null)
-            .Select(e => new ConversationEventRow(
+            .Select(e => new ThreadEventRow(
                 e.CorrelationId!, e.Id, e.Source, e.EventType, e.Severity, e.Summary, e.Timestamp))
             .ToListAsync(cancellationToken);
 
         var inbox = new List<InboxItem>();
 
-        foreach (var group in rows.GroupBy(r => r.ConversationId))
+        foreach (var group in rows.GroupBy(r => r.ThreadId))
         {
-            // A conversation is "in my inbox" when the human has received a
+            // A thread is "in my inbox" when the human has received a
             // domain message on it and has not replied since. The reply
             // signal is "another actor (non-human) emitted a MessageReceived
-            // on the same conversation AFTER the human's last
+            // on the same thread AFTER the human's last
             // MessageReceived" — that's the only path through which an
             // agent / unit observes the human's follow-up. #1210: keying
             // off "the LAST event must be the human's MessageReceived" was
             // too narrow — trailing observability events on the same
-            // conversation (StateChanged on dispatch teardown, CostIncurred
+            // thread (StateChanged on dispatch teardown, CostIncurred
             // from a budget enforcer, future event types added by extension
             // plugins) hid fresh agent replies even though the human had
             // genuinely not responded. Keying off the most recent
             // MessageReceived per side instead is robust to those tails.
             var ordered = group.OrderBy(r => r.Timestamp).ToList();
 
-            ConversationEventRow? humanReceive = null;
-            ConversationEventRow? laterAgentReceive = null;
+            ThreadEventRow? humanReceive = null;
+            ThreadEventRow? laterAgentReceive = null;
 
             for (var i = ordered.Count - 1; i >= 0; i--)
             {
@@ -208,7 +208,7 @@ public class ConversationQueryService(SpringDbContext dbContext) : IConversation
                 {
                     // Track the latest non-human MessageReceived; if it
                     // comes after the human's, the human has already
-                    // replied and the conversation is no longer pending.
+                    // replied and the thread is no longer pending.
                     laterAgentReceive = row;
                 }
             }
@@ -225,7 +225,7 @@ public class ConversationQueryService(SpringDbContext dbContext) : IConversation
 
             // Find the "from" — the most recent non-human source before the
             // human's ask. Falls back to the human's own source when no
-            // upstream actor is present (a synthetic conversation seeded
+            // upstream actor is present (a synthetic thread seeded
             // directly against the human address).
             var humanIndex = ordered.IndexOf(humanReceive);
             var from = ordered
@@ -235,7 +235,7 @@ public class ConversationQueryService(SpringDbContext dbContext) : IConversation
                 .LastOrDefault() ?? NormaliseSource(humanReceive.Source);
 
             inbox.Add(new InboxItem(
-                ConversationId: group.Key,
+                ThreadId: group.Key,
                 From: from,
                 Human: humanSourceDisplay,
                 PendingSince: humanReceive.Timestamp,
@@ -247,19 +247,19 @@ public class ConversationQueryService(SpringDbContext dbContext) : IConversation
             .ToList();
     }
 
-    private static IReadOnlyList<ConversationSummary> BuildSummaries(List<ConversationEventRow> rows)
+    private static IReadOnlyList<ThreadSummary> BuildSummaries(List<ThreadEventRow> rows)
     {
-        var summaries = new List<ConversationSummary>();
-        foreach (var group in rows.GroupBy(r => r.ConversationId))
+        var summaries = new List<ThreadSummary>();
+        foreach (var group in rows.GroupBy(r => r.ThreadId))
         {
-            summaries.Add(BuildSummaryForConversation(group.Key, group.OrderBy(r => r.Timestamp).ToList()));
+            summaries.Add(BuildSummaryForThread(group.Key, group.OrderBy(r => r.Timestamp).ToList()));
         }
         return summaries;
     }
 
-    private static ConversationSummary BuildSummaryForConversation(
-        string conversationId,
-        IReadOnlyList<ConversationEventRow> ordered)
+    private static ThreadSummary BuildSummaryForThread(
+        string threadId,
+        IReadOnlyList<ThreadEventRow> ordered)
     {
         var first = ordered[0];
         var last = ordered[^1];
@@ -272,8 +272,8 @@ public class ConversationQueryService(SpringDbContext dbContext) : IConversation
             .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        return new ConversationSummary(
-            Id: conversationId,
+        return new ThreadSummary(
+            Id: threadId,
             Participants: participants,
             Status: isCompleted ? "completed" : "active",
             LastActivity: last.Timestamp,
@@ -283,11 +283,11 @@ public class ConversationQueryService(SpringDbContext dbContext) : IConversation
             Summary: first.Summary);
     }
 
-    private static IReadOnlyList<ConversationSummary> ApplyFilters(
-        IReadOnlyList<ConversationSummary> summaries,
-        ConversationQueryFilters filters)
+    private static IReadOnlyList<ThreadSummary> ApplyFilters(
+        IReadOnlyList<ThreadSummary> summaries,
+        ThreadQueryFilters filters)
     {
-        IEnumerable<ConversationSummary> query = summaries;
+        IEnumerable<ThreadSummary> query = summaries;
 
         if (!string.IsNullOrWhiteSpace(filters.Status))
         {
@@ -372,8 +372,8 @@ public class ConversationQueryService(SpringDbContext dbContext) : IConversation
         return string.Concat(address.AsSpan(0, split), ":", address.AsSpan(split + 3));
     }
 
-    private sealed record ConversationEventRow(
-        string ConversationId,
+    private sealed record ThreadEventRow(
+        string ThreadId,
         Guid Id,
         string Source,
         string EventType,

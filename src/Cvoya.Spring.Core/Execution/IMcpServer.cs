@@ -17,11 +17,11 @@ public interface IMcpServer
     string? Endpoint { get; }
 
     /// <summary>
-    /// Issues a new session bound to a specific agent/conversation. The returned
+    /// Issues a new session bound to a specific agent/thread. The returned
     /// <see cref="McpSession.Token"/> must be presented by the container on each
     /// MCP request; the server uses the bound session to attribute tool calls.
     /// </summary>
-    McpSession IssueSession(string agentId, string conversationId);
+    McpSession IssueSession(string agentId, string threadId);
 
     /// <summary>Revokes a previously issued session.</summary>
     void RevokeSession(string token);
@@ -33,5 +33,5 @@ public interface IMcpServer
 /// </summary>
 /// <param name="Token">Opaque bearer token.</param>
 /// <param name="AgentId">Agent bound to this session.</param>
-/// <param name="ConversationId">Conversation bound to this session.</param>
-public record McpSession(string Token, string AgentId, string ConversationId);
+/// <param name="ThreadId">Thread bound to this session.</param>
+public record McpSession(string Token, string AgentId, string ThreadId);

@@ -4570,13 +4570,13 @@
         }
       }
     },
-    "/api/v1/tenant/conversations": {
+    "/api/v1/tenant/threads": {
       "get": {
         "tags": [
-          "Conversations"
+          "Threads"
         ],
-        "summary": "List conversations derived from the activity event stream",
-        "operationId": "ListConversations",
+        "summary": "List threads derived from the activity event stream",
+        "operationId": "ListThreads",
         "parameters": [
           {
             "name": "Unit",
@@ -4627,7 +4627,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/ConversationSummary"
+                    "$ref": "#/components/schemas/ThreadSummary"
                   }
                 }
               }
@@ -4636,13 +4636,13 @@
         }
       }
     },
-    "/api/v1/tenant/conversations/{id}": {
+    "/api/v1/tenant/threads/{id}": {
       "get": {
         "tags": [
-          "Conversations"
+          "Threads"
         ],
-        "summary": "Get a single conversation thread (summary + ordered events)",
-        "operationId": "GetConversation",
+        "summary": "Get a single thread (summary + ordered events)",
+        "operationId": "GetThread",
         "parameters": [
           {
             "name": "id",
@@ -4659,7 +4659,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ConversationDetail"
+                  "$ref": "#/components/schemas/ThreadDetail"
                 }
               }
             }
@@ -4677,13 +4677,13 @@
         }
       }
     },
-    "/api/v1/tenant/conversations/{id}/messages": {
+    "/api/v1/tenant/threads/{id}/messages": {
       "post": {
         "tags": [
-          "Conversations"
+          "Threads"
         ],
-        "summary": "Thread a new message into an existing conversation",
-        "operationId": "PostConversationMessage",
+        "summary": "Thread a new message into an existing thread",
+        "operationId": "PostThreadMessage",
         "parameters": [
           {
             "name": "id",
@@ -4698,7 +4698,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ConversationMessageRequest"
+                "$ref": "#/components/schemas/ThreadMessageRequest"
               }
             }
           },
@@ -4710,7 +4710,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ConversationMessageResponse"
+                  "$ref": "#/components/schemas/ThreadMessageResponse"
                 }
               }
             }
@@ -4748,13 +4748,13 @@
         }
       }
     },
-    "/api/v1/tenant/conversations/{id}/close": {
+    "/api/v1/tenant/threads/{id}/close": {
       "post": {
         "tags": [
-          "Conversations"
+          "Threads"
         ],
-        "summary": "Close (abort) an in-flight or pending conversation across all participating agents",
-        "operationId": "CloseConversation",
+        "summary": "Close (abort) an in-flight or pending thread across all participating agents",
+        "operationId": "CloseThread",
         "parameters": [
           {
             "name": "id",
@@ -4769,7 +4769,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CloseConversationRequest"
+                "$ref": "#/components/schemas/CloseThreadRequest"
               }
             }
           },
@@ -4781,7 +4781,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ConversationDetail"
+                  "$ref": "#/components/schemas/ThreadDetail"
                 }
               }
             }
@@ -4804,7 +4804,7 @@
         "tags": [
           "Inbox"
         ],
-        "summary": "List conversations awaiting the current human caller",
+        "summary": "List threads awaiting the current human caller",
         "operationId": "ListInbox",
         "responses": {
           "200": {
@@ -8739,7 +8739,7 @@
           "ephemeral-with-memory"
         ]
       },
-      "CloseConversationRequest": {
+      "CloseThreadRequest": {
         "required": [
           "reason"
         ],
@@ -8877,173 +8877,6 @@
             "type": "string"
           },
           "actionsBaseUrl": {
-            "type": "string"
-          }
-        }
-      },
-      "ConversationDetail": {
-        "required": [
-          "summary",
-          "events"
-        ],
-        "type": "object",
-        "properties": {
-          "summary": {
-            "$ref": "#/components/schemas/ConversationSummary"
-          },
-          "events": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ConversationEvent"
-            }
-          }
-        }
-      },
-      "ConversationEvent": {
-        "required": [
-          "id",
-          "timestamp",
-          "source",
-          "eventType",
-          "severity",
-          "summary"
-        ],
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "timestamp": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "source": {
-            "type": "string"
-          },
-          "eventType": {
-            "type": "string"
-          },
-          "severity": {
-            "type": "string"
-          },
-          "summary": {
-            "type": "string"
-          },
-          "messageId": {
-            "type": [
-              "null",
-              "string"
-            ],
-            "format": "uuid"
-          },
-          "from": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "to": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "body": {
-            "type": [
-              "null",
-              "string"
-            ]
-          }
-        }
-      },
-      "ConversationMessageRequest": {
-        "required": [
-          "to",
-          "text"
-        ],
-        "type": "object",
-        "properties": {
-          "to": {
-            "$ref": "#/components/schemas/AddressDto"
-          },
-          "text": {
-            "type": "string"
-          }
-        }
-      },
-      "ConversationMessageResponse": {
-        "required": [
-          "messageId",
-          "conversationId",
-          "responsePayload"
-        ],
-        "type": "object",
-        "properties": {
-          "messageId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "conversationId": {
-            "type": "string"
-          },
-          "responsePayload": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/JsonElement"
-              }
-            ]
-          }
-        }
-      },
-      "ConversationSummary": {
-        "required": [
-          "id",
-          "participants",
-          "status",
-          "lastActivity",
-          "createdAt",
-          "eventCount",
-          "origin",
-          "summary"
-        ],
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "participants": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "status": {
-            "type": "string"
-          },
-          "lastActivity": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "createdAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "eventCount": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "origin": {
-            "type": "string"
-          },
-          "summary": {
             "type": "string"
           }
         }
@@ -10135,7 +9968,7 @@
       },
       "InboxItem": {
         "required": [
-          "conversationId",
+          "threadId",
           "from",
           "human",
           "pendingSince",
@@ -10143,7 +9976,7 @@
         ],
         "type": "object",
         "properties": {
-          "conversationId": {
+          "threadId": {
             "type": "string"
           },
           "from": {
@@ -10481,7 +10314,7 @@
       "MessageDetail": {
         "required": [
           "messageId",
-          "conversationId",
+          "threadId",
           "from",
           "to",
           "messageType",
@@ -10495,7 +10328,7 @@
             "type": "string",
             "format": "uuid"
           },
-          "conversationId": {
+          "threadId": {
             "type": [
               "null",
               "string"
@@ -10535,7 +10368,7 @@
       "MessageResponse": {
         "required": [
           "messageId",
-          "conversationId",
+          "threadId",
           "responsePayload"
         ],
         "type": "object",
@@ -10544,7 +10377,7 @@
             "type": "string",
             "format": "uuid"
           },
-          "conversationId": {
+          "threadId": {
             "type": [
               "null",
               "string"
@@ -11291,7 +11124,7 @@
         "required": [
           "to",
           "type",
-          "conversationId",
+          "threadId",
           "payload"
         ],
         "type": "object",
@@ -11302,7 +11135,7 @@
           "type": {
             "type": "string"
           },
-          "conversationId": {
+          "threadId": {
             "type": [
               "null",
               "string"
@@ -11619,6 +11452,173 @@
         "properties": {
           "tree": {
             "$ref": "#/components/schemas/TenantTreeNode"
+          }
+        }
+      },
+      "ThreadDetail": {
+        "required": [
+          "summary",
+          "events"
+        ],
+        "type": "object",
+        "properties": {
+          "summary": {
+            "$ref": "#/components/schemas/ThreadSummary"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ThreadEvent"
+            }
+          }
+        }
+      },
+      "ThreadEvent": {
+        "required": [
+          "id",
+          "timestamp",
+          "source",
+          "eventType",
+          "severity",
+          "summary"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "source": {
+            "type": "string"
+          },
+          "eventType": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "messageId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "from": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "to": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "body": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "ThreadMessageRequest": {
+        "required": [
+          "to",
+          "text"
+        ],
+        "type": "object",
+        "properties": {
+          "to": {
+            "$ref": "#/components/schemas/AddressDto"
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      },
+      "ThreadMessageResponse": {
+        "required": [
+          "messageId",
+          "threadId",
+          "responsePayload"
+        ],
+        "type": "object",
+        "properties": {
+          "messageId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "threadId": {
+            "type": "string"
+          },
+          "responsePayload": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
+          }
+        }
+      },
+      "ThreadSummary": {
+        "required": [
+          "id",
+          "participants",
+          "status",
+          "lastActivity",
+          "createdAt",
+          "eventCount",
+          "origin",
+          "summary"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "participants": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "status": {
+            "type": "string"
+          },
+          "lastActivity": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "eventCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "origin": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
           }
         }
       },
@@ -12848,7 +12848,7 @@
       "name": "Activity"
     },
     {
-      "name": "Conversations"
+      "name": "Threads"
     },
     {
       "name": "Inbox"

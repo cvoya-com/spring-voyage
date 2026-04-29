@@ -89,7 +89,7 @@ public class MessageQueryService(SpringDbContext dbContext) : IMessageQueryServi
 
             return new MessageDetail(
                 MessageId: messageId,
-                ConversationId: row.CorrelationId,
+                ThreadId: row.CorrelationId,
                 From: from,
                 To: to,
                 MessageType: messageType,

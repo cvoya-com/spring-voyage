@@ -40,7 +40,7 @@ public interface IAgentToolLauncher
 /// Inputs the dispatcher hands to a launcher for a single invocation.
 /// </summary>
 /// <param name="AgentId">The agent id (for logging and prompt materialisation).</param>
-/// <param name="ConversationId">The conversation id being served.</param>
+/// <param name="ThreadId">The thread id being served.</param>
 /// <param name="Prompt">The assembled system prompt (Layer 1–4).</param>
 /// <param name="McpEndpoint">The URL the container should use to reach the MCP server.</param>
 /// <param name="McpToken">The bearer token the container must present on MCP calls.</param>
@@ -56,7 +56,7 @@ public interface IAgentToolLauncher
 /// </param>
 public record AgentLaunchContext(
     string AgentId,
-    string ConversationId,
+    string ThreadId,
     string Prompt,
     string McpEndpoint,
     string McpToken,

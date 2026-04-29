@@ -33,7 +33,7 @@ public class ReflectionActionHandlerTests
                 targetScheme = "agent",
                 targetPath = "bob",
                 content = "hello there",
-                conversationId = "conv-42",
+                threadId = "conv-42",
             }));
 
         var handler = new SendMessageReflectionActionHandler();
@@ -43,7 +43,7 @@ public class ReflectionActionHandlerTests
         message!.From.ShouldBe(AgentAddress);
         message.To.ShouldBe(new Address("agent", "bob"));
         message.Type.ShouldBe(MessageType.Domain);
-        message.ConversationId.ShouldBe("conv-42");
+        message.ThreadId.ShouldBe("conv-42");
         message.Payload.GetProperty("Content").GetString().ShouldBe("hello there");
     }
 
@@ -94,7 +94,7 @@ public class ReflectionActionHandlerTests
     }
 
     [Fact]
-    public async Task StartConversation_GeneratesFreshConversationIdWhenAbsent()
+    public async Task StartThread_GeneratesFreshThreadIdWhenAbsent()
     {
         var outcome = new ReflectionOutcome(
             ShouldAct: true,
@@ -110,14 +110,14 @@ public class ReflectionActionHandlerTests
         var message = await handler.TranslateAsync(AgentAddress, outcome, TestContext.Current.CancellationToken);
 
         message.ShouldNotBeNull();
-        message!.ConversationId.ShouldNotBeNullOrEmpty();
-        Guid.TryParse(message.ConversationId, out _).ShouldBeTrue();
+        message!.ThreadId.ShouldNotBeNullOrEmpty();
+        Guid.TryParse(message.ThreadId, out _).ShouldBeTrue();
         message.Payload.GetProperty("Topic").GetString().ShouldBe("refactor-plan");
         message.Payload.GetProperty("Content").GetString().ShouldBe("refactor-plan");
     }
 
     [Fact]
-    public async Task StartConversation_UsesProvidedConversationId()
+    public async Task StartThread_UsesProvidedThreadId()
     {
         var outcome = new ReflectionOutcome(
             ShouldAct: true,
@@ -128,14 +128,14 @@ public class ReflectionActionHandlerTests
                 targetPath = "bob",
                 topic = "refactor-plan",
                 content = "First message body.",
-                conversationId = "conv-stable",
+                threadId = "conv-stable",
             }));
 
         var handler = new StartConversationReflectionActionHandler();
         var message = await handler.TranslateAsync(AgentAddress, outcome, TestContext.Current.CancellationToken);
 
         message.ShouldNotBeNull();
-        message!.ConversationId.ShouldBe("conv-stable");
+        message!.ThreadId.ShouldBe("conv-stable");
         message.Payload.GetProperty("Content").GetString().ShouldBe("First message body.");
     }
 

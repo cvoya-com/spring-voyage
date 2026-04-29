@@ -79,18 +79,18 @@ public class CliEndToEndTests
         var (agentActor, agentStateManager) = ActorTestHost.CreateAgentActor("cli-agent");
 
         // Step 2: Send a domain message to the agent.
-        var conversationId = "cli-conv-1";
-        var message = MessageFactory.CreateDomainMessage(conversationId: conversationId, toId: "cli-agent");
+        var threadId = "cli-conv-1";
+        var message = MessageFactory.CreateDomainMessage(threadId: threadId, toId: "cli-agent");
         await agentActor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
         // Simulate the state manager now having the active conversation.
-        var activeChannel = new ConversationChannel
+        var activeChannel = new ThreadChannel
         {
-            ConversationId = conversationId,
+            ThreadId = threadId,
             Messages = [message]
         };
-        agentStateManager.TryGetStateAsync<ConversationChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<ConversationChannel>(true, activeChannel));
+        agentStateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<ThreadChannel>(true, activeChannel));
 
         // Step 3: Query status.
         var statusQuery = MessageFactory.CreateStatusQuery("cli-requester", "cli-agent");
@@ -99,7 +99,7 @@ public class CliEndToEndTests
         statusResult.ShouldNotBeNull();
         var payload = statusResult!.Payload.Deserialize<JsonElement>();
         payload.GetProperty("Status").GetString().ShouldBe("Active");
-        payload.GetProperty("ActiveConversationId").GetString().ShouldBe(conversationId);
+        payload.GetProperty("ActiveThreadId").GetString().ShouldBe(threadId);
         payload.GetProperty("PendingConversationCount").GetInt32().ShouldBe(0);
     }
 

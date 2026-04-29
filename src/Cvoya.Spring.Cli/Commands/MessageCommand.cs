@@ -31,31 +31,31 @@ public static class MessageCommand
     {
         var addressArg = new Argument<string>("address") { Description = "Destination address (e.g. agent://ada)" };
         var textArg = new Argument<string>("text") { Description = "Message text" };
-        var threadOption = new Option<string?>("--thread") { Description = "Thread identifier" };
+        var conversationOption = new Option<string?>("--thread") { Description = "Thread identifier" };
         var command = new Command("send", "Send a message to an address");
         command.Arguments.Add(addressArg);
         command.Arguments.Add(textArg);
-        command.Options.Add(threadOption);
+        command.Options.Add(conversationOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
             var address = parseResult.GetValue(addressArg)!;
             var text = parseResult.GetValue(textArg)!;
-            var conversationId = parseResult.GetValue(threadOption);
+            var threadId = parseResult.GetValue(conversationOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
             var verbose = parseResult.GetValue<bool>("--verbose");
             var (scheme, path) = AddressParser.Parse(address);
             var client = ClientFactory.Create();
 
-            var result = await client.SendMessageAsync(scheme, path, text, conversationId, ct);
+            var result = await client.SendMessageAsync(scheme, path, text, threadId, ct);
 
             // #985: surface the resolved thread id so operators can
             // thread follow-up sends. The server auto-generates one when the
             // caller omits `--thread` on Domain messages to agent://
             // targets; echo it either way so the CLI behaviour is uniform.
             var messageIdText = result.MessageId?.ToString() ?? "n/a";
-            var threadIdText = !string.IsNullOrWhiteSpace(result.ConversationId)
-                ? result.ConversationId
+            var threadIdText = !string.IsNullOrWhiteSpace(result.ThreadId)
+                ? result.ThreadId
                 : "n/a";
 
             // #1064: pass `verbose` so the Kiota → System.Text.Json fallback
@@ -106,9 +106,9 @@ public static class MessageCommand
                 }
 
                 Console.WriteLine($"Message:      {detail.MessageId}");
-                if (!string.IsNullOrWhiteSpace(detail.ConversationId))
+                if (!string.IsNullOrWhiteSpace(detail.ThreadId))
                 {
-                    Console.WriteLine($"Thread:       {detail.ConversationId}");
+                    Console.WriteLine($"Thread:       {detail.ThreadId}");
                 }
                 Console.WriteLine($"Type:         {detail.MessageType}");
                 Console.WriteLine($"From:         {detail.From}");

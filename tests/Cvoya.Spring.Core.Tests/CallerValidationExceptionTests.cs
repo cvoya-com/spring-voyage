@@ -31,13 +31,13 @@ public class CallerValidationExceptionTests
     [Fact]
     public void TryParseMessage_RoundTripsEncodedMessage()
     {
-        var encoded = new CallerValidationException("MISSING_CONVERSATION_ID", "Domain messages must have a ConversationId").Message;
+        var encoded = new CallerValidationException("MISSING_CONVERSATION_ID", "Domain messages must have a ThreadId").Message;
 
         var parsed = CallerValidationException.TryParseMessage(encoded, out var code, out var detail);
 
         parsed.ShouldBeTrue();
         code.ShouldBe("MISSING_CONVERSATION_ID");
-        detail.ShouldBe("Domain messages must have a ConversationId");
+        detail.ShouldBe("Domain messages must have a ThreadId");
     }
 
     [Fact]

@@ -82,7 +82,7 @@ public class RequestHelpTool(
             executionContext.AgentAddress,
             new Address(targetScheme, targetPath),
             MessageType.Domain,
-            executionContext.ConversationId,
+            executionContext.ThreadId,
             payload,
             DateTimeOffset.UtcNow);
 

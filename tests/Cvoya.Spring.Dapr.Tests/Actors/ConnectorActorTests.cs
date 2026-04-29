@@ -48,7 +48,7 @@ public class ConnectorActorTests
 
     private static Message CreateMessage(
         MessageType type = MessageType.Domain,
-        string? conversationId = null,
+        string? threadId = null,
         JsonElement? payload = null)
     {
         return new Message(
@@ -56,7 +56,7 @@ public class ConnectorActorTests
             new Address("agent", "test-sender"),
             new Address("connector", "test-connector"),
             type,
-            conversationId ?? Guid.NewGuid().ToString(),
+            threadId ?? Guid.NewGuid().ToString(),
             payload ?? JsonSerializer.SerializeToElement(new { }),
             DateTimeOffset.UtcNow);
     }

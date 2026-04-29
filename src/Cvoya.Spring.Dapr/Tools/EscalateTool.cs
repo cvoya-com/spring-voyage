@@ -86,7 +86,7 @@ public class EscalateTool(
             executionContext.AgentAddress,
             new Address(targetScheme, targetPath),
             MessageType.Domain,
-            executionContext.ConversationId,
+            executionContext.ThreadId,
             payload,
             DateTimeOffset.UtcNow);
 

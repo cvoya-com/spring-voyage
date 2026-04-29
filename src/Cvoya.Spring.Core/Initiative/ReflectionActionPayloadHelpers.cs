@@ -38,13 +38,13 @@ internal static class ReflectionActionPayloadHelpers
     }
 
     /// <summary>
-    /// Reads <c>conversationId</c> out of <paramref name="payload"/>, or
+    /// Reads <c>threadId</c> out of <paramref name="payload"/>, or
     /// returns <c>null</c> when absent. Empty / whitespace values are
     /// normalised to <c>null</c> so callers never see a blank string.
     /// </summary>
-    internal static string? ReadConversationId(JsonElement payload)
+    internal static string? ReadThreadId(JsonElement payload)
     {
-        if (!TryGetString(payload, "conversationId", out var id) ||
+        if (!TryGetString(payload, "threadId", out var id) ||
             string.IsNullOrWhiteSpace(id))
         {
             return null;

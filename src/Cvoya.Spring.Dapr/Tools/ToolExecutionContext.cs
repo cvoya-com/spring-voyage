@@ -9,14 +9,14 @@ using global::Dapr.Actors.Runtime;
 
 /// <summary>
 /// Provides execution context for platform tools running within a Dapr actor.
-/// Contains the agent's address, current conversation ID, and access to actor state.
+/// Contains the agent's address, current thread ID, and access to actor state.
 /// </summary>
 /// <param name="AgentAddress">The address of the agent executing the tool.</param>
-/// <param name="ConversationId">The active conversation identifier, or <c>null</c> if none.</param>
+/// <param name="ThreadId">The active thread identifier, or <c>null</c> if none.</param>
 /// <param name="StateManager">The Dapr actor state manager for reading and writing state.</param>
 public record ToolExecutionContext(
     Address AgentAddress,
-    string? ConversationId,
+    string? ThreadId,
     IActorStateManager StateManager);
 
 /// <summary>

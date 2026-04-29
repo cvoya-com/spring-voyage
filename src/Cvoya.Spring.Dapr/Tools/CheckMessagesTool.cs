@@ -11,7 +11,7 @@ using Cvoya.Spring.Dapr.Actors;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// Platform tool that retrieves pending messages from the agent's active conversation channel.
+/// Platform tool that retrieves pending messages from the agent's active thread channel.
 /// Returns the accumulated messages as a JSON array.
 /// </summary>
 public class CheckMessagesTool(
@@ -31,7 +31,7 @@ public class CheckMessagesTool(
     public string Name => "checkMessages";
 
     /// <inheritdoc />
-    public string Description => "Retrieve pending messages on the active conversation.";
+    public string Description => "Retrieve pending messages on the active thread.";
 
     /// <inheritdoc />
     public JsonElement ParametersSchema => Schema;
@@ -45,17 +45,17 @@ public class CheckMessagesTool(
         var executionContext = contextAccessor.Current
             ?? throw new InvalidOperationException("Tool execution context is not set.");
 
-        _logger.LogDebug("CheckMessages for agent {AgentPath}, conversation {ConversationId}",
-            executionContext.AgentAddress.Path, executionContext.ConversationId);
+        _logger.LogDebug("CheckMessages for agent {AgentPath}, thread {ThreadId}",
+            executionContext.AgentAddress.Path, executionContext.ThreadId);
 
-        var activeConversation = await executionContext.StateManager
-            .TryGetStateAsync<ConversationChannel>(StateKeys.ActiveConversation, cancellationToken);
+        var activeThread = await executionContext.StateManager
+            .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, cancellationToken);
 
-        if (!activeConversation.HasValue || activeConversation.Value.Messages.Count == 0)
+        if (!activeThread.HasValue || activeThread.Value.Messages.Count == 0)
         {
             return JsonSerializer.SerializeToElement(Array.Empty<object>());
         }
 
-        return JsonSerializer.SerializeToElement(activeConversation.Value.Messages);
+        return JsonSerializer.SerializeToElement(activeThread.Value.Messages);
     }
 }

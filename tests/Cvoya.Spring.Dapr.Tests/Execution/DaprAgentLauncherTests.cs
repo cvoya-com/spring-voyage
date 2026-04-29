@@ -59,7 +59,7 @@ public class DaprAgentLauncherTests
         var prep = await _launcher.PrepareAsync(context, TestContext.Current.CancellationToken);
 
         prep.EnvironmentVariables["SPRING_AGENT_ID"].ShouldBe(context.AgentId);
-        prep.EnvironmentVariables["SPRING_CONVERSATION_ID"].ShouldBe(context.ConversationId);
+        prep.EnvironmentVariables["SPRING_THREAD_ID"].ShouldBe(context.ThreadId);
         prep.EnvironmentVariables["SPRING_MCP_ENDPOINT"].ShouldBe(context.McpEndpoint);
         prep.EnvironmentVariables["SPRING_AGENT_TOKEN"].ShouldBe(context.McpToken);
         prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldBe(context.Prompt);
@@ -118,7 +118,7 @@ public class DaprAgentLauncherTests
         // Python Dapr Agent binds to the matching Conversation component.
         var context = new AgentLaunchContext(
             AgentId: "dapr-test-agent",
-            ConversationId: "conv-openai",
+            ThreadId: "conv-openai",
             Prompt: "prompt",
             McpEndpoint: "http://host.docker.internal:9999/mcp/",
             McpToken: "t",
@@ -193,7 +193,7 @@ public class DaprAgentLauncherTests
     private static AgentLaunchContext CreateContext() =>
         new(
             AgentId: "dapr-test-agent",
-            ConversationId: "conv-99",
+            ThreadId: "conv-99",
             Prompt: "## System\nYou are a helpful assistant.",
             McpEndpoint: "http://host.docker.internal:9999/mcp/",
             McpToken: "test-token-xyz");

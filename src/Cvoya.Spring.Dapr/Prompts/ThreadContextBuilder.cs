@@ -9,17 +9,17 @@ using System.Text.Json;
 using Cvoya.Spring.Core.Messaging;
 
 /// <summary>
-/// Builds the conversation context layer (Layer 3) from prior messages
+/// Builds the thread context layer (Layer 3) from prior messages
 /// and checkpoint state.
 /// </summary>
-public class ConversationContextBuilder
+public class ThreadContextBuilder
 {
     /// <summary>
-    /// Builds the conversation context string from the provided conversation state.
+    /// Builds the thread context string from the provided thread state.
     /// </summary>
-    /// <param name="priorMessages">The prior messages in the conversation.</param>
+    /// <param name="priorMessages">The prior messages in the thread.</param>
     /// <param name="lastCheckpoint">Optional last checkpoint state.</param>
-    /// <returns>The formatted conversation context string, or an empty string if all inputs are empty.</returns>
+    /// <returns>The formatted thread context string, or an empty string if all inputs are empty.</returns>
     public string Build(IReadOnlyList<Message> priorMessages, string? lastCheckpoint)
     {
         var builder = new StringBuilder();

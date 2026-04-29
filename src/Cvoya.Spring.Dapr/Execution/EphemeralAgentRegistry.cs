@@ -12,9 +12,9 @@ using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// Tracks ephemeral agent containers that the unified A2A dispatch path
-/// stands up for the duration of a single conversation turn. Where
+/// stands up for the duration of a single thread turn. Where
 /// <see cref="PersistentAgentRegistry"/> owns long-lived per-agent containers,
-/// this registry owns short-lived per-(agent, conversation) entries: the
+/// this registry owns short-lived per-(agent, thread) entries: the
 /// dispatcher registers an entry when it starts the container, releases it
 /// when the turn drains (success, failure, or cancellation), and the host's
 /// graceful shutdown sweep stops anything still tracked.
@@ -31,10 +31,10 @@ using Microsoft.Extensions.Logging;
 /// process and leak.
 /// </para>
 /// <para>
-/// Entries are keyed by a synthetic <c>(agentId, conversationId, lease)</c>
+/// Entries are keyed by a synthetic <c>(agentId, threadId, lease)</c>
 /// composite — multiple parallel turns against the same persistent agent are
 /// not a thing today (the actor serialises turns), but the same
-/// <c>(agentId, conversationId)</c> pair can recur after a turn completes,
+/// <c>(agentId, threadId)</c> pair can recur after a turn completes,
 /// so we layer a per-call lease id on top to keep entries disjoint.
 /// </para>
 /// </remarks>
@@ -61,23 +61,23 @@ public class EphemeralAgentRegistry(
     /// </summary>
     public EphemeralAgentLease Register(
         string agentId,
-        string conversationId,
+        string threadId,
         string containerId,
         string? sidecarId = null,
         string? sidecarNetworkName = null)
     {
-        var lease = $"{agentId}|{conversationId}|{Guid.NewGuid():N}";
+        var lease = $"{agentId}|{threadId}|{Guid.NewGuid():N}";
         _entries[lease] = new EphemeralAgentEntry(
             AgentId: agentId,
-            ConversationId: conversationId,
+            ThreadId: threadId,
             ContainerId: containerId,
             SidecarId: sidecarId,
             SidecarNetworkName: sidecarNetworkName,
             StartedAt: DateTimeOffset.UtcNow);
 
         _logger.LogDebug(
-            "Ephemeral agent {AgentId} (conversation {ConversationId}) registered as container {ContainerId}",
-            agentId, conversationId, containerId);
+            "Ephemeral agent {AgentId} (thread {ThreadId}) registered as container {ContainerId}",
+            agentId, threadId, containerId);
 
         return new EphemeralAgentLease(lease);
     }
@@ -94,8 +94,8 @@ public class EphemeralAgentRegistry(
         }
 
         _logger.LogDebug(
-            "Releasing ephemeral agent {AgentId} (conversation {ConversationId}, container {ContainerId})",
-            entry.AgentId, entry.ConversationId, entry.ContainerId);
+            "Releasing ephemeral agent {AgentId} (thread {ThreadId}, container {ContainerId})",
+            entry.AgentId, entry.ThreadId, entry.ContainerId);
 
         try
         {
@@ -161,7 +161,7 @@ public readonly record struct EphemeralAgentLease(string Token);
 /// </summary>
 public record EphemeralAgentEntry(
     string AgentId,
-    string ConversationId,
+    string ThreadId,
     string ContainerId,
     string? SidecarId,
     string? SidecarNetworkName,

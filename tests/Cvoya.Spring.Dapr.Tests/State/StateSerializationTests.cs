@@ -24,11 +24,11 @@ public class StateSerializationTests
     };
 
     [Fact]
-    public void ConversationChannel_RoundTrip_PreservesAllProperties()
+    public void ThreadChannel_RoundTrip_PreservesAllProperties()
     {
-        var original = new ConversationChannel
+        var original = new ThreadChannel
         {
-            ConversationId = "conv-123",
+            ThreadId = "conv-123",
             Messages =
             [
                 new Message(
@@ -44,10 +44,10 @@ public class StateSerializationTests
         };
 
         var json = JsonSerializer.Serialize(original, Options);
-        var deserialized = JsonSerializer.Deserialize<ConversationChannel>(json, Options);
+        var deserialized = JsonSerializer.Deserialize<ThreadChannel>(json, Options);
 
         deserialized.ShouldNotBeNull();
-        deserialized!.ConversationId.ShouldBe(original.ConversationId);
+        deserialized!.ThreadId.ShouldBe(original.ThreadId);
         deserialized.Messages.Count().ShouldBe(1);
         deserialized.CreatedAt.ShouldBe(original.CreatedAt);
 
@@ -56,7 +56,7 @@ public class StateSerializationTests
         message.From.ShouldBe(original.Messages[0].From);
         message.To.ShouldBe(original.Messages[0].To);
         message.Type.ShouldBe(MessageType.Domain);
-        message.ConversationId.ShouldBe("conv-123");
+        message.ThreadId.ShouldBe("conv-123");
     }
 
     [Fact]
@@ -79,7 +79,7 @@ public class StateSerializationTests
         deserialized.From.ShouldBe(original.From);
         deserialized.To.ShouldBe(original.To);
         deserialized.Type.ShouldBe(MessageType.StatusQuery);
-        deserialized.ConversationId.ShouldBe("conv-456");
+        deserialized.ThreadId.ShouldBe("conv-456");
         deserialized.Timestamp.ShouldBe(original.Timestamp);
         deserialized.Payload.GetProperty("Status").GetString().ShouldBe("Active");
     }
@@ -98,7 +98,7 @@ public class StateSerializationTests
     }
 
     [Fact]
-    public void Message_WithNullConversationId_RoundTrips()
+    public void Message_WithNullThreadId_RoundTrips()
     {
         var original = new Message(
             Guid.NewGuid(),
@@ -113,24 +113,24 @@ public class StateSerializationTests
         var deserialized = JsonSerializer.Deserialize<Message>(json, Options);
 
         deserialized.ShouldNotBeNull();
-        deserialized!.ConversationId.ShouldBeNull();
+        deserialized!.ThreadId.ShouldBeNull();
     }
 
     [Fact]
-    public void ConversationChannel_EmptyMessages_RoundTrips()
+    public void ThreadChannel_EmptyMessages_RoundTrips()
     {
-        var original = new ConversationChannel
+        var original = new ThreadChannel
         {
-            ConversationId = "empty-conv",
+            ThreadId = "empty-conv",
             Messages = [],
             CreatedAt = DateTimeOffset.UtcNow
         };
 
         var json = JsonSerializer.Serialize(original, Options);
-        var deserialized = JsonSerializer.Deserialize<ConversationChannel>(json, Options);
+        var deserialized = JsonSerializer.Deserialize<ThreadChannel>(json, Options);
 
         deserialized.ShouldNotBeNull();
-        deserialized!.ConversationId.ShouldBe("empty-conv");
+        deserialized!.ThreadId.ShouldBe("empty-conv");
         deserialized.Messages.ShouldBeEmpty();
     }
 }

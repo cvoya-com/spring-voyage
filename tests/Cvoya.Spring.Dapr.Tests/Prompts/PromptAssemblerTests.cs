@@ -25,7 +25,7 @@ public class PromptAssemblerTests
 {
     private readonly IPlatformPromptProvider _platformProvider = Substitute.For<IPlatformPromptProvider>();
     private readonly UnitContextBuilder _unitContextBuilder = new();
-    private readonly ConversationContextBuilder _conversationContextBuilder = new();
+    private readonly ThreadContextBuilder _threadContextBuilder = new();
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
     private readonly PromptAssembler _assembler;
 
@@ -37,7 +37,7 @@ public class PromptAssemblerTests
         _assembler = new PromptAssembler(
             _platformProvider,
             _unitContextBuilder,
-            _conversationContextBuilder,
+            _threadContextBuilder,
             _loggerFactory);
     }
 
@@ -72,13 +72,13 @@ public class PromptAssemblerTests
 
         result.ShouldContain("## Platform Instructions");
         result.ShouldContain("## Unit Context");
-        result.ShouldContain("## Conversation Context");
+        result.ShouldContain("## Thread Context");
         result.ShouldContain("## Agent Instructions");
 
         // Verify ordering
         var platformIdx = result.IndexOf("## Platform Instructions", StringComparison.Ordinal);
         var unitIdx = result.IndexOf("## Unit Context", StringComparison.Ordinal);
-        var convIdx = result.IndexOf("## Conversation Context", StringComparison.Ordinal);
+        var convIdx = result.IndexOf("## Thread Context", StringComparison.Ordinal);
         var agentIdx = result.IndexOf("## Agent Instructions", StringComparison.Ordinal);
 
         platformIdx.ShouldBeLessThan(unitIdx);
@@ -105,7 +105,7 @@ public class PromptAssemblerTests
 
         result.ShouldContain("## Platform Instructions");
         result.ShouldNotContain("## Unit Context");
-        result.ShouldNotContain("## Conversation Context");
+        result.ShouldNotContain("## Thread Context");
         result.ShouldNotContain("## Agent Instructions");
     }
 
@@ -121,7 +121,7 @@ public class PromptAssemblerTests
 
         result.ShouldContain("## Platform Instructions");
         result.ShouldNotContain("## Unit Context");
-        result.ShouldNotContain("## Conversation Context");
+        result.ShouldNotContain("## Thread Context");
         result.ShouldNotContain("## Agent Instructions");
     }
 

@@ -20,7 +20,7 @@ using Cvoya.Spring.Core.Messaging;
 ///   "targetScheme": "agent",
 ///   "targetPath":   "engineering-team/ada",
 ///   "reason":       "Short description of what help is needed",
-///   "conversationId": "optional-correlation-id"
+///   "threadId": "optional-correlation-id"
 /// }
 /// </code>
 /// <para>
@@ -65,14 +65,14 @@ public class RequestHelpReflectionActionHandler : IReflectionActionHandler
             Reason = reason ?? string.Empty,
         });
 
-        var conversationId = ReflectionActionPayloadHelpers.ReadConversationId(payload);
+        var threadId = ReflectionActionPayloadHelpers.ReadThreadId(payload);
 
         var message = new Message(
             Guid.NewGuid(),
             agentAddress,
             target,
             MessageType.Domain,
-            conversationId,
+            threadId,
             bodyPayload,
             DateTimeOffset.UtcNow);
 

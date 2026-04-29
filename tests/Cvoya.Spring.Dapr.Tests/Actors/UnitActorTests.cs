@@ -69,7 +69,7 @@ public class UnitActorTests
 
     private static Message CreateMessage(
         MessageType type = MessageType.Domain,
-        string? conversationId = null,
+        string? threadId = null,
         JsonElement? payload = null)
     {
         return new Message(
@@ -77,7 +77,7 @@ public class UnitActorTests
             new Address("agent", "test-sender"),
             new Address("unit", "test-unit"),
             type,
-            conversationId ?? Guid.NewGuid().ToString(),
+            threadId ?? Guid.NewGuid().ToString(),
             payload ?? JsonSerializer.SerializeToElement(new { }),
             DateTimeOffset.UtcNow);
     }
@@ -104,7 +104,7 @@ public class UnitActorTests
     public async Task ReceiveAsync_DomainMessage_DelegatesToOrchestrationStrategy()
     {
         var message = CreateMessage();
-        var expectedResponse = CreateMessage(conversationId: message.ConversationId);
+        var expectedResponse = CreateMessage(threadId: message.ThreadId);
         _strategy.OrchestrateAsync(message, Arg.Any<IUnitContext>(), Arg.Any<CancellationToken>())
             .Returns(expectedResponse);
 

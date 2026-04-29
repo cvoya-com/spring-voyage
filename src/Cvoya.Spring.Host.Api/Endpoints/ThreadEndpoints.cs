@@ -17,40 +17,40 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// Maps the conversation read + send endpoints introduced by #452. Conversations
+/// Maps the thread read + send endpoints introduced by #452. Threads
 /// are a projection of the activity-event store — see
-/// <see cref="IConversationQueryService"/> — so these endpoints stay thin: they
+/// <see cref="IThreadQueryService"/> — so these endpoints stay thin: they
 /// delegate reads to the query service and threaded sends to the existing
-/// <see cref="IMessageRouter"/>, stamping the path's conversation id onto the
+/// <see cref="IMessageRouter"/>, stamping the path's thread id onto the
 /// outbound message.
 /// </summary>
-public static class ConversationEndpoints
+public static class ThreadEndpoints
 {
     /// <summary>
-    /// Registers conversation endpoints on the supplied route builder.
+    /// Registers thread endpoints on the supplied route builder.
     /// </summary>
     /// <param name="app">The endpoint route builder.</param>
     /// <returns>The route group for chaining.</returns>
-    public static RouteGroupBuilder MapConversationEndpoints(this IEndpointRouteBuilder app)
+    public static RouteGroupBuilder MapThreadEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/v1/tenant/conversations")
-            .WithTags("Conversations");
+        var group = app.MapGroup("/api/v1/tenant/threads")
+            .WithTags("Threads");
 
-        group.MapGet("/", ListConversationsAsync)
-            .WithName("ListConversations")
-            .WithSummary("List conversations derived from the activity event stream")
-            .Produces<IReadOnlyList<ConversationSummary>>(StatusCodes.Status200OK);
+        group.MapGet("/", ListThreadsAsync)
+            .WithName("ListThreads")
+            .WithSummary("List threads derived from the activity event stream")
+            .Produces<IReadOnlyList<ThreadSummary>>(StatusCodes.Status200OK);
 
-        group.MapGet("/{id}", GetConversationAsync)
-            .WithName("GetConversation")
-            .WithSummary("Get a single conversation thread (summary + ordered events)")
-            .Produces<ConversationDetail>(StatusCodes.Status200OK)
+        group.MapGet("/{id}", GetThreadAsync)
+            .WithName("GetThread")
+            .WithSummary("Get a single thread (summary + ordered events)")
+            .Produces<ThreadDetail>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
-        group.MapPost("/{id}/messages", PostConversationMessageAsync)
-            .WithName("PostConversationMessage")
-            .WithSummary("Thread a new message into an existing conversation")
-            .Produces<ConversationMessageResponse>(StatusCodes.Status200OK)
+        group.MapPost("/{id}/messages", PostThreadMessageAsync)
+            .WithName("PostThreadMessage")
+            .WithSummary("Thread a new message into an existing thread")
+            .Produces<ThreadMessageResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status502BadGateway);
@@ -61,21 +61,21 @@ public static class ConversationEndpoints
         // `/{id}/messages` sibling and routing template constraints; the
         // verb-style URL was tempting but inconsistent with the rest of the
         // surface.
-        group.MapPost("/{id}/close", CloseConversationAsync)
-            .WithName("CloseConversation")
-            .WithSummary("Close (abort) an in-flight or pending conversation across all participating agents")
-            .Produces<ConversationDetail>(StatusCodes.Status200OK)
+        group.MapPost("/{id}/close", CloseThreadAsync)
+            .WithName("CloseThread")
+            .WithSummary("Close (abort) an in-flight or pending thread across all participating agents")
+            .Produces<ThreadDetail>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
         return group;
     }
 
-    private static async Task<IResult> ListConversationsAsync(
-        [AsParameters] ConversationListQuery query,
-        IConversationQueryService queryService,
+    private static async Task<IResult> ListThreadsAsync(
+        [AsParameters] ThreadListQuery query,
+        IThreadQueryService queryService,
         CancellationToken cancellationToken)
     {
-        var filters = new ConversationQueryFilters(
+        var filters = new ThreadQueryFilters(
             Unit: query.Unit,
             Agent: query.Agent,
             Status: query.Status,
@@ -86,25 +86,25 @@ public static class ConversationEndpoints
         return Results.Ok(summaries);
     }
 
-    private static async Task<IResult> GetConversationAsync(
+    private static async Task<IResult> GetThreadAsync(
         string id,
-        IConversationQueryService queryService,
+        IThreadQueryService queryService,
         CancellationToken cancellationToken)
     {
         var detail = await queryService.GetAsync(id, cancellationToken);
         if (detail is null)
         {
             return Results.Problem(
-                detail: $"Conversation '{id}' not found",
+                detail: $"Thread '{id}' not found",
                 statusCode: StatusCodes.Status404NotFound);
         }
 
         return Results.Ok(detail);
     }
 
-    private static async Task<IResult> PostConversationMessageAsync(
+    private static async Task<IResult> PostThreadMessageAsync(
         string id,
-        ConversationMessageRequest request,
+        ThreadMessageRequest request,
         IMessageRouter messageRouter,
         IAuthenticatedCallerAccessor callerAccessor,
         CancellationToken cancellationToken)
@@ -119,7 +119,7 @@ public static class ConversationEndpoints
         if (string.IsNullOrWhiteSpace(id))
         {
             return Results.Problem(
-                detail: "Conversation id is required.",
+                detail: "Thread id is required.",
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
@@ -167,19 +167,19 @@ public static class ConversationEndpoints
             };
         }
 
-        return Results.Ok(new ConversationMessageResponse(messageId, id, result.Value?.Payload));
+        return Results.Ok(new ThreadMessageResponse(messageId, id, result.Value?.Payload));
     }
 
     /// <summary>
-    /// Closes (aborts) a conversation across every agent participant, then
-    /// returns the (now-closed) conversation detail. See #1038 — without this
+    /// Closes (aborts) a thread across every agent participant, then
+    /// returns the (now-closed) thread detail. See #1038 — without this
     /// surface a single failed dispatch leaves an agent permanently busy
-    /// because the active-conversation pointer is persisted in actor state.
+    /// because the active-thread pointer is persisted in actor state.
     /// </summary>
-    private static async Task<IResult> CloseConversationAsync(
+    private static async Task<IResult> CloseThreadAsync(
         string id,
-        CloseConversationRequest request,
-        IConversationQueryService queryService,
+        CloseThreadRequest request,
+        IThreadQueryService queryService,
         IDirectoryService directoryService,
         IActorProxyFactory actorProxyFactory,
         ILoggerFactory loggerFactory,
@@ -188,7 +188,7 @@ public static class ConversationEndpoints
         if (string.IsNullOrWhiteSpace(id))
         {
             return Results.Problem(
-                detail: "Conversation id is required.",
+                detail: "Thread id is required.",
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
@@ -196,11 +196,11 @@ public static class ConversationEndpoints
         if (detail is null)
         {
             return Results.Problem(
-                detail: $"Conversation '{id}' not found",
+                detail: $"Thread '{id}' not found",
                 statusCode: StatusCodes.Status404NotFound);
         }
 
-        var logger = loggerFactory.CreateLogger("Cvoya.Spring.Host.Api.Endpoints.ConversationEndpoints");
+        var logger = loggerFactory.CreateLogger("Cvoya.Spring.Host.Api.Endpoints.ThreadEndpoints");
         var reason = request?.Reason;
 
         // Walk the participants on the summary, keeping only agent-scheme
@@ -224,7 +224,7 @@ public static class ConversationEndpoints
             catch (Exception ex)
             {
                 logger.LogWarning(ex,
-                    "Failed to resolve participant {Participant} while closing conversation {ConversationId}.",
+                    "Failed to resolve participant {Participant} while closing thread {ThreadId}.",
                     participant, id);
                 continue;
             }
@@ -232,7 +232,7 @@ public static class ConversationEndpoints
             if (entry is null)
             {
                 logger.LogWarning(
-                    "Participant {Participant} not found in directory while closing conversation {ConversationId}.",
+                    "Participant {Participant} not found in directory while closing thread {ThreadId}.",
                     participant, id);
                 continue;
             }
@@ -246,14 +246,14 @@ public static class ConversationEndpoints
             catch (Exception ex)
             {
                 logger.LogWarning(ex,
-                    "CloseConversationAsync failed on participant {Participant} for conversation {ConversationId}.",
+                    "CloseConversationAsync failed on participant {Participant} for thread {ThreadId}.",
                     participant, id);
             }
         }
 
         // Re-read the detail so the response reflects the close events the
         // actors just emitted (the read model is event-sourced — by the time
-        // we return, the ConversationClosed events should be projected).
+        // we return, the ThreadClosed events should be projected).
         var updated = await queryService.GetAsync(id, cancellationToken) ?? detail;
         return Results.Ok(updated);
     }
@@ -297,11 +297,11 @@ public static class ConversationEndpoints
 
 /// <summary>
 /// Maps the inbox endpoint introduced by #456. The inbox is a filtered view of
-/// <see cref="IConversationQueryService.ListInboxAsync"/> scoped to the
+/// <see cref="IThreadQueryService.ListInboxAsync"/> scoped to the
 /// authenticated caller's <c>human://</c> address. "Respond" is explicitly not
 /// a separate endpoint: it's a thin wrapper over
-/// <see cref="ConversationEndpoints.MapConversationEndpoints"/> — the
-/// <c>POST /api/v1/conversations/{id}/messages</c> call — so we don't fork the
+/// <see cref="ThreadEndpoints.MapThreadEndpoints"/> — the
+/// <c>POST /api/v1/threads/{id}/messages</c> call — so we don't fork the
 /// message-send contract.
 /// </summary>
 public static class InboxEndpoints
@@ -318,14 +318,14 @@ public static class InboxEndpoints
 
         group.MapGet("/", ListInboxAsync)
             .WithName("ListInbox")
-            .WithSummary("List conversations awaiting the current human caller")
+            .WithSummary("List threads awaiting the current human caller")
             .Produces<IReadOnlyList<InboxItem>>(StatusCodes.Status200OK);
 
         return group;
     }
 
     private static async Task<IResult> ListInboxAsync(
-        IConversationQueryService queryService,
+        IThreadQueryService queryService,
         IAuthenticatedCallerAccessor callerAccessor,
         CancellationToken cancellationToken)
     {

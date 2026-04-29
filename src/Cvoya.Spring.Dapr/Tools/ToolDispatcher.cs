@@ -48,7 +48,7 @@ public class ToolDispatcher(
             {
                 AgentScheme = executionContext.AgentAddress.Scheme,
                 AgentPath = executionContext.AgentAddress.Path,
-                executionContext.ConversationId
+                executionContext.ThreadId
             });
 
             return await tool.ExecuteAsync(parameters, contextJson, cancellationToken);

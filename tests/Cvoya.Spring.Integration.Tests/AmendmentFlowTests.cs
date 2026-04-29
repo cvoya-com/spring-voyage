@@ -41,17 +41,17 @@ public class AmendmentFlowTests
         // (the real actor sets this on first domain message; we inline it so
         // the test exercises the "turn in progress" branch of the amendment
         // handler without waiting for an external dispatcher).
-        var activeChannel = new ConversationChannel
+        var activeChannel = new ThreadChannel
         {
-            ConversationId = "conv-live",
+            ThreadId = "conv-live",
             Messages = new List<Message>
             {
-                MessageFactory.CreateDomainMessage(conversationId: "conv-live", toId: AgentId),
+                MessageFactory.CreateDomainMessage(threadId: "conv-live", toId: AgentId),
             },
         };
         harness.StateManager
-            .TryGetStateAsync<ConversationChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<ConversationChannel>(true, activeChannel));
+            .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<ThreadChannel>(true, activeChannel));
 
         // The supervisor pushes an amendment mid-turn.
         var amendmentPayload = JsonSerializer.SerializeToElement(new AmendmentPayload(

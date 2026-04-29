@@ -463,7 +463,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IAgentToolLauncher, GeminiLauncher>();
         services.AddSingleton<IAgentToolLauncher, DaprAgentLauncher>();
         services.TryAddSingleton<PersistentAgentRegistry>();
-        // Per-conversation registry for ephemeral agent containers. PR 5 of
+        // Per-thread registry for ephemeral agent containers. PR 5 of
         // the #1087 series: the unified A2A dispatch path starts ephemeral
         // containers in detached mode and tears them down when the turn
         // drains. The registry exists so the host has a single place to
@@ -629,7 +629,7 @@ public static class ServiceCollectionExtensions
 
         // Prompt
         services.AddSingleton<UnitContextBuilder>();
-        services.AddSingleton<ConversationContextBuilder>();
+        services.AddSingleton<ThreadContextBuilder>();
 
         // State
         services.AddOptions<DaprStateStoreOptions>().BindConfiguration(DaprStateStoreOptions.SectionName);
@@ -700,14 +700,14 @@ public static class ServiceCollectionExtensions
         // decorate with tenant-scoped filters without forking the OSS default.
         services.TryAddScoped<IAnalyticsQueryService, AnalyticsQueryService>();
 
-        // Conversation projection (#452 / #456). Materialises conversations
+        // Thread projection (#452 / #456). Materialises threads
         // and inbox rows from the activity-event table — no separate message
         // store yet. TryAdd so the private cloud host can swap in a tenant-
         // scoped implementation without touching the endpoints.
-        services.TryAddScoped<IConversationQueryService, ConversationQueryService>();
+        services.TryAddScoped<IThreadQueryService, ThreadQueryService>();
 
         // Single-message lookup (#1209). Backs `GET /api/v1/messages/{id}`
-        // and `spring message show <id>`. Like the conversation service
+        // and `spring message show <id>`. Like the thread service
         // above this is a projection over the activity-event table; cloud
         // overlays can swap the implementation through DI without touching
         // call sites.

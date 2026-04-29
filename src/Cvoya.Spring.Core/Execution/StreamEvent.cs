@@ -24,7 +24,7 @@ public abstract record StreamEvent(Guid Id, DateTimeOffset Timestamp)
     /// <summary>
     /// A state checkpoint from the execution environment, enabling resume after failure.
     /// </summary>
-    public sealed record Checkpoint(Guid Id, DateTimeOffset Timestamp, string ConversationId, string StateSnapshot)
+    public sealed record Checkpoint(Guid Id, DateTimeOffset Timestamp, string ThreadId, string StateSnapshot)
         : StreamEvent(Id, Timestamp);
 
     /// <summary>

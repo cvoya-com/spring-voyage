@@ -137,14 +137,14 @@ public class A2AExecutionDispatcher(
             throw new SpringException("MCP server has not been started; endpoint is unavailable.");
         }
 
-        var conversationId = message.ConversationId
-            ?? throw new SpringException("A2A dispatch requires a conversation id on the message.");
+        var threadId = message.ThreadId
+            ?? throw new SpringException("A2A dispatch requires a thread id on the message.");
 
         var prompt = await promptAssembler.AssembleAsync(message, context, cancellationToken);
-        var session = mcpServer.IssueSession(agentId, conversationId);
+        var session = mcpServer.IssueSession(agentId, threadId);
         var launchContext = new AgentLaunchContext(
             AgentId: agentId,
-            ConversationId: conversationId,
+            ThreadId: threadId,
             Prompt: prompt,
             McpEndpoint: mcpServer.Endpoint,
             McpToken: session.Token,
@@ -182,7 +182,7 @@ public class A2AExecutionDispatcher(
                 sidecarId = detached.SidecarInfo.SidecarId;
                 lifecycleNetworkName = detached.NetworkName;
                 lease = ephemeralAgentRegistry.Register(
-                    agentId, conversationId, containerId, sidecarId, lifecycleNetworkName);
+                    agentId, threadId, containerId, sidecarId, lifecycleNetworkName);
             }
             else
             {
@@ -192,7 +192,7 @@ public class A2AExecutionDispatcher(
                 // stdout to terminate, it talks A2A to the in-container bridge
                 // and tears the container down explicitly when the turn drains.
                 containerId = await containerRuntime.StartAsync(baseConfig, cancellationToken);
-                lease = ephemeralAgentRegistry.Register(agentId, conversationId, containerId);
+                lease = ephemeralAgentRegistry.Register(agentId, threadId, containerId);
             }
 
             // The endpoint URI's host is "localhost" because BOTH the
@@ -356,14 +356,14 @@ public class A2AExecutionDispatcher(
             throw new SpringException("MCP server has not been started; endpoint is unavailable.");
         }
 
-        // Use a stable conversation ID for persistent agent MCP sessions.
+        // Use a stable thread ID for persistent agent MCP sessions.
         var sessionId = $"persistent-{agentId}";
         var prompt = definition.Instructions ?? string.Empty;
         var session = mcpServer.IssueSession(agentId, sessionId);
 
         var launchContext = new AgentLaunchContext(
             AgentId: agentId,
-            ConversationId: sessionId,
+            ThreadId: sessionId,
             Prompt: prompt,
             McpEndpoint: mcpServer.Endpoint,
             McpToken: session.Token,
@@ -486,7 +486,7 @@ public class A2AExecutionDispatcher(
                 Role = MessageRole.User,
                 Parts = [new TextPart { Text = userMessage }],
                 MessageId = originalMessage.Id.ToString(),
-                ContextId = originalMessage.ConversationId,
+                ContextId = originalMessage.ThreadId,
             },
             Configuration = new MessageSendConfiguration
             {
@@ -733,7 +733,7 @@ public class A2AExecutionDispatcher(
             From: originalMessage.To,
             To: originalMessage.From,
             Type: MessageType.Domain,
-            ConversationId: originalMessage.ConversationId,
+            ThreadId: originalMessage.ThreadId,
             Payload: payload,
             Timestamp: DateTimeOffset.UtcNow);
     }

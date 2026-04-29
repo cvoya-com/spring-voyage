@@ -50,7 +50,7 @@ public class CodexLauncherTests
         // construction.
         var context = new AgentLaunchContext(
             AgentId: "codex-agent",
-            ConversationId: "conv-77",
+            ThreadId: "conv-77",
             Prompt: "## Platform Instructions\nWrite clean code.",
             McpEndpoint: "http://host.docker.internal:9999/mcp/",
             McpToken: "codex-secret-token");
@@ -68,7 +68,7 @@ public class CodexLauncherTests
             .ShouldBe("Bearer codex-secret-token");
 
         prep.EnvironmentVariables["SPRING_AGENT_ID"].ShouldBe(context.AgentId);
-        prep.EnvironmentVariables["SPRING_CONVERSATION_ID"].ShouldBe(context.ConversationId);
+        prep.EnvironmentVariables["SPRING_THREAD_ID"].ShouldBe(context.ThreadId);
         prep.EnvironmentVariables["SPRING_MCP_ENDPOINT"].ShouldBe(context.McpEndpoint);
         prep.EnvironmentVariables["SPRING_AGENT_TOKEN"].ShouldBe(context.McpToken);
         prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldBe(context.Prompt);

@@ -308,7 +308,7 @@ public class GitHubWebhookHandler : IGitHubWebhookHandler
             From: ConnectorAddress,
             To: destination,
             Type: MessageType.Domain,
-            ConversationId: null,
+            ThreadId: null,
             Payload: domainPayload,
             Timestamp: DateTimeOffset.UtcNow);
     }

@@ -39,14 +39,14 @@ public class AiOrchestrationStrategyTests
 
     private static Message CreateMessage(
         MessageType type = MessageType.Domain,
-        string? conversationId = null)
+        string? threadId = null)
     {
         return new Message(
             Guid.NewGuid(),
             new Address("agent", "test-sender"),
             new Address("unit", "test-unit"),
             type,
-            conversationId ?? Guid.NewGuid().ToString(),
+            threadId ?? Guid.NewGuid().ToString(),
             JsonSerializer.SerializeToElement(new { Task = "process data" }),
             DateTimeOffset.UtcNow);
     }
@@ -77,7 +77,7 @@ public class AiOrchestrationStrategyTests
         _aiProvider.CompleteAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns("agent://agent-2");
 
-        var expectedResponse = CreateMessage(conversationId: "response");
+        var expectedResponse = CreateMessage(threadId: "response");
         _context.SendAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
             .Returns(expectedResponse);
 

@@ -89,7 +89,7 @@ public class GitHubWebhookFlowTests
                     new Address("unit", "flow-unit"),
                     agentAddress,
                     MessageType.Domain,
-                    originalMessage.ConversationId,
+                    originalMessage.ThreadId,
                     originalMessage.Payload,
                     DateTimeOffset.UtcNow);
                 return Task.FromResult<Message?>(forwardedMessage);
@@ -106,8 +106,8 @@ public class GitHubWebhookFlowTests
         agentResult.ShouldNotBeNull();
         await agentStateManager.Received().SetStateAsync(
             StateKeys.ActiveConversation,
-            Arg.Is<ConversationChannel>(c =>
-                c.ConversationId == webhookMessage.ConversationId &&
+            Arg.Is<ThreadChannel>(c =>
+                c.ThreadId == webhookMessage.ThreadId &&
                 c.Messages.Count == 1),
             Arg.Any<CancellationToken>());
     }
@@ -140,8 +140,8 @@ public class GitHubWebhookFlowTests
         result.ShouldNotBeNull();
         await agentStateManager.Received().SetStateAsync(
             StateKeys.ActiveConversation,
-            Arg.Is<ConversationChannel>(c =>
-                c.ConversationId == "webhook-conv-1" &&
+            Arg.Is<ThreadChannel>(c =>
+                c.ThreadId == "webhook-conv-1" &&
                 c.Messages.Count == 1 &&
                 c.Messages[0].Payload.GetProperty("EventType").GetString() == "pull_request"),
             Arg.Any<CancellationToken>());

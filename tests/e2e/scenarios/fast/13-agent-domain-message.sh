@@ -22,7 +22,7 @@ source "${HERE}/../../_lib.sh"
 
 agent="$(e2e::agent_name message-target)"
 unit="$(e2e::unit_name message-target-unit)"
-conv_id="${E2E_PREFIX}-${E2E_RUN_ID}-conv-msg"
+thread_id="${E2E_PREFIX}-${E2E_RUN_ID}-conv-msg"
 
 # Cascading unit purge drops the agent's membership row before the agent
 # purge runs.
@@ -59,10 +59,10 @@ e2e::log "agent actor id: ${agent_id}"
 # execution tool) before returning. The message itself is delivered and the
 # activity event persists either way.
 payload=$(cat <<EOF
-{"to":{"scheme":"agent","path":"${agent}"},"type":"Domain","conversationId":"${conv_id}","payload":"hello"}
+{"to":{"scheme":"agent","path":"${agent}"},"type":"Domain","threadId":"${thread_id}","payload":"hello"}
 EOF
 )
-e2e::log "POST /api/v1/tenant/messages (Domain → agent://${agent}, conv=${conv_id})"
+e2e::log "POST /api/v1/tenant/messages (Domain → agent://${agent}, thread=${thread_id})"
 response="$(e2e::http POST /api/v1/tenant/messages "${payload}")"
 status="${response##*$'\n'}"
 # The server may respond 200 (dispatch chained cleanly) or 502 (dispatch

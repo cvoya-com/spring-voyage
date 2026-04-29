@@ -104,14 +104,14 @@ public class PersistentDispatchIntegrationTests
             _loggerFactory);
     }
 
-    private static SvMessage CreateMessage(string? conversationId = null)
+    private static SvMessage CreateMessage(string? threadId = null)
     {
         return new SvMessage(
             Guid.NewGuid(),
             new Address("agent", "sender"),
             new Address("agent", AgentId),
             MessageType.Domain,
-            conversationId ?? Guid.NewGuid().ToString(),
+            threadId ?? Guid.NewGuid().ToString(),
             JsonSerializer.SerializeToElement(new { Task = "do-work" }),
             DateTimeOffset.UtcNow);
     }

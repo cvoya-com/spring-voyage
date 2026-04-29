@@ -10,8 +10,8 @@ public enum ActivityEventType
 {
     MessageReceived,
     MessageSent,
-    ConversationStarted,
-    ConversationCompleted,
+    ThreadStarted,
+    ThreadCompleted,
     DecisionMade,
     ErrorOccurred,
     StateChanged,
@@ -91,15 +91,15 @@ public enum ActivityEventType
     ValidationProgress,
 
     /// <summary>
-    /// Emitted when a conversation is closed before the dispatcher would
+    /// Emitted when a thread is closed before the dispatcher would
     /// otherwise complete it — either explicitly via the operator-facing
     /// close API / CLI (#1038) or implicitly by the actor surfacing a
     /// non-zero dispatch exit (#1036). Distinct from
-    /// <see cref="ConversationCompleted"/> so dashboards / read models can
+    /// <see cref="ThreadCompleted"/> so dashboards / read models can
     /// tell "agent finished its turn" apart from "operator (or runtime)
     /// terminated this thread." Appended at the end of the enum per #956:
     /// the actor-remoting wire format serialises this enum by ordinal, so
     /// any mid-insert would silently renumber existing events.
     /// </summary>
-    ConversationClosed,
+    ThreadClosed,
 }

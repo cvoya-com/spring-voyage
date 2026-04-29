@@ -82,20 +82,20 @@ public static class MessageEndpoints
         var messageId = Guid.NewGuid();
 
         // #985: AgentActor.HandleDomainMessageAsync hard-requires a
-        // ConversationId on Domain messages and surfaces the raw exception as
+        // ThreadId on Domain messages and surfaces the raw exception as
         // a 502 when it's missing. The OpenAPI contract marks the field
         // optional, so callers following the schema verbatim hit that
         // footgun. Mirror what the unit-routed path effectively does and
-        // auto-generate a conversation id for Domain messages bound for an
+        // auto-generate a thread id for Domain messages bound for an
         // agent:// target when the caller didn't supply one. The generated
         // (or caller-supplied) id is surfaced back on MessageResponse so the
-        // caller can thread follow-up sends under the same conversation.
-        var conversationId = request.ConversationId;
+        // caller can thread follow-up sends under the same thread.
+        var threadId = request.ThreadId;
         if (messageType == MessageType.Domain
             && string.Equals(to.Scheme, "agent", StringComparison.OrdinalIgnoreCase)
-            && string.IsNullOrWhiteSpace(conversationId))
+            && string.IsNullOrWhiteSpace(threadId))
         {
-            conversationId = Guid.NewGuid().ToString();
+            threadId = Guid.NewGuid().ToString();
         }
 
         var message = new Message(
@@ -103,7 +103,7 @@ public static class MessageEndpoints
             from,
             to,
             messageType,
-            conversationId,
+            threadId,
             request.Payload,
             DateTimeOffset.UtcNow);
 
@@ -137,6 +137,6 @@ public static class MessageEndpoints
             };
         }
 
-        return Results.Ok(new MessageResponse(messageId, conversationId, result.Value?.Payload));
+        return Results.Ok(new MessageResponse(messageId, threadId, result.Value?.Payload));
     }
 }

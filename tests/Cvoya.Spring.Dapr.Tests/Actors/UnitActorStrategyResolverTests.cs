@@ -49,7 +49,7 @@ public class UnitActorStrategyResolverTests
             From: new Address("agent", "sender"),
             To: new Address("unit", "resolver-unit"),
             Type: MessageType.Domain,
-            ConversationId: Guid.NewGuid().ToString(),
+            ThreadId: Guid.NewGuid().ToString(),
             Payload: System.Text.Json.JsonSerializer.SerializeToElement(new { }),
             Timestamp: DateTimeOffset.UtcNow);
 
@@ -75,7 +75,7 @@ public class UnitActorStrategyResolverTests
             From: new Address("agent", "sender"),
             To: new Address("unit", "bare-unit"),
             Type: MessageType.Domain,
-            ConversationId: Guid.NewGuid().ToString(),
+            ThreadId: Guid.NewGuid().ToString(),
             Payload: System.Text.Json.JsonSerializer.SerializeToElement(new { }),
             Timestamp: DateTimeOffset.UtcNow);
 
@@ -103,7 +103,7 @@ public class UnitActorStrategyResolverTests
             From: new Address("agent", "sender"),
             To: new Address("unit", "scope-unit"),
             Type: MessageType.Domain,
-            ConversationId: Guid.NewGuid().ToString(),
+            ThreadId: Guid.NewGuid().ToString(),
             Payload: System.Text.Json.JsonSerializer.SerializeToElement(new { }),
             Timestamp: DateTimeOffset.UtcNow);
 

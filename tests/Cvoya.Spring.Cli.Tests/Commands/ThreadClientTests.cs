@@ -11,33 +11,27 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Kiota-client tests for the thread + inbox wrappers (renamed from
-/// ConversationClientTests per ADR-0030 / #1288).
+/// Kiota-client tests for the new conversation + inbox wrappers added in #452 / #456.
 /// Keep these as small, focused integration tests mirroring
 /// <see cref="SpringApiClientTests"/> — each asserts the HTTP path, method,
 /// body shape, and response parsing for a single wrapper method.
 /// </summary>
-/// <remarks>
-/// TODO(#1291): the expected API paths below still use <c>/conversations</c>.
-/// Once #1291 lands (API URL rename to <c>/threads</c>), update the
-/// <c>expectedPath</c> strings here and regenerate the Kiota client.
-/// </remarks>
 public class ThreadClientTests
 {
     private const string BaseUrl = "http://localhost:5000";
 
     [Fact]
-    public async Task ListThreadsAsync_CallsCorrectEndpointAndParsesResponse()
+    public async Task ListConversationsAsync_CallsCorrectEndpointAndParsesResponse()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/tenant/conversations",
+            expectedPath: "/api/v1/tenant/threads",
             expectedMethod: HttpMethod.Get,
             responseBody: """[{"id":"c-1","participants":["agent://ada","human://savasp"],"status":"active","lastActivity":"2026-04-01T10:00:00Z","createdAt":"2026-04-01T09:55:00Z","eventCount":4,"origin":"agent://ada","summary":"Starting review."}]""");
 
         var httpClient = new HttpClient(handler);
         var client = new SpringApiClient(httpClient, BaseUrl);
 
-        var result = await client.ListThreadsAsync(ct: TestContext.Current.CancellationToken);
+        var result = await client.ListConversationsAsync(ct: TestContext.Current.CancellationToken);
 
         result.ShouldNotBeNull();
         result.Count.ShouldBe(1);
@@ -50,10 +44,10 @@ public class ThreadClientTests
     }
 
     [Fact]
-    public async Task ListThreadsAsync_WithFilters_ForwardsQueryParameters()
+    public async Task ListConversationsAsync_WithFilters_ForwardsQueryParameters()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/tenant/conversations",
+            expectedPath: "/api/v1/tenant/threads",
             expectedMethod: HttpMethod.Get,
             responseBody: "[]",
             validateQuery: query =>
@@ -66,7 +60,7 @@ public class ThreadClientTests
         var httpClient = new HttpClient(handler);
         var client = new SpringApiClient(httpClient, BaseUrl);
 
-        var result = await client.ListThreadsAsync(
+        var result = await client.ListConversationsAsync(
             unit: "eng-team",
             status: "active",
             limit: 25,
@@ -77,35 +71,35 @@ public class ThreadClientTests
     }
 
     [Fact]
-    public async Task GetThreadAsync_CallsCorrectEndpointAndParsesDetail()
+    public async Task GetConversationAsync_CallsCorrectEndpointAndParsesDetail()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/tenant/conversations/c-1",
+            expectedPath: "/api/v1/tenant/threads/c-1",
             expectedMethod: HttpMethod.Get,
-            responseBody: """{"summary":{"id":"c-1","participants":["agent://ada"],"status":"active","lastActivity":"2026-04-01T10:00:00Z","createdAt":"2026-04-01T09:55:00Z","eventCount":2,"origin":"agent://ada","summary":"Started"},"events":[{"id":"00000000-0000-0000-0000-000000000001","timestamp":"2026-04-01T09:55:00Z","source":"agent://ada","eventType":"ConversationStarted","severity":"Info","summary":"Started conversation c-1"}]}""");
+            responseBody: """{"summary":{"id":"c-1","participants":["agent://ada"],"status":"active","lastActivity":"2026-04-01T10:00:00Z","createdAt":"2026-04-01T09:55:00Z","eventCount":2,"origin":"agent://ada","summary":"Started"},"events":[{"id":"00000000-0000-0000-0000-000000000001","timestamp":"2026-04-01T09:55:00Z","source":"agent://ada","eventType":"ThreadStarted","severity":"Info","summary":"Started thread c-1"}]}""");
 
         var httpClient = new HttpClient(handler);
         var client = new SpringApiClient(httpClient, BaseUrl);
 
-        var result = await client.GetThreadAsync("c-1", TestContext.Current.CancellationToken);
+        var result = await client.GetConversationAsync("c-1", TestContext.Current.CancellationToken);
 
         result.ShouldNotBeNull();
         result.Summary.ShouldNotBeNull();
         result.Summary!.Id.ShouldBe("c-1");
         result.Events.ShouldNotBeNull();
         result.Events!.Count.ShouldBe(1);
-        result.Events[0].EventType.ShouldBe("ConversationStarted");
+        result.Events[0].EventType.ShouldBe("ThreadStarted");
         handler.WasCalled.ShouldBeTrue();
     }
 
     [Fact]
-    public async Task SendThreadMessageAsync_PostsToCorrectEndpointWithWrappedBody()
+    public async Task SendConversationMessageAsync_PostsToCorrectEndpointWithWrappedBody()
     {
         var threadId = "c-1";
         var handler = new MockHttpMessageHandler(
-            expectedPath: $"/api/v1/tenant/conversations/{threadId}/messages",
+            expectedPath: $"/api/v1/tenant/threads/{threadId}/messages",
             expectedMethod: HttpMethod.Post,
-            responseBody: $$"""{"messageId":"{{Guid.NewGuid()}}","conversationId":"{{threadId}}"}""",
+            responseBody: $$"""{"messageId":"{{Guid.NewGuid()}}","threadId":"{{threadId}}"}""",
             validateRequestBody: body =>
             {
                 var json = JsonSerializer.Deserialize<JsonElement>(body);
@@ -117,13 +111,13 @@ public class ThreadClientTests
         var httpClient = new HttpClient(handler);
         var client = new SpringApiClient(httpClient, BaseUrl);
 
-        var result = await client.SendThreadMessageAsync(
+        var result = await client.SendConversationMessageAsync(
             threadId, "agent", "ada", "Looks good — ship it.",
             TestContext.Current.CancellationToken);
 
         result.ShouldNotBeNull();
         result.MessageId.ShouldNotBeNull();
-        result.ConversationId.ShouldBe(threadId);
+        result.ThreadId.ShouldBe(threadId);
         handler.WasCalled.ShouldBeTrue();
     }
 
@@ -133,7 +127,7 @@ public class ThreadClientTests
         var handler = new MockHttpMessageHandler(
             expectedPath: "/api/v1/tenant/inbox",
             expectedMethod: HttpMethod.Get,
-            responseBody: """[{"conversationId":"c-9","from":"agent://ada","human":"human://savasp","pendingSince":"2026-04-01T10:00:00Z","summary":"Needs your approval to merge."}]""");
+            responseBody: """[{"threadId":"c-9","from":"agent://ada","human":"human://savasp","pendingSince":"2026-04-01T10:00:00Z","summary":"Needs your approval to merge."}]""");
 
         var httpClient = new HttpClient(handler);
         var client = new SpringApiClient(httpClient, BaseUrl);
@@ -141,7 +135,7 @@ public class ThreadClientTests
         var result = await client.ListInboxAsync(TestContext.Current.CancellationToken);
 
         result.Count.ShouldBe(1);
-        result[0].ConversationId.ShouldBe("c-9");
+        result[0].ThreadId.ShouldBe("c-9");
         result[0].From.ShouldBe("agent://ada");
         handler.WasCalled.ShouldBeTrue();
     }

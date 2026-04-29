@@ -178,8 +178,8 @@ public class MessageRouterTests
         var actorProxy = Substitute.For<IAgent>();
         actorProxy.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
             .Throws(new CallerValidationException(
-                CallerValidationCodes.MissingConversationId,
-                "Domain messages must have a ConversationId"));
+                CallerValidationCodes.MissingThreadId,
+                "Domain messages must have a ThreadId"));
 
         _agentProxyResolver.Resolve("agent", "actor-ada").Returns(actorProxy);
 
@@ -187,8 +187,8 @@ public class MessageRouterTests
 
         result.IsSuccess.ShouldBeFalse();
         result.Error!.Code.ShouldBe("CALLER_VALIDATION");
-        result.Error.DetailCode.ShouldBe(CallerValidationCodes.MissingConversationId);
-        result.Error.Detail.ShouldBe("Domain messages must have a ConversationId");
+        result.Error.DetailCode.ShouldBe(CallerValidationCodes.MissingThreadId);
+        result.Error.Detail.ShouldBe("Domain messages must have a ThreadId");
     }
 
     [Fact]
@@ -366,7 +366,7 @@ public class MessageRouterTests
             original.To,
             original.From,
             MessageType.Domain,
-            original.ConversationId,
+            original.ThreadId,
             JsonSerializer.SerializeToElement(new { Acknowledged = true, Label = label }),
             DateTimeOffset.UtcNow);
 }

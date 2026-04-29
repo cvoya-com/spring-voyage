@@ -60,14 +60,14 @@ public class CheckMessagesToolTests
             JsonSerializer.SerializeToElement(new { Text = "World" }),
             DateTimeOffset.UtcNow);
 
-        var channel = new ConversationChannel
+        var channel = new ThreadChannel
         {
-            ConversationId = "conv-1",
+            ThreadId = "conv-1",
             Messages = [message1, message2]
         };
 
-        _stateManager.TryGetStateAsync<ConversationChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<ConversationChannel>(true, channel));
+        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<ThreadChannel>(true, channel));
 
         var result = await _tool.ExecuteAsync(
             JsonSerializer.SerializeToElement(new { }),
@@ -81,8 +81,8 @@ public class CheckMessagesToolTests
     [Fact]
     public async Task ExecuteAsync_NoMessages_ReturnsEmptyArray()
     {
-        _stateManager.TryGetStateAsync<ConversationChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<ConversationChannel>(false, default!));
+        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<ThreadChannel>(false, default!));
 
         var result = await _tool.ExecuteAsync(
             JsonSerializer.SerializeToElement(new { }),

@@ -50,7 +50,7 @@ public class GeminiLauncherTests
         // construction.
         var context = new AgentLaunchContext(
             AgentId: "gemini-agent",
-            ConversationId: "conv-88",
+            ThreadId: "conv-88",
             Prompt: "## Platform Instructions\nAnalyze thoroughly.",
             McpEndpoint: "http://host.docker.internal:9999/mcp/",
             McpToken: "gemini-secret-token");
@@ -68,7 +68,7 @@ public class GeminiLauncherTests
             .ShouldBe("Bearer gemini-secret-token");
 
         prep.EnvironmentVariables["SPRING_AGENT_ID"].ShouldBe(context.AgentId);
-        prep.EnvironmentVariables["SPRING_CONVERSATION_ID"].ShouldBe(context.ConversationId);
+        prep.EnvironmentVariables["SPRING_THREAD_ID"].ShouldBe(context.ThreadId);
         prep.EnvironmentVariables["SPRING_MCP_ENDPOINT"].ShouldBe(context.McpEndpoint);
         prep.EnvironmentVariables["SPRING_AGENT_TOKEN"].ShouldBe(context.McpToken);
         prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldBe(context.Prompt);

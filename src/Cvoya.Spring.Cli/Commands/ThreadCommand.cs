@@ -10,25 +10,16 @@ using Cvoya.Spring.Cli.Output;
 using Cvoya.Spring.Cli.Utilities;
 
 /// <summary>
-/// Builds the <c>spring thread</c> verb family. Four subcommands:
+/// Builds the <c>spring thread</c> verb family (#452). Three subcommands:
 /// <c>list</c> — filtered thread summaries; <c>show &lt;id&gt;</c> — the full
-/// thread (summary + ordered events); <c>send --thread &lt;id&gt;</c> — send a
+/// thread (summary + ordered events); <c>send --thread &lt;id&gt;</c> — thread a
 /// message into an existing thread (deliberately distinct from
 /// <c>spring message send</c> which targets an address and implicitly starts a
-/// new thread when no id is supplied); <c>close &lt;id&gt;</c> — operator-driven
-/// close for threads stuck due to actor failure.
+/// new thread when no id is supplied).
 /// </summary>
-/// <remarks>
-/// Renamed from <c>ConversationCommand</c> per ADR-0030 (Thread / Engagement /
-/// Collaboration terminology). The CLI is system-facing; the audience term is
-/// <c>thread</c>.
-/// TODO(#1291): the underlying API URL is still <c>/api/v1/tenant/conversations</c>.
-/// Once #1291 lands (API URL rename to <c>/api/v1/tenant/threads</c>), regenerate
-/// the Kiota client and remove this note.
-/// </remarks>
 public static class ThreadCommand
 {
-    private static readonly OutputFormatter.Column<ConversationSummary>[] ListColumns =
+    private static readonly OutputFormatter.Column<ThreadSummary>[] ListColumns =
     {
         new("id", c => c.Id),
         new("status", c => c.Status),
@@ -44,7 +35,7 @@ public static class ThreadCommand
     /// </summary>
     public static Command Create(Option<string> outputOption)
     {
-        var cmd = new Command("thread", "Inspect and manage threads");
+        var cmd = new Command("thread", "Inspect and respond to threads");
         cmd.Subcommands.Add(CreateListCommand(outputOption));
         cmd.Subcommands.Add(CreateShowCommand(outputOption));
         cmd.Subcommands.Add(CreateSendCommand(outputOption));
@@ -76,7 +67,7 @@ public static class ThreadCommand
             var output = parseResult.GetValue(outputOption) ?? "table";
             var client = ClientFactory.Create();
 
-            var result = await client.ListThreadsAsync(
+            var result = await client.ListConversationsAsync(
                 unit: parseResult.GetValue(unitOption),
                 agent: parseResult.GetValue(agentOption),
                 status: parseResult.GetValue(statusOption),
@@ -87,6 +78,7 @@ public static class ThreadCommand
             Console.WriteLine(output == "json"
                 ? OutputFormatter.FormatJson(result)
                 : OutputFormatter.FormatTable(result, ListColumns));
+
         });
 
         return command;
@@ -106,7 +98,7 @@ public static class ThreadCommand
 
             try
             {
-                var detail = await client.GetThreadAsync(id, ct);
+                var detail = await client.GetConversationAsync(id, ct);
 
                 if (output == "json")
                 {
@@ -126,7 +118,7 @@ public static class ThreadCommand
                     Console.WriteLine();
                 }
 
-                var events = detail.Events ?? new List<ConversationEvent>();
+                var events = detail.Events ?? new List<ThreadEvent>();
                 // #1209: render the message body inline for events that
                 // carry one (the activity-projection now stamps the
                 // sender / recipient / body on every MessageReceived
@@ -148,7 +140,7 @@ public static class ThreadCommand
     private static Command CreateSendCommand(Option<string> outputOption)
     {
         // `spring thread send` requires an existing thread id — that
-        // is the whole point of the verb. `spring message send`
+        // is the whole point of the verb, per #452. `spring message send`
         // already covers the start-a-new-thread path.
         var threadOption = new Option<string>("--thread")
         {
@@ -180,12 +172,12 @@ public static class ThreadCommand
 
             try
             {
-                var result = await client.SendThreadMessageAsync(
+                var result = await client.SendConversationMessageAsync(
                     threadId, scheme, path, text, ct);
 
                 Console.WriteLine(output == "json"
                     ? OutputFormatter.FormatJson(result)
-                    : $"Message sent to {address} in thread {result.ConversationId}. (id: {result.MessageId?.ToString() ?? "n/a"})");
+                    : $"Message sent to {address} in thread {result.ThreadId}. (id: {result.MessageId?.ToString() ?? "n/a"})");
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
@@ -226,7 +218,7 @@ public static class ThreadCommand
 
             try
             {
-                var detail = await client.CloseThreadAsync(id, reason, ct);
+                var detail = await client.CloseConversationAsync(id, reason, ct);
 
                 if (output == "json")
                 {
@@ -264,7 +256,7 @@ public static class ThreadCommand
     /// carries one (#1209). Other event types fall back to the existing
     /// summary-only row so the timeline stays compact.
     /// </summary>
-    internal static void RenderThreadEvents(IReadOnlyList<ConversationEvent> events)
+    internal static void RenderThreadEvents(IReadOnlyList<ThreadEvent> events)
     {
         if (events.Count == 0)
         {

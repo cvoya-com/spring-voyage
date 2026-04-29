@@ -94,10 +94,10 @@ public class AgentActorEffectiveMetadataTests
 
         SetStateManager(_actor, _stateManager);
 
-        _stateManager.TryGetStateAsync<ConversationChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<ConversationChannel>(false, default!));
-        _stateManager.TryGetStateAsync<List<ConversationChannel>>(StateKeys.PendingConversations, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<List<ConversationChannel>>(false, default!));
+        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<ThreadChannel>(false, default!));
+        _stateManager.TryGetStateAsync<List<ThreadChannel>>(StateKeys.PendingConversations, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<List<ThreadChannel>>(false, default!));
 
         // Default: no agent-global metadata set.
         _stateManager.TryGetStateAsync<string>(Arg.Any<string>(), Arg.Any<CancellationToken>())
@@ -113,14 +113,14 @@ public class AgentActorEffectiveMetadataTests
             .Returns((UnitMembership?)null);
     }
 
-    private static Message DomainMessageFrom(Address from, string conversationId = "conv-1")
+    private static Message DomainMessageFrom(Address from, string threadId = "conv-1")
     {
         return new Message(
             Guid.NewGuid(),
             from,
             new Address("agent", AgentId),
             MessageType.Domain,
-            conversationId,
+            threadId,
             JsonSerializer.SerializeToElement(new { task = "do-it" }),
             DateTimeOffset.UtcNow);
     }
@@ -202,7 +202,7 @@ public class AgentActorEffectiveMetadataTests
         // No active conversation was written either — the agent remained idle.
         await _stateManager.DidNotReceive().SetStateAsync(
             StateKeys.ActiveConversation,
-            Arg.Any<ConversationChannel>(),
+            Arg.Any<ThreadChannel>(),
             Arg.Any<CancellationToken>());
 
         // Operators need to be able to see this as a DecisionMade with a
@@ -347,9 +347,9 @@ public class AgentActorEffectiveMetadataTests
         await _actor.PendingDispatchTask!;
 
         // After the first message the active conversation exists.
-        _stateManager.TryGetStateAsync<ConversationChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<ConversationChannel>(true,
-                new ConversationChannel { ConversationId = "conv-1", Messages = [msg1] }));
+        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<ThreadChannel>(true,
+                new ThreadChannel { ThreadId = "conv-1", Messages = [msg1] }));
 
         var msg2 = DomainMessageFrom(new Address("unit", UnitId), "conv-1");
         await _actor.ReceiveAsync(msg2, TestContext.Current.CancellationToken);
@@ -384,8 +384,8 @@ public class AgentActorEffectiveMetadataTests
         // goes to pending — but when we promote conv-b, the membership
         // merge must run against unit-b. Simulate the flow: cancel conv-a,
         // then send conv-b fresh (no active).
-        _stateManager.TryGetStateAsync<ConversationChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<ConversationChannel>(false, default!));
+        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<ThreadChannel>(false, default!));
 
         var msgB = DomainMessageFrom(new Address("unit", "unit-b"), "conv-b");
         await _actor.ReceiveAsync(msgB, TestContext.Current.CancellationToken);

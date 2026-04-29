@@ -117,7 +117,7 @@ public class SpringApiClientTests
             "executionMode": "Auto",
             "parentUnit": "eng-team"
           },
-          "status": "{\"Status\":\"Idle\",\"ActiveConversationId\":null,\"PendingConversationCount\":0}",
+          "status": "{\"Status\":\"Idle\",\"ActiveThreadId\":null,\"PendingConversationCount\":0}",
           "deployment": null
         }
         """;
@@ -1262,7 +1262,7 @@ public class SpringApiClientTests
     public async Task CloseThreadAsync_PostsCloseEndpointWithReason()
     {
         var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/tenant/conversations/c-1/close",
+            expectedPath: "/api/v1/tenant/threads/c-1/close",
             expectedMethod: HttpMethod.Post,
             responseBody: """{"summary":{"id":"c-1","participants":["agent://ada"],"status":"closed","createdAt":"2026-04-01T00:00:00Z","lastActivity":"2026-04-01T00:00:01Z","messageCount":2,"lastSpeaker":"agent://ada","lastSummary":"Conversation closed"},"events":[]}""",
             validateRequestBody: body =>

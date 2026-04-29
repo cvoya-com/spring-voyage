@@ -25,11 +25,11 @@ public class FlowMemoryToParentActivity(
     {
         // Copy active conversation state from clone to parent.
         var cloneActiveKey = $"{input.TargetAgentId}:{StateKeys.ActiveConversation}";
-        var activeConversation = await stateStore.GetAsync<object>(cloneActiveKey);
-        if (activeConversation is not null)
+        var activeThread = await stateStore.GetAsync<object>(cloneActiveKey);
+        if (activeThread is not null)
         {
             var parentActiveKey = $"{input.SourceAgentId}:{StateKeys.ActiveConversation}";
-            await stateStore.SetAsync(parentActiveKey, activeConversation);
+            await stateStore.SetAsync(parentActiveKey, activeThread);
         }
 
         // Copy initiative state from clone to parent.

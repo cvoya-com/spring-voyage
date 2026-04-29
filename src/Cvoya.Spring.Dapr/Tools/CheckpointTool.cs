@@ -11,8 +11,8 @@ using Cvoya.Spring.Dapr.Actors;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// Platform tool that saves checkpoint data for the current conversation.
-/// Stores arbitrary JSON data in the agent's state under a conversation-specific key.
+/// Platform tool that saves checkpoint data for the current thread.
+/// Stores arbitrary JSON data in the agent's state under a thread-specific key.
 /// </summary>
 public class CheckpointTool(
     ToolExecutionContextAccessor contextAccessor,
@@ -39,7 +39,7 @@ public class CheckpointTool(
     public string Name => "checkpoint";
 
     /// <inheritdoc />
-    public string Description => "Save progress on the current conversation.";
+    public string Description => "Save progress on the current thread.";
 
     /// <inheritdoc />
     public JsonElement ParametersSchema => Schema;
@@ -53,15 +53,15 @@ public class CheckpointTool(
         var executionContext = contextAccessor.Current
             ?? throw new InvalidOperationException("Tool execution context is not set.");
 
-        var conversationId = executionContext.ConversationId
-            ?? throw new InvalidOperationException("Cannot checkpoint without an active conversation.");
+        var threadId = executionContext.ThreadId
+            ?? throw new InvalidOperationException("Cannot checkpoint without an active thread.");
 
         var data = parameters.GetProperty("data");
 
-        var stateKey = $"{StateKeys.CheckpointPrefix}{conversationId}";
+        var stateKey = $"{StateKeys.CheckpointPrefix}{threadId}";
 
-        _logger.LogDebug("Checkpoint for agent {AgentPath}, conversation {ConversationId}",
-            executionContext.AgentAddress.Path, conversationId);
+        _logger.LogDebug("Checkpoint for agent {AgentPath}, thread {ThreadId}",
+            executionContext.AgentAddress.Path, threadId);
 
         await executionContext.StateManager.SetStateAsync(stateKey, data, cancellationToken);
 

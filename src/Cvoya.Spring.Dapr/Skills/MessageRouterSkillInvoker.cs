@@ -96,7 +96,7 @@ public class MessageRouterSkillInvoker(
                 $"Skill '{invocation.SkillName}' is not available to this caller.");
         }
 
-        var conversationId = invocation.CorrelationId ?? Guid.NewGuid().ToString("N");
+        var threadId = invocation.CorrelationId ?? Guid.NewGuid().ToString("N");
         var from = invocation.Caller ?? new Address("skill", "anonymous");
 
         var payload = BuildPayload(invocation.SkillName, invocation.Arguments, resolved);
@@ -106,7 +106,7 @@ public class MessageRouterSkillInvoker(
             From: from,
             To: resolved.Target,
             Type: MessageType.Domain,
-            ConversationId: conversationId,
+            ThreadId: threadId,
             Payload: payload,
             Timestamp: timeProvider.GetUtcNow());
 

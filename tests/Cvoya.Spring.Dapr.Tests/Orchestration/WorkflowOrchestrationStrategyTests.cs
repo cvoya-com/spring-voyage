@@ -57,14 +57,14 @@ public class WorkflowOrchestrationStrategyTests
         _context.Members.Returns([new Address("agent", "agent-1")]);
     }
 
-    private static Message CreateMessage(string? conversationId = null)
+    private static Message CreateMessage(string? threadId = null)
     {
         return new Message(
             Guid.NewGuid(),
             new Address("agent", "test-sender"),
             new Address("unit", "test-unit"),
             MessageType.Domain,
-            conversationId ?? Guid.NewGuid().ToString(),
+            threadId ?? Guid.NewGuid().ToString(),
             JsonSerializer.SerializeToElement(new { Task = "run workflow" }),
             DateTimeOffset.UtcNow);
     }
@@ -101,7 +101,7 @@ public class WorkflowOrchestrationStrategyTests
         result!.Type.ShouldBe(MessageType.Domain);
         result.From.ShouldBe(message.To);
         result.To.ShouldBe(message.From);
-        result.ConversationId.ShouldBe(message.ConversationId);
+        result.ThreadId.ShouldBe(message.ThreadId);
 
         var payload = result.Payload.Deserialize<JsonElement>();
         payload.GetProperty("Output").GetString().ShouldBe("workflow result data");

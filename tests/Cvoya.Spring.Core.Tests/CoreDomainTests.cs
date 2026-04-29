@@ -132,13 +132,13 @@ public class MessageTests
         message.From.ShouldBe(from);
         message.To.ShouldBe(to);
         message.Type.ShouldBe(MessageType.Domain);
-        message.ConversationId.ShouldBe("conv-1");
+        message.ThreadId.ShouldBe("conv-1");
         message.Payload.GetProperty("key").GetString().ShouldBe("value");
         message.Timestamp.ShouldBe(timestamp);
     }
 
     [Fact]
-    public void Constructor_WithNullConversationId_CreatesMessage()
+    public void Constructor_WithNullThreadId_CreatesMessage()
     {
         var payload = JsonDocument.Parse("{}").RootElement;
 
@@ -151,7 +151,7 @@ public class MessageTests
             payload,
             DateTimeOffset.UtcNow);
 
-        message.ConversationId.ShouldBeNull();
+        message.ThreadId.ShouldBeNull();
     }
 
     [Fact]
@@ -218,14 +218,14 @@ public class ActivityEventTests
 
         var activityEvent = new ActivityEvent(
             id, timestamp, source,
-            ActivityEventType.ConversationCompleted,
+            ActivityEventType.ThreadCompleted,
             ActivitySeverity.Info,
             "Agent completed the task");
 
         activityEvent.Id.ShouldBe(id);
         activityEvent.Timestamp.ShouldBe(timestamp);
         activityEvent.Source.ShouldBe(source);
-        activityEvent.EventType.ShouldBe(ActivityEventType.ConversationCompleted);
+        activityEvent.EventType.ShouldBe(ActivityEventType.ThreadCompleted);
         activityEvent.Severity.ShouldBe(ActivitySeverity.Info);
         activityEvent.Summary.ShouldBe("Agent completed the task");
         activityEvent.Details.ShouldBeNull();

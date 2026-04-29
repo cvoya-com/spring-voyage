@@ -32,54 +32,54 @@ using Xunit;
 /// the HTTP plumbing — parameter binding, 404/400 branches, body shape —
 /// without having to spin up the real EF-backed projection.
 /// </summary>
-public class ConversationEndpointsTests : IClassFixture<ConversationEndpointsTests.Factory>
+public class ThreadEndpointsTests : IClassFixture<ThreadEndpointsTests.Factory>
 {
     private readonly Factory _factory;
     private readonly HttpClient _client;
 
-    public ConversationEndpointsTests(Factory factory)
+    public ThreadEndpointsTests(Factory factory)
     {
         _factory = factory;
         _client = factory.CreateClient();
     }
 
     [Fact]
-    public async Task ListConversations_NoFilters_ReturnsQueryServiceResult()
+    public async Task ListThreads_NoFilters_ReturnsQueryServiceResult()
     {
         var ct = TestContext.Current.CancellationToken;
         var now = DateTimeOffset.UtcNow;
-        _factory.ConversationQueryService
-            .ListAsync(Arg.Any<ConversationQueryFilters>(), Arg.Any<CancellationToken>())
-            .Returns(new List<ConversationSummary>
+        _factory.ThreadQueryService
+            .ListAsync(Arg.Any<ThreadQueryFilters>(), Arg.Any<CancellationToken>())
+            .Returns(new List<ThreadSummary>
             {
                 new("c-1", new[] { "agent://ada" }, "active", now, now, 1, "agent://ada", "Started"),
             });
 
-        var response = await _client.GetAsync("/api/v1/tenant/conversations", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/threads", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        var rows = await response.Content.ReadFromJsonAsync<List<ConversationSummary>>(ct);
+        var rows = await response.Content.ReadFromJsonAsync<List<ThreadSummary>>(ct);
         rows.ShouldNotBeNull();
         rows!.Count.ShouldBe(1);
         rows[0].Id.ShouldBe("c-1");
     }
 
     [Fact]
-    public async Task ListConversations_WithFilters_PassesThemToService()
+    public async Task ListThreads_WithFilters_PassesThemToService()
     {
         var ct = TestContext.Current.CancellationToken;
-        _factory.ConversationQueryService
-            .ListAsync(Arg.Any<ConversationQueryFilters>(), Arg.Any<CancellationToken>())
-            .Returns(new List<ConversationSummary>());
+        _factory.ThreadQueryService
+            .ListAsync(Arg.Any<ThreadQueryFilters>(), Arg.Any<CancellationToken>())
+            .Returns(new List<ThreadSummary>());
 
         var response = await _client.GetAsync(
-            "/api/v1/tenant/conversations?unit=eng-team&agent=ada&status=active&participant=human%3A%2F%2Fsavasp&limit=25",
+            "/api/v1/tenant/threads?unit=eng-team&agent=ada&status=active&participant=human%3A%2F%2Fsavasp&limit=25",
             ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        await _factory.ConversationQueryService.Received(1)
+        await _factory.ThreadQueryService.Received(1)
             .ListAsync(
-                Arg.Is<ConversationQueryFilters>(f =>
+                Arg.Is<ThreadQueryFilters>(f =>
                     f.Unit == "eng-team" &&
                     f.Agent == "ada" &&
                     f.Status == "active" &&
@@ -89,43 +89,43 @@ public class ConversationEndpointsTests : IClassFixture<ConversationEndpointsTes
     }
 
     [Fact]
-    public async Task GetConversation_Missing_Returns404()
+    public async Task GetThread_Missing_Returns404()
     {
         var ct = TestContext.Current.CancellationToken;
-        _factory.ConversationQueryService
+        _factory.ThreadQueryService
             .GetAsync("c-missing", Arg.Any<CancellationToken>())
-            .Returns((ConversationDetail?)null);
+            .Returns((ThreadDetail?)null);
 
-        var response = await _client.GetAsync("/api/v1/tenant/conversations/c-missing", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/threads/c-missing", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
     [Fact]
-    public async Task GetConversation_Existing_ReturnsDetail()
+    public async Task GetThread_Existing_ReturnsDetail()
     {
         var ct = TestContext.Current.CancellationToken;
         var now = DateTimeOffset.UtcNow;
-        _factory.ConversationQueryService
+        _factory.ThreadQueryService
             .GetAsync("c-1", Arg.Any<CancellationToken>())
-            .Returns(new ConversationDetail(
-                new ConversationSummary("c-1", new[] { "agent://ada" }, "active", now, now, 1, "agent://ada", "s"),
-                new List<ConversationEvent>
+            .Returns(new ThreadDetail(
+                new ThreadSummary("c-1", new[] { "agent://ada" }, "active", now, now, 1, "agent://ada", "s"),
+                new List<ThreadEvent>
                 {
-                    new(Guid.NewGuid(), now, "agent://ada", "ConversationStarted", "Info", "Started conversation c-1"),
+                    new(Guid.NewGuid(), now, "agent://ada", "ThreadStarted", "Info", "Started conversation c-1"),
                 }));
 
-        var response = await _client.GetAsync("/api/v1/tenant/conversations/c-1", ct);
+        var response = await _client.GetAsync("/api/v1/tenant/threads/c-1", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        var detail = await response.Content.ReadFromJsonAsync<ConversationDetail>(ct);
+        var detail = await response.Content.ReadFromJsonAsync<ThreadDetail>(ct);
         detail.ShouldNotBeNull();
         detail!.Summary.Id.ShouldBe("c-1");
         detail.Events.Count.ShouldBe(1);
     }
 
     [Fact]
-    public async Task PostConversationMessage_RoutesThroughMessageRouter()
+    public async Task PostThreadMessage_RoutesThroughMessageRouter()
     {
         var ct = TestContext.Current.CancellationToken;
         // #499: Use ClearSubstitute so both received-call history AND any
@@ -139,21 +139,21 @@ public class ConversationEndpointsTests : IClassFixture<ConversationEndpointsTes
             .RouteAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
             .Returns(Result<Message?, RoutingError>.Success(null));
 
-        var body = new ConversationMessageRequest(
+        var body = new ThreadMessageRequest(
             new AddressDto("agent", "ada"),
             "Looks good — ship it.");
 
-        var response = await _client.PostAsJsonAsync("/api/v1/tenant/conversations/c-1/messages", body, ct);
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/threads/c-1/messages", body, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        var result = await response.Content.ReadFromJsonAsync<ConversationMessageResponse>(ct);
+        var result = await response.Content.ReadFromJsonAsync<ThreadMessageResponse>(ct);
         result.ShouldNotBeNull();
-        result!.ConversationId.ShouldBe("c-1");
+        result!.ThreadId.ShouldBe("c-1");
 
         await _factory.MessageRouter.Received(1).RouteAsync(
             Arg.Is<Message>(m =>
-                m.ConversationId == "c-1" &&
+                m.ThreadId == "c-1" &&
                 m.Type == MessageType.Domain &&
                 m.To.Scheme == "agent" &&
                 m.To.Path == "ada"),
@@ -161,10 +161,10 @@ public class ConversationEndpointsTests : IClassFixture<ConversationEndpointsTes
     }
 
     [Fact]
-    public async Task PostConversationMessage_PermissionDenied_Returns403()
+    public async Task PostThreadMessage_PermissionDenied_Returns403()
     {
         var ct = TestContext.Current.CancellationToken;
-        // #499: See PostConversationMessage_RoutesThroughMessageRouter for
+        // #499: See PostThreadMessage_RoutesThroughMessageRouter for
         // why ClearSubstitute (instead of ClearReceivedCalls) is required.
         _factory.MessageRouter.ClearSubstitute();
         _factory.MessageRouter
@@ -172,15 +172,15 @@ public class ConversationEndpointsTests : IClassFixture<ConversationEndpointsTes
             .Returns(Result<Message?, RoutingError>.Failure(
                 RoutingError.PermissionDenied(new Address("agent", "ada"))));
 
-        var body = new ConversationMessageRequest(new AddressDto("agent", "ada"), "hi");
+        var body = new ThreadMessageRequest(new AddressDto("agent", "ada"), "hi");
 
-        var response = await _client.PostAsJsonAsync("/api/v1/tenant/conversations/c-1/messages", body, ct);
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/threads/c-1/messages", body, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
     }
 
     [Fact]
-    public async Task PostConversationMessage_CallerValidation_Returns400WithCode()
+    public async Task PostThreadMessage_CallerValidation_Returns400WithCode()
     {
         // #993: CallerValidation routing errors thread through the
         // conversation-messaging endpoint the same way they do on
@@ -195,9 +195,9 @@ public class ConversationEndpointsTests : IClassFixture<ConversationEndpointsTes
                     CallerValidationCodes.UnknownMessageType,
                     "Unknown message type: Amendment")));
 
-        var body = new ConversationMessageRequest(new AddressDto("agent", "ada"), "hi");
+        var body = new ThreadMessageRequest(new AddressDto("agent", "ada"), "hi");
 
-        var response = await _client.PostAsJsonAsync("/api/v1/tenant/conversations/c-1/messages", body, ct);
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/threads/c-1/messages", body, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         var problem = await response.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>(ct);
@@ -206,7 +206,7 @@ public class ConversationEndpointsTests : IClassFixture<ConversationEndpointsTes
     }
 
     [Fact]
-    public async Task PostConversationMessage_DeliveryFailed_Returns502()
+    public async Task PostThreadMessage_DeliveryFailed_Returns502()
     {
         // Regression guard: genuine downstream failures still map to 502,
         // so the #993 recasting doesn't silently swallow real outages.
@@ -217,38 +217,38 @@ public class ConversationEndpointsTests : IClassFixture<ConversationEndpointsTes
             .Returns(Result<Message?, RoutingError>.Failure(
                 RoutingError.DeliveryFailed(new Address("agent", "ada"), "Actor unavailable")));
 
-        var body = new ConversationMessageRequest(new AddressDto("agent", "ada"), "hi");
+        var body = new ThreadMessageRequest(new AddressDto("agent", "ada"), "hi");
 
-        var response = await _client.PostAsJsonAsync("/api/v1/tenant/conversations/c-1/messages", body, ct);
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/threads/c-1/messages", body, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadGateway);
     }
 
-    // --- #1038 — POST /api/v1/conversations/{id}/close ---
+    // --- #1038 — POST /api/v1/threads/{id}/close ---
 
     [Fact]
-    public async Task CloseConversation_Existing_CallsAgentActorAndReturnsRefreshedDetail()
+    public async Task CloseThread_Existing_CallsAgentActorAndReturnsRefreshedDetail()
     {
         var ct = TestContext.Current.CancellationToken;
         var now = DateTimeOffset.UtcNow;
 
-        var beforeSummary = new ConversationSummary(
+        var beforeSummary = new ThreadSummary(
             "c-close", new[] { "agent://ada", "human://savasp" },
             "active", now, now, 1, "agent://ada", "Started");
-        var beforeDetail = new ConversationDetail(beforeSummary, new List<ConversationEvent>());
+        var beforeDetail = new ThreadDetail(beforeSummary, new List<ThreadEvent>());
 
         var afterSummary = beforeSummary with { Status = "closed" };
-        var afterDetail = new ConversationDetail(
+        var afterDetail = new ThreadDetail(
             afterSummary,
-            new List<ConversationEvent>
+            new List<ThreadEvent>
             {
-                new(Guid.NewGuid(), now, "agent://ada", "ConversationClosed", "Info", "Conversation closed (operator request)"),
+                new(Guid.NewGuid(), now, "agent://ada", "ThreadClosed", "Info", "Thread closed (operator request)"),
             });
 
         // First GetAsync returns the live conversation; second (post-close) returns
-        // the projected detail with the ConversationClosed event included.
-        _factory.ConversationQueryService.ClearSubstitute();
-        _factory.ConversationQueryService.GetAsync("c-close", Arg.Any<CancellationToken>())
+        // the projected detail with the ThreadClosed event included.
+        _factory.ThreadQueryService.ClearSubstitute();
+        _factory.ThreadQueryService.GetAsync("c-close", Arg.Any<CancellationToken>())
             .Returns(beforeDetail, afterDetail);
 
         var entry = new DirectoryEntry(
@@ -270,57 +270,57 @@ public class ConversationEndpointsTests : IClassFixture<ConversationEndpointsTes
             .CreateActorProxy<IAgentActor>(Arg.Is<ActorId>(id => id.GetId() == "ada"), nameof(AgentActor))
             .Returns(agentProxy);
 
-        var body = new CloseConversationRequest("operator request");
-        var response = await _client.PostAsJsonAsync("/api/v1/tenant/conversations/c-close/close", body, ct);
+        var body = new CloseThreadRequest("operator request");
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/threads/c-close/close", body, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        var detail = await response.Content.ReadFromJsonAsync<ConversationDetail>(ct);
+        var detail = await response.Content.ReadFromJsonAsync<ThreadDetail>(ct);
         detail.ShouldNotBeNull();
         detail!.Summary.Status.ShouldBe("closed");
         detail.Events.Count.ShouldBe(1);
-        detail.Events[0].EventType.ShouldBe("ConversationClosed");
+        detail.Events[0].EventType.ShouldBe("ThreadClosed");
 
         await agentProxy.Received(1).CloseConversationAsync(
             "c-close", "operator request", Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task CloseConversation_Missing_Returns404()
+    public async Task CloseThread_Missing_Returns404()
     {
         var ct = TestContext.Current.CancellationToken;
-        _factory.ConversationQueryService.ClearSubstitute();
-        _factory.ConversationQueryService.GetAsync("c-missing", Arg.Any<CancellationToken>())
-            .Returns((ConversationDetail?)null);
+        _factory.ThreadQueryService.ClearSubstitute();
+        _factory.ThreadQueryService.GetAsync("c-missing", Arg.Any<CancellationToken>())
+            .Returns((ThreadDetail?)null);
 
-        var body = new CloseConversationRequest("oops");
-        var response = await _client.PostAsJsonAsync("/api/v1/tenant/conversations/c-missing/close", body, ct);
+        var body = new CloseThreadRequest("oops");
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/threads/c-missing/close", body, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
     [Fact]
-    public async Task CloseConversation_NoAgentParticipants_StillReturnsOk()
+    public async Task CloseThread_NoAgentParticipants_StillReturnsOk()
     {
         // Conversations with only human participants have no actor proxies to
         // call — the endpoint must still succeed (and return the unchanged
         // detail) so operator UX doesn't break for human-only threads.
         var ct = TestContext.Current.CancellationToken;
         var now = DateTimeOffset.UtcNow;
-        var summary = new ConversationSummary(
+        var summary = new ThreadSummary(
             "c-human-only", new[] { "human://savasp" },
             "active", now, now, 0, "human://savasp", "Pending input");
-        var detail = new ConversationDetail(summary, new List<ConversationEvent>());
+        var detail = new ThreadDetail(summary, new List<ThreadEvent>());
 
-        _factory.ConversationQueryService.ClearSubstitute();
-        _factory.ConversationQueryService.GetAsync("c-human-only", Arg.Any<CancellationToken>())
+        _factory.ThreadQueryService.ClearSubstitute();
+        _factory.ThreadQueryService.GetAsync("c-human-only", Arg.Any<CancellationToken>())
             .Returns(detail);
         // ClearSubstitute on the shared ActorProxyFactory so the
         // DidNotReceive assertion below isn't polluted by other tests in
         // this class fixture that exercise the close endpoint.
         _factory.ActorProxyFactory.ClearSubstitute();
 
-        var body = new CloseConversationRequest(null);
-        var response = await _client.PostAsJsonAsync("/api/v1/tenant/conversations/c-human-only/close", body, ct);
+        var body = new CloseThreadRequest(null);
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/threads/c-human-only/close", body, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         _factory.ActorProxyFactory.DidNotReceive()
@@ -332,7 +332,7 @@ public class ConversationEndpointsTests : IClassFixture<ConversationEndpointsTes
     {
         var ct = TestContext.Current.CancellationToken;
         var now = DateTimeOffset.UtcNow;
-        _factory.ConversationQueryService
+        _factory.ThreadQueryService
             .ListInboxAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new List<InboxItem>
             {
@@ -345,18 +345,18 @@ public class ConversationEndpointsTests : IClassFixture<ConversationEndpointsTes
         var rows = await response.Content.ReadFromJsonAsync<List<InboxItem>>(ct);
         rows.ShouldNotBeNull();
         rows!.Count.ShouldBe(1);
-        rows[0].ConversationId.ShouldBe("c-9");
+        rows[0].ThreadId.ShouldBe("c-9");
     }
 
     /// <summary>
-    /// Factory specialisation that wires an <see cref="IConversationQueryService"/>
+    /// Factory specialisation that wires an <see cref="IThreadQueryService"/>
     /// mock through the DI container. We subclass
     /// <see cref="CustomWebApplicationFactory"/> so existing fixtures stay
     /// untouched while this file still gets the full Dapr-swap-out treatment.
     /// </summary>
     public sealed class Factory : CustomWebApplicationFactory
     {
-        public IConversationQueryService ConversationQueryService { get; } = Substitute.For<IConversationQueryService>();
+        public IThreadQueryService ThreadQueryService { get; } = Substitute.For<IThreadQueryService>();
 
         public IMessageRouter MessageRouter { get; } = Substitute.For<IMessageRouter>();
 
@@ -366,7 +366,7 @@ public class ConversationEndpointsTests : IClassFixture<ConversationEndpointsTes
             builder.ConfigureServices(services =>
             {
                 var descriptors = services
-                    .Where(d => d.ServiceType == typeof(IConversationQueryService)
+                    .Where(d => d.ServiceType == typeof(IThreadQueryService)
                              || d.ServiceType == typeof(IMessageRouter))
                     .ToList();
                 foreach (var d in descriptors)
@@ -374,7 +374,7 @@ public class ConversationEndpointsTests : IClassFixture<ConversationEndpointsTes
                     services.Remove(d);
                 }
 
-                services.AddSingleton(ConversationQueryService);
+                services.AddSingleton(ThreadQueryService);
                 services.AddSingleton(MessageRouter);
             });
         }

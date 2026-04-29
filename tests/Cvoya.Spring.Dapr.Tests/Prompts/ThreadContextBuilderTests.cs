@@ -13,11 +13,11 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Unit tests for <see cref="ConversationContextBuilder"/>.
+/// Unit tests for <see cref="ThreadContextBuilder"/>.
 /// </summary>
-public class ConversationContextBuilderTests
+public class ThreadContextBuilderTests
 {
-    private readonly ConversationContextBuilder _builder = new();
+    private readonly ThreadContextBuilder _builder = new();
 
     private static Message CreateMessage(string senderPath, string text)
     {
@@ -64,10 +64,10 @@ public class ConversationContextBuilderTests
     }
 
     /// <summary>
-    /// Verifies that empty conversation produces an empty string.
+    /// Verifies that empty thread produces an empty string.
     /// </summary>
     [Fact]
-    public void Build_HandlesEmptyConversation()
+    public void Build_HandlesEmptyThread()
     {
         var result = _builder.Build([], null);
 
@@ -101,7 +101,7 @@ public class ConversationContextBuilderTests
 
     /// <summary>
     /// The A2A-backed path wraps the message in { Task: "..." }; both shapes
-    /// must produce readable history to keep conversation context useful.
+    /// must produce readable history to keep thread context useful.
     /// </summary>
     [Fact]
     public void Build_AcceptsTaskPayloadShape()

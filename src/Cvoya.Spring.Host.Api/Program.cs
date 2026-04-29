@@ -270,7 +270,7 @@ try
     app.MapBudgetEndpoints().RequireAuthorization(RolePolicies.TenantOperator);
     app.MapInitiativeEndpoints().RequireAuthorization(RolePolicies.TenantUser);
     app.MapActivityEndpoints().RequireAuthorization(RolePolicies.TenantUser);
-    app.MapConversationEndpoints().RequireAuthorization(RolePolicies.TenantUser);
+    app.MapThreadEndpoints().RequireAuthorization(RolePolicies.TenantUser);
     app.MapInboxEndpoints().RequireAuthorization(RolePolicies.TenantUser);
     app.MapAnalyticsEndpoints().RequireAuthorization(RolePolicies.TenantUser);
     app.MapDashboardEndpoints().RequireAuthorization(RolePolicies.TenantUser);

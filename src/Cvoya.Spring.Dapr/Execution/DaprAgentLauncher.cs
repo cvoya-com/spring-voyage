@@ -70,8 +70,8 @@ public class DaprAgentLauncher(
         CancellationToken cancellationToken = default)
     {
         _logger.LogInformation(
-            "Prepared Dapr Agent launch request for agent {AgentId} conversation {ConversationId}",
-            context.AgentId, context.ConversationId);
+            "Prepared Dapr Agent launch request for agent {AgentId} thread {ThreadId}",
+            context.AgentId, context.ThreadId);
 
         var opts = ollamaOptions.Value;
 
@@ -89,7 +89,7 @@ public class DaprAgentLauncher(
         var envVars = new Dictionary<string, string>
         {
             ["SPRING_AGENT_ID"] = context.AgentId,
-            ["SPRING_CONVERSATION_ID"] = context.ConversationId,
+            ["SPRING_THREAD_ID"] = context.ThreadId,
             ["SPRING_MCP_ENDPOINT"] = context.McpEndpoint,
             ["SPRING_AGENT_TOKEN"] = context.McpToken,
             ["SPRING_SYSTEM_PROMPT"] = context.Prompt,

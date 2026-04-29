@@ -12,7 +12,7 @@ using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// Assembles prompts by composing four layers: platform instructions, unit context,
-/// conversation context, and agent instructions. The output is the system-prompt text
+/// thread context, and agent instructions. The output is the system-prompt text
 /// handed to the external agent runtime by <see cref="IExecutionDispatcher"/>.
 /// Stateless and safe to share across concurrent actors — all per-invocation state is
 /// passed through <see cref="AssembleAsync"/>.
@@ -20,7 +20,7 @@ using Microsoft.Extensions.Logging;
 public class PromptAssembler(
     IPlatformPromptProvider platformPromptProvider,
     UnitContextBuilder unitContextBuilder,
-    ConversationContextBuilder conversationContextBuilder,
+    ThreadContextBuilder threadContextBuilder,
     ILoggerFactory loggerFactory) : IPromptAssembler
 {
     private readonly ILogger _logger = loggerFactory.CreateLogger<PromptAssembler>();
@@ -57,15 +57,15 @@ public class PromptAssembler(
                 builder.AppendLine();
             }
 
-            // Layer 3: Conversation context
-            var conversationContext = conversationContextBuilder.Build(
+            // Layer 3: Thread context
+            var threadContext = threadContextBuilder.Build(
                 context.PriorMessages,
                 context.LastCheckpoint);
 
-            if (!string.IsNullOrWhiteSpace(conversationContext))
+            if (!string.IsNullOrWhiteSpace(threadContext))
             {
-                builder.AppendLine("## Conversation Context");
-                builder.AppendLine(conversationContext);
+                builder.AppendLine("## Thread Context");
+                builder.AppendLine(threadContext);
                 builder.AppendLine();
             }
 

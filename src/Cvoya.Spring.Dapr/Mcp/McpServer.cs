@@ -31,7 +31,7 @@ using Microsoft.Extensions.Options;
 /// a container and hands the resulting bearer token to the container via an env
 /// var. The server validates the <c>Authorization: Bearer &lt;token&gt;</c>
 /// header on every request and binds the call to the issued
-/// <see cref="McpSession"/>. Tokens are single-agent/single-conversation and
+/// <see cref="McpSession"/> . Tokens are single-agent/single-thread and
 /// revoked when the invocation completes.
 /// </remarks>
 public class McpServer : IMcpServer, IHostedService, IDisposable
@@ -69,7 +69,7 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
     /// <see cref="IUnitPolicyEnforcer"/> from a fresh scope and consults the
     /// unit-policy framework (#162) before dispatching to the underlying
     /// <see cref="ISkillRegistry"/>. Denials are surfaced to the model as a
-    /// tool error (isError=true) so the agent's conversation can see the
+    /// tool error (isError=true) so the agent's thread can see the
     /// block and adapt.
     /// </remarks>
     public McpServer(
@@ -102,10 +102,10 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
     public string? Endpoint { get; private set; }
 
     /// <inheritdoc />
-    public McpSession IssueSession(string agentId, string conversationId)
+    public McpSession IssueSession(string agentId, string threadId)
     {
         var token = GenerateToken();
-        var session = new McpSession(token, agentId, conversationId);
+        var session = new McpSession(token, agentId, threadId);
         _sessions[token] = session;
         return session;
     }
@@ -418,8 +418,8 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
         }
 
         _logger.LogInformation(
-            "MCP tools/call: {Tool} (agent={AgentId} conv={ConversationId})",
-            toolName, session.AgentId, session.ConversationId);
+            "MCP tools/call: {Tool} (agent={AgentId} thread={ThreadId})",
+            toolName, session.AgentId, session.ThreadId);
 
         // Unit-policy enforcement (#162 / #163). Every skill invocation
         // routes through IUnitPolicyEnforcer — if any unit the agent belongs
@@ -476,8 +476,8 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
             // self-correct, rather than as a JSON-RPC transport error. Server-side
             // details are logged so operators can still audit rejected calls.
             _logger.LogWarning(ex,
-                "MCP tool {Tool} rejected malformed arguments (agent={AgentId} conv={ConversationId})",
-                toolName, session.AgentId, session.ConversationId);
+                "MCP tool {Tool} rejected malformed arguments (agent={AgentId} thread={ThreadId})",
+                toolName, session.AgentId, session.ThreadId);
             await WriteResultAsync(response, request.Id, new
             {
                 content = new[]
@@ -497,8 +497,8 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
             // the model with isError so the loop can decide what to do. The exception is
             // fully logged server-side per #105 — we never swallow silently.
             _logger.LogError(ex,
-                "MCP tool {Tool} threw while executing (agent={AgentId} conv={ConversationId})",
-                toolName, session.AgentId, session.ConversationId);
+                "MCP tool {Tool} threw while executing (agent={AgentId} thread={ThreadId})",
+                toolName, session.AgentId, session.ThreadId);
             await WriteResultAsync(response, request.Id, new
             {
                 content = new[]
@@ -569,7 +569,7 @@ public class McpServer : IMcpServer, IHostedService, IDisposable
             meta = new
             {
                 agentId = session.AgentId,
-                conversationId = session.ConversationId
+                threadId = session.ThreadId
             }
         };
     }

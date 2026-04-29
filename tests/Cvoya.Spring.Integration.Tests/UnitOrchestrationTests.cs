@@ -103,7 +103,7 @@ public class UnitOrchestrationTests
     {
         var (actor, _, strategy) = ActorTestHost.CreateUnitActor(actorId: "resp-unit");
         var message = MessageFactory.CreateDomainMessage(toId: "resp-unit", toType: "unit");
-        var expectedResponse = MessageFactory.CreateDomainMessage(conversationId: message.ConversationId);
+        var expectedResponse = MessageFactory.CreateDomainMessage(threadId: message.ThreadId);
 
         strategy.OrchestrateAsync(message, Arg.Any<IUnitContext>(), Arg.Any<CancellationToken>())
             .Returns(expectedResponse);

@@ -96,7 +96,7 @@ public class WorkflowOrchestrationStrategy(
             originalMessage.To,
             originalMessage.From,
             MessageType.Domain,
-            originalMessage.ConversationId,
+            originalMessage.ThreadId,
             payload,
             DateTimeOffset.UtcNow);
     }

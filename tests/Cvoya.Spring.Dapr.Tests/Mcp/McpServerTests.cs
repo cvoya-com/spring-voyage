@@ -84,7 +84,7 @@ public class McpServerTests : IAsyncLifetime
         var result = json.GetProperty("result");
         result.GetProperty("serverInfo").GetProperty("name").GetString().ShouldBe("spring-voyage-mcp");
         result.GetProperty("meta").GetProperty("agentId").GetString().ShouldBe("agent-1");
-        result.GetProperty("meta").GetProperty("conversationId").GetString().ShouldBe("conv-1");
+        result.GetProperty("meta").GetProperty("threadId").GetString().ShouldBe("conv-1");
     }
 
     [Fact]

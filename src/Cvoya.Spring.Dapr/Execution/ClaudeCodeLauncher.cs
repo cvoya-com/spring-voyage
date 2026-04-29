@@ -96,13 +96,13 @@ public class ClaudeCodeLauncher(ILoggerFactory loggerFactory) : IAgentToolLaunch
         };
 
         _logger.LogInformation(
-            "Prepared Claude Code workspace request ({FileCount} files) for agent {AgentId} conversation {ConversationId}",
-            workspaceFiles.Count, context.AgentId, context.ConversationId);
+            "Prepared Claude Code workspace request ({FileCount} files) for agent {AgentId} thread {ThreadId}",
+            workspaceFiles.Count, context.AgentId, context.ThreadId);
 
         var envVars = new Dictionary<string, string>
         {
             ["SPRING_AGENT_ID"] = context.AgentId,
-            ["SPRING_CONVERSATION_ID"] = context.ConversationId,
+            ["SPRING_THREAD_ID"] = context.ThreadId,
             ["SPRING_MCP_ENDPOINT"] = context.McpEndpoint,
             ["SPRING_AGENT_TOKEN"] = context.McpToken,
             ["SPRING_SYSTEM_PROMPT"] = context.Prompt,

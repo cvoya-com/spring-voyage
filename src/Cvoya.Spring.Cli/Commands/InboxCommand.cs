@@ -26,7 +26,7 @@ public static class InboxCommand
 {
     private static readonly OutputFormatter.Column<InboxItem>[] ListColumns =
     {
-        new("thread", r => r.ConversationId),
+        new("thread", r => r.ThreadId),
         new("from", r => r.From),
         new("human", r => r.Human),
         new("pendingSince", r => FormatTimestamp(r.PendingSince)),
@@ -92,7 +92,7 @@ public static class InboxCommand
 
             try
             {
-                var detail = await client.GetThreadAsync(id, ct);
+                var detail = await client.GetConversationAsync(id, ct);
 
                 if (output == "json")
                 {
@@ -113,12 +113,12 @@ public static class InboxCommand
                 // #1209: thin alias of `spring thread show` — share
                 // the renderer so message bodies surface inline on inbox
                 // show too.
-                var events = detail.Events ?? new List<ConversationEvent>();
+                var events = detail.Events ?? new List<ThreadEvent>();
                 ThreadCommand.RenderThreadEvents(events);
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {
-                await Console.Error.WriteLineAsync($"Failed to load inbox thread '{id}': {ProblemDetailsFormatter.Format(ex)}");
+                await Console.Error.WriteLineAsync($"Failed to load inbox item '{id}': {ProblemDetailsFormatter.Format(ex)}");
                 Environment.Exit(1);
             }
         });
@@ -166,7 +166,7 @@ public static class InboxCommand
             {
                 var inbox = await client.ListInboxAsync(ct);
                 var match = inbox.FirstOrDefault(i =>
-                    string.Equals(i.ConversationId, id, StringComparison.Ordinal));
+                    string.Equals(i.ThreadId, id, StringComparison.Ordinal));
                 if (match is null || string.IsNullOrEmpty(match.From))
                 {
                     await Console.Error.WriteLineAsync(
@@ -181,10 +181,10 @@ public static class InboxCommand
 
             try
             {
-                var result = await client.SendThreadMessageAsync(id, scheme, path, text, ct);
+                var result = await client.SendConversationMessageAsync(id, scheme, path, text, ct);
                 Console.WriteLine(output == "json"
                     ? OutputFormatter.FormatJson(result)
-                    : $"Replied to {targetAddress} in thread {result.ConversationId}. (id: {result.MessageId?.ToString() ?? "n/a"})");
+                    : $"Replied to {targetAddress} in thread {result.ThreadId}. (id: {result.MessageId?.ToString() ?? "n/a"})");
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
             {

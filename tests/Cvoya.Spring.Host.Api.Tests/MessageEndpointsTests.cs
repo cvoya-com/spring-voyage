@@ -119,9 +119,9 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
-    public async Task SendMessage_DomainToAgentWithoutConversationId_AutoGeneratesAndReturns()
+    public async Task SendMessage_DomainToAgentWithoutThreadId_AutoGeneratesAndReturns()
     {
-        // #985: AgentActor hard-requires a ConversationId on Domain messages
+        // #985: AgentActor hard-requires a ThreadId on Domain messages
         // and surfaces its exception as a raw 502 when missing. The schema
         // marks the field optional, so the endpoint auto-generates a fresh
         // UUID for Domain sends to agent:// targets when the caller omits
@@ -161,17 +161,17 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<MessageResponse>(cancellationToken: ct);
         body.ShouldNotBeNull();
-        body!.ConversationId.ShouldNotBeNullOrWhiteSpace();
-        Guid.TryParse(body.ConversationId, out _).ShouldBeTrue();
+        body!.ThreadId.ShouldNotBeNullOrWhiteSpace();
+        Guid.TryParse(body.ThreadId, out _).ShouldBeTrue();
 
         observed.ShouldNotBeNull();
         // Same id must thread through to the actor call so AgentActor's
-        // ConversationId guard is satisfied.
-        observed!.ConversationId.ShouldBe(body.ConversationId);
+        // ThreadId guard is satisfied.
+        observed!.ThreadId.ShouldBe(body.ThreadId);
     }
 
     [Fact]
-    public async Task SendMessage_DomainToAgentWithConversationId_IsPassedThrough()
+    public async Task SendMessage_DomainToAgentWithThreadId_IsPassedThrough()
     {
         // Caller-supplied conversation ids must pass through untouched so
         // existing clients that thread under a known id keep working.
@@ -210,13 +210,13 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<MessageResponse>(cancellationToken: ct);
         body.ShouldNotBeNull();
-        body!.ConversationId.ShouldBe(suppliedId);
+        body!.ThreadId.ShouldBe(suppliedId);
         observed.ShouldNotBeNull();
-        observed!.ConversationId.ShouldBe(suppliedId);
+        observed!.ThreadId.ShouldBe(suppliedId);
     }
 
     [Fact]
-    public async Task SendMessage_DomainToUnitWithoutConversationId_DoesNotAutoGenerate()
+    public async Task SendMessage_DomainToUnitWithoutThreadId_DoesNotAutoGenerate()
     {
         // The auto-gen is scoped to agent:// targets — unit:// routing goes
         // through UnitActor which has its own conversation-opening behaviour
@@ -264,13 +264,13 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<MessageResponse>(cancellationToken: ct);
         body.ShouldNotBeNull();
-        body!.ConversationId.ShouldBeNull();
+        body!.ThreadId.ShouldBeNull();
         observed.ShouldNotBeNull();
-        observed!.ConversationId.ShouldBeNull();
+        observed!.ThreadId.ShouldBeNull();
     }
 
     [Fact]
-    public async Task SendMessage_NonDomainTypeToAgentWithoutConversationId_DoesNotAutoGenerate()
+    public async Task SendMessage_NonDomainTypeToAgentWithoutThreadId_DoesNotAutoGenerate()
     {
         // Control messages (HealthCheck, Cancel, StatusQuery, ...) don't need
         // a conversation id — keep them untouched so the auto-gen is strictly
@@ -309,9 +309,9 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<MessageResponse>(cancellationToken: ct);
         body.ShouldNotBeNull();
-        body!.ConversationId.ShouldBeNull();
+        body!.ThreadId.ShouldBeNull();
         observed.ShouldNotBeNull();
-        observed!.ConversationId.ShouldBeNull();
+        observed!.ThreadId.ShouldBeNull();
     }
 
     // #993: caller-side validation failures thrown inside the destination
@@ -340,8 +340,8 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         var agent = Substitute.For<IAgent>();
         agent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
             .Returns<Task<Message?>>(_ => throw new CallerValidationException(
-                CallerValidationCodes.MissingConversationId,
-                "Domain messages must have a ConversationId"));
+                CallerValidationCodes.MissingThreadId,
+                "Domain messages must have a ThreadId"));
         _factory.AgentProxyResolver
             .Resolve(Arg.Is<string>(s => string.Equals(s, "agent", StringComparison.OrdinalIgnoreCase)),
                 "actor-validating")
@@ -363,8 +363,8 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
 
         var problem = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
         problem.GetProperty("status").GetInt32().ShouldBe(400);
-        problem.GetProperty("detail").GetString().ShouldBe("Domain messages must have a ConversationId");
-        problem.GetProperty("code").GetString().ShouldBe(CallerValidationCodes.MissingConversationId);
+        problem.GetProperty("detail").GetString().ShouldBe("Domain messages must have a ThreadId");
+        problem.GetProperty("code").GetString().ShouldBe(CallerValidationCodes.MissingThreadId);
     }
 
     [Fact]
@@ -432,8 +432,8 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             .Returns(entry);
 
         var encodedMessage = new CallerValidationException(
-            CallerValidationCodes.MissingConversationId,
-            "Domain messages must have a ConversationId").Message;
+            CallerValidationCodes.MissingThreadId,
+            "Domain messages must have a ThreadId").Message;
 
         var agent = Substitute.For<IAgent>();
         agent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
@@ -453,8 +453,8 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         var problem = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
-        problem.GetProperty("detail").GetString().ShouldBe("Domain messages must have a ConversationId");
-        problem.GetProperty("code").GetString().ShouldBe(CallerValidationCodes.MissingConversationId);
+        problem.GetProperty("detail").GetString().ShouldBe("Domain messages must have a ThreadId");
+        problem.GetProperty("code").GetString().ShouldBe(CallerValidationCodes.MissingThreadId);
     }
 
     [Fact]

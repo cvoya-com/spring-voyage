@@ -109,7 +109,7 @@ public class MessageRouterSkillInvokerTests
         routedMessage.To.ShouldBe(agent);
         routedMessage.From.Path.ShouldBe("caller");
         routedMessage.Type.ShouldBe(MessageType.Domain);
-        routedMessage.ConversationId.ShouldBe("conv-42");
+        routedMessage.ThreadId.ShouldBe("conv-42");
         // Envelope carries skill metadata + original arguments.
         routedMessage.Payload.GetProperty("skill").GetString().ShouldBe(skill.SkillName);
         routedMessage.Payload.GetProperty("expertise").GetString().ShouldBe("python");
@@ -214,6 +214,6 @@ public class MessageRouterSkillInvokerTests
 
         result.IsSuccess.ShouldBeTrue();
         routedMessage.ShouldNotBeNull();
-        routedMessage.ConversationId.ShouldNotBeNullOrWhiteSpace();
+        routedMessage.ThreadId.ShouldNotBeNullOrWhiteSpace();
     }
 }

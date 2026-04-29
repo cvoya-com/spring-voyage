@@ -20,7 +20,7 @@ using Cvoya.Spring.Core.Messaging;
 ///   "targetScheme": "agent",
 ///   "targetPath":   "engineering-team/ada",
 ///   "content":      "…free-form message body…",
-///   "conversationId": "optional-correlation-id"
+///   "threadId": "optional-correlation-id"
 /// }
 /// </code>
 /// If any required field is missing, <see cref="TranslateAsync"/> returns
@@ -72,7 +72,7 @@ public class SendMessageReflectionActionHandler : IReflectionActionHandler
             return Task.FromResult<Message?>(null);
         }
 
-        var conversationId = ReflectionActionPayloadHelpers.ReadConversationId(payload);
+        var threadId = ReflectionActionPayloadHelpers.ReadThreadId(payload);
 
         var bodyPayload = JsonSerializer.SerializeToElement(new { Content = content });
 
@@ -81,7 +81,7 @@ public class SendMessageReflectionActionHandler : IReflectionActionHandler
             agentAddress,
             target,
             MessageType.Domain,
-            conversationId,
+            threadId,
             bodyPayload,
             DateTimeOffset.UtcNow);
 

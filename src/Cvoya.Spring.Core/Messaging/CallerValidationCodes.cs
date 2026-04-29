@@ -22,10 +22,10 @@ public static class CallerValidationCodes
 
     /// <summary>
     /// A Domain message was sent to an actor that requires a
-    /// <see cref="Message.ConversationId"/> and the caller omitted it.
-    /// Note the API endpoint auto-generates a conversation id for
+    /// <see cref="Message.ThreadId"/> and the caller omitted it.
+    /// Note the API endpoint auto-generates a thread id for
     /// <c>agent://</c> targets (#985), so this is primarily reached
-    /// through the conversation-threaded routes and direct actor calls.
+    /// through the thread-threaded routes and direct actor calls.
     /// </summary>
-    public const string MissingConversationId = "MISSING_CONVERSATION_ID";
+    public const string MissingThreadId = "MISSING_THREAD_ID";
 }

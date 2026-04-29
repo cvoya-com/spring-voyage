@@ -120,7 +120,7 @@ public class PersistentAgentLifecycle(
 
         var launchContext = new AgentLaunchContext(
             AgentId: agentId,
-            ConversationId: sessionId,
+            ThreadId: sessionId,
             Prompt: prompt,
             McpEndpoint: mcpServer.Endpoint,
             McpToken: session.Token,

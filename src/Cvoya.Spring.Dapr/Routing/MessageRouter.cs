@@ -266,7 +266,7 @@ public class MessageRouter(
             message.To,
             message.From,
             MessageType.Domain,
-            message.ConversationId,
+            message.ThreadId,
             aggregatedPayload,
             DateTimeOffset.UtcNow);
 

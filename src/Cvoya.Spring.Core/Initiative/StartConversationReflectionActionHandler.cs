@@ -9,9 +9,9 @@ using Cvoya.Spring.Core.Messaging;
 
 /// <summary>
 /// Default handler for the <c>start-conversation</c> reflection action type.
-/// Mints a fresh <c>ConversationId</c> if the payload does not supply one,
+/// Mints a fresh <c>ThreadId</c> if the payload does not supply one,
 /// so agents that act on their own initiative do not accidentally append to
-/// an unrelated live conversation.
+/// an unrelated live thread.
 /// </summary>
 /// <remarks>
 /// Expected payload shape:
@@ -19,7 +19,7 @@ using Cvoya.Spring.Core.Messaging;
 /// {
 ///   "targetScheme": "agent",
 ///   "targetPath":   "engineering-team/ada",
-///   "topic":        "Short human-readable conversation topic",
+///   "topic":        "Short human-readable thread topic",
 ///   "content":      "Optional first-message body"
 /// }
 /// </code>
@@ -70,8 +70,8 @@ public class StartConversationReflectionActionHandler : IReflectionActionHandler
             return Task.FromResult<Message?>(null);
         }
 
-        var conversationId =
-            ReflectionActionPayloadHelpers.ReadConversationId(payload)
+        var threadId =
+            ReflectionActionPayloadHelpers.ReadThreadId(payload)
             ?? Guid.NewGuid().ToString();
 
         var bodyPayload = JsonSerializer.SerializeToElement(new
@@ -85,7 +85,7 @@ public class StartConversationReflectionActionHandler : IReflectionActionHandler
             agentAddress,
             target,
             MessageType.Domain,
-            conversationId,
+            threadId,
             bodyPayload,
             DateTimeOffset.UtcNow);
 

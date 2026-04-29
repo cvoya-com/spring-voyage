@@ -55,7 +55,7 @@ public class StreamEventSubscriberTests
     }
 
     [Fact]
-    public async Task HandleAsync_Completed_PublishesConversationCompletedEvent()
+    public async Task HandleAsync_Completed_PublishesThreadCompletedEvent()
     {
         var completed = new StreamEvent.Completed(
             Guid.NewGuid(), DateTimeOffset.UtcNow, 100, 50, "end_turn");
@@ -71,7 +71,7 @@ public class StreamEventSubscriberTests
 
         await _activityEventBus.Received(1).PublishAsync(
             Arg.Is<ActivityEvent>(e =>
-                e.EventType == ActivityEventType.ConversationCompleted &&
+                e.EventType == ActivityEventType.ThreadCompleted &&
                 e.Summary == "Execution completed"),
             Arg.Any<CancellationToken>());
     }

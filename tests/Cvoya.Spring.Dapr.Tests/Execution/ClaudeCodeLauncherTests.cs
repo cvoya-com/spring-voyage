@@ -50,7 +50,7 @@ public class ClaudeCodeLauncherTests
         // dictionary construction.
         var context = new AgentLaunchContext(
             AgentId: "ada",
-            ConversationId: "conv-42",
+            ThreadId: "conv-42",
             Prompt: "## Platform Instructions\nBe helpful.",
             McpEndpoint: "http://host.docker.internal:9999/mcp/",
             McpToken: "top-secret-token");
@@ -68,7 +68,7 @@ public class ClaudeCodeLauncherTests
             .ShouldBe("Bearer top-secret-token");
 
         prep.EnvironmentVariables["SPRING_AGENT_ID"].ShouldBe(context.AgentId);
-        prep.EnvironmentVariables["SPRING_CONVERSATION_ID"].ShouldBe(context.ConversationId);
+        prep.EnvironmentVariables["SPRING_THREAD_ID"].ShouldBe(context.ThreadId);
         prep.EnvironmentVariables["SPRING_MCP_ENDPOINT"].ShouldBe(context.McpEndpoint);
         prep.EnvironmentVariables["SPRING_AGENT_TOKEN"].ShouldBe(context.McpToken);
         prep.EnvironmentVariables["SPRING_SYSTEM_PROMPT"].ShouldBe(context.Prompt);
@@ -143,7 +143,7 @@ public class ClaudeCodeLauncherTests
     private static AgentLaunchContext CreateContext() =>
         new(
             AgentId: "ada",
-            ConversationId: "conv-42",
+            ThreadId: "conv-42",
             Prompt: "## Platform Instructions\nBe helpful.",
             McpEndpoint: "http://host.docker.internal:9999/mcp/",
             McpToken: "top-secret-token");

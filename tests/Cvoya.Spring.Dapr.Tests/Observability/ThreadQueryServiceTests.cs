@@ -20,19 +20,19 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Unit tests for <see cref="ConversationQueryService"/> — the projection that
+/// Unit tests for <see cref="ThreadQueryService"/> — the projection that
 /// turns activity events into conversation summaries / detail / inbox rows
 /// for #452 and #456. Tests use an in-memory EF context so they exercise the
 /// real LINQ grouping without standing up Postgres.
 /// </summary>
-public class ConversationQueryServiceTests : IDisposable
+public class ThreadQueryServiceTests : IDisposable
 {
     private readonly SpringDbContext _db;
 
-    public ConversationQueryServiceTests()
+    public ThreadQueryServiceTests()
     {
         var dbOptions = new DbContextOptionsBuilder<SpringDbContext>()
-            .UseInMemoryDatabase($"ConversationQueryTest-{Guid.NewGuid()}")
+            .UseInMemoryDatabase($"ThreadQueryTest-{Guid.NewGuid()}")
             .Options;
         _db = new SpringDbContext(dbOptions);
     }
@@ -46,9 +46,9 @@ public class ConversationQueryServiceTests : IDisposable
     [Fact]
     public async Task ListAsync_NoActivity_ReturnsEmpty()
     {
-        var svc = new ConversationQueryService(_db);
+        var svc = new ThreadQueryService(_db);
 
-        var result = await svc.ListAsync(new ConversationQueryFilters(), TestContext.Current.CancellationToken);
+        var result = await svc.ListAsync(new ThreadQueryFilters(), TestContext.Current.CancellationToken);
 
         result.ShouldBeEmpty();
     }
@@ -56,21 +56,21 @@ public class ConversationQueryServiceTests : IDisposable
     [Fact]
     public async Task ListAsync_GroupsEventsByCorrelationIdAndDerivesParticipants()
     {
-        await SeedConversationAsync("c-1", new[]
+        await SeedThreadAsync("c-1", new[]
         {
-            ("agent:ada", "ConversationStarted", "Started c-1", DateTimeOffset.UtcNow.AddMinutes(-10)),
+            ("agent:ada", "ThreadStarted", "Started c-1", DateTimeOffset.UtcNow.AddMinutes(-10)),
             ("agent:ada", "MessageReceived", "Received msg", DateTimeOffset.UtcNow.AddMinutes(-9)),
             ("human:savasp", "MessageReceived", "Received msg", DateTimeOffset.UtcNow.AddMinutes(-8)),
         });
-        await SeedConversationAsync("c-2", new[]
+        await SeedThreadAsync("c-2", new[]
         {
-            ("agent:grace", "ConversationStarted", "Started c-2", DateTimeOffset.UtcNow.AddMinutes(-20)),
-            ("agent:grace", "ConversationCompleted", "Done", DateTimeOffset.UtcNow.AddMinutes(-1)),
+            ("agent:grace", "ThreadStarted", "Started c-2", DateTimeOffset.UtcNow.AddMinutes(-20)),
+            ("agent:grace", "ThreadCompleted", "Done", DateTimeOffset.UtcNow.AddMinutes(-1)),
         });
 
-        var svc = new ConversationQueryService(_db);
+        var svc = new ThreadQueryService(_db);
 
-        var result = await svc.ListAsync(new ConversationQueryFilters(), TestContext.Current.CancellationToken);
+        var result = await svc.ListAsync(new ThreadQueryFilters(), TestContext.Current.CancellationToken);
 
         result.Count.ShouldBe(2);
         var c1 = result.Single(r => r.Id == "c-1");
@@ -84,22 +84,22 @@ public class ConversationQueryServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task ListAsync_StatusFilter_SelectsOnlyMatchingConversations()
+    public async Task ListAsync_StatusFilter_SelectsOnlyMatchingThreads()
     {
-        await SeedConversationAsync("c-active", new[]
+        await SeedThreadAsync("c-active", new[]
         {
-            ("agent:ada", "ConversationStarted", "", DateTimeOffset.UtcNow),
+            ("agent:ada", "ThreadStarted", "", DateTimeOffset.UtcNow),
         });
-        await SeedConversationAsync("c-done", new[]
+        await SeedThreadAsync("c-done", new[]
         {
-            ("agent:ada", "ConversationStarted", "", DateTimeOffset.UtcNow.AddMinutes(-5)),
-            ("agent:ada", "ConversationCompleted", "", DateTimeOffset.UtcNow.AddMinutes(-1)),
+            ("agent:ada", "ThreadStarted", "", DateTimeOffset.UtcNow.AddMinutes(-5)),
+            ("agent:ada", "ThreadCompleted", "", DateTimeOffset.UtcNow.AddMinutes(-1)),
         });
 
-        var svc = new ConversationQueryService(_db);
+        var svc = new ThreadQueryService(_db);
 
         var completed = await svc.ListAsync(
-            new ConversationQueryFilters(Status: "completed"),
+            new ThreadQueryFilters(Status: "completed"),
             TestContext.Current.CancellationToken);
 
         completed.Count.ShouldBe(1);
@@ -107,23 +107,23 @@ public class ConversationQueryServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task GetAsync_ReturnsOrderedEventsForConversation()
+    public async Task GetAsync_ReturnsOrderedEventsForThread()
     {
         var earlier = DateTimeOffset.UtcNow.AddMinutes(-10);
         var later = DateTimeOffset.UtcNow.AddMinutes(-1);
-        await SeedConversationAsync("c-1", new[]
+        await SeedThreadAsync("c-1", new[]
         {
             ("agent:ada", "MessageReceived", "later", later),
-            ("agent:ada", "ConversationStarted", "first", earlier),
+            ("agent:ada", "ThreadStarted", "first", earlier),
         });
 
-        var svc = new ConversationQueryService(_db);
+        var svc = new ThreadQueryService(_db);
         var detail = await svc.GetAsync("c-1", TestContext.Current.CancellationToken);
 
         detail.ShouldNotBeNull();
         detail!.Events.Count.ShouldBe(2);
         // Events ordered oldest first.
-        detail.Events[0].EventType.ShouldBe("ConversationStarted");
+        detail.Events[0].EventType.ShouldBe("ThreadStarted");
         detail.Events[1].EventType.ShouldBe("MessageReceived");
         detail.Summary.Id.ShouldBe("c-1");
     }
@@ -131,7 +131,7 @@ public class ConversationQueryServiceTests : IDisposable
     [Fact]
     public async Task GetAsync_UnknownId_ReturnsNull()
     {
-        var svc = new ConversationQueryService(_db);
+        var svc = new ThreadQueryService(_db);
 
         var detail = await svc.GetAsync("nope", TestContext.Current.CancellationToken);
 
@@ -141,18 +141,18 @@ public class ConversationQueryServiceTests : IDisposable
     [Fact]
     public async Task ListInboxAsync_HumanAwaitingAsk_AppearsOnce()
     {
-        await SeedConversationAsync("c-1", new[]
+        await SeedThreadAsync("c-1", new[]
         {
-            ("agent:ada", "ConversationStarted", "Started", DateTimeOffset.UtcNow.AddMinutes(-10)),
+            ("agent:ada", "ThreadStarted", "Started", DateTimeOffset.UtcNow.AddMinutes(-10)),
             ("agent:ada", "MessageReceived", "Replied", DateTimeOffset.UtcNow.AddMinutes(-5)),
             ("human:savasp", "MessageReceived", "Approve merge?", DateTimeOffset.UtcNow.AddMinutes(-1)),
         });
 
-        var svc = new ConversationQueryService(_db);
+        var svc = new ThreadQueryService(_db);
         var inbox = await svc.ListInboxAsync("human://savasp", TestContext.Current.CancellationToken);
 
         inbox.Count.ShouldBe(1);
-        inbox[0].ConversationId.ShouldBe("c-1");
+        inbox[0].ThreadId.ShouldBe("c-1");
         inbox[0].Human.ShouldBe("human://savasp");
         inbox[0].From.ShouldBe("agent://ada");
     }
@@ -162,13 +162,13 @@ public class ConversationQueryServiceTests : IDisposable
     {
         // Last event on the thread is a MessageReceived NOT on the human →
         // inbox is empty because the human already said something after the ask.
-        await SeedConversationAsync("c-1", new[]
+        await SeedThreadAsync("c-1", new[]
         {
             ("human:savasp", "MessageReceived", "Question from agent", DateTimeOffset.UtcNow.AddMinutes(-10)),
             ("agent:ada", "MessageReceived", "Ack from human", DateTimeOffset.UtcNow.AddMinutes(-5)),
         });
 
-        var svc = new ConversationQueryService(_db);
+        var svc = new ThreadQueryService(_db);
         var inbox = await svc.ListInboxAsync("human://savasp", TestContext.Current.CancellationToken);
 
         inbox.ShouldBeEmpty();
@@ -177,13 +177,13 @@ public class ConversationQueryServiceTests : IDisposable
     [Fact]
     public async Task ListInboxAsync_DifferentHuman_DoesNotLeak()
     {
-        await SeedConversationAsync("c-1", new[]
+        await SeedThreadAsync("c-1", new[]
         {
-            ("agent:ada", "ConversationStarted", "Started", DateTimeOffset.UtcNow.AddMinutes(-5)),
+            ("agent:ada", "ThreadStarted", "Started", DateTimeOffset.UtcNow.AddMinutes(-5)),
             ("human:alice", "MessageReceived", "For alice", DateTimeOffset.UtcNow.AddMinutes(-1)),
         });
 
-        var svc = new ConversationQueryService(_db);
+        var svc = new ThreadQueryService(_db);
         var inbox = await svc.ListInboxAsync("human://savasp", TestContext.Current.CancellationToken);
 
         inbox.ShouldBeEmpty();
@@ -204,25 +204,25 @@ public class ConversationQueryServiceTests : IDisposable
         // The inbox predicate keys off "last event is MessageReceived from
         // the caller's human address", so this conversation must show up.
         var t0 = DateTimeOffset.UtcNow.AddMinutes(-2);
-        await SeedConversationAsync("e58eaf86", new[]
+        await SeedThreadAsync("e58eaf86", new[]
         {
             ("agent:backend-engineer", "MessageReceived", "Received Domain message from human://local-dev-user", t0),
-            ("agent:backend-engineer", "ConversationStarted", "Started conversation e58eaf86", t0.AddMilliseconds(1)),
+            ("agent:backend-engineer", "ThreadStarted", "Started thread e58eaf86", t0.AddMilliseconds(1)),
             ("agent:backend-engineer", "StateChanged", "State changed from Idle to Active", t0.AddMilliseconds(2)),
             ("human:local-dev-user", "MessageReceived", "Received Domain message from agent://backend-engineer", t0.AddMinutes(1)),
         });
 
-        var svc = new ConversationQueryService(_db);
+        var svc = new ThreadQueryService(_db);
         var inbox = await svc.ListInboxAsync("human://local-dev-user", TestContext.Current.CancellationToken);
 
         inbox.Count.ShouldBe(1);
-        inbox[0].ConversationId.ShouldBe("e58eaf86");
+        inbox[0].ThreadId.ShouldBe("e58eaf86");
         inbox[0].Human.ShouldBe("human://local-dev-user");
         inbox[0].From.ShouldBe("agent://backend-engineer");
     }
 
     [Fact]
-    public async Task ListInboxAsync_FreshReplyAlongsideStaleConversation_BothAppearMostRecentFirst()
+    public async Task ListInboxAsync_FreshReplyAlongsideStaleThread_BothAppearMostRecentFirst()
     {
         // Variant of #1210: the user reported that a stale conversation from
         // an earlier debug session was visible while a fresh reply was not.
@@ -230,24 +230,24 @@ public class ConversationQueryServiceTests : IDisposable
         // stale one (most recent PendingSince first).
         var stale = DateTimeOffset.UtcNow.AddMinutes(-90);
         var fresh = DateTimeOffset.UtcNow.AddMinutes(-1);
-        await SeedConversationAsync("5925edfa", new[]
+        await SeedThreadAsync("5925edfa", new[]
         {
-            ("agent:debug-agent", "ConversationStarted", "Started 5925edfa", stale.AddMinutes(-1)),
+            ("agent:debug-agent", "ThreadStarted", "Started 5925edfa", stale.AddMinutes(-1)),
             ("human:local-dev-user", "MessageReceived", "Stale ask", stale),
         });
-        await SeedConversationAsync("e58eaf86", new[]
+        await SeedThreadAsync("e58eaf86", new[]
         {
             ("agent:backend-engineer", "MessageReceived", "Received Domain message", fresh.AddSeconds(-80)),
-            ("agent:backend-engineer", "ConversationStarted", "Started e58eaf86", fresh.AddSeconds(-79)),
+            ("agent:backend-engineer", "ThreadStarted", "Started e58eaf86", fresh.AddSeconds(-79)),
             ("human:local-dev-user", "MessageReceived", "Fresh reply", fresh),
         });
 
-        var svc = new ConversationQueryService(_db);
+        var svc = new ThreadQueryService(_db);
         var inbox = await svc.ListInboxAsync("human://local-dev-user", TestContext.Current.CancellationToken);
 
         inbox.Count.ShouldBe(2);
-        inbox[0].ConversationId.ShouldBe("e58eaf86");
-        inbox[1].ConversationId.ShouldBe("5925edfa");
+        inbox[0].ThreadId.ShouldBe("e58eaf86");
+        inbox[1].ThreadId.ShouldBe("5925edfa");
     }
 
     [Fact]
@@ -260,21 +260,21 @@ public class ConversationQueryServiceTests : IDisposable
         // predicate must NOT drop the row. The human still hasn't replied,
         // and the row has to stay visible until they do.
         var t0 = DateTimeOffset.UtcNow.AddMinutes(-2);
-        await SeedConversationAsync("c-trailing", new[]
+        await SeedThreadAsync("c-trailing", new[]
         {
             ("agent:ada", "MessageReceived", "Agent received human's ask", t0),
-            ("agent:ada", "ConversationStarted", "Started c-trailing", t0.AddMilliseconds(1)),
+            ("agent:ada", "ThreadStarted", "Started c-trailing", t0.AddMilliseconds(1)),
             ("human:savasp", "MessageReceived", "Agent's reply", t0.AddSeconds(80)),
             // Trailing event on the same conversation — e.g. a state
             // teardown emitted by the agent after routing the response.
             ("agent:ada", "StateChanged", "State changed from Active to Idle", t0.AddSeconds(81)),
         });
 
-        var svc = new ConversationQueryService(_db);
+        var svc = new ThreadQueryService(_db);
         var inbox = await svc.ListInboxAsync("human://savasp", TestContext.Current.CancellationToken);
 
         inbox.Count.ShouldBe(1);
-        inbox[0].ConversationId.ShouldBe("c-trailing");
+        inbox[0].ThreadId.ShouldBe("c-trailing");
         inbox[0].From.ShouldBe("agent://ada");
     }
 
@@ -286,7 +286,7 @@ public class ConversationQueryServiceTests : IDisposable
         // conversation must drop out of the inbox even if there are more
         // trailing events afterwards.
         var t0 = DateTimeOffset.UtcNow.AddMinutes(-5);
-        await SeedConversationAsync("c-replied", new[]
+        await SeedThreadAsync("c-replied", new[]
         {
             ("agent:ada", "MessageReceived", "Agent received human's first ask", t0),
             ("human:savasp", "MessageReceived", "Agent's reply", t0.AddSeconds(60)),
@@ -294,7 +294,7 @@ public class ConversationQueryServiceTests : IDisposable
             ("agent:ada", "StateChanged", "Trailing tail", t0.AddSeconds(121)),
         });
 
-        var svc = new ConversationQueryService(_db);
+        var svc = new ThreadQueryService(_db);
         var inbox = await svc.ListInboxAsync("human://savasp", TestContext.Current.CancellationToken);
 
         inbox.ShouldBeEmpty();
@@ -330,7 +330,7 @@ public class ConversationQueryServiceTests : IDisposable
         });
         await _db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        var svc = new ConversationQueryService(_db);
+        var svc = new ThreadQueryService(_db);
         var detail = await svc.GetAsync("c-1", TestContext.Current.CancellationToken);
 
         detail.ShouldNotBeNull();
@@ -341,8 +341,8 @@ public class ConversationQueryServiceTests : IDisposable
         evt.Body.ShouldBe("Approve merge?");
     }
 
-    private async Task SeedConversationAsync(
-        string conversationId,
+    private async Task SeedThreadAsync(
+        string threadId,
         (string source, string eventType, string summary, DateTimeOffset ts)[] events)
     {
         foreach (var (source, type, summary, ts) in events)
@@ -355,7 +355,7 @@ public class ConversationQueryServiceTests : IDisposable
                 Severity = "Info",
                 Summary = summary,
                 Timestamp = ts,
-                CorrelationId = conversationId,
+                CorrelationId = threadId,
             });
         }
         await _db.SaveChangesAsync();

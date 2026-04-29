@@ -52,7 +52,7 @@ public class ActorRemotingJsonOptionsTests
         var payload = JsonSerializer.SerializeToElement(new
         {
             Status = "Idle",
-            ActiveConversationId = (string?)null,
+            ActiveThreadId = (string?)null,
             PendingConversationCount = 0,
         });
 

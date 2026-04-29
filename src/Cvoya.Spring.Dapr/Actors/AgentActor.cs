@@ -26,7 +26,7 @@ using Microsoft.Extensions.Logging;
 /// <summary>
 /// Dapr virtual actor representing an agent in the Spring Voyage platform.
 /// Implements a partitioned mailbox with three logical channel types:
-/// control (highest priority), conversation (one per ConversationId), and observation (batched events).
+/// control (highest priority), thread (one per ThreadId), and observation (batched events).
 /// The actor never performs long-running work in the actor turn; it dispatches async work externally.
 /// </summary>
 public class AgentActor(
@@ -138,18 +138,18 @@ public class AgentActor(
     {
         try
         {
-            // correlationId carries the conversation id so the conversation
-            // projection (IConversationQueryService, #452) can group every
+            // correlationId carries the thread id so the thread
+            // projection (IThreadQueryService, #452) can group every
             // thread-related event. Null when the caller didn't supply a
-            // conversation id — still acceptable on standalone messages like
+            // thread id — still acceptable on standalone messages like
             // StatusQuery / HealthCheck. #1209: persist the message envelope
-            // (sender / recipient / payload) on the event so the conversation
+            // (sender / recipient / payload) on the event so the thread
             // view can render the body inline, not just the summary line.
             await EmitActivityEventAsync(ActivityEventType.MessageReceived,
                 $"Received {message.Type} message {message.Id} from {message.From}",
                 cancellationToken,
                 details: MessageReceivedDetails.Build(message),
-                correlationId: message.ConversationId);
+                correlationId: message.ThreadId);
 
             return message.Type switch
             {
@@ -182,8 +182,8 @@ public class AgentActor(
     /// </summary>
     private async Task<Message?> HandleCancelAsync(Message message, CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Actor {ActorId} received cancel for conversation {ConversationId}",
-            Id.GetId(), message.ConversationId);
+        _logger.LogInformation("Actor {ActorId} received cancel for thread {ThreadId}",
+            Id.GetId(), message.ThreadId);
 
         if (_activeWorkCancellation is not null)
         {
@@ -193,24 +193,24 @@ public class AgentActor(
         }
 
         var activeConversation = await StateManager
-            .TryGetStateAsync<ConversationChannel>(StateKeys.ActiveConversation, cancellationToken)
+            .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, cancellationToken)
             ;
 
         if (activeConversation.HasValue &&
-            activeConversation.Value.ConversationId == message.ConversationId)
+            activeConversation.Value.ThreadId == message.ThreadId)
         {
             await StateManager.TryRemoveStateAsync(StateKeys.ActiveConversation, cancellationToken);
 
-            await EmitActivityEventAsync(ActivityEventType.ConversationCompleted,
-                $"Conversation {message.ConversationId} cancelled",
+            await EmitActivityEventAsync(ActivityEventType.ThreadCompleted,
+                $"Conversation {message.ThreadId} cancelled",
                 cancellationToken,
-                correlationId: message.ConversationId);
+                correlationId: message.ThreadId);
 
             await PromoteNextPendingAsync(cancellationToken);
 
-            // If no pending conversation was promoted, agent returns to Idle.
+            // If no pending thread was promoted, agent returns to Idle.
             var newActive = await StateManager
-                .TryGetStateAsync<ConversationChannel>(StateKeys.ActiveConversation, cancellationToken);
+                .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, cancellationToken);
             if (!newActive.HasValue)
             {
                 await EmitActivityEventAsync(ActivityEventType.StateChanged,
@@ -230,16 +230,16 @@ public class AgentActor(
     {
         var status = await GetCurrentStatusAsync(cancellationToken);
         var activeConversation = await StateManager
-            .TryGetStateAsync<ConversationChannel>(StateKeys.ActiveConversation, cancellationToken)
+            .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, cancellationToken)
             ;
         var pending = await StateManager
-            .TryGetStateAsync<List<ConversationChannel>>(StateKeys.PendingConversations, cancellationToken)
+            .TryGetStateAsync<List<ThreadChannel>>(StateKeys.PendingConversations, cancellationToken)
             ;
 
         var statusPayload = JsonSerializer.SerializeToElement(new
         {
             Status = status.ToString(),
-            ActiveConversationId = activeConversation.HasValue ? activeConversation.Value.ConversationId : null,
+            ActiveThreadId = activeConversation.HasValue ? activeConversation.Value.ThreadId : null,
             PendingConversationCount = pending.HasValue ? pending.Value.Count : 0
         });
 
@@ -248,7 +248,7 @@ public class AgentActor(
             Address,
             message.From,
             MessageType.StatusQuery,
-            message.ConversationId,
+            message.ThreadId,
             statusPayload,
             DateTimeOffset.UtcNow);
     }
@@ -266,7 +266,7 @@ public class AgentActor(
             Address,
             message.From,
             MessageType.HealthCheck,
-            message.ConversationId,
+            message.ThreadId,
             healthPayload,
             DateTimeOffset.UtcNow);
 
@@ -308,7 +308,7 @@ public class AgentActor(
     /// </description></item>
     /// <item><description>
     /// For <see cref="AmendmentPriority.StopAndWait"/>, cancel the active
-    /// work token, suspend the active conversation, and set the
+    /// work token, suspend the active thread, and set the
     /// <see cref="StateKeys.AgentPaused"/> flag.
     /// </description></item>
     /// </list>
@@ -365,7 +365,7 @@ public class AgentActor(
             From: message.From,
             Text: payload.Text,
             Priority: payload.Priority,
-            CorrelationId: payload.CorrelationId ?? message.ConversationId,
+            CorrelationId: payload.CorrelationId ?? message.ThreadId,
             ReceivedAt: DateTimeOffset.UtcNow);
 
         await EnqueueAmendmentAsync(pending, cancellationToken);
@@ -498,7 +498,7 @@ public class AgentActor(
             $"Amendment rejected from {message.From.Scheme}://{message.From.Path}: {reason}",
             ct,
             details: details,
-            correlationId: message.ConversationId);
+            correlationId: message.ThreadId);
     }
 
     /// <summary>
@@ -518,17 +518,17 @@ public class AgentActor(
     }
 
     /// <summary>
-    /// Handles a domain message by routing it to the appropriate conversation channel.
-    /// New conversations are created if the ConversationId is unseen.
-    /// If there is already an active conversation for a different ConversationId, the new conversation is queued as pending.
-    /// When a new conversation is activated, the actor kicks off a fire-and-forget dispatch task so the actor turn returns quickly.
+    /// Handles a domain message by routing it to the appropriate thread channel.
+    /// New threads are created if the ThreadId is unseen.
+    /// If there is already an active thread for a different ThreadId, the new thread is queued as pending.
+    /// When a new thread is activated, the actor kicks off a fire-and-forget dispatch task so the actor turn returns quickly.
     /// </summary>
     private async Task<Message?> HandleDomainMessageAsync(Message message, CancellationToken cancellationToken)
     {
-        var conversationId = message.ConversationId
+        var threadId = message.ThreadId
             ?? throw new CallerValidationException(
-                CallerValidationCodes.MissingConversationId,
-                "Domain messages must have a ConversationId");
+                CallerValidationCodes.MissingThreadId,
+                "Domain messages must have a ThreadId");
 
         // Resolve the per-turn effective metadata up front: the merge of the
         // agent's own global config with any per-membership override recorded
@@ -551,7 +551,7 @@ public class AgentActor(
                     sender = new { scheme = message.From.Scheme, path = message.From.Path },
                     messageId = message.Id,
                 }),
-                correlationId: conversationId);
+                correlationId: threadId);
 
             return CreateAckResponse(message);
         }
@@ -578,21 +578,21 @@ public class AgentActor(
                     denyingUnitId = policyVerdict.Decision.DenyingUnitId,
                     messageId = message.Id,
                 }),
-                correlationId: conversationId);
+                correlationId: threadId);
 
             return CreateAckResponse(message);
         }
 
         var activeConversation = await StateManager
-            .TryGetStateAsync<ConversationChannel>(StateKeys.ActiveConversation, cancellationToken)
+            .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, cancellationToken)
             ;
 
-        // Case 1: No active conversation — make this the active one and dispatch.
+        // Case 1: No active thread — make this the active one and dispatch.
         if (!activeConversation.HasValue)
         {
-            var channel = new ConversationChannel
+            var channel = new ThreadChannel
             {
-                ConversationId = conversationId,
+                ThreadId = threadId,
                 Messages = [message],
                 CreatedAt = DateTimeOffset.UtcNow
             };
@@ -600,13 +600,13 @@ public class AgentActor(
             await StateManager.SetStateAsync(StateKeys.ActiveConversation, channel, cancellationToken);
             _activeWorkCancellation = new CancellationTokenSource();
 
-            _logger.LogInformation("Actor {ActorId} activated conversation {ConversationId}",
-                Id.GetId(), conversationId);
+            _logger.LogInformation("Actor {ActorId} activated thread {ThreadId}",
+                Id.GetId(), threadId);
 
-            await EmitActivityEventAsync(ActivityEventType.ConversationStarted,
-                $"Started conversation {conversationId}",
+            await EmitActivityEventAsync(ActivityEventType.ThreadStarted,
+                $"Started thread {threadId}",
                 cancellationToken,
-                correlationId: conversationId);
+                correlationId: threadId);
 
             await EmitActivityEventAsync(ActivityEventType.StateChanged,
                 "State changed from Idle to Active",
@@ -619,41 +619,41 @@ public class AgentActor(
             return CreateAckResponse(message);
         }
 
-        // Case 2: Message belongs to the active conversation — append to it.
-        if (activeConversation.Value.ConversationId == conversationId)
+        // Case 2: Message belongs to the active thread — append to it.
+        if (activeConversation.Value.ThreadId == threadId)
         {
             var channel = activeConversation.Value;
             channel.Messages.Add(message);
             await StateManager.SetStateAsync(StateKeys.ActiveConversation, channel, cancellationToken);
 
-            _logger.LogInformation("Actor {ActorId} appended message to active conversation {ConversationId}",
-                Id.GetId(), conversationId);
+            _logger.LogInformation("Actor {ActorId} appended message to active thread {ThreadId}",
+                Id.GetId(), threadId);
 
             return CreateAckResponse(message);
         }
 
-        // Case 3: Different conversation — route to pending.
-        await EnqueuePendingMessageAsync(conversationId, message, cancellationToken);
+        // Case 3: Different thread — route to pending.
+        await EnqueuePendingMessageAsync(threadId, message, cancellationToken);
 
-        _logger.LogInformation("Actor {ActorId} queued message for pending conversation {ConversationId}",
-            Id.GetId(), conversationId);
+        _logger.LogInformation("Actor {ActorId} queued message for pending thread {ThreadId}",
+            Id.GetId(), threadId);
 
         await EmitActivityEventAsync(ActivityEventType.DecisionMade,
-            $"Queued conversation {conversationId} as pending (active: {activeConversation.Value.ConversationId})",
+            $"Queued thread {threadId} as pending (active: {activeConversation.Value.ThreadId})",
             cancellationToken,
             details: JsonSerializer.SerializeToElement(new
             {
                 decision = "QueueAsPending",
-                activeConversationId = activeConversation.Value.ConversationId,
-                pendingConversationId = conversationId
+                activeThreadId = activeConversation.Value.ThreadId,
+                pendingThreadId = threadId
             }),
-            correlationId: conversationId);
+            correlationId: threadId);
 
         return CreateAckResponse(message);
     }
 
     /// <summary>
-    /// Builds the prompt-assembly context for the active conversation. Members
+    /// Builds the prompt-assembly context for the active thread. Members
     /// and unit policies are intentionally left empty here — an agent actor does
     /// not know its enclosing unit, so unit context must be supplied by a
     /// UnitActor-side caller in future work. Skills come from registered
@@ -664,7 +664,7 @@ public class AgentActor(
     /// the per-turn merged config rather than re-reading global state.
     /// </summary>
     private async Task<PromptAssemblyContext> BuildPromptAssemblyContextAsync(
-        ConversationChannel channel,
+        ThreadChannel channel,
         AgentMetadata effective,
         CancellationToken cancellationToken)
     {
@@ -904,7 +904,7 @@ public class AgentActor(
     /// actor turn, so it MUST NOT touch <see cref="Actor.StateManager"/>. All
     /// failures are logged and surfaced as activity events. When the dispatch
     /// terminates abnormally (non-zero container exit per #1036, or an
-    /// exception inside the dispatcher), the active conversation is cleared
+    /// exception inside the dispatcher), the active thread is cleared
     /// via a Dapr self-call to <see cref="ClearActiveConversationAsync"/> so
     /// the state mutation runs on the actor turn — see #1036/#1038 for why a
     /// failed dispatch must not leave the agent permanently active.
@@ -918,8 +918,8 @@ public class AgentActor(
             if (response is null)
             {
                 _logger.LogInformation(
-                    "Dispatcher returned no response for conversation {ConversationId}; nothing to route.",
-                    message.ConversationId);
+                    "Dispatcher returned no response for thread {ThreadId}; nothing to route.",
+                    message.ThreadId);
                 return;
             }
 
@@ -927,15 +927,15 @@ public class AgentActor(
             if (dispatchExit is { ExitCode: not 0 } failure)
             {
                 _logger.LogWarning(
-                    "Dispatch for actor {ActorId} conversation {ConversationId} exited with code {ExitCode}: {StdErrFirstLine}",
-                    Id.GetId(), message.ConversationId, failure.ExitCode, failure.StdErrFirstLine);
+                    "Dispatch for actor {ActorId} thread {ThreadId} exited with code {ExitCode}: {StdErrFirstLine}",
+                    Id.GetId(), message.ThreadId, failure.ExitCode, failure.StdErrFirstLine);
 
                 var details = JsonSerializer.SerializeToElement(new
                 {
                     exitCode = failure.ExitCode,
                     stderr = failure.StdErr,
                     agentId = Id.GetId(),
-                    conversationId = message.ConversationId,
+                    threadId = message.ThreadId,
                 });
 
                 await EmitActivityEventAsync(
@@ -943,26 +943,26 @@ public class AgentActor(
                     $"Container exit code {failure.ExitCode}: {failure.StdErrFirstLine}",
                     CancellationToken.None,
                     details: details,
-                    correlationId: message.ConversationId);
+                    correlationId: message.ThreadId);
 
                 // Best-effort: still surface the failure to the caller so an
                 // upstream agent / human sees the error response. We do this
-                // BEFORE clearing the active conversation so the response is
-                // ordered correctly in the conversation event log.
-                await TryRouteResponseAsync(response, message.ConversationId, cancellationToken);
+                // BEFORE clearing the active thread so the response is
+                // ordered correctly in the thread event log.
+                await TryRouteResponseAsync(response, message.ThreadId, cancellationToken);
 
                 await ClearActiveConversationViaSelfAsync(
                     $"dispatch exit code {failure.ExitCode}");
                 return;
             }
 
-            await TryRouteResponseAsync(response, message.ConversationId, cancellationToken);
+            await TryRouteResponseAsync(response, message.ThreadId, cancellationToken);
         }
         catch (OperationCanceledException)
         {
-            // A cancelled dispatch leaves the active-conversation slot
+            // A cancelled dispatch leaves the active-thread slot
             // pointing at a dead turn. Without clearing it, the actor
-            // refuses every subsequent message in any other conversation
+            // refuses every subsequent message in any other thread
             // (Case 3 in HandleDomainMessageAsync queues them as pending
             // forever) and the agent looks bricked from the user's
             // perspective. The non-zero exit and generic-exception
@@ -971,19 +971,19 @@ public class AgentActor(
             // Discovered post-Stage-2 cutover (#1063 / #522 follow-up):
             // a worker-side HttpClient timeout surfaced as
             // OperationCanceledException, the actor logged it but kept
-            // the conversation marked Active, and every subsequent
+            // the thread marked Active, and every subsequent
             // user message was queued as pending and never dispatched.
             _logger.LogInformation(
-                "Dispatch cancelled for actor {ActorId} conversation {ConversationId}.",
-                Id.GetId(), message.ConversationId);
+                "Dispatch cancelled for actor {ActorId} thread {ThreadId}.",
+                Id.GetId(), message.ThreadId);
 
             await ClearActiveConversationViaSelfAsync("dispatch cancelled");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex,
-                "Dispatch failed for actor {ActorId} conversation {ConversationId}.",
-                Id.GetId(), message.ConversationId);
+                "Dispatch failed for actor {ActorId} thread {ThreadId}.",
+                Id.GetId(), message.ThreadId);
 
             await EmitActivityEventAsync(
                 ActivityEventType.ErrorOccurred,
@@ -993,15 +993,15 @@ public class AgentActor(
                 {
                     error = ex.Message,
                     agentId = Id.GetId(),
-                    conversationId = message.ConversationId,
+                    threadId = message.ThreadId,
                 }),
-                correlationId: message.ConversationId);
+                correlationId: message.ThreadId);
 
             await ClearActiveConversationViaSelfAsync($"dispatch exception: {ex.GetType().Name}");
         }
     }
 
-    private async Task TryRouteResponseAsync(Message response, string? conversationId, CancellationToken cancellationToken)
+    private async Task TryRouteResponseAsync(Message response, string? threadId, CancellationToken cancellationToken)
     {
         try
         {
@@ -1009,15 +1009,15 @@ public class AgentActor(
             if (!routingResult.IsSuccess)
             {
                 _logger.LogWarning(
-                    "Failed to route dispatcher response for conversation {ConversationId}: {Error}",
-                    conversationId, routingResult.Error);
+                    "Failed to route dispatcher response for thread {ThreadId}: {Error}",
+                    threadId, routingResult.Error);
             }
         }
         catch (Exception routeEx)
         {
             _logger.LogWarning(routeEx,
-                "Routing dispatcher response failed for conversation {ConversationId}.",
-                conversationId);
+                "Routing dispatcher response failed for thread {ThreadId}.",
+                threadId);
         }
     }
 
@@ -1083,7 +1083,7 @@ public class AgentActor(
         catch (Exception ex)
         {
             _logger.LogWarning(ex,
-                "Failed to clear active conversation for actor {ActorId} after dispatch failure (reason: {Reason}).",
+                "Failed to clear active thread for actor {ActorId} after dispatch failure (reason: {Reason}).",
                 Id.GetId(), reason);
         }
     }
@@ -1094,12 +1094,12 @@ public class AgentActor(
         CancellationToken cancellationToken = default)
     {
         var activeConversation = await StateManager
-            .TryGetStateAsync<ConversationChannel>(StateKeys.ActiveConversation, cancellationToken);
+            .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, cancellationToken);
 
         if (!activeConversation.HasValue)
         {
             _logger.LogDebug(
-                "Actor {ActorId} ClearActiveConversationAsync called with no active conversation (reason: {Reason}).",
+                "Actor {ActorId} ClearActiveConversationAsync called with no active thread (reason: {Reason}).",
                 Id.GetId(), reason);
             return;
         }
@@ -1111,12 +1111,12 @@ public class AgentActor(
             _activeWorkCancellation = null;
         }
 
-        var conversationId = activeConversation.Value.ConversationId;
+        var threadId = activeConversation.Value.ThreadId;
         await StateManager.TryRemoveStateAsync(StateKeys.ActiveConversation, cancellationToken);
 
         _logger.LogInformation(
-            "Actor {ActorId} cleared active conversation {ConversationId} (reason: {Reason}).",
-            Id.GetId(), conversationId, reason);
+            "Actor {ActorId} cleared active thread {ThreadId} (reason: {Reason}).",
+            Id.GetId(), threadId, reason);
 
         await EmitActivityEventAsync(
             ActivityEventType.StateChanged,
@@ -1127,28 +1127,28 @@ public class AgentActor(
                 from = "Active",
                 to = "Idle",
                 reason,
-                conversationId,
+                threadId,
             }),
-            correlationId: conversationId);
+            correlationId: threadId);
 
         await PromoteNextPendingAsync(cancellationToken);
     }
 
     /// <inheritdoc />
     public async Task CloseConversationAsync(
-        string conversationId,
+        string threadId,
         string? reason,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(conversationId))
+        if (string.IsNullOrWhiteSpace(threadId))
         {
             return;
         }
 
         var active = await StateManager
-            .TryGetStateAsync<ConversationChannel>(StateKeys.ActiveConversation, cancellationToken);
+            .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, cancellationToken);
 
-        if (active.HasValue && active.Value.ConversationId == conversationId)
+        if (active.HasValue && active.Value.ThreadId == threadId)
         {
             if (_activeWorkCancellation is not null)
             {
@@ -1160,32 +1160,32 @@ public class AgentActor(
             await StateManager.TryRemoveStateAsync(StateKeys.ActiveConversation, cancellationToken);
 
             _logger.LogInformation(
-                "Actor {ActorId} closed active conversation {ConversationId} (reason: {Reason}).",
-                Id.GetId(), conversationId, reason);
+                "Actor {ActorId} closed active thread {ThreadId} (reason: {Reason}).",
+                Id.GetId(), threadId, reason);
 
             await EmitActivityEventAsync(
-                ActivityEventType.ConversationClosed,
-                $"Conversation {conversationId} closed ({reason ?? "no reason given"})",
+                ActivityEventType.ThreadClosed,
+                $"Thread {threadId} closed ({reason ?? "no reason given"})",
                 cancellationToken,
                 details: JsonSerializer.SerializeToElement(new
                 {
-                    conversationId,
+                    threadId,
                     reason,
                     wasActive = true,
                 }),
-                correlationId: conversationId);
+                correlationId: threadId);
 
             await PromoteNextPendingAsync(cancellationToken);
             return;
         }
 
         var pending = await StateManager
-            .TryGetStateAsync<List<ConversationChannel>>(StateKeys.PendingConversations, cancellationToken);
+            .TryGetStateAsync<List<ThreadChannel>>(StateKeys.PendingConversations, cancellationToken);
 
         if (pending.HasValue)
         {
             var list = pending.Value;
-            var idx = list.FindIndex(c => c.ConversationId == conversationId);
+            var idx = list.FindIndex(c => c.ThreadId == threadId);
             if (idx >= 0)
             {
                 list.RemoveAt(idx);
@@ -1199,38 +1199,38 @@ public class AgentActor(
                 }
 
                 _logger.LogInformation(
-                    "Actor {ActorId} closed pending conversation {ConversationId} (reason: {Reason}).",
-                    Id.GetId(), conversationId, reason);
+                    "Actor {ActorId} closed pending thread {ThreadId} (reason: {Reason}).",
+                    Id.GetId(), threadId, reason);
 
                 await EmitActivityEventAsync(
-                    ActivityEventType.ConversationClosed,
-                    $"Conversation {conversationId} closed ({reason ?? "no reason given"})",
+                    ActivityEventType.ThreadClosed,
+                    $"Thread {threadId} closed ({reason ?? "no reason given"})",
                     cancellationToken,
                     details: JsonSerializer.SerializeToElement(new
                     {
-                        conversationId,
+                        threadId,
                         reason,
                         wasActive = false,
                     }),
-                    correlationId: conversationId);
+                    correlationId: threadId);
                 return;
             }
         }
 
         _logger.LogDebug(
-            "Actor {ActorId} CloseConversationAsync no-op for unknown conversation {ConversationId} (reason: {Reason}).",
-            Id.GetId(), conversationId, reason);
+            "Actor {ActorId} CloseConversationAsync no-op for unknown thread {ThreadId} (reason: {Reason}).",
+            Id.GetId(), threadId, reason);
     }
 
     /// <summary>
-    /// Suspends the currently active conversation and moves it to the pending list.
+    /// Suspends the currently active thread and moves it to the pending list.
     /// </summary>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     /// <returns>A task representing the asynchronous operation.</returns>
     internal async Task SuspendActiveConversationAsync(CancellationToken cancellationToken = default)
     {
         var activeConversation = await StateManager
-            .TryGetStateAsync<ConversationChannel>(StateKeys.ActiveConversation, cancellationToken)
+            .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, cancellationToken)
             ;
 
         if (!activeConversation.HasValue)
@@ -1246,7 +1246,7 @@ public class AgentActor(
         }
 
         var pending = await StateManager
-            .TryGetStateAsync<List<ConversationChannel>>(StateKeys.PendingConversations, cancellationToken)
+            .TryGetStateAsync<List<ThreadChannel>>(StateKeys.PendingConversations, cancellationToken)
             ;
 
         var pendingList = pending.HasValue ? pending.Value : [];
@@ -1255,8 +1255,8 @@ public class AgentActor(
         await StateManager.SetStateAsync(StateKeys.PendingConversations, pendingList, cancellationToken);
         await StateManager.TryRemoveStateAsync(StateKeys.ActiveConversation, cancellationToken);
 
-        _logger.LogInformation("Actor {ActorId} suspended conversation {ConversationId}",
-            Id.GetId(), activeConversation.Value.ConversationId);
+        _logger.LogInformation("Actor {ActorId} suspended thread {ThreadId}",
+            Id.GetId(), activeConversation.Value.ThreadId);
 
         await EmitActivityEventAsync(ActivityEventType.StateChanged,
             "State changed from Active to Suspended",
@@ -1265,14 +1265,14 @@ public class AgentActor(
     }
 
     /// <summary>
-    /// Promotes the next pending conversation to active status.
+    /// Promotes the next pending thread to active status.
     /// </summary>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     /// <returns>A task representing the asynchronous operation.</returns>
     internal async Task PromoteNextPendingAsync(CancellationToken cancellationToken = default)
     {
         var pending = await StateManager
-            .TryGetStateAsync<List<ConversationChannel>>(StateKeys.PendingConversations, cancellationToken)
+            .TryGetStateAsync<List<ThreadChannel>>(StateKeys.PendingConversations, cancellationToken)
             ;
 
         if (!pending.HasValue || pending.Value.Count == 0)
@@ -1297,8 +1297,8 @@ public class AgentActor(
 
         _activeWorkCancellation = new CancellationTokenSource();
 
-        _logger.LogInformation("Actor {ActorId} promoted conversation {ConversationId} to active",
-            Id.GetId(), next.ConversationId);
+        _logger.LogInformation("Actor {ActorId} promoted thread {ThreadId} to active",
+            Id.GetId(), next.ThreadId);
 
         // Promotion alone is not enough: the queued head message must be
         // dispatched, otherwise the actor sits Active-but-idle and the
@@ -1306,7 +1306,7 @@ public class AgentActor(
         // HandleDomainMessageAsync (Case 1) explicitly schedules
         // RunDispatchAsync after activating; promotion has to do the
         // same. Discovered post-Stage-2 cutover (#1063 / #522 follow-up):
-        // after a previous turn was cleared, the queued conversation
+        // after a previous turn was cleared, the queued thread
         // got "promoted" but never dispatched until the user sent a new
         // message, and even then it stayed in Case 2 (append) which
         // also doesn't dispatch.
@@ -1319,8 +1319,8 @@ public class AgentActor(
                 if (effective.Enabled == false)
                 {
                     _logger.LogInformation(
-                        "Actor {ActorId} skipping promoted conversation {ConversationId}: membership Enabled=false.",
-                        Id.GetId(), next.ConversationId);
+                        "Actor {ActorId} skipping promoted thread {ThreadId}: membership Enabled=false.",
+                        Id.GetId(), next.ThreadId);
                     return;
                 }
 
@@ -1334,33 +1334,33 @@ public class AgentActor(
             catch (Exception ex)
             {
                 _logger.LogError(ex,
-                    "Actor {ActorId} failed to dispatch promoted conversation {ConversationId}.",
-                    Id.GetId(), next.ConversationId);
+                    "Actor {ActorId} failed to dispatch promoted thread {ThreadId}.",
+                    Id.GetId(), next.ThreadId);
             }
         }
     }
 
     /// <summary>
-    /// Enqueues a message for a pending conversation, creating the channel if it does not exist.
+    /// Enqueues a message for a pending thread, creating the channel if it does not exist.
     /// </summary>
-    private async Task EnqueuePendingMessageAsync(string conversationId, Message message, CancellationToken cancellationToken)
+    private async Task EnqueuePendingMessageAsync(string threadId, Message message, CancellationToken cancellationToken)
     {
         var pending = await StateManager
-            .TryGetStateAsync<List<ConversationChannel>>(StateKeys.PendingConversations, cancellationToken)
+            .TryGetStateAsync<List<ThreadChannel>>(StateKeys.PendingConversations, cancellationToken)
             ;
 
         var pendingList = pending.HasValue ? pending.Value : [];
 
-        var existingChannel = pendingList.Find(c => c.ConversationId == conversationId);
+        var existingChannel = pendingList.Find(c => c.ThreadId == threadId);
         if (existingChannel is not null)
         {
             existingChannel.Messages.Add(message);
         }
         else
         {
-            pendingList.Add(new ConversationChannel
+            pendingList.Add(new ThreadChannel
             {
-                ConversationId = conversationId,
+                ThreadId = threadId,
                 Messages = [message],
                 CreatedAt = DateTimeOffset.UtcNow
             });
@@ -1375,7 +1375,7 @@ public class AgentActor(
     private async Task<AgentStatus> GetCurrentStatusAsync(CancellationToken cancellationToken)
     {
         var activeConversation = await StateManager
-            .TryGetStateAsync<ConversationChannel>(StateKeys.ActiveConversation, cancellationToken)
+            .TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, cancellationToken)
             ;
 
         if (!activeConversation.HasValue)
@@ -1696,7 +1696,7 @@ public class AgentActor(
             Address,
             originalMessage.From,
             MessageType.Domain,
-            originalMessage.ConversationId,
+            originalMessage.ThreadId,
             ackPayload,
             DateTimeOffset.UtcNow);
     }
@@ -1712,7 +1712,7 @@ public class AgentActor(
             Address,
             originalMessage.From,
             MessageType.Domain,
-            originalMessage.ConversationId,
+            originalMessage.ThreadId,
             errorPayload,
             DateTimeOffset.UtcNow);
     }
@@ -2046,7 +2046,7 @@ public class AgentActor(
             actionType,
             messageId = translated.Id,
             target = new { scheme = translated.To.Scheme, path = translated.To.Path },
-            conversationId = translated.ConversationId,
+            threadId = translated.ThreadId,
             effectiveLevel = evaluation.EffectiveLevel.ToString(),
         });
 
@@ -2055,7 +2055,7 @@ public class AgentActor(
             $"Reflection action '{actionType}' dispatched to {translated.To.Scheme}://{translated.To.Path}.",
             ct,
             details: dispatchDetails,
-            correlationId: translated.ConversationId);
+            correlationId: translated.ThreadId);
     }
 
     /// <summary>
@@ -2079,7 +2079,7 @@ public class AgentActor(
             actionType = outcome.ActionType,
             messageId = translated.Id,
             target = new { scheme = translated.To.Scheme, path = translated.To.Path },
-            conversationId = translated.ConversationId,
+            threadId = translated.ThreadId,
             reason,
             effectiveLevel = effectiveLevel?.ToString(),
             failedClosed,
@@ -2094,7 +2094,7 @@ public class AgentActor(
             summary,
             ct,
             details: details,
-            correlationId: translated.ConversationId);
+            correlationId: translated.ThreadId);
     }
 
     private Task EmitReflectionSkippedAsync(

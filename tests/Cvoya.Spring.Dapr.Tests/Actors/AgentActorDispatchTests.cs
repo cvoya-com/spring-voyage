@@ -96,20 +96,20 @@ public class AgentActorDispatchTests
             loggerFactory);
         SetStateManager(_actor, _stateManager);
 
-        _stateManager.TryGetStateAsync<ConversationChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<ConversationChannel>(false, default!));
-        _stateManager.TryGetStateAsync<List<ConversationChannel>>(StateKeys.PendingConversations, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<List<ConversationChannel>>(false, default!));
+        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<ThreadChannel>(false, default!));
+        _stateManager.TryGetStateAsync<List<ThreadChannel>>(StateKeys.PendingConversations, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<List<ThreadChannel>>(false, default!));
     }
 
-    private static Message CreateDomainMessage(string conversationId = "conv-1")
+    private static Message CreateDomainMessage(string threadId = "conv-1")
     {
         return new Message(
             Guid.NewGuid(),
             new Address("unit", "my-unit"),
             new Address("agent", "test-agent"),
             MessageType.Domain,
-            conversationId,
+            threadId,
             JsonSerializer.SerializeToElement(new { task = "do-it" }),
             DateTimeOffset.UtcNow);
     }
@@ -144,7 +144,7 @@ public class AgentActorDispatchTests
             new Address("agent", "test-agent"),
             message.From,
             MessageType.Domain,
-            message.ConversationId,
+            message.ThreadId,
             JsonSerializer.SerializeToElement(new { Output = "ok", ExitCode = 0 }),
             DateTimeOffset.UtcNow);
 
@@ -205,9 +205,9 @@ public class AgentActorDispatchTests
         await _actor.PendingDispatchTask!;
 
         // After the first message the active conversation exists.
-        _stateManager.TryGetStateAsync<ConversationChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<ConversationChannel>(true,
-                new ConversationChannel { ConversationId = "conv-1", Messages = [message1] }));
+        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<ThreadChannel>(true,
+                new ThreadChannel { ThreadId = "conv-1", Messages = [message1] }));
 
         await _actor.ReceiveAsync(message2, TestContext.Current.CancellationToken);
 

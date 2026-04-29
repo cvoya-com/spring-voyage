@@ -66,24 +66,24 @@ public class MessageQueryServiceTests : IDisposable
     public async Task GetAsync_KnownId_ReturnsEnvelopeAndBody()
     {
         var messageId = Guid.NewGuid();
-        var conversationId = "conv-1";
+        var threadId = "conv-1";
         var message = new Message(
             messageId,
             new Address("human", "savasp"),
             new Address("agent", "ada"),
             MessageType.Domain,
-            conversationId,
+            threadId,
             JsonSerializer.SerializeToElement("hello, ada"),
             DateTimeOffset.UtcNow);
 
-        SeedReceived(message, conversationId);
+        SeedReceived(message, threadId);
 
         var svc = new MessageQueryService(_db);
         var result = await svc.GetAsync(messageId, TestContext.Current.CancellationToken);
 
         result.ShouldNotBeNull();
         result!.MessageId.ShouldBe(messageId);
-        result.ConversationId.ShouldBe(conversationId);
+        result.ThreadId.ShouldBe(threadId);
         result.From.ShouldBe("human://savasp");
         result.To.ShouldBe("agent://ada");
         result.MessageType.ShouldBe("Domain");

@@ -52,7 +52,7 @@ public class HumanActorTests
 
     private static Message CreateMessage(
         MessageType type = MessageType.Domain,
-        string? conversationId = null,
+        string? threadId = null,
         JsonElement? payload = null)
     {
         return new Message(
@@ -60,7 +60,7 @@ public class HumanActorTests
             new Address("agent", "test-sender"),
             new Address("human", "test-human"),
             type,
-            conversationId ?? Guid.NewGuid().ToString(),
+            threadId ?? Guid.NewGuid().ToString(),
             payload ?? JsonSerializer.SerializeToElement(new { }),
             DateTimeOffset.UtcNow);
     }

@@ -16,7 +16,7 @@ public static class MessageFactory
     /// Creates a domain message with optional overrides.
     /// </summary>
     public static Message CreateDomainMessage(
-        string? conversationId = null,
+        string? threadId = null,
         string? fromId = null,
         string? toId = null,
         string fromType = "agent",
@@ -28,7 +28,7 @@ public static class MessageFactory
             new Address(fromType, fromId ?? "test-sender"),
             new Address(toType, toId ?? "test-receiver"),
             MessageType.Domain,
-            conversationId ?? Guid.NewGuid().ToString(),
+            threadId ?? Guid.NewGuid().ToString(),
             payload ?? JsonSerializer.SerializeToElement(new { Content = "test-payload" }),
             DateTimeOffset.UtcNow);
     }
@@ -49,16 +49,16 @@ public static class MessageFactory
     }
 
     /// <summary>
-    /// Creates a cancel message for a specific conversation.
+    /// Creates a cancel message for a specific thread.
     /// </summary>
-    public static Message CreateCancelMessage(string conversationId, string fromId, string toId, string toType = "agent")
+    public static Message CreateCancelMessage(string threadId, string fromId, string toId, string toType = "agent")
     {
         return new Message(
             Guid.NewGuid(),
             new Address("agent", fromId),
             new Address(toType, toId),
             MessageType.Cancel,
-            conversationId,
+            threadId,
             JsonSerializer.SerializeToElement(new { }),
             DateTimeOffset.UtcNow);
     }
@@ -67,7 +67,7 @@ public static class MessageFactory
     /// Creates a domain message simulating a GitHub webhook payload.
     /// </summary>
     public static Message CreateWebhookMessage(
-        string? conversationId = null,
+        string? threadId = null,
         string? toId = null,
         string toType = "unit")
     {
@@ -89,7 +89,7 @@ public static class MessageFactory
             new Address("connector", "github-connector"),
             new Address(toType, toId ?? "test-unit"),
             MessageType.Domain,
-            conversationId ?? Guid.NewGuid().ToString(),
+            threadId ?? Guid.NewGuid().ToString(),
             webhookPayload,
             DateTimeOffset.UtcNow);
     }

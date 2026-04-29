@@ -96,7 +96,7 @@ public class ConnectorActor(ActorHost host, ILoggerFactory loggerFactory) : Acto
             Address,
             message.From,
             MessageType.StatusQuery,
-            message.ConversationId,
+            message.ThreadId,
             statusPayload,
             DateTimeOffset.UtcNow);
     }
@@ -113,7 +113,7 @@ public class ConnectorActor(ActorHost host, ILoggerFactory loggerFactory) : Acto
             Address,
             message.From,
             MessageType.HealthCheck,
-            message.ConversationId,
+            message.ThreadId,
             healthPayload,
             DateTimeOffset.UtcNow);
     }
@@ -143,7 +143,7 @@ public class ConnectorActor(ActorHost host, ILoggerFactory loggerFactory) : Acto
             Address,
             originalMessage.From,
             MessageType.Domain,
-            originalMessage.ConversationId,
+            originalMessage.ThreadId,
             ackPayload,
             DateTimeOffset.UtcNow);
     }
@@ -159,7 +159,7 @@ public class ConnectorActor(ActorHost host, ILoggerFactory loggerFactory) : Acto
             Address,
             originalMessage.From,
             MessageType.Domain,
-            originalMessage.ConversationId,
+            originalMessage.ThreadId,
             errorPayload,
             DateTimeOffset.UtcNow);
     }

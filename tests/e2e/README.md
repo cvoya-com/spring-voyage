@@ -113,7 +113,7 @@ counterpart stay on `e2e::http` with a TODO referencing the gap.
 | 07 | create-start-unit | fast | CLI (`spring unit start / status`) | Lifecycle path through `Running` (or `Starting`). |
 | 12 | nested-units | fast | CLI (`spring unit members add --unit`) | #331 added the `--unit` flag so the scenario drops its HTTP fallback. |
 | 13 | agent-domain-message | fast | CLI + curl | #404: asserts `MessageReceived` persists after a Domain message to an agent, proving the router → actor → activity-bus path without an LLM. |
-| 14 | conversation-lifecycle | fast | CLI + curl | #404: verifies `MessageReceived` → `ConversationStarted` → `StateChanged (Idle→Active)` all fire when a fresh conversation kicks off on an idle agent. |
+| 14 | conversation-lifecycle | fast | CLI + curl | #404: verifies `MessageReceived` → `ThreadStarted` → `StateChanged (Idle→Active)` all fire when a fresh thread kicks off on an idle agent. |
 | 15 | unit-policy-roundtrip | fast | CLI + curl | #404: GET empty → PUT (skill + model) → GET round-trip → PUT clear → GET empty; also asserts 404 for an unknown unit. |
 | 16 | cost-api-shape | fast | CLI + curl | #404: fresh agent/unit return the full CostSummaryResponse with zero counters and a valid time window; explicit from/to override is honoured. |
 | 17 | activity-query-filters | fast | curl | #404: asserts the four server-side filters on `/api/v1/activity` (source, eventType, severity, pageSize) actually narrow results — complements the SSE path until a cross-host event bridge lands. |

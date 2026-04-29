@@ -12,8 +12,8 @@ using global::Dapr.Client;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// Thread-safe conversation-level cancellation manager. Registers a
-/// <see cref="CancellationTokenSource"/> per conversation and, when configured with
+/// Thread-safe thread-level cancellation manager. Registers a
+/// <see cref="CancellationTokenSource"/> per thread and, when configured with
 /// a <see cref="DaprClient"/>, propagates cancellation to delegated execution
 /// containers via a pub/sub topic.
 /// </summary>
@@ -47,31 +47,31 @@ public class CancellationManager : ICancellationManager
     }
 
     /// <inheritdoc />
-    public CancellationTokenSource Register(string conversationId)
+    public CancellationTokenSource Register(string threadId)
     {
-        return _sources.GetOrAdd(conversationId, _ => new CancellationTokenSource());
+        return _sources.GetOrAdd(threadId, _ => new CancellationTokenSource());
     }
 
     /// <inheritdoc />
-    public CancellationToken GetToken(string conversationId)
+    public CancellationToken GetToken(string threadId)
     {
-        return _sources.TryGetValue(conversationId, out var cts)
+        return _sources.TryGetValue(threadId, out var cts)
             ? cts.Token
             : CancellationToken.None;
     }
 
     /// <inheritdoc />
-    public async Task CancelAsync(string conversationId, CancellationToken cancellationToken)
+    public async Task CancelAsync(string threadId, CancellationToken cancellationToken)
     {
-        if (_sources.TryGetValue(conversationId, out var cts))
+        if (_sources.TryGetValue(threadId, out var cts))
         {
             await cts.CancelAsync();
         }
         else
         {
             _logger.LogDebug(
-                "CancelAsync called for conversation {ConversationId} with no registered source; propagating only.",
-                conversationId);
+                "CancelAsync called for thread {ThreadId} with no registered source; propagating only.",
+                threadId);
         }
 
         if (_daprClient is null)
@@ -81,7 +81,7 @@ public class CancellationManager : ICancellationManager
 
         try
         {
-            var payload = new CancellationRequest(conversationId);
+            var payload = new CancellationRequest(threadId);
             await _daprClient.PublishEventAsync(PubSubName, CancelTopic, payload, cancellationToken);
         }
         catch (OperationCanceledException)
@@ -91,17 +91,17 @@ public class CancellationManager : ICancellationManager
         catch (Exception ex)
         {
             _logger.LogWarning(ex,
-                "Failed to publish cancellation event for conversation {ConversationId} to pubsub {PubSub}/{Topic}.",
-                conversationId,
+                "Failed to publish cancellation event for thread {ThreadId} to pubsub {PubSub}/{Topic}.",
+                threadId,
                 PubSubName,
                 CancelTopic);
         }
     }
 
     /// <inheritdoc />
-    public void Unregister(string conversationId)
+    public void Unregister(string threadId)
     {
-        if (_sources.TryRemove(conversationId, out var cts))
+        if (_sources.TryRemove(threadId, out var cts))
         {
             cts.Dispose();
         }
@@ -110,6 +110,6 @@ public class CancellationManager : ICancellationManager
     /// <summary>
     /// Payload shape for cancellation events published to delegated execution containers.
     /// </summary>
-    /// <param name="ConversationId">The conversation whose execution should be cancelled.</param>
-    internal record CancellationRequest(string ConversationId);
+    /// <param name="ThreadId">The thread whose execution should be cancelled.</param>
+    internal record CancellationRequest(string ThreadId);
 }

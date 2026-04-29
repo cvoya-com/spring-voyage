@@ -119,10 +119,10 @@ public static class ActorTestHost
         SetStateManager(actor, stateManager);
 
         // Default: no active conversation, no pending conversations.
-        stateManager.TryGetStateAsync<ConversationChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<ConversationChannel>(false, default!));
-        stateManager.TryGetStateAsync<List<ConversationChannel>>(StateKeys.PendingConversations, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<List<ConversationChannel>>(false, default!));
+        stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<ThreadChannel>(false, default!));
+        stateManager.TryGetStateAsync<List<ThreadChannel>>(StateKeys.PendingConversations, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<List<ThreadChannel>>(false, default!));
 
         return new AgentActorTestHarness(
             actor, stateManager, activityEventBus, membershipRepository,

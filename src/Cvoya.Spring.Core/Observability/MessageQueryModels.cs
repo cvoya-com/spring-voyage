@@ -12,10 +12,10 @@ using System.Text.Json;
 /// the activity-event projection: every <c>MessageReceived</c> event the
 /// platform emits stamps the envelope on its <c>Details</c> JSON, so a
 /// dedicated message store is not yet required (mirrors the conversation
-/// projection in <see cref="IConversationQueryService"/>).
+/// projection in <see cref="IThreadQueryService"/>).
 /// </summary>
 /// <param name="MessageId">The message identifier.</param>
-/// <param name="ConversationId">The conversation the message was threaded into, when present.</param>
+/// <param name="ThreadId">The thread the message was threaded into, when present.</param>
 /// <param name="From">The sender address (<c>scheme://path</c>).</param>
 /// <param name="To">The recipient address (<c>scheme://path</c>).</param>
 /// <param name="MessageType">The message type (<c>Domain</c>, <c>StatusQuery</c>, ...).</param>
@@ -24,7 +24,7 @@ using System.Text.Json;
 /// <param name="Timestamp">When the receiving actor logged the message.</param>
 public record MessageDetail(
     Guid MessageId,
-    string? ConversationId,
+    string? ThreadId,
     string From,
     string To,
     string MessageType,
