@@ -40,6 +40,7 @@ jobs:
       dispatcher_host: ${{ steps.filter.outputs.dispatcher_host }}
       agent_images: ${{ steps.filter.outputs.agent_images }}
       docs: ${{ steps.filter.outputs.docs }}
+      api_docs: ${{ steps.filter.outputs.api_docs }}
     steps:
       - uses: actions/checkout@v6
 
@@ -107,6 +108,17 @@ jobs:
               - '!docs/decisions/**'
               - '!docs/plan/**'
               - '!docs/roadmap/**'
+            api_docs:
+              # C2.2 (#1251): re-render the consumer-facing v1 API
+              # reference whenever the spec, the renderer wiring, or the
+              # docs/api/ index changes. The output (docs/api/v1.html) is
+              # gitignored — the job uploads it as a workflow artifact so
+              # consumers can fetch the rendered HTML without a local build.
+              - 'src/Cvoya.Spring.Host.Api/openapi.json'
+              - 'src/Cvoya.Spring.Web/package.json'
+              - 'docs/api/**'
+              - 'package.json'
+              - 'package-lock.json'
 
   build:
     name: Build
@@ -551,6 +563,54 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+  web-api-docs:
+    name: Render web API docs (Redoc)
+    runs-on: ubuntu-latest
+    needs: changes
+    # C2.2 (#1251): re-render the consumer-facing v1 API reference from
+    # the committed openapi.json on every change to the spec or the
+    # renderer wiring. Skipped in the merge queue — the output is a
+    # static-input function of the PR's own sources, so a pass on the
+    # pull_request run stays valid through the queue.
+    if: >
+      github.event_name != 'merge_group' &&
+      (needs.changes.outputs.api_docs == 'true' || needs.changes.outputs.workflows == 'true')
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      # Renders src/Cvoya.Spring.Host.Api/openapi.json into the
+      # gitignored docs/api/v1.html via @redocly/cli build-docs. The
+      # script in src/Cvoya.Spring.Web/package.json fetches the renderer
+      # transiently via `npx --yes` so we do not pay the cost of a full
+      # `npm ci` install just to render the docs. See docs/api/README.md
+      # for the consumer-facing index that points at this artefact.
+      - name: Generate API docs (docs/api/v1.html)
+        run: npm --workspace=spring-voyage-dashboard run generate-api-docs
+
+      - name: Verify rendered HTML exists
+        shell: bash
+        run: |
+          if [ ! -s docs/api/v1.html ]; then
+            echo "::error::docs/api/v1.html was not produced or is empty - check the generate-api-docs script wiring."
+            exit 1
+          fi
+          echo "Rendered $(wc -c < docs/api/v1.html) bytes."
+
+      - name: Upload rendered HTML as workflow artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: web-api-docs
+          path: docs/api/v1.html
+          retention-days: 30
+          if-no-files-found: error
+
   web-e2e:
     name: E2E web (Playwright smoke)
     runs-on: ubuntu-latest
@@ -986,6 +1046,7 @@ jobs:
       - web-typecheck
       - web-build
       - web-test
+      - web-api-docs
       - web-e2e
       - web-lighthouse
       - openapi-drift
@@ -1016,6 +1077,7 @@ jobs:
           WEB_TYPECHECK_RESULT: ${{ needs.web-typecheck.result }}
           WEB_BUILD_RESULT: ${{ needs.web-build.result }}
           WEB_TEST_RESULT: ${{ needs.web-test.result }}
+          WEB_API_DOCS_RESULT: ${{ needs.web-api-docs.result }}
           WEB_E2E_RESULT: ${{ needs.web-e2e.result }}
           WEB_LIGHTHOUSE_RESULT: ${{ needs.web-lighthouse.result }}
           OPENAPI_RESULT: ${{ needs.openapi-drift.result }}
@@ -1039,6 +1101,7 @@ jobs:
           echo "web-typecheck=$WEB_TYPECHECK_RESULT"
           echo "web-build=$WEB_BUILD_RESULT"
           echo "web-test=$WEB_TEST_RESULT"
+          echo "web-api-docs=$WEB_API_DOCS_RESULT"
           echo "web-e2e=$WEB_E2E_RESULT"
           echo "web-lighthouse=$WEB_LIGHTHOUSE_RESULT"
           echo "openapi-drift=$OPENAPI_RESULT"
@@ -1072,6 +1135,7 @@ jobs:
           ok "$WEB_TYPECHECK_RESULT"   || { echo "::error::web-typecheck failed"; exit 1; }
           ok "$WEB_BUILD_RESULT"       || { echo "::error::web-build failed"; exit 1; }
           ok "$WEB_TEST_RESULT"        || { echo "::error::web-test failed"; exit 1; }
+          ok "$WEB_API_DOCS_RESULT"    || { echo "::error::web-api-docs failed"; exit 1; }
           ok "$WEB_E2E_RESULT"         || { echo "::error::web-e2e failed"; exit 1; }
           ok "$WEB_LIGHTHOUSE_RESULT"  || { echo "::error::web-lighthouse failed"; exit 1; }
           ok "$OPENAPI_RESULT"         || { echo "::error::openapi-drift failed"; exit 1; }

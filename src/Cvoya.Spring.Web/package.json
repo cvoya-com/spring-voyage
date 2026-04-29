@@ -18,6 +18,7 @@
     "test:e2e:install": "playwright install --with-deps chromium",
     "test:lighthouse": "PORT=3100 lhci autorun",
     "generate-api": "openapi-typescript ../Cvoya.Spring.Host.Api/openapi.json -o src/lib/api/schema.d.ts",
+    "generate-api-docs": "npx --yes @redocly/cli@2.30.3 build-docs ../Cvoya.Spring.Host.Api/openapi.json -o ../../docs/api/v1.html --disableGoogleFont",
     "predev": "npm run generate-api",
     "prebuild": "npm run generate-api",
     "pretest": "npm run generate-api",

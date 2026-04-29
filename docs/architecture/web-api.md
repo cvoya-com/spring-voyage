@@ -2,7 +2,7 @@
 
 The public Web API is the **tenant-facing contract surface** of Spring Voyage. The CLI builds on it, the portal builds on it, and per [ADR 0029](../decisions/0029-tenant-execution-boundary.md) tenant-scoped agent containers also call back into it (the A2A send is the single tenant→platform interface). Anything that doesn't go through this API is either operator-only (CLI mutations the portal exposes read-only views of) or platform-internal.
 
-This document is the architecture-layer reference for **how the API is produced, where it's consumed, and how to evolve it**. Specific endpoint shapes live in the OpenAPI spec; deprecation policy, contract tests, and the operator/tenant authz boundary are tracked under sub-issues of [Area C / #1216](https://github.com/cvoya-com/spring-voyage/issues/1216).
+This document is the architecture-layer reference for **how the API is produced, where it's consumed, and how to evolve it**. Specific endpoint shapes live in the OpenAPI spec; the per-endpoint consumer reference (auth quick-start, common patterns, error envelope, and the rendered HTML view of the spec) lives at [`docs/api/`](../api/README.md). Deprecation policy, contract tests, and the operator/tenant authz boundary are tracked under sub-issues of [Area C / #1216](https://github.com/cvoya-com/spring-voyage/issues/1216).
 
 ## Source of truth
 
@@ -209,13 +209,14 @@ The merged commit of [#1250](https://github.com/cvoya-com/spring-voyage/issues/1
 
 - Removing any endpoint, removing a property from any response schema, or making any other change in the [What counts as a breaking change](#what-counts-as-a-breaking-change) list waits for `v2`.
 - Adding new endpoints, adding optional request properties, adding response properties, and adding new enum values (per [What is *not* a breaking change](#what-is-not-a-breaking-change)) ship transparently inside `v1`.
-- The next consumer-facing publication step is C2.2 ([#1251](https://github.com/cvoya-com/spring-voyage/issues/1251)) — publish the spec for external consumers — which picks up the frozen `openapi.json` as its starting input.
+- The consumer-facing publication of the frozen spec lives at [`docs/api/`](../api/README.md): a Markdown index plus a Redoc-rendered HTML reference (`docs/api/v1.html`), regenerated from `openapi.json` on demand locally and produced as a CI workflow artifact on every change.
 
 ## Cross-references
 
 - Endpoint surface is enumerated in [`src/Cvoya.Spring.Host.Api/openapi.json`](../../src/Cvoya.Spring.Host.Api/openapi.json) (the v1 freeze artifact at the merge of [#1250](https://github.com/cvoya-com/spring-voyage/issues/1250)).
+- Consumer-facing per-endpoint reference: [`docs/api/`](../api/README.md) — Markdown index + Redoc-rendered HTML view of `openapi.json`. The HTML is regenerated from the spec on demand (`npm --workspace=spring-voyage-dashboard run generate-api-docs`) and uploaded as a CI workflow artifact on every change.
 - Tenant→platform interface contract: [ADR 0029](../decisions/0029-tenant-execution-boundary.md), [agent-runtime boundary spec](../specs/agent-runtime-boundary.md).
 - Thread / Engagement / Collaboration framing the URL surface anchors on: [ADR 0030](../decisions/0030-thread-model.md), [thread-model design](thread-model.md).
 - LLM access via the API (platform-level, not per-tenant): [ADR 0028 amendment](../decisions/0028-tenant-scoped-runtime-topology.md).
 - Operator carve-out: [`CONVENTIONS.md` § "UI / CLI Feature Parity"](../../CONVENTIONS.md), [`AGENTS.md` § "Operator surfaces"](../../AGENTS.md).
-- Open Area C work: [#1216](https://github.com/cvoya-com/spring-voyage/issues/1216) (umbrella) and its sub-issues; consumer-facing publication of the frozen spec is [#1251](https://github.com/cvoya-com/spring-voyage/issues/1251) (C2.2).
+- Open Area C work: [#1216](https://github.com/cvoya-com/spring-voyage/issues/1216) (umbrella) and its sub-issues; consumer-facing publication of the frozen spec landed under [#1251](https://github.com/cvoya-com/spring-voyage/issues/1251) (C2.2) — see [`docs/api/`](../api/README.md).

@@ -47,6 +47,15 @@ deployment/spring.env
 src/Cvoya.Spring.Cli/Generated/
 src/Cvoya.Spring.Web/src/lib/api/schema.d.ts
 
+## Consumer-facing per-endpoint API reference rendered by `@redocly/cli`
+## from the committed OpenAPI contract via
+## `npm --workspace=spring-voyage-dashboard run generate-api-docs`.
+## Treated like the other generated codegen artefacts above — produced
+## from `openapi.json`, never hand-edited, not committed. CI builds it
+## on every change to the spec and uploads it as a workflow artifact so
+## external consumers can fetch the rendered HTML without a local build.
+docs/api/v1.html
+
 ## Python
 __pycache__/
 *.pyc
