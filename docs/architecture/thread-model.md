@@ -22,7 +22,7 @@ Examples of the participant-set invariant:
 
 A participant may belong to many threads.
 
-Every thread has an ordered, timestamped **Timeline** of all artifacts it accumulates — messages (user / agent / initiative), task lifecycle events, participant state changes, and system events. The Timeline is append-only at the platform level; it is the canonical record of what happened in the thread, in what order. Per-question detail belongs in Q7.
+Every thread has an ordered, timestamped **Timeline** of all artifacts it accumulates — messages (user / agent / initiative), participant state changes, retractions, and system events. The Timeline is append-only at the platform level; it is the canonical record of what happened in the thread, in what order. (Tasks are *not* Timeline artifacts — they are memory entries on each agent's `AgentMemory`; see Q5.) Per-question detail belongs in Q7.
 
 Each agent has a single **`AgentMemory`** — an ordered, append-only memory store. Entries are **`MemoryEntry`** records with optional `thread_id` and `threadOnly` attributes; per-thread visibility is enforced at the recall filter, governed by the thread's **`ThreadMemoryPolicy`**. Detail belongs in Q4.
 
@@ -233,27 +233,24 @@ Each is a real concern for richer multi-human / multi-unit deployments (1–3) o
 
 ---
 
-## 5. Tasks as thread artifacts
+## 5. Tasks
 
-**Decision:** Tasks are **thread-associated artifacts**, not agent-scoped entities.
-
-- A task lives in the thread's **Timeline** (Q7) alongside messages and system events. A task does not exist outside a thread.
-- A task's visibility to the agent is governed by the same `ThreadMemoryPolicy` from Q4 — a task created in a thread is, from each participating agent's perspective, a memory entry scoped to that thread. The entry's `threadOnly` attribute is stamped from the thread's policy like any other entry.
-- Cross-thread task references are **not** a v0.1 feature. A task `#name` resolves within the current thread only. Cross-thread `#task` reference is part of the deferred memory features in Q4.
-- The `ThreadMemoryPolicy` does not need a separate `task_visibility` axis — tasks are subject to the policy like any other thread-scoped knowledge.
-
-**Rationale.**
-
-- The prior "tasks decoupled from threads" framing broke privacy: a secret-project task initiated in thread T1 (policy: `threadOnly: true`) should not be visible to the same agent operating in another thread T2. The current model achieves that automatically — the task entry is stamped `threadOnly: true`, so the recall filter hides it from the agent operating in T2.
-- Threads-as-the-unit-of-artifact-aggregation is consistent with the Timeline concept (Q7): messages, tasks, system events all live on the timeline. Tasks are not a separate concept that floats above the thread.
-- Simpler. One policy controls visibility. No special-case visibility rules for tasks. The originator-anchored / participant-set-only / agent-wide enum from the prior draft is removed entirely. There is one knob: `ThreadMemoryPolicy`.
+**Decision:** Tasks are **not a typed platform concept.** A task is a **memory entry** whose payload represents a task — by application or surface convention; the platform doesn't reify it. Task lifecycle (created, updated, cancelled, completed) is expressed as **additional memory entries** that the agent's cognition or the surface interprets as updates to the prior task entry. All Q4 rules — visibility via `ThreadMemoryPolicy`, the recall filter, cloning, append-only — apply to task entries uniformly.
 
 **Consequences.**
 
-- D1's task contract: `task.create`, `task.update`, `task.cancel`, `task.revise` operations all carry an implicit `thread_id` — the thread the calling agent is operating in. A task does not exist outside a thread.
-- Tasks appear on the thread Timeline as ordered, timestamped artifacts (Q7).
-- Cross-thread task surfaces (e.g., "all my open tasks across all my engagements") are a UX projection over the agent's `AgentMemory` — they show only tasks whose entries are visible across threads (`threadOnly: false`). Scope is UX (E2), not platform.
-- F2 updates `messaging.md` to note that tasks are thread-scoped artifacts on the Timeline and removes any prior framing of a separate "agent task store."
+- **No `task.create` / `task.update` / `task.cancel` / `task.revise` MCP tools.** The agent stores task-shaped payloads via `store(memory)` and updates them by storing further entries. Q4's tool surface (`store`, `recall`) is the only API.
+- **No `task_visibility` policy axis** (already removed in the prior pass; reaffirmed here).
+- **No "task store" / "agent task store" concept.**
+- **The `#name` reference is a UX / surface convention.** It's a way for users to address a task-payload entry in the current thread; the surface resolves it. Cross-thread `#name` resolution remains deferred (#1292).
+- **The collaboration surface still renders a task panel.** That's E2's job — interpret memory entries whose payload looks task-shaped and render lifecycle. The platform does not impose the schema; the surface and the agent agree on it.
+
+**Rationale.**
+
+- Once everything is a memory entry, tasks don't need a separate API, a separate visibility axis, or a separate lifecycle vocabulary. The memory entry already has all of those.
+- Task lifecycle is naturally append-only on `AgentMemory`: each state change is a new entry referencing the prior. The append-only invariant from Q7 carries over.
+- Cross-thread task visibility falls out of the same `ThreadMemoryPolicy` / `threadOnly` mechanics as any other memory entry. No special-case rules.
+- The UX layer keeps the task concept (panel, `#name`, lifecycle indicators); the platform layer doesn't.
 
 ---
 
@@ -300,7 +297,8 @@ Each is a real concern for richer multi-human / multi-unit deployments (1–3) o
 
 Every thread has a single, ordered, timestamped **Timeline** of artifacts. The Timeline is the unifying concept Q5, Q6, Q7, and Q8 reference.
 
-- Artifact types: **Message** (user / agent / initiative), **Task lifecycle event** (created / updated / cancelled / completed), **`ParticipantStateChanged`** (Q6), **Retraction** (Q8), and **system events**.
+- Artifact types: **Message** (user / agent / initiative), **`ParticipantStateChanged`** (Q6), **Retraction** (Q8), and **system events**.
+- Tasks are memory entries (Q5), not Timeline artifacts. The collaboration surface renders task state by reading the agent's task-shaped memory entries, not by walking Timeline artifacts.
 - The Timeline is **append-only at the platform level.** Edits and retractions (Q8) appear as new Timeline events that reference the prior artifact, not as in-place mutations.
 - **Per-thread FIFO** (Q3) is the ordering invariant on the Timeline.
 - Initiative messages, user messages, and agent reply messages are all Messages on the same Timeline — distinguishable only by sender role and by the optional `context` UX hint.
@@ -308,7 +306,7 @@ Every thread has a single, ordered, timestamped **Timeline** of artifacts. The T
 **Rationale.**
 
 - Conflating "initiative messages have a separate envelope" with "the platform branches on initiative" was overreach in the prior draft. The platform doesn't need to branch; the UX renders the hint differently. Strip the platform-level distinction and let the surface do the framing.
-- The Timeline gives Q5 (tasks), Q6 (participant state), Q7 (initiative), and Q8 (retraction) a single shared concept to reference. Tasks-on-timeline, state-changes-on-timeline, retractions-on-timeline, initiative-messages-on-timeline are all uniform — different artifact types, same ordering, same persistence rules.
+- The Timeline gives Q6 (participant state), Q7 (initiative), and Q8 (retraction) a single shared concept to reference. State-changes-on-timeline, retractions-on-timeline, initiative-messages-on-timeline are all uniform — different artifact types, same ordering, same persistence rules. (Tasks are memory entries per Q5, not Timeline artifacts.)
 - The `context` hint is still useful: a task-update reply shown next to its originating user message reads cleanly when the surface can show a "re: #flaky-test-fix" prefix; reminders / observations want a different visual register than direct replies. But this is the surface's job, not the platform's.
 - Append-only at the platform level matches the "lifelong record" promise on the thread: the canonical record of what happened never mutates; corrections (Q8) and retractions are new events that reference the originals.
 
@@ -323,25 +321,22 @@ Every thread has a single, ordered, timestamped **Timeline** of artifacts. The T
 
 ## 8. Misinference and correction UX
 
-**Decision:** Correction is **a normal user message** that the agent interprets, not a separate API verb or a special "undo" lifecycle. The platform supplies three primitives the agent / SDK can use to **act** on the correction once interpreted, plus a **collaboration affordance** that pre-templates the correction message:
+**Decision:** Correction is **a normal user message** that the agent interprets, not a separate API verb or a special "undo" lifecycle. The platform supplies **one primitive** — `message.retract` — for the agent to mark a previously-sent message as retracted on the thread Timeline; everything else (cancelling work, re-scoping a task) is the agent updating its memory entries via Q4's `store(memory)`. A **collaboration affordance** pre-templates the correction message:
 
-1. **`task.cancel(#name, reason)`** — the agent abandons in-flight work for a task in the current thread. Stops execution; appends a `TaskCancelled` event to the thread Timeline; preserves audit trail. Same semantics as ADR-0018's existing cancel — surfaced through the task primitive rather than through a control-channel message. Tasks are thread-scoped (Q5), so `task.cancel` operates on the calling agent's task within the current thread.
-2. **`task.revise(#name, new_scope)`** — the agent re-scopes a task in the current thread (replace its goal / instructions) and either restarts it or continues from the current checkpoint. The agent decides which.
-3. **`message.retract(message_id, reason)`** — the agent marks one of its own previously-sent messages as retracted. Per the Timeline append-only rule (Q7), the retraction is a **new Timeline event** that references the prior message; the original message remains on the Timeline (audit) and the surface renders it with a strikethrough + the agent's stated reason. This is for "I told the user something wrong; let me say so explicitly" correction, distinct from task-level correction.
+- **`message.retract(message_id, reason)`** — the agent marks one of its own previously-sent messages as retracted. Per the Timeline append-only rule (Q7), the retraction is a **new Timeline event** that references the prior message; the original message remains on the Timeline (audit) and the surface renders it with a strikethrough + the agent's stated reason. Messages are still a typed concept — the thread is a sequence of messages between participants; retraction marks a sent message as retracted on the shared Timeline. This is for "I told the user something wrong; let me say so explicitly" correction.
 
-The **collaboration affordance** gives the user a "this isn't what I meant" one-click action on any message that triggered an in-flight task — it prefills a templated message ("re: #flaky-test-fix — I meant the integration test, not the unit test. Please redo with that scope.") and leaves the user free to edit before sending. The agent receives the message normally and interprets it (typically calling `task.revise`).
+The **collaboration affordance** gives the user a "this isn't what I meant" one-click action on any message that triggered in-flight work — it prefills a templated message ("re: #flaky-test-fix — I meant the integration test, not the unit test. Please redo with that scope.") and leaves the user free to edit before sending. The agent receives the message normally and interprets it (typically by storing a new memory entry that updates the prior task entry's state).
 
 **Rationale.**
 
-- The platform should not invent a "correction" wire format the user (or the agent) has to learn. Corrections are how humans naturally communicate — "wait, I meant…" — and the agent's strength is exactly interpreting that. The platform's job is to give the agent the **primitives** to act on the interpretation cleanly (cancel, revise, retract) and to give the user a **shortcut** for the common case (the collaboration affordance).
-- Distinguishing `task.cancel` / `task.revise` from `message.retract` matters. The first two affect work; the third affects record. An agent that confidently told the user "the test is fixed" and was wrong should be able to retract that statement explicitly (otherwise the thread Timeline is misleading), even if there is no task to cancel.
-- "Discard / redo / re-scope" maps cleanly: `discard = task.cancel`; `redo = task.revise(same scope)`; `re-scope = task.revise(new scope)`. All three are the same primitive.
+- The platform's job is to model what's structurally distinct. A retraction is structurally distinct because it modifies the thread's shared Timeline rendering — what *participants* see. A task update is *not* structurally distinct from any other memory write; it's an entry in `AgentMemory`, the agent's private state evolution.
+- The platform should not invent a "correction" wire format the user (or the agent) has to learn. Corrections are how humans naturally communicate — "wait, I meant…" — and the agent's strength is exactly interpreting that. The platform's job is to give the agent the primitive to fix the *record* (`message.retract`) and to give the user a shortcut for the common case (the collaboration affordance).
+- "Discard / redo / re-scope" are no longer platform primitives — the agent interprets the user's correction and stores a new memory entry that updates the task's state. Q4's `store(memory)` is enough.
 - The collaboration affordance avoids the user having to remember the right phrasing or the task tag. A click pre-fills it; the user only has to add the corrected content. This is the same pattern as a "reply" button in a chat client.
 
 **Consequences.**
 
-- D1 / the public Web API exposes `task.cancel`, `task.revise`, `message.retract` as MCP tools the agent calls. The collaboration affordance is a pure E2 deliverable that calls existing send-message endpoints; no new endpoint required.
-- The `TaskRevised` Timeline event needs to thread the prior scope and the new scope so observers can audit. F2 includes it in the activity-event taxonomy.
+- D1 / the public Web API exposes `message.retract` as the only correction-shaped MCP tool the agent calls. The collaboration affordance is a pure E2 deliverable that calls existing send-message endpoints; no new endpoint required.
 - The "retract" semantics are deliberately soft (Timeline event + strikethrough render, not delete). Hard delete is a separate compliance concern (right-to-be-forgotten), out of scope for v0.1.
 
 ---
@@ -396,11 +391,11 @@ The **collaboration affordance** gives the user a "this isn't what I meant" one-
 
 This design unblocks the following work, none of which is in scope for the F1 PR:
 
-- **F2 — doc revisions.** Sweep `Conversation*` → `Thread*` terminology across `docs/architecture/messaging.md`, `docs/architecture/units.md`, `docs/architecture/agent-runtime.md`, and the glossary; the canonical glossary entries for **Thread**, **Engagement**, and **Collaboration** ship in this PR alongside this doc to anchor F2. Introduce the **Timeline** as a first-class concept in `messaging.md`. Sweep `MemoryFlowPolicy` (named in the prior F1 draft, never landed in code) and the now-retired `MemoryPromotionPolicy` (also a prior-draft term) → **`ThreadMemoryPolicy`**, and replace the two-store framing in `messaging.md` / `units.md` with the single-store `AgentMemory` + `MemoryEntry` view per Q4. Same pass updates the docs to reflect the participant-set model, the Engagement / Collaboration UX surfaces, the per-thread FIFO contract, the optional `context` UX-hint metadata on messages (Q7), the `ParticipantStateChanged` Timeline event and per-(thread, participant) state machine (Q6), tasks as Timeline artifacts (Q5), and the renamed MCP tools (`store` / `recall`, Q4). Mark ADR-0018 as **Superseded by** F3's new ADR in the same PR.
+- **F2 — doc revisions.** Sweep `Conversation*` → `Thread*` terminology across `docs/architecture/messaging.md`, `docs/architecture/units.md`, `docs/architecture/agent-runtime.md`, and the glossary; the canonical glossary entries for **Thread**, **Engagement**, and **Collaboration** ship in this PR alongside this doc to anchor F2. Introduce the **Timeline** as a first-class concept in `messaging.md` — and reflect that **tasks are not Timeline artifacts** (Q5): the artifact-types list is **Message**, **`ParticipantStateChanged`**, **Retraction**, and **system events**; task lifecycle is memory-entry-shaped (`store(memory)` + recall), not API-primitive-shaped. Sweep `MemoryFlowPolicy` (named in the prior F1 draft, never landed in code) and the now-retired `MemoryPromotionPolicy` (also a prior-draft term) → **`ThreadMemoryPolicy`**, and replace the two-store framing in `messaging.md` / `units.md` with the single-store `AgentMemory` + `MemoryEntry` view per Q4. Same pass updates the docs to reflect the participant-set model, the Engagement / Collaboration UX surfaces, the per-thread FIFO contract, the optional `context` UX-hint metadata on messages (Q7), the `ParticipantStateChanged` Timeline event and per-(thread, participant) state machine (Q6), and the renamed MCP tools (`store` / `recall`, Q4). Mark ADR-0018 as **Superseded by** F3's new ADR in the same PR.
 - **F3 — new ADR.** Author the participant-set + state machine + memory model ADR using the new terminology throughout. Cites this doc, ADR-0026 (per-agent container), and ADR-0029 (boundary), and supersedes ADR-0018. Anchors the long-form rationale; this doc anchors the per-question decisions.
-- **D1 — wire contract.** Specify: `thread_id` field on inbound messages (Q3); optional `context` metadata on outbound messages (Q7); `is_first_contact` hint (Q9); per-(thread, participant) state field (Q6); `concurrent_threads: bool` agent / unit definition flag (Q3); explicit task-thread coupling (every task carries the calling agent's current `thread_id`, Q5); the `MemoryEntry` shape and the `ThreadMemoryPolicy` attached to threads (Q4). Surface `store`, `recall`, `task.cancel`, `task.revise`, `message.retract`, `peek_pending` as MCP tools.
+- **D1 — wire contract.** Specify: `thread_id` field on inbound messages (Q3); optional `context` metadata on outbound messages (Q7); `is_first_contact` hint (Q9); per-(thread, participant) state field (Q6); `concurrent_threads: bool` agent / unit definition flag (Q3); the `MemoryEntry` shape and the `ThreadMemoryPolicy` attached to threads (Q4). Surface `store`, `recall`, `message.retract`, `peek_pending` as MCP tools. (No `task.*` tools — tasks are memory entries per Q5.)
 - **C2 — public Web API target shape.** Introduce `/api/v1/threads/{id}` as the canonical URL surface. **No `/conversations` alias and no backwards-compat needed** (Q10). The Engagement-as-stitching-projection surface (Q6) sits on top — engagements are a UX projection, not a separately persisted entity at the API.
-- **E2 — engagement and collaboration UX.** The user-facing surfaces are explicitly **Engagement** (the navigation list / relationship view, Q6) and **Collaboration** (the active workspace where the user works, Q7-Q9), not "dialog." Build: the engagement view that absorbs participant-set transitions across distinct threads (Q6); per-(thread, participant) state markers on the Timeline within a thread (Q6); the cold-start standing-offer + first-contact greeting affordances inside the collaboration (Q9); the "this isn't what I meant" collaboration affordance (Q8); the `#task` reference inline rendering and `context` UX-hint header rendering (Q7).
+- **E2 — engagement and collaboration UX.** The user-facing surfaces are explicitly **Engagement** (the navigation list / relationship view, Q6) and **Collaboration** (the active workspace where the user works, Q7-Q9), not "dialog." Build: the engagement view that absorbs participant-set transitions across distinct threads (Q6); per-(thread, participant) state markers on the Timeline within a thread (Q6); the cold-start standing-offer + first-contact greeting affordances inside the collaboration (Q9); the "this isn't what I meant" collaboration affordance (Q8); the `#name` reference inline rendering and `context` UX-hint header rendering (Q7). The collaboration surface owns the **task-panel rendering convention** (Q5) — interpreting task-shaped memory entries from the agent's `AgentMemory` and rendering lifecycle; the platform does not impose the schema, so E2 and the agent agree on what a task-shaped payload looks like.
 - **Code-level rename — Area G.** `IConversationQueryService` → `IThreadQueryService`, `ConversationId` → `ThreadId`, `Message.ConversationId` → `Message.ThreadId`, the activity-event projection's `CorrelationId == ConversationId` mapping, and every repository / actor / test that references `Conversation*`. **Not in scope for F1.** Tracked in the follow-ups list below (#1287).
 - **Deferred memory features — single follow-up.** Unit recursion; cross-thread reads at the recall API level; multi-human permission gating on memory access; inferences with explicit provenance (thread-less entries linked to source entries). Not part of v0.1; warrant design when there's a forcing case (Q4 deferral note).
 - **F execution plan.** The execution-plan issue (deliberately deferred per the plan-of-record) opens once F3's ADR lands.
@@ -424,7 +419,7 @@ The following adjacent items surfaced during this design but are out of scope fo
 2. **CLI verb rename `spring conversation …` → `spring thread …`.** Area E1 scope; ship once the code rename (#1287) settles to avoid a half-renamed surface. Already filed as #1288.
 3. **New long-form positioning doc `docs/concepts/threads.md`.** Captures the full UX positioning writeup — Engagement vs. Collaboration, example copy, when to use which term, the user-facing narrative. Area B (docs overhaul) scope. F1 / F2 / F3 ship the architecture and the glossary anchors; the long-form positioning is a separate piece of writing. Already filed as #1289.
 4. **Hard-delete / right-to-be-forgotten on retracted messages and removed-participant blackout-window content.** Q8 leaves retract as soft (Timeline event + strikethrough render); Q6 leaves a removed participant's thread-scoped memory entries frozen rather than purged, and the blackout-window Timeline content unreachable but undeleted. Compliance regimes (GDPR, CCPA) require hard delete on user request. Out of scope for v0.1; needs an architectural decision on how erasure interacts with the append-only Timeline.
-5. **`#task` namespace collision rules in multi-participant threads.** Q5 simplifies tasks to a single thread-scoped artifact governed by `ThreadMemoryPolicy`, but the namespace-collision question (two participants in a thread both reference `#flaky-test-fix`) remains a UX-rules item. E2 should file the UX rule before building the collaboration surface.
+5. **`#name` namespace collision rules in multi-participant threads.** Per Q5, `#name` is a UX / surface convention for addressing a task-shaped memory entry in the current thread — it is not a platform-typed thing. The namespace-collision question (two participants in a thread both reference `#flaky-test-fix`) remains a UX-rules item over that surface convention. E2 should file the UX rule before building the collaboration surface.
 6. **Standing-offer authoring guidance (Q9).** Agents can specify `instructions.opening_offer` but agent-author guidance on what makes a good offer is documentation work, not platform work. Worth filing for the docs overhaul (Area B) once F3 lands.
 7. **v0.1 deferred memory features (cross-thread / multi-human).** Unit recursion (a unit reading its members' thread-scoped memory entries from threads the unit itself is not in); cross-thread reads at the recall API level by any agent or unit; multi-human permission gating on memory access. The simple v0.1 model (Q4) does not need any of these; design when a forcing case appears. Already filed as **#1292**.
 8. **v0.1 deferred memory features (inferences with explicit provenance).** Agent-driven entries that synthesise across multiple sources, with relationship-style metadata linking inferred entries to their source entries — likely as first-class memory relationships forming a hypergraph (relationship type as a label, sets of source / destination entries, directed traversal, depth control). Out of scope for v0.1; design when a forcing case appears. Already filed as **#1293**.
