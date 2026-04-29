@@ -59,7 +59,7 @@ A message is a typed communication between addressable entities. Every message h
 | **From** | The sender's address |
 | **To** | The recipient's address |
 | **Type** | Platform action or domain message (see below) |
-| **ConversationId** | Correlates related messages into a conversation |
+| **ThreadId** | Identifies the thread (the participant-set relationship) this message belongs to |
 | **Payload** | The message content (structured data) |
 | **Timestamp** | When the message was created |
 

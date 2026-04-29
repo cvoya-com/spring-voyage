@@ -76,7 +76,7 @@ AgentActor.ExecuteTurn()
   → A2AExecutionDispatcher.DispatchAsync(message, context)
      → IAgentDefinitionProvider.GetByIdAsync(agentId)
      → IPromptAssembler.AssembleAsync(message, context)
-     → IMcpServer.IssueSession(agentId, conversationId)
+     → IMcpServer.IssueSession(agentId, threadId)
      → launcher.PrepareAsync(launchContext)          ── argv + env + mounts + workdir + stdin
      → ContainerConfigBuilder.Build(image, spec)     ── single seam to ContainerConfig
      → IContainerRuntime.StartAsync (detached)        ── ephemeral OR persistent: same call
@@ -334,6 +334,8 @@ this table and drop the wizard gate on that specific tool.
 ---
 
 ## 5. Dapr Conversation wiring (Dapr-Agent only)
+
+> **Naming disambiguation.** "Conversation" in this section refers to Dapr's [Conversation API](https://docs.dapr.io/reference/components-reference/supported-conversation/) — the building block that abstracts the LLM provider call (Ollama / OpenAI / Anthropic / Google). It is unrelated to Spring Voyage's **Thread** concept (the participant-set relationship described in [`docs/architecture/thread-model.md`](thread-model.md) and [ADR-0030](../decisions/0030-thread-model.md)). The `SPRING_LLM_PROVIDER` env var binds to a Dapr Conversation **component name**, not to a Spring Voyage thread.
 
 The `DaprAgentLauncher` forwards three YAML-driven knobs to the container:
 

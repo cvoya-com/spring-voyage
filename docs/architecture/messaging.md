@@ -1,6 +1,12 @@
 # Messaging
 
-> **[Architecture Index](README.md)** | Related: [Infrastructure](infrastructure.md), [Units & Agents](units.md), [Initiative](initiative.md)
+> **[Architecture Index](README.md)** | Related: [Infrastructure](infrastructure.md), [Units & Agents](units.md), [Initiative](initiative.md), [Thread Model](thread-model.md)
+
+---
+
+Messages in Spring Voyage are exchanged across **threads** — the system-level participant-set relationship that uniquely identifies a set of two or more participants and their lifelong shared exchanges. Each thread carries a single ordered, append-only **Timeline** that is the canonical shared record of what happened in the thread (messages, participant state changes, retractions, and system events). Each agent has its own per-agent **`AgentMemory`** that the agent reads while operating in any thread; per-thread visibility of memory entries is governed by the thread's `ThreadMemoryPolicy`.
+
+The participant-set model and its design rationale are settled in [`docs/architecture/thread-model.md`](thread-model.md) and ratified in [ADR-0030](../decisions/0030-thread-model.md). This document covers the runtime mechanics — how messages are dispatched onto an agent's mailbox, how cancellation propagates, how streams flow back from the execution environment, how the Timeline is materialised, and how `AgentMemory` is offered as an MCP tool surface.
 
 ---
 
@@ -8,36 +14,38 @@
 
 ### The Core Question: How Does an Agent Handle Concurrent Messages?
 
-Dapr actors provide turn-based concurrency — one message processed at a time. But agents need to handle multiple concerns simultaneously: working on an active conversation while receiving status updates, cancellations, or messages from different sources.
+Dapr actors provide turn-based concurrency — one message processed at a time. But agents need to handle multiple concerns simultaneously: working on threads while receiving status updates, cancellations, or messages from different sources.
 
 ### Design: Partitioned Mailbox with Priority Processing
 
-Each agent's mailbox is logically partitioned into three channel types:
+Each agent's mailbox is logically partitioned into three channel types. The control and observation channels carry forward unchanged from [ADR-0018](../decisions/0018-partitioned-mailbox.md); the per-thread message channel is reframed by [ADR-0030](../decisions/0030-thread-model.md), which supersedes ADR-0018's single-active-conversation-slot semantics:
 
 ```mermaid
 graph TD
     msg["Incoming Message"] --> router["Message Router"]
     router --> control["Control Channel<br/>Cancel · StatusQuery · HealthCheck<br/>PolicyUpdate<br/>(routed by MessageType)"]
-    router --> conv["Conversation Channels<br/>one channel per ConversationId<br/>Domain messages via direct delivery"]
+    router --> conv["Conversation Channel<br/>per-thread FIFO queues<br/>Domain messages via direct delivery"]
     router --> obs["Observation Channel<br/>Domain messages via pub/sub,<br/>reminders, timers"]
 ```
 
 
 
-**Conversation channels** replace the flat work queue. Each distinct `ConversationId` gets its own channel — a queue of related messages. At most one conversation is **active** (has work in progress); all others are **pending**.
+**Conversation channel — per-thread queues.** Behind the conversation channel, each distinct `ThreadId` has its own FIFO queue. There is **no single "active conversation slot"** gating dispatch across threads: by default the agent processes its threads concurrently, with up to N `on_message` calls in flight (one per thread) for an agent participating in N threads. Per-thread FIFO is preserved within each thread; concurrency is across distinct threads only.
+
+The agent / unit definition carries a **`concurrent_threads: bool`** flag (default **`true`**). When set to `false`, the agent processes threads serially: at most one `on_message` call is in flight across all threads the agent participates in. This is the right opt-out for resource-bound agents, LLM-context-bound agents that cannot multiplex cleanly, or agents with strict ordering needs across threads.
 
 ```mermaid
 graph TD
-    subgraph conv["Conversation Channels"]
-        active["Active: conv-A<br/>(work in progress)"]
-        pending1["Pending: conv-B<br/>(queued)"]
-        pending2["Pending: conv-C<br/>(queued)"]
+    subgraph conv["Conversation Channel — per-thread queues"]
+        t1["Thread T1<br/>(FIFO queue)"]
+        t2["Thread T2<br/>(FIFO queue)"]
+        t3["Thread T3<br/>(FIFO queue)"]
     end
 ```
 
 
 
-A `Domain` message arriving via direct delivery with a new (or absent) `ConversationId` creates a new conversation channel. Follow-up messages carrying the same `ConversationId` are routed to the existing channel. Routing is determined by `MessageType` and delivery mechanism — the platform never inspects the `Payload` for routing decisions.
+A `Domain` message arriving via direct delivery with a new (or absent) `ThreadId` creates a new per-thread queue. Follow-up messages carrying the same `ThreadId` are routed to the existing queue. Routing is determined by `MessageType` and delivery mechanism — the platform never inspects the `Payload` for routing decisions.
 
 **Processing model:**
 
@@ -50,18 +58,16 @@ graph TD
     subgraph actor["Agent Actor"]
         router["Message Router<br/>(in actor turn)"]
         router --> cq["Control Channel"]
-        router --> active["Active Conversation Channel"]
-        router --> pending["Pending Conversation Channels"]
+        router --> threads["Per-thread queues<br/>(conversation channel)"]
         router --> oq["Observation Channel"]
         cq --> loop["Processing Loop"]
-        active --> loop
-        pending --> loop
+        threads --> loop
         oq --> loop
         loop --> |"1"| drain["Drain control channel — always first"]
-        loop --> |"2"| feedback["Check active conversation for<br/>new messages — inject at next checkpoint"]
-        loop --> |"3"| next["If no active conversation —<br/>dequeue next pending conversation, start it"]
+        loop --> |"2"| dispatch["Dispatch one message per thread<br/>(per concurrent_threads policy)"]
+        loop --> |"3"| inject["Check threads with in-flight work<br/>for new messages — inject at next checkpoint"]
         loop --> |"4"| batch["Batch-process observations — reflect once"]
-        state["State: active_conversation · pending_conversations<br/>observations · expertise · memory · initiative_state"]
+        state["State: thread_queues · in_flight_threads<br/>observations · expertise · memory · initiative_state"]
     end
 ```
 
@@ -70,33 +76,33 @@ graph TD
 **Key behaviors:**
 
 1. **Control messages are never blocked.** A cancellation or other control message is processed even if the agent is mid-work. The actor handles it in the current turn by updating state (setting a cancellation flag). The execution environment checks these flags.
-2. **Active conversation gets new messages immediately.** When a message arrives for the currently active conversation (same `ConversationId`), it is placed in that conversation's channel. The sender receives an immediate acknowledgment. The platform does not distinguish between "feedback," "clarification," or any other message type — any message on the active conversation is accumulated for the agent.
+2. **One message per `on_message` invocation.** The platform delivers exactly one message per dispatch; multiple queued messages on the same thread are **not** auto-batched by the platform. The SDK exposes a `peek_pending(thread_id)` accessor (mirroring the `checkMessages` tool below) so the agent **chooses** whether to drain pending messages into the current turn or process them sequentially. Default agent behaviour, where an SDK provides one, is sequential — one-message-per-turn — with the agent free to opt into batching.
+3. **In-flight thread receives new messages immediately.** When a message arrives for a thread the agent is currently processing (same `ThreadId`), it is placed in that thread's FIFO queue. The sender receives an immediate acknowledgment. The platform does not distinguish between "feedback," "clarification," or any other message type — any message on a thread the agent is working in is accumulated for the agent.
 
-   **Message retrieval for delegated agents:** Delegated execution environments (e.g., Claude Code) drive their own agentic loop and don't naturally check back with the actor. The platform provides a `checkMessages` tool in the agent's tool manifest. The agent calls this at natural boundaries (between subtasks, after completing a step). The tool calls back to the actor, which returns any accumulated messages on the active conversation channel. This is pull-based — the agent decides when to check. The actor also includes a "messages pending" flag in checkpoint acknowledgments, hinting that the agent should call `checkMessages` soon. For hosted agents, accumulated messages are injected directly into the next LLM call.
-3. **Pending conversations queue.** New conversations (new `ConversationId`) queue as pending. They are started in arrival order when the active conversation completes or is suspended.
-4. **Observation messages batch.** Activity events from observed agents and pub/sub notifications accumulate. The initiative cognition loop processes them in batch — "what happened since I last looked?" — rather than one at a time. This is more efficient and produces better reasoning.
+   **Message retrieval for delegated agents:** Delegated execution environments (e.g., Claude Code) drive their own agentic loop and don't naturally check back with the actor. The platform provides a `checkMessages` tool in the agent's tool manifest. The agent calls this at natural boundaries (between subtasks, after completing a step). The tool calls back to the actor, which returns any accumulated messages on the agent's current thread. This is pull-based — the agent decides when to check. The actor also includes a "messages pending" flag in checkpoint acknowledgments, hinting that the agent should call `checkMessages` soon. For hosted agents, accumulated messages are injected directly into the next LLM call.
+4. **Concurrent threads are dispatched in parallel by default.** When a message arrives on a thread the agent is not currently processing and `concurrent_threads` is `true` (the default), the runtime issues a fresh `on_message` invocation for that thread without waiting for in-flight work on other threads to drain. When `concurrent_threads` is `false`, the runtime queues the new thread until the in-flight invocation completes.
+5. **Observation messages batch.** Activity events from observed agents and pub/sub notifications accumulate. The initiative cognition loop processes them in batch — "what happened since I last looked?" — rather than one at a time. This is more efficient and produces better reasoning.
 
-**Example flow:**
+**Example flow (`concurrent_threads: true`):**
 
 ```text
-msg1: implement-feature (conv-A) → creates conv-A channel, starts work → conv-A is ACTIVE
-msg2: review-pr (conv-B)         → creates conv-B channel → PENDING
-msg3: investigate-bug (conv-C)   → creates conv-C channel → PENDING
-msg4: (conv-A)                   → routed to conv-A channel (active)
-                                 → injected at next checkpoint
-                                 → sender gets ack: "message received"
-
-[conv-A completes]
-→ conv-B becomes ACTIVE, work starts
+msg1: implement-feature (T1) → creates T1 queue, runtime issues on_message(T1)
+msg2: review-pr (T2)         → creates T2 queue, runtime issues on_message(T2)
+                                (concurrent with T1's in-flight call)
+msg3: investigate-bug (T3)   → creates T3 queue, runtime issues on_message(T3)
+                                (concurrent with T1 and T2)
+msg4: (T1)                   → routed to T1's FIFO queue
+                                → injected at next checkpoint
+                                → sender gets ack: "message received"
 ```
 
-**Conversation suspension** is a core capability. An agent can **suspend** the active conversation (e.g., blocked waiting on external input or human approval), promote the next pending conversation, and resume the original later — all with clean per-conversation state. This ensures agents are not idle when blocked.
+**Per-thread FIFO** is the documented promise: messages on the same thread dequeue in arrival order. The platform does not promise causal ordering across threads — different participant sets can race — but does promise per-thread FIFO, which is the only ordering an agent reasoning about "what just happened in this thread" can sensibly use.
 
-All agents use the same mailbox model: one active conversation with suspension. The active period spans the full lifetime of a container-based agent run, which can be long (minutes to hours). The uniform model keeps the mailbox implementation simple.
+**Thread suspension** carries forward from ADR-0018 at thread grain: an agent can suspend an in-flight thread (e.g., blocked waiting on external input or human approval), let the runtime move other threads forward, and resume the original later — all with clean per-thread state. Suspension is at thread grain because that is the right grain for "I am blocked on user input here, let me work on something else."
 
-**Operator-driven close (#1038).** A conversation can also be closed explicitly by an operator via `IAgentActor.CloseConversationAsync(id, reason)` (surfaced as `POST /api/v1/conversations/{id}/close` and `spring conversation close <id>`). The close path cancels any in-flight dispatch via the active conversation's `CancellationTokenSource`, removes `StateKeys.ActiveConversation` (or drops the matching pending channel), emits a `ConversationClosed` activity event correlated to the conversation, and promotes the next pending channel. The operation is idempotent — closing an unknown id is a no-op.
+**Operator-driven close (#1038).** A thread can also be closed explicitly by an operator via `IAgentActor.CloseThreadAsync(id, reason)` (surfaced as `POST /api/v1/threads/{id}/close` and `spring thread close <id>`). The close path cancels any in-flight dispatch on that thread via its `CancellationTokenSource`, removes the per-thread queue, emits a `ThreadClosed` activity event correlated to the thread, and promotes any subsequent dispatch on other threads. The operation is idempotent — closing an unknown id is a no-op.
 
-**Auto-clear on dispatch failure (#1036).** When the off-turn `RunDispatchAsync` task observes a non-zero `ExitCode` on the dispatcher response (or an unhandled exception), the actor emits an `ErrorOccurred` event with the exit code + first stderr line, still routes the failure response back to the original sender, and then self-invokes `ClearActiveConversationAsync` via `IActorProxyFactory` so the state mutation runs on a fresh actor turn (the off-turn dispatch task must not touch `StateManager` directly). The clear helper removes the active pointer, emits a `StateChanged` Active→Idle event, and promotes the next pending channel — so a single failed dispatch no longer permanently bricks an agent.
+**Auto-clear on dispatch failure (#1036).** When the off-turn `RunDispatchAsync` task observes a non-zero `ExitCode` on the dispatcher response (or an unhandled exception), the actor emits an `ErrorOccurred` event with the exit code + first stderr line, still routes the failure response back to the original sender, and then self-invokes `ClearThreadDispatchAsync` via `IActorProxyFactory` so the state mutation runs on a fresh actor turn (the off-turn dispatch task must not touch `StateManager` directly). The clear helper removes the in-flight pointer for that thread, emits a `StateChanged` Active→Idle event, and lets the next per-thread dispatch proceed — so a single failed dispatch no longer permanently bricks an agent.
 
 ### Asynchronous Work Dispatch & Cancellation
 
@@ -112,7 +118,7 @@ sequenceDiagram
     participant A as Agent Actor
     participant W as Async Work
 
-    H->>A: message (new conversation)
+    H->>A: message (new thread)
     A->>W: launch async work
     Note over A: registers CancellationTokenSource
     Note over A: turn completes — actor is FREE
@@ -274,19 +280,99 @@ Dapr pub/sub is broker-agnostic — Redis for development, Kafka or Azure Event 
 
 ---
 
-## Conversation Surfaces
+## Thread Timeline
 
-A conversation is **not a stored entity** — it is a projection over the activity event stream. Every message envelope persists its `ConversationId` as the `CorrelationId` on the resulting observability event; `IConversationQueryService` materialises summaries, threads, and inbox rows by grouping events on that id. See `src/Cvoya.Spring.Core/Observability/ConversationQueryModels.cs` for the projection contract and `src/Cvoya.Spring.Host.Api/Endpoints/ConversationEndpoints.cs` for the HTTP surface.
+Every thread has a single, ordered, timestamped **Timeline** of all artifacts it accumulates. The Timeline is the canonical shared record of what happened in the thread, in what order, and is **append-only at the platform level** — edits and retractions appear as new Timeline events that reference the prior artifact, not as in-place mutations.
 
-The same projection feeds two equivalent surfaces:
+**Artifact types.**
 
-| Surface       | CLI                                                              | Portal                                                                                            |
-| ------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| List          | `spring conversation list [--unit] [--agent] [--status] [--participant]` | `/conversations` (with the same query-string filter shape; see `src/Cvoya.Spring.Web/src/app/conversations/page.tsx`). |
-| Show          | `spring conversation show <id>`                                  | `/conversations/<id>` — full role-attributed thread (#410).                                       |
-| Send          | `spring conversation send --conversation <id> <addr> <text>`     | Composer at the bottom of `/conversations/<id>`.                                                  |
-| Inbox         | `spring inbox list`                                              | "Awaiting you" panel on `/conversations`.                                                         |
+| Type | Description |
+|------|-------------|
+| **Message** | A user, agent, or initiative message exchanged between participants. Initiative messages are normal messages — not a separate primitive — distinguishable only by sender role and by optional `context` UX-hint metadata (see below). |
+| **`ParticipantStateChanged`** | A participant transitioned through the per-(thread, participant) state machine (`added → active → removed → re-added`). Carries `(thread, participant, from_state, to_state, timestamp)`. |
+| **Retraction** | The agent marked a previously-sent message as retracted via the `message.retract` MCP tool. Soft — the original message is preserved on the Timeline for audit; the surface renders it with a strikethrough plus the agent's stated reason. |
+| **System events** | Platform-emitted events that belong on the shared record (e.g., thread close). |
 
-The portal is **not** a separate event source. It consumes the activity SSE stream (`/api/stream/activity`, see [Streaming](#streaming-real-time-output-from-execution-environments)) and uses the same conversation endpoints the CLI consumes — there is no portal-only data path. UI/CLI parity is enforced by `CONVENTIONS.md § ui-cli-parity` and validated by `npm test` and `dotnet test`.
+Tasks are **not** Timeline artifacts — they are memory entries on each agent's `AgentMemory` (see [Agent Memory](#agent-memory) below). The collaboration surface renders task state by reading the agent's task-shaped memory entries, not by walking Timeline artifacts.
 
-The conversation thread view cross-links each event back to the activity surface (`/activity?source=…`) and the activity surface deep-links any event with a non-null `correlationId` into `/conversations/<id>`. The two surfaces stay separate by design — activity is the raw timeline, conversations is the chat-shaped projection — but they share the underlying stream and are always one click apart. See `docs/design/portal-exploration.md` § 5.3 for the wireframes.
+**Per-thread FIFO** is the ordering invariant on the Timeline.
+
+**Ordering, append-only, persistence.** The activity-event projection is the implementation of the Timeline; every artifact lands as one event. Existing query services materialise Timeline views by grouping events on `ThreadId`.
+
+### Per-participant view — read-time filter
+
+The per-participant view of the Timeline is a **read-time filter**, not a separate copy. Every participant of the thread sees the full membership set + every participant's *current* state at all times; only the *historical Timeline* is filtered.
+
+For a participant `P` viewing thread `T`'s Timeline, an entry `E` is visible iff **either**:
+
+1. `E` is a `ParticipantStateChanged` event whose target is `P`. P always sees their own state transitions — they need to know they were removed and re-added, even when the events flank a blackout window.
+
+   **OR**
+
+2. `P`'s state at `E.timestamp` is `active`, where state is determined by the most-recent `ParticipantStateChanged` event affecting `P` with timestamp **strictly less than** `E.timestamp` (default `active` if `P` is a member and no state-change event has occurred yet).
+
+The strict-less-than rule is load-bearing at the moment of removal: at `t_leave`, the most-recent affecting event is the leave event itself — but `<` excludes it, so P's state at `t_leave` is computed from before the leave (`active`). The leave event itself is captured cleanly by clause 1, and entries strictly after `t_leave` get state `removed`. See [`docs/architecture/thread-model.md` § 6](thread-model.md) and [ADR-0030](../decisions/0030-thread-model.md) for the precise rule and pseudocode.
+
+### Participant state machine
+
+Each `(thread, participant)` pair has a per-thread state machine: **`added → active → removed → re-added`**. A removed participant does not see new activity until re-added; on re-add, the read-time filter restricts them to Timeline content from periods when they were `active`. A removed participant's thread-scoped memory entries are not purged — they are frozen at the moment of removal and resume accumulating when re-added.
+
+Membership-set changes (a participant who has never been a member of this thread joins) are a different operation: they produce a *different participant set*, hence a *different thread*. The engagement (UX) may stitch across distinct threads transparently, but the underlying threads are distinct.
+
+### Initiative messages and the `context` UX hint
+
+An initiative-driven agent message (task completed; reminder fired; observation digest summary) is a normal Timeline message. It may carry optional UX-hint metadata in the payload's `context` field:
+
+```text
+context: { kind: "task_update" | "reminder" | "observation" | "spontaneous",
+           task: "#name"?,
+           originating_message: <id>? }
+```
+
+The hint lets the engagement / collaboration surface render a header or grouping cue (e.g., a "re: #flaky-test-fix" prefix). **The platform does not branch on `context`.** The set of `kind` values is a UX vocabulary; if it ever needs to be a typed enum at the contract level, F3 / D1 will pin it.
+
+### Retractions
+
+A retraction is a Timeline event emitted by the agent's `message.retract(message_id, reason)` MCP tool. It references the prior message; the original is preserved (audit). The surface renders the original with a strikethrough and the agent's stated reason. This is for "I told the user something wrong; let me say so explicitly" correction. Cancelling work or re-scoping a task is **not** a retraction — that is the agent updating its memory entries via `store(memory)`. Hard delete (right-to-be-forgotten) is a separate compliance concern, out of scope for v0.1.
+
+### Surfaces
+
+The same Timeline projection feeds two equivalent surfaces:
+
+| Surface | CLI | Portal |
+| ------- | --- | ------ |
+| List    | `spring thread list [--unit] [--agent] [--status] [--participant]` | `/threads` (with the same query-string filter shape). |
+| Show    | `spring thread show <id>` | `/threads/<id>` — full role-attributed Timeline. |
+| Send    | `spring thread send --thread <id> <addr> <text>` | Composer at the bottom of `/threads/<id>`. |
+| Inbox   | `spring inbox list` | "Awaiting you" panel on `/threads`. |
+
+The portal is **not** a separate event source. It consumes the activity SSE stream (`/api/stream/activity`, see [Streaming](#streaming-real-time-output-from-execution-environments)) and uses the same Timeline endpoints the CLI consumes — there is no portal-only data path. UI/CLI parity is enforced by `CONVENTIONS.md § ui-cli-parity` and validated by `npm test` and `dotnet test`.
+
+The Timeline view cross-links each event back to the activity surface (`/activity?source=…`) and the activity surface deep-links any event with a non-null `correlationId` (the `ThreadId`) into `/threads/<id>`. The two surfaces stay separate by design — activity is the raw timeline, threads is the participant-facing Timeline — but they share the underlying stream and are always one click apart.
+
+> The CLI verb rename (`spring conversation …` → `spring thread …`) is tracked under [#1288](https://github.com/cvoya-com/spring-voyage/issues/1288); the public-API URL move (`/api/v1/threads/{id}` as the canonical surface, no `/conversations` alias) is tracked under [#1291](https://github.com/cvoya-com/spring-voyage/issues/1291); the code-level `Conversation*` → `Thread*` rename is tracked under [#1287](https://github.com/cvoya-com/spring-voyage/issues/1287). The on-the-wire and in-code field name remains `ConversationId` until #1287 ships; the prose in this document leads the rename and uses `ThreadId` throughout.
+
+---
+
+## Agent Memory
+
+Each agent has a single per-agent **`AgentMemory`** — an ordered, append-only memory store. Entries are **`MemoryEntry`** records of shape `{ id, timestamp, payload, thread_id?, threadOnly? }`. Per-thread visibility is governed by the thread's **`ThreadMemoryPolicy`** (per-thread, default `threadOnly: true` — entries do not leave the thread). The policy is the operator's privacy / trust knob and is the only memory-flow knob in v0.1.
+
+Memory is offered to the agent through two MCP tools, both implicit in the agent's current operating context:
+
+| Tool | Purpose |
+| ---- | ------- |
+| **`store(memory)`** | Append a new memory entry to the agent's `AgentMemory`. The platform stamps `thread_id` from the agent's current operating thread and `threadOnly` from the thread's `ThreadMemoryPolicy`; the agent passes only the `memory` payload. Replaces the prior `learn` / `storeLearning` tool. |
+| **`recall(query)`** | Read the visible subset of the agent's `AgentMemory` for its current operating context. Visibility filter: all entries with `thread_id == current_thread`, plus all entries from other threads where `threadOnly == false`, plus all entries with `thread_id == null` (thread-less, always visible). Replaces the prior `recall` / `recallMemory` tool. |
+
+**Tasks are memory entries** (no `task.*` MCP tools): a task is a memory entry whose payload represents a task by application or surface convention; lifecycle (created, updated, cancelled, completed) is expressed as further append-only entries that the agent's cognition or the surface interprets as updates to the prior task entry.
+
+The full memory model — artifact uniformity, the `ThreadMemoryPolicy` resolution chain, cloning semantics, deferred features (unit recursion, cross-thread reads at the API level, multi-human permission gating, inferences with explicit provenance) — is settled in [`docs/architecture/thread-model.md` § 4](thread-model.md) and ratified in [ADR-0030](../decisions/0030-thread-model.md).
+
+---
+
+## See also
+
+- [Thread model — participant-set design](thread-model.md) — the long-form F1 design covering naming, container/execution model, dispatch semantics, memory, tasks, participant-set changes, the Timeline, retraction UX, cold start, and migration.
+- [ADR-0030 — Thread model](../decisions/0030-thread-model.md) — the durable architectural decision.
+- [ADR-0018 — Three-channel partitioned mailbox](../decisions/0018-partitioned-mailbox.md) — superseded by ADR-0030 for the conversation-channel slot semantics; control + observation channel partitioning carries forward unchanged.

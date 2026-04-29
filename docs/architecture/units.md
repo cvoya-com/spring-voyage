@@ -81,7 +81,7 @@ In v1, handling concurrent work of the same type required manually defining mult
 | Policy                  | Behavior                                                                                                                                                                       |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `none`                  | Singleton. Work queues if the agent is busy. The agent accumulates unique knowledge and experiences over time.                                                                 |
-| `ephemeral-no-memory`   | Clone spawned from the parent's current state (instructions, capabilities, memory snapshot). Handles one conversation. Destroyed after completion. Nothing flows back.         |
+| `ephemeral-no-memory`   | Clone spawned from the parent's current state (instructions, capabilities, memory snapshot). Handles one thread. Destroyed after completion. Nothing flows back.               |
 | `ephemeral-with-memory` | Same as above, but the clone's experiences are sent back to the parent before destruction. The parent integrates what it deems relevant into its own memory.                   |
 | `persistent`            | Clone persists independently and evolves on its own path. A persistent clone is a full agent — it can define its own cloning policy (bounded by `max_clones` and cost budget). |
 
@@ -153,26 +153,25 @@ The agent's AI needs context beyond its user-defined instructions. The actor ass
 | ------------------------------ | ------------------------------------------- | ---------------------------------------------------------------------------- | --------------- |
 | **1. Platform**                | System-provided                             | Platform tool descriptions, safety constraints, behavioral guidance          | Immutable       |
 | **2. Unit context**            | Injected by actor at activation             | Unit policies, peer directory snapshot, active workflow state, skill prompts | Dynamic         |
-| **3. Conversation context**    | Injected by actor per invocation            | Prior messages, checkpoints, partial results for the active conversation     | Per-invocation  |
+| **3. Thread context**          | Injected by actor per invocation            | Prior messages, checkpoints, partial results for the agent's current thread  | Per-invocation  |
 | **4. Agent instructions**      | User-defined (`instructions` in agent YAML) | Role-specific guidance, domain knowledge, personality                        | User-controlled |
 
 
 The composed prompt becomes the system prompt handed to the execution environment (typically written to `AGENTS.md` / `CLAUDE.md` in the container's working directory or passed via `SPRING_SYSTEM_PROMPT`).
 
-**Layer 3 — Conversation context** is critical for delegated agents across CLI invocations. Each invocation of a tool like Claude Code starts fresh — it has no memory of prior invocations within the same conversation. The actor composes Layer 3 from: (1) prior messages exchanged in this conversation, (2) the last checkpoint state (if the previous invocation checkpointed), and (3) any partial results from prior invocations. This ensures continuity across invocations without requiring the agent to use `recallMemory` for conversation-specific state. Layer 3 is empty for new conversations and grows as conversations progress. For suspended-then-resumed conversations, Layer 3 includes the full conversation history up to the suspension point.
+**Layer 3 — Thread context** is critical for delegated agents across CLI invocations. Each invocation of a tool like Claude Code starts fresh — it has no memory of prior invocations within the same thread. The actor composes Layer 3 from: (1) prior messages exchanged in this thread, (2) the last checkpoint state (if the previous invocation checkpointed), and (3) any partial results from prior invocations. This ensures continuity across invocations without requiring the agent to use `recall` for thread-specific state. Layer 3 is empty for new threads and grows as threads progress. For suspended-then-resumed threads, Layer 3 includes the full thread history up to the suspension point. See [ADR-0030](../decisions/0030-thread-model.md) and [`docs/architecture/thread-model.md`](thread-model.md) for the participant-set model.
 
 **Platform tools (Layer 1)** expose platform capabilities to the agent's AI as callable tools. The agent reasons in terms of actions, not messages — the platform translates tool calls into the appropriate messages and service calls internally.
 
 
 | Tool             | Description                                                                                   |
 | ---------------- | --------------------------------------------------------------------------------------------- |
-| `checkMessages`  | Retrieve pending messages on the active conversation (delegated agents call at task boundaries) |
+| `checkMessages`  | Retrieve pending messages on the agent's current thread (delegated agents call at task boundaries) |
 | `discoverPeers`  | Query the unit directory for agents with specific expertise or roles                           |
-| `requestHelp`    | Ask another agent (by ID or role) for assistance on the current conversation                   |
-| `storeLearning`  | Persist a learning (pattern, pitfall, insight) that persists across conversations              |
-| `storeContext`   | Persist context (codebase understanding, domain knowledge) for future activations              |
-| `recallMemory`   | Retrieve past learnings, context, and work history                                             |
-| `checkpoint`     | Save progress on the current conversation (enables message retrieval and recovery)             |
+| `requestHelp`    | Ask another agent (by ID or role) for assistance on the current thread                         |
+| `store`          | Persist a memory artifact (a fact, a lesson, an observation, …) to the agent's `AgentMemory`. The platform stamps `thread_id` and `threadOnly` from the thread's `ThreadMemoryPolicy`. (Replaces `storeLearning` per [ADR-0030](../decisions/0030-thread-model.md).) |
+| `recall`         | Read from the agent's `AgentMemory` (filtered to entries visible in the current thread). (Replaces `recallMemory` per [ADR-0030](../decisions/0030-thread-model.md).) |
+| `checkpoint`     | Save progress on the current thread (enables message retrieval and recovery)                   |
 | `reportStatus`   | Update the activity stream with current status                                                 |
 | `escalate`       | Raise an issue to a human or to the unit for re-routing                                        |
 
