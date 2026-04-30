@@ -1,0 +1,6 @@
+node_modules/
+playwright-report/
+test-results/
+.tsbuildinfo
+*.tsbuildinfo
+.last-run.json

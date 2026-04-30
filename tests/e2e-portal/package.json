@@ -1,0 +1,27 @@
+{
+  "name": "spring-voyage-e2e-portal",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Browser-driven end-to-end tests for the Spring Voyage portal — runs against a live local stack. Sibling to tests/e2e/ (shell-based CLI/API scenarios). NOT part of the npm workspace at the repo root: this package owns its own Playwright dependency so it can be installed and run independently of src/Cvoya.Spring.Web.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "install:browsers": "playwright install --with-deps chromium",
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:debug": "PWDEBUG=1 playwright test",
+    "test:fast": "playwright test --project=fast",
+    "test:llm": "playwright test --project=llm",
+    "test:killer": "playwright test --project=killer",
+    "report": "playwright show-report",
+    "sweep": "tsx scripts/sweep.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.59.1",
+    "@types/node": "^22.15.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.8.0"
+  }
+}
