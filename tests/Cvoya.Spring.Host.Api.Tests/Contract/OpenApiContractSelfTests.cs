@@ -3,6 +3,8 @@
 
 namespace Cvoya.Spring.Host.Api.Tests.Contract;
 
+using System.Text.Json;
+
 using Shouldly;
 
 using Xunit;
@@ -71,5 +73,93 @@ public class OpenApiContractSelfTests
             OpenApiContract.AssertResponse(
                 "/api/v1/tenant/auth/tokens", "post", "409",
                 emptyProblem, "application/problem+json"));
+    }
+
+    [Fact]
+    public void OpenApiSpec_NullableJsonElementProperties_AreNotWrappedInBrokenOneOf()
+    {
+        // Regression guard for #1254. The .NET 10 OpenAPI generator
+        // emits `JsonElement?` properties as
+        // `oneOf:[{type:null}, {$ref:#/components/schemas/JsonElement}]`,
+        // and the JsonElement component schema is `{}` (matches anything,
+        // including null). Under strict JSON Schema 2020-12 evaluation a
+        // null instance matches BOTH oneOf branches, so the schema rejects
+        // valid wire data. JsonElementOneOfNullCleanup rewrites every such
+        // slot to a bare `$ref`. This test scans the committed openapi.json
+        // for any surviving instance of the bad shape and fails loudly so
+        // a future generator regression cannot silently re-introduce the bug.
+        using var doc = LoadOpenApi();
+        var bad = new List<string>();
+        ScanForBrokenJsonElementOneOf(doc.RootElement, path: "$", bad);
+        bad.ShouldBeEmpty(
+            "Found JsonElement+null oneOf wrappers at: " + string.Join(", ", bad));
+    }
+
+    private static JsonDocument LoadOpenApi()
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "openapi.json");
+        var bytes = File.ReadAllBytes(path);
+        return JsonDocument.Parse(bytes);
+    }
+
+    private static void ScanForBrokenJsonElementOneOf(
+        JsonElement element,
+        string path,
+        List<string> hits)
+    {
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.Object:
+                if (IsBrokenJsonElementOneOf(element))
+                {
+                    hits.Add(path);
+                }
+                foreach (var prop in element.EnumerateObject())
+                {
+                    ScanForBrokenJsonElementOneOf(
+                        prop.Value, $"{path}.{prop.Name}", hits);
+                }
+                break;
+            case JsonValueKind.Array:
+                var i = 0;
+                foreach (var item in element.EnumerateArray())
+                {
+                    ScanForBrokenJsonElementOneOf(item, $"{path}[{i}]", hits);
+                    i++;
+                }
+                break;
+        }
+    }
+
+    private static bool IsBrokenJsonElementOneOf(JsonElement element)
+    {
+        if (!element.TryGetProperty("oneOf", out var oneOf)) return false;
+        if (oneOf.ValueKind != JsonValueKind.Array) return false;
+        if (oneOf.GetArrayLength() != 2) return false;
+
+        var hasNull = false;
+        var hasJsonElementRef = false;
+        foreach (var branch in oneOf.EnumerateArray())
+        {
+            if (branch.ValueKind != JsonValueKind.Object) return false;
+            if (branch.TryGetProperty("type", out var type)
+                && type.ValueKind == JsonValueKind.String
+                && type.GetString() == "null"
+                && branch.EnumerateObject().Count() == 1)
+            {
+                hasNull = true;
+                continue;
+            }
+            if (branch.TryGetProperty("$ref", out var refValue)
+                && refValue.ValueKind == JsonValueKind.String
+                && refValue.GetString() == "#/components/schemas/JsonElement"
+                && branch.EnumerateObject().Count() == 1)
+            {
+                hasJsonElementRef = true;
+                continue;
+            }
+            return false;
+        }
+        return hasNull && hasJsonElementRef;
     }
 }

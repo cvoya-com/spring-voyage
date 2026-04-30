@@ -112,11 +112,13 @@ public class ThreadContractTests : IClassFixture<ThreadContractTests.Factory>
         var ct = TestContext.Current.CancellationToken;
         _factory.MessageRouter.ClearSubstitute();
 
-        // Return a non-null reply so ThreadMessageResponse.responsePayload
-        // is a JSON object on the wire. The committed openapi.json declares it
-        // as `oneOf: [null, JsonElement]` (with JsonElement = empty schema);
-        // a null payload matches both branches and oneOf rejects. See follow-up
-        // for the spec cleanup.
+        // #1254 fixed the openapi.json shape so ThreadMessageResponse.responsePayload
+        // is now a bare `$ref` to JsonElement, which matches null and any other
+        // JSON value. Earlier revisions of this test had to force a non-null
+        // reply because the broken `oneOf:[null, JsonElement]` wrapper rejected
+        // null instances; the workaround is no longer needed. The structured
+        // reply still exercises the JSON-object wire shape that real receivers
+        // produce.
         var reply = new Message(
             Guid.NewGuid(),
             new Address("agent", "contract-bot"),

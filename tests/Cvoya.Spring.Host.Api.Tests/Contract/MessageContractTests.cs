@@ -50,13 +50,14 @@ public class MessageContractTests : IClassFixture<CustomWebApplicationFactory>
                 Arg.Any<CancellationToken>())
             .Returns(entry);
 
-        // Return a non-null reply so MessageResponse.responsePayload is a
-        // JSON object on the wire. The committed openapi.json declares
-        // `responsePayload` as `oneOf: [null, JsonElement]` where JsonElement
-        // is the empty schema `{}` (matches anything). With a null payload
-        // both branches would match and oneOf would reject — see follow-up
-        // for the spec cleanup. A non-null reply matches only the JsonElement
-        // branch and validates cleanly.
+        // #1254 fixed the openapi.json shape so MessageResponse.responsePayload
+        // is now a bare `$ref` to JsonElement (the empty schema), which matches
+        // null and any other JSON value. Earlier revisions of this test had to
+        // force a non-null reply because the broken `oneOf:[null, JsonElement]`
+        // wrapper rejected null instances; the workaround is no longer needed.
+        // Keeping the structured reply anyway exercises the more interesting
+        // wire shape (a JSON object body) and matches what real receivers
+        // emit.
         var reply = new Message(
             Guid.NewGuid(),
             new Address("agent", "contract-send-target"),
@@ -103,5 +104,55 @@ public class MessageContractTests : IClassFixture<CustomWebApplicationFactory>
         var body = await response.Content.ReadAsStringAsync(ct);
         OpenApiContract.AssertResponse(
             "/api/v1/tenant/messages", "post", "400", body, "application/problem+json");
+    }
+
+    [Fact]
+    public async Task SendMessage_NullResponsePayload_MatchesContract()
+    {
+        // Regression guard for #1254. Before the openapi.json cleanup,
+        // MessageResponse.responsePayload was declared as
+        // `oneOf:[null, $ref to JsonElement]` and the JsonElement schema
+        // was `{}`. A null instance matched both branches, so strict
+        // JSON Schema 2020-12 evaluators rejected this perfectly valid
+        // wire shape. Now the property is a bare `$ref` to JsonElement
+        // and null validates cleanly.
+        var ct = TestContext.Current.CancellationToken;
+
+        var entry = new DirectoryEntry(
+            new Address("agent", "contract-null-payload-target"),
+            "actor-contract-null-payload",
+            "Contract Null Payload Target",
+            "An agent that returns no reply payload",
+            null,
+            DateTimeOffset.UtcNow);
+        _factory.DirectoryService
+            .ResolveAsync(
+                Arg.Is<Address>(a => a.Scheme == "agent" && a.Path == "contract-null-payload-target"),
+                Arg.Any<CancellationToken>())
+            .Returns(entry);
+
+        // Returning `null` from ReceiveAsync threads a null payload all
+        // the way through to MessageResponse.responsePayload. Pre-fix
+        // this body would fail validation on the responsePayload slot
+        // even though the runtime accepted it.
+        var agent = Substitute.For<IAgent>();
+        agent.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Returns((Message?)null);
+        _factory.AgentProxyResolver
+            .Resolve(Arg.Is<string>(s => string.Equals(s, "agent", StringComparison.OrdinalIgnoreCase)),
+                "actor-contract-null-payload")
+            .Returns(agent);
+
+        var request = new SendMessageRequest(
+            new AddressDto("agent", "contract-null-payload-target"),
+            "Domain",
+            "contract-conv-null",
+            JsonSerializer.SerializeToElement(new { Text = "hello" }));
+
+        var response = await _client.PostAsJsonAsync("/api/v1/tenant/messages", request, ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var body = await response.Content.ReadAsStringAsync(ct);
+        OpenApiContract.AssertResponse("/api/v1/tenant/messages", "post", "200", body);
     }
 }

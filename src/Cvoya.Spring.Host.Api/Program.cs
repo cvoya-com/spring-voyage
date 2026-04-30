@@ -23,6 +23,7 @@ using Cvoya.Spring.Dapr.CredentialHealth;
 using Cvoya.Spring.Dapr.DependencyInjection;
 using Cvoya.Spring.Host.Api.Auth;
 using Cvoya.Spring.Host.Api.Endpoints;
+using Cvoya.Spring.Host.Api.OpenApi;
 using Cvoya.Spring.Host.Api.Services;
 
 using Microsoft.AspNetCore.Authentication;
@@ -216,6 +217,21 @@ try
                     Description = "Spring Voyage API (development default; override via adapter BaseUrl)",
                 },
             ];
+            return Task.CompletedTask;
+        });
+
+        // Strip the `oneOf:[null, JsonElement]` wrapper the .NET 10 OpenAPI
+        // generator emits for nullable JsonElement properties (#1254). The
+        // `JsonElement` component schema is `{}` (empty schema, matches
+        // anything including null), so the oneOf branches both match a null
+        // instance and strict JSON Schema 2020-12 evaluators reject valid
+        // wire data. The transformer rewrites the slot to a bare `$ref` so
+        // the schema reads as "any JSON value or null" without the
+        // ambiguous arithmetic. See JsonElementOneOfNullCleanup for the
+        // option-A vs option-B trade-off.
+        options.AddDocumentTransformer((document, _, _) =>
+        {
+            JsonElementOneOfNullCleanup.Apply(document);
             return Task.CompletedTask;
         });
     });

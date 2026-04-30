@@ -8797,14 +8797,7 @@
         "type": "object",
         "properties": {
           "config": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/JsonElement"
-              }
-            ]
+            "$ref": "#/components/schemas/JsonElement"
           }
         }
       },
@@ -8815,14 +8808,7 @@
         "type": "object",
         "properties": {
           "config": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/JsonElement"
-              }
-            ]
+            "$ref": "#/components/schemas/JsonElement"
           }
         }
       },
@@ -10175,14 +10161,7 @@
             "format": "date-time"
           },
           "config": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/JsonElement"
-              }
-            ]
+            "$ref": "#/components/schemas/JsonElement"
           }
         }
       },
@@ -10350,14 +10329,7 @@
             ]
           },
           "payload": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/JsonElement"
-              }
-            ]
+            "$ref": "#/components/schemas/JsonElement"
           },
           "timestamp": {
             "type": "string",
@@ -10384,14 +10356,7 @@
             ]
           },
           "responsePayload": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/JsonElement"
-              }
-            ]
+            "$ref": "#/components/schemas/JsonElement"
           }
         }
       },
@@ -11562,14 +11527,7 @@
             "type": "string"
           },
           "responsePayload": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/JsonElement"
-              }
-            ]
+            "$ref": "#/components/schemas/JsonElement"
           }
         }
       },
@@ -11950,14 +11908,7 @@
             "$ref": "#/components/schemas/UnitResponse"
           },
           "details": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/JsonElement"
-              }
-            ]
+            "$ref": "#/components/schemas/JsonElement"
           }
         }
       },
