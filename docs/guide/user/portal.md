@@ -30,7 +30,7 @@ The left sidebar lists all top-level routes:
 | `/analytics/waits` — **Analytics → Wait times** | Idle / busy / waiting-for-human durations | `spring analytics waits` |
 | `/packages` — **Packages** | Installed packages and templates | `spring package list` |
 | `/directory` — **Directory** | Tenant-wide expertise directory | `spring directory list` / `spring directory search` |
-| `/system/configuration` — **System configuration** | Per-subsystem health report | `spring system configuration` |
+| `/settings/system-configuration` — **System configuration** | Per-subsystem health report | `spring system configuration` |
 
 Detail pages (`/units/{id}`, `/agents/{id}`, `/conversations/{id}`) are reached by clicking entity cards. A breadcrumb trail keeps navigation depth visible.
 
@@ -437,7 +437,7 @@ Recent `InitiativeTriggered` / `ReflectionCompleted` events stream at the bottom
 
 **CLI note:** no CLI equivalent for initiative policy editing. Parity gap.
 
-## System configuration (`/system/configuration`)
+## System configuration (`/settings/system-configuration`)
 
 Renders the cached startup configuration report. Per-subsystem cards expand when not Healthy so degradation is visible without clicking. Each requirement row shows status, severity, a plain-language reason, an actionable suggestion, env-var names, and a docs link.
 

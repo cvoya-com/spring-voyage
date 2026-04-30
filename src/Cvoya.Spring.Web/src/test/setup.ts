@@ -1,7 +1,15 @@
-import "@testing-library/jest-dom/vitest";
+import * as jestDomMatchers from "@testing-library/jest-dom/matchers";
 import "vitest-axe/extend-expect";
 import * as axeMatchers from "vitest-axe/matchers";
 import { expect } from "vitest";
+
+// Register jest-dom matchers (toBeInTheDocument, toBeDisabled, toHaveAttribute,
+// etc.) with the vitest expect instance directly. Using expect.extend() here
+// rather than the side-effect import ("@testing-library/jest-dom/vitest")
+// matches the pattern used for axe matchers and avoids a vitest 3.x isolation
+// issue where the side-effect import's internal `expect` reference diverges
+// from the per-test globals. See #1372.
+expect.extend(jestDomMatchers);
 
 // Register the `toHaveNoViolations()` matcher used by the a11y smoke
 // tests in `src/test/a11y.ts`. Added once at setup so individual specs

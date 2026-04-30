@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 
 import { Breadcrumbs } from "@/components/breadcrumbs";
@@ -431,9 +432,9 @@ export default function CreateAgentPage() {
             ) : (unitsQuery.data ?? []).length === 0 ? (
               <p className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
                 No units exist yet. Create one from{" "}
-                <a className="underline" href="/units/create">
+                <Link className="underline" href="/units/create">
                   /units/create
-                </a>{" "}
+                </Link>{" "}
                 first — agents must belong to a unit.
               </p>
             ) : (

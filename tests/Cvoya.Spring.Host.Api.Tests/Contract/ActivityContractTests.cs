@@ -62,6 +62,39 @@ public class ActivityContractTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
+    public async Task QueryActivity_NullCost_MatchesContract()
+    {
+        // Non-cost events (e.g. MessageReceived) carry a null Cost — the
+        // openapi.json declares cost as optional/nullable (closes #1367).
+        var ct = TestContext.Current.CancellationToken;
+        var now = DateTimeOffset.UtcNow;
+        _factory.ActivityQueryService
+            .QueryAsync(Arg.Any<ActivityQueryParameters>(), Arg.Any<CancellationToken>())
+            .Returns(new ActivityQueryResult(
+                new[]
+                {
+                    new ActivityQueryResult.Item(
+                        Guid.NewGuid(),
+                        "agent://contract-bot",
+                        "MessageReceived",
+                        "Info",
+                        "Non-cost event",
+                        "contract-thread-2",
+                        Cost: null,
+                        now),
+                },
+                TotalCount: 1,
+                Page: 1,
+                PageSize: 50));
+
+        var response = await _client.GetAsync("/api/v1/tenant/activity", ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var body = await response.Content.ReadAsStringAsync(ct);
+        OpenApiContract.AssertResponse("/api/v1/tenant/activity", "get", "200", body);
+    }
+
+    [Fact]
     public async Task QueryActivity_EmptyPage_MatchesContract()
     {
         var ct = TestContext.Current.CancellationToken;

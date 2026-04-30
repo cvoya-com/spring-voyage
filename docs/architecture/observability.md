@@ -14,7 +14,7 @@ Every `IActivityObservable` entity emits typed events via `IObservable<ActivityE
 ActivityEvent:
   timestamp: DateTimeOffset
   source: Address
-  type: enum (MessageReceived, MessageSent, ConversationStarted, ConversationCompleted,
+  type: enum (MessageReceived, MessageSent, ThreadStarted, ThreadCompleted,
               DecisionMade, ErrorOccurred, StateChanged, InitiativeTriggered,
               ReflectionCompleted, WorkflowStepCompleted, CostIncurred,
               TokenDelta, ReflectionActionDispatched, ReflectionActionSkipped,
@@ -40,7 +40,7 @@ The platform uses a **single process-wide hot bus** (`IActivityEventBus`) as the
                    │                │                │           │
  AgentActor        │  UnitActor     │  HumanActor    │  Stream   │  SSE /api/v1/activity/stream
   MessageReceived  │   DecisionMade │  MessageRcvd   │  Event    │    Per-source permission filter
-  ConvStarted/End  │   StateChanged │                │  Sub-     │    Permission-at-subscribe for
+  ThreadStart/End  │   StateChanged │                │  Sub-     │    Permission-at-subscribe for
   DecisionMade     │   MemberChange │                │  scriber  │    unit-scoped (?unitId=X)
   ErrorOccurred    │   ErrorOccur'd │                │  (Dapr    │    Bounded channel back-pressure
   StateChanged     │                │                │   pub/sub)│
@@ -86,8 +86,8 @@ bus.ActivityStream
 | Source | Event types emitted | Where |
 |--------|--------------------|-----|
 | `AgentActor.ReceiveAsync` | `MessageReceived` | every message, carrying `conversationId` as `CorrelationId` |
-| `AgentActor.HandleDomainMessageAsync` | `ConversationStarted`, `StateChanged (Idle→Active)`, `DecisionMade` | new conversation, queued conversation, membership-disabled / unit-policy blocks |
-| `AgentActor.HandleCancelAsync` | `ConversationCompleted`, `StateChanged (Active→Idle)` | cancel path |
+| `AgentActor.HandleDomainMessageAsync` | `ThreadStarted`, `StateChanged (Idle→Active)`, `DecisionMade` | new conversation, queued conversation, membership-disabled / unit-policy blocks |
+| `AgentActor.HandleCancelAsync` | `ThreadCompleted`, `StateChanged (Active→Idle)` | cancel path |
 | `AgentActor.HandleAmendmentAsync` | `AmendmentReceived`, `AmendmentRejected`, `StateChanged (Active→Paused)` | supervisor amendments (#142) |
 | `AgentActor.SetMetadataAsync / SetSkillsAsync / ClearParentUnitAsync` | `StateChanged` | configuration edits |
 | `AgentActor.RunDispatchAsync` | `ErrorOccurred` | dispatcher failures |
@@ -97,7 +97,7 @@ bus.ActivityStream
 | `UnitActor.AddMemberAsync / RemoveMemberAsync / TransitionAsync / SetMetadataAsync` | `StateChanged` | membership, lifecycle, metadata edits |
 | `UnitEndpoints` force-delete | `StateChanged` | force-delete audit |
 | `HumanActor.ReceiveAsync` | `MessageReceived` | human inbox (#456) |
-| `StreamEventSubscriber` (Dapr pub/sub) | `TokenDelta`, `ToolCall`, `ToolResult`, `ConversationCompleted`, `StateChanged` | bridges execution-environment events into the activity bus; failing tool results escalate to `Warning` |
+| `StreamEventSubscriber` (Dapr pub/sub) | `TokenDelta`, `ToolCall`, `ToolResult`, `ThreadCompleted`, `StateChanged` | bridges execution-environment events into the activity bus; failing tool results escalate to `Warning` |
 | `BudgetEnforcer` | `CostIncurred` (synthetic warning/error) | budget threshold hits |
 
 ### Subscribers
@@ -158,7 +158,7 @@ Alerts:
 - **Persistent Store** — all events stored for replay and analytics (`ActivityEventPersister`)
 - **Notifications** — Slack, email, GitHub comments (via connectors)
 
-> **Open issue: Event stream separation.** Currently, `ActivityEvent` covers both high-frequency execution events (`TokenDelta`, `ToolCall`, `ToolResult`) and higher-level activity events (`ConversationStarted`, `DecisionMade`). A single type simplifies the model and Rx.NET filtering handles volume. However, for very active agents the high-frequency stream may overwhelm consumers interested only in summaries. A future revision may separate these into two streams: a high-frequency execution stream and a lower-frequency activity stream.
+> **Open issue: Event stream separation.** Currently, `ActivityEvent` covers both high-frequency execution events (`TokenDelta`, `ToolCall`, `ToolResult`) and higher-level activity events (`ThreadStarted`, `DecisionMade`). A single type simplifies the model and Rx.NET filtering handles volume. However, for very active agents the high-frequency stream may overwhelm consumers interested only in summaries. A future revision may separate these into two streams: a high-frequency execution stream and a lower-frequency activity stream.
 
 ---
 
