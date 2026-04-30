@@ -60,8 +60,8 @@ trap 'cleanup_token' EXIT
 # --- 1: API health -----------------------------------------------------------
 # Distinct from scenario 01 (which checks /api/v1/connectors); here we call
 # the auth endpoint directly to confirm the auth subsystem is up.
-e2e::log "GET /api/v1/auth/tokens (pre-flight health check)"
-response="$(e2e::http GET /api/v1/auth/tokens)"
+e2e::log "GET /api/v1/tenant/auth/tokens (pre-flight health check)"
+response="$(e2e::http GET /api/v1/tenant/auth/tokens)"
 status="${response##*$'\n'}"
 e2e::expect_status 200 "${status}" "auth tokens endpoint is reachable"
 
@@ -92,10 +92,10 @@ e2e::log "extracted token (redacted): ${raw_token:0:8}..."
 # the CLI, so the test doesn't clobber ~/.spring/config.json of the invoking
 # shell. The /api/v1/auth/tokens endpoint requires authentication in non-
 # LocalDev mode; in LocalDev mode it is open but still accepts a valid Bearer.
-e2e::log "GET /api/v1/auth/tokens with new token as Bearer credential"
+e2e::log "GET /api/v1/tenant/auth/tokens with new token as Bearer credential"
 token_check_response="$(curl ${E2E_CURL_OPTS} -w '\n%{http_code}' \
     -H "Authorization: Bearer ${raw_token}" \
-    "${E2E_BASE_URL}/api/v1/auth/tokens")"
+    "${E2E_BASE_URL}/api/v1/tenant/auth/tokens")"
 token_check_status="${token_check_response##*$'\n'}"
 if [[ "${token_check_status}" == "200" || "${token_check_status}" == "401" ]]; then
     # 200 → token accepted. 401 → non-LocalDev mode rejected it (the token

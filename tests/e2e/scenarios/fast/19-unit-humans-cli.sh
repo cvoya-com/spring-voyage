@@ -38,8 +38,8 @@ e2e::expect_contains "\"name\": \"${eng_unit}\"" "${body}" "created unit carries
 
 # product-management/product-team. Discovery first so the scenario doesn't
 # need the template basename hardcoded.
-e2e::log "GET /api/v1/packages/templates (find a product-management template)"
-tpl_response="$(e2e::http GET /api/v1/packages/templates)"
+e2e::log "GET /api/v1/tenant/packages/templates (find a product-management template)"
+tpl_response="$(e2e::http GET /api/v1/tenant/packages/templates)"
 tpl_status="${tpl_response##*$'\n'}"
 tpl_body="${tpl_response%$'\n'*}"
 e2e::expect_status "200" "${tpl_status}" "templates endpoint returns 200"

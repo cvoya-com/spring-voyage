@@ -28,8 +28,8 @@ source "${HERE}/../../_lib.sh"
 template_unit="$(e2e::unit_name from-template)"
 trap 'e2e::cleanup_unit "${template_unit}"' EXIT
 
-e2e::log "GET /api/v1/packages/templates (discover templates)"
-response="$(e2e::http GET /api/v1/packages/templates)"
+e2e::log "GET /api/v1/tenant/packages/templates (discover templates)"
+response="$(e2e::http GET /api/v1/tenant/packages/templates)"
 status="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status 200 "${status}" "templates endpoint returns 200"

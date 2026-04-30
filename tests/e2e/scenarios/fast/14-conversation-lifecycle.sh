@@ -52,8 +52,8 @@ payload=$(cat <<EOF
 {"to":{"scheme":"agent","path":"${agent}"},"type":"Domain","threadId":"${thread_id}","payload":"kickoff"}
 EOF
 )
-e2e::log "POST /api/v1/messages (Domain → agent://${agent}, thread=${thread_id})"
-response="$(e2e::http POST /api/v1/messages "${payload}")"
+e2e::log "POST /api/v1/tenant/messages (Domain → agent://${agent}, thread=${thread_id})"
+response="$(e2e::http POST /api/v1/tenant/messages "${payload}")"
 status="${response##*$'\n'}"
 # Accept 200 or 502 for the same reason as 13-agent-domain-message: the
 # ThreadStarted and StateChanged events are emitted BEFORE the dispatcher

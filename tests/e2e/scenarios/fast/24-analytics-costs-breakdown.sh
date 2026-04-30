@@ -51,7 +51,7 @@ else
     e2e::fail "spring analytics costs failed (exit ${code}): ${body:0:300}"
 fi
 # Table output must contain the column headers regardless of row count.
-e2e::expect_contains "totalCost" "${body}" "analytics costs output includes 'totalCost' column"
+e2e::expect_contains "TOTALCOST" "${body}" "analytics costs output includes 'totalCost' column"
 
 # --- 2: --by-source breakdown -----------------------------------------------
 e2e::log "spring analytics costs --by-source (per-source breakdown)"
@@ -64,7 +64,7 @@ else
     e2e::fail "spring analytics costs --by-source failed (exit ${code}): ${body:0:300}"
 fi
 # The breakdown table always has a 'source' column, even when empty.
-e2e::expect_contains "source" "${body}" "analytics costs --by-source output includes 'source' column"
+e2e::expect_contains "SOURCE" "${body}" "analytics costs --by-source output includes 'source' column"
 
 # --- 3: --breakdown alias ---------------------------------------------------
 e2e::log "spring analytics costs --breakdown (alias for --by-source)"
@@ -76,7 +76,7 @@ if [[ "${code}" == "0" ]]; then
 else
     e2e::fail "spring analytics costs --breakdown failed (exit ${code}): ${body:0:300}"
 fi
-e2e::expect_contains "source" "${body}" "analytics costs --breakdown output includes 'source' column"
+e2e::expect_contains "SOURCE" "${body}" "analytics costs --breakdown output includes 'source' column"
 
 # --- 4: --window 7d is accepted ---------------------------------------------
 e2e::log "spring analytics costs --window 7d (window flag accepted)"
