@@ -99,6 +99,7 @@ Each goal directly addresses a v1 limitation:
 | [Initiative](initiative.md) | Initiative levels, tiered cognition, initiative policies |
 | [Workflows](workflows.md) | Workflow-as-container, platform-internal workflows, A2A execution dispatch, agent tool launchers, A2A sidecar protocol, workflow patterns |
 | [Agent Runtime](agent-runtime.md) | A2A dispatcher tiers, launcher contract, MCP callback, Dapr Conversation provider/model YAML contract (Ollama / OpenAI / Anthropic / Google), adding a new launcher |
+| [Agent Credential Rotation](agent-credential-rotation.md) | Design rationale for D1 spec § 2.2.3 — restart-as-rotation-primitive, supervisor re-injection via `IAgentContextBuilder`, future evolution to mounted-files + refresher |
 | [Connectors](connectors.md) | Connector model, skills, implementation tiers |
 | [Observability](observability.md) | Activity events, Rx.NET streams, cost tracking |
 | [CLI & Web](cli-and-web.md) | Client API surface, hosting modes, CLI, deployment topology |

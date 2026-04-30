@@ -356,9 +356,23 @@ The platform **MAY** add additional files under `/spring/context/` in future rev
 
 #### 2.2.3 Credential rotation
 
-The platform **MAY** need to rotate scoped credentials during the lifetime of a long-running container (e.g., a persistent agent whose tokens expire). The mechanism for surfacing rotated credentials to the SDK is **TBD in Stage 2** of ADR-0029 (the implementation work). Conforming SDKs **SHOULD** expose a documented hook for re-reading credentials from the env / file layer when signalled, but this spec does not pin the signal mechanism (e.g., SIGHUP vs. file-watch vs. polling) until Stage 2 settles it.
+Scoped credentials delivered through `IAgentContext` (`bucket2_token`, `llm_provider_token`, `mcp_token`, optional `telemetry_token`) are minted **per container launch** and **MUST** be valid for the lifetime of that launch. The platform **MUST NOT** issue tokens whose published TTL is shorter than the container's expected uptime under normal operation; operators **SHOULD** size token TTLs to comfortably exceed the agent's idle-eviction window so a healthy container never observes a credential expiry mid-run.
 
-Until rotation is specified, the platform **MAY** terminate and restart the container to apply new credentials; the SDK's recovery model (§ 3.3) covers this case.
+Restart is the rotation primitive. When the platform needs new credentials in a running container — because the previous launch's tokens have expired, are about to expire, or have been revoked — it **MUST** re-mint them through the same path that minted them at first launch (the platform-side `IAgentContext` builder), and it **MUST** apply them by performing a clean **stop + restart** of the container. The restarted container's `initialize` reads the new env vars and mounted files exactly as it did at first launch (§ 2.2.1, § 2.2.2). The workspace volume (§ 3) carries any state the agent needs to resume.
+
+Normative requirements:
+
+- **Per-launch minting (MUST).** The platform **MUST** mint a fresh, agent-scoped credential set on every container launch, including every supervisor-driven restart. Reusing the previous launch's credentials on a restart **MUST NOT** occur. Persisting credentials in the supervisor's own state for replay on restart **MUST NOT** occur.
+- **Restart re-injection (MUST).** A platform component that restarts an agent container after a crash **MUST** route the restart through the same `IAgentContext` build path used for first launch, so that `SPRING_BUCKET2_TOKEN`, `SPRING_LLM_PROVIDER_TOKEN`, `SPRING_MCP_TOKEN`, and any other scoped tokens are present and fresh in the restarted container's env / file layer before its PID 1 begins execution.
+- **Stop + start, not in-place mutation (MUST).** The platform **MUST NOT** mutate env vars or mounted files of a running container to change credentials. New credentials reach the container only via a new launch.
+- **SDK re-read (MUST).** The SDK **MUST** read credentials at the top of `initialize` for every container launch. The SDK **MUST NOT** assume a credential cached from a prior process lifetime is still valid.
+- **In-process caching (MAY).** The SDK **MAY** cache credentials in memory for the duration of a single container launch. Because rotation is achieved by restart, in-process caching is safe within a launch.
+- **Revocation contract (SHOULD).** When a credential is revoked while a container is running, the platform **SHOULD** terminate and restart the container so the next launch picks up a fresh credential. SDKs **MUST** treat an authentication failure on a platform-provided endpoint (Bucket 2, LLM provider, MCP) as a fatal in-flight error: surface the error per § 1.2.2 (error frame on the affected `on_message`) and either fail the container (non-zero exit) or surface the failure to the platform's supervisor through whatever liveness mechanism the platform exposes. The SDK **MUST NOT** silently retry an authentication failure against a platform-provided endpoint — auth failures from a platform endpoint indicate the credential set is no longer valid for this launch and only a restart can resolve them.
+- **No long-running zero-downtime rotation in this revision.** The platform **MUST NOT** rely on any in-container credential-refresh hook (`SIGHUP`, file-watch, polling) being implemented by the SDK. SDKs **MAY** expose such a hook for forward compatibility, but conforming platforms **MUST NOT** require it.
+
+Lifetime guidance (informative): operators **SHOULD** set published token TTLs to at least **24 hours** to give a typical persistent-agent restart cycle ample headroom. The platform's restart path (§ "Failure recovery" in ADR-0029) re-mints on every restart, so token TTL only constrains how long a container can run **without** a restart before the platform must force one.
+
+Future evolution (informative): a follow-up revision **MAY** add a mounted-files + credential-refresher mechanism that allows zero-downtime rotation for long-running containers. That mechanism would be additive to this section: the env-var channel of § 2.2.1 stays as the canonical credential-delivery surface; a refresher would write fresh credentials into a new path under `/spring/context/credentials/` that the SDK MAY re-read on demand. SDKs that consume only the env-var channel remain conforming. See [`docs/architecture/agent-credential-rotation.md`](../architecture/agent-credential-rotation.md) for the design rationale and the path to that evolution.
 
 ### 2.3 Conformance — `IAgentContext`
 
@@ -368,8 +382,9 @@ A platform conforms to § 2 when:
 2. Every required mounted file (§ 2.2.2) is present and readable at `/spring/context/`.
 3. Every credential is agent-scoped (no cross-agent reuse).
 4. The `SPRING_CONCURRENT_THREADS` value matches the resolved agent / unit definition.
+5. Every container launch — including supervisor-driven restarts — sees freshly minted scoped credentials (§ 2.2.3); no replay of a prior launch's credentials.
 
-An SDK conforms when it reads the env vars and files at the top of `initialize`, materialises an `IAgentContext`-shaped object for the agent, and surfaces missing required fields as a fatal `initialize` failure.
+An SDK conforms when it reads the env vars and files at the top of `initialize`, materialises an `IAgentContext`-shaped object for the agent, and surfaces missing required fields as a fatal `initialize` failure. An SDK additionally conforms to § 2.2.3 when it re-reads credentials at the top of every `initialize` (no cross-launch caching) and treats authentication failures against platform-provided endpoints as fatal in-flight errors rather than silently retrying.
 
 ---
 
@@ -595,6 +610,8 @@ A conformance test suite (a future deliverable, not in scope for this spec) exer
 - [ ] Every required env var (§ 2.2.1) is read at the top of `initialize`.
 - [ ] Required mounted files (§ 2.2.2) are present at `/spring/context/`.
 - [ ] Credentials are agent-scoped — testable by attempting to use one agent's token to access another's threads (§ 4.5).
+- [ ] Every container launch (including supervisor-driven restarts) sees freshly minted scoped credentials; the prior launch's tokens are never replayed (§ 2.2.3).
+- [ ] The SDK does not cache credentials across container launches (§ 2.2.3).
 
 **Workspace volume**
 
@@ -622,7 +639,9 @@ The following surfaces are deliberately not specified by this document. Each has
 - **`task.*` MCP tools.** F1 Q5 / ADR-0030 collapses tasks to memory entries; there are no separate task tools at the platform layer.
 - **Cold-start fields** (`is_first_contact`, `instructions.opening_offer`). F1 Q9 / ADR-0030 makes cold start a UX (E2) and agent-runtime concern, not a platform contract field. Agent runtimes (Claude CLI, etc.) carry their own cold-start prompt mechanisms.
 - **ADR-0028 Decision C amendment for platform-wide Ollama.** Flagged in ADR-0029 as a follow-up; tracked separately and not part of this spec.
-- **Implementation choices** — programming language, framework, transport library, supervision topology, container-runtime backend (Podman vs. Kubernetes), credential rotation signal mechanism (§ 2.2.3). Stages 2 / 3 of ADR-0029.
+- **Implementation choices** — programming language, framework, transport library, supervision topology, container-runtime backend (Podman vs. Kubernetes). Stages 2 / 3 of ADR-0029.
+- **Long-running zero-downtime credential rotation.** § 2.2.3 specifies restart as the rotation primitive; a future revision MAY add a mounted-files + refresher mechanism for in-place rotation without container restart. Design rationale and the path to that evolution live in [`docs/architecture/agent-credential-rotation.md`](../architecture/agent-credential-rotation.md).
+- **Credential revocation propagation latency.** § 2.2.3 sets the SDK's auth-failure contract; the cross-platform mechanism for proactively revoking a credential and forcing a restart is its own design (separate follow-up).
 
 ---
 
@@ -631,3 +650,4 @@ The following surfaces are deliberately not specified by this document. Each has
 | Version | Date | Change |
 |---|---|---|
 | v0.1 | 2026-04-28 | Initial specification. Implements ADR-0029 Stage 1; consumes F1 / ADR-0030. |
+| v0.1.1 | 2026-04-28 | § 2.2.3 (Credential rotation): replace "TBD in Stage 2" with the restart-as-rotation-primitive contract — per-launch minting, restart re-injection, no-in-place-mutation, SDK auth-failure contract. § 2.3, § 5 conformance updated. Long-running zero-downtime rotation deferred to a future revision; see [`docs/architecture/agent-credential-rotation.md`](../architecture/agent-credential-rotation.md). Closes #1325 (design phase). |
