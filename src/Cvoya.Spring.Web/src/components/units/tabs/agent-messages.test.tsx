@@ -29,11 +29,9 @@ vi.mock("next/link", () => ({
   ),
 }));
 
-const useCurrentUserMock = vi.fn();
 const useThreadsMock = vi.fn();
 const useThreadMock = vi.fn();
 vi.mock("@/lib/api/queries", () => ({
-  useCurrentUser: () => useCurrentUserMock(),
   useThreads: (filters: unknown, opts?: unknown) =>
     useThreadsMock(filters, opts),
   useThread: (id: string, opts?: unknown) => useThreadMock(id, opts),
@@ -80,31 +78,25 @@ const node: AgentNode = {
 };
 
 beforeEach(() => {
-  useCurrentUserMock.mockReset();
   useThreadsMock.mockReset();
   useThreadMock.mockReset();
   sendThreadMessageMock.mockReset();
   sendMessageMock.mockReset();
   toastMock.mockReset();
-  useCurrentUserMock.mockReturnValue({
-    data: { address: "human://alice" },
-    isPending: false,
-  });
   useThreadMock.mockReturnValue({ data: null, isPending: false });
 });
 
 describe("AgentMessagesTab — single 1:1 engagement timeline (#1459)", () => {
-  it("filters threads by both agent id and the current human's address", () => {
+  it("filters threads by agent id (no participant filter — #1472 fix)", () => {
     useThreadsMock.mockReturnValue({
       data: [],
       isLoading: false,
       error: null,
     });
     render(wrap(<AgentMessagesTab node={node} path={[node]} />));
-    expect(useThreadsMock).toHaveBeenCalledWith(
-      { agent: "ada", participant: "human://alice" },
-      expect.any(Object),
-    );
+    // #1472 fix: no participant filter — just the agent id.
+    // (second arg is undefined because no options are passed)
+    expect(useThreadsMock).toHaveBeenCalledWith({ agent: "ada" }, undefined);
   });
 
   it("renders the empty-state hint and the composer when no thread exists", () => {

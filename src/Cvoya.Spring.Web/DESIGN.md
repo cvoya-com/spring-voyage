@@ -382,7 +382,7 @@ The right-hand detail pane's header hosts a status-gated action cluster (`<UnitP
 
 Every mutation invalidates `queryKeys.units.detail(id)` / `queryKeys.agents.detail(id)`, `queryKeys.tenant.tree()`, `queryKeys.activity.all`, and `queryKeys.dashboard.all` so the status badge and the tree refresh in place. After a successful delete the pane routes back to `/units` so the stale selection does not trap the Explorer.
 
-The Messages tab renders the **{current human, unit/agent} 1:1 engagement** as a single inline timeline plus a persistent composer at the bottom (#1459 / #1460). There is no master/detail list and no modal "+ New conversation" dialog — the engagement is conceptually a single thread per pair. Sending a message when no thread exists posts `/api/v1/messages` with `to: { scheme: "unit"|"agent", path }`, `type: "Domain"`, and a null `threadId`; the server's auto-gen (#985) assigns a fresh id and the next refetch picks it up. Subsequent sends append to that thread via `POST /api/v1/threads/{id}/messages`. Non-dialog events (tool calls, lifecycle transitions) render as collapsible call-outs inside the same timeline so the chat reads cleanly while still surfacing operational context.
+The Messages tab renders all threads involving the hosting unit/agent via `GET /api/v1/threads?unit=<id>` or `?agent=<id>` (#1459 / #1460, fixed #1472). The most-recently-active matching thread is shown inline as a single timeline plus a persistent composer. There is no master/detail list and no modal "+ New conversation" dialog — the engagement is conceptually a single thread per pair. Sending a message when no thread exists posts `/api/v1/messages` with `to: { scheme: "unit"|"agent", path }`, `type: "Domain"`, and a null `threadId`; the server auto-generates a fresh id and the next refetch picks it up. Subsequent sends append to that thread via `POST /api/v1/threads/{id}/messages`. On successful send, the sent text is **optimistically injected** into the timeline as a synthetic `MessageReceived` event (source `human://me`) so the user sees their message immediately (#1473). Non-dialog events (tool calls, lifecycle transitions) render as collapsible call-outs inside the same timeline. **Participant filter dropped (#1472)**: the tab filters by agent/unit id only — `UserProfileResponse.address` is not on the wire in v0.1, so the previous `participant` filter always produced an empty list.
 
 ---
 
@@ -495,7 +495,7 @@ Every card in this directory composes the base `<Card>` chrome. Whole-card click
 - **`<UnitCard>`** — Name + display name, registered-at, status dot, optional cost badge + sparkline. Tab-chip footer via `<CardTabRow>` with `UNIT_CARD_TABS = [Agents, Messages, Activity, Memory, Orchestration, Policies]` when `onOpenTab` is provided; the legacy cross-link strip renders as a fallback when the prop is omitted so non-dashboard callers keep working.
 - **`<AgentCard>`** — Same chrome; tab set is `AGENT_CARD_TABS = [Messages, Activity, Memory, Skills, Traces, Clones, Config]`. `actions` prop appends caller-supplied controls (edit, remove, mute) alongside the primary "Open" link.
 - **`<CostSummaryCard>`** — Three `<StatCard>` tiles (Today / 7 d / 30 d) with a sparkline on the 30 d tile by default. Read-only; "Open analytics" cross-links to `/analytics/costs`. Used on the dashboard, the Tenant Budgets tab, and `/budgets`.
-- **`<InboxCard>`** — Inbox icon + summary + `Awaiting you` warning badge on the top row; **monospace `from://` address** on the meta row (cross-linked to `/units?node=<id>` when the scheme is `agent://` or `unit://`; `human://` stays plain mono). Drives `/inbox`, which is the portal counterpart of `spring inbox list`.
+- **`<InboxCard>`** — Inbox icon + summary + `Awaiting you` warning badge on the top row; **monospace `from://` address** on the meta row (cross-linked to `/units?node=<id>` when the scheme is `agent://` or `unit://`; `human://` stays plain mono). Still exported as a primitive but no longer used by the `/inbox` page (see § 12.14 below).
 - **`<ConversationCard>`** — Title + status pill (status variant map: `open` → `default`, `active` → `success`, `waiting-on-human` / `waiting` / `blocked` → `warning`, `completed` → `secondary`, `error` → `destructive`), mono participants list, `timeAgo(lastActivityAt)` outline badge.
 
 ### 12.3 `<CardTabRow>` / `<TabChip>` — `src/components/cards/card-tab-row.tsx`
@@ -615,6 +615,27 @@ The container image `<input>` on step 2 ("Execution") is wired to a `<datalist i
 **Storage.** `src/lib/image-history.ts` owns the key (`spring.image-history.v1`), the cap (`MAX_IMAGE_HISTORY = 20`), deduplication logic, and SSR guards (`typeof window` checks). The module is `localStorage`-backed (not `sessionStorage`) — references are useful across sessions.
 
 **No backend.** The list is entirely frontend-managed; no API round-trip is needed. If the image field is blank at submit time, nothing is recorded.
+
+### 12.14 Inbox page — two-pane list-detail (#1474)
+
+`/inbox` redesigned as a two-pane list-detail layout. The old grid-of-`<InboxCard>`s is replaced.
+
+**Left pane (thread list, `w-64 shrink-0 border-r`).** One compact row per inbox item from `GET /api/v1/inbox`, sorted by `pendingSince` descending. Each row (`<button>` with `data-testid="inbox-thread-row-<id>"`) shows:
+- **Primary label** — the other participant's name, derived from the `from` address field by stripping the `scheme://` prefix (e.g. `agent://ada` → `ada`).
+- **Timestamp** — `timeAgo(pendingSince)` mono in `text-[10px]`.
+- **Summary** — truncated `text-xs text-muted-foreground` below the label when available.
+
+Active selection uses `bg-primary/10 border-primary/40`; hover uses `hover:bg-accent hover:border-border`.
+
+No unread badge in this release — `unreadCount` is not in the OpenAPI schema. Follow-up tracked in #1484.
+
+**Right pane (thread timeline).** `<ThreadTimeline>` renders the selected thread's events from `GET /api/v1/threads/{id}`, live-updated via `useThreadStream`. Each event renders as `<InboxEventRow>`: a chat-bubble identical to `<ThreadEventRow>` but with an `(i)` icon in the meta-header row that toggles an inline `<EventMeta>` panel showing event id, type, source, severity, and summary.
+
+**Auto-select.** On entry with no `?thread=` param present, the page calls `router.replace("/inbox?thread=<first-id>")` so the right pane is never blank when the inbox is non-empty.
+
+**URL contract.** `/inbox?thread=<threadId>` — thread id is URL-encoded. The `<Link>` in the thread-strip's `data-testid="inbox-open-<id>"` carries the same URL for copy/deep-link.
+
+**Blocker.** Agent replies do not surface in the timeline until #1476 (HumanActor default permission) is fixed.
 
 ---
 
