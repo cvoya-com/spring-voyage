@@ -17,7 +17,7 @@
 // (HumanActor permission default) is not fixed. Once that lands, inbox
 // items will include agent-reply events and the timeline will populate.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   ChevronDown,
@@ -473,7 +473,7 @@ function NoThreadSelected() {
 // Main page
 // ---------------------------------------------------------------------------
 
-export default function InboxPage() {
+function InboxPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const selectedThreadId = searchParams.get("thread") ?? null;
@@ -481,7 +481,14 @@ export default function InboxPage() {
   const inboxQuery = useInbox();
   const stream = useActivityStream();
 
-  const items = inboxQuery.data ?? [];
+  // Wrap the empty-array fallback in its own useMemo so `items`'s identity
+  // is stable when `inboxQuery.data` is unchanged. Otherwise the `??` would
+  // mint a fresh `[]` on every render and force `sortedItems` to recompute
+  // (react-hooks/exhaustive-deps).
+  const items = useMemo(
+    () => inboxQuery.data ?? [],
+    [inboxQuery.data],
+  );
 
   // Sort by last activity descending: pendingSince is the best proxy we have.
   const sortedItems = useMemo(
@@ -632,5 +639,39 @@ export default function InboxPage() {
         </div>
       )}
     </div>
+  );
+}
+
+// Next.js requires `useSearchParams()` callers to sit under a Suspense
+// boundary so the route can prerender. The fallback mirrors the empty-list
+// shape so the prerendered HTML doesn't shift when hydration takes over.
+export default function InboxPage() {
+  return (
+    <Suspense
+      fallback={
+        <div
+          className="flex flex-col h-full space-y-0"
+          data-testid="inbox-page"
+        >
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between pb-4 border-b border-border mb-4">
+            <div className="space-y-1">
+              <h1 className="text-2xl font-bold flex items-center gap-2">
+                <InboxIcon className="h-5 w-5" aria-hidden="true" /> Inbox
+              </h1>
+            </div>
+          </div>
+          <div
+            className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"
+            data-testid="inbox-loading"
+          >
+            <Skeleton className="h-32" />
+            <Skeleton className="h-32" />
+            <Skeleton className="h-32" />
+          </div>
+        </div>
+      }
+    >
+      <InboxPageContent />
+    </Suspense>
   );
 }
