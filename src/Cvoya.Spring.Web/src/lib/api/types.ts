@@ -169,18 +169,16 @@ export type TenantCostTimeseriesResponse = Schemas["CostTimeseriesResponse"];
 export type AnalyticsCostTimeseriesResponse =
   Schemas["AnalyticsCostTimeseriesResponse"];
 
-/** Single bucket in `AnalyticsCostTimeseriesResponse.points`. */
-export type AnalyticsCostTimeseriesBucketResponse =
-  Schemas["AnalyticsCostTimeseriesBucketResponse"];
-
 /**
  * GET /api/v1/tenant/cost/agents/{id}/breakdown response (#1364).
  * Per-model cost breakdown for a single agent, descending by cost.
+ *
+ * Per-bucket / per-entry shapes are accessible via array indexing
+ * (`AnalyticsCostTimeseriesResponse["points"][number]`,
+ * `CostBreakdownResponse["entries"][number]`); not re-exported standalone
+ * to keep the surface narrow (knip).
  */
 export type CostBreakdownResponse = Schemas["CostBreakdownResponse"];
-
-/** Single entry in `CostBreakdownResponse.entries`. */
-export type CostBreakdownEntryResponse = Schemas["CostBreakdownEntryResponse"];
 
 /** GET /api/v1/agents/{agentId}/clones response item. */
 export type CloneResponse = Schemas["CloneResponse"];
