@@ -2,32 +2,34 @@
   "jsonrpc": "2.0",
   "id": "stable-id",
   "result": {
-    "task": {
-      "id": "stable-id",
-      "contextId": "stable-contextId",
-      "status": {
-        "state": "TASK_STATE_FAILED",
-        "timestamp": "2026-01-01T00:00:00.000Z",
-        "message": {
-          "role": "ROLE_AGENT",
-          "messageId": "stable-messageId",
-          "parts": [
-            {
-              "text": "boom"
-            }
-          ]
-        }
-      },
-      "artifacts": [
-        {
-          "artifactId": "stable-artifactId",
-          "parts": [
-            {
-              "text": "boom"
-            }
-          ]
-        }
-      ]
-    }
+    "kind": "task",
+    "id": "stable-id",
+    "contextId": "stable-contextId",
+    "status": {
+      "state": "failed",
+      "timestamp": "2026-01-01T00:00:00.000Z",
+      "message": {
+        "kind": "message",
+        "role": "agent",
+        "messageId": "stable-messageId",
+        "parts": [
+          {
+            "kind": "text",
+            "text": "boom"
+          }
+        ]
+      }
+    },
+    "artifacts": [
+      {
+        "artifactId": "stable-artifactId",
+        "parts": [
+          {
+            "kind": "text",
+            "text": "boom"
+          }
+        ]
+      }
+    ]
   }
 }

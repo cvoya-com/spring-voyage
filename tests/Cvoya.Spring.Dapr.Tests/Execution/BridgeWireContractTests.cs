@@ -3,9 +3,20 @@
 
 namespace Cvoya.Spring.Dapr.Tests.Execution;
 
-using System.Threading.Tasks;
+using System;
+using System.IO;
+using System.Text.Json;
+
+using A2A.V0_3;
+
+using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Dapr.Execution;
+
+using Shouldly;
 
 using Xunit;
+
+using SvMessage = Cvoya.Spring.Core.Messaging.Message;
 
 /// <summary>
 /// Pins the wire contract between the agent-sidecar bridge
@@ -13,50 +24,154 @@ using Xunit;
 /// the dispatcher consumes (<c>A2A.V0_3.A2AClient</c>).
 ///
 /// <para>
-/// <b>Currently skipped.</b> The fixtures and the live bridge still emit
-/// the v1 SDK's proto-style enum names (<c>TASK_STATE_COMPLETED</c>,
-/// <c>ROLE_AGENT</c>) wrapped under a <c>task</c>/<c>message</c> field, but
-/// the dispatcher now consumes <c>A2A.V0_3</c> which expects the
-/// kebab-case spec form (<c>completed</c>, <c>agent</c>) flat with a
-/// <c>kind</c> discriminator. The bridge needs to migrate to the v0.3
-/// wire shape (and the fixtures regenerated from its new output) before
-/// these can come back; until then the legacy claude-code dispatch path
-/// is wire-format-broken and will fail at deserialization.
+/// These tests load the JSON fixtures under
+/// <c>Execution/Fixtures/</c> — which are regenerated when the bridge
+/// wire format changes — and verify that the .NET SDK can deserialize
+/// them without throwing, and that
+/// <see cref="A2AExecutionDispatcher.MapA2AResponseToMessage"/> maps the
+/// result to the expected Spring Voyage message payload.
 /// </para>
 /// <para>
-/// Tracked as a follow-up to the #1197 dispatch-stack work that surfaced
-/// the .NET SDK / Python a2a-sdk method-name mismatch. The dapr-agent
-/// flow (Python a2a-sdk on the agent side) already emits v0.3 — the
-/// switch was driven by it.
+/// A2A v0.3 wire shape (issue #1198):
+/// <list type="bullet">
+/// <item>Enum values are kebab-case-lower (<c>"completed"</c>, <c>"agent"</c>)
+///   per <c>KebabCaseLowerJsonStringEnumConverter</c>.</item>
+/// <item>The <c>message/send</c> result is the flat <see cref="AgentTask"/>
+///   with a top-level <c>kind: "task"</c> discriminator — no
+///   <c>task</c>/<c>message</c> wrapper.</item>
+/// <item><see cref="Part"/> instances carry a <c>kind</c> discriminator
+///   (<c>"text"</c>, <c>"file"</c>, or <c>"data"</c>).</item>
+/// </list>
 /// </para>
 /// </summary>
 public class BridgeWireContractTests
 {
-    private const string V0_3MigrationSkipReason =
-        "Bridge wire format must migrate to A2A v0.3 (kebab-case enums, kind-discriminated " +
-        "result, no task/message wrapper) before the dispatcher's V0_3 SDK can deserialize " +
-        "its output. Re-enable once deployment/agent-sidecar/src/a2a.ts ships v0.3 fixtures.";
+    private static readonly JsonSerializerOptions A2AOptions = A2AJsonUtilities.DefaultOptions;
 
-    [Fact(Skip = V0_3MigrationSkipReason)]
+    private static string LoadFixture(string fileName)
+    {
+        var path = Path.Combine(
+            AppContext.BaseDirectory,
+            "Execution",
+            "Fixtures",
+            fileName);
+        return File.ReadAllText(path);
+    }
+
+    private static A2AResponse DeserializeResult(string fixtureJson)
+    {
+        using var doc = JsonDocument.Parse(fixtureJson);
+        var resultElement = doc.RootElement.GetProperty("result");
+        var resultJson = resultElement.GetRawText();
+        return JsonSerializer.Deserialize<A2AResponse>(resultJson, A2AOptions)
+            ?? throw new InvalidOperationException("Deserialization returned null for A2AResponse.");
+    }
+
+    private static SvMessage BuildOriginalMessage() =>
+        new(
+            Id: Guid.NewGuid(),
+            From: new Address("agent", "caller"),
+            To: new Address("agent", "target"),
+            Type: MessageType.Domain,
+            ThreadId: "thread-1",
+            Payload: default,
+            Timestamp: DateTimeOffset.UtcNow);
+
+    [Fact]
     public void BridgeMessageSendCompleted_DeserializesAsSendMessageResponse_WithCompletedTask()
     {
+        // bridge-message-send-completed.json carries kind: "task" at the top
+        // level with state: "completed" (kebab-case-lower). The V0_3 SDK
+        // uses A2AEventConverterViaKindDiscriminator to resolve the concrete
+        // type and KebabCaseLowerJsonStringEnumConverter for TaskState.
+        var fixture = LoadFixture("bridge-message-send-completed.json");
+
+        var response = DeserializeResult(fixture);
+
+        response.ShouldBeOfType<AgentTask>();
+        var task = (AgentTask)response;
+        task.Status.State.ShouldBe(TaskState.Completed);
+        task.Id.ShouldBe("stable-id");
+        task.ContextId.ShouldBe("stable-contextId");
     }
 
-    [Fact(Skip = V0_3MigrationSkipReason)]
+    [Fact]
     public void BridgeMessageSendCompleted_FlowsThroughDispatcherMapping_ProducesSuccessPayload()
     {
+        // Verify end-to-end: fixture → A2AResponse → MapA2AResponseToMessage
+        // → Spring Voyage SvMessage with ExitCode: 0 and the artifact text.
+        var fixture = LoadFixture("bridge-message-send-completed.json");
+        var response = DeserializeResult(fixture);
+        var original = BuildOriginalMessage();
+
+        var mapped = A2AExecutionDispatcher.MapA2AResponseToMessage(original, response);
+
+        mapped.ShouldNotBeNull();
+        mapped!.Payload.GetProperty("ExitCode").GetInt32().ShouldBe(0);
+        mapped.Payload.GetProperty("Output").GetString().ShouldBe("echo:hello-from-fixture");
     }
 
-    [Fact(Skip = V0_3MigrationSkipReason)]
+    [Fact]
     public void BridgeMessageSendFailed_DeserializesAsFailedTask_WithAgentRoleStatusMessage()
     {
+        // bridge-message-send-failed.json carries kind: "task", state: "failed",
+        // and status.message with kind: "message", role: "agent". The SDK must
+        // deserialize the nested AgentMessage via its own kind discriminator.
+        var fixture = LoadFixture("bridge-message-send-failed.json");
+
+        var response = DeserializeResult(fixture);
+
+        response.ShouldBeOfType<AgentTask>();
+        var task = (AgentTask)response;
+        task.Status.State.ShouldBe(TaskState.Failed);
+        task.Status.Message.ShouldNotBeNull();
+        task.Status.Message!.Role.ShouldBe(MessageRole.Agent);
+        task.Status.Message.Parts.Count.ShouldBeGreaterThan(0);
+        var textPart = task.Status.Message.Parts[0].ShouldBeOfType<TextPart>();
+        textPart.Text.ShouldBe("boom");
     }
 
-    [Fact(Skip = V0_3MigrationSkipReason)]
+    [Fact]
     public void BridgeMessageSendFailed_FlowsThroughDispatcherMapping_ProducesErrorPayload()
     {
+        // Verify end-to-end: failed fixture → A2AResponse → MapA2AResponseToMessage
+        // → Spring Voyage SvMessage with ExitCode: 1 and Error text from the
+        // status message and/or artifacts.
+        var fixture = LoadFixture("bridge-message-send-failed.json");
+        var response = DeserializeResult(fixture);
+        var original = BuildOriginalMessage();
+
+        var mapped = A2AExecutionDispatcher.MapA2AResponseToMessage(original, response);
+
+        mapped.ShouldNotBeNull();
+        mapped!.Payload.GetProperty("ExitCode").GetInt32().ShouldBe(1);
+        // MapA2AResponseToMessage tries artifacts first, then status.message.
+        // The fixture includes a "boom" artifact so Output comes from there.
+        var output = mapped.Payload.GetProperty("Output").GetString();
+        output.ShouldNotBeNullOrEmpty();
+        output.ShouldContain("boom");
     }
 
-    [Fact(Skip = V0_3MigrationSkipReason)]
-    public Task BridgeMessageSendCompleted_FlowsThroughA2AClient_WithoutThrowing() => Task.CompletedTask;
+    [Fact]
+    public void BridgeMessageSendCompleted_ResultCarriesKindDiscriminatorAndKebabCaseEnums()
+    {
+        // Structural assertion: the fixture's result object must carry the
+        // v0.3 mandatory fields so consumers can distinguish it from the old
+        // proto-style shape without trying to deserialize it.
+        var fixture = LoadFixture("bridge-message-send-completed.json");
+        using var doc = JsonDocument.Parse(fixture);
+        var result = doc.RootElement.GetProperty("result");
+
+        // A2A v0.3: top-level "kind" discriminator.
+        result.GetProperty("kind").GetString().ShouldBe("task");
+        // Kebab-case-lower enum value.
+        result.GetProperty("status").GetProperty("state").GetString().ShouldBe("completed");
+        // Part carries its own kind discriminator.
+        var partKind = result
+            .GetProperty("artifacts")[0]
+            .GetProperty("parts")[0]
+            .GetProperty("kind")
+            .GetString();
+        partKind.ShouldBe("text");
+    }
 }

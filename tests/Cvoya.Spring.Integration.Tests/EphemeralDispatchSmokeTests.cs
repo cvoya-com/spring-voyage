@@ -110,28 +110,92 @@ public class EphemeralDispatchSmokeTests
     }
 
     /// <summary>
-    /// End-to-end wire smoke for issue #1115: spin up the actual
+    /// End-to-end wire smoke for issue #1198: spin up the actual
     /// <c>deployment/agent-sidecar/</c> bridge as a Node subprocess on
     /// a free port, then call it with the dispatcher's real
-    /// <see cref="A2AClient"/> over A2A. Asserts that
-    /// <c>SendMessageAsync</c> deserializes the bridge's response
-    /// without throwing a <c>JsonException</c> on
-    /// <c>$.task.status.state</c> — the regression that #1115 was
-    /// filed for.
+    /// <see cref="A2A.V0_3.A2AClient"/> over A2A. Asserts that
+    /// <c>SendMessageAsync</c> deserializes the bridge's v0.3 response
+    /// without throwing — validating the kebab-case-enum and
+    /// kind-discriminated-result contract end-to-end.
     ///
-    /// Gated on the same <c>SPRING_RUN_DOCKER_SMOKE</c> env var as the
-    /// rest of this file. The bridge must be built first
-    /// (<c>cd deployment/agent-sidecar &amp;&amp; npm install &amp;&amp; npm run build</c>);
-    /// the test skips with a clear message if the built artifact
-    /// isn't on disk.
+    /// Gated on <c>SPRING_RUN_DOCKER_SMOKE=1</c>. The bridge must be
+    /// built first (<c>cd deployment/agent-sidecar &amp;&amp; npm install
+    /// &amp;&amp; npm run build</c>); the test skips with a clear message
+    /// if the built artifact isn't on disk.
     /// </summary>
-    [Fact(Skip = "Bridge wire format must migrate to A2A v0.3 (kebab-case enums, " +
-        "kind-discriminated result, no task/message wrapper) before the dispatcher's " +
-        "V0_3 SDK can deserialize its output. Re-enable once " +
-        "deployment/agent-sidecar/src/a2a.ts emits v0.3 wire shapes.")]
+    [Fact]
     [Trait("Category", "RequiresDocker")]
-    public Task BridgeRoundtrip_ProtoStyleEnums_DispatcherDeserializesWithoutJsonException() =>
-        Task.CompletedTask;
+    public async Task BridgeRoundtrip_V0_3WireShape_DispatcherDeserializesWithoutJsonException()
+    {
+        if (Environment.GetEnvironmentVariable("SPRING_RUN_DOCKER_SMOKE") != "1")
+        {
+            Assert.Skip("Set SPRING_RUN_DOCKER_SMOKE=1 to run this bridge-roundtrip smoke locally.");
+        }
+
+        var repoRoot = ResolveRepoRoot();
+        var bridgeDist = Path.Combine(repoRoot, "deployment", "agent-sidecar", "dist", "cli.js");
+        if (!File.Exists(bridgeDist))
+        {
+            Assert.Skip(
+                $"Bridge dist not found at '{bridgeDist}'. " +
+                "Run 'npm install && npm run build' in deployment/agent-sidecar first.");
+        }
+
+        var port = FindFreeTcpPort();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+
+        // Spawn the bridge: SPRING_AGENT_ARGV points at node -e 'echo' so every
+        // message/send produces stdout output mapped as a completed task.
+        var echoArgv = System.Text.Json.JsonSerializer.Serialize(new[]
+        {
+            "node",
+            "-e",
+            "let b='';process.stdin.on('data',c=>b+=c);process.stdin.on('end',()=>process.stdout.write('ack:'+b))",
+        });
+
+        var psi = new ProcessStartInfo
+        {
+            FileName = "node",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        psi.ArgumentList.Add(bridgeDist);
+        psi.EnvironmentVariables["AGENT_PORT"] = port.ToString();
+        psi.EnvironmentVariables["SPRING_AGENT_ARGV"] = echoArgv;
+
+        using var bridge = Process.Start(psi)
+            ?? throw new InvalidOperationException("Failed to start bridge process.");
+
+        using var probe = new HttpClient();
+        var endpoint = new Uri($"http://127.0.0.1:{port}/");
+        var ready = await WaitForBridgeReadyAsync(probe, endpoint, cts.Token);
+        ready.ShouldBeTrue("Bridge did not become ready within 15 s.");
+
+        // Use the A2A V0_3 client — same as the dispatcher uses in production.
+        using var client = new HttpClient { BaseAddress = endpoint };
+        var a2aClient = new A2A.V0_3.A2AClient(endpoint, client);
+
+        var request = new A2A.V0_3.MessageSendParams
+        {
+            Message = new A2A.V0_3.AgentMessage
+            {
+                Role = A2A.V0_3.MessageRole.User,
+                Parts = [new A2A.V0_3.TextPart { Text = "smoke-ping" }],
+                MessageId = Guid.NewGuid().ToString(),
+            },
+        };
+
+        // Should not throw a JsonException on deserialization.
+        var response = await a2aClient.SendMessageAsync(request, cts.Token);
+
+        response.ShouldBeOfType<A2A.V0_3.AgentTask>();
+        var task = (A2A.V0_3.AgentTask)response;
+        task.Status.State.ShouldBe(A2A.V0_3.TaskState.Completed);
+
+        bridge.Kill();
+        await bridge.WaitForExitAsync(CancellationToken.None);
+    }
 
     private static async Task<bool> WaitForBridgeReadyAsync(HttpClient probe, Uri endpoint, CancellationToken cancellationToken)
     {

@@ -88,18 +88,16 @@ describe("createServer", () => {
         assert.equal(res.status, 200);
         const body = (await res.json()) as Record<string, unknown>;
         assert.equal(body.id, 42);
-        const result = body.result as Record<string, unknown>;
-        // message/send result is the .NET A2A SDK's
-        // SendMessageResponse — a field-presence wrapper around
-        // either `task` or `message`. The bridge always returns a
-        // task per #1115.
-        const taskWrapper = result.task as Record<string, unknown>;
-        const status = taskWrapper.status as Record<string, unknown>;
-        // Proto-style enum name (issue #1115). The .NET A2A SDK
-        // pins TASK_STATE_* via [JsonStringEnumMemberName] and
-        // throws on the lowercase A2A 0.3 spec form.
-        assert.equal(status.state, "TASK_STATE_COMPLETED");
-        const artifacts = taskWrapper.artifacts as Array<{ parts: Array<{ text: string }> }>;
+        // A2A v0.3 wire shape (#1198): result is the flat AgentTask with
+        // kind: "task" discriminator — NOT wrapped under a `task` key.
+        const task = body.result as Record<string, unknown>;
+        assert.equal(task["kind"], "task");
+        const status = task["status"] as Record<string, unknown>;
+        // Kebab-case-lower enum per KebabCaseLowerJsonStringEnumConverter.
+        assert.equal(status["state"], "completed");
+        const artifacts = task["artifacts"] as Array<{ parts: Array<{ kind: string; text: string }> }>;
+        // Part carries kind: "text" per PartConverterViaKindDiscriminator.
+        assert.equal(artifacts[0]?.parts[0]?.kind, "text");
         assert.equal(artifacts[0]?.parts[0]?.text, "ack:ping");
       },
     );
