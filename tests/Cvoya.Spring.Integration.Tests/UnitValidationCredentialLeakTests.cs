@@ -337,6 +337,12 @@ public sealed class UnitValidationCredentialLeakTests : IDisposable
 
         public Task<VolumeMetrics?> GetVolumeMetricsAsync(string volumeName, CancellationToken ct = default)
             => throw new NotSupportedException("canary harness does not query volume metrics");
+
+        // #1079: native HEALTHCHECK inspect. The canary never provisions
+        // detached containers with HEALTHCHECK, so throw to keep the same
+        // contract as the other unused surfaces above.
+        public Task<ContainerHealth> GetHealthAsync(string containerId, CancellationToken ct = default)
+            => throw new NotSupportedException("canary harness does not check container health");
     }
 
     /// <summary>

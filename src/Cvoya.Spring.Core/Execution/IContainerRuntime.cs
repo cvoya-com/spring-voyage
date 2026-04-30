@@ -4,6 +4,24 @@
 namespace Cvoya.Spring.Core.Execution;
 
 /// <summary>
+/// Result returned by <see cref="IContainerRuntime.GetHealthAsync"/>. Models
+/// the three states a container's built-in HEALTHCHECK can be in, plus the
+/// degenerate case where no HEALTHCHECK was declared.
+/// </summary>
+/// <param name="Healthy">
+/// <c>true</c> when the runtime reports the container as healthy or when
+/// no HEALTHCHECK is declared (treating absence as healthy by convention).
+/// <c>false</c> when the runtime reports <c>unhealthy</c> or when the
+/// container is not running (exited, paused, …).
+/// </param>
+/// <param name="Detail">
+/// Human-readable elaboration: the raw inspect status string, or
+/// <c>"no healthcheck declared"</c> when <see cref="Healthy"/> is
+/// <c>true</c> only because no HEALTHCHECK is defined.
+/// </param>
+public record ContainerHealth(bool Healthy, string? Detail);
+
+/// <summary>
 /// Abstraction for running agent workloads in containers.
 /// </summary>
 public interface IContainerRuntime
@@ -281,6 +299,47 @@ public interface IContainerRuntime
     /// volume driver). Callers MUST NOT throw on <c>null</c>.
     /// </returns>
     Task<VolumeMetrics?> GetVolumeMetricsAsync(string volumeName, CancellationToken ct = default);
+
+    /// <summary>
+    /// Reads the native HEALTHCHECK status for the named container by
+    /// inspecting the runtime's container metadata. Returns a
+    /// <see cref="ContainerHealth"/> that reflects the three-state result
+    /// (healthy / unhealthy / no-healthcheck-declared) without requiring any
+    /// binary (<c>wget</c>, <c>curl</c>) inside the workload image.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the backing primitive for <c>GET /v1/containers/{id}/health</c>
+    /// on the dispatcher (issue #1079). The dispatcher endpoint is the
+    /// authoritative signal for non-sidecar consumers (the cloud overlay,
+    /// monitoring, the <c>spring agent status</c> CLI) that need container
+    /// health without being co-located on the container network.
+    /// </para>
+    /// <para>
+    /// The implementation shells out to <c>&lt;binary&gt; inspect --format
+    /// '{{.State.Health.Status}}'</c>. When the format template produces an
+    /// empty string the container image declared no HEALTHCHECK — the method
+    /// maps that to <c>Healthy = true, Detail = "no healthcheck declared"</c>
+    /// so health-naive images don't show as unhealthy by default.
+    /// </para>
+    /// <para>
+    /// The method throws <see cref="InvalidOperationException"/> only when
+    /// the container id is unknown to the runtime (the API layer maps this
+    /// to HTTP 404). It never throws for an unhealthy container — that state
+    /// is expressed through <see cref="ContainerHealth.Healthy"/> = false.
+    /// </para>
+    /// </remarks>
+    /// <param name="containerId">Identifier of the container to inspect.</param>
+    /// <param name="ct">A token to cancel the operation.</param>
+    /// <returns>
+    /// A <see cref="ContainerHealth"/> describing whether the container is
+    /// currently healthy and why.
+    /// </returns>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when no container with <paramref name="containerId"/> is known
+    /// to the runtime, so the API layer can surface an HTTP 404.
+    /// </exception>
+    Task<ContainerHealth> GetHealthAsync(string containerId, CancellationToken ct = default);
 
     /// <summary>
     /// Forwards a JSON HTTP <c>POST</c> into the named container's network
