@@ -6,7 +6,7 @@
 |-----------|-------|
 | **Licensor** | CVOYA LLC |
 | **Licensed Work** | Spring Voyage. The Licensed Work is (c) 2025 CVOYA LLC. |
-| **Additional Use Grant** | You may make production use of the Licensed Work, provided such use does not include offering the Licensed Work to third parties as a managed AI agent orchestration service (a service that allows third parties to create, manage, and run AI agents using the Licensed Work as part of the service's core functionality). |
+| **Additional Use Grant** | You may make production use of the Licensed Work, provided such use does not include offering the Licensed Work to third parties as a managed AI agent collaboration service (a service that allows third parties to create, manage, and run teams of AI agents — and the humans they collaborate with — using the Licensed Work as part of the service's core functionality). |
 | **Change Date** | 2030-04-10 |
 | **Change License** | Apache License, Version 2.0 |
 
