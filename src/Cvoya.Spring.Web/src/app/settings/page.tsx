@@ -36,6 +36,10 @@ import {
 } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  CloningPolicyIcon,
+  CloningPolicyPanel,
+} from "@/components/settings/cloning-policy-panel";
 import { useDrawerPanels } from "@/lib/extensions/context";
 
 interface SettingsTile {
@@ -135,6 +139,37 @@ export default function SettingsPage() {
           </div>
         </section>
       )}
+
+      {/* Tenant-wide cloning policy — PR-PLAT-CLONE-1 (#534). Surfaced
+          directly (not through the drawer-panel registry) because it is
+          always present in OSS and does not require a hosted extension. */}
+      <section aria-labelledby="settings-cloning-heading" className="space-y-3">
+        <h2
+          id="settings-cloning-heading"
+          className="text-sm font-medium uppercase tracking-wide text-muted-foreground"
+        >
+          Cloning
+        </h2>
+        <Card data-testid="settings-cloning-policy-card">
+          <CardHeader className="gap-1">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <CloningPolicyIcon />
+              Tenant cloning policy
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">
+              The persistent cloning policy the enforcer applies to every clone
+              request when no agent-specific policy is set. Mirrors{" "}
+              <code className="font-mono text-[11px]">
+                spring agent clone policy get --scope tenant
+              </code>
+              .
+            </p>
+          </CardHeader>
+          <CardContent>
+            <CloningPolicyPanel />
+          </CardContent>
+        </Card>
+      </section>
 
       <section aria-labelledby="settings-tiles-heading" className="space-y-3">
         <h2

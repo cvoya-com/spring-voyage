@@ -47,6 +47,8 @@ export const queryKeys = {
     costTimeseries: (id: string, window: string, bucket: string) =>
       ["agents", "costTimeseries", id, window, bucket] as const,
     costBreakdown: (id: string) => ["agents", "costBreakdown", id] as const,
+    /** Persistent cloning policy (PR-PLAT-CLONE-1, #534). */
+    cloningPolicy: (id: string) => ["agents", "cloningPolicy", id] as const,
   },
 
   units: {
@@ -145,6 +147,18 @@ export const queryKeys = {
      * this slice so the Explorer re-renders with the new shape.
      */
     tree: () => ["tenant", "tree"] as const,
+    /**
+     * Tenant-wide persistent cloning policy (PR-PLAT-CLONE-1, #534).
+     * Served by `GET /api/v1/tenant/cloning-policy`.
+     */
+    cloningPolicy: () => ["tenant", "cloningPolicy"] as const,
+    /**
+     * Client-side tenant-wide policy rollup (#909). Aggregates per-unit
+     * `UnitPolicyResponse` values; keyed on "rollup" so the
+     * `/policies` page and the Explorer tenant-policies tab share the
+     * same cache slot without colliding with the per-unit slices.
+     */
+    policyRollup: () => ["tenant", "policyRollup"] as const,
   },
 
   memories: {

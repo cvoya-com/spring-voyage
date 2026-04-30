@@ -29,6 +29,7 @@ import {
 } from "./validate-tenant-tree";
 import type {
   ActivityQueryResult,
+  AgentCloningPolicyResponse,
   AgentDashboardSummary,
   AgentDetailResponse,
   AgentExecutionResponse,
@@ -1348,5 +1349,149 @@ export function useMemories(
     enabled: opts?.enabled ?? Boolean(id),
     staleTime: opts?.staleTime,
     refetchInterval: opts?.refetchInterval,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Persistent cloning policy (PR-PLAT-CLONE-1, #534)
+// ---------------------------------------------------------------------------
+
+/**
+ * Read the persistent cloning policy for a single agent. Returns the
+ * server's empty-policy shape when no policy has been explicitly set —
+ * callers never need to branch on "no policy vs. 404". Surfaces `null`
+ * on error so the panel renders a degraded state rather than trapping
+ * the error boundary.
+ */
+export function useAgentCloningPolicy(
+  agentId: string,
+  opts?: SliceOptions<AgentCloningPolicyResponse | null>,
+): UseQueryResult<AgentCloningPolicyResponse | null, Error> {
+  return useQuery({
+    queryKey: queryKeys.agents.cloningPolicy(agentId),
+    queryFn: async () => {
+      try {
+        return await api.getAgentCloningPolicy(agentId);
+      } catch {
+        return null;
+      }
+    },
+    enabled: opts?.enabled ?? Boolean(agentId),
+    staleTime: opts?.staleTime,
+    refetchInterval: opts?.refetchInterval,
+  });
+}
+
+/**
+ * Read the tenant-wide persistent cloning policy. Surfaces `null` on
+ * error so the Settings card renders a degraded state rather than
+ * trapping the page error boundary.
+ */
+export function useTenantCloningPolicy(
+  opts?: SliceOptions<AgentCloningPolicyResponse | null>,
+): UseQueryResult<AgentCloningPolicyResponse | null, Error> {
+  return useQuery({
+    queryKey: queryKeys.tenant.cloningPolicy(),
+    queryFn: async () => {
+      try {
+        return await api.getTenantCloningPolicy();
+      } catch {
+        return null;
+      }
+    },
+    ...opts,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Tenant-wide policy rollup (#909)
+// ---------------------------------------------------------------------------
+
+/**
+ * Rule-count shape produced by the client-side policy aggregator.
+ * Each field counts the total number of configured rules (entries in
+ * `allowed` / `blocked` arrays, or caps set) across every unit that
+ * has returned a non-empty policy for that dimension. A value of `0`
+ * means the dimension has no rules on any unit.
+ */
+export interface TenantPolicyRollup {
+  skill: number;
+  model: number;
+  cost: number;
+  executionMode: number;
+  initiative: number;
+  /** Total units whose policy was successfully fetched. */
+  unitCount: number;
+}
+
+/**
+ * Client-side tenant-wide policy rollup (#909). Fetches the unit list
+ * from `GET /api/v1/tenant/units`, then issues one `GET
+ * /api/v1/tenant/units/{id}/policy` per unit and sums the rule counts
+ * per dimension. The result is stable (consistent key via
+ * `queryKeys.tenant.policyRollup()`) so the `/policies` page and the
+ * Explorer's tenant-policies tab share the cache slot.
+ *
+ * Errors on individual units are silently skipped — a partial rollup
+ * is better than a hard failure on the whole page. The `unitCount`
+ * field tells callers how many units contributed to the totals.
+ */
+export function useTenantPolicyRollup(
+  opts?: SliceOptions<TenantPolicyRollup>,
+): UseQueryResult<TenantPolicyRollup, Error> {
+  return useQuery({
+    queryKey: queryKeys.tenant.policyRollup(),
+    queryFn: async (): Promise<TenantPolicyRollup> => {
+      const unitList: UnitResponse[] = (await api.listUnits()) as UnitResponse[];
+
+      const policies = await Promise.allSettled(
+        unitList.map((u) =>
+          api.getUnitPolicy(u.name).catch(() => ({} as UnitPolicyResponse)),
+        ),
+      );
+
+      const rollup: TenantPolicyRollup = {
+        skill: 0,
+        model: 0,
+        cost: 0,
+        executionMode: 0,
+        initiative: 0,
+        unitCount: 0,
+      };
+
+      for (const result of policies) {
+        if (result.status !== "fulfilled") continue;
+        const p = result.value;
+        rollup.unitCount++;
+
+        if (p.skill) {
+          rollup.skill +=
+            (p.skill.allowed?.length ?? 0) + (p.skill.blocked?.length ?? 0);
+        }
+        if (p.model) {
+          rollup.model +=
+            (p.model.allowed?.length ?? 0) + (p.model.blocked?.length ?? 0);
+        }
+        if (p.cost) {
+          // Count each non-null cap as one rule.
+          if (p.cost.maxCostPerInvocation != null) rollup.cost++;
+          if (p.cost.maxCostPerHour != null) rollup.cost++;
+          if (p.cost.maxCostPerDay != null) rollup.cost++;
+        }
+        if (p.executionMode) {
+          rollup.executionMode +=
+            (p.executionMode.allowed?.length ?? 0) +
+            (p.executionMode.forced != null ? 1 : 0);
+        }
+        if (p.initiative) {
+          rollup.initiative++;
+        }
+      }
+
+      return rollup;
+    },
+    staleTime: opts?.staleTime ?? 60_000, // 60 s default — avoid hammering per-unit endpoints
+    refetchInterval: opts?.refetchInterval,
+    enabled: opts?.enabled,
   });
 }

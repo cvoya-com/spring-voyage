@@ -265,6 +265,45 @@ describe("Sidebar chrome (IA-sidebar-chrome)", () => {
     renderSidebar();
     expect(screen.queryByTestId("sidebar-settings-trigger")).toBeNull();
   });
+
+  it("Ctrl+\\ keyboard shortcut toggles the sidebar collapse state", () => {
+    const { container } = renderSidebar();
+
+    const desktopAside = container.querySelector(
+      'aside.hidden.md\\:flex',
+    ) as HTMLElement;
+    // Start expanded.
+    expect(desktopAside.dataset.collapsed).toBeUndefined();
+
+    // Fire Ctrl+backslash on the window.
+    fireEvent.keyDown(window, { key: "\\", ctrlKey: true });
+    expect(desktopAside.dataset.collapsed).toBe("true");
+
+    // Fire again — back to expanded.
+    fireEvent.keyDown(window, { key: "\\", ctrlKey: true });
+    expect(desktopAside.dataset.collapsed).toBeUndefined();
+  });
+
+  it("Ctrl+\\ shortcut is ignored when an editable element is focused", () => {
+    const { container } = renderSidebar();
+
+    const desktopAside = container.querySelector(
+      'aside.hidden.md\\:flex',
+    ) as HTMLElement;
+    expect(desktopAside.dataset.collapsed).toBeUndefined();
+
+    // Simulate key-down on an input element (focus target).
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    try {
+      fireEvent.keyDown(input, { key: "\\", ctrlKey: true });
+      // State should be unchanged because the shortcut handler skips
+      // events whose target is an editable element.
+      expect(desktopAside.dataset.collapsed).toBeUndefined();
+    } finally {
+      document.body.removeChild(input);
+    }
+  });
 });
 
 describe("Sidebar collapsed-rail polish (V21-collapsed-rail-polish)", () => {

@@ -2,6 +2,7 @@ import createClient from "openapi-fetch";
 
 import type { paths } from "./schema";
 import type {
+  AgentCloningPolicyResponse,
   AgentDetailResponse,
   AgentExecutionResponse,
   AgentResponse,
@@ -1386,6 +1387,50 @@ export const api = {
       return null;
     }
     return unwrap(result) as import("./types").CredentialHealthResponse;
+  },
+
+  // ---------------------------------------------------------------------------
+  // Persistent cloning policy (PR-PLAT-CLONE-1, #416 / #534).
+  // Per-agent scope: GET/PUT/DELETE /api/v1/tenant/agents/{id}/cloning-policy.
+  // Tenant-wide scope: GET/PUT/DELETE /api/v1/tenant/cloning-policy.
+  // ---------------------------------------------------------------------------
+
+  getAgentCloningPolicy: async (id: string): Promise<AgentCloningPolicyResponse> =>
+    unwrap(
+      await fetchClient.GET("/api/v1/tenant/agents/{id}/cloning-policy", {
+        params: { path: { id } },
+      }),
+    ),
+
+  setAgentCloningPolicy: async (
+    id: string,
+    policy: AgentCloningPolicyResponse,
+  ): Promise<AgentCloningPolicyResponse> =>
+    unwrap(
+      await fetchClient.PUT("/api/v1/tenant/agents/{id}/cloning-policy", {
+        params: { path: { id } },
+        body: policy,
+      }),
+    ),
+
+  deleteAgentCloningPolicy: async (id: string): Promise<void> => {
+    await fetchClient.DELETE("/api/v1/tenant/agents/{id}/cloning-policy", {
+      params: { path: { id } },
+    });
+  },
+
+  getTenantCloningPolicy: async (): Promise<AgentCloningPolicyResponse> =>
+    unwrap(await fetchClient.GET("/api/v1/tenant/cloning-policy", {})),
+
+  setTenantCloningPolicy: async (
+    policy: AgentCloningPolicyResponse,
+  ): Promise<AgentCloningPolicyResponse> =>
+    unwrap(
+      await fetchClient.PUT("/api/v1/tenant/cloning-policy", { body: policy }),
+    ),
+
+  deleteTenantCloningPolicy: async (): Promise<void> => {
+    await fetchClient.DELETE("/api/v1/tenant/cloning-policy", {});
   },
 
   // Tenant tree (SVR-tenant-tree, umbrella #815). Single-payload tenant

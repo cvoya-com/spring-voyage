@@ -2,17 +2,16 @@
 // top-level surface that replaces `/initiative` and covers all five
 // `UnitPolicy` dimensions (Skill / Model / Cost / ExecutionMode /
 // Initiative). The per-unit editor already ships on
-// `/units` → Policies tab (#411) and the unified cross-unit index is
-// tracked by #411 — the wire data isn't exposed yet, so this page is
-// still a visibility anchor that points operators at the surfaces that
-// work today.
+// `/units` → Policies tab (#411) and the unified cross-unit rollup is
+// now live via `useTenantPolicyRollup` (#909).
 //
 // v2 reskin (SURF-reskin-policies, #855): adopts the `TabPolicies`
 // policy-row layout from the design kit — mono identifiers for each
 // dimension, severity pills for the kind of constraint ("caps", "list",
-// "level"), and rule-count badges. The data rows are illustrative until
-// #411 wires the tenant-wide read; they read as "these are the rails the
-// rollup will land on" rather than live numbers.
+// "level"), and live rule-count badges populated by the client-side
+// aggregator (#909).
+
+"use client";
 
 import Link from "next/link";
 import {
@@ -28,6 +27,8 @@ import {
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useTenantPolicyRollup, type TenantPolicyRollup } from "@/lib/api/queries";
 
 interface PolicyDimensionRow {
   slug: string;
@@ -40,9 +41,11 @@ interface PolicyDimensionRow {
   /**
    * The Explorer detail tab that today owns the editor. The rollup page
    * only redirects to these; the per-unit surface is the source of
-   * truth until #411 lands.
+   * truth.
    */
   editHref: string;
+  /** Extract the count for this dimension from the rollup. */
+  getCount: (rollup: TenantPolicyRollup) => number;
 }
 
 /**
@@ -61,6 +64,7 @@ const POLICY_DIMENSIONS: readonly PolicyDimensionRow[] = [
     icon: ListChecks,
     kind: "list",
     editHref: "/units?tab=policies&focus=skill",
+    getCount: (r) => r.skill,
   },
   {
     slug: "model",
@@ -70,6 +74,7 @@ const POLICY_DIMENSIONS: readonly PolicyDimensionRow[] = [
     icon: Gauge,
     kind: "list",
     editHref: "/units?tab=policies&focus=model",
+    getCount: (r) => r.model,
   },
   {
     slug: "cost",
@@ -80,6 +85,7 @@ const POLICY_DIMENSIONS: readonly PolicyDimensionRow[] = [
     icon: DollarSign,
     kind: "caps",
     editHref: "/units?tab=policies&focus=cost",
+    getCount: (r) => r.cost,
   },
   {
     slug: "execution-mode",
@@ -90,6 +96,7 @@ const POLICY_DIMENSIONS: readonly PolicyDimensionRow[] = [
     icon: Shield,
     kind: "list",
     editHref: "/units?tab=policies&focus=execution-mode",
+    getCount: (r) => r.executionMode,
   },
   {
     slug: "initiative",
@@ -100,6 +107,7 @@ const POLICY_DIMENSIONS: readonly PolicyDimensionRow[] = [
     icon: Zap,
     kind: "level",
     editHref: "/units?tab=policies&focus=initiative",
+    getCount: (r) => r.initiative,
   },
 ];
 
@@ -119,6 +127,8 @@ const kindLabel: Record<PolicyDimensionRow["kind"], string> = {
 };
 
 export default function PoliciesIndexPage() {
+  const rollup = useTenantPolicyRollup();
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-1">
@@ -130,6 +140,16 @@ export default function PoliciesIndexPage() {
           Skill, model, cost, execution, and initiative constraints across
           every unit.
         </p>
+        {rollup.data && (
+          <p
+            className="text-xs text-muted-foreground"
+            data-testid="policies-rollup-unit-count"
+          >
+            Aggregated across{" "}
+            <span className="font-medium">{rollup.data.unitCount}</span>{" "}
+            {rollup.data.unitCount === 1 ? "unit" : "units"}.
+          </p>
+        )}
       </div>
 
       <Card>
@@ -139,6 +159,7 @@ export default function PoliciesIndexPage() {
         <CardContent className="divide-y divide-border p-0">
           {POLICY_DIMENSIONS.map((row) => {
             const Icon = row.icon;
+            const count = rollup.data ? row.getCount(rollup.data) : null;
             return (
               <div
                 key={row.slug}
@@ -168,15 +189,23 @@ export default function PoliciesIndexPage() {
                       <Badge variant={kindVariant[row.kind]}>
                         {kindLabel[row.kind]}
                       </Badge>
-                      {/* Rule-count badge — illustrative until #411
-                          wires the tenant-wide read. */}
-                      <Badge
-                        variant="outline"
-                        className="tabular-nums text-[11px]"
-                        title="Rule count across all units (pending #411)"
-                      >
-                        0 rules
-                      </Badge>
+                      {/* Rule-count badge — live count from the aggregator. */}
+                      {rollup.isPending ? (
+                        <Skeleton
+                          className="h-5 w-12 rounded-full"
+                          data-testid={`policy-row-${row.slug}-count-loading`}
+                        />
+                      ) : (
+                        <Badge
+                          variant="outline"
+                          className="tabular-nums text-[11px]"
+                          title={`${count ?? 0} rule${count === 1 ? "" : "s"} across ${rollup.data?.unitCount ?? 0} ${(rollup.data?.unitCount ?? 0) === 1 ? "unit" : "units"}`}
+                          data-testid={`policy-row-${row.slug}-count`}
+                        >
+                          {count ?? 0}{" "}
+                          {count === 1 ? "rule" : "rules"}
+                        </Badge>
+                      )}
                     </div>
                     <p className="text-xs text-muted-foreground">
                       {row.description}
@@ -199,18 +228,16 @@ export default function PoliciesIndexPage() {
       <Card>
         <CardContent className="flex flex-col gap-2 p-4 text-xs text-muted-foreground">
           <p>
-            Rule counts, severity rollups, and the cross-unit diff view are
-            tracked by the unified Policies rollup work — issue{" "}
+            Rule counts are aggregated across all units in real time. Per-unit
+            policy editing is available in the{" "}
             <Link
-              href="https://github.com/cvoya-com/spring-voyage/issues/411"
-              target="_blank"
-              rel="noreferrer"
+              href="/units"
               className="inline-flex items-center gap-1 text-primary hover:underline"
             >
-              #411
+              Explorer
               <ExternalLink className="h-3 w-3" aria-hidden="true" />
             </Link>
-            . The per-unit editor already ships in the Explorer.
+            .
           </p>
           <div className="flex flex-wrap gap-3">
             <Link

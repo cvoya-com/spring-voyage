@@ -186,6 +186,27 @@ export type CloneResponse = Schemas["CloneResponse"];
 /** POST /api/v1/agents/{agentId}/clones request body. */
 export type CreateCloneRequest = Schemas["CreateCloneRequest"];
 
+/**
+ * GET/PUT response body for the persistent cloning policy (PR-PLAT-CLONE-1,
+ * #416). Surfaced at per-agent (`/agents/{id}/cloning-policy`) and
+ * tenant-wide (`/tenant/cloning-policy`) scopes. An absent field means
+ * "no constraint on that axis"; the server always returns a valid object
+ * (never 404) even if no policy has been persisted.
+ */
+export type AgentCloningPolicyResponse = Schemas["AgentCloningPolicyResponse"];
+
+/**
+ * `CloningPolicy` enum values returned by `AgentCloningPolicyResponse.allowedPolicies`.
+ * Mirrors `Cvoya.Spring.Core.Cloning.CloningPolicy`.
+ */
+export type CloningPolicy = Schemas["CloningPolicy"];
+
+/**
+ * `AttachmentMode` enum values returned by `AgentCloningPolicyResponse.allowedAttachmentModes`.
+ * Mirrors `Cvoya.Spring.Core.Cloning.AttachmentMode`.
+ */
+export type AttachmentMode = Schemas["AttachmentMode"];
+
 /** GET / PUT budget response. */
 export type BudgetResponse = Schemas["BudgetResponse"];
 
