@@ -186,6 +186,22 @@ export type CloneResponse = Schemas["CloneResponse"];
 /** POST /api/v1/agents/{agentId}/clones request body. */
 export type CreateCloneRequest = Schemas["CreateCloneRequest"];
 
+/**
+ * GET/PUT response body for the persistent cloning policy (PR-PLAT-CLONE-1,
+ * #416). Surfaced at per-agent (`/agents/{id}/cloning-policy`) and
+ * tenant-wide (`/tenant/cloning-policy`) scopes. An absent field means
+ * "no constraint on that axis"; the server always returns a valid object
+ * (never 404) even if no policy has been persisted.
+ */
+export type AgentCloningPolicyResponse = Schemas["AgentCloningPolicyResponse"];
+
+/**
+ * Per-field nested types (`CloningPolicy` enum, `AttachmentMode` enum) are accessible
+ * via `AgentCloningPolicyResponse["allowedPolicies"][number]` /
+ * `AgentCloningPolicyResponse["allowedAttachmentModes"][number]` indexing when needed.
+ * Not re-exported standalone to keep the surface narrow (knip).
+ */
+
 /** GET / PUT budget response. */
 export type BudgetResponse = Schemas["BudgetResponse"];
 

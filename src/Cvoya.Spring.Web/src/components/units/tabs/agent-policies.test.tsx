@@ -9,9 +9,15 @@ vi.mock("@/components/agents/agent-initiative-panel", () => ({
   ),
 }));
 
+vi.mock("@/components/agents/agent-cloning-policy-panel", () => ({
+  AgentCloningPolicyPanel: ({ agentId }: { agentId: string }) => (
+    <div data-testid="cloning-policy-panel-stub" data-agent-id={agentId} />
+  ),
+}));
+
 import AgentPoliciesTab from "./agent-policies";
 
-describe("AgentPoliciesTab (issue #934)", () => {
+describe("AgentPoliciesTab (issues #934 + #534)", () => {
   it("mounts the initiative panel with the agent id", () => {
     const node: AgentNode = {
       kind: "Agent",
@@ -23,6 +29,20 @@ describe("AgentPoliciesTab (issue #934)", () => {
     expect(screen.getByTestId("tab-agent-policies")).toBeInTheDocument();
     expect(
       screen.getByTestId("initiative-panel-stub").dataset.agentId,
+    ).toBe("ada");
+  });
+
+  it("mounts the cloning-policy panel with the agent id (#534)", () => {
+    const node: AgentNode = {
+      kind: "Agent",
+      id: "ada",
+      name: "Ada",
+      status: "running",
+    };
+    render(<AgentPoliciesTab node={node} path={[node]} />);
+    expect(screen.getByTestId("tab-agent-policies-cloning")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("cloning-policy-panel-stub").dataset.agentId,
     ).toBe("ada");
   });
 

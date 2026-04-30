@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { BrandMark } from "@/components/brand-mark";
 import { Tooltip } from "@/components/ui/tooltip";
@@ -76,6 +76,34 @@ export function Sidebar() {
       return !prev;
     });
   };
+
+  // Keyboard shortcut: Cmd+\ (Mac) / Ctrl+\ (Windows/Linux).
+  // Mirrors VS Code's sidebar-toggle affordance (high familiarity) but
+  // uses backslash instead of Shift+B to avoid colliding with browser
+  // print / bold shortcuts. The handler is a no-op when focus is on an
+  // editable element so typing backslash in a text field is unaffected.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!e.key || e.key !== "\\") return;
+      if (!(e.metaKey || e.ctrlKey)) return;
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      e.preventDefault();
+      toggleCollapsed();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+    // toggleCollapsed reads collapsed via the setCollapsed functional
+    // updater — the effect doesn't need to re-run when collapsed changes.
+  }, []);
 
   // Auto-close the mobile drawer when the route changes. Using the
   // "adjusting state while rendering" pattern (React docs:
@@ -544,6 +572,11 @@ function CollapseToggle({
   // describes the action (expand vs. collapse) so screen readers
   // announce the right verb. Focus ring is `ring-inset` so the 56 px
   // rail doesn't clip the 2 px outline.
+  //
+  // The title attribute surfaces the keyboard shortcut as a browser
+  // tooltip on hover without adding visible text to the 56 px rail.
+  // AT already reads the aria-label so adding `title` purely for
+  // the pointer hint is safe.
   return (
     <button
       onClick={onToggle}
@@ -551,6 +584,7 @@ function CollapseToggle({
       aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
       aria-expanded={!collapsed}
       aria-controls="mobile-sidebar"
+      title={collapsed ? "Expand sidebar (Ctrl+\\)" : "Collapse sidebar (Ctrl+\\)"}
       className="rounded-md p-1 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
     >
       {collapsed ? (
