@@ -36,6 +36,8 @@ public static class ContainersEndpoints
             new(6007, nameof(ContainerA2ARequested));
         public static readonly Microsoft.Extensions.Logging.EventId ContainerProbeFromHostRequested =
             new(6008, nameof(ContainerProbeFromHostRequested));
+        public static readonly Microsoft.Extensions.Logging.EventId ContainerHealthRequested =
+            new(6009, nameof(ContainerHealthRequested));
     }
 
     /// <summary>
@@ -47,6 +49,7 @@ public static class ContainersEndpoints
 
         group.MapPost("/", RunOrStartAsync);
         group.MapGet("/{id}/logs", GetLogsAsync);
+        group.MapGet("/{id}/health", GetHealthAsync);
         group.MapPost("/{id}/probe", ProbeAsync);
         group.MapPost("/{id}/probe-from-host", ProbeFromHostAsync);
         group.MapPost("/{id}/a2a", SendA2AAsync);
@@ -319,6 +322,85 @@ public static class ContainersEndpoints
                 Message = $"Container '{id}' is not known to the dispatcher.",
             });
         }
+    }
+
+    /// <summary>
+    /// <c>GET /v1/containers/{id}/health</c> — read the native HEALTHCHECK
+    /// status for a running container by inspecting the runtime's container
+    /// metadata. Returns 200 when healthy, 503 when unhealthy, and 404 when
+    /// no container is tracked under the supplied id.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This endpoint lets non-sidecar consumers (cloud overlay, monitoring,
+    /// the <c>spring agent status</c> CLI) ask "is container X healthy?"
+    /// without needing to share a network with the container or know whether
+    /// it is a path-1 or path-3 agent. See issue #1079.
+    /// </para>
+    /// <para>
+    /// The check calls <see cref="IContainerRuntime.GetHealthAsync"/> which
+    /// shells out to <c>podman inspect --format '{{.State.Health.Status}}'</c>
+    /// on the dispatcher host. No in-container tooling is required. Containers
+    /// that declare no HEALTHCHECK instruction are reported as healthy
+    /// (<c>method="inspect"</c>, <c>status="healthy"</c>,
+    /// <c>reason="no healthcheck declared"</c>) by convention.
+    /// </para>
+    /// </remarks>
+    internal static async Task<IResult> GetHealthAsync(
+        string id,
+        IContainerRuntime runtime,
+        ILoggerFactory loggerFactory,
+        CancellationToken cancellationToken)
+    {
+        var logger = loggerFactory.CreateLogger("Cvoya.Spring.Dispatcher.Containers");
+
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return Results.BadRequest(new DispatcherErrorResponse
+            {
+                Code = "id_required",
+                Message = "Container id is required.",
+            });
+        }
+
+        logger.LogInformation(
+            EventIds.ContainerHealthRequested,
+            "Fetching health for container id={ContainerId}", id);
+
+        ContainerHealth health;
+        try
+        {
+            health = await runtime.GetHealthAsync(id, cancellationToken);
+        }
+        catch (InvalidOperationException)
+        {
+            return Results.NotFound(new DispatcherErrorResponse
+            {
+                Code = "container_not_found",
+                Message = $"Container '{id}' is not known to the dispatcher.",
+            });
+        }
+
+        var checkedAt = DateTimeOffset.UtcNow;
+
+        if (health.Healthy)
+        {
+            return Results.Ok(new ContainerHealthResponse
+            {
+                Status = "healthy",
+                CheckedAt = checkedAt,
+                Method = "inspect",
+            });
+        }
+
+        return Results.Json(
+            new ContainerHealthResponse
+            {
+                Status = "unhealthy",
+                Reason = health.Detail,
+                CheckedAt = checkedAt,
+            },
+            statusCode: StatusCodes.Status503ServiceUnavailable);
     }
 
     /// <summary>

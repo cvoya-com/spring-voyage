@@ -644,4 +644,105 @@ public class ContainersEndpointsTests : IClassFixture<DispatcherWebApplicationFa
         var body = await response.Content.ReadFromJsonAsync<JsonElement>(TestContext.Current.CancellationToken);
         body.GetProperty("healthy").GetBoolean().ShouldBeFalse();
     }
+
+    // ── GetHealth tests (issue #1079) ──────────────────────────────────────
+
+    [Fact]
+    public async Task GetContainerHealth_WithoutToken_Returns401()
+    {
+        var client = _factory.CreateClient();
+
+        var response = await client.GetAsync(
+            "/v1/containers/agent-1/health",
+            TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task GetContainerHealth_UnknownContainer_Returns404()
+    {
+        // IContainerRuntime.GetHealthAsync throws InvalidOperationException
+        // for unknown containers; the endpoint must surface that as a 404.
+        _factory.ContainerRuntime.ClearSubstitute();
+        _factory.ContainerRuntime
+            .GetHealthAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns<ContainerHealth>(_ =>
+                throw new InvalidOperationException("Container 'missing-1' is not known to the runtime."));
+
+        var client = CreateAuthorizedClient();
+
+        var response = await client.GetAsync(
+            "/v1/containers/missing-1/health",
+            TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>(TestContext.Current.CancellationToken);
+        body.GetProperty("code").GetString().ShouldBe("container_not_found");
+
+        await _factory.ContainerRuntime.Received(1).GetHealthAsync(
+            "missing-1", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task GetContainerHealth_HealthyContainer_Returns200WithInspectMethod()
+    {
+        // A container whose HEALTHCHECK status is "healthy" (or has no
+        // HEALTHCHECK declared) should yield HTTP 200 with status="healthy"
+        // and method="inspect".
+        _factory.ContainerRuntime.ClearSubstitute();
+        _factory.ContainerRuntime
+            .GetHealthAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new ContainerHealth(Healthy: true, Detail: "healthy"));
+
+        var client = CreateAuthorizedClient();
+
+        var response = await client.GetAsync(
+            "/v1/containers/agent-1/health",
+            TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>(TestContext.Current.CancellationToken);
+        body.GetProperty("status").GetString().ShouldBe("healthy");
+        body.GetProperty("method").GetString().ShouldBe("inspect");
+        // checkedAt must be present and parseable as a date-time offset.
+        body.TryGetProperty("checkedAt", out var checkedAt).ShouldBeTrue();
+        DateTimeOffset.TryParse(checkedAt.GetString(), out _).ShouldBeTrue();
+        // reason must be absent on a healthy result (or null / empty).
+        if (body.TryGetProperty("reason", out var reason))
+        {
+            reason.ValueKind.ShouldBe(JsonValueKind.Null);
+        }
+
+        await _factory.ContainerRuntime.Received(1).GetHealthAsync(
+            "agent-1", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task GetContainerHealth_UnhealthyContainer_Returns503WithReason()
+    {
+        // A container whose HEALTHCHECK reports "unhealthy" should yield HTTP 503
+        // so standard HTTP health-check consumers can detect failure without
+        // parsing the body. The body carries the raw inspect status as "reason".
+        _factory.ContainerRuntime.ClearSubstitute();
+        _factory.ContainerRuntime
+            .GetHealthAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new ContainerHealth(Healthy: false, Detail: "unhealthy"));
+
+        var client = CreateAuthorizedClient();
+
+        var response = await client.GetAsync(
+            "/v1/containers/agent-1/health",
+            TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.ServiceUnavailable);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>(TestContext.Current.CancellationToken);
+        body.GetProperty("status").GetString().ShouldBe("unhealthy");
+        body.GetProperty("reason").GetString().ShouldBe("unhealthy");
+        body.TryGetProperty("checkedAt", out var checkedAt2).ShouldBeTrue();
+        DateTimeOffset.TryParse(checkedAt2.GetString(), out _).ShouldBeTrue();
+
+        await _factory.ContainerRuntime.Received(1).GetHealthAsync(
+            "agent-1", Arg.Any<CancellationToken>());
+    }
 }

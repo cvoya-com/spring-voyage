@@ -248,6 +248,53 @@ public class ProcessContainerRuntime(
     }
 
     /// <inheritdoc />
+    public async Task<ContainerHealth> GetHealthAsync(string containerId, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(containerId);
+
+        // Ask the runtime for the HEALTHCHECK state from container metadata.
+        // Both podman and docker support this Go template expression:
+        //   - "healthy"   — HEALTHCHECK passed on the most recent run
+        //   - "unhealthy" — HEALTHCHECK failed
+        //   - "starting"  — container is still in the initial grace period
+        //   - ""          — no HEALTHCHECK instruction in the image
+        //
+        // A non-zero inspect exit means the container is unknown to the runtime;
+        // we surface that as InvalidOperationException so the API layer can 404.
+        var (exitCode, stdout, stderr) = await RunProcessAsync(
+            binaryName,
+            [
+                "inspect",
+                "--format",
+                "{{.State.Health.Status}}",
+                containerId,
+            ],
+            ct);
+
+        if (exitCode != 0)
+        {
+            throw new InvalidOperationException(
+                $"Container '{containerId}' is not known to the runtime. "
+                + $"Exit code: {exitCode}. Stderr: {stderr}");
+        }
+
+        var status = stdout.Trim();
+
+        // Empty status: image declared no HEALTHCHECK instruction. Treat as
+        // healthy-by-convention so health-naive images don't show as unhealthy.
+        if (string.IsNullOrWhiteSpace(status))
+        {
+            return new ContainerHealth(Healthy: true, Detail: "no healthcheck declared");
+        }
+
+        // "starting" means the container is still in its initial grace period
+        // before the first HEALTHCHECK probe fires. Treat as unhealthy for now
+        // so callers can distinguish "not yet ready" from "confirmed healthy".
+        var healthy = string.Equals(status, "healthy", StringComparison.OrdinalIgnoreCase);
+        return new ContainerHealth(Healthy: healthy, Detail: status);
+    }
+
+    /// <inheritdoc />
     public async Task CreateNetworkAsync(string name, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);

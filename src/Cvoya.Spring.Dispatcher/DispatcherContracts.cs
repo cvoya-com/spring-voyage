@@ -423,6 +423,59 @@ public record CreateNetworkRequest
 }
 
 /// <summary>
+/// Response body for <c>GET /v1/containers/{id}/health</c>. Describes
+/// the native HEALTHCHECK result for a running container so non-sidecar
+/// consumers (cloud overlay, monitoring, CLI) can read container health
+/// without requiring in-container tooling or sharing a network with the
+/// container. See issue #1079.
+/// </summary>
+/// <remarks>
+/// <para>
+/// On a 200 OK, <see cref="Status"/> is <c>"healthy"</c> and
+/// <see cref="Method"/> describes the mechanism used (currently
+/// <c>"inspect"</c> for the native HEALTHCHECK path).
+/// </para>
+/// <para>
+/// On a 503 Service Unavailable, <see cref="Status"/> is
+/// <c>"unhealthy"</c> and <see cref="Reason"/> carries the raw inspect
+/// status string (<c>"unhealthy"</c>, <c>"starting"</c>, or similar).
+/// </para>
+/// <para>
+/// A 404 is returned when no container is tracked under the supplied id.
+/// </para>
+/// </remarks>
+public record ContainerHealthResponse
+{
+    /// <summary>
+    /// <c>"healthy"</c> or <c>"unhealthy"</c>. Present on both 200 and 503.
+    /// </summary>
+    [JsonPropertyName("status")]
+    public required string Status { get; init; }
+
+    /// <summary>
+    /// Human-readable reason for an unhealthy result. Present on 503;
+    /// absent on 200.
+    /// </summary>
+    [JsonPropertyName("reason")]
+    public string? Reason { get; init; }
+
+    /// <summary>
+    /// ISO-8601 timestamp of when this health check was performed.
+    /// Present on both 200 and 503.
+    /// </summary>
+    [JsonPropertyName("checkedAt")]
+    public required DateTimeOffset CheckedAt { get; init; }
+
+    /// <summary>
+    /// Description of the mechanism used to determine health. Present
+    /// on 200; absent on 503. Currently always <c>"inspect"</c> (the
+    /// native runtime HEALTHCHECK path).
+    /// </summary>
+    [JsonPropertyName("method")]
+    public string? Method { get; init; }
+}
+
+/// <summary>
 /// Problem shape emitted by the dispatcher for error responses.
 /// </summary>
 public record DispatcherErrorResponse

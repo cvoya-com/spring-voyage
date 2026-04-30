@@ -145,6 +145,40 @@ public class DispatcherClientContainerRuntime(
     }
 
     /// <inheritdoc />
+    public async Task<ContainerHealth> GetHealthAsync(string containerId, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(containerId);
+
+        var httpClient = CreateClient();
+        var uri = $"v1/containers/{Uri.EscapeDataString(containerId)}/health";
+
+        using var response = await httpClient.GetAsync(uri, ct);
+
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            throw new InvalidOperationException(
+                $"Container '{containerId}' is not known to the dispatcher.");
+        }
+
+        if (!response.IsSuccessStatusCode && response.StatusCode != System.Net.HttpStatusCode.ServiceUnavailable)
+        {
+            var body = await SafeReadBodyAsync(response, ct);
+            throw new InvalidOperationException(
+                $"Dispatcher returned {(int)response.StatusCode} fetching health for {containerId}: {body}");
+        }
+
+        var parsed = await response.Content.ReadFromJsonAsync<DispatcherContainerHealthResponse>(JsonOptions, ct);
+        if (parsed is null)
+        {
+            throw new InvalidOperationException(
+                "Dispatcher returned an empty response body for the container health call.");
+        }
+
+        var healthy = string.Equals(parsed.Status, "healthy", StringComparison.OrdinalIgnoreCase);
+        return new ContainerHealth(Healthy: healthy, Detail: parsed.Reason ?? parsed.Method);
+    }
+
+    /// <inheritdoc />
     public async Task<bool> ProbeContainerHttpAsync(string containerId, string url, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(containerId);
@@ -724,6 +758,22 @@ public class DispatcherClientContainerRuntime(
     {
         public required int StatusCode { get; init; }
         public required string BodyBase64 { get; init; }
+    }
+
+    /// <summary>
+    /// Wire shape returned by <c>GET /v1/containers/{id}/health</c>.
+    /// Maps to <see cref="ContainerHealth"/> after deserialization.
+    /// </summary>
+    internal record DispatcherContainerHealthResponse
+    {
+        /// <summary><c>"healthy"</c> or <c>"unhealthy"</c>.</summary>
+        public required string Status { get; init; }
+
+        /// <summary>Reason phrase when unhealthy; absent on success.</summary>
+        public string? Reason { get; init; }
+
+        /// <summary>Probe method description when healthy; absent on failure.</summary>
+        public string? Method { get; init; }
     }
 
     /// <summary>
