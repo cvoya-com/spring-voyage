@@ -41,9 +41,9 @@ The portals are distinct: each has its own top-level parent route, its own navig
 | Surface | Parent route | Purpose |
 |---|---|---|
 | Management portal | `/` (current root) | Unit / agent management, configuration, monitoring, analytics, cost |
-| Engagement portal | `/work` (proposed — see note) | Engagement / collaboration: viewing threads, sending messages, observing agent-to-agent work, answering clarifying questions |
+| Engagement portal | `/engagement` (proposed — see note) | Engagement / collaboration: viewing threads, sending messages, observing agent-to-agent work, answering clarifying questions |
 
-> **Route name rationale.** `/work` signals "where work happens" — it is activity-oriented rather than management-oriented, matches the user's mental model when they open the portal to do something with their agents, and does not conflict with any current route. The final name is to be ratified by the product owner in the PR review.
+> **Route name rationale.** `/engagement` is a singular noun that mirrors the domain artifact (`Engagement`) and matches the URL grammar of the existing `/agents/<id>` and `/units/<id>` routes. Reads cleanly as `/engagement/<id>`. Chosen over `/work` (verb / activity-flavored, conflicts with the data-model term) and `/engage` (verb form, weaker as a noun in URLs). Ratified in PR review.
 
 The parent-route boundary is the seam that allows a future v0.2+ deployment to split the engagement portal into its own Next.js app without re-architecting the application. No coupling that crosses this seam beyond the shared session and API client should be introduced in E2.
 

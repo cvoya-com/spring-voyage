@@ -21,7 +21,7 @@ The question to decide: how should the engagement surface relate to the existing
 Two distinct portals, same Next.js application.
 
 - **Management portal** — the existing portal, rooted at `/`. Unit/agent management, configuration, monitoring, analytics, cost.
-- **Engagement portal** — new, rooted at a new top-level parent route (proposed: `/work`). Engagement / collaboration: viewing threads, sending messages, observing agent-to-agent work, answering clarifying questions.
+- **Engagement portal** — new, rooted at a new top-level parent route (proposed: `/engagement`). Engagement / collaboration: viewing threads, sending messages, observing agent-to-agent work, answering clarifying questions.
 
 **Shared:** one Next.js app, one session, one auth wiring, one design system, one typed API client.
 
@@ -55,7 +55,7 @@ A softer form of the "embed" option — a sidebar link to `/threads` inside the 
 
 ### Explicit rules that follow from this decision
 
-1. **Two top-level routes.** The management portal stays at `/`. The engagement portal lives under a new parent route (proposed `/work`, to be ratified in the PR review). All engagement-portal routes are children of that parent.
+1. **Two top-level routes.** The management portal stays at `/`. The engagement portal lives under a new parent route (proposed `/engagement`, to be ratified in the PR review). All engagement-portal routes are children of that parent.
 
 2. **One shared session, design system, and API client.** No new auth wiring. No design-system fork. No separate API client or API token.
 
