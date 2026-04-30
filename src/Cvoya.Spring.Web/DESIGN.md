@@ -497,7 +497,15 @@ Editors that resolve a blank value to a parent default at save time carry a reus
 
 The card header carries an `Inherits` outline badge when no own declarations exist, flipping to a solid `Configured` badge once any override is persisted.
 
-### 12.7 Validation panel — `src/components/units/detail/validation-panel.tsx`
+### 12.7 Thread error events — inline dispatch-failure rendering (#1161)
+
+`ErrorOccurred` activity events, and any thread event with `severity === "Error"`, render as a distinct inline error bubble in `<ThreadEventRow>` (`src/components/thread/thread-event-row.tsx`). The pattern uses the destructive palette so the operator cannot miss a dispatch failure while reading a conversation thread.
+
+Shape: left-aligned row with `data-role="error"` on the outer container. Meta row carries a `<Badge variant="destructive">Error</Badge>` role pill. The bubble itself is `role="alert"` with `rounded-lg border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-foreground shadow-sm`; an `AlertTriangle` icon at `h-4 w-4 text-destructive mt-0.5` precedes the summary text. The "View in activity →" jump-link appears below, same as non-error rows.
+
+Error events are never collapsed by default. The operator must be able to see the failure summary without an extra click.
+
+### 12.8 Validation panel — `src/components/units/detail/validation-panel.tsx`
 
 Embedded on the Create-unit wizard's Finalize step after the unit is created (mirrors the CLI's `spring unit create --wait` default — the wizard POST /start's the freshly-created unit and waits for a terminal status before redirecting to `/units?node=<name>&tab=Overview`). It only renders when validation is the operator's current concern; the panel mirrors the backend's three observable outcomes (driven by `UnitValidationWorkflow` via `POST /api/v1/units/{name}/revalidate`); it is hidden for `Running` / `Starting` / `Stopping` / `Draft`.
 

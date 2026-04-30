@@ -22,7 +22,7 @@ import type {
   ActivityQueryResult,
   ActivitySeverity,
 } from "@/lib/api/types";
-import { cn, timeAgo } from "@/lib/utils";
+import { cn, humanEventType, timeAgo } from "@/lib/utils";
 
 // Map a `scheme://path` source string onto the matching detail route.
 // Returns null when the scheme doesn't have a portal page yet. Mirrors
@@ -190,7 +190,7 @@ function EventRow({
                 hue so operators can scan a long feed for a specific
                 event kind without reading the text. */}
             <Badge variant="secondary" className="text-[11px]">
-              {event.eventType}
+              {humanEventType(event.eventType)}
             </Badge>
             <Badge variant={severityVariant[severity] ?? "default"}>
               {event.severity}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cn, timeAgo, formatCost } from "./utils";
+import { cn, formatCost, humanEventType, timeAgo } from "./utils";
 
 describe("cn", () => {
   it("merges class names", () => {
@@ -42,5 +42,33 @@ describe("formatCost", () => {
     expect(formatCost(12.5)).toBe("$12.50");
     expect(formatCost(0)).toBe("$0.00");
     expect(formatCost(1234.567)).toBe("$1234.57");
+  });
+});
+
+// #989: humanEventType maps raw identifiers to short user-friendly labels
+// so operators see "Message received" instead of "MessageReceived" in the
+// activity feed, dashboard, and unit/agent Activity tabs.
+describe("humanEventType (#989)", () => {
+  it("maps every known ActivityEventType to a readable label", () => {
+    expect(humanEventType("MessageReceived")).toBe("Message received");
+    expect(humanEventType("MessageSent")).toBe("Message sent");
+    expect(humanEventType("ThreadStarted")).toBe("Thread started");
+    expect(humanEventType("ThreadCompleted")).toBe("Thread completed");
+    expect(humanEventType("DecisionMade")).toBe("Decision made");
+    expect(humanEventType("ErrorOccurred")).toBe("Error");
+    expect(humanEventType("StateChanged")).toBe("State changed");
+    expect(humanEventType("InitiativeTriggered")).toBe("Initiative triggered");
+    expect(humanEventType("ReflectionCompleted")).toBe("Reflection completed");
+    expect(humanEventType("WorkflowStepCompleted")).toBe("Workflow step completed");
+    expect(humanEventType("CostIncurred")).toBe("Cost incurred");
+    expect(humanEventType("TokenDelta")).toBe("Tokens used");
+    expect(humanEventType("ValidationProgress")).toBe("Validation progress");
+  });
+
+  it("falls back to the raw identifier for unknown event types", () => {
+    // A new server-side event type added before the client is updated
+    // should degrade gracefully rather than silently disappearing.
+    expect(humanEventType("SomeNewEventType")).toBe("SomeNewEventType");
+    expect(humanEventType("")).toBe("");
   });
 });

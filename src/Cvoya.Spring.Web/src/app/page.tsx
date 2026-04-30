@@ -50,7 +50,7 @@ import {
 import { useActivityStream } from "@/lib/stream/use-activity-stream";
 import type { DashboardSummary } from "@/lib/api/types";
 import type { ValidatedTenantTreeNode } from "@/lib/api/validate-tenant-tree";
-import { formatCost, timeAgo } from "@/lib/utils";
+import { formatCost, humanEventType, timeAgo } from "@/lib/utils";
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -371,7 +371,7 @@ function ActivityCard({ summary }: { summary: DashboardSummary }) {
                         >
                           {sourceName}
                         </Badge>
-                        <span>{item.eventType}</span>
+                        <span>{humanEventType(item.eventType)}</span>
                         <span>{timeAgo(item.timestamp)}</span>
                       </div>
                     </div>

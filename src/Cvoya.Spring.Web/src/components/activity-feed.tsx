@@ -2,7 +2,7 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { ActivityEvent, ActivitySeverity } from "@/lib/api/types";
-import { timeAgo } from "@/lib/utils";
+import { humanEventType, timeAgo } from "@/lib/utils";
 import { Activity } from "lucide-react";
 
 const severityColors: Record<ActivitySeverity, string> = {
@@ -68,7 +68,7 @@ export function ActivityFeed({
               <p>{item.summary}</p>
               <p className="text-xs text-muted-foreground">
                 {item.source.scheme}://{item.source.path} &middot;{" "}
-                {item.eventType} &middot; {timeAgo(item.timestamp)}
+                {humanEventType(item.eventType)} &middot; {timeAgo(item.timestamp)}
               </p>
             </div>
           </div>

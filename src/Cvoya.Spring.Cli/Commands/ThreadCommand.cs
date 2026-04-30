@@ -253,10 +253,13 @@ public static class ThreadCommand
     /// <summary>
     /// Renders the ordered event timeline for a thread, inlining
     /// the message body for every <c>MessageReceived</c> event that
-    /// carries one (#1209). Other event types fall back to the existing
+    /// carries one (#1209). Error events (#1161) are prefixed with
+    /// <c>!!</c> and written to stderr so the operator sees them
+    /// immediately and scripted consumers can separate the error signal
+    /// from normal output. Other event types fall back to the existing
     /// summary-only row so the timeline stays compact.
     /// </summary>
-    internal static void RenderThreadEvents(IReadOnlyList<ThreadEvent> events)
+    public static void RenderThreadEvents(IReadOnlyList<ThreadEvent> events)
     {
         if (events.Count == 0)
         {
@@ -267,6 +270,18 @@ public static class ThreadCommand
         foreach (var evt in events)
         {
             var ts = FormatTimestamp(evt.Timestamp);
+
+            // #1161: dispatch failures and system errors must be visible
+            // inline — the operator should not need to open the activity
+            // log to discover that a message failed to dispatch. Write to
+            // stderr so the signal is separable from structured output.
+            if (string.Equals(evt.EventType, "ErrorOccurred", StringComparison.Ordinal)
+                || string.Equals(evt.Severity, "Error", StringComparison.OrdinalIgnoreCase))
+            {
+                Console.Error.WriteLine($"[{ts}] !! {evt.Summary}");
+                continue;
+            }
+
             if (string.Equals(evt.EventType, "MessageReceived", StringComparison.Ordinal)
                 && !string.IsNullOrEmpty(evt.Body))
             {

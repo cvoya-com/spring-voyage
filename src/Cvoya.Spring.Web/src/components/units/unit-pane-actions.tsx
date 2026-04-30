@@ -180,6 +180,28 @@ function UnitActions({ node }: { node: TreeNode }) {
     deleteMutation.isPending ||
     forceDeleteMutation.isPending;
 
+  // #1019: Delete is invalid while the unit is in a non-terminal lifecycle
+  // state. Disable the button (with an explanatory title) rather than
+  // allowing a click that is guaranteed to 409. The forceHint recovery
+  // flow remains available for units stuck in intermediate states via
+  // the existing 409 path, but the happy path is: stop the unit first.
+  const NON_DELETABLE_STATUSES: readonly (UnitStatus | null)[] = [
+    "Running",
+    "Starting",
+    "Stopping",
+    "Validating",
+  ];
+  const deleteBlocked =
+    status !== null && NON_DELETABLE_STATUSES.includes(status);
+  const deleteBlockedReason =
+    status === "Running"
+      ? "Stop the unit before deleting."
+      : status === "Starting" || status === "Stopping"
+        ? "Wait for the unit to finish transitioning, then stop it before deleting."
+        : status === "Validating"
+          ? "Wait for validation to complete before deleting."
+          : undefined;
+
   // #1150: "Create sub-unit" launches the existing /units/create wizard
   // with this unit pre-selected as the parent. The wizard reads the
   // `parent` query param at mount and threads `parentUnitIds` /
@@ -258,9 +280,12 @@ function UnitActions({ node }: { node: TreeNode }) {
       <Button
         variant="destructive"
         size="sm"
-        disabled={pending}
-        onClick={() => setConfirmOpen(true)}
+        disabled={pending || deleteBlocked}
+        title={deleteBlocked ? deleteBlockedReason : undefined}
+        aria-disabled={deleteBlocked ? true : undefined}
+        onClick={() => !deleteBlocked && setConfirmOpen(true)}
         data-testid="unit-action-delete"
+        data-delete-blocked={deleteBlocked ? "true" : undefined}
       >
         <Trash2 className="mr-1 h-4 w-4" aria-hidden="true" />
         Delete

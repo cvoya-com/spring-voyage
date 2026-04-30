@@ -11,7 +11,7 @@ import type {
   ActivityQueryResult,
   ActivitySeverity,
 } from "@/lib/api/types";
-import { timeAgo } from "@/lib/utils";
+import { humanEventType, timeAgo } from "@/lib/utils";
 
 const severityVariant: Record<
   ActivitySeverity,
@@ -98,7 +98,7 @@ export function ActivityTab({ unitId }: { unitId: string }) {
                 <div className="min-w-0 flex-1">
                   <p className="text-sm">{e.summary}</p>
                   <div className="mt-0.5 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                    <span>{e.eventType}</span>
+                    <span>{humanEventType(e.eventType)}</span>
                     {e.cost != null && <span>${e.cost.toFixed(4)}</span>}
                     <span>{timeAgo(e.timestamp)}</span>
                   </div>

@@ -66,4 +66,69 @@ describe("ThreadEventRow", () => {
     expect(screen.getByText("Started conv")).toBeTruthy();
     expect(screen.queryByText("leaked body")).toBeNull();
   });
+
+  // #1161: dispatch failures must surface inline in the conversation thread
+  // with the platform's error styling — operators cannot be expected to
+  // open the activity log to discover that a message failed to dispatch.
+  describe("error event rendering (#1161)", () => {
+    it("renders ErrorOccurred with role=alert and destructive styling", () => {
+      render(
+        <ThreadEventRow
+          event={makeEvent({
+            eventType: "ErrorOccurred",
+            severity: "Error",
+            summary: "Dispatch failed: agent did not become ready within 60s",
+          })}
+        />,
+      );
+
+      const alert = screen.getByRole("alert");
+      expect(alert).toBeTruthy();
+      expect(
+        screen.getByText(
+          "Dispatch failed: agent did not become ready within 60s",
+        ),
+      ).toBeTruthy();
+    });
+
+    it("renders with data-role=error for ErrorOccurred events", () => {
+      const { container } = render(
+        <ThreadEventRow
+          event={makeEvent({
+            eventType: "ErrorOccurred",
+            severity: "Error",
+            summary: "Dispatch failed",
+          })}
+        />,
+      );
+
+      const row = container.querySelector("[data-role='error']");
+      expect(row).not.toBeNull();
+    });
+
+    it("renders severity=Error events with the error layout even when eventType is not ErrorOccurred", () => {
+      render(
+        <ThreadEventRow
+          event={makeEvent({
+            eventType: "StateChanged",
+            severity: "Error",
+            summary: "State transition error",
+          })}
+        />,
+      );
+
+      expect(screen.getByRole("alert")).toBeTruthy();
+      expect(screen.getByText("State transition error")).toBeTruthy();
+    });
+
+    it("renders normal MessageReceived events without role=alert", () => {
+      render(
+        <ThreadEventRow
+          event={makeEvent({ body: "Regular message" })}
+        />,
+      );
+
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+  });
 });

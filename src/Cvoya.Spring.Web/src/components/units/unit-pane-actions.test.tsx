@@ -297,8 +297,9 @@ describe("UnitPaneActions — Start / Stop / Revalidate / Validate", () => {
 });
 
 describe("UnitPaneActions — Delete confirmation flow", () => {
+  // Use "Stopped" — a status where delete is allowed (#1019 gate is off).
   it("does not call deleteUnit on plain Delete click — requires confirmation", () => {
-    useUnitMock.mockReturnValue({ data: makeUnit("Running") });
+    useUnitMock.mockReturnValue({ data: makeUnit("Stopped") });
     render(wrap(<UnitPaneActions node={unitNode} />));
     fireEvent.click(screen.getByTestId("unit-action-delete"));
     expect(deleteUnitMock).not.toHaveBeenCalled();
@@ -309,7 +310,7 @@ describe("UnitPaneActions — Delete confirmation flow", () => {
   });
 
   it("cancels without calling deleteUnit", () => {
-    useUnitMock.mockReturnValue({ data: makeUnit("Running") });
+    useUnitMock.mockReturnValue({ data: makeUnit("Stopped") });
     render(wrap(<UnitPaneActions node={unitNode} />));
     fireEvent.click(screen.getByTestId("unit-action-delete"));
     fireEvent.click(screen.getByRole("button", { name: /cancel/i }));
@@ -317,7 +318,7 @@ describe("UnitPaneActions — Delete confirmation flow", () => {
   });
 
   it("fires deleteUnit after explicit confirmation and routes away", async () => {
-    useUnitMock.mockReturnValue({ data: makeUnit("Running") });
+    useUnitMock.mockReturnValue({ data: makeUnit("Stopped") });
     deleteUnitMock.mockResolvedValue(undefined);
     render(wrap(<UnitPaneActions node={unitNode} />));
     fireEvent.click(screen.getByTestId("unit-action-delete"));
@@ -336,14 +337,12 @@ describe("UnitPaneActions — Delete confirmation flow", () => {
 });
 
 describe("UnitPaneActions — Force delete recovery (#1137)", () => {
-  // The API gates DELETE on lifecycle status — units in
-  // Validating/Starting/Running/Stopping return 409 with a
-  // `forceHint` payload that surfaces `?force=true`. The portal
-  // detects that shape and offers a second confirmation that calls
-  // the API with `{ force: true }`. This test pins the recovery flow
-  // end-to-end so a future refactor can't silently drop the hint.
+  // The API can return 409 + forceHint even from a unit in a "deletable"
+  // state when there's a race (the unit started between the button click
+  // and the confirm). Use "Stopped" so the delete button is enabled
+  // (#1019 gate) and the confirm flow can proceed.
   it("opens the force-delete dialog when the API returns 409 with forceHint", async () => {
-    useUnitMock.mockReturnValue({ data: makeUnit("Validating") });
+    useUnitMock.mockReturnValue({ data: makeUnit("Stopped") });
     deleteUnitMock.mockRejectedValueOnce(
       new ApiError(409, "Conflict", {
         forceHint: "Pass ?force=true to bypass the lifecycle gate.",
@@ -378,7 +377,7 @@ describe("UnitPaneActions — Force delete recovery (#1137)", () => {
   });
 
   it("surfaces a normal error toast when the 409 has no forceHint", async () => {
-    useUnitMock.mockReturnValue({ data: makeUnit("Running") });
+    useUnitMock.mockReturnValue({ data: makeUnit("Stopped") });
     deleteUnitMock.mockRejectedValueOnce(
       new ApiError(409, "Conflict", { detail: "no hint here" }),
     );
@@ -450,5 +449,51 @@ describe("UnitPaneActions — error surfacing", () => {
         expect.objectContaining({ title: "Start failed", variant: "destructive" }),
       );
     });
+  });
+});
+
+// #1019: Delete must be disabled (not clickable) when the unit is in a
+// lifecycle state where the API would reject the request. The button is
+// still rendered so operators know it exists — it just isn't actionable
+// until the unit reaches a deletable state (Draft, Stopped, or Error).
+describe("UnitPaneActions — delete gating (#1019)", () => {
+  const blockingStatuses: UnitStatus[] = [
+    "Running",
+    "Starting",
+    "Stopping",
+    "Validating",
+  ];
+  const allowedStatuses: UnitStatus[] = ["Draft", "Stopped", "Error"];
+
+  for (const status of blockingStatuses) {
+    it(`disables the Delete button when status is "${status}"`, () => {
+      useUnitMock.mockReturnValue({ data: makeUnit(status) });
+      render(wrap(<UnitPaneActions node={unitNode} />));
+      const btn = screen.getByTestId("unit-action-delete") as HTMLButtonElement;
+      expect(btn.disabled).toBe(true);
+      expect(btn.getAttribute("data-delete-blocked")).toBe("true");
+    });
+  }
+
+  for (const status of allowedStatuses) {
+    it(`enables the Delete button when status is "${status}"`, () => {
+      useUnitMock.mockReturnValue({ data: makeUnit(status) });
+      render(wrap(<UnitPaneActions node={unitNode} />));
+      const btn = screen.getByTestId("unit-action-delete") as HTMLButtonElement;
+      expect(btn.disabled).toBe(false);
+      expect(btn.getAttribute("data-delete-blocked")).toBeNull();
+    });
+  }
+
+  it("does not open the confirm dialog when the Delete button is blocked (Running)", () => {
+    useUnitMock.mockReturnValue({ data: makeUnit("Running") });
+    render(wrap(<UnitPaneActions node={unitNode} />));
+    const btn = screen.getByTestId("unit-action-delete");
+    fireEvent.click(btn);
+    // The confirm dialog should NOT appear — the click guard is active.
+    expect(
+      screen.queryByRole("button", { name: /permanently delete/i }),
+    ).toBeNull();
+    expect(deleteUnitMock).not.toHaveBeenCalled();
   });
 });

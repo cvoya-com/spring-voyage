@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, ChevronRight, Wrench } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronRight, Wrench } from "lucide-react";
 import Link from "next/link";
 
 import { Badge } from "@/components/ui/badge";
@@ -29,6 +29,17 @@ function isCollapsibleByDefault(eventType: string, role: ConversationRole) {
     eventType === "WorkflowStepCompleted" ||
     eventType === "ReflectionCompleted"
   );
+}
+
+/**
+ * #1161: whether an event represents a dispatch failure or system error
+ * that should render inline in the conversation with destructive styling
+ * rather than collapsing into the neutral "system" call-out. Errors
+ * must never be hidden by default — the user is in the conversation and
+ * cannot be expected to hunt the activity log for failure context.
+ */
+function isErrorEvent(eventType: string, severity: string): boolean {
+  return eventType === "ErrorOccurred" || severity === "Error";
 }
 
 interface ThreadEventRowProps {
@@ -62,6 +73,64 @@ export function ThreadEventRow({ event }: ThreadEventRowProps) {
   const timestamp = new Date(event.timestamp);
   const bodyText =
     event.eventType === "MessageReceived" && event.body ? event.body : null;
+
+  // #1161: error events render with destructive styling and are never
+  // collapsed — the user cannot be expected to open the activity log to
+  // discover a dispatch failure that happened inside their active
+  // conversation. The alert-triangle icon signals the error visually
+  // without relying solely on colour (WCAG 1.4.1).
+  const isError = isErrorEvent(event.eventType, event.severity ?? "");
+
+  if (isError) {
+    return (
+      <div
+        className="flex w-full justify-start"
+        data-testid={`conversation-event-${event.id}`}
+        data-role="error"
+      >
+        <div className="flex max-w-[80%] min-w-0 flex-col gap-1">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Badge
+              variant="destructive"
+              className="h-5 px-1.5 text-[10px]"
+            >
+              Error
+            </Badge>
+            <span className="truncate font-mono">{source.raw}</span>
+            <span aria-hidden="true">·</span>
+            <time
+              dateTime={event.timestamp}
+              title={timestamp.toLocaleString()}
+            >
+              {timestamp.toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </time>
+          </div>
+          <div
+            role="alert"
+            className="flex items-start gap-2 rounded-lg border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-foreground shadow-sm"
+          >
+            <AlertTriangle
+              className="mt-0.5 h-4 w-4 shrink-0 text-destructive"
+              aria-hidden="true"
+            />
+            <p className="whitespace-pre-wrap break-words">{event.summary}</p>
+          </div>
+          <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+            <Link
+              href={`/activity?source=${encodeURIComponent(source.raw)}`}
+              className="hover:underline"
+              aria-label="Open in activity log"
+            >
+              View in activity →
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
