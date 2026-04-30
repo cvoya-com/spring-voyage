@@ -41,6 +41,7 @@ jobs:
       agent_images: ${{ steps.filter.outputs.agent_images }}
       docs: ${{ steps.filter.outputs.docs }}
       api_docs: ${{ steps.filter.outputs.api_docs }}
+      efcore_model: ${{ steps.filter.outputs.efcore_model }}
     steps:
       - uses: actions/checkout@v6
 
@@ -119,6 +120,14 @@ jobs:
               - 'docs/api/**'
               - 'package.json'
               - 'package-lock.json'
+            efcore_model:
+              # #1430: trigger the efcore-model-drift guard on any input
+              # that can move the live SpringDbContext model relative to
+              # SpringDbContextModelSnapshot.cs — entities, configurations,
+              # the context itself, the migrations directory (snapshot lives
+              # there), or a dotnet-ef tooling bump.
+              - 'src/Cvoya.Spring.Dapr/Data/**'
+              - '.config/dotnet-tools.json'
 
   build:
     name: Build
@@ -863,6 +872,57 @@ jobs:
             exit 1
           fi
 
+  efcore-model-drift:
+    # #1430: catches the regression that crashed spring-worker in #1429.
+    # EF's MigrateAsync validates the live SpringDbContext model against
+    # SpringDbContextModelSnapshot.cs before any SQL runs and throws
+    # PendingModelChangesWarning when they diverge. PR #1263 added a
+    # migration without updating the snapshot, which only surfaced as a
+    # local-Podman crash loop. This job fails the PR instead.
+    name: EF Core model drift
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.efcore_model == 'true' || needs.changes.outputs.workflows == 'true'
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+          cache: true
+          cache-dependency-path: |
+            **/*.csproj
+            Directory.Packages.props
+            global.json
+            NuGet.config
+
+      - name: Restore dependencies
+        run: dotnet restore SpringVoyage.slnx
+
+      - name: Restore dotnet tools (dotnet-ef, Kiota)
+        run: dotnet tool restore
+
+      # The EF tooling needs the latest compiled SpringDbContext so the
+      # model it loads matches the source on disk. has-pending-model-changes
+      # then diffs that loaded model against SpringDbContextModelSnapshot.cs
+      # — no DB connection is opened (SpringDbContextDesignTimeFactory uses
+      # a placeholder connection string).
+      - name: Build Cvoya.Spring.Dapr
+        run: dotnet build src/Cvoya.Spring.Dapr/Cvoya.Spring.Dapr.csproj --no-restore --configuration Debug
+
+      - name: Verify SpringDbContext snapshot matches model
+        shell: bash
+        run: |
+          if ! dotnet ef migrations has-pending-model-changes \
+              --project src/Cvoya.Spring.Dapr \
+              --startup-project src/Cvoya.Spring.Dapr \
+              --no-build; then
+            echo "::error file=src/Cvoya.Spring.Dapr/Data/Migrations/SpringDbContextModelSnapshot.cs::EF Core model has drifted from the snapshot. Run 'dotnet ef migrations add <Name> --project src/Cvoya.Spring.Dapr --startup-project src/Cvoya.Spring.Dapr' locally and commit the new migration (or, if intentional, regenerate the snapshot)."
+            exit 1
+          fi
+
   host-script-idempotence:
     name: Host script idempotence
     runs-on: ubuntu-latest
@@ -1050,6 +1110,7 @@ jobs:
       - web-e2e
       - web-lighthouse
       - openapi-drift
+      - efcore-model-drift
       - python-lint
       - python-test
       - host-script-idempotence
@@ -1081,6 +1142,7 @@ jobs:
           WEB_E2E_RESULT: ${{ needs.web-e2e.result }}
           WEB_LIGHTHOUSE_RESULT: ${{ needs.web-lighthouse.result }}
           OPENAPI_RESULT: ${{ needs.openapi-drift.result }}
+          EFCORE_DRIFT_RESULT: ${{ needs.efcore-model-drift.result }}
           PYTHON_LINT_RESULT: ${{ needs.python-lint.result }}
           PYTHON_TEST_RESULT: ${{ needs.python-test.result }}
           HOST_IDEMPOTENCE_RESULT: ${{ needs.host-script-idempotence.result }}
@@ -1105,6 +1167,7 @@ jobs:
           echo "web-e2e=$WEB_E2E_RESULT"
           echo "web-lighthouse=$WEB_LIGHTHOUSE_RESULT"
           echo "openapi-drift=$OPENAPI_RESULT"
+          echo "efcore-model-drift=$EFCORE_DRIFT_RESULT"
           echo "python-lint=$PYTHON_LINT_RESULT"
           echo "python-test=$PYTHON_TEST_RESULT"
           echo "host-script-idempotence=$HOST_IDEMPOTENCE_RESULT"
@@ -1139,6 +1202,7 @@ jobs:
           ok "$WEB_E2E_RESULT"         || { echo "::error::web-e2e failed"; exit 1; }
           ok "$WEB_LIGHTHOUSE_RESULT"  || { echo "::error::web-lighthouse failed"; exit 1; }
           ok "$OPENAPI_RESULT"         || { echo "::error::openapi-drift failed"; exit 1; }
+          ok "$EFCORE_DRIFT_RESULT"    || { echo "::error::efcore-model-drift failed"; exit 1; }
           ok "$PYTHON_LINT_RESULT"    || { echo "::error::python-lint failed"; exit 1; }
           ok "$PYTHON_TEST_RESULT"    || { echo "::error::python-test failed"; exit 1; }
           ok "$HOST_IDEMPOTENCE_RESULT" || { echo "::error::host-script-idempotence failed"; exit 1; }
