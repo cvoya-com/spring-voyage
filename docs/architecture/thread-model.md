@@ -464,3 +464,12 @@ The following adjacent items surfaced during this design but are out of scope fo
 5. **`#name` namespace collision rules in multi-participant threads.** Per Q5, `#name` is a UX / surface convention for addressing a task-shaped memory entry in the current thread — it is not a platform-typed thing. The namespace-collision question (two participants in a thread both reference `#flaky-test-fix`) remains a UX-rules item over that surface convention. E2 should file the UX rule before building the collaboration surface.
 6. **v0.1 deferred memory features (cross-thread / multi-human).** Unit recursion (a unit reading its members' thread-scoped memory entries from threads the unit itself is not in); cross-thread reads at the recall API level by any agent or unit; multi-human permission gating on memory access. The simple v0.1 model (Q4) does not need any of these; design when a forcing case appears. Already filed as **#1292**.
 7. **v0.1 deferred memory features (inferences with explicit provenance).** Agent-driven entries that synthesise across multiple sources, with relationship-style metadata linking inferred entries to their source entries — likely as first-class memory relationships forming a hypergraph (relationship type as a label, sets of source / destination entries, directed traversal, depth control). Out of scope for v0.1; design when a forcing case appears. Already filed as **#1293**.
+
+---
+
+## Engagement-portal narrative (Area E2)
+
+The thread model described here is the load-bearing primitive for the engagement portal introduced in Area E2. Where this doc covers the system-level participant-set semantics, Timeline structure, and memory model, the following documents cover how those concepts surface to users:
+
+- **[`docs/plan/v0.1/areas/e2-new-ux.md`](../plan/v0.1/areas/e2-new-ux.md)** — the E2 area plan: scope, engagement model, CLI parity requirements, and sub-task breakdown.
+- **[`docs/decisions/0033-two-portal-architecture.md`](../decisions/0033-two-portal-architecture.md)** — ADR-0033: the decision to build the engagement portal as a separate parent route inside the existing Next.js app, sharing session + API, with no portal-private API and mandatory CLI parity.

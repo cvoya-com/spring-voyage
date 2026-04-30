@@ -56,3 +56,11 @@ State-of-the-plan pass to record actual shipped state.
 - F (#1220): F1/F2/F3 shipped; two sub-issues (#1292, #1293) explicitly v0.1-deferred.
 
 **E2 (#1219) is now unblocked.** D, F, and C2 dependencies are all resolved. A planning session is the next step before implementation begins.
+
+## 2026-04-29 — E2 planning session complete; two-portal architecture decided
+
+Planning session for Area E2 (New unit/agent-interaction UX) was held and all open questions resolved. Outcomes:
+
+- Canonical narrative: [`areas/e2-new-ux.md`](areas/e2-new-ux.md) — rewrites the prior "planning pending" placeholder with settled scope, architecture, engagement model, CLI parity requirements, and sub-task breakdown.
+- [ADR-0033](../../decisions/0033-two-portal-architecture.md) records the two-portal architecture: engagement portal as a distinct top-level parent route inside the existing Next.js app, sharing session + design system + typed API client + public Web API, with no portal-private API and mandatory CLI parity.
+- Sub-tasks E2.1 through E2.8 are defined in `areas/e2-new-ux.md`. Issues to be filed separately by the orchestrator.
