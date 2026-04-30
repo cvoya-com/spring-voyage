@@ -737,7 +737,20 @@ export default function CreateUnitPage() {
       : null);
   const credentialStatusQuery = useProviderCredentialStatus(
     credentialProbeProvider ?? "",
-    { enabled: credentialProbeProvider !== null },
+    {
+      enabled: credentialProbeProvider !== null,
+      // #1397: pass the chosen agent image so the server can reference it in
+      // the format-rejected suggestion text (e.g. "the image X uses the Claude
+      // Code path which requires an OAuth token, not an API key"). Only pass
+      // when the operator has explicitly entered an image; omit for Ollama
+      // (no credential format mismatch possible) and when no image is typed.
+      agentImage:
+        credentialProbeProvider !== null &&
+        credentialProbeProvider !== "ollama" &&
+        form.image.trim().length > 0
+          ? form.image.trim()
+          : undefined,
+    },
   );
   const credentialStatus = credentialStatusQuery.data ?? null;
 

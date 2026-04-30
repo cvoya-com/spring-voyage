@@ -426,6 +426,8 @@ public static class AgentEndpoints
         IDirectoryService directoryService,
         [FromServices] IAgentExecutionStore executionStore,
         [FromServices] IInitiativeEngine initiativeEngine,
+        [FromQuery] string? hosting,
+        [FromQuery(Name = "initiative")] string[]? initiative,
         CancellationToken cancellationToken)
     {
         var entries = await directoryService.ListAllAsync(cancellationToken);
@@ -474,7 +476,34 @@ public static class AgentEndpoints
 
         var agents = await Task.WhenAll(enrichmentTasks);
 
-        return Results.Ok(agents);
+        // #1402: server-side filtering by hosting mode and initiative level.
+        // Applied after enrichment so the filter sees the fully-populated fields.
+        // ?hosting=ephemeral|persistent — single-value (one mode at a time).
+        // ?initiative=passive&initiative=autonomous — multi-value (repeated param).
+        var filtered = (IEnumerable<AgentResponse>)agents;
+
+        if (!string.IsNullOrWhiteSpace(hosting))
+        {
+            var hostingNorm = hosting.Trim().ToLowerInvariant();
+            filtered = filtered.Where(a =>
+                string.Equals(a.HostingMode, hostingNorm, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (initiative is { Length: > 0 })
+        {
+            // Normalise every value to lower-case for case-insensitive matching.
+            // Comma-separated values within a single param occurrence are also
+            // supported (e.g. ?initiative=proactive,autonomous) for curl convenience.
+            var initiativeSet = initiative
+                .SelectMany(v => v.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                .Select(v => v.ToLowerInvariant())
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            filtered = filtered.Where(a =>
+                a.InitiativeLevel is not null && initiativeSet.Contains(a.InitiativeLevel));
+        }
+
+        return Results.Ok(filtered.ToArray());
     }
 
     private static async Task<IResult> GetAgentAsync(

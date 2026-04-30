@@ -1240,10 +1240,18 @@ export const api = {
   // for the invariant.
   getProviderCredentialStatus: async (
     provider: string,
+    agentImage?: string,
   ): Promise<import("./types").ProviderCredentialStatusResponse> => {
-    const resp = await fetch(
+    // #1397: pass the chosen agent image so the server can reference it in
+    // the format-rejected error message. The parameter is optional — older
+    // callers that don't supply it get the same response as before.
+    const url = new URL(
       `${BASE}/api/v1/platform/credentials/${encodeURIComponent(provider)}/status`,
     );
+    if (agentImage) {
+      url.searchParams.set("agentImage", agentImage);
+    }
+    const resp = await fetch(url.toString());
     if (!resp.ok) {
       throw new ApiError(resp.status, resp.statusText, await resp.text());
     }

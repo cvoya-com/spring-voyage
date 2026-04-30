@@ -45,10 +45,42 @@ public class SpringApiClient
 
     // Agents
 
-    /// <summary>Lists all registered agents.</summary>
-    public async Task<IReadOnlyList<AgentResponse>> ListAgentsAsync(CancellationToken ct = default)
+    /// <summary>
+    /// Lists registered agents with optional server-side filtering.
+    /// </summary>
+    /// <param name="hosting">
+    /// Optional hosting mode filter (ephemeral|persistent). Sent as <c>?hosting=</c>
+    /// so the server filters before returning; an older server that ignores the
+    /// param returns all agents and the CLI's client-side filter acts as a fallback.
+    /// </param>
+    /// <param name="initiative">
+    /// Optional initiative level filter (repeated param for multi-value). Sent as
+    /// <c>?initiative=</c> (repeated); an older server ignores these and the CLI
+    /// falls back to client-side filtering.
+    /// </param>
+    /// <param name="ct">Cancellation token.</param>
+    public async Task<IReadOnlyList<AgentResponse>> ListAgentsAsync(
+        string? hosting = null,
+        IReadOnlyList<string>? initiative = null,
+        CancellationToken ct = default)
     {
-        var result = await _client.Api.V1.Tenant.Agents.GetAsync(cancellationToken: ct);
+        var result = await _client.Api.V1.Tenant.Agents.GetAsync(
+            config =>
+            {
+                // #1402: pass server-side filter params so callers don't have to
+                // fetch the full list and filter in-memory. An older server that
+                // doesn't support these params simply ignores them; the CLI's
+                // client-side filter (in AgentCommand) acts as a defensive fallback.
+                if (!string.IsNullOrWhiteSpace(hosting))
+                {
+                    config.QueryParameters.Hosting = hosting;
+                }
+                if (initiative is { Count: > 0 })
+                {
+                    config.QueryParameters.Initiative = initiative.ToArray();
+                }
+            },
+            cancellationToken: ct);
         return result ?? new List<AgentResponse>();
     }
 
