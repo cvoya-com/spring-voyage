@@ -446,9 +446,7 @@ class AgentRuntime:
         routes = (
             create_agent_card_routes(card)
             + create_agent_card_routes(card, card_url="/.well-known/agent.json")
-            + create_jsonrpc_routes(
-                handler, rpc_url="/", enable_v0_3_compat=True
-            )
+            + create_jsonrpc_routes(handler, rpc_url="/", enable_v0_3_compat=True)
             + create_rest_routes(handler)
         )
         app = Starlette(routes=routes)
