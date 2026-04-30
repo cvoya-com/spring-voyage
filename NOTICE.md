@@ -15,9 +15,17 @@ This product includes or depends on the following third-party software:
 | Dependency | License | Source |
 |------------|---------|--------|
 | A2A (.NET A2A SDK) | Apache License 2.0 | [a2aproject/a2a-dotnet](https://github.com/a2aproject/a2a-dotnet) |
+| a2a-sdk (Python) | Apache License 2.0 | [a2aproject/a2a-python](https://github.com/a2aproject/a2a-python) |
+| aiohttp | Apache License 2.0 AND MIT License | [aio-libs/aiohttp](https://github.com/aio-libs/aiohttp) |
+| @tanstack/react-query | MIT License | [TanStack/query](https://github.com/TanStack/query) |
 | class-variance-authority | Apache License 2.0 | [joe-bell/cva](https://github.com/joe-bell/cva) |
 | clsx | MIT License | [lukeed/clsx](https://github.com/lukeed/clsx) |
+| cmdk | MIT License | [pacocoursey/cmdk](https://github.com/pacocoursey/cmdk) |
+| dapr-agents (Python) | Apache License 2.0 | [dapr/python-sdk](https://github.com/dapr/python-sdk) |
 | Dapr SDK for .NET (Dapr.Client, Dapr.AspNetCore, Dapr.Actors, Dapr.Actors.AspNetCore, Dapr.Workflow) | Apache License 2.0 | [dapr/dotnet-sdk](https://github.com/dapr/dotnet-sdk) |
+| geist | SIL Open Font License 1.1 | [vercel/geist-font](https://github.com/vercel/geist-font) |
+| httpx | BSD 3-Clause License | [encode/httpx](https://github.com/encode/httpx) |
+| js-yaml | MIT License | [nodeca/js-yaml](https://github.com/nodeca/js-yaml) |
 | lucide-react | ISC License | [lucide-icons/lucide](https://github.com/lucide-icons/lucide) |
 | Microsoft .NET and Extensions (ASP.NET Core, Entity Framework Core, System.CommandLine, System.IdentityModel.Tokens.Jwt, Microsoft.Extensions.*) | MIT License | [dotnet/runtime](https://github.com/dotnet/runtime) |
 | Microsoft.Kiota.Bundle | MIT License | [microsoft/kiota-dotnet](https://github.com/microsoft/kiota-dotnet) |
@@ -25,7 +33,9 @@ This product includes or depends on the following third-party software:
 | Npgsql / Npgsql.EntityFrameworkCore.PostgreSQL | PostgreSQL License | [npgsql/npgsql](https://github.com/npgsql/npgsql) |
 | Octokit.net | MIT License | [octokit/octokit.net](https://github.com/octokit/octokit.net) |
 | openapi-fetch | MIT License | [openapi-ts/openapi-typescript](https://github.com/openapi-ts/openapi-typescript) |
+| PyYAML | MIT License | [yaml/pyyaml](https://github.com/yaml/pyyaml) |
 | React / React DOM | MIT License | [facebook/react](https://github.com/facebook/react) |
 | System.Reactive | MIT License | [dotnet/reactive](https://github.com/dotnet/reactive) |
 | tailwind-merge | MIT License | [dcastil/tailwind-merge](https://github.com/dcastil/tailwind-merge) |
+| uvicorn | BSD 3-Clause License | [encode/uvicorn](https://github.com/encode/uvicorn) |
 | YamlDotNet | MIT License | [aaubry/YamlDotNet](https://github.com/aaubry/YamlDotNet) |

@@ -188,12 +188,21 @@ try
         // `string | number` — see #181). Tighten the contract to `number`
         // only; any client needing the full decimal precision would have
         // to opt in via a custom type.
+        // For `decimal?` the generated schema must remain nullable so the
+        // wire shape and C# model agree — closing #1367. Non-nullable
+        // `decimal` stays as a plain `"type": "number"`.
         options.AddSchemaTransformer((schema, context, _) =>
         {
             var t = context.JsonTypeInfo.Type;
-            if (t == typeof(decimal) || t == typeof(decimal?))
+            if (t == typeof(decimal))
             {
                 schema.Type = Microsoft.OpenApi.JsonSchemaType.Number;
+                schema.Format = "double";
+                schema.Pattern = null;
+            }
+            else if (t == typeof(decimal?))
+            {
+                schema.Type = Microsoft.OpenApi.JsonSchemaType.Number | Microsoft.OpenApi.JsonSchemaType.Null;
                 schema.Format = "double";
                 schema.Pattern = null;
             }

@@ -8273,7 +8273,10 @@
             "format": "int32"
           },
           "budget": {
-            "type": "number",
+            "type": [
+              "null",
+              "number"
+            ],
             "format": "double"
           }
         }
@@ -9189,15 +9192,24 @@
         "type": "object",
         "properties": {
           "maxCostPerInvocation": {
-            "type": "number",
+            "type": [
+              "null",
+              "number"
+            ],
             "format": "double"
           },
           "maxCostPerHour": {
-            "type": "number",
+            "type": [
+              "null",
+              "number"
+            ],
             "format": "double"
           },
           "maxCostPerDay": {
-            "type": "number",
+            "type": [
+              "null",
+              "number"
+            ],
             "format": "double"
           }
         }
@@ -10468,7 +10480,10 @@
             ]
           },
           "cost": {
-            "type": "number",
+            "type": [
+              "null",
+              "number"
+            ],
             "format": "double"
           },
           "timestamp": {
