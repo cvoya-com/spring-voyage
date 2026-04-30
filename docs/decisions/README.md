@@ -43,6 +43,7 @@ For open design questions that have **not** yet been decided, see [`../architect
 | [0027](0027-agent-image-conformance-contract.md) | Agent-image conformance contract (A2A 0.3.x on `:8999`, three conformance paths) | Accepted — bridge ships via OCI base, npm, and SEA binary |
 | [0029](0029-tenant-execution-boundary.md) | Tenant execution boundary and agent runtime execution contract | Accepted — v0.1; two directional buckets, A2A 0.3.x wire, per-agent volume |
 | [0030](0030-thread-model.md) | Thread model: participant-set identity, single AgentMemory, per-thread visibility policy | Accepted — supersedes [0018](0018-partitioned-mailbox.md) |
+| [0032](0032-drawer-panel-extension-slot.md) | Drawer-panel extension slot pattern (contract, ordering, CLI parity) | Accepted — `DrawerPanel` contract + ordering + CLI parity rule |
 
 ## Format
 

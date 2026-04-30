@@ -10,6 +10,8 @@ import type {
   CreateAgentRequest,
   CreateCloneRequest,
   CreateSecretRequest,
+  CreateTokenRequest,
+  CreateTokenResponse,
   CreateUnitFromTemplateRequest,
   CreateUnitFromYamlRequest,
   DashboardSummary,
@@ -1177,14 +1179,39 @@ export const api = {
   getPlatformInfo: async () =>
     unwrap(await fetchClient.GET("/api/v1/platform/info")),
 
-  // Auth — the portal's Settings → Auth panel ships a read-only view of
-  // the current session plus the token list the CLI already exposes via
-  // `spring auth token {list,create,revoke}`. The create/revoke wiring
-  // is tracked as a follow-up (needs a "reveal once" primitive).
+  // Auth — the portal's Settings → Account panel mirrors the CLI's
+  // `spring auth token {create,list,revoke}` surface 1:1.
+  //
+  // Security contract for createAuthToken:
+  //  - The plaintext token is returned ONCE in CreateTokenResponse.token.
+  //  - The caller must display it exactly once and scrub it from state on
+  //    dismiss (one-shot reveal pattern, #557).
+  //  - The list endpoint returns only TokenResponse (name + dates); the
+  //    plaintext is NEVER returned by any other endpoint.
   getCurrentUser: async () =>
     unwrap(await fetchClient.GET("/api/v1/tenant/auth/me")),
   listAuthTokens: async () =>
     unwrap(await fetchClient.GET("/api/v1/tenant/auth/tokens")),
+  /**
+   * Create a new API token. Mirrors `spring auth token create <name>`.
+   * Returns the plaintext token exactly once — the caller must show it
+   * to the operator and scrub it from state on dismiss.
+   */
+  createAuthToken: async (body: CreateTokenRequest): Promise<CreateTokenResponse> =>
+    unwrap(
+      await fetchClient.POST("/api/v1/tenant/auth/tokens", { body }),
+    ) as CreateTokenResponse,
+  /**
+   * Revoke an API token by name. Mirrors `spring auth token revoke <name>`.
+   * Returns 204 on success; throws ApiError on 404 (already revoked).
+   */
+  revokeAuthToken: async (name: string): Promise<void> => {
+    assertOk(
+      await fetchClient.DELETE("/api/v1/tenant/auth/tokens/{name}", {
+        params: { path: { name } },
+      }),
+    );
+  },
 
   // Ollama model discovery (#350) — C1.2b retired the legacy
   // /api/v1/ollama/models route. Callers now read the per-runtime

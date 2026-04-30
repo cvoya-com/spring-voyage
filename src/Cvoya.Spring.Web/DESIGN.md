@@ -423,9 +423,37 @@ Panels register via `registerExtension({ drawerPanels: [...] })`. Each `DrawerPa
 
 - **Ordering.** `orderHint` alone; hosted panels conventionally use `>= 100` to sit after OSS defaults.
 - **Permission gating.** Panels with a `permission` the active auth adapter rejects disappear silently. OSS's default adapter grants every permission, so OSS panels omit the field.
-- **CLI parity rule.** Every interactive control in a panel must have a matching CLI verb. Budget ↔ `spring cost set-budget`; About ↔ `spring platform info`; Account's token list ↔ `spring auth token list`. Panels whose controls lack CLI parity are dropped and a CLI follow-up is filed first.
+- **CLI parity rule.** Every interactive control in a panel must have a matching CLI verb. Budget ↔ `spring cost set-budget`; About ↔ `spring platform info`; Account tokens ↔ `spring auth token {create,list,revoke}`. Panels whose controls lack CLI parity are dropped and a CLI follow-up is filed first.
 
 The registry key stays `drawerPanels` for backwards compatibility with hosted extensions — the name no longer implies a drawer surface.
+
+The full contract (ordering algorithm, CLI parity audit table, generalisation notes) lives in **[ADR-0032](../../../docs/decisions/0032-drawer-panel-extension-slot.md)**.
+
+### 11.3.1 One-shot reveal pattern (token / secret)
+
+Used when the server returns a secret or token exactly once (e.g. `POST /api/v1/auth/tokens` returns the plaintext token only in the creation response). The portal surfaces it via an inline warning block that gives the operator a single window to copy the value, then scrubs it.
+
+Shape:
+
+```
+┌─────────────────────────────────────────────────────┐
+│ Copy this token now — it will not be shown again.   │
+│ Token: <name>                                        │
+│ ┌──────────────────────────────────┐ [Copy] [Dismiss]│
+│ │ <plaintext>                      │                  │
+│ └──────────────────────────────────┘                  │
+└─────────────────────────────────────────────────────┘
+```
+
+Tokens: `role="alert"`, `border border-warning/50 bg-warning/10`, warning-tinted heading, monospace code pill for the value, an icon-only Copy button (swaps to a `Check` glyph for 1.5 s after copy), and an icon-only Dismiss button.
+
+Implementation rules:
+- Hold the plaintext **only** in a local `useState` slot, never in a ref, context, or query cache.
+- The dismiss callback zeroes the slot synchronously before the next render.
+- The `useEffect` cleanup zeroes the slot on unmount so it does not sit in the React fiber tree after the enclosing component is removed.
+- Do not persist the plaintext in `localStorage`, `sessionStorage`, or any other browser store.
+
+A design-system primitive that extracts this shape is tracked in [#1385](https://github.com/cvoya-com/spring-voyage/issues/1385). Until it lands, implement inline following the shape above — see `src/Cvoya.Spring.Web/src/components/settings/auth-panel.tsx` for the reference implementation.
 
 ### 11.4 Connectors, Policies, Budgets
 

@@ -88,6 +88,17 @@ export type UserProfileResponse = Schemas["UserProfileResponse"];
 /** One item in the GET /api/v1/auth/tokens response. */
 export type TokenResponse = Schemas["TokenResponse"];
 
+/** POST /api/v1/auth/tokens request body — mirrors `spring auth token create <name>`. */
+export type CreateTokenRequest = Schemas["CreateTokenRequest"];
+
+/**
+ * POST /api/v1/auth/tokens response — the newly-created token.
+ * The `token` field is the plaintext secret; it is returned ONCE and never
+ * again. The caller must display it to the operator and scrub it from state
+ * on dismiss (one-shot reveal pattern, #557).
+ */
+export type CreateTokenResponse = Schemas["CreateTokenResponse"];
+
 /** Entry in the platform-wide skill catalog (GET /api/v1/skills). */
 export type SkillCatalogEntry = Schemas["SkillCatalogEntry"];
 
