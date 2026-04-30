@@ -573,6 +573,58 @@ export const api = {
     );
   },
 
+  /**
+   * Agent cost time-series (#1363). Zero-filled, bucketed.
+   * Endpoint: GET /api/v1/tenant/analytics/agents/{id}/cost-timeseries.
+   * Server defaults: window=30d, bucket=1d.
+   */
+  getAgentCostTimeseries: async (
+    id: string,
+    params?: { window?: string; bucket?: string },
+  ) => {
+    const query: Record<string, string> = {};
+    if (params?.window) query.window = params.window;
+    if (params?.bucket) query.bucket = params.bucket;
+    return unwrap(
+      await fetchClient.GET(
+        "/api/v1/tenant/analytics/agents/{id}/cost-timeseries",
+        { params: { path: { id }, query: query as never } },
+      ),
+    );
+  },
+
+  /**
+   * Unit cost time-series (#1363). Zero-filled, bucketed.
+   * Endpoint: GET /api/v1/tenant/analytics/units/{id}/cost-timeseries.
+   * Server defaults: window=30d, bucket=1d.
+   */
+  getUnitCostTimeseries: async (
+    id: string,
+    params?: { window?: string; bucket?: string },
+  ) => {
+    const query: Record<string, string> = {};
+    if (params?.window) query.window = params.window;
+    if (params?.bucket) query.bucket = params.bucket;
+    return unwrap(
+      await fetchClient.GET(
+        "/api/v1/tenant/analytics/units/{id}/cost-timeseries",
+        { params: { path: { id }, query: query as never } },
+      ),
+    );
+  },
+
+  /**
+   * Agent cost breakdown by model (#1364). Per-model cost for the last
+   * server-default window, descending by cost.
+   * Endpoint: GET /api/v1/tenant/cost/agents/{id}/breakdown.
+   */
+  getAgentCostBreakdown: async (id: string) =>
+    unwrap(
+      await fetchClient.GET("/api/v1/tenant/cost/agents/{id}/breakdown", {
+        params: { path: { id } },
+      }),
+    ),
+
   // Clones
   getClones: async (agentId: string) =>
     unwrap(

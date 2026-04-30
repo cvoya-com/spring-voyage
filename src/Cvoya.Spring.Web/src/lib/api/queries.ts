@@ -35,8 +35,10 @@ import type {
   AgentResponse,
   AgentSkillsResponse,
   AggregatedExpertiseResponse,
+  AnalyticsCostTimeseriesResponse,
   BudgetResponse,
   CloneResponse,
+  CostBreakdownResponse,
   InstalledConnectorResponse,
   ThreadDetail,
   ThreadListFilters,
@@ -334,6 +336,32 @@ export function useUnitCost(
 }
 
 /**
+ * Unit cost time-series (#1363, #569). Zero-filled, bucketed. Returns null
+ * on error so the sparkline card gracefully degrades to an empty state.
+ * Default: window=7d, bucket=1d.
+ */
+export function useUnitCostTimeseries(
+  id: string,
+  window = "7d",
+  bucket = "1d",
+  opts?: SliceOptions<AnalyticsCostTimeseriesResponse | null>,
+): UseQueryResult<AnalyticsCostTimeseriesResponse | null, Error> {
+  return useQuery({
+    queryKey: queryKeys.units.costTimeseries(id, window, bucket),
+    queryFn: async () => {
+      try {
+        return await api.getUnitCostTimeseries(id, { window, bucket });
+      } catch {
+        return null;
+      }
+    },
+    enabled: opts?.enabled ?? Boolean(id),
+    refetchInterval: opts?.refetchInterval,
+    staleTime: opts?.staleTime,
+  });
+}
+
+/**
  * Read a unit's own declared expertise. Mirrors
  * `spring unit expertise get`. Used by the Unit Config → Expertise
  * subsection to populate the editor. Surfaces `[]` on 404 so the
@@ -546,6 +574,55 @@ export function useAgentCost(
     queryFn: async () => {
       try {
         return await api.getAgentCost(id);
+      } catch {
+        return null;
+      }
+    },
+    enabled: opts?.enabled ?? Boolean(id),
+    refetchInterval: opts?.refetchInterval,
+    staleTime: opts?.staleTime,
+  });
+}
+
+/**
+ * Agent cost time-series (#1363, #569). Zero-filled, bucketed. Returns null
+ * on error so the sparkline card gracefully degrades to an empty state.
+ * Default: window=7d, bucket=1d.
+ */
+export function useAgentCostTimeseries(
+  id: string,
+  window = "7d",
+  bucket = "1d",
+  opts?: SliceOptions<AnalyticsCostTimeseriesResponse | null>,
+): UseQueryResult<AnalyticsCostTimeseriesResponse | null, Error> {
+  return useQuery({
+    queryKey: queryKeys.agents.costTimeseries(id, window, bucket),
+    queryFn: async () => {
+      try {
+        return await api.getAgentCostTimeseries(id, { window, bucket });
+      } catch {
+        return null;
+      }
+    },
+    enabled: opts?.enabled ?? Boolean(id),
+    refetchInterval: opts?.refetchInterval,
+    staleTime: opts?.staleTime,
+  });
+}
+
+/**
+ * Agent cost breakdown by model (#1364, #570). Returns null on error.
+ * Entries are pre-sorted descending by cost by the server.
+ */
+export function useAgentCostBreakdown(
+  id: string,
+  opts?: SliceOptions<CostBreakdownResponse | null>,
+): UseQueryResult<CostBreakdownResponse | null, Error> {
+  return useQuery({
+    queryKey: queryKeys.agents.costBreakdown(id),
+    queryFn: async () => {
+      try {
+        return await api.getAgentCostBreakdown(id);
       } catch {
         return null;
       }

@@ -44,6 +44,9 @@ export const queryKeys = {
       ["agents", "logs", id, tail] as const,
     expertise: (id: string) => ["agents", "expertise", id] as const,
     execution: (id: string) => ["agents", "execution", id] as const,
+    costTimeseries: (id: string, window: string, bucket: string) =>
+      ["agents", "costTimeseries", id, window, bucket] as const,
+    costBreakdown: (id: string) => ["agents", "costBreakdown", id] as const,
   },
 
   units: {
@@ -67,6 +70,8 @@ export const queryKeys = {
     ownExpertise: (id: string) => ["units", "ownExpertise", id] as const,
     aggregatedExpertise: (id: string) =>
       ["units", "aggregatedExpertise", id] as const,
+    costTimeseries: (id: string, window: string, bucket: string) =>
+      ["units", "costTimeseries", id, window, bucket] as const,
   },
 
   directory: {

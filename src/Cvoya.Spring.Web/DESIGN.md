@@ -343,7 +343,7 @@ Per-kind tab sets are declared in `src/components/units/aggregate.ts` as `TENANT
 
 | Tab           | Content                                                                                                                          |
 | ------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| Overview      | Stat tiles (cost 24h, msgs 24h, skills) + read-only Expertise card (own + deduped subtree chips, "Manage" deep-links to Config → Expertise). |
+| Overview      | Stat tiles (cost 24h, msgs 24h, sub-units, agents, worst status) + "Cost over time" sparkline card (7d / 30d toggle, `GET /api/v1/tenant/analytics/units/{id}/cost-timeseries`, inline SVG polyline, no charting library) + read-only Expertise card (own + deduped subtree chips, "Manage" deep-links to Config → Expertise). |
 | Agents        | Child agents + child units in one grid; units carry an outlined card variant and a "unit" pill so they read distinct from agents. |
 | Orchestration | Strategy selector (read-only today) + effective-strategy card + label-routing rule editor.                                        |
 | Activity      | Unit-scoped event feed.                                                                                                          |
@@ -357,7 +357,7 @@ Per-kind tab sets are declared in `src/components/units/aggregate.ts` as `TENANT
 | Tab        | Content                                                                                                                      |
 | ---------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | Overview   | Compact lifecycle panel + cost summary tiles.                                                                                |
-| Activity   | Cost-over-time + per-slice breakdown.                                                                                        |
+| Activity   | "Cost over time" sparkline card (7d / 24h toggle, `GET /api/v1/tenant/analytics/agents/{id}/cost-timeseries`, inline SVG polyline, no charting library) + "Model cost breakdown" table (`GET /api/v1/tenant/cost/agents/{id}/breakdown`, columns: Model, Kind, Cost, Requests, hidden when empty) + event feed with Refresh. |
 | Messages   | Inline master/detail (same layout as the unit Messages tab); URL-owned via `?conversation=<id>`. A **+ New conversation** button opens the same modal composer, targeting `agent://<slug>`. |
 | Memory     | Agent-scoped read-only memory inspector (see § 10).                                                                          |
 | Skills     | Read from `/api/v1/agents/{id}/skills`.                                                                                      |
@@ -543,6 +543,41 @@ Embedded on the Create-unit wizard's Finalize step after the unit is created (mi
 - **`Stopped`** — Success banner palette ("Last validation succeeded. The unit is ready to start.") plus a **Revalidate** outline button (`RefreshCw`). POSTs `/revalidate` (the endpoint accepts `Stopped` per T-05).
 
 Tokens: the panel reuses the Success (§12.4) and destructive palettes plus the step-circle colours already on the token list — it does not introduce any new ones. All copy lives in a single `VALIDATION_COPY` map so i18n is a localised change later.
+
+### 12.9 Cost-over-time sparkline card (#1363)
+
+Inline time-series pattern used inside the Agent Activity tab and the Unit Overview tab. No new charting library — the chart is an SVG `<polyline>` rendered inline.
+
+**Shape.** A `<Card>` with `data-testid="<scope>-cost-timeseries-card"`. The header carries a `<TrendingDown>` icon + "Cost over time" title on the left; a `role="group"` window-toggle on the right with pill-style `<button>` elements (`aria-pressed`, `data-testid="<scope>-timeseries-window-<label>"`).
+
+**States.**
+- Loading: `<Skeleton className="h-8 w-full" data-testid="<scope>-cost-timeseries-loading" />`.
+- Empty (no data, or all-zero points): `<p data-testid="<scope>-cost-timeseries-empty">No cost data for this window.</p>`.
+- Data present: an inline 120×24 SVG polyline (`data-testid="<scope>-cost-sparkline"`) + a total cost label in `text-xs tabular-nums`.
+
+**Polyline.** `stroke="currentColor"` (inherits `text-primary/70`), `strokeWidth={1.5}`, `strokeLinecap="round"`, `strokeLinejoin="round"`. Points are normalised 0-to-max within the 24 px height; the x-axis distributes evenly across 120 px. `aria-hidden="true"` on the `<svg>`.
+
+**Window options.** Agent: 7d / 24h (bucket 1d / 1h). Unit: 7d / 30d (both bucket 1d). Default is always the shortest window.
+
+### 12.10 Model cost breakdown table (#1364)
+
+Used in the Agent Activity tab. A `<Card data-testid="agent-cost-breakdown-card">` with a `<DollarSign>` icon + "Model cost breakdown" heading. Hidden when the `entries` array is empty (no empty-state rendering — absence is the signal).
+
+**Table columns.** Model (font-mono), Kind (capitalised, muted), Cost (right-aligned, `formatCost()`), Requests (right-aligned, `toLocaleString()`, muted).
+
+Entries arrive pre-sorted descending by cost from `GET /api/v1/tenant/cost/agents/{id}/breakdown`.
+
+### 12.11 Agents lens — `src/app/agents/page.tsx` (#1403)
+
+Tenant-wide agent list at `/agents`. Lists all registered agents via `GET /api/v1/tenant/agents` and applies **client-side** hosting and initiative filters. Server-side filtering is a follow-up (#1402).
+
+**Filter bar.** `role="group" aria-label="Agent filters" data-testid="agents-filter-bar"`. Two `<FilterChip>` pill-wrappers (same pattern as `/activity`) each enclosing a `<select>`:
+- Hosting filter (`data-testid="agents-hosting-filter"`): All / Ephemeral / Persistent. Matches `agent.hostingMode` case-insensitively; unset `hostingMode` defaults to `"ephemeral"`.
+- Initiative filter (`data-testid="agents-initiative-filter"`): All / Passive / Attentive / Proactive / Autonomous. Matches `agent.initiativeLevel` case-insensitively.
+
+**Empty states.** "No agents registered" when no agents exist; "No agents match the current filters" when all are filtered out. Both use `data-testid="agents-empty"`.
+
+**Grid.** `data-testid="agents-grid"`. Each `<AgentCard>` receives a shape adapter (`agentToCardShape`) that maps `AgentResponse → AgentCardAgent`. Cross-links to `/units` for full per-agent detail.
 
 ---
 
