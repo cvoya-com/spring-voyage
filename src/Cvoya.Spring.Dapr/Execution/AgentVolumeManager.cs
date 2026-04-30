@@ -57,6 +57,14 @@ public class AgentVolumeManager(
     private readonly ILogger _logger = loggerFactory.CreateLogger<AgentVolumeManager>();
     private Timer? _metricsTimer;
 
+    // Tracks the count of timer callbacks currently executing so StopAsync
+    // can drain in-flight metric sweeps before disposing the timer. Uses a
+    // simple Interlocked counter rather than a SemaphoreSlim to avoid
+    // allocation in the steady-state hot path where no teardown is in
+    // progress. StopAsync polls with a short Task.Delay rather than a
+    // blocking spin so the teardown thread stays cooperative.
+    private int _metricsCallbacksInFlight;
+
     // Track volumes registered during this process lifetime so the metric
     // sweep knows which volumes to query without re-enumerating all Podman
     // volumes (which would be expensive and noisy in a multi-tenant host).
@@ -177,7 +185,15 @@ public class AgentVolumeManager(
     public Task StartAsync(CancellationToken cancellationToken)
     {
         _metricsTimer = new Timer(
-            callback: _ => _ = RecordVolumeMetricsAsync(CancellationToken.None),
+            callback: _ =>
+            {
+                // Guard: if teardown has already stopped the timer we should
+                // not start another sweep even if a queued callback fires
+                // after Change(Infinite). The Interlocked increment is still
+                // visible to StopAsync's drain loop so it can wait correctly.
+                Interlocked.Increment(ref _metricsCallbacksInFlight);
+                _ = RunMetricsCallbackAsync();
+            },
             state: null,
             dueTime: MetricsInterval,
             period: MetricsInterval);
@@ -185,12 +201,81 @@ public class AgentVolumeManager(
         return Task.CompletedTask;
     }
 
+    // Internal so Cvoya.Spring.Dapr.Tests can invoke it directly to simulate
+    // an in-flight timer callback in teardown-race unit tests (#1354).
+    internal async Task RunMetricsCallbackAsync()
+    {
+        try
+        {
+            await RecordVolumeMetricsAsync(CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            // Exceptions from the timer callback are swallowed here because
+            // there is no caller to propagate them to — the fire-and-forget
+            // async Task would otherwise silently fault. RecordVolumeMetricsAsync
+            // already logs per-volume failures; this catch handles anything
+            // that escapes that inner try/catch (e.g. disposed containerRuntime
+            // during host teardown).
+            _logger.LogWarning(
+                ex,
+                "Unhandled exception in metrics timer callback; this is expected during host teardown");
+        }
+        finally
+        {
+            Interlocked.Decrement(ref _metricsCallbacksInFlight);
+        }
+    }
+
     /// <inheritdoc />
     public async Task StopAsync(CancellationToken cancellationToken)
     {
-        if (_metricsTimer is not null)
+        if (_metricsTimer is null)
+        {
+            return;
+        }
+
+        // Step 1: prevent any new timer callbacks from firing. Change to
+        // Infinite/Infinite before disposing so a queued-but-not-yet-started
+        // callback cannot increment _metricsCallbacksInFlight after we finish
+        // the drain loop below.
+        try
+        {
+            _metricsTimer.Change(Timeout.Infinite, Timeout.Infinite);
+        }
+        catch (ObjectDisposedException)
+        {
+            // Timer already disposed (e.g. redundant StopAsync call) — skip.
+        }
+
+        // Step 2: drain in-flight callbacks. Each callback decrements the
+        // counter in its finally block, so we poll until it reaches zero.
+        // We cap the wait at the host shutdown timeout via cancellationToken
+        // to avoid blocking shutdown indefinitely if a callback hangs.
+        while (Volatile.Read(ref _metricsCallbacksInFlight) > 0
+               && !cancellationToken.IsCancellationRequested)
+        {
+            await Task.Delay(millisecondsDelay: 10, cancellationToken)
+                .ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        }
+
+        // Step 3: dispose the timer. Wrap in try/catch so a race between two
+        // concurrent StopAsync callers (unusual but possible in test harnesses
+        // that call DisposeAsync more than once) does not propagate an
+        // ObjectDisposedException through the host teardown path and mask the
+        // real test assertion.
+        try
         {
             await _metricsTimer.DisposeAsync();
+        }
+        catch (Exception ex) when (ex is ObjectDisposedException or NullReferenceException)
+        {
+            _logger.LogDebug(
+                ex,
+                "Metrics timer dispose raced with another dispose call during shutdown; ignored");
+        }
+        finally
+        {
             _metricsTimer = null;
         }
     }

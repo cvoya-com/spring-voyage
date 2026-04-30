@@ -249,6 +249,13 @@ public class AuthHandlerRoleClaimsTests : IDisposable
                     services.AddSingleton(Substitute.For<DaprClient>());
                     services.AddDaprWorkflow(options => { });
 
+                    // #1355: AddDaprWorkflow re-registers the WorkflowWorker
+                    // IHostedService after the earlier RemoveDaprWorkflowWorker()
+                    // call stripped it. Strip it again so host teardown does not
+                    // trip the upstream GrpcProtocolHandler ObjectDisposedException
+                    // race (Dapr.Workflow 1.17.8 — see DaprWorkflowWorkerWorkaround).
+                    services.RemoveDaprWorkflowWorker();
+
                     var costDescriptors = services
                         .Where(d => d.ServiceType == typeof(Cvoya.Spring.Core.Costs.ICostTracker))
                         .ToList();

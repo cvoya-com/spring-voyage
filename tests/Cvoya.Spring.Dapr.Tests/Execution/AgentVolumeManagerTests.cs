@@ -164,4 +164,98 @@ public class AgentVolumeManagerTests
     {
         AgentVolumeManager.WorkspacePathEnvVar.ShouldBe("SPRING_WORKSPACE_PATH");
     }
+
+    // ── StopAsync teardown safety (Flake A — #1354) ───────────────────────
+
+    /// <summary>
+    /// Verifies that <see cref="AgentVolumeManager.StopAsync"/> does not throw
+    /// when a timer-triggered metrics callback is still in flight at teardown time.
+    ///
+    /// Arrange: register a volume so the callback has work to do, then
+    /// substitute <c>GetVolumeMetricsAsync</c> with an implementation that
+    /// blocks on a <see cref="TaskCompletionSource"/> to simulate a slow
+    /// container-runtime call still executing when <c>StopAsync</c> is called.
+    ///
+    /// Act: start the host, manually trigger a metrics sweep via
+    /// <see cref="AgentVolumeManager.RunMetricsCallbackAsync"/> (which manages
+    /// the in-flight counter the same way the timer does), then call
+    /// <c>StopAsync</c> while the callback is still blocked, and release the
+    /// blocker concurrently.
+    ///
+    /// Assert: <c>StopAsync</c> completes without throwing and the callback
+    /// drains cleanly after the blocker is released.
+    /// </summary>
+    [Fact]
+    public async Task StopAsync_WithInFlightMetricsCallback_DoesNotThrow()
+    {
+        // Arrange — a slow GetVolumeMetricsAsync that blocks until we release it.
+        var callbackStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var callbackBlocker = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        _runtime.GetVolumeMetricsAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(async (_) =>
+            {
+                callbackStarted.TrySetResult();
+                await callbackBlocker.Task;
+                return (VolumeMetrics?)new VolumeMetrics(SizeBytes: 0L, LastWrite: null);
+            });
+
+        // Register a volume so the metrics sweep actually calls the runtime.
+        await _manager.EnsureAsync("agent-teardown-test", TestContext.Current.CancellationToken);
+
+        // Start the hosted service so the timer and counter are initialised.
+        await _manager.StartAsync(TestContext.Current.CancellationToken);
+
+        // Manually trigger an in-flight callback via RunMetricsCallbackAsync,
+        // which increments the _metricsCallbacksInFlight counter and calls
+        // RecordVolumeMetricsAsync — exactly what the timer does. This allows
+        // the test to control entry/exit without waiting for a real timer tick.
+        var callbackTask = Task.Run(_manager.RunMetricsCallbackAsync, TestContext.Current.CancellationToken);
+
+        // Wait for the callback to confirm it has entered GetVolumeMetricsAsync
+        // (i.e. the "in-flight" state we want StopAsync to drain correctly).
+        await callbackStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        // Act — StopAsync must not throw even though the callback is blocked.
+        // Release the blocker concurrently so the StopAsync drain loop can finish.
+        var stopTask = _manager.StopAsync(TestContext.Current.CancellationToken);
+        callbackBlocker.TrySetResult();
+
+        // Assert — neither StopAsync nor the callback task should throw.
+        await Should.NotThrowAsync(() => stopTask);
+        await Should.NotThrowAsync(() => callbackTask);
+    }
+
+    /// <summary>
+    /// Verifies that <see cref="AgentVolumeManager.StopAsync"/> does not throw
+    /// when called on a manager that was never started (timer is null).
+    /// Protects against the NRE regression described in #1354.
+    /// </summary>
+    [Fact]
+    public async Task StopAsync_WhenNeverStarted_DoesNotThrow()
+    {
+        // Arrange — fresh manager, StartAsync never called.
+        var neverStarted = new AgentVolumeManager(_runtime, _loggerFactory);
+
+        // Act + Assert
+        await Should.NotThrowAsync(() => neverStarted.StopAsync(TestContext.Current.CancellationToken));
+    }
+
+    /// <summary>
+    /// Verifies that <see cref="AgentVolumeManager.StopAsync"/> is idempotent:
+    /// calling it a second time after the timer has already been disposed does
+    /// not throw. Defends against double-dispose in test harness teardown.
+    /// </summary>
+    [Fact]
+    public async Task StopAsync_CalledTwice_DoesNotThrow()
+    {
+        // Arrange
+        await _manager.StartAsync(TestContext.Current.CancellationToken);
+
+        // Act — first StopAsync
+        await _manager.StopAsync(TestContext.Current.CancellationToken);
+
+        // Act + Assert — second StopAsync on already-stopped manager
+        await Should.NotThrowAsync(() => _manager.StopAsync(TestContext.Current.CancellationToken));
+    }
 }
