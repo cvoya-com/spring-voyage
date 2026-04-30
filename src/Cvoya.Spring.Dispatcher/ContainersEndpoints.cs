@@ -34,6 +34,8 @@ public static class ContainersEndpoints
             new(6006, nameof(ContainerProbeRequested));
         public static readonly Microsoft.Extensions.Logging.EventId ContainerA2ARequested =
             new(6007, nameof(ContainerA2ARequested));
+        public static readonly Microsoft.Extensions.Logging.EventId ContainerProbeFromHostRequested =
+            new(6008, nameof(ContainerProbeFromHostRequested));
     }
 
     /// <summary>
@@ -46,6 +48,7 @@ public static class ContainersEndpoints
         group.MapPost("/", RunOrStartAsync);
         group.MapGet("/{id}/logs", GetLogsAsync);
         group.MapPost("/{id}/probe", ProbeAsync);
+        group.MapPost("/{id}/probe-from-host", ProbeFromHostAsync);
         group.MapPost("/{id}/a2a", SendA2AAsync);
         group.MapDelete("/{id}", StopAsync);
 
@@ -359,6 +362,49 @@ public static class ContainersEndpoints
 
         var healthy = await runtime.ProbeContainerHttpAsync(id, request.Url, cancellationToken);
         return Results.Ok(new ProbeContainerHttpResponse { Healthy = healthy });
+    }
+
+    /// <summary>
+    /// <c>POST /v1/containers/{id}/probe-from-host</c> — probe an HTTP
+    /// endpoint from the dispatcher host process by resolving the container's
+    /// host-visible IP and issuing a plain HTTP GET. Requires no binary
+    /// (<c>wget</c>, <c>curl</c>) inside the workload image. Replaces the
+    /// in-container <c>podman exec … wget --spider</c> probe for A2A
+    /// readiness checks (issue #1175).
+    /// </summary>
+    internal static async Task<IResult> ProbeFromHostAsync(
+        string id,
+        [FromBody] ProbeFromHostRequest request,
+        IContainerRuntime runtime,
+        ILoggerFactory loggerFactory,
+        CancellationToken cancellationToken)
+    {
+        var logger = loggerFactory.CreateLogger("Cvoya.Spring.Dispatcher.Containers");
+
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return Results.BadRequest(new DispatcherErrorResponse
+            {
+                Code = "id_required",
+                Message = "Container id is required.",
+            });
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Url))
+        {
+            return Results.BadRequest(new DispatcherErrorResponse
+            {
+                Code = "url_required",
+                Message = "Field 'url' is required.",
+            });
+        }
+
+        logger.LogInformation(
+            EventIds.ContainerProbeFromHostRequested,
+            "Host probe for container id={ContainerId} url={Url}", id, request.Url);
+
+        var healthy = await runtime.ProbeHttpFromHostAsync(id, request.Url, cancellationToken);
+        return Results.Ok(new ProbeFromHostResponse { Healthy = healthy });
     }
 
     /// <summary>

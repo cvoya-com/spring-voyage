@@ -254,6 +254,39 @@ public record TransientProbeHttpResponse
 }
 
 /// <summary>
+/// Request body for <c>POST /v1/containers/{id}/probe-from-host</c>. The
+/// dispatcher resolves the container's host-visible IP address, rewrites
+/// the URL, and issues a plain HTTP GET from its own process — no
+/// <c>podman exec</c>, no in-container tooling required. Used by
+/// <see cref="Cvoya.Spring.Core.Execution.IContainerRuntime.ProbeHttpFromHostAsync"/>
+/// to probe A2A readiness without depending on what is installed in the
+/// workload image (issue #1175).
+/// </summary>
+public record ProbeFromHostRequest
+{
+    /// <summary>
+    /// The in-container URL to probe (e.g. <c>http://localhost:8999/.well-known/agent.json</c>).
+    /// The dispatcher rewrites the host portion to the container's host-routable
+    /// IP address before issuing the GET.
+    /// </summary>
+    [JsonPropertyName("url")]
+    public required string Url { get; init; }
+}
+
+/// <summary>
+/// Response body for <c>POST /v1/containers/{id}/probe-from-host</c>.
+/// Uses the same boolean-collapse contract as
+/// <see cref="ProbeContainerHttpResponse"/> so the caller's polling loop
+/// owns retry and timeout semantics uniformly.
+/// </summary>
+public record ProbeFromHostResponse
+{
+    /// <summary>Whether the probed URL answered 2xx.</summary>
+    [JsonPropertyName("healthy")]
+    public required bool Healthy { get; init; }
+}
+
+/// <summary>
 /// Request body for <c>POST /v1/containers/{id}/a2a</c> — the dispatcher-
 /// proxied A2A message-send primitive that closes the second half of issue
 /// #1160. The worker hands the dispatcher the in-container URL it would

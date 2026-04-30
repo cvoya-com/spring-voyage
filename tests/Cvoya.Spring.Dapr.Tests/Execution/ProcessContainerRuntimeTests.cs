@@ -286,6 +286,34 @@ public class ProcessContainerRuntimeTests
         AssertFlagPair(args, "-e", "KEY=val with spaces");
     }
 
+    // ── RewriteUrlHost tests (ProbeHttpFromHostAsync helper, issue #1175) ──
+
+    [Theory]
+    [InlineData("http://localhost:8999/.well-known/agent.json", "172.17.0.5", "http://172.17.0.5:8999/.well-known/agent.json")]
+    [InlineData("http://localhost:3500/v1.0/healthz", "10.89.0.12", "http://10.89.0.12:3500/v1.0/healthz")]
+    [InlineData("http://127.0.0.1:8080/health", "192.168.100.2", "http://192.168.100.2:8080/health")]
+    [InlineData("http://localhost:8999/", "fd00::1", "http://[fd00::1]:8999/")]
+    public void RewriteUrlHost_ReplacesHostAndPreservesPortAndPath(
+        string inputUrl, string newHost, string expectedUrl)
+    {
+        // ProbeHttpFromHostAsync converts in-container loopback URLs
+        // (http://localhost:PORT/PATH) to host-routable URLs using the
+        // container's bridge IP from `podman inspect`. The helper must
+        // preserve the original port and path verbatim; only the host changes.
+        var result = ProcessContainerRuntime.RewriteUrlHost(inputUrl, newHost);
+        result.ShouldBe(expectedUrl);
+    }
+
+    [Fact]
+    public void RewriteUrlHost_NoPort_PreservesSchemeDefaultPort()
+    {
+        // URLs without an explicit port (e.g. standard HTTP on 80) should
+        // survive the rewrite without a spurious ":80" being appended.
+        var result = ProcessContainerRuntime.RewriteUrlHost("http://localhost/health", "10.0.0.1");
+        // UriBuilder keeps the default port implicit.
+        result.ShouldBe("http://10.0.0.1/health");
+    }
+
     /// <summary>
     /// Asserts that <paramref name="value"/> immediately follows
     /// <paramref name="flag"/> in <paramref name="args"/>. Used to pin the

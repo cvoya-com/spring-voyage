@@ -302,10 +302,12 @@ public class PersistentAgentRegistry(
     /// Probes the A2A Agent Card endpoint to verify the agent is healthy.
     /// </summary>
     /// <remarks>
-    /// When the entry carries a container id, the probe is dispatched into
-    /// the agent container via <see cref="IContainerRuntime.ProbeContainerHttpAsync"/>
-    /// so it works regardless of network topology (see #1160). Entries
-    /// without a container id (legacy externally-registered persistent
+    /// When the entry carries a container id, the probe is dispatched from
+    /// the host process via
+    /// <see cref="IContainerRuntime.ProbeHttpFromHostAsync"/> so it works
+    /// regardless of network topology and does not require any binary
+    /// (<c>wget</c>, <c>curl</c>) inside the workload image (issue #1175).
+    /// Entries without a container id (legacy externally-registered persistent
     /// agents) fall back to the direct HTTP probe.
     /// </remarks>
     internal async Task<bool> ProbeHealthAsync(PersistentAgentEntry entry)
@@ -317,7 +319,7 @@ public class PersistentAgentRegistry(
             using var probeCts = new CancellationTokenSource(HealthProbeTimeout);
             try
             {
-                return await containerRuntime.ProbeContainerHttpAsync(
+                return await containerRuntime.ProbeHttpFromHostAsync(
                     entry.ContainerId, agentCardUri, probeCts.Token);
             }
             catch (Exception)
@@ -393,13 +395,11 @@ public class PersistentAgentRegistry(
     /// Waits until the A2A Agent Card endpoint returns 200 or the timeout expires.
     /// </summary>
     /// <remarks>
-    /// The probe is dispatched into the agent container via
-    /// <see cref="IContainerRuntime.ProbeContainerHttpAsync"/> so it works
-    /// even when the worker process and the agent container live on
-    /// different networks. <paramref name="endpoint"/> is interpreted from
-    /// the in-container perspective (its host should be <c>localhost</c>).
-    /// See #1160 for the open design call on routing the actual A2A
-    /// message send across networks.
+    /// The probe is dispatched from the host process via
+    /// <see cref="IContainerRuntime.ProbeHttpFromHostAsync"/> so it works
+    /// even when the worker process and the agent container live on different
+    /// networks, and does not require any binary (<c>wget</c>) inside the
+    /// workload image (issue #1175).
     /// </remarks>
     internal async Task<bool> WaitForA2AReadyAsync(
         string containerId,
@@ -416,7 +416,7 @@ public class PersistentAgentRegistry(
         {
             try
             {
-                if (await containerRuntime.ProbeContainerHttpAsync(containerId, agentCardUri, cts.Token))
+                if (await containerRuntime.ProbeHttpFromHostAsync(containerId, agentCardUri, cts.Token))
                 {
                     return true;
                 }

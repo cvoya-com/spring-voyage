@@ -784,19 +784,24 @@ public class A2AExecutionDispatcher(
     };
 
     /// <summary>
-    /// Polls the in-container A2A Agent Card endpoint until it answers 200
-    /// or the timeout expires. Used by both dispatch paths so they cannot
-    /// drift on what "ready" means.
+    /// Polls the agent container's A2A Agent Card endpoint from the host
+    /// until it answers 200 or the timeout expires. Used by both dispatch
+    /// paths so they cannot drift on what "ready" means.
     /// </summary>
     /// <remarks>
-    /// The probe goes through <see cref="IContainerRuntime.ProbeContainerHttpAsync"/>
-    /// rather than a direct <see cref="HttpClient"/> call so it works regardless
-    /// of the worker's network topology. Since #1063 the worker runs in its own
-    /// container and cannot reach the agent container on its own loopback;
-    /// <c>ProbeContainerHttpAsync</c> runs <c>wget --spider</c> inside the agent
-    /// container's network namespace via the dispatcher, where
-    /// <c>localhost:{port}</c> resolves to the in-container A2A endpoint. See
-    /// #1160 for the design discussion.
+    /// The probe goes through
+    /// <see cref="IContainerRuntime.ProbeHttpFromHostAsync"/> rather than a
+    /// direct <see cref="HttpClient"/> call or <c>podman exec</c> so it works
+    /// regardless of the worker's network topology and does not depend on any
+    /// binary (<c>wget</c>, <c>curl</c>) being present in the workload image.
+    /// The host-side probe resolves the container's bridge IP via
+    /// <c>podman inspect</c> and issues a plain HTTP GET from the dispatcher
+    /// process, avoiding the per-probe <c>podman exec</c> round-trip and the
+    /// BYOI fragility documented in issue #1175. When the worker is not
+    /// dual-homed on the agent's network, the probe is forwarded through
+    /// <see cref="DispatcherClientContainerRuntime"/> →
+    /// <c>POST /v1/containers/{id}/probe-from-host</c>; the dispatcher
+    /// executes the host-side GET and returns the boolean result.
     /// </remarks>
     internal async Task<bool> WaitForA2AReadyAsync(
         string containerId,
@@ -816,7 +821,7 @@ public class A2AExecutionDispatcher(
             attempts++;
             try
             {
-                var healthy = await containerRuntime.ProbeContainerHttpAsync(
+                var healthy = await containerRuntime.ProbeHttpFromHostAsync(
                     containerId, agentCardUri, cts.Token);
                 if (healthy)
                 {

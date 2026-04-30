@@ -304,6 +304,11 @@ public sealed class UnitValidationCredentialLeakTests : IDisposable
         public Task<bool> ProbeContainerHttpAsync(string containerId, string url, CancellationToken ct = default)
             => throw new NotSupportedException("canary harness does not probe containers");
 
+        // #1175: host-side HTTP probe (avoids in-container wget dependency).
+        // Same shape as ProbeContainerHttpAsync above.
+        public Task<bool> ProbeHttpFromHostAsync(string containerId, string url, CancellationToken ct = default)
+            => throw new NotSupportedException("canary harness does not probe containers from host");
+
         // The transient-container probe primitive (#1197 follow-up) is the
         // distroless-sidecar escape hatch from ProbeContainerHttpAsync.
         // The canary doesn't spin up daprd sidecars, so the honest answer

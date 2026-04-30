@@ -179,6 +179,40 @@ public class DispatcherClientContainerRuntime(
     }
 
     /// <inheritdoc />
+    public async Task<bool> ProbeHttpFromHostAsync(
+        string containerId,
+        string url,
+        CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(containerId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(url);
+
+        var httpClient = CreateClient();
+        var uri = $"v1/containers/{Uri.EscapeDataString(containerId)}/probe-from-host";
+        var request = new DispatcherProbeFromHostRequest { Url = url };
+
+        using var response = await httpClient.PostAsJsonAsync(uri, request, JsonOptions, ct);
+
+        // Mirror ProbeContainerHttpAsync: 404 (container unknown) collapses
+        // to "not healthy" so the polling loop treats a vanished container as
+        // a probe failure rather than a hard exception.
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return false;
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await SafeReadBodyAsync(response, ct);
+            throw new InvalidOperationException(
+                $"Dispatcher returned {(int)response.StatusCode} on host probe of {containerId} at {url}: {body}");
+        }
+
+        var parsed = await response.Content.ReadFromJsonAsync<DispatcherProbeFromHostResponse>(JsonOptions, ct);
+        return parsed?.Healthy ?? false;
+    }
+
+    /// <inheritdoc />
     public async Task<bool> ProbeHttpFromTransientContainerAsync(
         string probeImage,
         string network,
@@ -626,6 +660,25 @@ public class DispatcherClientContainerRuntime(
     /// Wire shape returned by <c>POST /v1/containers/{id}/probe</c>.
     /// </summary>
     internal record DispatcherProbeResponse
+    {
+        public required bool Healthy { get; init; }
+    }
+
+    /// <summary>
+    /// Wire shape sent to <c>POST /v1/containers/{id}/probe-from-host</c>.
+    /// Mirrors <c>ProbeFromHostRequest</c> on the dispatcher side; duplicated
+    /// here so the worker package does not take a build dependency on the
+    /// dispatcher package (issue #1175).
+    /// </summary>
+    internal record DispatcherProbeFromHostRequest
+    {
+        public required string Url { get; init; }
+    }
+
+    /// <summary>
+    /// Wire shape returned by <c>POST /v1/containers/{id}/probe-from-host</c>.
+    /// </summary>
+    internal record DispatcherProbeFromHostResponse
     {
         public required bool Healthy { get; init; }
     }

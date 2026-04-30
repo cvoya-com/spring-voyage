@@ -46,20 +46,19 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # `tini` for clean signal forwarding (matches the agent-base image so
 # `tasks/cancel` semantics are uniform across the Tier-A and Tier-B
 # launchers). `ca-certificates` so `httpx` can verify TLS endpoints
-# (Anthropic, OpenAI, etc.). `wget` for the dispatcher's
-# `ProcessContainerRuntime.ProbeContainerHttpAsync` (`podman exec …
-# wget --spider`) — without it every readiness probe returns 127 and the
-# 60 s wait times out silently (#1172 follow-up). `curl` for the
-# dispatcher's `SendHttpJsonAsync` POST proxy: GNU wget on Debian rejects
+# (Anthropic, OpenAI, etc.). `curl` for the dispatcher's
+# `SendHttpJsonAsync` POST proxy: GNU wget on Debian rejects
 # `--post-file=/dev/stdin` with "Illegal seek" because stdin is a pipe
 # (the upstream comment in `SendHttpJsonAsync` was written against
 # BusyBox wget); curl reads stdin via `--data-binary @-` reliably.
+# `wget` has been removed (#1175): readiness probes are now issued from
+# the dispatcher host via `ProbeHttpFromHostAsync` (plain HTTP GET from
+# the host process) so they no longer depend on in-container tooling.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
         tini \
-        wget \
  && rm -rf /var/lib/apt/lists/*
 
 # Non-root agent user (uid 1000 / gid 1000) for parity with

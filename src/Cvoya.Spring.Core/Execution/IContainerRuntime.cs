@@ -112,6 +112,15 @@ public interface IContainerRuntime
     /// posture (RCE) bounded while solving the only worker-side use case
     /// that needed exec — sidecar health polling.
     /// </para>
+    /// <para>
+    /// Prefer <see cref="ProbeHttpFromHostAsync"/> for A2A readiness probes
+    /// on agent containers. The host-side probe does not require any binary
+    /// (<c>wget</c>) inside the workload image and avoids the per-probe
+    /// <c>podman exec</c> round-trip cost. This method is retained for
+    /// cases where the target endpoint is only reachable from inside the
+    /// container's own network namespace (e.g. a sidecar on a private
+    /// per-app bridge that has no host-routable IP).
+    /// </para>
     /// </remarks>
     /// <param name="containerId">Identifier of the container to probe inside.</param>
     /// <param name="url">URL to probe; typically a loopback URL such as <c>http://localhost:3500/v1.0/healthz</c>.</param>
@@ -123,6 +132,68 @@ public interface IContainerRuntime
     /// inspect / logs.
     /// </returns>
     Task<bool> ProbeContainerHttpAsync(string containerId, string url, CancellationToken ct = default);
+
+    /// <summary>
+    /// Probes an HTTP endpoint from the host process by resolving the named
+    /// container's host-visible IP address and issuing a plain HTTP GET.
+    /// Returns <c>true</c> when the endpoint answers 2xx.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the replacement probe path for A2A readiness checks (issue
+    /// #1175). Unlike <see cref="ProbeContainerHttpAsync"/>, this method
+    /// does not shell out to <c>podman exec</c> and does not require any
+    /// binary (<c>wget</c>, <c>curl</c>) to be present inside the workload
+    /// image. Any base image — Alpine, distroless, or a custom BYOI image
+    /// — can be probed without modification.
+    /// </para>
+    /// <para>
+    /// The implementation inspects the container's network settings to find
+    /// its host-routable IP address, rewrites the URL's host accordingly, and
+    /// issues the probe from the dispatcher process's own HTTP client. The
+    /// dispatcher process is co-located with the container runtime on the
+    /// host, so it can reach containers on any bridge network managed by
+    /// that runtime.
+    /// </para>
+    /// <para>
+    /// The <paramref name="url"/> is interpreted as an in-container URL
+    /// (typically <c>http://localhost:{port}/…</c>); the host part is
+    /// replaced by the resolved container IP before the GET is issued.
+    /// This keeps the caller's URL construction logic identical to what
+    /// it was for <see cref="ProbeContainerHttpAsync"/>.
+    /// </para>
+    /// <para>
+    /// Two reachability scenarios are supported:
+    /// <list type="bullet">
+    ///   <item>
+    ///     <b>Dispatcher / dual-homed worker</b> — the host-side HTTP GET
+    ///     is issued directly from the <see cref="ProcessContainerRuntime"/>
+    ///     implementation. The container's network bridge is reachable from
+    ///     the host without additional hops.
+    ///   </item>
+    ///   <item>
+    ///     <b>Worker on <c>spring-net</c> only</b> — <see cref="DispatcherClientContainerRuntime"/>
+    ///     forwards the probe request to the dispatcher over
+    ///     <c>POST /v1/containers/{id}/probe-from-host</c>. The dispatcher,
+    ///     running on the host, performs the same host-side HTTP GET.
+    ///   </item>
+    /// </list>
+    /// </para>
+    /// </remarks>
+    /// <param name="containerId">Identifier of the target container.</param>
+    /// <param name="url">
+    /// In-container URL to probe (e.g. <c>http://localhost:8999/.well-known/agent.json</c>).
+    /// The host portion is replaced by the container's inspected host-routable
+    /// IP before the GET is issued.
+    /// </param>
+    /// <param name="ct">A token to cancel the operation.</param>
+    /// <returns>
+    /// <c>true</c> when the endpoint answered 2xx; <c>false</c> on any
+    /// non-2xx, network error, container-inspect failure, or unknown
+    /// container. Callers that need to distinguish those cases should fall
+    /// back to inspect / logs.
+    /// </returns>
+    Task<bool> ProbeHttpFromHostAsync(string containerId, string url, CancellationToken ct = default);
 
     /// <summary>
     /// Probes an HTTP endpoint by spawning a throwaway probe container on the

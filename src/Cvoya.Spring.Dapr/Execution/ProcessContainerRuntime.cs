@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Dapr.Execution;
 
 using System.Diagnostics;
+using System.Net.Http;
 
 using Cvoya.Spring.Core.Execution;
 
@@ -20,6 +21,24 @@ public class ProcessContainerRuntime(
 {
     private readonly ILogger _logger = loggerFactory.CreateLogger<ProcessContainerRuntime>();
     private readonly ContainerRuntimeOptions _options = options.Value;
+
+    // Shared HttpClient for ProbeHttpFromHostAsync. Static so all instances
+    // (PodmanRuntime, DockerRuntime) share one socket pool. The client does
+    // not use cookies or a base address — each call supplies a full URL.
+    private static readonly HttpClient ProbeHttpClient = new(new SocketsHttpHandler
+    {
+        // Short per-connection timeout so a probe attempt terminates quickly
+        // when the container has not yet bound its port. The polling loop
+        // (WaitForA2AReadyAsync) retries on false, so a connection timeout
+        // just means one probe attempt ends quickly rather than hanging.
+        ConnectTimeout = TimeSpan.FromSeconds(3),
+    })
+    {
+        // Per-request deadline to match the caller's polling cadence. The
+        // outer loop adds a sleep between attempts, so this only caps the
+        // time spent on a single attempt, not the total readiness wait.
+        Timeout = TimeSpan.FromSeconds(5),
+    };
 
     /// <summary>
     /// Pulls a container image by shelling out to <c>&lt;binary&gt; pull &lt;image&gt;</c>.
@@ -301,6 +320,106 @@ public class ProcessContainerRuntime(
                 url, containerId, ex.Message);
             return false;
         }
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> ProbeHttpFromHostAsync(
+        string containerId,
+        string url,
+        CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(containerId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(url);
+
+        try
+        {
+            // Resolve the container's host-visible IP by inspecting its
+            // network settings. The format string iterates all networks
+            // and emits the first non-empty IP address. Multiple networks
+            // produce multiple IPs separated by newlines; we take the first.
+            var (inspectExit, inspectOut, _) = await RunProcessAsync(
+                binaryName,
+                [
+                    "inspect",
+                    "--format",
+                    "{{range .NetworkSettings.Networks}}{{.IPAddress}}\n{{end}}",
+                    containerId,
+                ],
+                ct);
+
+            if (inspectExit != 0)
+            {
+                _logger.LogDebug(
+                    "Container inspect for {ContainerId} failed (exit {Exit}); probe returning false",
+                    containerId, inspectExit);
+                return false;
+            }
+
+            // Pick the first non-empty IP line. Containers on multiple
+            // networks produce multiple lines; any routable IP works.
+            var containerIp = inspectOut
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .FirstOrDefault(line => !string.IsNullOrWhiteSpace(line));
+
+            if (string.IsNullOrWhiteSpace(containerIp))
+            {
+                _logger.LogDebug(
+                    "No IP address found for container {ContainerId}; probe returning false",
+                    containerId);
+                return false;
+            }
+
+            // Rewrite the URL's host to the container's host-visible IP.
+            // Callers pass an in-container URL (e.g. http://localhost:8999/…);
+            // replacing the host with the bridge IP makes the URL routable
+            // from the dispatcher host process without any exec into the container.
+            var probeUri = RewriteUrlHost(url, containerIp);
+
+            _logger.LogDebug(
+                "Host probe for container {ContainerId}: GET {ProbeUrl}",
+                containerId, probeUri);
+
+            using var response = await ProbeHttpClient.GetAsync(probeUri, ct);
+            return response.IsSuccessStatusCode;
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            // Per-request timeout on ProbeHttpClient fired — not a caller
+            // cancellation. Collapse to false so the polling loop retries.
+            return false;
+        }
+        catch (Exception ex)
+        {
+            // Connection refused, DNS failure, container gone — collapse to
+            // false so the polling loop owns retry / timeout semantics.
+            _logger.LogDebug(
+                ex,
+                "Host probe of {Url} for container {ContainerId} failed: {Message}",
+                url, containerId, ex.Message);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Rewrites the <paramref name="url"/>'s host component to
+    /// <paramref name="newHost"/>, preserving the scheme, port, path, query
+    /// and fragment. Used by <see cref="ProbeHttpFromHostAsync"/> to convert
+    /// an in-container loopback URL (e.g. <c>http://localhost:8999/…</c>)
+    /// into a host-routable URL using the container's bridge IP.
+    /// </summary>
+    internal static string RewriteUrlHost(string url, string newHost)
+    {
+        var uri = new Uri(url);
+        var builder = new UriBuilder(uri)
+        {
+            Host = newHost,
+        };
+        // UriBuilder always serialises the port explicitly. Suppress it when
+        // the original URL had no port and the port is the scheme default so
+        // we don't produce "http://10.0.0.1:80/path" from "http://localhost/path".
+        if (uri.IsDefaultPort)
+            builder.Port = -1;
+        return builder.ToString();
     }
 
     /// <inheritdoc />

@@ -562,4 +562,86 @@ public class ContainersEndpointsTests : IClassFixture<DispatcherWebApplicationFa
         captured.VolumeMounts.ShouldContain("/var/run/secrets:/secrets:ro");
         captured.VolumeMounts.Last().ShouldEndWith(":/workspace");
     }
+
+    // ── ProbeFromHost tests (issue #1175) ──────────────────────────────────
+
+    [Fact]
+    public async Task PostContainerProbeFromHost_WithoutToken_Returns401()
+    {
+        var client = _factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync(
+            "/v1/containers/abc/probe-from-host",
+            new { url = "http://localhost:8999/.well-known/agent.json" },
+            TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task PostContainerProbeFromHost_MissingUrl_Returns400()
+    {
+        _factory.ContainerRuntime.ClearSubstitute();
+
+        var client = CreateAuthorizedClient();
+
+        var response = await client.PostAsJsonAsync(
+            "/v1/containers/abc/probe-from-host",
+            new { url = "" },
+            TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        await _factory.ContainerRuntime.DidNotReceive().ProbeHttpFromHostAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PostContainerProbeFromHost_Authorized_RuntimeReturnsTrue_ReportsHealthy()
+    {
+        // Direct path: dispatcher host resolves container IP and issues GET —
+        // no wget, no curl inside the container (issue #1175).
+        _factory.ContainerRuntime.ClearSubstitute();
+        _factory.ContainerRuntime
+            .ProbeHttpFromHostAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(true);
+
+        var client = CreateAuthorizedClient();
+
+        var response = await client.PostAsJsonAsync(
+            "/v1/containers/agent-1/probe-from-host",
+            new { url = "http://localhost:8999/.well-known/agent.json" },
+            TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>(TestContext.Current.CancellationToken);
+        body.GetProperty("healthy").GetBoolean().ShouldBeTrue();
+
+        await _factory.ContainerRuntime.Received(1).ProbeHttpFromHostAsync(
+            "agent-1",
+            "http://localhost:8999/.well-known/agent.json",
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PostContainerProbeFromHost_RuntimeReturnsFalse_ReportsUnhealthy()
+    {
+        // The boolean-collapse contract matches the existing /probe endpoint:
+        // the polling loop owns retry semantics; the dispatcher never upgrades
+        // a "not ready yet" answer to an error response.
+        _factory.ContainerRuntime.ClearSubstitute();
+        _factory.ContainerRuntime
+            .ProbeHttpFromHostAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(false);
+
+        var client = CreateAuthorizedClient();
+
+        var response = await client.PostAsJsonAsync(
+            "/v1/containers/agent-1/probe-from-host",
+            new { url = "http://localhost:8999/.well-known/agent.json" },
+            TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>(TestContext.Current.CancellationToken);
+        body.GetProperty("healthy").GetBoolean().ShouldBeFalse();
+    }
 }

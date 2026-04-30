@@ -166,9 +166,9 @@ public class PersistentAgentRegistryTests : IDisposable
     [Fact]
     public async Task RunHealthChecksAsync_HealthyAgent_StaysHealthy()
     {
-        // #1160: health probe routes through the container runtime so it
-        // works regardless of worker/agent network topology.
-        _containerRuntime.ProbeContainerHttpAsync(
+        // #1175: health probe routes through ProbeHttpFromHostAsync — no
+        // in-container wget, works regardless of worker/agent network topology.
+        _containerRuntime.ProbeHttpFromHostAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(true));
 
@@ -185,7 +185,7 @@ public class PersistentAgentRegistryTests : IDisposable
     [Fact]
     public async Task RunHealthChecksAsync_SingleFailure_IncreasesFailureCount()
     {
-        _containerRuntime.ProbeContainerHttpAsync(
+        _containerRuntime.ProbeHttpFromHostAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(false));
 
@@ -202,7 +202,7 @@ public class PersistentAgentRegistryTests : IDisposable
     [Fact]
     public async Task RunHealthChecksAsync_ConsecutiveFailures_MarksUnhealthy()
     {
-        _containerRuntime.ProbeContainerHttpAsync(
+        _containerRuntime.ProbeHttpFromHostAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(false));
 
@@ -238,7 +238,7 @@ public class PersistentAgentRegistryTests : IDisposable
     public async Task RunHealthChecksAsync_RecoveryAfterFailure_ResetsCount()
     {
         var healthy = false;
-        _containerRuntime.ProbeContainerHttpAsync(
+        _containerRuntime.ProbeHttpFromHostAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(_ => Task.FromResult(healthy));
 
@@ -278,7 +278,7 @@ public class PersistentAgentRegistryTests : IDisposable
         _registry.TryGet("agent-1", out var entry);
         entry!.HealthStatus.ShouldBe(AgentHealthStatus.Healthy);
         entry.ConsecutiveFailures.ShouldBe(0);
-        await _containerRuntime.DidNotReceive().ProbeContainerHttpAsync(
+        await _containerRuntime.DidNotReceive().ProbeHttpFromHostAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 

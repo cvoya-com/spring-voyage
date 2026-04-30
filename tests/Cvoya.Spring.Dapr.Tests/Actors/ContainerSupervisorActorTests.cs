@@ -334,7 +334,7 @@ public class ContainerSupervisorActorTests
             .Returns(new ConditionalValue<SupervisorState>(true, runningState));
 
         _containerRuntime
-            .ProbeContainerHttpAsync(containerId, Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .ProbeHttpFromHostAsync(containerId, Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(true);
 
         await _actor.CheckHealthAsync(CancellationToken.None);
@@ -368,7 +368,7 @@ public class ContainerSupervisorActorTests
 
         // Container is not alive.
         _containerRuntime
-            .ProbeContainerHttpAsync(containerId, Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .ProbeHttpFromHostAsync(containerId, Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(false);
 
         await _actor.CheckHealthAsync(CancellationToken.None);
@@ -408,7 +408,7 @@ public class ContainerSupervisorActorTests
             .Returns(new ConditionalValue<SupervisorState>(true, runningState));
 
         _containerRuntime
-            .ProbeContainerHttpAsync(containerId, Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .ProbeHttpFromHostAsync(containerId, Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(false);
 
         await _actor.CheckHealthAsync(CancellationToken.None);
@@ -441,7 +441,7 @@ public class ContainerSupervisorActorTests
             .Returns(new ConditionalValue<SupervisorState>(true, crashedState));
 
         _containerRuntime
-            .ProbeContainerHttpAsync(containerId, Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .ProbeHttpFromHostAsync(containerId, Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(false);
 
         await _actor.CheckHealthAsync(CancellationToken.None);
@@ -485,7 +485,7 @@ public class ContainerSupervisorActorTests
             .Returns(new ConditionalValue<SupervisorState>(true, runningState));
 
         _containerRuntime
-            .ProbeContainerHttpAsync(crashedContainerId, Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .ProbeHttpFromHostAsync(crashedContainerId, Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(false);
 
         _containerRuntime
@@ -584,7 +584,7 @@ public class ContainerSupervisorActorTests
             .Returns(new ConditionalValue<SupervisorState>(true, runningState));
 
         _containerRuntime
-            .ProbeContainerHttpAsync("healthy-container", Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .ProbeHttpFromHostAsync("healthy-container", Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(true);
 
         await _actor.ReceiveReminderAsync(
@@ -594,7 +594,7 @@ public class ContainerSupervisorActorTests
             ContainerSupervisorActor.HealthCheckInterval);
 
         // Health was probed — confirms the reminder drives the check loop.
-        await _containerRuntime.Received(1).ProbeContainerHttpAsync(
+        await _containerRuntime.Received(1).ProbeHttpFromHostAsync(
             "healthy-container", Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
@@ -609,7 +609,7 @@ public class ContainerSupervisorActorTests
             TimeSpan.FromMinutes(1));
 
         await _containerRuntime.DidNotReceiveWithAnyArgs()
-            .ProbeContainerHttpAsync(default!, default!, TestContext.Current.CancellationToken);
+            .ProbeHttpFromHostAsync(default!, default!, TestContext.Current.CancellationToken);
     }
 
     // ------------------------------------------------------------------

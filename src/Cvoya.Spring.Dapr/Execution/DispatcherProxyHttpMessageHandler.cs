@@ -58,7 +58,7 @@ internal sealed class DispatcherProxyHttpMessageHandler(
         {
             throw new NotSupportedException(
                 $"DispatcherProxyHttpMessageHandler only supports POST; got {request.Method}. " +
-                "Readiness probes go through IContainerRuntime.ProbeContainerHttpAsync; " +
+                "Readiness probes go through IContainerRuntime.ProbeHttpFromHostAsync; " +
                 "any other HTTP traffic to the agent must add a new IContainerRuntime primitive.");
         }
 
