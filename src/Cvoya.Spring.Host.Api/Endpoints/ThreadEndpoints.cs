@@ -167,7 +167,14 @@ public static class ThreadEndpoints
             };
         }
 
-        return Results.Ok(new ThreadMessageResponse(messageId, id, result.Value?.Payload));
+        // Echo the kind back on the response so callers can confirm what
+        // was accepted. Normalise to lower-case and default to "information"
+        // when the caller omitted it.
+        var kind = string.IsNullOrWhiteSpace(request.Kind)
+            ? Models.MessageKind.Information
+            : request.Kind.ToLowerInvariant();
+
+        return Results.Ok(new ThreadMessageResponse(messageId, id, result.Value?.Payload, kind));
     }
 
     /// <summary>

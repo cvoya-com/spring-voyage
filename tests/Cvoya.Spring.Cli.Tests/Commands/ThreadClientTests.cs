@@ -113,7 +113,7 @@ public class ThreadClientTests
 
         var result = await client.SendThreadMessageAsync(
             threadId, "agent", "ada", "Looks good — ship it.",
-            TestContext.Current.CancellationToken);
+            ct: TestContext.Current.CancellationToken);
 
         result.ShouldNotBeNull();
         result.MessageId.ShouldNotBeNull();

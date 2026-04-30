@@ -984,17 +984,29 @@ public class SpringApiClient
     /// <c>spring thread send --thread &lt;id&gt;</c> (and its
     /// <c>spring inbox respond</c> alias) both ride this single endpoint.
     /// </summary>
+    /// <param name="threadId">The thread to send into.</param>
+    /// <param name="toScheme">Destination address scheme (e.g. <c>agent</c>).</param>
+    /// <param name="toPath">Destination address path (e.g. <c>ada</c>).</param>
+    /// <param name="text">Free-text message body.</param>
+    /// <param name="kind">
+    /// Semantic kind of the message (#1421). Defaults to <c>information</c> when
+    /// omitted. Use <c>answer</c> for <c>engagement answer</c> so the portal can
+    /// distinguish replies from unprompted sends.
+    /// </param>
+    /// <param name="ct">Cancellation token.</param>
     public async Task<ThreadMessageResponse> SendThreadMessageAsync(
         string threadId,
         string toScheme,
         string toPath,
         string text,
+        string? kind = null,
         CancellationToken ct = default)
     {
         var request = new ThreadMessageRequest
         {
             To = new AddressDto { Scheme = toScheme, Path = toPath },
             Text = text,
+            Kind = string.IsNullOrWhiteSpace(kind) ? null : kind.ToLowerInvariant(),
         };
         var result = await _client.Api.V1.Tenant.Threads[threadId].Messages.PostAsync(request, cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
@@ -1022,28 +1034,34 @@ public class SpringApiClient
             $"Server returned an empty close response for thread '{threadId}'.");
     }
 
-    // Engagements (E2.2 / #1414) — SSE stream
+    // Engagements (E2.2 / #1421) — SSE stream
 
     /// <summary>
     /// Streams live activity events for an engagement by connecting to the
     /// platform-wide SSE endpoint (<c>GET /api/v1/tenant/activity/stream</c>)
-    /// and filtering each line to those that reference the specified
-    /// <paramref name="threadId"/>.
+    /// with the <c>?thread=&lt;id&gt;</c> server-side filter that restricts the
+    /// stream to events tagged with the specified thread id.
     ///
     /// <para>
-    /// The server does not yet expose a thread-scoped SSE endpoint, so
-    /// client-side filtering is the only option today. Each raw SSE line
-    /// is forwarded verbatim to <paramref name="onEvent"/>; the caller is
-    /// responsible for stripping the <c>data: </c> prefix and parsing JSON
-    /// if needed. The stream runs until the <paramref name="ct"/> is
-    /// cancelled (Ctrl+C) or the server closes the connection.
+    /// The server applies the filter via <c>ActivityEvent.CorrelationId</c> before
+    /// events reach the wire, so only the events belonging to this engagement are
+    /// sent over the connection. A client-side check is retained as a defensive
+    /// fallback for older servers that predate the <c>?thread=</c> parameter — if
+    /// an event slips through without a matching correlation id it is silently
+    /// dropped on the client.
+    /// </para>
+    /// <para>
+    /// Each raw SSE line is forwarded verbatim to <paramref name="onEvent"/>; the
+    /// caller is responsible for stripping the <c>data: </c> prefix and parsing
+    /// JSON if needed. The stream runs until the <paramref name="ct"/> is cancelled
+    /// (Ctrl+C) or the server closes the connection.
     /// </para>
     /// </summary>
-    /// <param name="threadId">Engagement (thread) id to filter on.</param>
+    /// <param name="threadId">Engagement (thread) id to filter on. Sent as <c>?thread=</c>.</param>
     /// <param name="source">
     /// Optional additional <c>?source=</c> query param to pass to the server
     /// (e.g. <c>agent://ada</c>). The server applies this filter before
-    /// events reach the wire; the client still further filters by threadId.
+    /// events reach the wire.
     /// </param>
     /// <param name="onEvent">
     /// Callback invoked with each non-empty SSE line. The line may include the
@@ -1056,11 +1074,19 @@ public class SpringApiClient
         Action<string> onEvent,
         CancellationToken ct = default)
     {
-        var url = $"{_baseUrl}/api/v1/tenant/activity/stream";
+        // Build the URL with the server-side ?thread= filter. The server applies
+        // the filter via ActivityEvent.CorrelationId (#1421), so only events
+        // belonging to this engagement are transmitted over the wire.
+        var queryParts = new List<string>
+        {
+            $"thread={Uri.EscapeDataString(threadId)}",
+        };
         if (!string.IsNullOrWhiteSpace(source))
         {
-            url += $"?source={Uri.EscapeDataString(source)}";
+            queryParts.Add($"source={Uri.EscapeDataString(source)}");
         }
+
+        var url = $"{_baseUrl}/api/v1/tenant/activity/stream?{string.Join("&", queryParts)}";
 
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Accept.ParseAdd("text/event-stream");
@@ -1104,12 +1130,10 @@ public class SpringApiClient
                 continue;
             }
 
-            // Client-side filter: only forward events that reference the
-            // requested thread id. The threadId field may appear as
-            // "threadId" on the activity event wire (the server stamps it
-            // when the event is thread-scoped). If the json does not mention
-            // the thread id at all we skip it — the platform stream includes
-            // events from all threads.
+            // Defensive client-side fallback: for older servers that do not
+            // support the ?thread= parameter the stream may include events from
+            // other threads. Filter them out here so callers always see only the
+            // engagement they requested.
             var json = line["data:".Length..].TrimStart();
             if (!json.Contains(threadId, StringComparison.Ordinal))
             {

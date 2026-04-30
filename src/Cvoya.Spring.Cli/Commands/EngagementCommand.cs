@@ -28,21 +28,20 @@ using Cvoya.Spring.Cli.Utilities;
 /// <list type="bullet">
 ///   <item>
 ///     <c>engagement list</c> (no flags) returns all threads visible to the
-///     authenticated caller — the API has no <c>?me=true</c> shorthand.
-///     Pass <c>--participant &lt;address&gt;</c> to filter by participant address.
+///     authenticated caller. Pass <c>--participant &lt;address&gt;</c> to filter
+///     by participant address.
 ///   </item>
 ///   <item>
-///     <c>engagement watch</c> rides the platform-wide SSE stream at
-///     <c>GET /api/v1/tenant/activity/stream</c>, filtering client-side to
-///     the specified thread id. A thread-scoped SSE endpoint does not yet
-///     exist — file a follow-up if one is needed.
+///     <c>engagement watch</c> connects to
+///     <c>GET /api/v1/tenant/activity/stream?thread=&lt;id&gt;</c> so the server
+///     filters events to the specified thread before they reach the wire (#1421).
+///     A client-side fallback is retained for older servers.
 ///   </item>
 ///   <item>
-///     <c>engagement answer</c> sends to the same <c>POST /api/v1/tenant/threads/{id}/messages</c>
-///     endpoint as <c>engagement send</c>. There is no Q&amp;A discriminator
-///     on the server side; the clarification loop is implicit in the message
-///     flow. Both verbs accept the destination address so the caller is always
-///     explicit about who they are addressing.
+///     <c>engagement send</c> sets <c>kind=information</c> (the default) and
+///     <c>engagement answer</c> sets <c>kind=answer</c> (#1421). Both route to
+///     the same <c>POST /api/v1/tenant/threads/{id}/messages</c> endpoint; the
+///     <c>kind</c> discriminator is the semantic signal — not a routing gate.
 ///   </item>
 /// </list>
 /// </summary>
@@ -160,8 +159,8 @@ public static class EngagementCommand
         var command = new Command(
             "watch",
             "Stream live activity from an engagement. Observe-mode — no participant status required. " +
-            "Rides the platform-wide SSE stream at GET /api/v1/tenant/activity/stream; events are " +
-            "filtered client-side to the specified thread id. Press Ctrl+C to stop.");
+            "Uses GET /api/v1/tenant/activity/stream?thread=<id> for server-side filtering (#1421); " +
+            "a client-side fallback guards against older servers. Press Ctrl+C to stop.");
         command.Arguments.Add(idArg);
         command.Options.Add(sourceOption);
 
@@ -286,7 +285,9 @@ public static class EngagementCommand
 
             try
             {
-                var result = await client.SendThreadMessageAsync(id, scheme, path, message, ct);
+                // engagement send defaults to kind=information (#1421).
+                var result = await client.SendThreadMessageAsync(
+                    id, scheme, path, message, kind: "information", ct: ct);
 
                 Console.WriteLine(output == "json"
                     ? OutputFormatter.FormatJson(result)
@@ -316,16 +317,15 @@ public static class EngagementCommand
             Description = "Address of the agent or unit that asked the question (e.g. agent://ada)",
         };
 
-        // NOTE: the server's POST /api/v1/tenant/threads/{id}/messages endpoint
-        // has no Q&A discriminator — clarification is implicit in the message
-        // flow. `engagement answer` is a UX alias for `engagement send` that
-        // signals the human's intent at the CLI surface. Both route to the
-        // same endpoint; the unit/agent interprets context from the thread.
+        // `engagement answer` sends kind=answer so the portal can distinguish
+        // replies to clarifying questions from unprompted sends (#1421).
+        // Both `answer` and `send` route to the same endpoint; the `kind`
+        // discriminator is the semantic signal — not a routing gate.
         var command = new Command(
             "answer",
             "Answer a clarifying question from a unit or agent. " +
-            "Routes to the same POST /api/v1/tenant/threads/{id}/messages endpoint as 'send' — " +
-            "there is no server-side Q&A discriminator; the clarification loop is implicit in the thread.");
+            "Sends kind=answer to the POST /api/v1/tenant/threads/{id}/messages endpoint " +
+            "so the engagement portal can identify replies semantically.");
         command.Arguments.Add(idArg);
         command.Arguments.Add(addressArg);
         command.Arguments.Add(answerArg);
@@ -342,7 +342,10 @@ public static class EngagementCommand
 
             try
             {
-                var result = await client.SendThreadMessageAsync(id, scheme, path, answer, ct);
+                // engagement answer sets kind=answer — the semantic distinction
+                // from engagement send is now explicit on the wire (#1421).
+                var result = await client.SendThreadMessageAsync(
+                    id, scheme, path, answer, kind: "answer", ct: ct);
 
                 Console.WriteLine(output == "json"
                     ? OutputFormatter.FormatJson(result)

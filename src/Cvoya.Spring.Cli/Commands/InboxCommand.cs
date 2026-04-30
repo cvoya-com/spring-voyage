@@ -181,7 +181,7 @@ public static class InboxCommand
 
             try
             {
-                var result = await client.SendThreadMessageAsync(id, scheme, path, text, ct);
+                var result = await client.SendThreadMessageAsync(id, scheme, path, text, ct: ct);
                 Console.WriteLine(output == "json"
                     ? OutputFormatter.FormatJson(result)
                     : $"Replied to {targetAddress} in thread {result.ThreadId}. (id: {result.MessageId?.ToString() ?? "n/a"})");

@@ -173,7 +173,7 @@ public static class ThreadCommand
             try
             {
                 var result = await client.SendThreadMessageAsync(
-                    threadId, scheme, path, text, ct);
+                    threadId, scheme, path, text, ct: ct);
 
                 Console.WriteLine(output == "json"
                     ? OutputFormatter.FormatJson(result)

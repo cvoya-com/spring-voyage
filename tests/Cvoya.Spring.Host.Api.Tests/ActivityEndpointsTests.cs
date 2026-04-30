@@ -318,6 +318,83 @@ public class ActivityEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     /// <summary>
+    /// Thread-scoped SSE filter (#1421): when <c>?thread=&lt;id&gt;</c> is supplied,
+    /// only events whose <c>CorrelationId</c> matches are forwarded. An event with
+    /// a different correlation id must be silently dropped.
+    /// </summary>
+    [Fact]
+    public async Task StreamActivity_WithThreadFilter_FiltersToMatchingCorrelationId()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var threadId = "t-filter-test-1";
+        var otherThread = "t-filter-test-other";
+
+        using var subject = new System.Reactive.Subjects.Subject<ActivityEvent>();
+        _factory.ActivityEventBus.ActivityStream.Returns(subject);
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromSeconds(10));
+
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get, $"/api/v1/tenant/activity/stream?thread={threadId}");
+        using var response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cts.Token);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        await using var stream = await response.Content.ReadAsStreamAsync(cts.Token);
+        using var reader = new StreamReader(stream);
+
+        // Emit one matching event (same CorrelationId as the filter) and one
+        // non-matching event (different CorrelationId). Only the matching event
+        // should appear on the SSE wire.
+        var matchingEvent = new ActivityEvent(
+            Id: Guid.NewGuid(),
+            Timestamp: DateTimeOffset.UtcNow,
+            Source: new Cvoya.Spring.Core.Messaging.Address("agent", "ada"),
+            EventType: ActivityEventType.MessageReceived,
+            Severity: ActivitySeverity.Info,
+            Summary: "matching",
+            CorrelationId: threadId);
+
+        var nonMatchingEvent = new ActivityEvent(
+            Id: Guid.NewGuid(),
+            Timestamp: DateTimeOffset.UtcNow,
+            Source: new Cvoya.Spring.Core.Messaging.Address("agent", "ada"),
+            EventType: ActivityEventType.MessageReceived,
+            Severity: ActivitySeverity.Info,
+            Summary: "non-matching",
+            CorrelationId: otherThread);
+
+        subject.OnNext(matchingEvent);
+        subject.OnNext(nonMatchingEvent);
+
+        // Read exactly one event with a tight per-line timeout.
+        string? receivedLine = null;
+        while (receivedLine is null)
+        {
+            using var lineCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
+            lineCts.CancelAfter(TimeSpan.FromSeconds(3));
+
+            string? line;
+            try
+            {
+                line = await reader.ReadLineAsync(lineCts.Token);
+            }
+            catch (OperationCanceledException) { break; }
+            catch (IOException) { break; }
+
+            if (!string.IsNullOrEmpty(line) && line.StartsWith("data: ", StringComparison.Ordinal))
+            {
+                receivedLine = line;
+            }
+        }
+
+        receivedLine.ShouldNotBeNull("at least one matching event should have reached the SSE wire");
+        receivedLine.ShouldContain("matching");
+        receivedLine.ShouldNotContain("non-matching");
+        receivedLine.ShouldContain(threadId);
+    }
+
+    /// <summary>
     /// Closes the #391 acceptance: "An observation subscription test verifies
     /// cross-agent permission enforcement." The caller requests a unit-scoped
     /// stream for a unit they have no permission on; the endpoint must refuse

@@ -308,7 +308,7 @@ public class EngagementCommandTests
         var client = new SpringApiClient(new HttpClient(handler), BaseUrl);
         var result = await client.SendThreadMessageAsync(
             threadId, "agent", "ada", "Please review the latest commit.",
-            TestContext.Current.CancellationToken);
+            ct: TestContext.Current.CancellationToken);
 
         result.ThreadId.ShouldBe(threadId);
         handler.WasCalled.ShouldBeTrue();
@@ -318,7 +318,7 @@ public class EngagementCommandTests
     public async Task EngagementAnswerAsync_PostsToSameEndpointAsSend()
     {
         // answer and send both call SendThreadMessageAsync — they share the
-        // endpoint because there is no Q&A discriminator on the API side.
+        // endpoint; the semantic distinction is expressed via kind (#1421).
         var threadId = "t-engagement-2";
         var handler = new MockHttpMessageHandler(
             expectedPath: $"/api/v1/tenant/threads/{threadId}/messages",
@@ -333,7 +333,7 @@ public class EngagementCommandTests
         var client = new SpringApiClient(new HttpClient(handler), BaseUrl);
         var result = await client.SendThreadMessageAsync(
             threadId, "agent", "ada", "Yes, proceed with the merge.",
-            TestContext.Current.CancellationToken);
+            ct: TestContext.Current.CancellationToken);
 
         result.ThreadId.ShouldBe(threadId);
         handler.WasCalled.ShouldBeTrue();
@@ -436,12 +436,14 @@ public class EngagementCommandTests
     public async Task StreamEngagementAsync_FiltersEventsByThreadId()
     {
         // The method should forward only lines whose JSON contains the threadId.
+        // The server-side ?thread= filter handles this on modern servers; the
+        // client-side fallback catches any that slip through on older servers.
         var threadId = "t-stream-1";
         var otherThread = "t-stream-other";
 
         var sseBody =
-            $"data: {{\"timestamp\":\"2026-04-01T10:00:00Z\",\"threadId\":\"{threadId}\",\"eventType\":\"MessageReceived\",\"severity\":\"Info\",\"summary\":\"Hello\",\"source\":{{\"scheme\":\"agent\",\"path\":\"ada\"}}}}\n\n" +
-            $"data: {{\"timestamp\":\"2026-04-01T10:01:00Z\",\"threadId\":\"{otherThread}\",\"eventType\":\"MessageReceived\",\"severity\":\"Info\",\"summary\":\"Other\",\"source\":{{\"scheme\":\"agent\",\"path\":\"bob\"}}}}\n\n";
+            $"data: {{\"timestamp\":\"2026-04-01T10:00:00Z\",\"correlationId\":\"{threadId}\",\"eventType\":\"MessageReceived\",\"severity\":\"Info\",\"summary\":\"Hello\",\"source\":{{\"scheme\":\"agent\",\"path\":\"ada\"}}}}\n\n" +
+            $"data: {{\"timestamp\":\"2026-04-01T10:01:00Z\",\"correlationId\":\"{otherThread}\",\"eventType\":\"MessageReceived\",\"severity\":\"Info\",\"summary\":\"Other\",\"source\":{{\"scheme\":\"agent\",\"path\":\"bob\"}}}}\n\n";
 
         var handler = new SseHttpMessageHandler(
             expectedPath: "/api/v1/tenant/activity/stream",
@@ -466,13 +468,42 @@ public class EngagementCommandTests
     }
 
     [Fact]
+    public async Task StreamEngagementAsync_SendsThreadQueryParam()
+    {
+        // StreamEngagementAsync must send ?thread=<id> to the server (#1421).
+        var threadId = "t-stream-qp-1";
+        var handler = new SseHttpMessageHandler(
+            expectedPath: "/api/v1/tenant/activity/stream",
+            sseContent: string.Empty,
+            validateQuery: q =>
+            {
+                q.ShouldContain($"thread={Uri.EscapeDataString(threadId)}");
+            });
+
+        var client = new SpringApiClient(new HttpClient(handler), BaseUrl);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await client.StreamEngagementAsync(
+            threadId: threadId,
+            source: null,
+            onEvent: _ => { },
+            ct: cts.Token);
+
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
     public async Task StreamEngagementAsync_WithSource_ForwardsSourceQueryParam()
     {
         var threadId = "t-stream-2";
         var handler = new SseHttpMessageHandler(
             expectedPath: "/api/v1/tenant/activity/stream",
             sseContent: string.Empty,
-            validateQuery: q => q.ShouldContain("source=agent%3A%2F%2Fada"));
+            validateQuery: q =>
+            {
+                q.ShouldContain("source=agent%3A%2F%2Fada");
+                q.ShouldContain($"thread={Uri.EscapeDataString(threadId)}");
+            });
 
         var client = new SpringApiClient(new HttpClient(handler), BaseUrl);
 
@@ -482,6 +513,54 @@ public class EngagementCommandTests
             source: "agent://ada",
             onEvent: _ => { },
             ct: cts.Token);
+
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    // -----------------------------------------------------------------------
+    // API client tests — kind discriminator (#1421)
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task EngagementSendAsync_SendsKindInformation()
+    {
+        // engagement send must set kind=information on the request body.
+        var threadId = "t-kind-send";
+        var handler = new MockHttpMessageHandler(
+            expectedPath: $"/api/v1/tenant/threads/{threadId}/messages",
+            expectedMethod: HttpMethod.Post,
+            responseBody: $$"""{"messageId":"{{Guid.NewGuid()}}","threadId":"{{threadId}}","responsePayload":null,"kind":"information"}""",
+            validateRequestBody: body =>
+            {
+                var json = JsonSerializer.Deserialize<JsonElement>(body);
+                json.GetProperty("kind").GetString().ShouldBe("information");
+            });
+
+        var client = new SpringApiClient(new HttpClient(handler), BaseUrl);
+        await client.SendThreadMessageAsync(threadId, "agent", "ada", "Hello", kind: "information",
+            ct: TestContext.Current.CancellationToken);
+
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task EngagementAnswerAsync_SendsKindAnswer()
+    {
+        // engagement answer must set kind=answer on the request body (#1421).
+        var threadId = "t-kind-answer";
+        var handler = new MockHttpMessageHandler(
+            expectedPath: $"/api/v1/tenant/threads/{threadId}/messages",
+            expectedMethod: HttpMethod.Post,
+            responseBody: $$"""{"messageId":"{{Guid.NewGuid()}}","threadId":"{{threadId}}","responsePayload":null,"kind":"answer"}""",
+            validateRequestBody: body =>
+            {
+                var json = JsonSerializer.Deserialize<JsonElement>(body);
+                json.GetProperty("kind").GetString().ShouldBe("answer");
+            });
+
+        var client = new SpringApiClient(new HttpClient(handler), BaseUrl);
+        await client.SendThreadMessageAsync(threadId, "agent", "ada", "Yes, proceed", kind: "answer",
+            ct: TestContext.Current.CancellationToken);
 
         handler.WasCalled.ShouldBeTrue();
     }
