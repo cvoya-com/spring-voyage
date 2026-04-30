@@ -21,6 +21,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { MessagesSquare, ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useInbox } from "@/lib/api/queries";
 
 interface EngagementShellProps {
   children: React.ReactNode;
@@ -34,7 +35,7 @@ interface NavEntry {
 }
 
 const ENGAGEMENT_NAV: readonly NavEntry[] = [
-  { href: "/engagement/mine", label: "My engagements" },
+  { href: "/engagement/mine", label: "My engagements", exact: false },
 ];
 
 /**
@@ -65,7 +66,31 @@ function EngagementNavLink({
       )}
     >
       {entry.label}
+      {entry.href === "/engagement/mine" && <GlobalInboxBadge />}
     </Link>
+  );
+}
+
+/**
+ * Global inbox badge: total count of engagements that have an unanswered
+ * question from a unit/agent awaiting the current human. Computed from the
+ * inbox endpoint (GET /api/v1/tenant/inbox) which returns items where the
+ * human is the intended next responder.
+ */
+function GlobalInboxBadge() {
+  const inbox = useInbox({ staleTime: 30_000 });
+  const count = inbox.data?.length ?? 0;
+
+  if (count === 0) return null;
+
+  return (
+    <span
+      className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-warning px-1 text-[10px] font-semibold tabular-nums text-warning-foreground"
+      aria-label={`${count} unanswered question${count === 1 ? "" : "s"}`}
+      data-testid="engagement-inbox-badge"
+    >
+      {count > 99 ? "99+" : count}
+    </span>
   );
 }
 
@@ -95,6 +120,11 @@ export function EngagementShell({ children }: EngagementShellProps) {
             aria-hidden="true"
           >
             · Spring Voyage
+          </span>
+          {/* Global pending-question count badge — visible on mobile only.
+              On desktop, the badge appears on the "My engagements" nav link. */}
+          <span className="md:hidden" aria-hidden="true">
+            <GlobalInboxBadge />
           </span>
         </div>
 

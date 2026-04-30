@@ -641,13 +641,13 @@ The engagement portal lives at `/engagement/**` (E2.3, #1415). Per ADR-0033 it s
 - **Left sidebar** (`w-48`, `bg-card`, `border-r border-border`): hidden on `< md`. Section label "Engagements" in `text-[10px] uppercase tracking-wider text-muted-foreground`. Nav links follow the same active/inactive pattern as the management sidebar: `bg-primary/10 text-primary font-medium` for the active link, `text-muted-foreground hover:bg-accent` for inactive.
 - **Content `<main>`** (`id="engagement-main-content"`): `p-4 md:p-6`, same as the outer AppShell main pane.
 
-### 16.2 Route map (v0.1 skeleton)
+### 16.2 Route map (v0.1)
 
 | URL | Page | Status |
 |---|---|---|
 | `/engagement` | Redirect to `/engagement/mine` | Permanent redirect. If a future revision adds a tenant-wide engagement overview here, the redirect is removed and this page gains its own content. |
-| `/engagement/mine` | My engagements list | Placeholder empty-state — E2.4 (#1416) fills it. Accepts `?unit=<id>` and `?agent=<id>` query params for cross-portal pre-filtering. |
-| `/engagement/<id>` | Engagement detail | Placeholder — E2.5 (#1417) fills it. |
+| `/engagement/mine` | My engagements list | Live — E2.4 (#1416). Accepts `?unit=<id>` and `?agent=<id>` query params for cross-portal pre-filtering. |
+| `/engagement/<id>` | Engagement detail | Live — E2.5 + E2.6 (#1417, #1418). Timeline + composer + observe banner + CTA. |
 
 ### 16.3 Cross-portal link contract
 
@@ -671,6 +671,41 @@ The engagement portal is visually distinguished from the management portal by:
 3. A dedicated two-pane structure inside the AppShell's `<main>`, separate from the management portal's content areas.
 
 Do not use `text-voyage` / `--color-voyage` tokens for any management-portal surfaces — they are reserved as the engagement-portal identity signal.
+
+### 16.5 Engagement list (E2.4)
+
+`src/components/engagement/engagement-list.tsx` renders the engagement cards at `/engagement/mine`. Three slices: `mine` (default, human-participates), `unit` (per-unit filter), `agent` (per-agent filter).
+
+**Card shape.** `rounded-lg border border-border bg-card`, `hover:border-primary/40`, whole-card `<Link>` to `/engagement/<id>`. Inactive engagements fade via opacity class (`opacity-80` for 1–7 d old, `opacity-50` for > 7 d). The `data-role` icon signals the type: `MessagesSquare` (text-voyage) for participated threads, `Eye` (muted) for A2A-only threads.
+
+**Status badges on cards:**
+- Pending question: `<Badge variant="warning">Question</Badge>` + `MessageCircleQuestion` icon in `text-warning`. Sourced from `useInbox()` cross-matched by `threadId`.
+- A2A-only: `<Badge variant="secondary">A2A</Badge>`.
+- Freshness: `<Badge variant="success">` for threads active within 24 h, `<Badge variant="outline">` otherwise — shows the `formatDistanceToNow` string.
+
+**Empty / loading / error states.** Empty: `<Card>` with centered `MessagesSquare h-10 w-10 text-muted-foreground` hero. Loading: three `<Skeleton className="h-28 w-full rounded-lg" />` items. Error: `role="alert"` destructive banner with `AlertCircle` icon.
+
+### 16.6 Engagement detail (E2.5 + E2.6)
+
+`src/components/engagement/engagement-detail.tsx` is the client-side detail shell. Three regions stacked vertically:
+
+1. **Participants header** (border-b, px-4 py-2 text-xs): participant addresses in font-mono, status badge, `Observer` secondary badge when the human is not a participant.
+2. **Observe banner** (when not a participant): `rounded-md border border-primary/40 bg-primary/10`, `role="status"`, `Eye` icon in `text-primary`. Copy: "You are observing this engagement — not a participant. The Timeline is read-only…".
+3. **Question CTA** (E2.6 — when inbox has a pending question for this thread AND the user is a participant): `rounded-md border border-warning/50 bg-warning/10`, `role="alert"`, `MessageCircleQuestion` in `text-warning`. Includes an outline `<Button>` "Answer this question" that switches the composer to `kind=answer` mode.
+4. **Timeline** (`EngagementTimeline`): scrollable event list; stream-status indicator (Wifi icon `text-success` / WifiOff). Uses `useThreadStream(threadId)` which opens `/api/stream/activity?thread=<id>` for server-filtered SSE.
+5. **Composer** (`EngagementComposer`, participant-only): two modes:
+   - `information` (default): normal border, "Send" button.
+   - `answer`: `border-warning/40 bg-warning/5` form, badge `<Badge variant="warning">answer</Badge>`, "Send answer" button in warning colour, "Switch to regular message instead" dismiss link. The mode activates from the CTA or `initialKind` prop.
+
+**Thread-scoped SSE.** `src/lib/stream/use-thread-stream.ts` opens `EventSource` at `/api/stream/activity?thread=<id>` (proxied by the Next.js route handler which passes all query params through to the platform's `GET /api/v1/tenant/activity/stream`). On each event the hook invalidates `queryKeys.threads.detail(id)`, `queryKeys.threads.all`, and `queryKeys.threads.inbox()`.
+
+### 16.7 Global inbox badge (E2.6)
+
+`GlobalInboxBadge` in `engagement-shell.tsx` calls `useInbox()` and renders a rounded pill (`bg-warning text-warning-foreground h-4 min-w-4 px-1 text-[10px] rounded-full`) with the total count. The badge appears:
+- **Desktop**: inline on the "My engagements" nav link inside the sidebar.
+- **Mobile**: inline in the engagement header band.
+
+Counts above 99 display as "99+". When count is 0 the badge is not rendered (no DOM footprint).
 
 ---
 

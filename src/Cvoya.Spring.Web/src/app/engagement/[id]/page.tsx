@@ -1,17 +1,34 @@
-// Engagement detail view — placeholder (E2.3, #1415).
+// Engagement detail view (E2.5 + E2.6, #1417, #1418).
 //
-// URL: /engagement/<id>   (where <id> is the engagement / thread id)
+// URL: /engagement/<id>
 //
-// Empty placeholder for the engagement detail view (E2.5, #1417 will fill).
-// E2.5 will render the full Timeline, send-message composer, and inbound
-// clarification UX here.
+// Renders the full engagement detail:
+//   - Timeline: streamed via SSE on /api/v1/tenant/activity/stream?thread=<id>
+//   - Composer: visible when the current human is a participant (kind=information)
+//   - Observe banner: visible when the human is NOT a participant (A2A / other)
+//   - "Answer this question" CTA: visible when there is a pending inbox question
+//     for this engagement (kind=answer on submit)
+//
+// The page shell (header + back link) is server-rendered; the interactive
+// detail (Timeline + composer) is a client component.
 
 import { MessagesSquare } from "lucide-react";
-import { Card, CardContent } from "@/components/ui/card";
 import Link from "next/link";
+import type { Metadata } from "next";
+
+import { EngagementDetail } from "@/components/engagement/engagement-detail";
 
 interface EngagementDetailPageProps {
   params: Promise<{ id: string }>;
+}
+
+export async function generateMetadata({
+  params,
+}: EngagementDetailPageProps): Promise<Metadata> {
+  const { id } = await params;
+  return {
+    title: `Engagement ${id} — Spring Voyage`,
+  };
 }
 
 export default async function EngagementDetailPage({
@@ -20,41 +37,29 @@ export default async function EngagementDetailPage({
   const { id } = await params;
 
   return (
-    <div className="space-y-6" data-testid="engagement-detail-page">
-      <div>
-        <h1 className="flex items-center gap-2 text-2xl font-bold">
-          <MessagesSquare className="h-5 w-5" aria-hidden="true" />
-          Engagement
-          <span
-            className="font-mono text-lg text-muted-foreground"
-            data-testid="engagement-detail-id"
-          >
+    <div className="flex flex-col h-full" data-testid="engagement-detail-page">
+      {/* Page header */}
+      <div className="flex items-center gap-2 pb-4 border-b border-border">
+        <Link
+          href="/engagement/mine"
+          className="text-xs text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
+          aria-label="Back to my engagements"
+        >
+          ← My engagements
+        </Link>
+        <span className="text-muted-foreground" aria-hidden="true">/</span>
+        <h1 className="flex items-center gap-2 text-base font-semibold min-w-0">
+          <MessagesSquare className="h-4 w-4 shrink-0" aria-hidden="true" />
+          <span className="font-mono text-sm text-muted-foreground truncate">
             {id}
           </span>
         </h1>
       </div>
 
-      <Card data-testid="engagement-detail-placeholder">
-        <CardContent className="flex flex-col items-center justify-center p-8 text-center">
-          <MessagesSquare
-            className="mb-3 h-10 w-10 text-muted-foreground"
-            aria-hidden="true"
-          />
-          <p className="mb-1 font-medium">
-            Engagement {id} — detail view coming soon
-          </p>
-          <p className="text-sm text-muted-foreground">
-            The full Timeline, send-message composer, and clarification UX land
-            in E2.5 (#1417).
-          </p>
-        </CardContent>
-      </Card>
-
-      <p className="text-xs text-muted-foreground">
-        <Link href="/engagement/mine" className="text-primary hover:underline">
-          Back to my engagements
-        </Link>
-      </p>
+      {/* Client-side detail: Timeline + composer + observe banner + CTA */}
+      <div className="flex-1 min-h-0 -mx-4 md:-mx-6">
+        <EngagementDetail threadId={id} />
+      </div>
     </div>
   );
 }

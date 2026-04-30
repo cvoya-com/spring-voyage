@@ -1,46 +1,66 @@
-// My engagements list — placeholder (E2.3, #1415).
+// My engagements list (E2.4, #1416).
 //
 // URL: /engagement/mine
 //
-// Empty placeholder for the engagement list view (E2.4, #1416 will fill).
+// Three cross-link URL shapes:
+//   /engagement/mine                  — my engagements (human-participates threads)
+//   /engagement/mine?unit=<id>        — all engagements for a specific unit
+//   /engagement/mine?agent=<id>       — all engagements for a specific agent
 //
-// Cross-link URL shape:
-//   From the management portal, a unit-detail or agent-detail page links here
-//   with an optional filter query parameter:
-//     /engagement/mine?unit=<unitId>    — engagements for a specific unit
-//     /engagement/mine?agent=<agentId>  — engagements for a specific agent
-//
-// E2.4 reads these query parameters to pre-filter the list. This file is the
-// canonical landing target for all management → engagement cross-links.
+// The management portal's unit-detail and agent-detail pages link here
+// with the optional query param. A2A-only engagements are excluded from
+// the default "mine" view but visible in the per-unit / per-agent slices
+// (they can be observed read-only from the detail view).
 
 import { MessagesSquare } from "lucide-react";
-import { Card, CardContent } from "@/components/ui/card";
+import type { Metadata } from "next";
+import { EngagementList } from "@/components/engagement/engagement-list";
 
-export default function MyEngagementsPage() {
+export const metadata: Metadata = {
+  title: "My engagements — Spring Voyage",
+};
+
+interface MyEngagementsPageProps {
+  searchParams: Promise<Record<string, string | undefined>>;
+}
+
+export default async function MyEngagementsPage({
+  searchParams,
+}: MyEngagementsPageProps) {
+  const params = await searchParams;
+  const unit = params.unit;
+  const agent = params.agent;
+
+  // Determine which slice to show based on the query params.
+  const slice = unit ? "unit" : agent ? "agent" : "mine";
+
+  const heading =
+    slice === "unit"
+      ? `Engagements for unit: ${unit}`
+      : slice === "agent"
+        ? `Engagements for agent: ${agent}`
+        : "My engagements";
+
+  const description =
+    slice === "unit"
+      ? "All engagements involving this unit, including agent-to-agent threads."
+      : slice === "agent"
+        ? "All engagements involving this agent, including agent-to-agent threads."
+        : "Threads you are a participant in, sorted by latest activity.";
+
   return (
     <div className="space-y-6" data-testid="my-engagements-page">
       <div>
         <h1 className="flex items-center gap-2 text-2xl font-bold">
           <MessagesSquare className="h-5 w-5" aria-hidden="true" />
-          My engagements
+          {heading}
         </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Threads you are a participant in, sorted by latest activity.
-        </p>
+        <p className="mt-1 text-sm text-muted-foreground">{description}</p>
       </div>
 
-      <Card data-testid="my-engagements-empty-state">
-        <CardContent className="flex flex-col items-center justify-center p-8 text-center">
-          <MessagesSquare
-            className="mb-3 h-10 w-10 text-muted-foreground"
-            aria-hidden="true"
-          />
-          <p className="mb-1 font-medium">No engagements yet</p>
-          <p className="text-sm text-muted-foreground">
-            Start a unit and assign it a task to begin an engagement.
-          </p>
-        </CardContent>
-      </Card>
+      {/* The list component is a client component that fetches and renders
+          the engagement list with loading / error / empty states. */}
+      <EngagementList slice={slice} unit={unit} agent={agent} />
     </div>
   );
 }
