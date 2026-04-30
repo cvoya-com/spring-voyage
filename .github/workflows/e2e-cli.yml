@@ -1,0 +1,224 @@
+name: E2E CLI (scheduled / manual)
+
+# Gating rationale: the E2E fast-pool scenarios hit a live running stack
+# (Postgres + Dapr sidecars + the Spring Voyage API + Worker). Standing up
+# that stack in a clean GitHub Actions runner is a multi-minute operation
+# and costs the runner's full resource budget — unsuitable as a per-PR
+# gate. Instead this workflow runs:
+#
+#   - On a weekly schedule (every Monday at 06:00 UTC) so regressions are
+#     caught before the release week, not during.
+#   - On workflow_dispatch so any contributor can trigger it manually before
+#     cutting a release, after a batch of changes, or when debugging a
+#     suspected regression.
+#
+# The workflow does NOT run on every push or pull_request. Adding it to
+# required-checks would block every PR on a multi-minute stack bringup.
+# The integration + unit suites (ci.yml) remain the per-PR gate.
+#
+# To add a new scenario: drop a .sh file in tests/e2e/scenarios/fast/ and
+# it is picked up automatically by run.sh. See tests/e2e/README.md.
+
+on:
+  schedule:
+    # Every Monday at 06:00 UTC — enough lead time before typical release
+    # windows (Tuesdays / Wednesdays) to catch regressions and fix them.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      spring_api_url:
+        description: "Spring API base URL (default: http://localhost:5000)"
+        required: false
+        default: "http://localhost:5000"
+      e2e_prefix:
+        description: "E2E prefix for generated unit/agent names (default: e2e-ci)"
+        required: false
+        default: "e2e-ci"
+      scenario_glob:
+        description: "Scenario glob to run (e.g. 22-*). Default runs all fast scenarios."
+        required: false
+        default: ""
+
+concurrency:
+  group: e2e-cli
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  e2e-fast:
+    name: E2E CLI fast pool
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v6
+
+      # .NET SDK — needed to `dotnet run` the CLI via the default SPRING_CLI.
+      # Override SPRING_CLI to a prebuilt binary path to skip this.
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+          cache: true
+          cache-dependency-path: |
+            **/*.csproj
+            Directory.Packages.props
+            global.json
+            NuGet.config
+
+      - name: Install Dapr CLI
+        shell: bash
+        run: |
+          wget -q https://raw.githubusercontent.com/dapr/cli/master/install/install.sh -O - | /bin/bash -s 1.14.1
+          dapr --version
+
+      - name: Cache Dapr runtime (~/.dapr)
+        id: dapr-cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.dapr
+          key: dapr-slim-${{ runner.os }}-1.14.1-v1
+
+      - name: Initialize Dapr (slim)
+        if: steps.dapr-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          for attempt in 1 2 3 4 5 6; do
+            if dapr init --slim; then
+              echo "dapr init succeeded on attempt $attempt"
+              exit 0
+            fi
+            echo "dapr init attempt $attempt failed; sleeping 30s"
+            sleep 30
+            dapr uninstall --all || true
+          done
+          echo "::error::dapr init failed after 6 attempts"
+          exit 1
+
+      - name: Restore .NET dependencies
+        run: dotnet restore SpringVoyage.slnx
+
+      - name: Restore dotnet tools (Kiota)
+        run: dotnet tool restore
+
+      - name: Build solution (including CLI)
+        run: dotnet build SpringVoyage.slnx --no-restore --configuration Release
+
+      # ── Stack bringup ──────────────────────────────────────────────────────
+      # Bring up Postgres so the API host can boot. The full docker-compose
+      # stack (deployment/docker-compose.yml) requires a cloud-hosted Postgres
+      # and Dapr placement service; for CI we use a minimal Postgres-only
+      # container and launch the .NET API host directly via `dotnet run`.
+      #
+      # The Worker host is not started here because the fast-pool scenarios do
+      # not exercise background job processing. TODO (#1388): extend this to
+      # run API + Worker concurrently with the Dapr placement service for the
+      # migration-safety scenario.
+
+      - name: Start Postgres (test database)
+        shell: bash
+        run: |
+          docker run -d \
+            --name spring-e2e-postgres \
+            -e POSTGRES_USER=spring \
+            -e POSTGRES_PASSWORD=spring \
+            -e POSTGRES_DB=spring \
+            -p 5432:5432 \
+            postgres:16-alpine
+          for i in $(seq 1 30); do
+            if docker exec spring-e2e-postgres pg_isready -U spring >/dev/null 2>&1; then
+              echo "Postgres ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::Postgres did not become ready within 30s"
+          exit 1
+
+      - name: Start Spring Voyage API host
+        shell: bash
+        env:
+          ASPNETCORE_URLS: "http://localhost:5000"
+          ConnectionStrings__SpringDb: "Host=localhost;Port=5432;Database=spring;Username=spring;Password=spring"
+          LocalDev: "true"
+          Secrets__AllowEphemeralDevKey: "true"
+          Skills__PackagesRoot: "${{ github.workspace }}/packages"
+          Dapr__Enabled: "false"
+          ASPNETCORE_ENVIRONMENT: "Development"
+        run: |
+          dotnet run \
+            --project src/Cvoya.Spring.Host.Api/Cvoya.Spring.Host.Api.csproj \
+            --no-build --configuration Release \
+            &
+          API_PID=$!
+          echo "API_PID=${API_PID}" >> "${GITHUB_ENV}"
+          for i in $(seq 1 60); do
+            if curl -fsS --max-time 2 http://localhost:5000/api/v1/connectors >/dev/null 2>&1; then
+              echo "API ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::Spring Voyage API did not become ready within 60s"
+          kill "${API_PID}" 2>/dev/null || true
+          exit 1
+
+      # ── Run E2E scenarios ──────────────────────────────────────────────────
+
+      - name: Run E2E fast-pool scenarios
+        shell: bash
+        env:
+          # workflow_dispatch inputs are safe to read here because they are
+          # operator-controlled strings with no script interpolation risk —
+          # they flow into run.sh only as arguments to bash, not into run:.
+          E2E_BASE_URL: ${{ inputs.spring_api_url || 'http://localhost:5000' }}
+          E2E_PREFIX: ${{ inputs.e2e_prefix || 'e2e-ci' }}
+          SPRING_API_URL: ${{ inputs.spring_api_url || 'http://localhost:5000' }}
+          SCENARIO_GLOB: ${{ inputs.scenario_glob }}
+          # Point the CLI at the in-repo project compiled in the Build step.
+          # --no-build avoids re-compiling on every scenario invocation.
+          SPRING_CLI: >-
+            dotnet run --project src/Cvoya.Spring.Cli/Cvoya.Spring.Cli.csproj
+            --no-build --configuration Release --
+        run: |
+          cd tests/e2e
+          if [[ -n "${SCENARIO_GLOB}" ]]; then
+            bash run.sh "${SCENARIO_GLOB}"
+          else
+            bash run.sh
+          fi
+
+      # ── Teardown ───────────────────────────────────────────────────────────
+
+      - name: Orphan sweep (clean up any leftover test artefacts)
+        if: always()
+        shell: bash
+        env:
+          E2E_BASE_URL: ${{ inputs.spring_api_url || 'http://localhost:5000' }}
+          E2E_PREFIX: ${{ inputs.e2e_prefix || 'e2e-ci' }}
+          SPRING_API_URL: ${{ inputs.spring_api_url || 'http://localhost:5000' }}
+          SPRING_CLI: >-
+            dotnet run --project src/Cvoya.Spring.Cli/Cvoya.Spring.Cli.csproj
+            --no-build --configuration Release --
+        run: |
+          cd tests/e2e
+          bash run.sh --sweep || true
+
+      - name: Stop API host
+        if: always()
+        shell: bash
+        run: |
+          if [[ -n "${API_PID:-}" ]]; then
+            kill "${API_PID}" 2>/dev/null || true
+          fi
+
+      - name: Stop Postgres
+        if: always()
+        shell: bash
+        run: |
+          docker rm -f spring-e2e-postgres 2>/dev/null || true
