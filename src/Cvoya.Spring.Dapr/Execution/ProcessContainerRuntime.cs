@@ -382,68 +382,72 @@ public class ProcessContainerRuntime(
 
         try
         {
-            // Resolve the container's host-visible IP by inspecting its
-            // network settings. The format string iterates all networks
-            // and emits the first non-empty IP address. Multiple networks
-            // produce multiple IPs separated by newlines; we take the first.
-            var (inspectExit, inspectOut, _) = await RunProcessAsync(
+            // #1458: Probe by spinning a one-shot curl container into the
+            // target's network namespace via `--network container:<id>`.
+            //
+            // The previous implementation looked up the container's bridge
+            // IP and issued the HTTP GET from the dispatcher host. That
+            // path doesn't work on macOS+podman: podman runs inside a
+            // libkrun VM (gvproxy), so container bridge IPs (10.89.x.x)
+            // aren't routable from the host network. Every probe attempt
+            // ate a 3 s TCP-connect timeout, which alone exhausts the 60 s
+            // readiness window before the agent could ever be marked
+            // ready.
+            //
+            // Running curl inside the agent's network namespace works on
+            // every host platform (Linux, macOS, Windows) because the
+            // probe traffic never leaves that namespace. The curl image
+            // (`docker.io/curlimages/curl:latest` by default) is small
+            // and is already pulled by the deploy/start path that uses
+            // it for sidecar readiness.
+            //
+            // Per-attempt cost: ~200-500 ms on a warm cache (image pulled,
+            // no network IO). The polling loop's 200 ms interval is the
+            // dominant factor on the wire.
+            const string ProbeImage = "docker.io/curlimages/curl:latest";
+            var (exit, _, stderr) = await RunProcessAsync(
                 binaryName,
                 [
-                    "inspect",
-                    "--format",
-                    "{{range .NetworkSettings.Networks}}{{.IPAddress}}\n{{end}}",
-                    containerId,
+                    "run",
+                    "--rm",
+                    "--network",
+                    "container:" + containerId,
+                    ProbeImage,
+                    "curl",
+                    "--silent",
+                    "--show-error",
+                    "--fail",
+                    "--max-time",
+                    "3",
+                    "--output",
+                    "/dev/null",
+                    url,
                 ],
                 ct);
 
-            if (inspectExit != 0)
+            if (exit == 0)
             {
-                _logger.LogDebug(
-                    "Container inspect for {ContainerId} failed (exit {Exit}); probe returning false",
-                    containerId, inspectExit);
-                return false;
+                return true;
             }
 
-            // Pick the first non-empty IP line. Containers on multiple
-            // networks produce multiple lines; any routable IP works.
-            var containerIp = inspectOut
-                .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .FirstOrDefault(line => !string.IsNullOrWhiteSpace(line));
-
-            if (string.IsNullOrWhiteSpace(containerIp))
-            {
-                _logger.LogDebug(
-                    "No IP address found for container {ContainerId}; probe returning false",
-                    containerId);
-                return false;
-            }
-
-            // Rewrite the URL's host to the container's host-visible IP.
-            // Callers pass an in-container URL (e.g. http://localhost:8999/…);
-            // replacing the host with the bridge IP makes the URL routable
-            // from the dispatcher host process without any exec into the container.
-            var probeUri = RewriteUrlHost(url, containerIp);
-
+            // curl exits non-zero on connection refused, 4xx/5xx (--fail),
+            // or DNS failure. All map to "not ready yet"; the polling
+            // loop retries.
             _logger.LogDebug(
-                "Host probe for container {ContainerId}: GET {ProbeUrl}",
-                containerId, probeUri);
-
-            using var response = await ProbeHttpClient.GetAsync(probeUri, ct);
-            return response.IsSuccessStatusCode;
+                "Probe-via-curl for container {ContainerId} ({Url}) returned exit={Exit} stderr={Stderr}",
+                containerId, url, exit, stderr.Trim());
+            return false;
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            // Per-request timeout on ProbeHttpClient fired — not a caller
-            // cancellation. Collapse to false so the polling loop retries.
+            // Per-attempt timeout — fall through to the polling loop's retry.
             return false;
         }
         catch (Exception ex)
         {
-            // Connection refused, DNS failure, container gone — collapse to
-            // false so the polling loop owns retry / timeout semantics.
             _logger.LogDebug(
                 ex,
-                "Host probe of {Url} for container {ContainerId} failed: {Message}",
+                "Probe-via-curl of {Url} for container {ContainerId} failed: {Message}",
                 url, containerId, ex.Message);
             return false;
         }
@@ -539,25 +543,34 @@ public class ProcessContainerRuntime(
         // curl reads the body from stdin via `--data-binary @-` reliably on
         // both BusyBox and GNU coreutils — unlike `wget --post-file=/dev/stdin`,
         // which GNU wget on Debian rejects with "Illegal seek" because the
-        // exec pipe is not seekable (the original comment here was written
-        // against BusyBox wget; the spring-voyage-agent-dapr image is
-        // python:3.12-slim and ships GNU wget). `--data-binary` (vs. `-d`)
-        // preserves bytes verbatim — no @ / & interpretation, no newline
-        // stripping. `-f` collapses any non-2xx HTTP into a non-zero exit so
-        // the boolean result below stays meaningful; `-sS` silences progress
-        // but keeps real errors on stderr for the LogDebug below. The header
-        // argument is a single argv entry (no whitespace splitting via
-        // ArgumentList) so the Content-Type value passes through verbatim.
+        // exec pipe is not seekable. `--data-binary` (vs. `-d`) preserves
+        // bytes verbatim — no @ / & interpretation, no newline stripping.
+        // `-sS` silences progress but keeps real errors on stderr.
+        //
+        // We deliberately do NOT pass `-f` (fail-on-error). The agent's
+        // JSON-RPC handler may legitimately return a non-2xx with a body
+        // (A2A error envelope, validation error, agent-side 5xx) and the
+        // caller — the .NET A2AClient — needs to see that status + body
+        // round-tripped intact rather than collapsed into a 502 with no
+        // body. We use `--write-out` to append a sentinel line carrying
+        // the actual HTTP status code; everything before the sentinel is
+        // the response body. The sentinel is unguessable enough that
+        // collisions with response bodies are not a real concern. The
+        // header argument is a single argv entry (no whitespace splitting
+        // via ArgumentList) so the Content-Type value passes through
+        // verbatim.
+        const string StatusSentinel = "\n___SV_HTTP_STATUS___:";
         string[] args =
         [
             "exec",
             "-i",
             containerId,
             "curl",
-            "-fsS",
+            "-sS",
             "-X", "POST",
             "-H", "Content-Type: application/json",
             "--data-binary", "@-",
+            "--write-out", StatusSentinel + "%{http_code}",
             url,
         ];
 
@@ -568,18 +581,42 @@ public class ProcessContainerRuntime(
 
             if (exitCode == 0)
             {
-                return new ContainerHttpResponse(
-                    StatusCode: 200,
-                    Body: System.Text.Encoding.UTF8.GetBytes(stdout));
+                var sentinelIdx = stdout.LastIndexOf(StatusSentinel, StringComparison.Ordinal);
+                if (sentinelIdx >= 0)
+                {
+                    var bodyText = stdout[..sentinelIdx];
+                    var statusText = stdout[(sentinelIdx + StatusSentinel.Length)..].Trim();
+                    if (int.TryParse(statusText, out var parsedStatus) && parsedStatus > 0)
+                    {
+                        // Diagnostic: dump body (capped at 32 KB) so wire-shape
+                        // mismatches and agent-side errors are visible in the
+                        // dispatcher log without raising the global log level.
+                        var snippet = bodyText.Length <= 32768
+                            ? bodyText
+                            : bodyText[..32768] + "…(truncated)";
+                        _logger.LogInformation(
+                            "A2A response from {ContainerId} ({Url}) status={Status} body={Body}",
+                            containerId, url, parsedStatus, snippet);
+                        return new ContainerHttpResponse(
+                            StatusCode: parsedStatus,
+                            Body: System.Text.Encoding.UTF8.GetBytes(bodyText));
+                    }
+                    _logger.LogWarning(
+                        "POST to {Url} inside container {ContainerId} produced an unparseable status sentinel: {Sentinel}",
+                        url, containerId, statusText);
+                    return new ContainerHttpResponse(StatusCode: 502, Body: []);
+                }
+                _logger.LogWarning(
+                    "POST to {Url} inside container {ContainerId} produced no status sentinel; treating as transport failure (stderr: {Stderr})",
+                    url, containerId, stderr);
+                return new ContainerHttpResponse(StatusCode: 502, Body: []);
             }
 
-            // Any non-zero exit collapses to "agent unreachable" (502). The
-            // probe primitive applies the same simplification — finer status
-            // discrimination is the caller's job (the A2A SDK retries the
-            // turn at its own layer). Capture stderr in the diagnostic so a
-            // missing curl, a 4xx/5xx from the in-container endpoint, or a
-            // network error each leaves a recoverable hint behind.
-            _logger.LogDebug(
+            // Curl itself failed (network unreachable, missing binary,
+            // connection refused, etc.). Surface as 502 — the worker's
+            // retry loop owns the next move. Log at Warning so the failure
+            // mode is diagnosable without raising the global log level.
+            _logger.LogWarning(
                 "POST to {Url} inside container {ContainerId} exited {ExitCode} via {Binary} curl: {Stderr}",
                 url, containerId, exitCode, binaryName, stderr);
             return new ContainerHttpResponse(StatusCode: 502, Body: []);

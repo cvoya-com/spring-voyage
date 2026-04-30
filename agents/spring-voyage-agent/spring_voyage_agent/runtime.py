@@ -47,11 +47,16 @@ import sys
 from typing import Any, Callable
 
 import uvicorn
+from a2a.helpers.proto_helpers import new_task_from_user_message
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue
 from a2a.server.events.in_memory_queue_manager import InMemoryQueueManager
 from a2a.server.request_handlers import DefaultRequestHandler
-from a2a.server.routes import create_agent_card_routes, create_rest_routes
+from a2a.server.routes import (
+    create_agent_card_routes,
+    create_jsonrpc_routes,
+    create_rest_routes,
+)
 from a2a.server.tasks import InMemoryTaskStore
 from a2a.server.tasks.task_updater import TaskUpdater
 from a2a.types import (
@@ -153,8 +158,20 @@ class _SdkAgentExecutor(AgentExecutor):
 
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
         """Run on_message for one inbound A2A task."""
-        task_id = context.task_id or ""
-        context_id = context.context_id or ""
+        # When this is the first turn in a thread (no current_task), the
+        # SDK's ActiveTask machinery requires the executor to enqueue the
+        # initial Task object before any TaskStatusUpdateEvent — otherwise
+        # the request handler rejects the response with
+        # "Agent should enqueue Task before TaskStatusUpdateEvent event"
+        # (a2a/server/agent_execution/active_task.py).
+        if context.current_task is None and context.message is not None:
+            initial_task = new_task_from_user_message(context.message)
+            await event_queue.enqueue_event(initial_task)
+            task_id = initial_task.id
+            context_id = initial_task.context_id
+        else:
+            task_id = context.task_id or ""
+            context_id = context.context_id or ""
 
         updater = TaskUpdater(event_queue, task_id, context_id)
         await updater.submit()
@@ -419,9 +436,17 @@ class AgentRuntime:
         # create_agent_card_routes call adds the legacy /.well-known/agent.json
         # alias the smoke contract and existing consumers expect alongside the
         # SDK 1.x canonical /.well-known/agent-card.json path.
+        #
+        # JSON-RPC at "/" is also required: the .NET A2AClient (A2A.V0_3)
+        # used by Spring Voyage's dispatcher posts JSON-RPC envelopes to
+        # the agent root, not to the v1.x REST shape. Without this, every
+        # `message/send` arrives at a path that only the REST mount serves
+        # and the response is 404. enable_v0_3_compat keeps the v0.3 wire
+        # shape on the same endpoint.
         routes = (
             create_agent_card_routes(card)
             + create_agent_card_routes(card, card_url="/.well-known/agent.json")
+            + create_jsonrpc_routes(handler, rpc_url="/", enable_v0_3_compat=True)
             + create_rest_routes(handler)
         )
         app = Starlette(routes=routes)
