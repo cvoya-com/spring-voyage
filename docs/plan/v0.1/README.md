@@ -1,6 +1,6 @@
 # Spring Voyage v0.1 — Plan of Record
 
-**Active release frame.** First public release of Spring Voyage. Replaces the scrapped V2 release. V1 was internal-only.
+**Active release frame.** First public release of Spring Voyage — the open-source collaboration platform for teams of AI agents and the humans they work with. Replaces the scrapped V2 release. V1 was internal-only.
 
 This directory is the canonical narrative for v0.1 planning and execution. Live status (what's in/out, who's doing what) lives in GitHub: milestone `v0.1`, per-area umbrella issues, and `area:*` labels. The files here own the *intent*; GitHub owns the *state*.
 

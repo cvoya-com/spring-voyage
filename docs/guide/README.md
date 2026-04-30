@@ -1,6 +1,6 @@
 # Spring Voyage — Guide
 
-Pick the section that matches what you're trying to do.
+Spring Voyage is an open-source collaboration platform for teams of AI agents — and the humans they work with. Pick the section below that matches what you're trying to do.
 
 ## [Intro](intro/overview.md)
 

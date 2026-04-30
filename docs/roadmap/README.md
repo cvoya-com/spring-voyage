@@ -2,6 +2,8 @@
 
 > **Role:** this directory publishes **forward-looking narrative** about Spring Voyage — what we're thinking about, why, and where the platform is headed. **It is not a progress tracker.** Progress lives in GitHub.
 
+Spring Voyage is an open-source collaboration platform for teams of AI agents — and the humans they work with. The roadmap items below describe how the substrate evolves over time; orchestration capabilities are listed as the mechanism that supports collaboration, not as the platform's headline.
+
 ## Where to see live progress
 
 | Surface | Use it for |

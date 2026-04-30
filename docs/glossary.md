@@ -2,6 +2,8 @@
 
 Definitions of key terms used throughout the Spring Voyage documentation.
 
+**Spring Voyage** is an open-source collaboration platform for teams of AI agents — and the humans they work with. Throughout this glossary, "platform" refers to Spring Voyage; "the substrate" refers to the same thing from the operator's vantage. Orchestration is one mechanism inside a unit; collaboration between humans and agents is the larger frame the platform exists to make tractable.
+
 ---
 
 **A2A (Agent-to-Agent)**
@@ -104,7 +106,7 @@ A partition of the agent's mailbox for events from subscriptions, timers, and ob
 An agent that subscribes to another agent's activity stream (with permission).
 
 **Orchestration Strategy**
-A pluggable component that determines how a unit routes incoming messages to its members. Five strategies: Rule-based, Workflow, AI-orchestrated, AI+Workflow hybrid, Peer.
+A pluggable component that determines how a unit routes incoming messages to its members. Orchestration is one mechanism inside a unit's collaboration model — it sits alongside membership, the boundary, policies, and the activity stream, and answers "which member handles this message?" Five strategies ship in the platform: Rule-based, Workflow, AI-orchestrated, AI+Workflow hybrid, Peer. External orchestrators (ADK, LangGraph, Temporal, …) participate via A2A.
 
 **Package**
 An installable bundle of domain-specific content: agent templates, unit templates, skills, workflows, connectors, and execution environments. How the platform remains domain-agnostic while supporting specific domains.
@@ -134,7 +136,7 @@ The ordered, timestamped record of all artifacts within a thread: messages (user
 A named pub/sub channel for event distribution. Namespaced by unit.
 
 **Unit**
-A group of agents performing together. A unit IS an agent (composite pattern) -- it implements the same interfaces and can contain agents and/or other units recursively.
+A group of agents — and the humans who work with them — performing together. A unit IS an agent (composite pattern) -- it implements the same interfaces and can contain agents and/or other units recursively. Each unit picks an orchestration strategy that decides how it routes work across its members; humans participate as Owners, Operators, or Viewers via the unit's permission model.
 
 **Unit Actor (UnitActor)**
 The Dapr virtual actor implementing a unit. Manages membership, policies, the expertise directory, and delegates to the orchestration strategy.
