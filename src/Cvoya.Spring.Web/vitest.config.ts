@@ -1,5 +1,20 @@
+import { createRequire } from "module";
 import { defineConfig } from "vitest/config";
 import { resolve } from "path";
+
+// Resolve React to the copy that this package (spring-voyage-dashboard)
+// actually installs. Using createRequire(__filename) to resolve from this
+// config file's own directory guarantees we pick up the same physical React
+// that @testing-library/react and React DOM use — not a hoisted workspace-
+// root copy that might be a different module instance. Two distinct React
+// instances cause "Invalid hook call" / "Cannot read properties of null
+// (reading 'useState')" when connector components (imported via the
+// @connector-github alias) call hooks. Pinning both react and react-dom to
+// the same location enforces a single instance for the entire test run.
+// See #1384.
+const require = createRequire(import.meta.url);
+const reactDir = resolve(require.resolve("react"), "..");
+const reactDomDir = resolve(require.resolve("react-dom"), "..");
 
 export default defineConfig({
   // Setting jsx: "automatic" matches the tsconfig "jsx: react-jsx"
@@ -22,6 +37,12 @@ export default defineConfig({
         __dirname,
         "../Cvoya.Spring.Connector.GitHub/web",
       ),
+      // Pin react/react-dom to the instance resolved above (see comment
+      // at top of file). Without this, files outside the web project
+      // (connector packages) pick up a different React copy, causing the
+      // duplicate-instance hook error. See #1384.
+      react: reactDir,
+      "react-dom": reactDomDir,
     },
   },
   test: {
