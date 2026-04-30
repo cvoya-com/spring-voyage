@@ -134,30 +134,33 @@ test.describe("killer use case — software-engineering team", () => {
       page.locator('[data-testid^="unit-membership-"]').first(),
     ).toBeVisible({ timeout: 30_000 });
 
-    // ── First message → engagement ────────────────────────────────────────
-    // The "+ New conversation" trigger lives on the Messages tab,
-    // testid'd `new-conversation-trigger`.
+    // ── First message → engagement (#1459 / #1460) ───────────────────────
+    // The Messages tab now renders the 1:1 timeline inline with a
+    // persistent composer at the bottom; sending implicitly creates
+    // the thread when none exists yet.
     await page.goto(
       `/units?node=${encodeURIComponent(name)}&tab=Messages`,
     );
-    const newConv = page.getByTestId("new-conversation-trigger");
-    if (await newConv.isVisible().catch(() => false)) {
-      await newConv.click();
-      // `new-conversation-body` IS the textarea — fill directly.
-      await page
-        .getByTestId("new-conversation-body")
-        .fill(
-          "First task: create an empty CHANGELOG entry for the next release.",
-        );
-      await page.getByTestId("new-conversation-submit").click();
-      // We end up on either /engagement/<id> or /threads/<id>.
-      await expect(async () => {
-        expect(/\/engagement\/|\/threads?\/|\/conversations?\//.test(page.url()), `URL: ${page.url()}`).toBe(true);
-      }).toPass({ timeout: 30_000 });
+    const composer = page.getByTestId("tab-unit-messages-composer-input");
+    if (await composer.isVisible().catch(() => false)) {
+      await composer.fill(
+        "First task: create an empty CHANGELOG entry for the next release.",
+      );
+      await page.getByTestId("tab-unit-messages-composer-send").click();
+      await expect
+        .poll(
+          async () =>
+            await page
+              .locator('[data-testid^="conversation-event-"]')
+              .count(),
+          { timeout: 30_000 },
+        )
+        .toBeGreaterThan(0);
     } else {
       test.info().annotations.push({
         type: "skipped-first-message",
-        description: "Unit detail does not expose 'New conversation' — adjust the affordance once the engagement portal route is finalised.",
+        description:
+          "Unit detail Messages tab is not exposing the inline composer — investigate auth/permission propagation.",
       });
     }
   });

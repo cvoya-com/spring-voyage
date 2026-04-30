@@ -4,12 +4,15 @@ import { DEFAULT_MODEL, PROVIDER_ID, TOOL_ID } from "../../fixtures/runtime.js";
 import { expect, test } from "../../fixtures/test.js";
 
 /**
- * Start a new thread from a unit detail page using the "+ New conversation"
- * affordance and confirm it materialises in the engagement portal.
+ * Start the {human, unit} 1:1 engagement from the unit's Messages tab
+ * using the inline composer (#1459 / #1460) and confirm the resulting
+ * thread surfaces as an event on the timeline. The legacy
+ * "+ New conversation" dialog is gone — sending a message when no
+ * thread exists implicitly creates one.
  */
 
-test.describe("threads — start from unit detail", () => {
-  test('"+ New conversation" lands on a fresh thread page', async ({
+test.describe("threads — start from unit detail (#1459 / #1460)", () => {
+  test("the inline composer starts the {human, unit} 1:1 thread", async ({
     page,
     tracker,
     ollamaUp,
@@ -21,7 +24,7 @@ test.describe("threads — start from unit detail", () => {
     await apiPost("/api/v1/tenant/units", {
       name: unit,
       displayName: unit,
-      description: "New thread spec (e2e-portal)",
+      description: "1:1 thread spec (e2e-portal)",
       tool: TOOL_ID,
       provider: PROVIDER_ID,
       model: DEFAULT_MODEL,
@@ -37,48 +40,48 @@ test.describe("threads — start from unit detail", () => {
     await apiPost("/api/v1/tenant/agents", {
       name: agent,
       displayName: agent,
-      description: "New thread spec (e2e-portal)",
+      description: "1:1 thread spec (e2e-portal)",
       unitIds: [unit],
     });
 
-    // The "+ New conversation" trigger lives on the unit's Messages
-    // tab (testid `new-conversation-trigger`).
     await page.goto(
       `/units?node=${encodeURIComponent(unit)}&tab=Messages`,
     );
-    await page.getByTestId("new-conversation-trigger").click();
 
-    // `new-conversation-body` IS the textarea — fill it directly.
-    await expect(page.getByTestId("new-conversation-body")).toBeVisible();
-    await page.getByTestId("new-conversation-body").fill("Status check from e2e-portal.");
-    await page.getByTestId("new-conversation-submit").click();
+    // Empty state confirms there's no thread yet.
+    await expect(
+      page.getByTestId("tab-unit-messages-empty"),
+    ).toBeVisible();
 
-    // The dialog closes on success and selects the new thread inline
-    // — no URL navigation. On failure (e.g. 403 because the human's
-    // unit-message permission grant hasn't propagated yet) the dialog
-    // stays open with `new-conversation-error` populated. Wait up to
-    // 15 s for either outcome and skip on the failure branch.
-    const dialogBody = page.getByTestId("new-conversation-body");
-    const errorBox = page.getByTestId("new-conversation-error");
+    const input = page.getByTestId("tab-unit-messages-composer-input");
+    await input.fill("Status check from e2e-portal.");
+    await page.getByTestId("tab-unit-messages-composer-send").click();
+
+    // After a successful send the composer empties out and the timeline
+    // picks up the new event. Tolerate auth/permission propagation
+    // delays the same way the previous version did.
     await Promise.race([
-      dialogBody.waitFor({ state: "detached", timeout: 15_000 }),
-      errorBox.waitFor({ state: "visible", timeout: 15_000 }),
+      expect(input).toHaveValue("", { timeout: 15_000 }),
+      page
+        .getByRole("alert")
+        .first()
+        .waitFor({ state: "visible", timeout: 15_000 }),
     ]).catch(() => undefined);
-    if (await errorBox.isVisible().catch(() => false)) {
-      const message = (await errorBox.textContent()) ?? "";
+
+    const alert = page.getByRole("alert").first();
+    if (await alert.isVisible().catch(() => false)) {
+      const message = (await alert.textContent()) ?? "";
       test.skip(
         true,
-        `Submit failed with: ${message.trim().slice(0, 200)}`,
+        `Send failed with: ${message.trim().slice(0, 200)}`,
       );
     }
-    await expect(dialogBody).toHaveCount(0, { timeout: 5_000 });
+
     await expect
       .poll(
         async () =>
           await page
-            .locator(
-              '[data-testid="conversation-row"], [data-testid="conversation-row-selected"]',
-            )
+            .locator('[data-testid^="conversation-event-"]')
             .count(),
         { timeout: 15_000 },
       )

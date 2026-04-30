@@ -1,22 +1,27 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+// Tests for the redesigned Agent Messages tab (#1459 / #1460).
+// Mirrors `unit-messages.test.tsx`; only the target scheme/path differ.
+
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactNode } from "react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentNode } from "../aggregate";
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
+  usePathname: () => "/units",
+  useSearchParams: () => new URLSearchParams(""),
+}));
 
 vi.mock("next/link", () => ({
   default: ({
     href,
     children,
-    replace: _replace,
-    scroll: _scroll,
-    prefetch: _prefetch,
     ...rest
   }: {
     href: string;
-    children: React.ReactNode;
-    replace?: boolean;
-    scroll?: boolean;
-    prefetch?: boolean;
+    children: ReactNode;
   } & Record<string, unknown>) => (
     <a href={href} {...rest}>
       {children}
@@ -24,164 +29,156 @@ vi.mock("next/link", () => ({
   ),
 }));
 
-const routerReplaceMock = vi.fn();
-const searchParamsStateMock = { value: "" };
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace: routerReplaceMock }),
-  // #1053: the tab now reads `usePathname()` so it can pass a
-  // `/path?query` URL to `router.replace` (Next.js 16 drops the
-  // canonical-URL update for bare query-only relative URLs).
-  usePathname: () => "/units",
-  useSearchParams: () => new URLSearchParams(searchParamsStateMock.value),
-}));
-
-vi.mock("@/components/thread/thread-detail-pane", () => ({
-  ThreadDetailPane: ({
-    threadId,
-    selfAddress,
-  }: {
-    threadId: string;
-    selfAddress?: string;
-  }) => (
-    <div
-      data-testid="detail-pane-stub"
-      data-thread-id={threadId}
-      data-self-address={selfAddress ?? ""}
-    />
-  ),
-}));
-
-vi.mock("@/components/thread/new-thread-dialog", () => ({
-  NewThreadDialog: (props: {
-    open: boolean;
-    onClose: () => void;
-    targetScheme: "unit" | "agent";
-    targetPath: string;
-    onCreated: (id: string) => void;
-  }) => {
-    if (!props.open) return null;
-    return (
-      <div
-        data-testid="new-conversation-dialog-stub"
-        data-target-scheme={props.targetScheme}
-        data-target-path={props.targetPath}
-      >
-        <button
-          type="button"
-          data-testid="stub-emit-created"
-          onClick={() => props.onCreated("conv-new")}
-        />
-      </div>
-    );
-  },
-}));
-
+const useCurrentUserMock = vi.fn();
 const useThreadsMock = vi.fn();
+const useThreadMock = vi.fn();
 vi.mock("@/lib/api/queries", () => ({
-  useThreads: (filters: unknown) => useThreadsMock(filters),
+  useCurrentUser: () => useCurrentUserMock(),
+  useThreads: (filters: unknown, opts?: unknown) =>
+    useThreadsMock(filters, opts),
+  useThread: (id: string, opts?: unknown) => useThreadMock(id, opts),
+}));
+
+const sendThreadMessageMock = vi.fn();
+const sendMessageMock = vi.fn();
+vi.mock("@/lib/api/client", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/api/client")>(
+    "@/lib/api/client",
+  );
+  return {
+    ...actual,
+    api: {
+      sendThreadMessage: (id: string, body: unknown) =>
+        sendThreadMessageMock(id, body),
+      sendMessage: (body: unknown) => sendMessageMock(body),
+    },
+  };
+});
+
+const toastMock = vi.fn();
+vi.mock("@/components/ui/toast", () => ({
+  useToast: () => ({ toast: toastMock }),
 }));
 
 import AgentMessagesTab from "./agent-messages";
 
-describe("AgentMessagesTab", () => {
-  const node: AgentNode = {
-    kind: "Agent",
-    id: "ada",
-    name: "Ada",
-    status: "running",
-  };
-
-  it("filters conversations by agent id", () => {
-    searchParamsStateMock.value = "";
-    useThreadsMock.mockReturnValueOnce({
-      data: [],
-      isLoading: false,
-      error: null,
-    });
-    render(<AgentMessagesTab node={node} path={[node]} />);
-    expect(useThreadsMock).toHaveBeenCalledWith({ agent: "ada" });
-    expect(screen.getByTestId("tab-agent-messages-empty")).toBeInTheDocument();
-    expect(screen.getByTestId("new-conversation-trigger")).toBeInTheDocument();
+function wrap(node: ReactNode) {
+  const client = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false, gcTime: 0 },
+      mutations: { retry: false },
+    },
   });
+  return <QueryClientProvider client={client}>{node}</QueryClientProvider>;
+}
 
-  it("opens the composer targeted at this agent", () => {
-    searchParamsStateMock.value = "";
+const node: AgentNode = {
+  kind: "Agent",
+  id: "ada",
+  name: "Ada",
+  status: "running",
+};
+
+beforeEach(() => {
+  useCurrentUserMock.mockReset();
+  useThreadsMock.mockReset();
+  useThreadMock.mockReset();
+  sendThreadMessageMock.mockReset();
+  sendMessageMock.mockReset();
+  toastMock.mockReset();
+  useCurrentUserMock.mockReturnValue({
+    data: { address: "human://alice" },
+    isPending: false,
+  });
+  useThreadMock.mockReturnValue({ data: null, isPending: false });
+});
+
+describe("AgentMessagesTab — single 1:1 engagement timeline (#1459)", () => {
+  it("filters threads by both agent id and the current human's address", () => {
     useThreadsMock.mockReturnValue({
       data: [],
       isLoading: false,
       error: null,
     });
-    render(<AgentMessagesTab node={node} path={[node]} />);
-    fireEvent.click(screen.getByTestId("new-conversation-trigger"));
-    const dialog = screen.getByTestId("new-conversation-dialog-stub");
-    expect(dialog.dataset.targetScheme).toBe("agent");
-    expect(dialog.dataset.targetPath).toBe("ada");
+    render(wrap(<AgentMessagesTab node={node} path={[node]} />));
+    expect(useThreadsMock).toHaveBeenCalledWith(
+      { agent: "ada", participant: "human://alice" },
+      expect.any(Object),
+    );
   });
 
-  it("routes to the new thread when the composer reports success", () => {
-    searchParamsStateMock.value = "";
-    routerReplaceMock.mockReset();
+  it("renders the empty-state hint and the composer when no thread exists", () => {
     useThreadsMock.mockReturnValue({
       data: [],
       isLoading: false,
       error: null,
     });
-    render(<AgentMessagesTab node={node} path={[node]} />);
-    fireEvent.click(screen.getByTestId("new-conversation-trigger"));
-    fireEvent.click(screen.getByTestId("stub-emit-created"));
-    expect(routerReplaceMock).toHaveBeenCalledWith(
-      expect.stringMatching(/thread=conv-new/),
-      expect.any(Object),
+    render(wrap(<AgentMessagesTab node={node} path={[node]} />));
+    expect(screen.getByTestId("tab-agent-messages-empty")).toHaveTextContent(
+      /Ada/,
     );
-    // #1053: navigation must be `/units?…`, not bare `?…`. Next.js 16
-    // silently drops the canonical-URL update on query-only relative
-    // URLs, leaving the controlled `selectedId` snapping back.
-    expect(routerReplaceMock).toHaveBeenCalledWith(
-      expect.stringMatching(/^\/units\?/),
-      expect.any(Object),
-    );
+    expect(screen.getByTestId("tab-agent-messages-composer")).toBeInTheDocument();
+    expect(screen.queryByTestId("new-conversation-trigger")).toBeNull();
+  });
+});
+
+describe("AgentMessagesTab — inline composer (#1460)", () => {
+  it("uses sendMessage to create a fresh thread when none exists yet", async () => {
+    useThreadsMock.mockReturnValue({
+      data: [],
+      isLoading: false,
+      error: null,
+    });
+    sendMessageMock.mockResolvedValue({ threadId: "t-new" });
+    render(wrap(<AgentMessagesTab node={node} path={[node]} />));
+    fireEvent.change(screen.getByTestId("tab-agent-messages-composer-input"), {
+      target: { value: "Hi Ada." },
+    });
+    fireEvent.click(screen.getByTestId("tab-agent-messages-composer-send"));
+    await waitFor(() => {
+      expect(sendMessageMock).toHaveBeenCalledWith({
+        to: { scheme: "agent", path: "ada" },
+        type: "Domain",
+        threadId: null,
+        payload: "Hi Ada.",
+      });
+    });
   });
 
-  it("mounts the detail pane when the URL carries ?thread=<id>", () => {
-    searchParamsStateMock.value = "thread=abc";
-    useThreadsMock.mockReturnValueOnce({
+  it("appends to the existing thread when one is live", async () => {
+    useThreadsMock.mockReturnValue({
       data: [
         {
-          id: "abc",
-          summary: "Ada drafts a PR",
-          lastActivity: "2026-04-20T00:00:00Z",
-          status: "open",
+          id: "t-7",
+          lastActivity: "2026-04-30T10:00:00Z",
+          participants: ["human://alice", "agent://ada"],
         },
       ],
       isLoading: false,
       error: null,
     });
-    render(<AgentMessagesTab node={node} path={[node]} />);
-    const pane = screen.getByTestId("detail-pane-stub");
-    expect(pane.dataset.threadId).toBe("abc");
-    expect(pane.dataset.selfAddress).toBe("agent://ada");
-  });
-
-  it("does not link to the retired /conversations/<id> route", () => {
-    searchParamsStateMock.value = "";
-    useThreadsMock.mockReturnValueOnce({
-      data: [
-        {
-          id: "abc",
-          summary: "Ada drafts a PR",
-          lastActivity: "2026-04-20T00:00:00Z",
-          status: "open",
+    useThreadMock.mockReturnValue({
+      data: {
+        summary: {
+          id: "t-7",
+          status: "active",
+          participants: ["human://alice", "agent://ada"],
         },
-      ],
-      isLoading: false,
-      error: null,
+        events: [],
+      },
+      isPending: false,
     });
-    const { container } = render(
-      <AgentMessagesTab node={node} path={[node]} />,
-    );
-    const anchors = container.querySelectorAll("a");
-    for (const a of anchors) {
-      expect(a.getAttribute("href") ?? "").not.toMatch(/^\/conversations\//);
-    }
+    sendThreadMessageMock.mockResolvedValue(undefined);
+    render(wrap(<AgentMessagesTab node={node} path={[node]} />));
+    fireEvent.change(screen.getByTestId("tab-agent-messages-composer-input"), {
+      target: { value: "follow-up" },
+    });
+    fireEvent.click(screen.getByTestId("tab-agent-messages-composer-send"));
+    await waitFor(() => {
+      expect(sendThreadMessageMock).toHaveBeenCalledWith("t-7", {
+        to: { scheme: "agent", path: "ada" },
+        text: "follow-up",
+      });
+    });
   });
 });

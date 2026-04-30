@@ -346,22 +346,24 @@ function UnitActions({ node }: { node: TreeNode }) {
         <Plus className="mr-1 h-4 w-4" aria-hidden="true" />
         Create sub-unit
       </Button>
-      {/* #1456: jump to /engagement/new with this unit pre-seeded as a
-          participant. Available for every status — engagement is the
-          conversational surface, not a lifecycle verb. */}
+      {/* #1463 / #1464: open the engagement view for this unit. The
+          {human, unit} 1:1 engagement is treated as already existing
+          conceptually — the button "Engagement" navigates into it,
+          pre-selecting the unit on /engagement/mine via ?unit=<id>.
+          Available for every status — engagement is the conversational
+          surface, not a lifecycle verb. */}
       <Button
         variant="outline"
         size="sm"
         onClick={() =>
           router.push(
-            "/engagement/new?participant=" +
-              encodeURIComponent("unit://" + node.id),
+            "/engagement/mine?unit=" + encodeURIComponent(node.id),
           )
         }
-        data-testid="unit-action-start-engagement"
+        data-testid="unit-action-engagement"
       >
         <MessagesSquare className="mr-1 h-4 w-4" aria-hidden="true" />
-        Start engagement
+        Engagement
       </Button>
       {status === "Draft" && (
         <Button
@@ -489,21 +491,19 @@ function AgentActions({ id, name }: { id: string; name: string }) {
       className="flex flex-wrap items-center gap-2"
       data-testid="agent-pane-actions"
     >
-      {/* #1456: jump to /engagement/new with this agent pre-seeded as
-          a participant. */}
+      {/* #1463 / #1464: open the engagement view for this agent — the
+          {human, agent} 1:1 engagement, pre-selected on /engagement/mine
+          via ?agent=<id>. */}
       <Button
         variant="outline"
         size="sm"
         onClick={() =>
-          router.push(
-            "/engagement/new?participant=" +
-              encodeURIComponent("agent://" + id),
-          )
+          router.push("/engagement/mine?agent=" + encodeURIComponent(id))
         }
-        data-testid="agent-action-start-engagement"
+        data-testid="agent-action-engagement"
       >
         <MessagesSquare className="mr-1 h-4 w-4" aria-hidden="true" />
-        Start engagement
+        Engagement
       </Button>
       <Button
         variant="destructive"

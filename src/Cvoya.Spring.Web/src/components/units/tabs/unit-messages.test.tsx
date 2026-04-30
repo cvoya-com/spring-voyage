@@ -1,24 +1,31 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+// Tests for the redesigned Unit Messages tab (#1459 / #1460).
+//
+// The tab now renders the {current human, unit} 1:1 engagement timeline
+// inline (no master/detail list, no NewThreadDialog) with a persistent
+// composer at the bottom that creates the thread implicitly when none
+// exists yet.
+
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactNode } from "react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { UnitNode } from "../aggregate";
 
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
+  usePathname: () => "/units",
+  useSearchParams: () => new URLSearchParams(""),
+}));
+
 vi.mock("next/link", () => ({
-  // Strip next/link-only props so React doesn't warn about them being
-  // forwarded to a plain <a>.
   default: ({
     href,
     children,
-    replace: _replace,
-    scroll: _scroll,
-    prefetch: _prefetch,
     ...rest
   }: {
     href: string;
-    children: React.ReactNode;
-    replace?: boolean;
-    scroll?: boolean;
-    prefetch?: boolean;
+    children: ReactNode;
   } & Record<string, unknown>) => (
     <a href={href} {...rest}>
       {children}
@@ -26,210 +33,235 @@ vi.mock("next/link", () => ({
   ),
 }));
 
-const routerReplaceMock = vi.fn();
-const searchParamsStateMock = { value: "" };
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace: routerReplaceMock }),
-  // #1053: the tab now reads `usePathname()` so it can pass a
-  // `/path?query` URL to `router.replace` (Next.js 16 drops the
-  // canonical-URL update for bare query-only relative URLs).
-  usePathname: () => "/units",
-  useSearchParams: () => new URLSearchParams(searchParamsStateMock.value),
-}));
-
-vi.mock("@/components/thread/thread-detail-pane", () => ({
-  ThreadDetailPane: ({
-    threadId,
-    selfAddress,
-  }: {
-    threadId: string;
-    selfAddress?: string;
-  }) => (
-    <div
-      data-testid="detail-pane-stub"
-      data-thread-id={threadId}
-      data-self-address={selfAddress ?? ""}
-    />
-  ),
-}));
-
-// Stub the dialog so the tab tests can assert open-state + invoke the
-// `onCreated` callback without pulling the real composer (which has its
-// own test file and would drag in TanStack Query setup).
-const dialogRenders = vi.fn();
-vi.mock("@/components/thread/new-thread-dialog", () => ({
-  NewThreadDialog: (props: {
-    open: boolean;
-    onClose: () => void;
-    targetScheme: "unit" | "agent";
-    targetPath: string;
-    onCreated: (id: string) => void;
-  }) => {
-    dialogRenders(props);
-    if (!props.open) return null;
-    return (
-      <div
-        data-testid="new-conversation-dialog-stub"
-        data-target-scheme={props.targetScheme}
-        data-target-path={props.targetPath}
-      >
-        <button
-          type="button"
-          data-testid="stub-emit-created"
-          onClick={() => props.onCreated("conv-new")}
-        />
-      </div>
-    );
-  },
-}));
-
+const useCurrentUserMock = vi.fn();
 const useThreadsMock = vi.fn();
+const useThreadMock = vi.fn();
 vi.mock("@/lib/api/queries", () => ({
-  useThreads: (filters: unknown) => useThreadsMock(filters),
+  useCurrentUser: () => useCurrentUserMock(),
+  useThreads: (filters: unknown, opts?: unknown) =>
+    useThreadsMock(filters, opts),
+  useThread: (id: string, opts?: unknown) => useThreadMock(id, opts),
+}));
+
+const sendThreadMessageMock = vi.fn();
+const sendMessageMock = vi.fn();
+vi.mock("@/lib/api/client", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/api/client")>(
+    "@/lib/api/client",
+  );
+  return {
+    ...actual,
+    api: {
+      sendThreadMessage: (id: string, body: unknown) =>
+        sendThreadMessageMock(id, body),
+      sendMessage: (body: unknown) => sendMessageMock(body),
+    },
+  };
+});
+
+const toastMock = vi.fn();
+vi.mock("@/components/ui/toast", () => ({
+  useToast: () => ({ toast: toastMock }),
 }));
 
 import UnitMessagesTab from "./unit-messages";
 
-describe("UnitMessagesTab", () => {
-  const node: UnitNode = {
-    kind: "Unit",
-    id: "engineering",
-    name: "Engineering",
-    status: "running",
-  };
-
-  it("renders the empty state plus a '+ New conversation' trigger when there are no threads", () => {
-    searchParamsStateMock.value = "";
-    useThreadsMock.mockReturnValueOnce({
-      data: [],
-      isLoading: false,
-      error: null,
-    });
-    render(<UnitMessagesTab node={node} path={[node]} />);
-    expect(screen.getByTestId("tab-unit-messages-empty")).toHaveTextContent(
-      "No conversations",
-    );
-    expect(screen.getByTestId("new-conversation-trigger")).toBeInTheDocument();
+function wrap(node: ReactNode) {
+  const client = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false, gcTime: 0 },
+      mutations: { retry: false },
+    },
   });
+  return <QueryClientProvider client={client}>{node}</QueryClientProvider>;
+}
 
-  it("filters conversations by unit id and renders the list", () => {
-    searchParamsStateMock.value = "";
-    useThreadsMock.mockReturnValueOnce({
-      data: [
-        {
-          id: "abc",
-          summary: "Ada asks about build",
-          lastActivity: "2026-04-20T00:00:00Z",
-          status: "open",
-        },
-      ],
-      isLoading: false,
-      error: null,
-    });
-    render(<UnitMessagesTab node={node} path={[node]} />);
-    expect(useThreadsMock).toHaveBeenCalledWith({ unit: "engineering" });
-    expect(screen.getByText("Ada asks about build")).toBeInTheDocument();
-    // No selection yet — detail pane stub should not render.
-    expect(screen.queryByTestId("detail-pane-stub")).toBeNull();
+const node: UnitNode = {
+  kind: "Unit",
+  id: "engineering",
+  name: "Engineering",
+  status: "running",
+};
+
+beforeEach(() => {
+  useCurrentUserMock.mockReset();
+  useThreadsMock.mockReset();
+  useThreadMock.mockReset();
+  sendThreadMessageMock.mockReset();
+  sendMessageMock.mockReset();
+  toastMock.mockReset();
+  useCurrentUserMock.mockReturnValue({
+    data: { address: "human://alice" },
+    isPending: false,
   });
+  useThreadMock.mockReturnValue({ data: null, isPending: false });
+});
 
-  it("renders the '+ New conversation' trigger even with existing threads", () => {
-    searchParamsStateMock.value = "";
-    useThreadsMock.mockReturnValueOnce({
-      data: [
-        {
-          id: "abc",
-          summary: "Ada asks about build",
-          lastActivity: "2026-04-20T00:00:00Z",
-          status: "open",
-        },
-      ],
-      isLoading: false,
-      error: null,
-    });
-    render(<UnitMessagesTab node={node} path={[node]} />);
-    expect(screen.getByTestId("new-conversation-trigger")).toBeInTheDocument();
-  });
-
-  it("opens the composer dialog on '+ New conversation' click and targets the unit", () => {
-    searchParamsStateMock.value = "";
+describe("UnitMessagesTab — single 1:1 engagement timeline (#1459)", () => {
+  it("filters threads by both unit id and the current human's address", () => {
     useThreadsMock.mockReturnValue({
       data: [],
       isLoading: false,
       error: null,
     });
-    render(<UnitMessagesTab node={node} path={[node]} />);
-    expect(screen.queryByTestId("new-conversation-dialog-stub")).toBeNull();
-    fireEvent.click(screen.getByTestId("new-conversation-trigger"));
-    const dialog = screen.getByTestId("new-conversation-dialog-stub");
-    expect(dialog.dataset.targetScheme).toBe("unit");
-    expect(dialog.dataset.targetPath).toBe("engineering");
+    render(wrap(<UnitMessagesTab node={node} path={[node]} />));
+    expect(useThreadsMock).toHaveBeenCalledWith(
+      { unit: "engineering", participant: "human://alice" },
+      expect.any(Object),
+    );
   });
 
-  it("routes to the new thread when the composer reports success", () => {
-    searchParamsStateMock.value = "";
-    routerReplaceMock.mockReset();
+  it("renders an empty-state hint and the composer when no thread exists", () => {
     useThreadsMock.mockReturnValue({
       data: [],
       isLoading: false,
       error: null,
     });
-    render(<UnitMessagesTab node={node} path={[node]} />);
-    fireEvent.click(screen.getByTestId("new-conversation-trigger"));
-    fireEvent.click(screen.getByTestId("stub-emit-created"));
-    expect(routerReplaceMock).toHaveBeenCalledWith(
-      expect.stringMatching(/thread=conv-new/),
-      expect.any(Object),
-    );
-    // #1053: navigation must be `/units?…`, not bare `?…`. Next.js 16
-    // silently drops the canonical-URL update on query-only relative
-    // URLs, leaving the controlled `selectedId` snapping back.
-    expect(routerReplaceMock).toHaveBeenCalledWith(
-      expect.stringMatching(/^\/units\?/),
-      expect.any(Object),
-    );
+    render(wrap(<UnitMessagesTab node={node} path={[node]} />));
+    expect(
+      screen.getByTestId("tab-unit-messages-empty"),
+    ).toHaveTextContent(/Engineering/);
+    expect(screen.getByTestId("tab-unit-messages-composer")).toBeInTheDocument();
+    // The legacy "+ New conversation" trigger and dialog are gone.
+    expect(screen.queryByTestId("new-conversation-trigger")).toBeNull();
   });
 
-  it("mounts the detail pane when the URL carries ?thread=<id>", () => {
-    searchParamsStateMock.value = "thread=abc";
-    useThreadsMock.mockReturnValueOnce({
+  it("renders the timeline events when the canonical thread exists", () => {
+    useThreadsMock.mockReturnValue({
       data: [
         {
-          id: "abc",
-          summary: "Ada asks about build",
-          lastActivity: "2026-04-20T00:00:00Z",
-          status: "open",
+          id: "t-1",
+          summary: "Latest",
+          lastActivity: "2026-04-30T10:00:00Z",
+          status: "active",
+          participants: ["human://alice", "unit://engineering"],
         },
       ],
       isLoading: false,
       error: null,
     });
-    render(<UnitMessagesTab node={node} path={[node]} />);
-    const pane = screen.getByTestId("detail-pane-stub");
-    expect(pane.dataset.threadId).toBe("abc");
-    expect(pane.dataset.selfAddress).toBe("unit://engineering");
+    useThreadMock.mockReturnValue({
+      data: {
+        summary: {
+          id: "t-1",
+          status: "active",
+          participants: ["human://alice", "unit://engineering"],
+        },
+        events: [
+          {
+            id: "e-1",
+            eventType: "MessageReceived",
+            source: "human://alice",
+            timestamp: "2026-04-30T10:00:00Z",
+            severity: "Info",
+            summary: "hello",
+            body: "hello unit",
+          },
+        ],
+      },
+      isPending: false,
+    });
+    render(wrap(<UnitMessagesTab node={node} path={[node]} />));
+    expect(screen.queryByTestId("tab-unit-messages-empty")).toBeNull();
+    expect(screen.getByTestId("conversation-event-e-1")).toBeInTheDocument();
   });
 
-  it("does not link to the retired /conversations/<id> route", () => {
-    searchParamsStateMock.value = "";
-    useThreadsMock.mockReturnValueOnce({
+  it("picks the most-recently-active thread when more than one matches", () => {
+    useThreadsMock.mockReturnValue({
       data: [
         {
-          id: "abc",
-          summary: "Ada asks about build",
-          lastActivity: "2026-04-20T00:00:00Z",
-          status: "open",
+          id: "older",
+          lastActivity: "2026-04-01T00:00:00Z",
+          participants: ["human://alice", "unit://engineering"],
+        },
+        {
+          id: "newer",
+          lastActivity: "2026-04-29T00:00:00Z",
+          participants: ["human://alice", "unit://engineering"],
         },
       ],
       isLoading: false,
       error: null,
     });
-    const { container } = render(
-      <UnitMessagesTab node={node} path={[node]} />,
+    render(wrap(<UnitMessagesTab node={node} path={[node]} />));
+    expect(useThreadMock).toHaveBeenLastCalledWith(
+      "newer",
+      expect.objectContaining({ enabled: true }),
     );
-    const anchors = container.querySelectorAll("a");
-    for (const a of anchors) {
-      expect(a.getAttribute("href") ?? "").not.toMatch(/^\/conversations\//);
-    }
+  });
+});
+
+describe("UnitMessagesTab — inline composer (#1460)", () => {
+  it("uses sendMessage to create a fresh thread when none exists yet", async () => {
+    useThreadsMock.mockReturnValue({
+      data: [],
+      isLoading: false,
+      error: null,
+    });
+    sendMessageMock.mockResolvedValue({ threadId: "t-new" });
+    render(wrap(<UnitMessagesTab node={node} path={[node]} />));
+    fireEvent.change(screen.getByTestId("tab-unit-messages-composer-input"), {
+      target: { value: "Kick things off." },
+    });
+    fireEvent.click(screen.getByTestId("tab-unit-messages-composer-send"));
+    await waitFor(() => {
+      expect(sendMessageMock).toHaveBeenCalledWith({
+        to: { scheme: "unit", path: "engineering" },
+        type: "Domain",
+        threadId: null,
+        payload: "Kick things off.",
+      });
+    });
+    expect(sendThreadMessageMock).not.toHaveBeenCalled();
+  });
+
+  it("appends to the existing thread via sendThreadMessage when one is live", async () => {
+    useThreadsMock.mockReturnValue({
+      data: [
+        {
+          id: "t-1",
+          lastActivity: "2026-04-30T10:00:00Z",
+          participants: ["human://alice", "unit://engineering"],
+        },
+      ],
+      isLoading: false,
+      error: null,
+    });
+    useThreadMock.mockReturnValue({
+      data: {
+        summary: {
+          id: "t-1",
+          status: "active",
+          participants: ["human://alice", "unit://engineering"],
+        },
+        events: [],
+      },
+      isPending: false,
+    });
+    sendThreadMessageMock.mockResolvedValue(undefined);
+    render(wrap(<UnitMessagesTab node={node} path={[node]} />));
+    fireEvent.change(screen.getByTestId("tab-unit-messages-composer-input"), {
+      target: { value: "Reply." },
+    });
+    fireEvent.click(screen.getByTestId("tab-unit-messages-composer-send"));
+    await waitFor(() => {
+      expect(sendThreadMessageMock).toHaveBeenCalledWith("t-1", {
+        to: { scheme: "unit", path: "engineering" },
+        text: "Reply.",
+      });
+    });
+    expect(sendMessageMock).not.toHaveBeenCalled();
+  });
+
+  it("disables Send when the textarea is empty", () => {
+    useThreadsMock.mockReturnValue({
+      data: [],
+      isLoading: false,
+      error: null,
+    });
+    render(wrap(<UnitMessagesTab node={node} path={[node]} />));
+    expect(
+      screen.getByTestId("tab-unit-messages-composer-send"),
+    ).toBeDisabled();
   });
 });

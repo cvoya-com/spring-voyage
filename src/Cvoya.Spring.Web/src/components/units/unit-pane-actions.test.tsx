@@ -209,25 +209,37 @@ describe("UnitPaneActions — Unit status gating", () => {
 // onto the create-unit API call. The button is unconditional — see
 // the status-gating loop above for the cross-status assertion that
 // every UnitStatus surfaces it.
-describe("UnitPaneActions — Start engagement (#1456)", () => {
-  it("navigates to /engagement/new with the unit pre-seeded", async () => {
+describe("UnitPaneActions — Engagement (#1463 / #1464)", () => {
+  it("navigates to /engagement/mine pre-selecting the unit", async () => {
     useUnitMock.mockReturnValue({ data: makeUnit("Stopped") });
     render(wrap(<UnitPaneActions node={unitNode} />));
     await act(async () => {
-      fireEvent.click(screen.getByTestId("unit-action-start-engagement"));
+      fireEvent.click(screen.getByTestId("unit-action-engagement"));
     });
     expect(routerPushMock).toHaveBeenCalledWith(
-      "/engagement/new?participant=" + encodeURIComponent("unit://alpha"),
+      "/engagement/mine?unit=" + encodeURIComponent("alpha"),
     );
   });
 
-  it("navigates to /engagement/new with the agent pre-seeded", async () => {
+  it("navigates to /engagement/mine pre-selecting the agent", async () => {
     render(wrap(<UnitPaneActions node={agentNode} />));
     await act(async () => {
-      fireEvent.click(screen.getByTestId("agent-action-start-engagement"));
+      fireEvent.click(screen.getByTestId("agent-action-engagement"));
     });
     expect(routerPushMock).toHaveBeenCalledWith(
-      "/engagement/new?participant=" + encodeURIComponent("agent://ada"),
+      "/engagement/mine?agent=" + encodeURIComponent("ada"),
+    );
+  });
+
+  it("uses the label 'Engagement' (not 'Start engagement') on both nodes", () => {
+    useUnitMock.mockReturnValue({ data: makeUnit("Stopped") });
+    const { rerender } = render(wrap(<UnitPaneActions node={unitNode} />));
+    expect(screen.getByTestId("unit-action-engagement")).toHaveTextContent(
+      /^\s*Engagement\s*$/,
+    );
+    rerender(wrap(<UnitPaneActions node={agentNode} />));
+    expect(screen.getByTestId("agent-action-engagement")).toHaveTextContent(
+      /^\s*Engagement\s*$/,
     );
   });
 });
@@ -428,12 +440,12 @@ describe("UnitPaneActions — Force delete recovery (#1137)", () => {
 });
 
 describe("UnitPaneActions — Agent", () => {
-  it("renders Start engagement + Delete for an agent node", () => {
+  it("renders Engagement + Delete for an agent node", () => {
     render(wrap(<UnitPaneActions node={agentNode} />));
     expect(screen.getByTestId("agent-action-delete")).toBeInTheDocument();
-    // #1456: agent panes also surface the engagement entry-point.
+    // #1463/#1464: agent panes also surface the engagement entry-point.
     expect(
-      screen.getByTestId("agent-action-start-engagement"),
+      screen.getByTestId("agent-action-engagement"),
     ).toBeInTheDocument();
     expect(screen.queryByTestId("unit-action-start")).toBeNull();
     expect(screen.queryByTestId("unit-action-stop")).toBeNull();

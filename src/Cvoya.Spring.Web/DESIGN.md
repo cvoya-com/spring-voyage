@@ -382,7 +382,7 @@ The right-hand detail pane's header hosts a status-gated action cluster (`<UnitP
 
 Every mutation invalidates `queryKeys.units.detail(id)` / `queryKeys.agents.detail(id)`, `queryKeys.tenant.tree()`, `queryKeys.activity.all`, and `queryKeys.dashboard.all` so the status badge and the tree refresh in place. After a successful delete the pane routes back to `/units` so the stale selection does not trap the Explorer.
 
-The Messages tab's **+ New conversation** button opens `<NewConversationDialog>` (`src/components/conversation/new-conversation-dialog.tsx`). The dialog collects a first message body, POSTs `/api/v1/messages` with `to: { scheme: "unit"|"agent", path }`, `type: "Domain"`, and a null `conversationId` — the server's auto-gen (#985) assigns a fresh UUID, which the dialog forwards to the caller so the Explorer routes to the new thread via `?conversation=<id>`. The dialog surfaces server errors inline without closing.
+The Messages tab renders the **{current human, unit/agent} 1:1 engagement** as a single inline timeline plus a persistent composer at the bottom (#1459 / #1460). There is no master/detail list and no modal "+ New conversation" dialog — the engagement is conceptually a single thread per pair. Sending a message when no thread exists posts `/api/v1/messages` with `to: { scheme: "unit"|"agent", path }`, `type: "Domain"`, and a null `threadId`; the server's auto-gen (#985) assigns a fresh id and the next refetch picks it up. Subsequent sends append to that thread via `POST /api/v1/threads/{id}/messages`. Non-dialog events (tool calls, lifecycle transitions) render as collapsible call-outs inside the same timeline so the chat reads cleanly while still surfacing operational context.
 
 ---
 
