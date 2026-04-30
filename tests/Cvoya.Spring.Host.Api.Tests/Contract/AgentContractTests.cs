@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Host.Api.Tests.Contract;
 
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
@@ -145,6 +146,56 @@ public class AgentContractTests : IClassFixture<CustomWebApplicationFactory>
         var body = await response.Content.ReadAsStringAsync(ct);
         OpenApiContract.AssertResponse(
             "/api/v1/tenant/agents/{id}/undeploy", "post", "200", body);
+    }
+
+    [Fact]
+    public async Task ListAgents_IncludesHostingModeAndInitiativeLevel_MatchesContract()
+    {
+        // #572 / #573: the list endpoint must carry hostingMode and
+        // initiativeLevel on every entry. Both are nullable — an agent
+        // with no execution block carries null for hostingMode; an
+        // agent with no policy carries "passive" for initiativeLevel
+        // (the store default). The contract test pins the shape so a
+        // field removal causes a compile error on the server side and a
+        // validation failure here.
+        var ct = TestContext.Current.CancellationToken;
+        _factory.DirectoryService.ListAllAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<DirectoryEntry>
+            {
+                new(new Address("agent", "contract-hosting-initiative"),
+                    "actor-hosting-initiative",
+                    "Hosting + Initiative",
+                    "Contract test for new fields",
+                    null,
+                    DateTimeOffset.UtcNow),
+            });
+
+        var response = await _client.GetAsync("/api/v1/tenant/agents", ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var body = await response.Content.ReadAsStringAsync(ct);
+        OpenApiContract.AssertResponse("/api/v1/tenant/agents", "get", "200", body);
+
+        // Parse the response body and pin the new fields.
+        using var doc = JsonDocument.Parse(body);
+        var agent = doc.RootElement[0];
+
+        // hostingMode is nullable — no execution block → null.
+        agent.TryGetProperty("hostingMode", out var hostingMode).ShouldBeTrue(
+            "AgentResponse must include 'hostingMode' (nullable string)");
+        // The value may be null (no execution block) or a valid hosting key.
+        if (hostingMode.ValueKind != JsonValueKind.Null)
+        {
+            hostingMode.GetString().ShouldBeOneOf("ephemeral", "persistent");
+        }
+
+        // initiativeLevel is nullable — default policy → "passive".
+        agent.TryGetProperty("initiativeLevel", out var initiativeLevel).ShouldBeTrue(
+            "AgentResponse must include 'initiativeLevel' (nullable string)");
+        if (initiativeLevel.ValueKind != JsonValueKind.Null)
+        {
+            initiativeLevel.GetString().ShouldBeOneOf("passive", "attentive", "proactive", "autonomous");
+        }
     }
 
     private void ArrangeUnitEntry(string unitId, string actorId)

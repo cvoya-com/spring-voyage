@@ -9,6 +9,7 @@ using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Agents;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Initiative;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Units;
@@ -423,6 +424,8 @@ public static class AgentEndpoints
 
     private static async Task<IResult> ListAgentsAsync(
         IDirectoryService directoryService,
+        [FromServices] IAgentExecutionStore executionStore,
+        [FromServices] IInitiativeEngine initiativeEngine,
         CancellationToken cancellationToken)
     {
         var entries = await directoryService.ListAllAsync(cancellationToken);
@@ -432,10 +435,44 @@ public static class AgentEndpoints
         // metadata use GET /api/v1/agents/{id} or the unit-scoped list.
         // Response fields below RegisteredAt fall back to defaults (see
         // ToAgentResponse).
-        var agents = entries
+        //
+        // #572 / #573: hosting mode and initiative level are read from the
+        // execution store and initiative engine respectively. Both are
+        // local DB reads (no actor fan-out). We fire them in parallel per
+        // agent and fail-open (null) when either call throws so a transient
+        // outage never blanks the whole list.
+        var agentEntries = entries
             .Where(e => string.Equals(e.Address.Scheme, "agent", StringComparison.OrdinalIgnoreCase))
-            .Select(e => ToAgentResponse(e))
             .ToList();
+
+        var enrichmentTasks = agentEntries.Select(async e =>
+        {
+            var agentId = e.Address.Path;
+
+            AgentExecutionShape? shape = null;
+            try
+            {
+                shape = await executionStore.GetAsync(agentId, cancellationToken);
+            }
+            catch
+            {
+                // Fail-open: hosting mode stays null on transient error.
+            }
+
+            InitiativeLevel? level = null;
+            try
+            {
+                level = await initiativeEngine.GetCurrentLevelAsync(agentId, cancellationToken);
+            }
+            catch
+            {
+                // Fail-open: initiative level stays null on transient error.
+            }
+
+            return ToAgentResponse(e, hostingMode: shape?.Hosting, initiativeLevel: level);
+        });
+
+        var agents = await Task.WhenAll(enrichmentTasks);
 
         return Results.Ok(agents);
     }
@@ -448,6 +485,8 @@ public static class AgentEndpoints
         [FromServices] MessageRouter messageRouter,
         [FromServices] IAuthenticatedCallerAccessor callerAccessor,
         [FromServices] PersistentAgentRegistry persistentAgentRegistry,
+        [FromServices] IAgentExecutionStore executionStore,
+        [FromServices] IInitiativeEngine initiativeEngine,
         CancellationToken cancellationToken)
     {
         var address = new Address("agent", id);
@@ -490,7 +529,30 @@ public static class AgentEndpoints
             deployment = ToDeploymentResponse(persistentEntry, replicas: 1);
         }
 
-        var agentResponse = ToAgentResponse(entry, metadata);
+        // #572 / #573: populate hosting mode and initiative level on the
+        // detail response. Fail-open (null) so a transient outage from
+        // either store doesn't block the status verb entirely.
+        AgentExecutionShape? shape = null;
+        try
+        {
+            shape = await executionStore.GetAsync(id, cancellationToken);
+        }
+        catch
+        {
+            // Fail-open: hosting mode stays null.
+        }
+
+        InitiativeLevel? level = null;
+        try
+        {
+            level = await initiativeEngine.GetCurrentLevelAsync(id, cancellationToken);
+        }
+        catch
+        {
+            // Fail-open: initiative level stays null.
+        }
+
+        var agentResponse = ToAgentResponse(entry, metadata, hostingMode: shape?.Hosting, initiativeLevel: level);
         if (!result.IsSuccess)
         {
             return Results.Ok(new AgentDetailResponse(agentResponse, null, deployment));
@@ -770,9 +832,20 @@ public static class AgentEndpoints
     /// response carries default values (<c>Enabled = true</c>, <c>ExecutionMode = Auto</c>)
     /// so callers can treat those fields as non-nullable.
     /// </summary>
+    /// <param name="entry">The directory entry for the agent.</param>
+    /// <param name="metadata">Optional agent metadata from the actor.</param>
+    /// <param name="hostingMode">
+    /// Optional hosting mode string (e.g. <c>"ephemeral"</c> / <c>"persistent"</c>)
+    /// sourced from the agent's <c>execution.hosting</c> field (#572).
+    /// </param>
+    /// <param name="initiativeLevel">
+    /// Optional effective initiative level sourced from the initiative engine (#573).
+    /// </param>
     internal static AgentResponse ToAgentResponse(
         DirectoryEntry entry,
-        AgentMetadata? metadata = null) =>
+        AgentMetadata? metadata = null,
+        string? hostingMode = null,
+        InitiativeLevel? initiativeLevel = null) =>
         new(
             entry.ActorId,
             entry.Address.Path,
@@ -784,7 +857,11 @@ public static class AgentEndpoints
             metadata?.Specialty,
             metadata?.Enabled ?? true,
             metadata?.ExecutionMode ?? AgentExecutionMode.Auto,
-            metadata?.ParentUnit);
+            metadata?.ParentUnit,
+            HostingMode: hostingMode,
+            InitiativeLevel: initiativeLevel.HasValue
+                ? initiativeLevel.Value.ToString().ToLowerInvariant()
+                : null);
 
     /// <summary>
     /// Best-effort read of the agent actor's metadata. A failure here is

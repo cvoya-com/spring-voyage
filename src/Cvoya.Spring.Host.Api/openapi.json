@@ -8444,6 +8444,18 @@
               "null",
               "string"
             ]
+          },
+          "hostingMode": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "initiativeLevel": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },

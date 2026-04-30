@@ -959,4 +959,111 @@ public class CommandParsingTests
         parseResult.GetValue<bool>("--dry-run").ShouldBeTrue();
         parseResult.GetValue<string>("--slug").ShouldBe("acme");
     }
+
+    // --- #572 / #573: agent list --hosting / --initiative filter flags ---
+
+    [Fact]
+    public void AgentList_HostingFlag_ParsesEphemeral()
+    {
+        // #572: --hosting must accept exactly the two valid values.
+        var outputOption = CreateOutputOption();
+        var agentCommand = AgentCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(agentCommand);
+
+        var parseResult = rootCommand.Parse("agent list --hosting ephemeral");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<string>("--hosting").ShouldBe("ephemeral");
+    }
+
+    [Fact]
+    public void AgentList_HostingFlag_ParsesPersistent()
+    {
+        var outputOption = CreateOutputOption();
+        var agentCommand = AgentCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(agentCommand);
+
+        var parseResult = rootCommand.Parse("agent list --hosting persistent");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<string>("--hosting").ShouldBe("persistent");
+    }
+
+    [Fact]
+    public void AgentList_HostingFlag_RejectsInvalidValue()
+    {
+        var outputOption = CreateOutputOption();
+        var agentCommand = AgentCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(agentCommand);
+
+        var parseResult = rootCommand.Parse("agent list --hosting transient");
+
+        parseResult.Errors.ShouldNotBeEmpty();
+    }
+
+    [Fact]
+    public void AgentList_InitiativeFlag_SingleValue_ParsesProactive()
+    {
+        // #573: --initiative accepts a single value.
+        var outputOption = CreateOutputOption();
+        var agentCommand = AgentCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(agentCommand);
+
+        var parseResult = rootCommand.Parse("agent list --initiative proactive");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<string[]>("--initiative").ShouldBe(new[] { "proactive" });
+    }
+
+    [Fact]
+    public void AgentList_InitiativeFlag_MultipleValues_ParsesAll()
+    {
+        // #573: multiple --initiative flags accumulate into a set.
+        var outputOption = CreateOutputOption();
+        var agentCommand = AgentCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(agentCommand);
+
+        var parseResult = rootCommand.Parse(
+            "agent list --initiative proactive --initiative autonomous");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<string[]>("--initiative")
+            .ShouldBe(new[] { "proactive", "autonomous" }, ignoreOrder: true);
+    }
+
+    [Fact]
+    public void AgentList_InitiativeFlag_RejectsInvalidValue()
+    {
+        var outputOption = CreateOutputOption();
+        var agentCommand = AgentCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(agentCommand);
+
+        var parseResult = rootCommand.Parse("agent list --initiative reactive");
+
+        parseResult.Errors.ShouldNotBeEmpty();
+    }
+
+    [Fact]
+    public void AgentList_AllFilterFlags_ParseCleanly()
+    {
+        // Both filter flags together — parse without errors.
+        var outputOption = CreateOutputOption();
+        var agentCommand = AgentCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(agentCommand);
+
+        var parseResult = rootCommand.Parse(
+            "agent list --hosting persistent --initiative autonomous --initiative proactive");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<string>("--hosting").ShouldBe("persistent");
+        parseResult.GetValue<string[]>("--initiative")
+            .ShouldBe(new[] { "autonomous", "proactive" }, ignoreOrder: true);
+    }
 }

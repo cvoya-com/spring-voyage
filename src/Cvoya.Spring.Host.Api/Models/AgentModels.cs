@@ -48,6 +48,19 @@ public record CreateAgentRequest(
 /// projected with a default of <c>true</c> when unset so UI callers can
 /// treat it as non-nullable.
 /// </summary>
+/// <param name="HostingMode">
+/// The agent's declared hosting mode (<c>ephemeral</c> or <c>persistent</c>),
+/// read from the agent's persisted <c>execution.hosting</c> field. <c>null</c>
+/// when the agent has no execution block or the block carries no hosting
+/// declaration — the dispatcher defaults to ephemeral in that case.
+/// Added by #572.
+/// </param>
+/// <param name="InitiativeLevel">
+/// The agent's current effective initiative level as resolved by the initiative
+/// engine (<c>passive</c>, <c>attentive</c>, <c>proactive</c>, or
+/// <c>autonomous</c>). <c>null</c> when the level could not be resolved
+/// (e.g. policy store unavailable — fail-open on the list path). Added by #573.
+/// </param>
 public record AgentResponse(
     string Id,
     string Name,
@@ -59,7 +72,9 @@ public record AgentResponse(
     string? Specialty,
     bool Enabled,
     AgentExecutionMode ExecutionMode,
-    string? ParentUnit);
+    string? ParentUnit,
+    string? HostingMode = null,
+    string? InitiativeLevel = null);
 
 /// <summary>
 /// Request body for <c>PATCH /api/v1/agents/{id}</c>. All fields optional;

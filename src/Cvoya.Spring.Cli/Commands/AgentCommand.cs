@@ -23,6 +23,8 @@ public static class AgentCommand
         new("name", a => a.Name),
         new("role", a => a.Role),
         new("enabled", a => a.Enabled?.ToString().ToLowerInvariant()),
+        new("hosting", a => a.HostingMode),
+        new("initiative", a => a.InitiativeLevel),
     };
 
     private static readonly OutputFormatter.Column<AgentResponse>[] AgentCreateColumns =
@@ -114,20 +116,68 @@ public static class AgentCommand
         return agentCommand;
     }
 
+    /// <summary>Allowed values for the <c>--hosting</c> filter flag (#572).</summary>
+    public static readonly string[] HostingKeys = ["ephemeral", "persistent"];
+
+    /// <summary>Allowed values for the <c>--initiative</c> filter flag (#573).</summary>
+    public static readonly string[] InitiativeKeys = ["passive", "attentive", "proactive", "autonomous"];
+
     private static Command CreateListCommand(Option<string> outputOption)
     {
+        // #572: --hosting filters by the agent's declared hosting mode.
+        var hostingOption = new Option<string?>("--hosting")
+        {
+            Description = "Filter agents by hosting mode. Allowed: " + string.Join(", ", HostingKeys) + ".",
+        };
+        hostingOption.AcceptOnlyFromAmong(HostingKeys);
+
+        // #573: --initiative filters by the agent's effective initiative level.
+        // Multi-valued: repeat the flag or comma-separate to match multiple
+        // levels (e.g. --initiative proactive --initiative autonomous).
+        var initiativeOption = new Option<string[]>("--initiative")
+        {
+            Description = "Filter agents by initiative level. Allowed: " + string.Join(", ", InitiativeKeys) + ". " +
+                "Repeat the flag or comma-separate to include multiple levels.",
+            AllowMultipleArgumentsPerToken = true,
+        };
+        initiativeOption.AcceptOnlyFromAmong(InitiativeKeys);
+
         var command = new Command("list", "List all agents");
+        command.Options.Add(hostingOption);
+        command.Options.Add(initiativeOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
             var output = parseResult.GetValue(outputOption) ?? "table";
-            var client = ClientFactory.Create();
+            var hosting = parseResult.GetValue(hostingOption);
+            var initiative = parseResult.GetValue(initiativeOption) ?? [];
 
+            var client = ClientFactory.Create();
             var result = await client.ListAgentsAsync(ct);
 
+            // Client-side filtering (#572 / #573). Server-side filtering is
+            // a follow-up if needed; keeping it here avoids a server-contract
+            // change and works correctly for the OSS list size.
+            var filtered = result.AsEnumerable();
+
+            if (!string.IsNullOrEmpty(hosting))
+            {
+                filtered = filtered.Where(a =>
+                    string.Equals(a.HostingMode, hosting, StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (initiative.Length > 0)
+            {
+                var initiativeSet = new HashSet<string>(initiative, StringComparer.OrdinalIgnoreCase);
+                filtered = filtered.Where(a =>
+                    a.InitiativeLevel is not null && initiativeSet.Contains(a.InitiativeLevel));
+            }
+
+            var list = filtered.ToList();
+
             Console.WriteLine(output == "json"
-                ? OutputFormatter.FormatJson(result)
-                : OutputFormatter.FormatTable(result, AgentListColumns));
+                ? OutputFormatter.FormatJson(list)
+                : OutputFormatter.FormatTable(list, AgentListColumns));
         });
 
         return command;
