@@ -21,7 +21,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentNode, UnitNode } from "./aggregate";
 import type { UnitResponse, UnitStatus } from "@/lib/api/types";
@@ -495,5 +495,72 @@ describe("UnitPaneActions — delete gating (#1019)", () => {
       screen.queryByRole("button", { name: /permanently delete/i }),
     ).toBeNull();
     expect(deleteUnitMock).not.toHaveBeenCalled();
+  });
+});
+
+// #1145: soft-timeout advisory for units stuck in Starting / Stopping.
+// The timer fires after EXPLORER_STUCK_THRESHOLD_MS (90 s) of continuous
+// time in the transient state. Tests use vi.useFakeTimers() to advance
+// the clock without waiting.
+describe("UnitPaneActions — stuck-transient advisory (#1145)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("does not render the advisory before the threshold elapses (Starting)", () => {
+    useUnitMock.mockReturnValue({ data: makeUnit("Starting") });
+    render(wrap(<UnitPaneActions node={unitNode} />));
+    // Advance 30 s — well below the 90 s threshold.
+    act(() => { vi.advanceTimersByTime(30_000); });
+    expect(screen.queryByTestId("unit-stuck-advisory")).toBeNull();
+  });
+
+  it("renders the advisory after the threshold elapses for Starting", () => {
+    useUnitMock.mockReturnValue({ data: makeUnit("Starting") });
+    render(wrap(<UnitPaneActions node={unitNode} />));
+    act(() => { vi.advanceTimersByTime(90_000); });
+    expect(screen.getByTestId("unit-stuck-advisory")).toBeInTheDocument();
+    expect(screen.getByTestId("unit-stuck-force-delete")).toBeInTheDocument();
+    expect(screen.getByTestId("unit-stuck-dismiss")).toBeInTheDocument();
+  });
+
+  it("renders the advisory after the threshold elapses for Stopping", () => {
+    useUnitMock.mockReturnValue({ data: makeUnit("Stopping") });
+    render(wrap(<UnitPaneActions node={unitNode} />));
+    act(() => { vi.advanceTimersByTime(90_000); });
+    expect(screen.getByTestId("unit-stuck-advisory")).toBeInTheDocument();
+  });
+
+  it("does not render the advisory for non-transient statuses", () => {
+    for (const status of ["Running", "Stopped", "Error", "Draft", "Validating"] as const) {
+      useUnitMock.mockReturnValue({ data: makeUnit(status as UnitStatus) });
+      const { unmount } = render(wrap(<UnitPaneActions node={unitNode} />));
+      act(() => { vi.advanceTimersByTime(90_000); });
+      expect(screen.queryByTestId("unit-stuck-advisory")).toBeNull();
+      unmount();
+    }
+  });
+
+  it("Dismiss hides the advisory for the current status", () => {
+    useUnitMock.mockReturnValue({ data: makeUnit("Starting") });
+    render(wrap(<UnitPaneActions node={unitNode} />));
+    act(() => { vi.advanceTimersByTime(90_000); });
+    expect(screen.getByTestId("unit-stuck-advisory")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("unit-stuck-dismiss"));
+    expect(screen.queryByTestId("unit-stuck-advisory")).toBeNull();
+  });
+
+  it("Force delete button opens the force-delete confirm dialog", () => {
+    useUnitMock.mockReturnValue({ data: makeUnit("Starting") });
+    render(wrap(<UnitPaneActions node={unitNode} />));
+    act(() => { vi.advanceTimersByTime(90_000); });
+    fireEvent.click(screen.getByTestId("unit-stuck-force-delete"));
+    // The force-delete confirmation dialog title should appear.
+    expect(
+      screen.getByRole("heading", { name: /force-delete unit/i }),
+    ).toBeInTheDocument();
   });
 });

@@ -5,6 +5,7 @@ import {
   Bot,
   Brain,
   Copy,
+  Container,
   LayoutDashboard,
   Layers,
   MessagesSquare,
@@ -44,6 +45,8 @@ const TAB_ICON: Record<CardTabName, LucideIcon> = {
   Clones: Copy,
   Config: Settings,
   Budgets: PiggyBank,
+  // #1119: Deployment tab for persistent-agent lifecycle controls.
+  Deployment: Container,
 };
 
 interface TabChipProps {

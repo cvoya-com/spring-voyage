@@ -16,17 +16,26 @@
 // tenant-tree endpoint pins every node to `"running"` (see
 // `TenantTreeEndpoints.cs`). Hitting the real per-unit endpoint is the
 // only way to know whether `Start` or `Revalidate` is the correct verb.
+//
+// #1145: soft-timeout advisory for units stuck in `Starting` or `Stopping`.
+// After EXPLORER_STUCK_THRESHOLD_MS of continuous time in the state a
+// yellow advisory renders with a "Force delete" affordance (reuses the
+// existing #1137 dialog) and a "Dismiss" button. The threshold is
+// intentionally generous (90 s) so normal cold-start container pulls do
+// not trip the banner. The timer re-arms whenever the status changes.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
+  AlertTriangle,
   Play,
   Plus,
   RefreshCw,
   Square,
   Trash2,
   CheckCircle2,
+  X,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -47,6 +56,14 @@ function isForceableConflict(err: unknown): boolean {
   const forceHint = (body as Record<string, unknown>).forceHint;
   return typeof forceHint === "string" && forceHint.length > 0;
 }
+
+// #1145: time a unit must remain in a transient state before the stuck
+// advisory appears. 90 s is generous enough that a real cold-start
+// container pull does not trip the banner but short enough that an
+// operator staring at a hung unit gets an escape hatch quickly.
+// Both `Starting` and `Stopping` share the same threshold — file a
+// follow-up if per-state tuning becomes necessary.
+const EXPLORER_STUCK_THRESHOLD_MS = 90_000;
 
 import type { TreeNode } from "./aggregate";
 
@@ -85,6 +102,55 @@ function UnitActions({ node }: { node: TreeNode }) {
   // operator into "open the API docs and figure out ?force=true". Set the
   // flag and re-open the confirm with a force-flavoured copy.
   const [forceConfirmOpen, setForceConfirmOpen] = useState(false);
+
+  // #1145: soft-timeout advisory — tracks how long the unit has
+  // continuously been in a stuck-transient state (`Starting` or
+  // `Stopping`). The clock resets on any status change (including a
+  // transition out of the stuck state) so a retry gets a fresh window.
+  // `advisoryDismissed` suppresses the banner until the next status
+  // change — the operator explicitly asked to hide it.
+  const STUCK_STATUSES = ["Starting", "Stopping"] as const;
+  type StuckStatus = (typeof STUCK_STATUSES)[number];
+  const isStuck = (s: UnitStatus | null): s is StuckStatus =>
+    s === "Starting" || s === "Stopping";
+
+  const [stuckStartedAt, setStuckStartedAt] = useState<number | null>(null);
+  const [stuckSoftTimedOut, setStuckSoftTimedOut] = useState(false);
+  const [advisoryDismissedFor, setAdvisoryDismissedFor] = useState<
+    string | null
+  >(null);
+  // `advisoryDismissedFor` stores the composite "<id>|<status>" string
+  // so a status change re-arms the advisory even for the same node.
+  const advisoryKey = `${node.id}|${status}`;
+  const advisoryDismissed = advisoryDismissedFor === advisoryKey;
+
+  useEffect(() => {
+    if (!isStuck(status)) {
+      setStuckStartedAt(null);
+      setStuckSoftTimedOut(false);
+      return;
+    }
+    if (stuckStartedAt === null) {
+      setStuckStartedAt(Date.now());
+      setStuckSoftTimedOut(false);
+      return;
+    }
+    if (stuckSoftTimedOut) return;
+    const elapsed = Date.now() - stuckStartedAt;
+    const remaining = Math.max(0, EXPLORER_STUCK_THRESHOLD_MS - elapsed);
+    if (remaining === 0) {
+      setStuckSoftTimedOut(true);
+      return;
+    }
+    const handle = window.setTimeout(() => {
+      setStuckSoftTimedOut(true);
+    }, remaining);
+    return () => window.clearTimeout(handle);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, stuckStartedAt, stuckSoftTimedOut]);
+
+  const showStuckAdvisory =
+    isStuck(status) && stuckSoftTimedOut && !advisoryDismissed;
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: queryKeys.units.detail(node.id) });
@@ -220,6 +286,56 @@ function UnitActions({ node }: { node: TreeNode }) {
       className="flex flex-wrap items-center gap-2"
       data-testid="unit-pane-actions"
     >
+      {/*
+        #1145: stuck-transient advisory. Appears after the unit has been in
+        `Starting` or `Stopping` for longer than EXPLORER_STUCK_THRESHOLD_MS.
+        "Force delete" reuses the existing #1137 dialog; "Dismiss" suppresses
+        the advisory until the next status change so it doesn't become
+        wallpaper. The advisory renders inline in the actions cluster rather
+        than as a full-width banner so the Delete button stays visible.
+      */}
+      {showStuckAdvisory && (
+        <div
+          role="alert"
+          data-testid="unit-stuck-advisory"
+          className="flex w-full flex-wrap items-start gap-3 rounded-md border border-warning/50 bg-warning/10 px-3 py-2 text-sm text-foreground"
+        >
+          <AlertTriangle
+            className="mt-0.5 h-4 w-4 shrink-0 text-warning"
+            aria-hidden="true"
+          />
+          <div className="flex-1 space-y-1">
+            <p className="font-medium">
+              This unit has been {status} for more than 90 seconds.
+            </p>
+            <p className="text-xs text-muted-foreground">
+              The container or teardown may be wedged. You can force-delete
+              the unit to bypass the lifecycle gate, or dismiss this notice
+              and keep waiting.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className="inline-flex h-8 items-center gap-1 rounded-md border border-border bg-background px-3 text-xs font-medium hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              data-testid="unit-stuck-force-delete"
+              onClick={() => setForceConfirmOpen(true)}
+            >
+              <Trash2 className="h-3 w-3" aria-hidden="true" />
+              Force delete
+            </button>
+            <button
+              type="button"
+              className="inline-flex h-8 items-center gap-1 rounded-md border border-border bg-background px-3 text-xs font-medium hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              data-testid="unit-stuck-dismiss"
+              onClick={() => setAdvisoryDismissedFor(advisoryKey)}
+            >
+              <X className="h-3 w-3" aria-hidden="true" />
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
       <Button
         variant="outline"
         size="sm"

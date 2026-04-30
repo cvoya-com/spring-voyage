@@ -37,6 +37,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/api/client";
 import { useAgentDeployment, useAgentLogs } from "@/lib/api/queries";
@@ -87,6 +88,11 @@ export function LifecyclePanel({
   const [pendingVerb, setPendingVerb] = useState<
     "deploy" | "undeploy" | "scale" | null
   >(null);
+  // Confirmation dialogs for destructive actions. Undeploy tears down the
+  // running container; scale-to-0 is equivalent and may interrupt in-flight
+  // work — both require explicit confirmation (#1119).
+  const [undeployConfirmOpen, setUndeployConfirmOpen] = useState(false);
+  const [scaleZeroConfirmOpen, setScaleZeroConfirmOpen] = useState(false);
 
   const tailNumber = Number.parseInt(tailInput, 10);
   const effectiveTail =
@@ -286,7 +292,7 @@ export function LifecyclePanel({
           <Button
             variant="outline"
             size="sm"
-            onClick={handleUndeploy}
+            onClick={() => setUndeployConfirmOpen(true)}
             disabled={busy}
             data-testid="agent-lifecycle-undeploy"
           >
@@ -304,7 +310,7 @@ export function LifecyclePanel({
           <Button
             variant="outline"
             size="sm"
-            onClick={() => handleScale(0)}
+            onClick={() => setScaleZeroConfirmOpen(true)}
             disabled={busy}
             data-testid="agent-lifecycle-scale-zero"
           >
@@ -378,6 +384,34 @@ export function LifecyclePanel({
           )}
         </div>
       </CardContent>
+
+      {/* #1119: confirmation dialogs for destructive lifecycle verbs. */}
+      <ConfirmDialog
+        open={undeployConfirmOpen}
+        title="Undeploy agent?"
+        description="This tears down the running container. In-flight work may be interrupted. The agent's configuration is preserved and you can redeploy at any time."
+        confirmLabel="Undeploy"
+        confirmVariant="destructive"
+        pending={pendingVerb === "undeploy"}
+        onConfirm={async () => {
+          setUndeployConfirmOpen(false);
+          await handleUndeploy();
+        }}
+        onCancel={() => setUndeployConfirmOpen(false)}
+      />
+      <ConfirmDialog
+        open={scaleZeroConfirmOpen}
+        title="Scale to 0 replicas?"
+        description="This stops all running containers for this agent. In-flight work may be interrupted. You can scale back up at any time."
+        confirmLabel="Scale to 0"
+        confirmVariant="destructive"
+        pending={pendingVerb === "scale"}
+        onConfirm={async () => {
+          setScaleZeroConfirmOpen(false);
+          await handleScale(0);
+        }}
+        onCancel={() => setScaleZeroConfirmOpen(false)}
+      />
     </Card>
   );
 }

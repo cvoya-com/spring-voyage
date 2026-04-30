@@ -352,19 +352,20 @@ Per-kind tab sets are declared in `src/components/units/aggregate.ts` as `TENANT
 | Policies      | Unit policies including the Initiative section.                                                                                  |
 | **Config** (overflow) | Six sub-tabs: Boundary, Execution, Connector, Skills, Secrets, Expertise. Sub-tab selection is URL-owned via `?subtab=<name>`. Cross-links out to `/settings/skills` and `/connectors?unit=…`. |
 
-**Agent** — 9 visible, 0 overflow.
+**Agent** — 10 visible, 0 overflow.
 
-| Tab       | Content                                                                                                                      |
-| --------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| Overview  | Lifecycle + cost summary tiles.                                                                                              |
-| Activity  | Cost-over-time + per-slice breakdown.                                                                                        |
-| Messages  | Inline master/detail (same layout as the unit Messages tab); URL-owned via `?conversation=<id>`. A **+ New conversation** button opens the same modal composer, targeting `agent://<slug>`. |
-| Memory    | Agent-scoped read-only memory inspector (see § 10).                                                                          |
-| Skills    | Read from `/api/v1/agents/{id}/skills`.                                                                                      |
-| Traces    | Mock-backed in v2.0; a real `/api/v1/traces?agent=…` endpoint is a v2.1 follow-up.                                           |
-| Clones    | Per-agent clones table.                                                                                                      |
-| Policies  | Agent Policies (symmetric with Unit Policies). Hosts the per-agent Initiative editor; other dimensions (cost, model, skill) are declared on the owning unit. |
-| Config    | Merged info + daily-budget editor + execution editor, plus a collapsible Debug section with the status JSON. Initiative lives on the Policies tab; expertise lives on the owning unit. |
+| Tab        | Content                                                                                                                      |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Overview   | Compact lifecycle panel + cost summary tiles.                                                                                |
+| Activity   | Cost-over-time + per-slice breakdown.                                                                                        |
+| Messages   | Inline master/detail (same layout as the unit Messages tab); URL-owned via `?conversation=<id>`. A **+ New conversation** button opens the same modal composer, targeting `agent://<slug>`. |
+| Memory     | Agent-scoped read-only memory inspector (see § 10).                                                                          |
+| Skills     | Read from `/api/v1/agents/{id}/skills`.                                                                                      |
+| Traces     | Mock-backed in v2.0; a real `/api/v1/traces?agent=…` endpoint is a v2.1 follow-up.                                           |
+| Clones     | Per-agent clones table.                                                                                                      |
+| Policies   | Agent Policies (symmetric with Unit Policies). Hosts the per-agent Initiative editor; other dimensions (cost, model, skill) are declared on the owning unit. |
+| Config     | Merged info + daily-budget editor + execution editor, plus a collapsible Debug section with the status JSON. Initiative lives on the Policies tab; expertise lives on the owning unit. |
+| Deployment | Full-fidelity persistent-agent lifecycle surface (#1119). Mirrors `spring agent deploy / undeploy / scale / logs` 1:1. Destructive verbs (Undeploy, Scale to 0) require confirmation. The Overview tab embeds a compact version; this tab is the canonical deep-link target (e.g. from the AgentCard "Deployment" quick-action). |
 
 ### 9.2 Registry
 
@@ -376,7 +377,7 @@ The overflow strip (Unit's `Config`) renders as a second `role="tablist"` after 
 
 The right-hand detail pane's header hosts a status-gated action cluster (`<UnitPaneActions>`, `src/components/units/unit-pane-actions.tsx`) that exposes the Day-2 verbs the CLI already ships:
 
-- **Unit** — `Validate` (shown on `Draft`), `Revalidate` (shown on `Error` / `Stopped`), `Start` (shown on `Stopped`), `Stop` (shown on `Running`), and `Delete` (always shown, guarded by a confirmation dialog whose confirm button reads "Permanently delete"). The tenant-tree endpoint pins every node to `"running"` for aggregation purposes, so the gate reads the real `UnitStatus` from `useUnit(id)` rather than the tree status.
+- **Unit** — `Validate` (shown on `Draft`), `Revalidate` (shown on `Error` / `Stopped`), `Start` (shown on `Stopped`), `Stop` (shown on `Running`), and `Delete` (always shown, guarded by a confirmation dialog whose confirm button reads "Permanently delete"). The tenant-tree endpoint pins every node to `"running"` for aggregation purposes, so the gate reads the real `UnitStatus` from `useUnit(id)` rather than the tree status. **Stuck-transient advisory (#1145)**: when the unit has been continuously in `Starting` or `Stopping` for more than 90 seconds, a warning banner renders inline in the action cluster. The banner uses the Warning palette (§ 12.4) and provides two affordances: **Force delete** (opens the existing #1137 force-delete dialog — no new mutation surface) and **Dismiss** (hides the banner until the next status change). The timer resets whenever the status changes, so a retry gets a fresh window.
 - **Agent** — `Delete` only. `Start` / `Stop` have no CLI equivalent today; when they land the buttons come with them.
 
 Every mutation invalidates `queryKeys.units.detail(id)` / `queryKeys.agents.detail(id)`, `queryKeys.tenant.tree()`, `queryKeys.activity.all`, and `queryKeys.dashboard.all` so the status badge and the tree refresh in place. After a successful delete the pane routes back to `/units` so the stale selection does not trap the Explorer.

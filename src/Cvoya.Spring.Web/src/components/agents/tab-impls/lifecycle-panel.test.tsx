@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
@@ -133,17 +133,30 @@ describe("LifecyclePanel", () => {
       </Wrapper>,
     );
 
+    // Undeploy and scale-to-0 are destructive and now go through a
+    // confirmation dialog before firing the mutation (#1119). Click the
+    // trigger, then confirm in the dialog.
     fireEvent.click(screen.getByTestId("agent-lifecycle-undeploy"));
+    const undeployBtns = screen.getAllByRole("button", { name: /^Undeploy$/i });
+    await act(async () => {
+      fireEvent.click(undeployBtns[undeployBtns.length - 1]);
+    });
     await waitFor(() => {
       expect(mockUndeploy).toHaveBeenCalledWith("agent-1");
     });
 
+    // Scale to 1 has no dialog — it's additive, not destructive.
     fireEvent.click(screen.getByTestId("agent-lifecycle-scale-up"));
     await waitFor(() => {
       expect(mockScale).toHaveBeenCalledWith("agent-1", { replicas: 1 });
     });
 
+    // Scale to 0 requires confirmation.
     fireEvent.click(screen.getByTestId("agent-lifecycle-scale-zero"));
+    const scaleBtns = screen.getAllByRole("button", { name: /scale to 0/i });
+    await act(async () => {
+      fireEvent.click(scaleBtns[scaleBtns.length - 1]);
+    });
     await waitFor(() => {
       expect(mockScale).toHaveBeenCalledWith("agent-1", { replicas: 0 });
     });
@@ -194,5 +207,96 @@ describe("LifecyclePanel", () => {
     expect(
       await screen.findByTestId("agent-lifecycle-logs-pane"),
     ).toHaveTextContent("line 1");
+  });
+
+  // #1119: destructive actions require confirmation. The undeploy and
+  // scale-to-0 buttons open a ConfirmDialog; the mutation only fires
+  // after the operator confirms.
+  describe("confirmation dialogs for destructive lifecycle verbs (#1119)", () => {
+    it("undeploy button opens confirm dialog without firing the API", () => {
+      render(
+        <Wrapper>
+          <LifecyclePanel agentId="agent-1" />
+        </Wrapper>,
+      );
+      fireEvent.click(screen.getByTestId("agent-lifecycle-undeploy"));
+      // Dialog title should appear — it is a heading in the dialog.
+      expect(
+        screen.getByRole("heading", { name: /undeploy agent/i }),
+      ).toBeInTheDocument();
+      // API not yet called.
+      expect(mockUndeploy).not.toHaveBeenCalled();
+    });
+
+    it("confirming undeploy fires the undeployPersistentAgent endpoint", async () => {
+      render(
+        <Wrapper>
+          <LifecyclePanel agentId="agent-1" />
+        </Wrapper>,
+      );
+      fireEvent.click(screen.getByTestId("agent-lifecycle-undeploy"));
+      // The dialog's confirm button is the last button with "Undeploy" text.
+      const undeployButtons = screen.getAllByRole("button", { name: /^Undeploy$/i });
+      await act(async () => {
+        fireEvent.click(undeployButtons[undeployButtons.length - 1]);
+      });
+      await waitFor(() => {
+        expect(mockUndeploy).toHaveBeenCalledWith("agent-1");
+      });
+    });
+
+    it("cancelling undeploy confirm does not fire the API", () => {
+      render(
+        <Wrapper>
+          <LifecyclePanel agentId="agent-1" />
+        </Wrapper>,
+      );
+      fireEvent.click(screen.getByTestId("agent-lifecycle-undeploy"));
+      fireEvent.click(screen.getByRole("button", { name: /cancel/i }));
+      expect(mockUndeploy).not.toHaveBeenCalled();
+    });
+
+    it("scale-to-0 button opens confirm dialog without firing the API", () => {
+      render(
+        <Wrapper>
+          <LifecyclePanel agentId="agent-1" />
+        </Wrapper>,
+      );
+      fireEvent.click(screen.getByTestId("agent-lifecycle-scale-zero"));
+      // Dialog title should appear.
+      expect(
+        screen.getByRole("heading", { name: /scale to 0 replicas/i }),
+      ).toBeInTheDocument();
+      expect(mockScale).not.toHaveBeenCalled();
+    });
+
+    it("confirming scale-to-0 fires scalePersistentAgent with replicas:0", async () => {
+      render(
+        <Wrapper>
+          <LifecyclePanel agentId="agent-1" />
+        </Wrapper>,
+      );
+      fireEvent.click(screen.getByTestId("agent-lifecycle-scale-zero"));
+      // The dialog's confirm button is the last "Scale to 0" button.
+      const scaleButtons = screen.getAllByRole("button", { name: /scale to 0/i });
+      await act(async () => {
+        fireEvent.click(scaleButtons[scaleButtons.length - 1]);
+      });
+      await waitFor(() => {
+        expect(mockScale).toHaveBeenCalledWith("agent-1", { replicas: 0 });
+      });
+    });
+
+    it("scale-up button fires scalePersistentAgent with replicas:1 without confirmation", async () => {
+      render(
+        <Wrapper>
+          <LifecyclePanel agentId="agent-1" />
+        </Wrapper>,
+      );
+      fireEvent.click(screen.getByTestId("agent-lifecycle-scale-up"));
+      await waitFor(() => {
+        expect(mockScale).toHaveBeenCalledWith("agent-1", { replicas: 1 });
+      });
+    });
   });
 });

@@ -198,6 +198,12 @@ export const AGENT_TABS = {
     "Clones",
     "Policies",
     "Config",
+    // #1119: dedicated Deployment tab for the persistent-agent lifecycle
+    // verbs (deploy / undeploy / scale / status / logs). The Overview tab
+    // already surfaces a compact lifecycle panel; this tab is the
+    // full-fidelity surface that matches `spring agent {deploy,undeploy,
+    // scale,logs}` 1:1 and is always reachable via deep-link.
+    "Deployment",
   ] as const,
   overflow: [] as const,
 };

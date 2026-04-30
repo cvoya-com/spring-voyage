@@ -215,7 +215,7 @@ describe("tabsFor", () => {
     expect(UNIT_TABS.overflow).toEqual(["Config"]);
   });
 
-  it("locks the agent tab order and count (#934 adds a Policies tab symmetric to Unit)", () => {
+  it("locks the agent tab order and count (#1119 adds Deployment tab)", () => {
     expect([...AGENT_TABS.visible, ...AGENT_TABS.overflow]).toEqual([
       "Overview",
       "Activity",
@@ -226,6 +226,7 @@ describe("tabsFor", () => {
       "Clones",
       "Policies",
       "Config",
+      "Deployment",
     ]);
     expect(AGENT_TABS.overflow).toEqual([]);
   });
@@ -256,9 +257,11 @@ describe("visibleTabsFor / overflowTabsFor", () => {
     expect(overflowTabsFor("Unit")).toEqual(["Config"]);
   });
 
-  it("surfaces the full Agent catalog as visible with no overflow in v2.0 (#934 added Policies → 9)", () => {
-    expect(visibleTabsFor("Agent")).toHaveLength(9);
+  it("surfaces the full Agent catalog as visible with no overflow (#1119 added Deployment → 10)", () => {
+    expect(visibleTabsFor("Agent")).toHaveLength(10);
     expect(overflowTabsFor("Agent")).toEqual([]);
+    // Deployment tab must be in the catalog.
+    expect(visibleTabsFor("Agent")).toContain("Deployment");
   });
 
   it("surfaces the full Tenant catalog as visible with no overflow in v2.0", () => {

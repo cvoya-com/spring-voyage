@@ -26,6 +26,7 @@ import "./agent-traces";
 import "./agent-clones";
 import "./agent-policies";
 import "./agent-config";
+import "./agent-deployment"; // #1119
 
 // Tenant tabs
 import "./tenant-overview";
