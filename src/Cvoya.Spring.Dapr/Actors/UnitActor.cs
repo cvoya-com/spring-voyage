@@ -368,15 +368,6 @@ public class UnitActor : Actor, IUnitActor
     {
         var current = await GetStatusInternalAsync(ct);
 
-        // Compound transition: Draft -> Starting is expressed as
-        // Draft -> Stopped -> Starting internally. Callers see a single
-        // call; the intermediate Stopped state is never exposed on the
-        // HTTP response.
-        if (current == UnitStatus.Draft && target == UnitStatus.Starting)
-        {
-            return await CompoundDraftToStartingAsync(ct);
-        }
-
         if (!IsTransitionAllowed(current, target))
         {
             var reason = $"cannot transition from {current} to {target}";
@@ -739,9 +730,8 @@ public class UnitActor : Actor, IUnitActor
 
     /// <summary>
     /// Persists a single status transition and emits the corresponding
-    /// activity event. Extracted from <see cref="TransitionAsync"/> so
-    /// <see cref="CompoundDraftToStartingAsync"/> can reuse it for each leg
-    /// of the compound transition.
+    /// activity event. Shared by <see cref="TransitionAsync"/> and the
+    /// <see cref="Cvoya.Spring.Dapr.Actors.UnitValidationCoordinator"/>.
     /// </summary>
     private async Task<TransitionResult> PersistTransitionAsync(
         UnitStatus current, UnitStatus target, CancellationToken ct)
@@ -763,29 +753,6 @@ public class UnitActor : Actor, IUnitActor
             }));
 
         return new TransitionResult(true, target, null);
-    }
-
-    /// <summary>
-    /// Compound transition: Draft -> Stopped -> Starting.
-    /// Validates readiness before attempting the transition.
-    /// </summary>
-    private async Task<TransitionResult> CompoundDraftToStartingAsync(CancellationToken ct)
-    {
-        var (isReady, missing) = await EvaluateReadinessAsync(ct);
-        if (!isReady)
-        {
-            var reason = $"Unit is not ready to start. Missing: {string.Join(", ", missing)}";
-            _logger.LogWarning(
-                "Unit {ActorId} rejected Draft->Starting: {Reason}",
-                Id.GetId(), reason);
-            return new TransitionResult(false, UnitStatus.Draft, reason);
-        }
-
-        // Leg 1: Draft -> Stopped
-        await PersistTransitionAsync(UnitStatus.Draft, UnitStatus.Stopped, ct);
-
-        // Leg 2: Stopped -> Starting
-        return await PersistTransitionAsync(UnitStatus.Stopped, UnitStatus.Starting, ct);
     }
 
     /// <summary>
@@ -828,8 +795,6 @@ public class UnitActor : Actor, IUnitActor
         (current, target) switch
         {
             (UnitStatus.Draft, UnitStatus.Stopped) => true,
-            // Draft -> Starting is handled as a compound transition in
-            // TransitionAsync and does not reach IsTransitionAllowed.
             (UnitStatus.Stopped, UnitStatus.Starting) => true,
             (UnitStatus.Starting, UnitStatus.Running) => true,
             (UnitStatus.Starting, UnitStatus.Error) => true,
@@ -838,12 +803,12 @@ public class UnitActor : Actor, IUnitActor
             (UnitStatus.Stopping, UnitStatus.Error) => true,
             (UnitStatus.Error, UnitStatus.Stopped) => true,
 
-            // Backend-validation edges (#944, T-02). The orchestrator that drives
-            // these transitions — the Dapr workflow that runs the in-container
-            // probes and calls back into UnitActor — lands in T-05; this PR wires
-            // the state-machine edges only. The existing compound Draft -> Starting
-            // path in TransitionAsync still bypasses IsTransitionAllowed and will
-            // need to be re-routed through Validating when orchestration lands.
+            // Backend-validation edges (#944, T-02 / #939). Units enter
+            // Validating from Draft (on creation) or Stopped/Error (on
+            // /revalidate). The Dapr UnitValidationWorkflow drives the
+            // Validating -> Stopped | Error transition via CompleteValidationAsync.
+            // Draft -> Starting is intentionally absent: units must pass through
+            // Validating before they can be started (#939).
             (UnitStatus.Draft, UnitStatus.Validating) => true,
             (UnitStatus.Validating, UnitStatus.Stopped) => true,
             (UnitStatus.Validating, UnitStatus.Error) => true,

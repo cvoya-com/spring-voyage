@@ -10,10 +10,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "Proprietary" }
 dependencies = [
-    # Upper-pinned to <1 because a2a-sdk 1.0.0 (April 2026) reorganised its
-    # package layout: `a2a.server.apps` and `a2a.utils.artifact` are gone.
-    # Lift the bound when imports are updated to the 1.x surface.
-    "a2a-sdk[http-server]>=0.3.20,<1",
+    "a2a-sdk[http-server]>=1.0,<2",
     "uvicorn>=0.30,<1",
     # PyYAML for loading agent-definition.yaml (optional at runtime;
     # the SDK falls back to JSON if YAML is absent).
