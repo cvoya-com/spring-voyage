@@ -236,6 +236,7 @@ The bundle MUST carry the following fields. Field names below are normative; the
 | `tenant_id` | string | yes | The tenant the agent runs under. Stable for the agent's lifetime. |
 | `unit_id` | string | no | The unit the agent is a member of, if applicable. Absent for standalone agents. |
 | `agent_id` | string | yes | The agent's stable identifier within the tenant. Used by the platform to route. |
+| `thread_id` | string | no | The Spring Voyage thread id associated with this launch, when the launch was triggered by a dispatch on a known thread. Absent on supervisor-driven restarts (see § 2.2.1). |
 | `agent_definition` | object | yes | The agent's full definition (instructions, execution config, etc.). Delivered as a structured document; see § 2.2 for the file-channel mechanism. |
 | `tenant_config` | object | no | Tenant-level configuration the agent may read (feature flags, defaults). Structure is operator-defined; the platform MUST NOT reinterpret. |
 
@@ -326,6 +327,7 @@ Both channels **MUST** be readable synchronously at the top of `initialize` — 
 | `SPRING_TENANT_ID` | `tenant_id` | yes |
 | `SPRING_UNIT_ID` | `unit_id` | no |
 | `SPRING_AGENT_ID` | `agent_id` | yes |
+| `SPRING_THREAD_ID` | `thread_id` | no |
 | `SPRING_BUCKET2_URL` | `bucket2_url` | yes |
 | `SPRING_BUCKET2_TOKEN` | `bucket2_token` | yes |
 | `SPRING_LLM_PROVIDER_URL` | `llm_provider_url` | yes |
@@ -338,6 +340,8 @@ Both channels **MUST** be readable synchronously at the top of `initialize` — 
 | `SPRING_CONCURRENT_THREADS` | `concurrent_threads` (`"true"` or `"false"`) | yes |
 
 The platform **MUST** populate every required env var before the container's PID 1 begins execution. The SDK **MUST** treat any required env var as missing/empty as a fatal `initialize` error.
+
+`SPRING_THREAD_ID` is present when the container launch originates from a specific dispatch context (e.g. the first launch triggered by a message on a known thread). It is **absent** on supervisor-driven restarts (which are agent-level lifecycle events, not bound to any particular thread). The SDK **MUST NOT** treat the absence of `SPRING_THREAD_ID` as a fatal error. The SDK **MAY** use the thread id when present to associate the current container with the dispatching thread (e.g. for runtime-session resume — see #1300). See also follow-up #1357 for Python SDK adoption of this env var.
 
 #### 2.2.2 Canonical mount path (normative)
 
@@ -651,3 +655,4 @@ The following surfaces are deliberately not specified by this document. Each has
 |---|---|---|
 | v0.1 | 2026-04-28 | Initial specification. Implements ADR-0029 Stage 1; consumes F1 / ADR-0030. |
 | v0.1.1 | 2026-04-28 | § 2.2.3 (Credential rotation): replace "TBD in Stage 2" with the restart-as-rotation-primitive contract — per-launch minting, restart re-injection, no-in-place-mutation, SDK auth-failure contract. § 2.3, § 5 conformance updated. Long-running zero-downtime rotation deferred to a future revision; see [`docs/architecture/agent-credential-rotation.md`](../architecture/agent-credential-rotation.md). Closes #1325 (design phase). |
+| v0.1.2 | 2026-04-29 | § 2.1 static metadata: add `thread_id` field (optional; present when launch originates from a known dispatch thread, absent on supervisor-driven restarts). § 2.2.1 env-var table: add `SPRING_THREAD_ID` (optional). Closes #1300 (propagation) and closes #1347 (D3d implementation: `IAgentContextBuilder.RefreshForRestartAsync`, `SupervisorState` identity fields, `ContainerSupervisorActor.RestartAsync` re-mint). |

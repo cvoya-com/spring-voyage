@@ -26,10 +26,12 @@ using Xunit;
 public class ContainerSupervisorActorTests
 {
     private const string TestAgentId = "test-agent-123";
+    private const string TestTenantId = "tenant-acme";
 
     private readonly IActorStateManager _stateManager = Substitute.For<IActorStateManager>();
     private readonly IContainerRuntime _containerRuntime = Substitute.For<IContainerRuntime>();
     private readonly ActorTimerManager _timerManager = Substitute.For<ActorTimerManager>();
+    private readonly IAgentContextBuilder _agentContextBuilder = Substitute.For<IAgentContextBuilder>();
     private readonly ContainerLifecycleManager _lifecycleManager;
     private readonly AgentVolumeManager _volumeManager;
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
@@ -57,6 +59,7 @@ public class ContainerSupervisorActorTests
             _containerRuntime,
             _lifecycleManager,
             _volumeManager,
+            _agentContextBuilder,
             _loggerFactory);
 
         SetStateManager(_actor, _stateManager);
@@ -65,6 +68,21 @@ public class ContainerSupervisorActorTests
         _stateManager
             .TryGetStateAsync<SupervisorState>(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<SupervisorState>(false, default!));
+
+        // Default: RefreshForRestartAsync returns a minimal bootstrap context
+        // with fresh tokens — tests that exercise restart behaviour rely on this.
+        _agentContextBuilder
+            .RefreshForRestartAsync(Arg.Any<SupervisorRestartContext>(), Arg.Any<CancellationToken>())
+            .Returns(ci => Task.FromResult(new AgentBootstrapContext(
+                new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["SPRING_TENANT_ID"] = ((SupervisorRestartContext)ci[0]).TenantId,
+                    ["SPRING_AGENT_ID"] = ((SupervisorRestartContext)ci[0]).AgentId,
+                    ["SPRING_BUCKET2_TOKEN"] = $"fresh-bucket2-{Guid.NewGuid():N}",
+                    ["SPRING_LLM_PROVIDER_TOKEN"] = $"fresh-llm-{Guid.NewGuid():N}",
+                    ["SPRING_MCP_TOKEN"] = $"fresh-mcp-{Guid.NewGuid():N}",
+                },
+                new Dictionary<string, string>(StringComparer.Ordinal))));
     }
 
     // ------------------------------------------------------------------
@@ -87,7 +105,9 @@ public class ContainerSupervisorActorTests
         var request = new SupervisorLaunchRequest(
             AgentId: TestAgentId,
             Image: "ghcr.io/cvoya/test-agent:1.0.0",
-            Hosting: AgentHostingMode.Ephemeral);
+            Hosting: AgentHostingMode.Ephemeral,
+            TenantId: TestTenantId,
+            UnitId: "u-1");
 
         var containerId = await _actor.StartAsync(request, CancellationToken.None);
 
@@ -106,14 +126,17 @@ public class ContainerSupervisorActorTests
                 c.VolumeMounts.Any(m => m.Contains(expectedVolumeName))),
             Arg.Any<CancellationToken>());
 
-        // State persisted.
+        // State persisted — includes tenant/unit identity so the supervisor
+        // can re-mint credentials on restart (D3d / D1 spec § 2.2.3).
         await _stateManager.Received(1).SetStateAsync(
             Arg.Any<string>(),
             Arg.Is<SupervisorState>(s =>
                 s.AgentId == TestAgentId &&
                 s.Status == ContainerSupervisionStatus.Running &&
                 s.ContainerId == expectedContainerId &&
-                s.VolumeName == expectedVolumeName),
+                s.VolumeName == expectedVolumeName &&
+                s.TenantId == TestTenantId &&
+                s.UnitId == "u-1"),
             Arg.Any<CancellationToken>());
     }
 
@@ -513,6 +536,206 @@ public class ContainerSupervisorActorTests
                 s.Status == ContainerSupervisionStatus.Running &&
                 s.ContainerId == newContainerId &&
                 s.RestartCount == 1),
+            Arg.Any<CancellationToken>());
+    }
+
+    // ------------------------------------------------------------------
+    // Credential re-injection on restart (D3d — D1 spec § 2.2.3)
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public async Task CheckHealthAsync_CrashedContainer_InjectsCredentialsOnRestart()
+    {
+        // The restarted container MUST receive fresh credentials from
+        // IAgentContextBuilder.RefreshForRestartAsync — the supervisor MUST NOT
+        // launch without env vars (D1 spec § 2.2.3 / design doc Option 2).
+        const string persistedImage = "ghcr.io/cvoya/test-agent:1.0.0";
+        const string crashedContainerId = "crashed-container";
+        const string newContainerId = "restarted-container";
+        const string volumeName = "spring-ws-test-agent-123";
+
+        var runningState = new SupervisorState(
+            AgentId: TestAgentId,
+            Hosting: AgentHostingMode.Persistent,
+            Status: ContainerSupervisionStatus.Running,
+            ContainerId: crashedContainerId,
+            SidecarId: null,
+            NetworkName: null,
+            VolumeName: volumeName,
+            RestartCount: 0,
+            MaxRestarts: ContainerSupervisorActor.DefaultMaxRestarts,
+            LastStartedAt: DateTimeOffset.UtcNow.AddMinutes(-5),
+            LastCrashAt: null,
+            Image: persistedImage,
+            TenantId: TestTenantId,
+            UnitId: "u-eng");
+
+        _stateManager
+            .TryGetStateAsync<SupervisorState>(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<SupervisorState>(true, runningState));
+
+        _containerRuntime
+            .ProbeHttpFromHostAsync(crashedContainerId, Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(false);
+
+        _containerRuntime
+            .StartAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
+            .Returns(newContainerId);
+
+        await _actor.CheckHealthAsync(CancellationToken.None);
+
+        // RefreshForRestartAsync MUST be called with the supervisor's persisted
+        // identity (not any credential material).
+        await _agentContextBuilder.Received(1).RefreshForRestartAsync(
+            Arg.Is<SupervisorRestartContext>(ctx =>
+                ctx.AgentId == TestAgentId &&
+                ctx.TenantId == TestTenantId &&
+                ctx.UnitId == "u-eng"),
+            Arg.Any<CancellationToken>());
+
+        // The restarted container MUST have env vars from the fresh context
+        // (not an empty env-var map as in the pre-D3d bug).
+        await _containerRuntime.Received(1).StartAsync(
+            Arg.Is<ContainerConfig>(c =>
+                c.EnvironmentVariables != null &&
+                c.EnvironmentVariables.ContainsKey("SPRING_BUCKET2_TOKEN") &&
+                !string.IsNullOrEmpty(c.EnvironmentVariables["SPRING_BUCKET2_TOKEN"])),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CheckHealthAsync_CrashedContainer_CredentialsDistinctAcrossRestarts()
+    {
+        // Two successive restarts MUST produce distinct credential sets — tokens
+        // MUST NOT be cached or replayed (D1 spec § 2.2.3).
+        const string persistedImage = "ghcr.io/cvoya/test-agent:1.0.0";
+        const string volumeName = "spring-ws-test-agent-123";
+
+        // Capture the bucket2 tokens emitted across two restart calls.
+        var bucket2Tokens = new List<string>();
+
+        _agentContextBuilder
+            .RefreshForRestartAsync(Arg.Any<SupervisorRestartContext>(), Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                var token = $"fresh-token-{Guid.NewGuid():N}";
+                bucket2Tokens.Add(token);
+                return Task.FromResult(new AgentBootstrapContext(
+                    new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        ["SPRING_BUCKET2_TOKEN"] = token,
+                        ["SPRING_LLM_PROVIDER_TOKEN"] = $"llm-{Guid.NewGuid():N}",
+                    },
+                    new Dictionary<string, string>(StringComparer.Ordinal)));
+            });
+
+        _containerRuntime
+            .StartAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
+            .Returns("new-container");
+
+        // First restart.
+        var state1 = new SupervisorState(
+            AgentId: TestAgentId,
+            Hosting: AgentHostingMode.Persistent,
+            Status: ContainerSupervisionStatus.Running,
+            ContainerId: "crashed-1",
+            SidecarId: null,
+            NetworkName: null,
+            VolumeName: volumeName,
+            RestartCount: 0,
+            MaxRestarts: ContainerSupervisorActor.DefaultMaxRestarts,
+            LastStartedAt: DateTimeOffset.UtcNow,
+            LastCrashAt: null,
+            Image: persistedImage,
+            TenantId: TestTenantId);
+
+        _stateManager
+            .TryGetStateAsync<SupervisorState>(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<SupervisorState>(true, state1));
+
+        _containerRuntime
+            .ProbeHttpFromHostAsync("crashed-1", Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(false);
+
+        await _actor.CheckHealthAsync(CancellationToken.None);
+
+        // Second restart — simulate another crash.
+        var state2 = state1 with
+        {
+            ContainerId = "crashed-2",
+            RestartCount = 1,
+        };
+
+        _stateManager
+            .TryGetStateAsync<SupervisorState>(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<SupervisorState>(true, state2));
+
+        _containerRuntime
+            .ProbeHttpFromHostAsync("crashed-2", Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(false);
+
+        await _actor.CheckHealthAsync(CancellationToken.None);
+
+        // Two restarts → two distinct tokens.
+        bucket2Tokens.Count.ShouldBe(2);
+        bucket2Tokens[0].ShouldNotBe(bucket2Tokens[1]);
+    }
+
+    [Fact]
+    public async Task CheckHealthAsync_CredentialRefreshFails_DeferesRestartToNextPoll()
+    {
+        // If RefreshForRestartAsync throws (transient KMS failure, etc.) the
+        // supervisor MUST revert to CrashDetected rather than propagating the
+        // exception — same posture as a transient container-runtime failure.
+        const string persistedImage = "ghcr.io/cvoya/test-agent:1.0.0";
+
+        var runningState = new SupervisorState(
+            AgentId: TestAgentId,
+            Hosting: AgentHostingMode.Persistent,
+            Status: ContainerSupervisionStatus.Running,
+            ContainerId: "crashed-container",
+            SidecarId: null,
+            NetworkName: null,
+            VolumeName: "vol",
+            RestartCount: 0,
+            MaxRestarts: ContainerSupervisorActor.DefaultMaxRestarts,
+            LastStartedAt: DateTimeOffset.UtcNow,
+            LastCrashAt: null,
+            Image: persistedImage,
+            TenantId: TestTenantId);
+
+        _stateManager
+            .TryGetStateAsync<SupervisorState>(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<SupervisorState>(true, runningState));
+
+        _containerRuntime
+            .ProbeHttpFromHostAsync("crashed-container", Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(false);
+
+        // Simulate a transient credential-build failure.
+        _agentContextBuilder
+            .RefreshForRestartAsync(Arg.Any<SupervisorRestartContext>(), Arg.Any<CancellationToken>())
+            .Returns(_ => Task.FromException<AgentBootstrapContext>(
+                new InvalidOperationException("Credential service temporarily unavailable")));
+
+        await _actor.CheckHealthAsync(CancellationToken.None);
+
+        // Container MUST NOT have been started (restart deferred).
+        await _containerRuntime.DidNotReceive().StartAsync(
+            Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>());
+
+        // State MUST be set to CrashDetected (not Failed) so the next poll retries.
+        // (The save may occur more than once — the crash detection sets it before
+        // the restart attempt, and the failed refresh reverts to it as well.)
+        await _stateManager.Received().SetStateAsync(
+            Arg.Any<string>(),
+            Arg.Is<SupervisorState>(s => s.Status == ContainerSupervisionStatus.CrashDetected),
+            Arg.Any<CancellationToken>());
+
+        // MUST NOT have been set to Failed (the failure was transient, not a give-up).
+        await _stateManager.DidNotReceive().SetStateAsync(
+            Arg.Any<string>(),
+            Arg.Is<SupervisorState>(s => s.Status == ContainerSupervisionStatus.Failed),
             Arg.Any<CancellationToken>());
     }
 

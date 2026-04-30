@@ -108,6 +108,21 @@ public interface IContainerSupervisorActor : IActor
 /// giving up and marking the agent as permanently failed. Defaults to
 /// <see cref="ContainerSupervisorActor.DefaultMaxRestarts"/>.
 /// </param>
+/// <param name="TenantId">
+/// The tenant the agent runs under. Persisted in <see cref="SupervisorState"/>
+/// so the supervisor can re-mint credentials on crash-driven restarts without a
+/// round-trip to the agent registry (D3d — D1 spec § 2.2.3). MUST NOT be a
+/// credential or token value.
+/// </param>
+/// <param name="UnitId">
+/// The unit the agent is a member of, if applicable. Persisted in
+/// <see cref="SupervisorState"/> for the same reason as <paramref name="TenantId"/>.
+/// </param>
+/// <param name="ConcurrentThreads">
+/// The resolved concurrent-threads policy for this agent. Persisted in
+/// <see cref="SupervisorState"/> so the supervisor can faithfully reproduce the
+/// agent's concurrency posture on restart.
+/// </param>
 public record SupervisorLaunchRequest(
     string AgentId,
     string Image,
@@ -115,7 +130,10 @@ public record SupervisorLaunchRequest(
     AgentHostingMode Hosting = AgentHostingMode.Ephemeral,
     string? NetworkName = null,
     IReadOnlyList<string>? AdditionalNetworks = null,
-    int? MaxRestarts = null);
+    int? MaxRestarts = null,
+    string TenantId = "default",
+    string? UnitId = null,
+    bool ConcurrentThreads = true);
 
 /// <summary>
 /// The supervisor's view of the managed agent container at a point in time.
@@ -154,8 +172,26 @@ public enum ContainerSupervisionStatus
 /// <see cref="IContainerSupervisorActor.StartAsync"/> call. Persisted so the
 /// supervisor can self-heal on crash without a new <c>StartAsync</c> call from the
 /// dispatcher. Credentials and full environment variables are NOT persisted here
-/// (they would expire); a restart that needs fresh credentials requires an
-/// explicit <c>Stop + StartAsync</c> cycle.
+/// (they would expire); the supervisor re-mints credentials on every restart via
+/// <see cref="IAgentContextBuilder.RefreshForRestartAsync"/> (D3d — D1 spec § 2.2.3).
+/// </param>
+/// <param name="TenantId">
+/// The tenant the agent runs under. Stored so the supervisor can reconstruct the
+/// minimum identity for <see cref="IAgentContextBuilder.RefreshForRestartAsync"/>
+/// without a round-trip to the agent registry. Defaults to <c>"default"</c> for
+/// existing state records that pre-date this field (safe migration value).
+/// MUST NOT hold any credential material.
+/// </param>
+/// <param name="UnitId">
+/// The unit the agent is a member of, if applicable. <c>null</c> for standalone
+/// agents. Stored for the same reason as <paramref name="TenantId"/>.
+/// MUST NOT hold any credential material.
+/// </param>
+/// <param name="ConcurrentThreads">
+/// The resolved concurrent-threads policy for this agent. Stored so the supervisor
+/// can reconstruct a <see cref="SupervisorRestartContext"/> that faithfully
+/// reproduces the agent's concurrency posture on restart. Defaults to <c>true</c>
+/// (spec default) for existing state records.
 /// </param>
 public record SupervisorState(
     string AgentId,
@@ -169,4 +205,7 @@ public record SupervisorState(
     int MaxRestarts,
     DateTimeOffset? LastStartedAt,
     DateTimeOffset? LastCrashAt,
-    string? Image = null);
+    string? Image = null,
+    string TenantId = "default",
+    string? UnitId = null,
+    bool ConcurrentThreads = true);

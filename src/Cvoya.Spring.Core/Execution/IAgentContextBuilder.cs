@@ -50,6 +50,39 @@ public interface IAgentContextBuilder
     Task<AgentBootstrapContext> BuildAsync(
         AgentLaunchContext launchContext,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Mints a fresh <c>IAgentContext</c> bootstrap bundle for a supervisor-driven
+    /// restart. The restart context carries only the agent's stable identity —
+    /// no credential material — so that the supervisor MUST NOT cache tokens
+    /// across launches (D1 spec § 2.2.3).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Called by <c>ContainerSupervisorActor.RestartAsync</c> in place of
+    /// the original launch's env-var bundle, which expired or was never
+    /// persisted (D3d — ADR-0029 § "Failure recovery").
+    /// </para>
+    /// <para>
+    /// The default <see cref="AgentContextBuilder"/> implementation delegates
+    /// to <see cref="BuildAsync"/> with minimal synthetic inputs — fresh tokens
+    /// are minted per call there already. Cloud-overlay implementations get the
+    /// same refresh point on the same seam without touching existing build logic.
+    /// </para>
+    /// <para>
+    /// The returned bundle MUST NOT be persisted by the caller; it MUST be
+    /// consumed once and discarded after the restarted container is launched.
+    /// </para>
+    /// </remarks>
+    /// <param name="restartContext">
+    /// The minimum agent identity needed to mint fresh credentials: agent id,
+    /// tenant id, and optionally unit id. MUST NOT contain any credential or
+    /// token material.
+    /// </param>
+    /// <param name="cancellationToken">Cancels the build.</param>
+    Task<AgentBootstrapContext> RefreshForRestartAsync(
+        SupervisorRestartContext restartContext,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -71,3 +104,33 @@ public interface IAgentContextBuilder
 public record AgentBootstrapContext(
     IReadOnlyDictionary<string, string> EnvironmentVariables,
     IReadOnlyDictionary<string, string> ContextFiles);
+
+/// <summary>
+/// The minimum agent identity the supervisor hands to
+/// <see cref="IAgentContextBuilder.RefreshForRestartAsync"/> to mint fresh
+/// credentials on a crash-driven container restart (D3d — ADR-0029 § "Failure
+/// recovery", D1 spec § 2.2.3).
+/// </summary>
+/// <remarks>
+/// Contains only stable identity fields — never credential or token material.
+/// The supervisor persists these fields in <c>SupervisorState</c> so they
+/// survive across Dapr actor deactivations.
+/// </remarks>
+/// <param name="AgentId">The stable agent identifier.</param>
+/// <param name="TenantId">
+/// The tenant the agent runs under. Defaults to <c>"default"</c> for
+/// existing supervisors that pre-date this field (safe migration value).
+/// </param>
+/// <param name="UnitId">
+/// The unit the agent is a member of, if applicable. <c>null</c> for
+/// standalone agents.
+/// </param>
+/// <param name="ConcurrentThreads">
+/// The resolved concurrent-threads policy for this agent. Defaults to
+/// <c>true</c> (the spec default) for existing supervisors without this field.
+/// </param>
+public record SupervisorRestartContext(
+    string AgentId,
+    string TenantId = "default",
+    string? UnitId = null,
+    bool ConcurrentThreads = true);

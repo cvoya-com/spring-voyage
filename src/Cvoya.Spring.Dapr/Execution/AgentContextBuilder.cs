@@ -72,6 +72,7 @@ public class AgentContextBuilder(
     internal const string EnvTenantId = "SPRING_TENANT_ID";
     internal const string EnvUnitId = "SPRING_UNIT_ID";
     internal const string EnvAgentId = "SPRING_AGENT_ID";
+    internal const string EnvThreadId = "SPRING_THREAD_ID";
     internal const string EnvBucket2Url = "SPRING_BUCKET2_URL";
     internal const string EnvBucket2Token = "SPRING_BUCKET2_TOKEN";
     internal const string EnvLlmProviderUrl = "SPRING_LLM_PROVIDER_URL";
@@ -123,10 +124,19 @@ public class AgentContextBuilder(
             [EnvConcurrentThreads] = launchContext.ConcurrentThreads ? "true" : "false",
         };
 
-        // Optional fields: unit id, Bucket-2 URL, telemetry.
+        // Optional fields: unit id, thread id, Bucket-2 URL, telemetry.
         if (!string.IsNullOrEmpty(launchContext.UnitId))
         {
             envVars[EnvUnitId] = launchContext.UnitId;
+        }
+
+        // Thread id — emitted when the launch is for a specific dispatch context
+        // (e.g. first launch from the dispatcher). Absent on supervisor-driven
+        // restarts, which are agent-level and not tied to a single thread.
+        // D1 spec: SPRING_THREAD_ID (#1300).
+        if (!string.IsNullOrEmpty(launchContext.ThreadId))
+        {
+            envVars[EnvThreadId] = launchContext.ThreadId;
         }
 
         if (!string.IsNullOrEmpty(_agentContextOptions.Bucket2Url))
@@ -168,14 +178,57 @@ public class AgentContextBuilder(
 
         _logger.LogInformation(
             "Built IAgentContext bootstrap for agent {AgentId} (tenant={TenantId} unit={UnitId} " +
-            "concurrent_threads={ConcurrentThreads} context_files={ContextFileCount})",
+            "thread={ThreadId} concurrent_threads={ConcurrentThreads} context_files={ContextFileCount})",
             launchContext.AgentId,
             launchContext.TenantId,
             launchContext.UnitId ?? "(none)",
+            launchContext.ThreadId ?? "(none)",
             launchContext.ConcurrentThreads,
             contextFiles.Count);
 
         return Task.FromResult(new AgentBootstrapContext(envVars, contextFiles));
+    }
+
+    /// <inheritdoc />
+    public Task<AgentBootstrapContext> RefreshForRestartAsync(
+        SupervisorRestartContext restartContext,
+        CancellationToken cancellationToken = default)
+    {
+        // Mint a fresh bootstrap bundle using the supervisor's persisted identity.
+        // A supervisor-driven restart is agent-level, not thread-level, so we
+        // supply a minimal synthetic AgentLaunchContext — no prompt, no thread id,
+        // no agent-definition YAML, no tenant-config JSON.
+        //
+        // The MCP server requires a session bound to an agent + thread; we use a
+        // synthetic restart-sentinel thread id so the MCP server can attribute tool
+        // calls from the restarted container to a known session rather than to an
+        // unknown caller. The supervisor does NOT cache the resulting tokens — they
+        // are consumed immediately by RestartAsync per D1 spec § 2.2.3.
+
+        _logger.LogInformation(
+            "Refreshing IAgentContext credentials for supervisor restart of agent {AgentId} " +
+            "(tenant={TenantId} unit={UnitId})",
+            restartContext.AgentId,
+            restartContext.TenantId,
+            restartContext.UnitId ?? "(none)");
+
+        // Issue a fresh MCP session for this restart. Use a synthetic thread id
+        // that scopes the session to this restart event (not to any specific user
+        // thread — the restarted agent will serve whichever thread dispatches next).
+        var restartThreadId = $"restart:{restartContext.AgentId}:{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
+        var mcpSession = mcpServer.IssueSession(restartContext.AgentId, restartThreadId);
+
+        var syntheticLaunchContext = new AgentLaunchContext(
+            AgentId: restartContext.AgentId,
+            ThreadId: string.Empty,  // restarts are agent-level; SPRING_THREAD_ID omitted
+            Prompt: string.Empty,
+            McpEndpoint: mcpServer.Endpoint ?? string.Empty,
+            McpToken: mcpSession.Token,
+            TenantId: restartContext.TenantId,
+            UnitId: restartContext.UnitId,
+            ConcurrentThreads: restartContext.ConcurrentThreads);
+
+        return BuildAsync(syntheticLaunchContext, cancellationToken);
     }
 
     /// <summary>

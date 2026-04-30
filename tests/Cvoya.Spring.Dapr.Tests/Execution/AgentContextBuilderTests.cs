@@ -241,4 +241,104 @@ public class AgentContextBuilderTests
         // requires it at runtime but the builder should not emit an empty value.
         result.EnvironmentVariables.ContainsKey("SPRING_BUCKET2_URL").ShouldBeFalse();
     }
+
+    [Fact]
+    public async Task BuildAsync_EmitsThreadId_WhenProvided()
+    {
+        // SPRING_THREAD_ID is emitted when the launch carries a thread id
+        // from the dispatch context (#1300).
+        var ctx = new AgentLaunchContext(
+            AgentId: AgentId,
+            ThreadId: "thr_abc123",
+            Prompt: "do things",
+            McpEndpoint: McpEndpoint,
+            McpToken: McpToken,
+            TenantId: "acme");
+
+        var result = await _builder.BuildAsync(ctx, TestContext.Current.CancellationToken);
+
+        result.EnvironmentVariables.ShouldContainKey("SPRING_THREAD_ID");
+        result.EnvironmentVariables["SPRING_THREAD_ID"].ShouldBe("thr_abc123");
+    }
+
+    [Fact]
+    public async Task BuildAsync_OmitsThreadId_WhenNotProvided()
+    {
+        // SPRING_THREAD_ID is absent when the launch context has no thread id
+        // (e.g., supervisor-driven restarts are agent-level, not thread-level).
+        var ctx = new AgentLaunchContext(
+            AgentId: AgentId,
+            ThreadId: string.Empty,
+            Prompt: "do things",
+            McpEndpoint: McpEndpoint,
+            McpToken: McpToken,
+            TenantId: "acme");
+
+        var result = await _builder.BuildAsync(ctx, TestContext.Current.CancellationToken);
+
+        result.EnvironmentVariables.ContainsKey("SPRING_THREAD_ID").ShouldBeFalse();
+    }
+
+    // ------------------------------------------------------------------
+    // RefreshForRestartAsync — D3d / D1 spec § 2.2.3
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public async Task RefreshForRestartAsync_EmitsRequiredCredentialEnvVars()
+    {
+        // The refresh call MUST produce a full credential set (bucket2, llm,
+        // mcp) from the agent's persisted identity — no thread id, no prompt.
+        _mcpServer.IssueSession(Arg.Any<string>(), Arg.Any<string>())
+            .Returns(new McpSession("restart-mcp-token", AgentId, "restart-thread"));
+
+        var restartCtx = new SupervisorRestartContext(
+            AgentId: AgentId,
+            TenantId: "acme",
+            UnitId: "u-eng");
+
+        var result = await _builder.RefreshForRestartAsync(
+            restartCtx, TestContext.Current.CancellationToken);
+
+        // Required credential env vars MUST be present.
+        result.EnvironmentVariables.ShouldContainKey("SPRING_BUCKET2_TOKEN");
+        result.EnvironmentVariables["SPRING_BUCKET2_TOKEN"].ShouldNotBeNullOrEmpty();
+
+        result.EnvironmentVariables.ShouldContainKey("SPRING_LLM_PROVIDER_TOKEN");
+        result.EnvironmentVariables["SPRING_LLM_PROVIDER_TOKEN"].ShouldNotBeNullOrEmpty();
+
+        result.EnvironmentVariables.ShouldContainKey("SPRING_MCP_TOKEN");
+        result.EnvironmentVariables["SPRING_MCP_TOKEN"].ShouldNotBeNullOrEmpty();
+
+        // Identity env vars MUST be set from the restart context.
+        result.EnvironmentVariables["SPRING_TENANT_ID"].ShouldBe("acme");
+        result.EnvironmentVariables["SPRING_AGENT_ID"].ShouldBe(AgentId);
+        result.EnvironmentVariables["SPRING_UNIT_ID"].ShouldBe("u-eng");
+
+        // SPRING_THREAD_ID MUST NOT be present on a restart (restarts are
+        // agent-level, not bound to any user thread).
+        result.EnvironmentVariables.ContainsKey("SPRING_THREAD_ID").ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task RefreshForRestartAsync_MintsFreshTokens_AcrossSuccessiveCalls()
+    {
+        // Each RefreshForRestartAsync call MUST produce distinct tokens — the
+        // supervisor MUST NOT receive the same token set on two consecutive
+        // restarts (D1 spec § 2.2.3 — "no replay of a prior launch's credentials").
+        _mcpServer.IssueSession(Arg.Any<string>(), Arg.Any<string>())
+            .Returns(ci => new McpSession($"mcp-{Guid.NewGuid():N}", AgentId, "t"));
+
+        var restartCtx = new SupervisorRestartContext(AgentId: AgentId, TenantId: "acme");
+
+        var r1 = await _builder.RefreshForRestartAsync(
+            restartCtx, TestContext.Current.CancellationToken);
+        var r2 = await _builder.RefreshForRestartAsync(
+            restartCtx, TestContext.Current.CancellationToken);
+
+        r1.EnvironmentVariables["SPRING_BUCKET2_TOKEN"]
+            .ShouldNotBe(r2.EnvironmentVariables["SPRING_BUCKET2_TOKEN"]);
+
+        r1.EnvironmentVariables["SPRING_LLM_PROVIDER_TOKEN"]
+            .ShouldNotBe(r2.EnvironmentVariables["SPRING_LLM_PROVIDER_TOKEN"]);
+    }
 }

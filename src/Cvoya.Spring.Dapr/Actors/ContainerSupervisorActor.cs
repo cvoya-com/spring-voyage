@@ -46,6 +46,7 @@ public class ContainerSupervisorActor(
     IContainerRuntime containerRuntime,
     ContainerLifecycleManager containerLifecycleManager,
     AgentVolumeManager volumeManager,
+    IAgentContextBuilder agentContextBuilder,
     ILoggerFactory loggerFactory)
     : Actor(host), IContainerSupervisorActor, IRemindable
 {
@@ -125,7 +126,10 @@ public class ContainerSupervisorActor(
             MaxRestarts: request.MaxRestarts ?? DefaultMaxRestarts,
             LastStartedAt: DateTimeOffset.UtcNow,
             LastCrashAt: null,
-            Image: request.Image);
+            Image: request.Image,
+            TenantId: request.TenantId,
+            UnitId: request.UnitId,
+            ConcurrentThreads: request.ConcurrentThreads);
 
         await SaveStateAsync(state, cancellationToken);
 
@@ -227,7 +231,10 @@ public class ContainerSupervisorActor(
             RestartCount: 0,
             MaxRestarts: DefaultMaxRestarts,
             LastStartedAt: null,
-            LastCrashAt: null);
+            LastCrashAt: null,
+            TenantId: "default",
+            UnitId: null,
+            ConcurrentThreads: true);
     }
 
     /// <inheritdoc />
@@ -349,12 +356,6 @@ public class ContainerSupervisorActor(
             ? AgentVolumeManager.BuildVolumeMount(state.VolumeName)
             : null;
 
-        // Rebuild the container config using the persisted image. Environment
-        // variables (including scoped credentials) are not re-injected on
-        // automatic restart — they would have expired. A restart that needs
-        // fresh credentials requires an explicit Stop + StartAsync cycle.
-        // The workspace volume mount is re-applied so initialize() sees the
-        // existing checkpoint state (ADR-0029 § 3.2 / 3.3).
         if (state.Image is null)
         {
             _logger.LogError(
@@ -367,8 +368,45 @@ public class ContainerSupervisorActor(
             return;
         }
 
+        // D3d / D1 spec § 2.2.3: re-mint fresh, agent-scoped credentials on every
+        // restart via IAgentContextBuilder.RefreshForRestartAsync. The supervisor
+        // MUST NOT reuse the previous launch's tokens (they may have expired) and
+        // MUST NOT persist the resulting tokens in its own state.
+        AgentBootstrapContext freshContext;
+        try
+        {
+            var restartContext = new SupervisorRestartContext(
+                AgentId: state.AgentId,
+                TenantId: state.TenantId,
+                UnitId: state.UnitId,
+                ConcurrentThreads: state.ConcurrentThreads);
+
+            freshContext = await agentContextBuilder.RefreshForRestartAsync(
+                restartContext, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                EventIds.SupervisorCredentialRefreshFailed,
+                ex,
+                "Supervisor for agent {AgentId} failed to refresh credentials for restart; will retry at next health-check",
+                state.AgentId);
+
+            // Revert to CrashDetected so the next poll retries (transient KMS
+            // or credential-build failure — same posture as a transient runtime
+            // failure per the design doc § "Restart re-mint fails").
+            await SaveStateAsync(state with { Status = ContainerSupervisionStatus.CrashDetected }, cancellationToken);
+            return;
+        }
+
+        // Merge the fresh credentials into the container config alongside the
+        // mandatory workspace-path env var. Mirrors how StartAsync does it via
+        // BuildEnvironmentVariables.
+        var env = BuildEnvironmentVariables(freshContext.EnvironmentVariables);
+
         var config = new ContainerConfig(
             Image: state.Image,
+            EnvironmentVariables: env,
             VolumeMounts: volumeMount is not null ? [volumeMount] : null,
             NetworkName: state.NetworkName);
 
@@ -534,5 +572,6 @@ public class ContainerSupervisorActor(
         public static readonly EventId SupervisorRestartFailed = new(2060, nameof(SupervisorRestartFailed));
         public static readonly EventId SupervisorGaveUp = new(2061, nameof(SupervisorGaveUp));
         public static readonly EventId SupervisorHealthCheckFailed = new(2062, nameof(SupervisorHealthCheckFailed));
+        public static readonly EventId SupervisorCredentialRefreshFailed = new(2063, nameof(SupervisorCredentialRefreshFailed));
     }
 }
