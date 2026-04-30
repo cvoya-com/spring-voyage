@@ -2,7 +2,9 @@
 
 > **[Architecture Index](README.md)** | Related: [Units](units.md), [Agents](agents.md), [Policies](policies.md), [Workflows](workflows.md), [Messaging](messaging.md)
 
-This document covers how a unit routes incoming messages to its members: the `IOrchestrationStrategy` contract and its three concrete implementations, unit boundary configuration, and the execution-defaults resolution chain that member agents inherit. For the unit entity model (membership, nesting, identity), see [Units](units.md). For the governance policies that constrain what agents may do, see [Policies](policies.md).
+> **Orchestration is a mechanism in service of collaboration.** Spring Voyage is a collaboration platform for teams of AI agents and the humans they work with; orchestration is how a unit decides which of its members handles an incoming message. This document is mechanism-level: it specifies the routing contract, the strategies that ship in the platform, and the configuration surfaces. The collaboration narrative — engagements, threads, humans-in-the-loop — lives in the [concepts overview](../concepts/overview.md) and [thread model](thread-model.md).
+
+This document covers how a unit routes incoming messages to its members: the `IOrchestrationStrategy` contract and its three concrete implementations, unit boundary configuration, and the execution-defaults resolution chain that member agents inherit. For the unit entity model (membership, nesting, identity), see [Units](units.md). For the governance policies that constrain what agents may do, see [Policies](policies.md). External orchestrators (ADK, LangGraph, Temporal, …) participate as members or peers via A2A and are covered in [Workflows § External Workflow Engines via A2A](workflows.md#external-workflow-engines-via-a2a).
 
 ---
 

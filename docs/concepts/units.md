@@ -19,9 +19,11 @@ Every unit manages:
 - **Expertise directory** -- the combined expertise of all members
 - **Policies** -- rules governing communication, work assignment, initiative, and cost
 
-## Orchestration: How Work Gets Routed
+## Orchestration: A Mechanism Inside the Unit
 
-When a message arrives at a unit, someone has to decide what to do with it. This decision is made by the unit's **orchestration strategy** -- a pluggable component that determines how messages are routed to members.
+Once a unit exists and has members, it needs an answer to a narrow question: when a message arrives, which member handles it? That decision is made by the unit's **orchestration strategy** -- a pluggable component that determines how messages are routed to members.
+
+Orchestration is one mechanism inside the unit's collaboration model -- it sits alongside membership, the boundary, policies, and the activity stream. It is not the whole of what a unit is; it is how the unit decides to route the next piece of work.
 
 Five orchestration strategies are available:
 

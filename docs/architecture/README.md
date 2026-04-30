@@ -38,9 +38,13 @@ Spring Voyage v1 is a working proof-of-concept: Claude-powered agents collaborat
 
 ## 2. Vision & Goals
 
-Spring Voyage is an open-source collaboration platform for teams of AI agents — and the humans they work with. It enables autonomous AI agents — organized into composable groups called **units** — to collaborate on any domain: software engineering, product management, creative work, research, operations, and more.
+Spring Voyage is an open-source collaboration platform for teams of AI agents — and the humans they work with. It is a substrate for standing up small fleets of AI collaborators that operate on real work, on the real systems where that work happens, with people in the loop where it counts.
+
+Autonomous AI agents — organized into composable groups called **units** — collaborate with each other and with humans on any domain: software engineering, product management, creative work, research, operations, and more. Multiple humans participate in the same unit at different permission levels, and threads ([§ Engagements / Collaborations](../concepts/threads.md)) are the durable shared spaces where humans and agents converse, coordinate, and get work done over time.
 
 Agents connect to external systems through pluggable **connectors**, communicate via typed **messages**, take **initiative** to act autonomously, and can be observed by humans and other agents in real-time.
+
+**Orchestration is a mechanism, not the goal.** Each unit picks an orchestration strategy that decides how it routes work across its members ([§ Orchestration](orchestration.md)). The platform supports multiple strategies (rule-based, workflow, AI-driven, label-routed, peer) plus external orchestrators over A2A, but orchestration is one part of the substrate that supports collaboration — not the headline category Spring Voyage occupies.
 
 ### Design Goals
 
@@ -52,7 +56,7 @@ Each goal directly addresses a v1 limitation:
 | **Domain-agnostic.** Agents work with any external system, not just GitHub.                        | v1 limitation #1 (GitHub-centric)         |
 | **Composable.** Units nest recursively. A unit appears as a single agent to its parent.            | v1 limitation #2 (flat teams)             |
 | **Multi-human.** Multiple humans interact with agents at different permission levels.              | v1 limitation #3 (single-human)           |
-| **Flexible orchestration.** From rigid workflows to fully autonomous — each unit chooses.          | v1 limitation #4 (brittle state machine)  |
+| **Flexible orchestration in service of collaboration.** From rigid workflows to fully autonomous — each unit chooses how its members route work. | v1 limitation #4 (brittle state machine)  |
 | **Observable.** Humans see what agents are doing, thinking, deciding, and spending — in real-time. | v1 limitation #5 (poor observability)     |
 | **Extensible for multi-tenancy.** Designed for clean isolation and scoped access via extensions.   | v1 limitation #6 (afterthought)           |
 | **Self-organizing.** Agents take initiative, operate continuously, and make autonomous decisions.  | v1 limitation #7 (human-in-the-loop only) |
