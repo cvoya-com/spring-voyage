@@ -13,6 +13,7 @@
 // (default window 7d / bucket 1d, toggle to 30d / 1d).
 
 import { useState } from "react";
+import Link from "next/link";
 import { Activity, Bot, DollarSign, Layers, MessagesSquare, TrendingDown } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -198,6 +199,19 @@ function UnitOverviewTab({ node }: TabContentProps) {
       </Card>
 
       <UnitOverviewExpertiseCard unitId={unit.id} />
+
+      {/* Cross-portal link to the engagement portal for this unit.
+          Per ADR-0033 rule 6: cross-portal navigation is a standard anchor. */}
+      <p className="text-xs text-muted-foreground" data-testid="unit-overview-engagement-link-row">
+        <Link
+          href={`/engagement/mine?unit=${encodeURIComponent(unit.id)}`}
+          className="text-primary hover:underline"
+          data-testid="unit-overview-engagement-link"
+        >
+          View engagements for this unit
+        </Link>{" "}
+        in the Engagement portal.
+      </p>
     </div>
   );
 }

@@ -9,6 +9,7 @@
 // detail page (which this tab replaces) also leads with lifecycle +
 // cost; we preserve that emphasis here.
 
+import Link from "next/link";
 import { DollarSign } from "lucide-react";
 
 import { LifecyclePanel } from "@/components/agents/tab-impls/lifecycle-panel";
@@ -70,6 +71,18 @@ function AgentOverviewTab({ node }: TabContentProps) {
           )}
         </CardContent>
       </Card>
+      {/* Cross-portal link to the engagement portal for this agent.
+          Per ADR-0033 rule 6: cross-portal navigation is a standard anchor. */}
+      <p className="text-xs text-muted-foreground" data-testid="agent-overview-engagement-link-row">
+        <Link
+          href={`/engagement/mine?agent=${encodeURIComponent(agent.id)}`}
+          className="text-primary hover:underline"
+          data-testid="agent-overview-engagement-link"
+        >
+          View engagements for this agent
+        </Link>{" "}
+        in the Engagement portal.
+      </p>
     </div>
   );
 }

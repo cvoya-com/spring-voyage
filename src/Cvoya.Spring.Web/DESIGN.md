@@ -619,7 +619,62 @@ Contract:
 
 ---
 
-## 16. Updating this file
+## 16. Engagement portal layout convention
+
+The engagement portal lives at `/engagement/**` (E2.3, #1415). Per ADR-0033 it shares the same Next.js app, auth, design-system tokens, and typed API client as the management portal, but has its own navigation structure.
+
+### 16.1 Shell structure
+
+`<EngagementShell>` (`src/components/engagement/engagement-shell.tsx`) renders inside the root `AppShell`'s `<main>` area. It compensates for the AppShell padding with negative margins (`-m-4 md:-m-6`) so its chrome fills the pane edge-to-edge:
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ [MessagesSquare] Engagement · Spring Voyage  [← Back to Mgmt]│  ← header band, bg-secondary
+├──────────────────┬───────────────────────────────────────────┤
+│ Engagements      │                                           │
+│  My engagements  │   {page content}                          │  ← two-pane
+│                  │                                           │
+└──────────────────┴───────────────────────────────────────────┘
+```
+
+- **Header band** (`bg-secondary`, `border-b border-border`): a `MessagesSquare` icon (`h-4 w-4 text-voyage`) + "Engagement" wordmark + env strip (hidden on mobile). A "Back to Management" anchor (`href="/"`) sits at the trailing edge — this is the primary exit from the engagement portal back to the management portal. Per ADR-0033 rule 6, it is a standard anchor link, not a shared component.
+- **Left sidebar** (`w-48`, `bg-card`, `border-r border-border`): hidden on `< md`. Section label "Engagements" in `text-[10px] uppercase tracking-wider text-muted-foreground`. Nav links follow the same active/inactive pattern as the management sidebar: `bg-primary/10 text-primary font-medium` for the active link, `text-muted-foreground hover:bg-accent` for inactive.
+- **Content `<main>`** (`id="engagement-main-content"`): `p-4 md:p-6`, same as the outer AppShell main pane.
+
+### 16.2 Route map (v0.1 skeleton)
+
+| URL | Page | Status |
+|---|---|---|
+| `/engagement` | Redirect to `/engagement/mine` | Permanent redirect. If a future revision adds a tenant-wide engagement overview here, the redirect is removed and this page gains its own content. |
+| `/engagement/mine` | My engagements list | Placeholder empty-state — E2.4 (#1416) fills it. Accepts `?unit=<id>` and `?agent=<id>` query params for cross-portal pre-filtering. |
+| `/engagement/<id>` | Engagement detail | Placeholder — E2.5 (#1417) fills it. |
+
+### 16.3 Cross-portal link contract
+
+Per ADR-0033 rule 6, all links between the management portal and the engagement portal are standard anchor links — no shared layout components, no shared navigation context.
+
+**Management → Engagement:**
+- Unit Overview tab: `href="/engagement/mine?unit=<unitId>"` — links to the engagement list pre-filtered for the selected unit.
+- Agent Overview tab: `href="/engagement/mine?agent=<agentId>"` — links to the engagement list pre-filtered for the selected agent.
+- Both use `encodeURIComponent` on the id.
+
+**Engagement → Management:**
+- The engagement header "Back to Management" link: `href="/"`.
+- The engagement sidebar and per-page links may add more as E2.4–E2.6 build out.
+
+### 16.4 Visual distinction cues
+
+The engagement portal is visually distinguished from the management portal by:
+
+1. The `bg-secondary` header band (darker than the page canvas) with the `text-voyage` (`--color-voyage`, cyan) icon — the management sidebar uses `bg-card` and `text-primary` (blue) for its header.
+2. "Engagement" wordmark in the header (management shows "Spring Voyage").
+3. A dedicated two-pane structure inside the AppShell's `<main>`, separate from the management portal's content areas.
+
+Do not use `text-voyage` / `--color-voyage` tokens for any management-portal surfaces — they are reserved as the engagement-portal identity signal.
+
+---
+
+## 17. Updating this file
 
 Update `DESIGN.md` in the same PR that introduces, modifies, or removes a visual pattern in `src/Cvoya.Spring.Web/`. Examples that require an update:
 

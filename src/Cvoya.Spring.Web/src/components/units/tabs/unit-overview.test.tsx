@@ -1,7 +1,20 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import type { ReactNode } from "react";
 
 import type { UnitNode } from "../aggregate";
+
+vi.mock("next/link", () => ({
+  default: ({
+    href,
+    children,
+    ...rest
+  }: { href: string; children: ReactNode } & Record<string, unknown>) => (
+    <a href={href} {...rest}>
+      {children}
+    </a>
+  ),
+}));
 
 vi.mock("../unit-overview-expertise-card", () => ({
   UnitOverviewExpertiseCard: ({ unitId }: { unitId: string }) => (
@@ -103,5 +116,22 @@ describe("UnitOverviewTab", () => {
     };
     render(<UnitOverviewTab node={node} path={[node]} />);
     expect(screen.getByTestId("unit-cost-sparkline")).toBeInTheDocument();
+  });
+
+  it("renders the cross-portal engagement link with the unit id (E2.3 #1415)", () => {
+    useUnitCostTimeseriesMock.mockReturnValue(emptyTimeseries);
+    const node: UnitNode = {
+      kind: "Unit",
+      id: "engineering",
+      name: "Engineering",
+      status: "running",
+    };
+    render(<UnitOverviewTab node={node} path={[node]} />);
+    const link = screen.getByTestId("unit-overview-engagement-link");
+    expect(link).toHaveAttribute(
+      "href",
+      "/engagement/mine?unit=engineering",
+    );
+    expect(link).toHaveTextContent("View engagements for this unit");
   });
 });
