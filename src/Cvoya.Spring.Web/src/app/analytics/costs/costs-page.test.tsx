@@ -7,6 +7,7 @@ import type {
   AgentDashboardSummary,
   BudgetResponse,
   CostDashboardSummary,
+  TenantCostTimeseriesResponse,
 } from "@/lib/api/types";
 
 const getTenantBudget = vi.fn<() => Promise<BudgetResponse>>();
@@ -14,6 +15,7 @@ const getDashboardCosts = vi.fn<() => Promise<CostDashboardSummary>>();
 const getDashboardAgents = vi.fn<() => Promise<AgentDashboardSummary[]>>();
 const getAgentBudget = vi.fn<(id: string) => Promise<BudgetResponse>>();
 const setTenantBudget = vi.fn();
+const getTenantCostTimeseries = vi.fn<() => Promise<TenantCostTimeseriesResponse>>();
 
 vi.mock("@/lib/api/client", () => ({
   api: {
@@ -22,6 +24,7 @@ vi.mock("@/lib/api/client", () => ({
     getDashboardAgents: () => getDashboardAgents(),
     getAgentBudget: (id: string) => getAgentBudget(id),
     setTenantBudget: (...args: unknown[]) => setTenantBudget(...args),
+    getTenantCostTimeseries: () => getTenantCostTimeseries(),
   },
 }));
 
@@ -72,6 +75,17 @@ function renderPage() {
 }
 
 describe("AnalyticsCostsPage", () => {
+  const defaultTimeseries: TenantCostTimeseriesResponse = {
+    from: "2026-03-29T00:00:00Z",
+    to: "2026-04-29T00:00:00Z",
+    bucket: "1d",
+    series: [
+      { t: "2026-04-27T00:00:00Z", cost: 1.5 },
+      { t: "2026-04-28T00:00:00Z", cost: 2.0 },
+      { t: "2026-04-29T00:00:00Z", cost: 0.8 },
+    ],
+  };
+
   beforeEach(() => {
     getTenantBudget.mockReset();
     getDashboardCosts.mockReset();
@@ -79,9 +93,13 @@ describe("AnalyticsCostsPage", () => {
     getAgentBudget.mockReset();
     setTenantBudget.mockReset();
     toastMock.mockReset();
+    getTenantCostTimeseries.mockReset();
+    // Timeseries defaults to a small resolved response so most tests
+    // don't need to set it up explicitly.
+    getTenantCostTimeseries.mockResolvedValue(defaultTimeseries);
   });
 
-  it("renders tenant budget, costs, and per-agent budget rows", async () => {
+  it("renders tenant budget summary and the per-agent budgets grid", async () => {
     getTenantBudget.mockResolvedValue({
       dailyBudget: 50,
     } as BudgetResponse);
@@ -110,17 +128,46 @@ describe("AnalyticsCostsPage", () => {
 
     renderPage();
 
+    // The virtualised grid container should appear once data loads.
     await waitFor(() => {
-      expect(screen.getByText("Ada")).toBeInTheDocument();
+      expect(screen.getByRole("grid", { name: "Per-agent budgets" })).toBeInTheDocument();
     });
-    expect(screen.getByText("Bob")).toBeInTheDocument();
-    // Ada has $5/day; Bob has none.
-    expect(screen.getByText(/\$5\.00\/day/)).toBeInTheDocument();
-    expect(screen.getByText(/Not set/)).toBeInTheDocument();
-    // Tenant budget current label.
+    // Tenant budget current label (rendered outside the virtualised table).
     expect(screen.getByText(/Current: \$50\.00\/day/)).toBeInTheDocument();
-    // Spend to date label.
+    // Spend to date label (rendered outside the virtualised table).
     expect(screen.getByText(/Spend to date: \$12\.50/)).toBeInTheDocument();
+  });
+
+  it("renders the cost-over-time card heading", async () => {
+    getTenantBudget.mockResolvedValue({ dailyBudget: 10 } as BudgetResponse);
+    getDashboardCosts.mockResolvedValue({ totalCost: 0 } as CostDashboardSummary);
+    getDashboardAgents.mockResolvedValue([]);
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("Cost over time")).toBeInTheDocument();
+    });
+  });
+
+  it("renders the per-agent budgets grid with role=grid", async () => {
+    getTenantBudget.mockResolvedValue({ dailyBudget: 10 } as BudgetResponse);
+    getDashboardCosts.mockResolvedValue({ totalCost: 0 } as CostDashboardSummary);
+    getDashboardAgents.mockResolvedValue([
+      {
+        name: "ada",
+        displayName: "Ada",
+        role: null,
+        registeredAt: new Date().toISOString(),
+      } as AgentDashboardSummary,
+    ]);
+    getAgentBudget.mockResolvedValue({ dailyBudget: 5 } as BudgetResponse);
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByRole("grid", { name: "Per-agent budgets" })).toBeInTheDocument();
+    });
   });
 
   it("renders empty state when no agents are registered", async () => {

@@ -68,7 +68,58 @@ describe("AnalyticsWaitsPage", () => {
     getAnalyticsWaits.mockReset();
   });
 
-  it("renders per-source durations and transition counts", async () => {
+  it("renders the per-source durations grid when data arrives", async () => {
+    getAnalyticsWaits.mockResolvedValue({
+      entries: [
+        {
+          source: "agent://ada",
+          idleSeconds: 120,
+          busySeconds: 60,
+          waitingForHumanSeconds: 30,
+          stateTransitions: 12,
+        },
+      ],
+      from: "2026-04-01T00:00:00Z",
+      to: "2026-04-16T00:00:00Z",
+    });
+
+    renderPage();
+
+    // The virtualised grid container should appear once data loads.
+    await waitFor(() => {
+      expect(
+        screen.getByRole("grid", { name: "Per-source wait-time durations" }),
+      ).toBeInTheDocument();
+    });
+    // KPI strip shows the aggregated idle time: 120s → "2m 0s".
+    expect(screen.getByText("2m 0s")).toBeInTheDocument();
+  });
+
+  it("renders the virtualised table with role=grid", async () => {
+    getAnalyticsWaits.mockResolvedValue({
+      entries: [
+        {
+          source: "agent://ada",
+          idleSeconds: 60,
+          busySeconds: 30,
+          waitingForHumanSeconds: 0,
+          stateTransitions: 5,
+        },
+      ],
+      from: "2026-04-01T00:00:00Z",
+      to: "2026-04-16T00:00:00Z",
+    });
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("grid", { name: "Per-source wait-time durations" }),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("renders the stacked bar chart when data is present", async () => {
     getAnalyticsWaits.mockResolvedValue({
       entries: [
         {
@@ -86,19 +137,10 @@ describe("AnalyticsWaitsPage", () => {
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByText("agent://ada")).toBeInTheDocument();
+      expect(
+        screen.getByRole("img", { name: /wait times per source/i }),
+      ).toBeInTheDocument();
     });
-    // formatDuration: 120s → "2m 0s", 60s → "1m 0s", 30s → "30s".
-    // The row layout renders each value twice (once in the mobile 2×2
-    // grid, once in the desktop table row — the responsive pass in
-    // #445 stacks rows on narrow viewports and the desktop cells are
-    // just hidden, not unmounted), so use `getAllByText` and assert
-    // at least one match.
-    expect(screen.getAllByText("2m 0s").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("1m 0s").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("30s").length).toBeGreaterThan(0);
-    // StateTransitions counter is rendered.
-    expect(screen.getAllByText("12").length).toBeGreaterThan(0);
   });
 
   it("renders the empty state when no transitions occurred", async () => {

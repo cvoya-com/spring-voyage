@@ -483,6 +483,7 @@ Primitive library: `src/components/ui/`. Composites: `src/components/`. Entity c
 - **`badge.tsx`** — `rounded-full px-2 py-0.5 text-xs font-medium`. Variants `default` / `success` / `warning` / `destructive` / `secondary` / `outline`. Semantic badges tint the background at 15 % opacity and paint text at full strength for legibility on dark.
 - **`dialog.tsx`** / **`confirm-dialog.tsx`** — In-house modal (no Radix). `role="dialog" aria-modal="true"`, focus trap, ESC closes, backdrop mousedown closes, body scroll locked. Panel is `w-full max-w-lg rounded-lg border border-border bg-card p-6 shadow-xl`; backdrop is `bg-black/50 z-50`.
 - **`table.tsx`** — Wrapped in `<div className="relative w-full overflow-auto">`; rows are `border-b border-border transition-colors hover:bg-muted/50`. For simple lists, prefer a `<ul className="divide-y divide-border">` inside a `Card`.
+- **`data-table.tsx`** — Virtualised data-table (#911, `@tanstack/react-virtual`). Use for any list that can exceed ~50 rows (analytics breakdowns, large rosters). `role="grid"` with `aria-label`, sticky header row, row-level `role="row"` + `aria-rowindex`, cell `role="gridcell"`. Arrow-key / Home / End keyboard navigation. Props: `aria-label`, `columns`, `rows`, `renderCell`, `estimateSize` (default 48 px), `height` (default 320 px), `getRowKey`. Columns declare a `key`, `header`, and optional `className` applied to both `<th>` and all `<td>` in that column.
 - **`tabs.tsx`** — In-house `Tabs` / `TabsList` / `TabsTrigger` / `TabsContent` with full WAI-ARIA roles, `aria-selected`, `aria-controls`, roving `tabindex`, and arrow-key / Home / End navigation. Controlled mode (`value` + `onValueChange`) is available for pages that mirror tab state into the URL.
 - **`toast.tsx`** — `ToastProvider` at the root; `useToast()` returns `toast({ title, description?, variant })`. Stack at `fixed bottom-4 right-4 z-50`; auto-dismiss at 4 s; `animate-in slide-in-from-bottom-2`.
 - **`skeleton.tsx`** — `animate-pulse rounded-md bg-muted`. Mirror the post-load layout so the page doesn't shift.
@@ -559,7 +560,19 @@ Inline time-series pattern used inside the Agent Activity tab and the Unit Overv
 
 **Window options.** Agent: 7d / 24h (bucket 1d / 1h). Unit: 7d / 30d (both bucket 1d). Default is always the shortest window.
 
-### 12.10 Model cost breakdown table (#1364)
+### 12.10 Analytics charts — `src/components/analytics/` (#910)
+
+Full chart library: **recharts** (composable, tree-shakeable, SSR-compatible). Do not add a second chart library; recharts is the canonical choice for all `/analytics/*` panels. Inline SVG polylines (§ 12.9) are the exception for sparklines where the component budget must stay micro.
+
+**Colour contract.** Chart fills and strokes use CSS custom properties (`var(--color-voyage)`, `var(--color-blossom-deep)`, `var(--color-primary)`, `var(--color-voyage-soft)`, `var(--color-success)`, `var(--color-warning)`, `var(--color-destructive)`) so theming and dark mode work without JS colour overrides. Axis tick labels use `var(--color-muted-foreground)`. Grid lines use `var(--color-border)` with `strokeDasharray="3 3"`. Tooltip panels use `var(--color-card)` background + `var(--color-border)` border — same chrome as the card primitive.
+
+**`<CostAreaChart>`** (`src/components/analytics/cost-area-chart.tsx`). Single-series area chart for tenant / agent / unit cost over time. Props: `points: { t: string; cost: number }[]`, `height?` (default 160 px), `ariaLabel?`. Fill: voyage cyan gradient (35 % → 2 %). `role="img"` + `aria-label` on the container. Empty state: `data-testid="cost-area-chart-empty"`.
+
+**`<ThroughputBarChart>`** (`src/components/analytics/throughput-bar-chart.tsx`). Horizontal stacked-bar chart — one bar per source, four stacked segments (received / sent / turns / tool-calls). Colour key: received → `voyage`, sent → `blossom-deep`, turns → `primary`, tool-calls → `voyage-soft`. Top 15 sources shown. `role="img"`. Empty state: `data-testid="throughput-bar-chart-empty"`.
+
+**`<WaitsBarChart>`** (`src/components/analytics/waits-bar-chart.tsx`). Horizontal stacked-bar chart — one bar per source, three segments (idle / busy / waiting-for-human). Colours match the semantic status tokens: idle → `success`, busy → `warning`, waiting → `destructive`. Top 15 sources shown. `role="img"`. Empty state: `data-testid="waits-bar-chart-empty"`.
+
+### 12.11 Model cost breakdown table (#1364)
 
 Used in the Agent Activity tab. A `<Card data-testid="agent-cost-breakdown-card">` with a `<DollarSign>` icon + "Model cost breakdown" heading. Hidden when the `entries` array is empty (no empty-state rendering — absence is the signal).
 
@@ -567,7 +580,7 @@ Used in the Agent Activity tab. A `<Card data-testid="agent-cost-breakdown-card"
 
 Entries arrive pre-sorted descending by cost from `GET /api/v1/tenant/cost/agents/{id}/breakdown`.
 
-### 12.11 Agents lens — `src/app/agents/page.tsx` (#1403)
+### 12.12 Agents lens — `src/app/agents/page.tsx` (#1403)
 
 Tenant-wide agent list at `/agents`. Lists all registered agents via `GET /api/v1/tenant/agents` and applies **client-side** hosting and initiative filters. Server-side filtering is a follow-up (#1402).
 
