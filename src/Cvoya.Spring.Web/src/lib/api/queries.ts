@@ -1189,13 +1189,21 @@ export function useConnectorCredentialHealth(
  */
 export function useProviderCredentialStatus(
   provider: string,
-  opts?: SliceOptions<import("./types").ProviderCredentialStatusResponse | null>,
+  opts?: SliceOptions<import("./types").ProviderCredentialStatusResponse | null> & {
+    /** #1397: optional agent image to include in the credential-status probe.
+     *  When supplied the server can reference the chosen image in the error
+     *  message so operators understand which image triggered the mismatch. */
+    agentImage?: string;
+  },
 ): UseQueryResult<import("./types").ProviderCredentialStatusResponse | null, Error> {
+  const agentImage = opts?.agentImage;
   return useQuery({
-    queryKey: ["system", "credentials", provider] as const,
+    // #1397: include agentImage in the query key so changing the image
+    // selection triggers a fresh probe rather than serving the cached result.
+    queryKey: ["system", "credentials", provider, agentImage ?? null] as const,
     queryFn: async () => {
       try {
-        return await api.getProviderCredentialStatus(provider);
+        return await api.getProviderCredentialStatus(provider, agentImage);
       } catch {
         // Anonymous / offline / server-error — surface null so the banner
         // can render a muted "could not verify" fallback. The query

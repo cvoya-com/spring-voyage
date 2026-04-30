@@ -25,9 +25,86 @@ public class SpringApiClientTests
         var httpClient = new HttpClient(handler);
         var client = new SpringApiClient(httpClient, BaseUrl);
 
-        var result = await client.ListAgentsAsync(TestContext.Current.CancellationToken);
+        var result = await client.ListAgentsAsync(ct: TestContext.Current.CancellationToken);
 
         result.ShouldBeEmpty();
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    // --- #1402: server-side filter query string tests ---
+
+    [Fact]
+    public async Task ListAgentsAsync_WithHostingFilter_SendsHostingQueryParam()
+    {
+        // #1402: when --hosting is supplied the client passes it to the server
+        // via ?hosting=<value> so the server does the filtering.
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/tenant/agents",
+            expectedMethod: HttpMethod.Get,
+            responseBody: "[]",
+            validateQuery: query =>
+            {
+                query.ShouldContain("hosting=persistent");
+            });
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var result = await client.ListAgentsAsync(
+            hosting: "persistent",
+            ct: TestContext.Current.CancellationToken);
+
+        result.ShouldBeEmpty();
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task ListAgentsAsync_WithInitiativeFilter_SendsRepeatedInitiativeParams()
+    {
+        // #1402: multi-value initiative filter uses repeated query params
+        // (e.g. ?initiative=proactive&initiative=autonomous).
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/tenant/agents",
+            expectedMethod: HttpMethod.Get,
+            responseBody: "[]",
+            validateQuery: query =>
+            {
+                // Both values must appear as separate occurrences of the param.
+                query.ShouldContain("initiative=proactive");
+                query.ShouldContain("initiative=autonomous");
+            });
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        var result = await client.ListAgentsAsync(
+            initiative: new[] { "proactive", "autonomous" },
+            ct: TestContext.Current.CancellationToken);
+
+        result.ShouldBeEmpty();
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task ListAgentsAsync_NoFilters_DoesNotAddQueryParams()
+    {
+        // Without filters the query should be empty so the server returns all agents.
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/tenant/agents",
+            expectedMethod: HttpMethod.Get,
+            responseBody: "[]",
+            validateQuery: query =>
+            {
+                // No filter params on the wire.
+                query.ShouldNotContain("hosting");
+                query.ShouldNotContain("initiative");
+            });
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        await client.ListAgentsAsync(ct: TestContext.Current.CancellationToken);
+
         handler.WasCalled.ShouldBeTrue();
     }
 

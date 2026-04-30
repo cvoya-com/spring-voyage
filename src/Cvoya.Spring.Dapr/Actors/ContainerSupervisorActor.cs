@@ -3,6 +3,9 @@
 
 namespace Cvoya.Spring.Dapr.Actors;
 
+using System.Diagnostics;
+using System.Diagnostics.Metrics;
+
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Dapr.Execution;
 
@@ -10,6 +13,34 @@ using global::Dapr.Actors;
 using global::Dapr.Actors.Runtime;
 
 using Microsoft.Extensions.Logging;
+
+/// <summary>
+/// #1358: Metric names for restart credential re-mint telemetry.
+/// All metrics are emitted on the <c>Cvoya.Spring.Dapr</c> meter, which is
+/// auto-discovered by the OTel SDK in the host project (no extra NuGet required).
+/// </summary>
+public static class SupervisorMetricNames
+{
+    /// <summary>
+    /// Counter: number of credential re-mint attempts per restart.
+    /// Tags: <c>agent_id</c>, <c>tenant_id</c>, <c>result</c> (success|failure).
+    /// </summary>
+    public const string CredentialReMint = "spring.supervisor.credential_remint";
+
+    /// <summary>
+    /// Histogram: mint latency in milliseconds from calling
+    /// <see cref="IAgentContextBuilder.RefreshForRestartAsync"/> to receiving the
+    /// bootstrap context back.
+    /// Tags: <c>agent_id</c>, <c>tenant_id</c> (only when <c>result=success</c>).
+    /// </summary>
+    public const string CredentialReMintLatencyMs = "spring.supervisor.credential_remint.latency_ms";
+
+    /// <summary>
+    /// Counter: credential mint failures with failure reason.
+    /// Tags: <c>agent_id</c>, <c>tenant_id</c>, <c>failure_reason</c> (exception type name).
+    /// </summary>
+    public const string CredentialReMintFailure = "spring.supervisor.credential_remint.failure";
+}
 
 /// <summary>
 /// Dapr virtual actor that supervises the lifecycle of one tenant agent container
@@ -69,6 +100,35 @@ public class ContainerSupervisorActor(
     /// State store key for the supervisor's persisted state.
     /// </summary>
     private const string SupervisorStateKey = "Supervisor:State";
+
+    // #1358: BCL Meter for restart credential re-mint telemetry.
+    // Uses the same "Cvoya.Spring.Dapr" meter name as ContainerHealthMetricsService
+    // so the OTel SDK in the host project auto-discovers both without extra config.
+    private static readonly Meter _meter = new(ContainerHealthMetricsService.MeterName, version: "1.0");
+
+    // Counter: total re-mint attempts tagged by result (success|failure).
+    private static readonly Counter<long> _reMintCounter =
+        _meter.CreateCounter<long>(
+            SupervisorMetricNames.CredentialReMint,
+            unit: "{remint}",
+            description: "Number of credential re-mint attempts during supervisor-driven restarts. " +
+                "Tags: agent_id, tenant_id, result=success|failure.");
+
+    // Histogram: mint latency in milliseconds (success path only).
+    private static readonly Histogram<double> _reMintLatencyMs =
+        _meter.CreateHistogram<double>(
+            SupervisorMetricNames.CredentialReMintLatencyMs,
+            unit: "ms",
+            description: "Latency of RefreshForRestartAsync in milliseconds (success path). " +
+                "Tags: agent_id, tenant_id.");
+
+    // Counter: mint failures tagged with the exception type as failure_reason.
+    private static readonly Counter<long> _reMintFailureCounter =
+        _meter.CreateCounter<long>(
+            SupervisorMetricNames.CredentialReMintFailure,
+            unit: "{failure}",
+            description: "Number of credential re-mint failures during supervisor-driven restarts. " +
+                "Tags: agent_id, tenant_id, failure_reason.");
 
     private readonly ILogger _logger = loggerFactory.CreateLogger<ContainerSupervisorActor>();
 
@@ -381,11 +441,40 @@ public class ContainerSupervisorActor(
                 UnitId: state.UnitId,
                 ConcurrentThreads: state.ConcurrentThreads);
 
+            // #1358: instrument the re-mint call with latency and success/failure counters.
+            var sw = Stopwatch.StartNew();
             freshContext = await agentContextBuilder.RefreshForRestartAsync(
                 restartContext, cancellationToken);
+            sw.Stop();
+
+            // Success path: record latency and increment the re-mint counter.
+            _reMintLatencyMs.Record(
+                sw.Elapsed.TotalMilliseconds,
+                new KeyValuePair<string, object?>("agent_id", state.AgentId),
+                new KeyValuePair<string, object?>("tenant_id", state.TenantId));
+
+            _reMintCounter.Add(
+                1,
+                new KeyValuePair<string, object?>("agent_id", state.AgentId),
+                new KeyValuePair<string, object?>("tenant_id", state.TenantId),
+                new KeyValuePair<string, object?>("result", "success"));
         }
         catch (Exception ex)
         {
+            // #1358: record failure metric before logging/reverting so the
+            // counter increments even if SaveStateAsync below throws.
+            _reMintCounter.Add(
+                1,
+                new KeyValuePair<string, object?>("agent_id", state.AgentId),
+                new KeyValuePair<string, object?>("tenant_id", state.TenantId),
+                new KeyValuePair<string, object?>("result", "failure"));
+
+            _reMintFailureCounter.Add(
+                1,
+                new KeyValuePair<string, object?>("agent_id", state.AgentId),
+                new KeyValuePair<string, object?>("tenant_id", state.TenantId),
+                new KeyValuePair<string, object?>("failure_reason", ex.GetType().Name));
+
             _logger.LogError(
                 EventIds.SupervisorCredentialRefreshFailed,
                 ex,

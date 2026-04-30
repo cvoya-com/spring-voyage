@@ -163,33 +163,47 @@ All supervisor restart events are logged by `ContainerSupervisorActor` with stru
 | `SupervisorRestarted` | 2059 | Restart succeeded; new container id logged. |
 | `SupervisorGaveUp` | 2061 | Restart limit (`MaxRestarts`) reached; container is now `Failed`. |
 
-### Metrics — `spring.container.healthy` gauge
+### Metrics — `Cvoya.Spring.Dapr` meter
 
-`ContainerHealthMetricsService` emits a BCL `System.Diagnostics.Metrics.Meter` gauge
-(meter name: `Cvoya.Spring.Dapr`) that operators can scrape via any OpenTelemetry-compatible
-backend (Prometheus, Grafana Cloud, Datadog, Azure Monitor, …). The OTel SDK in the host
-project auto-discovers the meter; no additional NuGet package is needed in the Dapr library.
+All metrics are emitted via the BCL `System.Diagnostics.Metrics.Meter` (meter name: `Cvoya.Spring.Dapr`)
+and auto-discovered by any OpenTelemetry SDK that listens to meters with that name. No extra NuGet
+package is needed in the Dapr library; the OTel SDK is wired in the host project.
 
-| Metric name | Type | Description |
+| Metric name | Type | Description | Tags |
+|---|---|---|---|
+| `spring.container.healthy` | gauge (int, 1 or 0) | 1 when the container's native HEALTHCHECK is healthy (or no HEALTHCHECK declared); 0 when unhealthy or container id is unknown. Emitted by `ContainerHealthMetricsService`. | `agent_id`, `container_id` |
+| `spring.supervisor.credential_remint` | counter (long) | Number of credential re-mint attempts per supervisor-driven restart. Incremented before or after the `RefreshForRestartAsync` call depending on success/failure. | `agent_id`, `tenant_id`, `result` (success\|failure) |
+| `spring.supervisor.credential_remint.latency_ms` | histogram (double, ms) | Latency of `IAgentContextBuilder.RefreshForRestartAsync` from call to return. Only recorded on the success path. | `agent_id`, `tenant_id` |
+| `spring.supervisor.credential_remint.failure` | counter (long) | Number of credential re-mint failures. Incremented when `RefreshForRestartAsync` throws. `failure_reason` carries the exception type name (e.g. `InvalidOperationException`). | `agent_id`, `tenant_id`, `failure_reason` |
+
+#### Tag reference
+
+| Tag key | Used on | Value |
 |---|---|---|
-| `spring.container.healthy` | gauge (int, 1 or 0) | 1 when the container's native HEALTHCHECK is healthy (or when no HEALTHCHECK is declared — healthy by convention); 0 when the inspect reports unhealthy or when the container id is no longer known to the runtime. |
+| `agent_id` | all | The agent's stable identifier (matches `SPRING_AGENT_ID` in the container's env). |
+| `container_id` | `spring.container.healthy` | The running container identifier returned by the container runtime. |
+| `tenant_id` | re-mint metrics | The tenant identifier from `SupervisorState.TenantId`. |
+| `result` | `spring.supervisor.credential_remint` | `success` when `RefreshForRestartAsync` returns; `failure` when it throws. |
+| `failure_reason` | `spring.supervisor.credential_remint.failure` | Exception type name (short, non-qualified). |
 
-Tag set on every observation:
-
-| Tag key | Value |
-|---|---|
-| `agent_id` | The agent's stable identifier (matches `SPRING_AGENT_ID` in the container's env). |
-| `container_id` | The running container identifier as returned by the container runtime. |
+#### `spring.container.healthy` collection details
 
 The gauge is collected every 30 seconds (same cadence as the supervisor's health-check
 reminder). It uses `IContainerRuntime.GetHealthAsync` — the inspect-based native
 HEALTHCHECK probe — rather than the HTTP Agent Card probe `PersistentAgentRegistry`
 uses internally, so the two signals are independent and operators can alert on either.
 
-Example PromQL alert (gauge drops to 0 and stays there for two polling cycles):
+Example PromQL alerts:
 
 ```promql
+# Container unhealthy for two or more consecutive collection cycles
 spring_container_healthy == 0
+
+# Credential re-mint failure rate > 0 in the last 5 minutes
+increase(spring_supervisor_credential_remint_failure_total[5m]) > 0
+
+# High re-mint latency (p99 > 5 s)
+histogram_quantile(0.99, rate(spring_supervisor_credential_remint_latency_ms_bucket[5m])) > 5000
 ```
 
 ## Compatibility with what's shipped
@@ -214,4 +228,4 @@ The cloud overlay's `AgentContextBuilder` implementation (which mints KMS-signed
 
 - **Refresh entry-point signature.** Whether the new method takes `agentId` plus a small launch-context record, or a full `AgentLaunchContext` reconstructed from `SupervisorState` plus the agent registry. The constraint is that nothing in the request payload can be a token; identity only. The implementation PR settles the exact shape against the smallest workable surface.
 - **`SupervisorState` migration.** Adding fields to the persisted state record is a Dapr-state migration concern. The implementation PR has to handle existing supervisors with the old state shape (default the new fields to safe values; first restart reads them from a fallback path).
-- **Telemetry on restart credential mint.** Worth instrumenting (count of restart re-mints per agent, mint latency, mint failures) but exact metric names are an implementation choice.
+- **Telemetry on restart credential mint.** Shipped in #1358: `spring.supervisor.credential_remint` (counter, tagged `agent_id` / `tenant_id` / `result`), `spring.supervisor.credential_remint.latency_ms` (histogram), and `spring.supervisor.credential_remint.failure` (counter, tagged `failure_reason`). See the Telemetry section above for full tag sets and example PromQL alerts.

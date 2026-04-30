@@ -452,6 +452,25 @@
         ],
         "summary": "List all registered agents",
         "operationId": "ListAgents",
+        "parameters": [
+          {
+            "name": "hosting",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "initiative",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "OK",
@@ -8085,6 +8104,13 @@
           },
           {
             "name": "dispatchPath",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "agentImage",
             "in": "query",
             "schema": {
               "type": "string"

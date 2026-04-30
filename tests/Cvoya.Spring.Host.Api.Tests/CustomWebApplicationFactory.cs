@@ -10,6 +10,8 @@ using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Costs;
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Initiative;
 using Cvoya.Spring.Core.Observability;
 using Cvoya.Spring.Core.Secrets;
 using Cvoya.Spring.Core.Skills;
@@ -18,6 +20,7 @@ using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.DependencyInjection;
+using Cvoya.Spring.Dapr.Execution;
 using Cvoya.Spring.Dapr.Observability;
 using Cvoya.Spring.Dapr.Routing;
 
@@ -168,6 +171,39 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
     /// arrange effective-permission responses on this mock.
     /// </summary>
     public IPermissionService PermissionService { get; } = Substitute.For<IPermissionService>();
+
+    /// <summary>
+    /// Gets the substitute <see cref="IAgentExecutionStore"/> wired into
+    /// the test DI container (#1402). Tests that exercise hosting-mode
+    /// filtering arrange return values on this mock to control which agents
+    /// carry which execution shapes.
+    /// </summary>
+    public IAgentExecutionStore AgentExecutionStore { get; } = CreateDefaultAgentExecutionStore();
+
+    /// <summary>
+    /// Gets the substitute <see cref="IInitiativeEngine"/> wired into
+    /// the test DI container (#1402). Tests that exercise initiative-level
+    /// filtering arrange return values on this mock.
+    /// </summary>
+    public IInitiativeEngine InitiativeEngine { get; } = CreateDefaultInitiativeEngine();
+
+    private static IAgentExecutionStore CreateDefaultAgentExecutionStore()
+    {
+        // Default: every agent has no execution shape (hosting mode = null).
+        var stub = Substitute.For<IAgentExecutionStore>();
+        stub.GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<AgentExecutionShape?>(null));
+        return stub;
+    }
+
+    private static IInitiativeEngine CreateDefaultInitiativeEngine()
+    {
+        // Default: every agent has initiative level Passive.
+        var stub = Substitute.For<IInitiativeEngine>();
+        stub.GetCurrentLevelAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(InitiativeLevel.Passive));
+        return stub;
+    }
 
     private static IActivityEventBus CreateStubActivityEventBus()
     {
@@ -322,6 +358,11 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
                 typeof(IExpertiseSearch),
                 typeof(IUnitMembershipTenantGuard),
                 typeof(IUnitParentInvariantGuard),
+                // #1402: replace the EF-backed execution store and initiative
+                // engine with test doubles so filter contract tests can control
+                // which agents carry which execution shapes / initiative levels.
+                typeof(IAgentExecutionStore),
+                typeof(IInitiativeEngine),
             };
 
             var descriptors = services
@@ -353,6 +394,8 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
             services.AddSingleton(ExpertiseSearch);
             services.AddSingleton(TenantGuard);
             services.AddSingleton(ParentInvariantGuard);
+            services.AddSingleton(AgentExecutionStore);
+            services.AddSingleton(InitiativeEngine);
             services.AddSingleton(new DirectoryCache());
 
             // #687: the skill-bundle resolver is now wrapped in a

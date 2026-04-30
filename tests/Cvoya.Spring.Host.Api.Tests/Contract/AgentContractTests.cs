@@ -8,6 +8,8 @@ using System.Net.Http.Json;
 using System.Text.Json;
 
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Execution;
+using Cvoya.Spring.Core.Initiative;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
@@ -196,6 +198,130 @@ public class AgentContractTests : IClassFixture<CustomWebApplicationFactory>
         {
             initiativeLevel.GetString().ShouldBeOneOf("passive", "attentive", "proactive", "autonomous");
         }
+    }
+
+    // --- #1402: server-side filter tests ---
+
+    [Theory]
+    [InlineData("ephemeral")]
+    [InlineData("persistent")]
+    public async Task ListAgents_HostingFilter_ReturnsMatchingAgentsOnly(string hostingMode)
+    {
+        // Arrange two agents: one ephemeral, one persistent.
+        var ct = TestContext.Current.CancellationToken;
+        _factory.DirectoryService.ListAllAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<DirectoryEntry>
+            {
+                new(new Address("agent", "agent-ephemeral"),
+                    "actor-ephemeral",
+                    "Ephemeral Agent",
+                    "",
+                    null,
+                    DateTimeOffset.UtcNow),
+                new(new Address("agent", "agent-persistent"),
+                    "actor-persistent",
+                    "Persistent Agent",
+                    "",
+                    null,
+                    DateTimeOffset.UtcNow),
+            });
+
+        // Stub: ephemeral agent has hosting=ephemeral, persistent has hosting=persistent.
+        _factory.AgentExecutionStore
+            .GetAsync(
+                Arg.Is<string>(id => id == "agent-ephemeral"),
+                Arg.Any<CancellationToken>())
+            .Returns(new AgentExecutionShape(Hosting: "ephemeral"));
+        _factory.AgentExecutionStore
+            .GetAsync(
+                Arg.Is<string>(id => id == "agent-persistent"),
+                Arg.Any<CancellationToken>())
+            .Returns(new AgentExecutionShape(Hosting: "persistent"));
+
+        var response = await _client.GetAsync($"/api/v1/tenant/agents?hosting={hostingMode}", ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var body = await response.Content.ReadAsStringAsync(ct);
+        OpenApiContract.AssertResponse("/api/v1/tenant/agents", "get", "200", body);
+
+        using var doc = JsonDocument.Parse(body);
+        var agents = doc.RootElement.EnumerateArray().ToList();
+
+        // All returned agents must have the requested hosting mode.
+        agents.ShouldNotBeEmpty($"Expected at least one {hostingMode} agent");
+        foreach (var agent in agents)
+        {
+            if (agent.TryGetProperty("hostingMode", out var hm) && hm.ValueKind != JsonValueKind.Null)
+            {
+                hm.GetString().ShouldBe(hostingMode);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ListAgents_InitiativeFilter_MultiValue_ReturnsMatchingAgentsOnly()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        _factory.DirectoryService.ListAllAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<DirectoryEntry>
+            {
+                new(new Address("agent", "agent-passive"),
+                    "actor-passive",
+                    "Passive Agent",
+                    "",
+                    null,
+                    DateTimeOffset.UtcNow),
+                new(new Address("agent", "agent-proactive"),
+                    "actor-proactive",
+                    "Proactive Agent",
+                    "",
+                    null,
+                    DateTimeOffset.UtcNow),
+                new(new Address("agent", "agent-autonomous"),
+                    "actor-autonomous",
+                    "Autonomous Agent",
+                    "",
+                    null,
+                    DateTimeOffset.UtcNow),
+            });
+
+        // Stub initiative levels via the engine.
+        _factory.InitiativeEngine
+            .GetCurrentLevelAsync(
+                Arg.Is<string>(id => id == "agent-passive"),
+                Arg.Any<CancellationToken>())
+            .Returns(Cvoya.Spring.Core.Initiative.InitiativeLevel.Passive);
+        _factory.InitiativeEngine
+            .GetCurrentLevelAsync(
+                Arg.Is<string>(id => id == "agent-proactive"),
+                Arg.Any<CancellationToken>())
+            .Returns(Cvoya.Spring.Core.Initiative.InitiativeLevel.Proactive);
+        _factory.InitiativeEngine
+            .GetCurrentLevelAsync(
+                Arg.Is<string>(id => id == "agent-autonomous"),
+                Arg.Any<CancellationToken>())
+            .Returns(Cvoya.Spring.Core.Initiative.InitiativeLevel.Autonomous);
+
+        // Request proactive + autonomous — passive should be excluded.
+        var response = await _client.GetAsync(
+            "/api/v1/tenant/agents?initiative=proactive&initiative=autonomous", ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var body = await response.Content.ReadAsStringAsync(ct);
+        OpenApiContract.AssertResponse("/api/v1/tenant/agents", "get", "200", body);
+
+        using var doc = JsonDocument.Parse(body);
+        var agents = doc.RootElement.EnumerateArray().ToList();
+
+        // Only proactive and autonomous agents should be returned.
+        agents.Count.ShouldBe(2);
+        var levels = agents
+            .Where(a => a.TryGetProperty("initiativeLevel", out var il) && il.ValueKind != JsonValueKind.Null)
+            .Select(a => a.GetProperty("initiativeLevel").GetString())
+            .ToList();
+        levels.ShouldContain("proactive");
+        levels.ShouldContain("autonomous");
+        levels.ShouldNotContain("passive");
     }
 
     private void ArrangeUnitEntry(string unitId, string actorId)

@@ -157,11 +157,21 @@ public static class AgentCommand
             var initiative = parseResult.GetValue(initiativeOption) ?? [];
 
             var client = ClientFactory.Create();
-            var result = await client.ListAgentsAsync(ct);
 
-            // Client-side filtering (#572 / #573). Server-side filtering is
-            // a follow-up if needed; keeping it here avoids a server-contract
-            // change and works correctly for the OSS list size.
+            // #1402: pass filter params to the server so the API does the
+            // filtering rather than the CLI fetching the full list. The CLI
+            // also applies the same filter client-side as a defensive fallback
+            // in case the CLI is talking to an older API version that ignores
+            // the query parameters and returns the full list.
+            var result = await client.ListAgentsAsync(
+                hosting: hosting,
+                initiative: initiative.Length > 0 ? initiative : null,
+                ct: ct);
+
+            // Defensive client-side filter fallback: if the server returned
+            // agents that don't match the requested filter (e.g. an older API
+            // version that ignores the query params), filter them out here so
+            // the output is always consistent with what the operator asked for.
             var filtered = result.AsEnumerable();
 
             if (!string.IsNullOrEmpty(hosting))

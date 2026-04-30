@@ -836,6 +836,184 @@ public class ContainerSupervisorActorTests
     }
 
     // ------------------------------------------------------------------
+    // #1358: restart re-mint telemetry
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public async Task CheckHealthAsync_SuccessfulRestart_RecordsReMintCounterAndLatency()
+    {
+        // A successful restart should increment the re-mint counter (result=success)
+        // and record a latency histogram entry. Both are observable via BCL Meter events.
+        const string persistedImage = "ghcr.io/cvoya/test-agent:1.0.0";
+        const string newContainerId = "restarted-container";
+        const string volumeName = "spring-ws-vol";
+
+        var runningState = new SupervisorState(
+            AgentId: TestAgentId,
+            Hosting: AgentHostingMode.Persistent,
+            Status: ContainerSupervisionStatus.Running,
+            ContainerId: "crashed-container",
+            SidecarId: null,
+            NetworkName: null,
+            VolumeName: volumeName,
+            RestartCount: 0,
+            MaxRestarts: ContainerSupervisorActor.DefaultMaxRestarts,
+            LastStartedAt: DateTimeOffset.UtcNow,
+            LastCrashAt: null,
+            Image: persistedImage,
+            TenantId: TestTenantId);
+
+        _stateManager
+            .TryGetStateAsync<SupervisorState>(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<SupervisorState>(true, runningState));
+
+        _containerRuntime
+            .ProbeHttpFromHostAsync("crashed-container", Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(false);
+
+        _containerRuntime
+            .StartAsync(Arg.Any<ContainerConfig>(), Arg.Any<CancellationToken>())
+            .Returns(newContainerId);
+
+        // Capture metric events from the BCL Meter.
+        var reMintCounterValues = new List<(long Value, IEnumerable<KeyValuePair<string, object?>> Tags)>();
+        var reMintLatencyValues = new List<(double Value, IEnumerable<KeyValuePair<string, object?>> Tags)>();
+
+        using var meterListener = new System.Diagnostics.Metrics.MeterListener();
+        meterListener.InstrumentPublished = (instrument, listener) =>
+        {
+            if (instrument.Meter.Name == ContainerHealthMetricsService.MeterName)
+            {
+                listener.EnableMeasurementEvents(instrument);
+            }
+        };
+        meterListener.SetMeasurementEventCallback<long>((instrument, value, tags, _) =>
+        {
+            if (instrument.Name == SupervisorMetricNames.CredentialReMint)
+            {
+                reMintCounterValues.Add((value, tags.ToArray()));
+            }
+        });
+        meterListener.SetMeasurementEventCallback<double>((instrument, value, tags, _) =>
+        {
+            if (instrument.Name == SupervisorMetricNames.CredentialReMintLatencyMs)
+            {
+                reMintLatencyValues.Add((value, tags.ToArray()));
+            }
+        });
+        meterListener.Start();
+
+        await _actor.CheckHealthAsync(CancellationToken.None);
+
+        // Counter must have been incremented with result=success.
+        reMintCounterValues.ShouldNotBeEmpty("spring.supervisor.credential_remint counter must fire on success");
+        var successEntries = reMintCounterValues.Where(e =>
+            e.Tags.Any(t => t.Key == "result" && t.Value?.ToString() == "success")).ToList();
+        successEntries.ShouldNotBeEmpty("re-mint counter must carry result=success tag on success path");
+        successEntries[0].Value.ShouldBe(1);
+
+        var successAgentTags = reMintCounterValues
+            .SelectMany(e => e.Tags)
+            .Where(t => t.Key == "agent_id")
+            .ToList();
+        successAgentTags.ShouldNotBeEmpty("agent_id tag must be present on the counter");
+        successAgentTags[0].Value?.ToString().ShouldBe(TestAgentId);
+
+        // Latency histogram must have been recorded with a non-negative value.
+        reMintLatencyValues.ShouldNotBeEmpty("spring.supervisor.credential_remint.latency_ms histogram must fire on success");
+        reMintLatencyValues[0].Value.ShouldBeGreaterThanOrEqualTo(0);
+    }
+
+    [Fact]
+    public async Task CheckHealthAsync_CredentialRefreshFails_RecordsFailureCounters()
+    {
+        // A failed re-mint should increment both the main counter (result=failure)
+        // and the failure-specific counter with a failure_reason tag.
+        const string persistedImage = "ghcr.io/cvoya/test-agent:1.0.0";
+
+        var runningState = new SupervisorState(
+            AgentId: TestAgentId,
+            Hosting: AgentHostingMode.Persistent,
+            Status: ContainerSupervisionStatus.Running,
+            ContainerId: "crashed-container",
+            SidecarId: null,
+            NetworkName: null,
+            VolumeName: "vol",
+            RestartCount: 0,
+            MaxRestarts: ContainerSupervisorActor.DefaultMaxRestarts,
+            LastStartedAt: DateTimeOffset.UtcNow,
+            LastCrashAt: null,
+            Image: persistedImage,
+            TenantId: TestTenantId);
+
+        _stateManager
+            .TryGetStateAsync<SupervisorState>(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<SupervisorState>(true, runningState));
+
+        _containerRuntime
+            .ProbeHttpFromHostAsync("crashed-container", Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(false);
+
+        _agentContextBuilder
+            .RefreshForRestartAsync(Arg.Any<SupervisorRestartContext>(), Arg.Any<CancellationToken>())
+            .Returns(_ => Task.FromException<AgentBootstrapContext>(
+                new InvalidOperationException("KMS temporarily unavailable")));
+
+        // Capture metric events.
+        var reMintCounterValues = new List<(long Value, IEnumerable<KeyValuePair<string, object?>> Tags)>();
+        var failureCounterValues = new List<(long Value, IEnumerable<KeyValuePair<string, object?>> Tags)>();
+        var latencyValues = new List<double>();
+
+        using var meterListener = new System.Diagnostics.Metrics.MeterListener();
+        meterListener.InstrumentPublished = (instrument, listener) =>
+        {
+            if (instrument.Meter.Name == ContainerHealthMetricsService.MeterName)
+            {
+                listener.EnableMeasurementEvents(instrument);
+            }
+        };
+        meterListener.SetMeasurementEventCallback<long>((instrument, value, tags, _) =>
+        {
+            if (instrument.Name == SupervisorMetricNames.CredentialReMint)
+            {
+                reMintCounterValues.Add((value, tags.ToArray()));
+            }
+            else if (instrument.Name == SupervisorMetricNames.CredentialReMintFailure)
+            {
+                failureCounterValues.Add((value, tags.ToArray()));
+            }
+        });
+        meterListener.SetMeasurementEventCallback<double>((instrument, value, tags, _) =>
+        {
+            if (instrument.Name == SupervisorMetricNames.CredentialReMintLatencyMs)
+            {
+                latencyValues.Add(value);
+            }
+        });
+        meterListener.Start();
+
+        await _actor.CheckHealthAsync(CancellationToken.None);
+
+        // Main counter must record result=failure.
+        var failureEntries = reMintCounterValues.Where(e =>
+            e.Tags.Any(t => t.Key == "result" && t.Value?.ToString() == "failure")).ToList();
+        failureEntries.ShouldNotBeEmpty("re-mint counter must carry result=failure tag on failure path");
+        failureEntries[0].Value.ShouldBe(1);
+
+        // Failure-specific counter must fire with a failure_reason tag.
+        failureCounterValues.ShouldNotBeEmpty("spring.supervisor.credential_remint.failure counter must fire on failure");
+        var failureReasonTags = failureCounterValues
+            .SelectMany(e => e.Tags)
+            .Where(t => t.Key == "failure_reason")
+            .ToList();
+        failureReasonTags.ShouldNotBeEmpty("failure_reason tag must be present on failure counter");
+        failureReasonTags[0].Value?.ToString().ShouldBe("InvalidOperationException");
+
+        // Latency histogram must NOT fire on the failure path.
+        latencyValues.ShouldBeEmpty("latency histogram must not fire when re-mint fails");
+    }
+
+    // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
 
