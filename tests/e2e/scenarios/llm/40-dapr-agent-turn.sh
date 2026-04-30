@@ -58,36 +58,38 @@ else
     definition="{\"execution\":{\"tool\":\"dapr-agent\",\"image\":\"${image}\",\"provider\":\"${provider}\",\"model\":\"${model}\"}}"
 fi
 
-e2e::log "spring agent create ${agent} (tool=dapr-agent, provider=${provider}, model=${model})"
-response="$(e2e::cli --output json agent create "${agent}" \
+
+# #744: agent create requires --unit; the membership is registered atomically.
+e2e::log "spring agent create ${agent} --unit ${unit} (tool=dapr-agent, provider=${provider}, model=${model})"
+response="$(e2e::cli_agent_create --output json "${agent}" \
+    --unit "${unit}" \
     --name "Dapr Agent" \
     --definition "${definition}")"
 code="${response##*$'\n'}"
 e2e::expect_status "0" "${code}" "agent create with dapr-agent execution succeeds"
 
-e2e::log "spring unit members add ${unit} --agent ${agent}"
-response="$(e2e::cli --output json unit members add "${unit}" --agent "${agent}")"
-code="${response##*$'\n'}"
-e2e::expect_status "0" "${code}" "membership add succeeds"
-
 # --- Dispatch a turn ----------------------------------------------------------
 # The send itself returns as soon as the message is accepted. The actual agent
-# turn runs async — we then tail the conversation until an agent reply appears
+# turn runs async — we then tail the thread until an agent reply appears
 # (or we hit the timeout, which itself is a failure signal because the turn
 # should complete in under a minute for a trivial prompt on llama3.2:3b).
-conv_id="e2e-conv-$(date +%s)-$$"
-e2e::log "spring message send agent://${agent} (conversation=${conv_id})"
+# `--conversation` was renamed to `--thread` when the conversation surface was
+# unified into the `thread` subcommand.
+thread_id="e2e-thread-$(date +%s)-$$"
+e2e::log "spring message send agent://${agent} (thread=${thread_id})"
 response="$(e2e::cli --output json message send "agent://${agent}" \
     "Say the word 'hello' in a single sentence and nothing else." \
-    --conversation "${conv_id}")"
+    --thread "${thread_id}")"
 code="${response##*$'\n'}"
 body="${response%$'\n'*}"
 e2e::expect_status "0" "${code}" "message send succeeds"
 e2e::expect_contains "messageId" "${body}" "send response carries a messageId"
 
 # --- Assert on the LLM's actual reply -----------------------------------------
-# Poll `conversation show` (up to the timeout) for an event sourced from the
-# agent. A TaskState.failed payload surfaces as an event whose summary carries
+# Poll `thread show` (up to the timeout) for an event sourced from the agent.
+# `conversation show` was renamed to `thread show` when the conversation surface
+# was unified into the `thread` subcommand.
+# A TaskState.failed payload surfaces as an event whose summary carries
 # "Error:"; we flag that explicitly so the scenario fails loud instead of
 # silently passing the way the old smoke test did (#480 finding 5).
 timeout="${SPRING_DAPR_AGENT_TURN_TIMEOUT:-180}"
@@ -95,7 +97,7 @@ deadline=$(( $(date +%s) + timeout ))
 agent_reply=""
 last_show=""
 while (( $(date +%s) < deadline )); do
-    show_raw="$(e2e::cli --output json conversation show "${conv_id}" 2>&1)" || true
+    show_raw="$(e2e::cli --output json thread show "${thread_id}" 2>&1)" || true
     show_code="${show_raw##*$'\n'}"
     show_body="${show_raw%$'\n'*}"
     last_show="${show_body}"
@@ -125,7 +127,7 @@ while (( $(date +%s) < deadline )); do
 done
 
 if [[ -z "${agent_reply}" ]]; then
-    e2e::fail "no agent reply surfaced in conversation ${conv_id} within ${timeout}s (last show body: ${last_show:0:500})"
+    e2e::fail "no agent reply surfaced in thread ${thread_id} within ${timeout}s (last show body: ${last_show:0:500})"
 else
     case "${agent_reply}" in
         *[Ee]rror:*|*TaskState.failed*)
