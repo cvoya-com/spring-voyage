@@ -123,6 +123,9 @@ counterpart stay on `e2e::http` with a TODO referencing the gap.
 | 21 | secret-cli | fast | CLI | #432: `spring secret create/list/rotate/versions/prune/get/delete` roundtrip across all three scopes. |
 | 22 | validation-exit-codes | fast | CLI | #990 / #311: asserts exit-code table appears in `--help`; parse-level rejection exits non-zero; server-side validation failure maps to the 20..27 range. |
 | 23 | bootstrap-and-auth | fast | CLI + curl | #311: `spring auth token create/list/revoke` lifecycle; token usability via Bearer header. |
+| 24 | analytics-costs-breakdown | fast | CLI | #554 / E1-A: `spring analytics costs` (scalar total) and `--by-source` / `--breakdown` per-source rollup; `--window` flag accepted; bad window value exits non-zero. |
+| 25 | github-app-rotate | fast | CLI | #636 / E1-A: `spring github-app rotate-key --dry-run` (preamble + dry-run exit 0); `--from-file` PEM validation; missing file exits non-zero; `rotate-webhook-secret --dry-run` generates secret without persisting. |
+| 26 | exit-code-mapping | fast | CLI | #990 / E1-A: `ApiExceptionRenderer.DetermineExitCode` path — 404 on non-existent unit revalidate exits non-zero; revalidate on Draft unit exits non-zero (20..27 if ProblemDetails carries a code extension, 1 otherwise); E1-A canary asserts `--by-source` in analytics costs help. |
 
 ## Authentication
 
