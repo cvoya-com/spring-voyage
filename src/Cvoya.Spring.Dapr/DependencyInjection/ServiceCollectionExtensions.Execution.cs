@@ -213,6 +213,10 @@ internal static class ServiceCollectionExtensionsExecution
             services.AddHostedService(sp => sp.GetRequiredService<PersistentAgentRegistry>());
             services.AddHostedService(sp => sp.GetRequiredService<EphemeralAgentRegistry>());
             services.AddHostedService(sp => sp.GetRequiredService<McpServer>());
+            // Container health gauge (#1378): polls GetHealthAsync for every tracked
+            // persistent-agent container and emits spring.container.healthy via
+            // System.Diagnostics.Metrics (BCL Meter, MeterName = "Cvoya.Spring.Dapr").
+            services.AddHostedService<ContainerHealthMetricsService>();
         }
 
         return services;

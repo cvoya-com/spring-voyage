@@ -43,6 +43,7 @@ class TestIAgentContextLoad:
         assert ctx.tenant_id == "tenant_acme"
         assert ctx.agent_id == "agent_be3"
         assert ctx.unit_id is None
+        assert ctx.thread_id is None
         assert ctx.bucket2_url == "https://api.example.com/api/v1/"
         assert ctx.bucket2_token == "svat_abc"
         assert ctx.llm_provider_url == "https://api.example.com/llm/"
@@ -58,6 +59,33 @@ class TestIAgentContextLoad:
         with _patch_env(SPRING_UNIT_ID="unit_eng"):
             ctx = IAgentContext.load()
         assert ctx.unit_id == "unit_eng"
+
+    def test_thread_id_populated_when_set(self):
+        """SPRING_THREAD_ID is surfaced as context.thread_id when present (spec §2.2.1, #1357)."""
+        with _patch_env(SPRING_THREAD_ID="thr_abc123"):
+            ctx = IAgentContext.load()
+        assert ctx.thread_id == "thr_abc123"
+
+    def test_thread_id_is_none_when_absent(self, monkeypatch):
+        """context.thread_id is None when SPRING_THREAD_ID is not set.
+
+        This is the supervisor-restart path: the supervisor does not bind a
+        thread id when restarting an agent (spec §2.2.1 — SPRING_THREAD_ID is
+        optional; #1357).
+        """
+        for k, v in _REQUIRED_ENV.items():
+            monkeypatch.setenv(k, v)
+        monkeypatch.delenv("SPRING_THREAD_ID", raising=False)
+        ctx = IAgentContext.load()
+        assert ctx.thread_id is None
+
+    def test_thread_id_absent_does_not_raise(self, monkeypatch):
+        """SPRING_THREAD_ID absence must NOT raise ContextLoadError (optional field)."""
+        for k, v in _REQUIRED_ENV.items():
+            monkeypatch.setenv(k, v)
+        monkeypatch.delenv("SPRING_THREAD_ID", raising=False)
+        # Must not raise — thread_id is explicitly optional per spec §2.2.1.
+        IAgentContext.load()
 
     def test_telemetry_token_optional(self):
         with _patch_env(SPRING_TELEMETRY_TOKEN="tok123"):
