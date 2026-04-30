@@ -1,0 +1,382 @@
+name: Release
+
+# Fires when a v*.*.*[-prerelease] tag is pushed to the repository.
+# Jobs:
+#   1. resolve          — validate the tag shape and emit version components.
+#   2. test             — run the full .NET test suite against the tagged commit.
+#   3. publish-images   — build and push all agent container images to GHCR.
+#   4. github-release   — create the GitHub Release from CHANGELOG.md.
+#
+# NuGet packaging is explicitly out of scope until the publishing target is
+# decided; see issue #1395.
+#
+# Untrusted inputs (github.ref_name, inputs.tag) are routed through env vars
+# in their consuming steps and validated by regex in the resolve job before any
+# downstream step touches them. See:
+# https://github.blog/security/vulnerability-research/how-to-catch-github-actions-workflow-injections-before-attackers-do/
+
+on:
+  push:
+    tags:
+      # Matches v0.1.0, v1.2.3-rc.1, v0.2.0-alpha.3, etc.
+      - "v[0-9]+.[0-9]+.[0-9]+*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (e.g. v0.1.0). Required for manual runs."
+        required: true
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write   # Create GitHub Releases and upload assets.
+  packages: write   # Push to ghcr.io.
+  id-token: write   # OIDC token for attestation (future-proofing).
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  REGISTRY: ghcr.io
+  # The primary spring-agent image consumed by UnitRuntimeOptions.cs.
+  SPRING_AGENT_IMAGE: ghcr.io/cvoya/spring-agent
+
+jobs:
+  # ── 1. Resolve ─────────────────────────────────────────────────────────────
+  resolve:
+    name: Resolve release version
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      tag: ${{ steps.r.outputs.tag }}
+      version: ${{ steps.r.outputs.version }}
+      major_minor: ${{ steps.r.outputs.major_minor }}
+      is_prerelease: ${{ steps.r.outputs.is_prerelease }}
+    steps:
+      - name: Resolve release tag and version components
+        id: r
+        shell: bash
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            release_tag="$INPUT_TAG"
+          else
+            release_tag="$REF_NAME"
+          fi
+
+          if [[ -z "$release_tag" ]]; then
+            echo "::error::could not resolve a release tag"
+            exit 1
+          fi
+
+          # Validate: must be v<semver> with optional prerelease suffix.
+          if ! [[ "$release_tag" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)([-+][A-Za-z0-9._-]+)?$ ]]; then
+            echo "::error::tag '$release_tag' does not match vMAJOR.MINOR.PATCH[-prerelease]"
+            exit 1
+          fi
+
+          major="${BASH_REMATCH[1]}"
+          minor="${BASH_REMATCH[2]}"
+          patch="${BASH_REMATCH[3]}"
+          prerelease_suffix="${BASH_REMATCH[4]:-}"
+
+          # e.g. "0.1.0" (no leading v, with prerelease suffix if present)
+          release_version="${major}.${minor}.${patch}${prerelease_suffix}"
+          # e.g. "0.1"
+          major_minor="${major}.${minor}"
+          # Prerelease if the tag has a suffix like -rc.1 or -alpha.2
+          is_prerelease="false"
+          if [[ -n "$prerelease_suffix" ]]; then
+            is_prerelease="true"
+          fi
+
+          echo "tag=$release_tag"             >> "$GITHUB_OUTPUT"
+          echo "version=$release_version"     >> "$GITHUB_OUTPUT"
+          echo "major_minor=$major_minor"     >> "$GITHUB_OUTPUT"
+          echo "is_prerelease=$is_prerelease" >> "$GITHUB_OUTPUT"
+
+          echo "Resolved: tag=$release_tag version=$release_version major_minor=$major_minor is_prerelease=$is_prerelease"
+
+  # ── 2. Test ────────────────────────────────────────────────────────────────
+  #
+  # Re-runs the full .NET test suite against the tagged commit to gate the
+  # release on green tests. Mirrors the `test` job in ci.yml exactly so the
+  # release is subject to the same bar as every PR merge.
+  test:
+    name: Test (release gate)
+    runs-on: ubuntu-latest
+    needs: resolve
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+          cache: true
+          cache-dependency-path: |
+            **/*.csproj
+            Directory.Packages.props
+            global.json
+            NuGet.config
+
+      - name: Install Dapr CLI
+        shell: bash
+        run: |
+          wget -q https://raw.githubusercontent.com/dapr/cli/master/install/install.sh -O - | /bin/bash -s 1.14.1
+          dapr --version
+
+      - name: Cache Dapr runtime (~/.dapr)
+        id: dapr-cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.dapr
+          key: dapr-slim-${{ runner.os }}-1.14.1-v1
+
+      - name: Initialize Dapr
+        if: steps.dapr-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          for attempt in 1 2 3 4 5 6; do
+            if dapr init --slim; then
+              echo "dapr init succeeded on attempt $attempt"
+              exit 0
+            fi
+            echo "dapr init attempt $attempt failed; sleeping 30s before retry"
+            sleep 30
+            dapr uninstall --all || true
+          done
+          echo "::error::dapr init failed after 6 attempts over ~4 minutes"
+          exit 1
+
+      - name: Restore dependencies
+        run: dotnet restore SpringVoyage.slnx
+
+      - name: Restore dotnet tools (Kiota)
+        run: dotnet tool restore
+
+      - name: Build
+        run: dotnet build SpringVoyage.slnx --no-restore --configuration Release
+
+      - name: Test
+        run: dotnet test --solution SpringVoyage.slnx --no-restore --no-build --configuration Release
+
+  # ── 3. Publish container images ────────────────────────────────────────────
+  #
+  # Builds the three agent images via deployment/build-agent-images.sh and
+  # pushes them to ghcr.io/cvoya/* under the versioned and floating tags
+  # defined in docs/developer/releases.md.
+  #
+  # Image tagging scheme (stable releases only — pre-releases get the immutable
+  # version tag and do NOT move :latest or :X.Y):
+  #   :X.Y.Z      — immutable, never reused
+  #   :X.Y        — floating, updated on each new patch of the X.Y minor line
+  #   :latest     — floating, updated on each stable release
+  publish-images:
+    name: Build and push agent images
+    runs-on: ubuntu-latest
+    needs: [resolve, test]
+    timeout-minutes: 30
+    env:
+      RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+      MAJOR_MINOR: ${{ needs.resolve.outputs.major_minor }}
+      IS_PRERELEASE: ${{ needs.resolve.outputs.is_prerelease }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Verify docker is on PATH
+        shell: bash
+        run: docker version
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build all agent images
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          bash deployment/build-agent-images.sh --tag "${RELEASE_VERSION}"
+
+      # The build script tags:
+      #   ghcr.io/cvoya-com/agent-base:<tag>             (published to GHCR namespace)
+      #   localhost/spring-voyage-agent-claude-code:<tag> (local only)
+      #   localhost/spring-voyage-agent-dapr:<tag>        (local only)
+      #
+      # Re-tag each to the canonical ghcr.io/cvoya/ namespace and push.
+      - name: Tag and push spring-agent (claude-code runtime)
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+          MAJOR_MINOR: ${{ needs.resolve.outputs.major_minor }}
+          IS_PRERELEASE: ${{ needs.resolve.outputs.is_prerelease }}
+          TARGET_BASE: ${{ env.SPRING_AGENT_IMAGE }}
+        run: |
+          set -euo pipefail
+          # Immutable version tag — always pushed, stable and pre-release alike.
+          docker tag "localhost/spring-voyage-agent-claude-code:${RELEASE_VERSION}" \
+            "${TARGET_BASE}:${RELEASE_VERSION}"
+          docker push "${TARGET_BASE}:${RELEASE_VERSION}"
+          echo "Pushed ${TARGET_BASE}:${RELEASE_VERSION}"
+
+          if [[ "$IS_PRERELEASE" == "false" ]]; then
+            docker tag "localhost/spring-voyage-agent-claude-code:${RELEASE_VERSION}" \
+              "${TARGET_BASE}:${MAJOR_MINOR}"
+            docker push "${TARGET_BASE}:${MAJOR_MINOR}"
+            echo "Pushed ${TARGET_BASE}:${MAJOR_MINOR}"
+
+            docker tag "localhost/spring-voyage-agent-claude-code:${RELEASE_VERSION}" \
+              "${TARGET_BASE}:latest"
+            docker push "${TARGET_BASE}:latest"
+            echo "Pushed ${TARGET_BASE}:latest"
+          else
+            echo "Pre-release: skipping :${MAJOR_MINOR} and :latest tags for spring-agent"
+          fi
+
+      - name: Tag and push agent-base
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+          MAJOR_MINOR: ${{ needs.resolve.outputs.major_minor }}
+          IS_PRERELEASE: ${{ needs.resolve.outputs.is_prerelease }}
+        run: |
+          set -euo pipefail
+          TARGET_BASE="ghcr.io/cvoya/agent-base"
+
+          docker tag "ghcr.io/cvoya-com/agent-base:${RELEASE_VERSION}" \
+            "${TARGET_BASE}:${RELEASE_VERSION}"
+          docker push "${TARGET_BASE}:${RELEASE_VERSION}"
+          echo "Pushed ${TARGET_BASE}:${RELEASE_VERSION}"
+
+          if [[ "$IS_PRERELEASE" == "false" ]]; then
+            docker tag "ghcr.io/cvoya-com/agent-base:${RELEASE_VERSION}" \
+              "${TARGET_BASE}:${MAJOR_MINOR}"
+            docker push "${TARGET_BASE}:${MAJOR_MINOR}"
+            echo "Pushed ${TARGET_BASE}:${MAJOR_MINOR}"
+
+            docker tag "ghcr.io/cvoya-com/agent-base:${RELEASE_VERSION}" \
+              "${TARGET_BASE}:latest"
+            docker push "${TARGET_BASE}:latest"
+            echo "Pushed ${TARGET_BASE}:latest"
+          fi
+
+      - name: Tag and push agent-dapr
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+          MAJOR_MINOR: ${{ needs.resolve.outputs.major_minor }}
+          IS_PRERELEASE: ${{ needs.resolve.outputs.is_prerelease }}
+        run: |
+          set -euo pipefail
+          TARGET_BASE="ghcr.io/cvoya/agent-dapr"
+
+          docker tag "localhost/spring-voyage-agent-dapr:${RELEASE_VERSION}" \
+            "${TARGET_BASE}:${RELEASE_VERSION}"
+          docker push "${TARGET_BASE}:${RELEASE_VERSION}"
+          echo "Pushed ${TARGET_BASE}:${RELEASE_VERSION}"
+
+          if [[ "$IS_PRERELEASE" == "false" ]]; then
+            docker tag "localhost/spring-voyage-agent-dapr:${RELEASE_VERSION}" \
+              "${TARGET_BASE}:${MAJOR_MINOR}"
+            docker push "${TARGET_BASE}:${MAJOR_MINOR}"
+            echo "Pushed ${TARGET_BASE}:${MAJOR_MINOR}"
+
+            docker tag "localhost/spring-voyage-agent-dapr:${RELEASE_VERSION}" \
+              "${TARGET_BASE}:latest"
+            docker push "${TARGET_BASE}:latest"
+            echo "Pushed ${TARGET_BASE}:latest"
+          fi
+
+      - name: Image publish summary
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+          MAJOR_MINOR: ${{ needs.resolve.outputs.major_minor }}
+          IS_PRERELEASE: ${{ needs.resolve.outputs.is_prerelease }}
+        run: |
+          {
+            echo "### Agent images published"
+            echo
+            echo "| Image | Tags |"
+            echo "| --- | --- |"
+            if [[ "$IS_PRERELEASE" == "false" ]]; then
+              echo "| \`ghcr.io/cvoya/spring-agent\` | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
+              echo "| \`ghcr.io/cvoya/agent-base\`   | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
+              echo "| \`ghcr.io/cvoya/agent-dapr\`   | \`${RELEASE_VERSION}\`, \`${MAJOR_MINOR}\`, \`latest\` |"
+            else
+              echo "| \`ghcr.io/cvoya/spring-agent\` | \`${RELEASE_VERSION}\` (pre-release — :latest and :${MAJOR_MINOR} not updated) |"
+              echo "| \`ghcr.io/cvoya/agent-base\`   | \`${RELEASE_VERSION}\` (pre-release) |"
+              echo "| \`ghcr.io/cvoya/agent-dapr\`   | \`${RELEASE_VERSION}\` (pre-release) |"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ── 4. GitHub Release ──────────────────────────────────────────────────────
+  #
+  # Creates the GitHub Release using the ## [Unreleased] section of
+  # CHANGELOG.md as the release notes. The maintainer's pre-release PR
+  # moves the [Unreleased] entries to the new version heading before tagging;
+  # this job reads whatever is in [Unreleased] at the tagged commit.
+  #
+  # Uses `gh` directly (GITHUB_TOKEN) rather than softprops/action-gh-release
+  # so there is no external action dependency beyond the already-used actions/*.
+  github-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [resolve, test, publish-images]
+    timeout-minutes: 10
+    env:
+      RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+      RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+      IS_PRERELEASE: ${{ needs.resolve.outputs.is_prerelease }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Extract changelog section
+        id: changelog
+        shell: bash
+        run: |
+          set -euo pipefail
+          notes="$(bash scripts/extract-changelog-section.sh "Unreleased")"
+          if [[ -z "$notes" ]]; then
+            echo "::warning::## [Unreleased] section in CHANGELOG.md is empty — release notes will be empty."
+          fi
+          # Write to a temp file so multiline content survives the GITHUB_OUTPUT
+          # 256 KB limit and avoids any quoting pitfalls.
+          echo "$notes" > /tmp/release-notes.md
+
+      - name: Create GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          prerelease_flag=""
+          if [[ "$IS_PRERELEASE" == "true" ]]; then
+            prerelease_flag="--prerelease"
+          fi
+
+          # shellcheck disable=SC2086  # prerelease_flag intentionally unquoted
+          gh release create "${RELEASE_TAG}" \
+            --title "v${RELEASE_VERSION}" \
+            --notes-file /tmp/release-notes.md \
+            --repo "${REPO}" \
+            ${prerelease_flag}
+
+          echo "GitHub Release created: https://github.com/${REPO}/releases/tag/${RELEASE_TAG}"
