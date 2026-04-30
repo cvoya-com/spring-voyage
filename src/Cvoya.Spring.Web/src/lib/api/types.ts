@@ -196,16 +196,11 @@ export type CreateCloneRequest = Schemas["CreateCloneRequest"];
 export type AgentCloningPolicyResponse = Schemas["AgentCloningPolicyResponse"];
 
 /**
- * `CloningPolicy` enum values returned by `AgentCloningPolicyResponse.allowedPolicies`.
- * Mirrors `Cvoya.Spring.Core.Cloning.CloningPolicy`.
+ * Per-field nested types (`CloningPolicy` enum, `AttachmentMode` enum) are accessible
+ * via `AgentCloningPolicyResponse["allowedPolicies"][number]` /
+ * `AgentCloningPolicyResponse["allowedAttachmentModes"][number]` indexing when needed.
+ * Not re-exported standalone to keep the surface narrow (knip).
  */
-export type CloningPolicy = Schemas["CloningPolicy"];
-
-/**
- * `AttachmentMode` enum values returned by `AgentCloningPolicyResponse.allowedAttachmentModes`.
- * Mirrors `Cvoya.Spring.Core.Cloning.AttachmentMode`.
- */
-export type AttachmentMode = Schemas["AttachmentMode"];
 
 /** GET / PUT budget response. */
 export type BudgetResponse = Schemas["BudgetResponse"];
