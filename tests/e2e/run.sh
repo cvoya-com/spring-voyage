@@ -1,21 +1,16 @@
 #!/usr/bin/env bash
 # Master runner for tests/e2e/scenarios.
 #
-# Scenarios are split into three pools:
-#   scenarios/fast/  — no LLM, no container runtime. Default for every invocation.
-#   scenarios/llm/   — needs a running LLM backend (LLM_BASE_URL). Empty until
-#                      #330 wires up a local ollama or fake-server; `--llm`
-#                      still errors out clearly in the meantime.
-#   scenarios/infra/ — needs a live container runtime + bare Postgres. Opt-in
-#                      with `--infra`. These scenarios start hosts directly via
-#                      `dotnet run` and assert startup-level invariants (e.g.
-#                      migration-safety, concurrent API+Worker startup).
+# Scenarios are split into two pools:
+#   scenarios/fast/  — no LLM. Exercises the running stack via Web API + CLI.
+#                      Default for every invocation.
+#   scenarios/llm/   — same surface as fast, plus a live LLM backend reachable
+#                      via Ollama (LLM_BASE_URL). Opt-in with --llm.
 #
 # Usage:
 #   ./run.sh                     run every scenarios/fast/*.sh (default)
-#   ./run.sh --llm               run every scenarios/llm/*.sh (requires LLM_BASE_URL)
-#   ./run.sh --infra             run every scenarios/infra/*.sh (requires live Postgres)
-#   ./run.sh --all               run fast + llm + infra pools, fast first
+#   ./run.sh --llm               run every scenarios/llm/*.sh (requires Ollama)
+#   ./run.sh --all               run fast + llm pools, fast first
 #   ./run.sh '12-*'              glob across all pools (no pool filter)
 #   ./run.sh --sweep             delete every unit/agent whose name starts with
 #                                "${E2E_PREFIX}-" (default prefix: "e2e")
@@ -105,17 +100,13 @@ if [[ "${1:-}" == "--sweep" ]]; then
     exit 0
 fi
 
-# Pool selection. Default = fast only. --llm, --infra, and --all are explicit
-# opt-ins; a bare glob ("12-*") searches all pools so callers don't need to
-# remember which directory a scenario lives in.
+# Pool selection. Default = fast only. --llm and --all are explicit opt-ins;
+# a bare glob ("12-*") searches all pools so callers don't need to remember
+# which directory a scenario lives in.
 #
 # --llm additionally fail-fasts if the local LLM backend (Ollama) isn't
 # reachable — see e2e::require_ollama in _lib.sh and
 # docs/developer/local-ai-ollama.md.
-#
-# --infra requires a live Postgres instance (configured via SPRING_DB_*
-# env vars inside each infra scenario). No automatic reachability check is
-# performed here — infra scenarios self-skip if Postgres is unavailable.
 pools=("fast")
 glob="*.sh"
 
@@ -131,25 +122,21 @@ case "${1:-}" in
         pools=("llm")
         glob="${2:-*.sh}"
         ;;
-    --infra)
-        pools=("infra")
-        glob="${2:-*.sh}"
-        ;;
     --all)
-        pools=("fast" "llm" "infra")
+        pools=("fast" "llm")
         glob="${2:-*.sh}"
         ;;
     "")
         ;;
     -*)
         printf '[e2e] Unknown option: %s\n' "$1" >&2
-        printf '[e2e] Usage: ./run.sh [--llm|--infra|--all|--sweep] [scenario-glob]\n' >&2
+        printf '[e2e] Usage: ./run.sh [--llm|--all|--sweep] [scenario-glob]\n' >&2
         exit 2
         ;;
     *)
-        # Positional glob: search across all pools so a name like "27-*"
+        # Positional glob: search across all pools so a name like "12-*"
         # works regardless of which directory the scenario lives in.
-        pools=("fast" "llm" "infra")
+        pools=("fast" "llm")
         glob="$1"
         ;;
 esac

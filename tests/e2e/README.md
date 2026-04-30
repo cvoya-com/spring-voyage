@@ -16,27 +16,28 @@ regressions the mocked harness misses (see #311 for rationale).
 ```
 tests/e2e/scenarios/
 ├── fast/         no-LLM scenarios (CRUD, membership, templates, help)
-├── llm/          LLM-backed scenarios (empty until #330 lands a local backend)
-└── infra/        infra scenarios (concurrent API+Worker startup, migration safety)
+└── llm/          LLM-backed scenarios (need a reachable Ollama; see
+                  docs/developer/local-ai-ollama.md)
 ```
 
+Both pools exercise the running stack only through the Web API and the CLI.
+Scenarios that need to bypass that surface (start their own hosts, talk to
+Postgres directly, etc.) belong in `tests/Cvoya.Spring.Integration.Tests/`,
+not here.
+
 Scenarios are classified by what they require:
-- **fast** — no LLM, no container runtime beyond a running API+Postgres. Default
-  for every invocation.
-- **llm** — explicit opt-in with `--llm` (or `--all`); requires `LLM_BASE_URL`.
-- **infra** — explicit opt-in with `--infra` (or `--all`); requires a live
-  Postgres. These scenarios start the API and/or Worker host themselves via
-  `dotnet run` and assert startup-level invariants (e.g. migration-safety).
+- **fast** — no LLM, no container runtime beyond a running stack reachable via
+  the Web API. Default for every invocation.
+- **llm** — explicit opt-in with `--llm` (or `--all`); requires a reachable
+  Ollama backend (`LLM_BASE_URL`).
 
 ## Usage
 
 ```
 ./run.sh                              # all fast scenarios (default)
-./run.sh --llm                        # all llm scenarios (needs LLM_BASE_URL)
-./run.sh --infra                      # all infra scenarios (needs live Postgres)
+./run.sh --llm                        # all llm scenarios (needs Ollama)
 ./run.sh --all                        # all pools, fast first
 ./run.sh '12-*'                       # glob across all pools
-./run.sh '27-*'                       # run migration-race scenario specifically
 ./run.sh --sweep                      # orphan cleanup (see below)
 E2E_BASE_URL=http://sv:80 ./run.sh    # custom host
 SPRING_CLI=/usr/local/bin/spring ./run.sh   # prebuilt CLI
@@ -44,8 +45,8 @@ SPRING_API_URL=http://sv:80 ./run.sh        # forwarded to `spring apply`
 ```
 
 Each scenario exits 0 on pass, non-zero on any failure. The runner aggregates
-results and exits non-zero if any scenario failed. `--llm` without
-`LLM_BASE_URL` exits 2 with a pointer to #330.
+results and exits non-zero if any scenario failed. `--llm` without a reachable
+Ollama exits 2 with a pointer to `docs/developer/local-ai-ollama.md`.
 
 ## Run identity and concurrent invocations
 
@@ -133,7 +134,6 @@ counterpart stay on `e2e::http` with a TODO referencing the gap.
 | 24 | analytics-costs-breakdown | fast | CLI | #554 / E1-A: `spring analytics costs` (scalar total) and `--by-source` / `--breakdown` per-source rollup; `--window` flag accepted; bad window value exits non-zero. |
 | 25 | github-app-rotate | fast | CLI | #636 / E1-A: `spring github-app rotate-key --dry-run` (preamble + dry-run exit 0); `--from-file` PEM validation; missing file exits non-zero; `rotate-webhook-secret --dry-run` generates secret without persisting. |
 | 26 | exit-code-mapping | fast | CLI | #990 / E1-A: `ApiExceptionRenderer.DetermineExitCode` path — 404 on non-existent unit revalidate exits non-zero; revalidate on Draft unit exits non-zero (20..27 if ProblemDetails carries a code extension, 1 otherwise); E1-A canary asserts `--by-source` in analytics costs help. |
-| 27 | migration-race | infra | curl + dotnet run | #1388: concurrent API+Worker startup against a fresh Postgres — asserts both reach ready state, no migration stack trace in either log, and the API can read the schema the Worker applied. |
 
 ## Authentication
 
@@ -171,20 +171,16 @@ The E2E harness runs via `.github/workflows/e2e-cli.yml` on a **weekly schedule*
 
 **Gating rationale:** the unit + integration suite in `ci.yml` catches logic regressions quickly (< 2 minutes). The E2E harness catches wiring regressions (actor type-name mismatches, Dapr sidecar misses, serialisation failures) that the mocked suite can't see. Weekly cadence ensures regressions surface before a release window.
 
-The workflow has two jobs:
-
-- **`e2e-fast`** — runs `scenarios/fast/` (default pool; API + Postgres only; no Worker).
-- **`e2e-infra`** — runs `scenarios/infra/` on the same weekly schedule; boots both API and
-  Worker via `dotnet run` against a fresh Postgres. Covers startup-race and migration-safety
-  scenarios that require two concurrent hosts.
+The workflow runs the **`e2e-fast`** job — `scenarios/fast/` against a stack
+brought up for the run.
 
 To trigger a run manually: Actions → "E2E CLI (scheduled / manual)" → Run workflow.
 
-To run a single scenario in CI: use the `scenario_glob` input (e.g. `22-*`). For infra scenarios run `27-*`; the runner picks the scenario from the infra pool automatically.
+To run a single scenario in CI: use the `scenario_glob` input (e.g. `22-*`).
 
 ## Adding a scenario
 
-Create `scenarios/{fast,llm,infra}/NN-short-name.sh`, source `../../_lib.sh`,
+Create `scenarios/{fast,llm}/NN-short-name.sh`, source `../../_lib.sh`,
 use `e2e::cli` (or `e2e::http` for raw checks), `e2e::expect_status`,
 `e2e::expect_contains`. Derive every unit/agent name from `e2e::unit_name
 <suffix>` or `e2e::agent_name <suffix>` so `--sweep` can identify orphans and
@@ -192,12 +188,10 @@ two concurrent invocations of `./run.sh` never collide. Wire cleanup through
 an EXIT trap that calls `e2e::cleanup_unit` with every unit you created. End
 with `e2e::summary`.
 
-For **infra scenarios** that start their own hosts: use an EXIT trap to kill the
-background processes and temp log files. Do not rely on the stack already being
-up — infra scenarios are self-contained startup tests. Assign ports via
-`SPRING_API_PORT` / `SPRING_WORKER_PORT` env vars (with sane defaults that
-don't collide with the fast pool) so two parallel CI jobs don't fight for the
-same port.
+Scenarios must drive only the Web API + CLI surface that real users see.
+Anything that would require bringing up its own hosts, talking to Postgres
+directly, or otherwise bypassing the deployed stack belongs in
+`tests/Cvoya.Spring.Integration.Tests/` instead.
 
 ## Tracking
 
@@ -211,7 +205,7 @@ encryption defaults, cross-host activity bridging, and workflow-driven
 clone liveness) stabilises on main.
 
 Follow-ups filed alongside #311:
-- #1388 — migration-safety concurrent API+Worker startup race test (shipped: `infra/27-migration-race.sh`)
+- #1388 — migration-safety concurrent API+Worker startup race test (now covered as an integration test, not an e2e scenario; e2e is API/CLI/portal-only)
 - #1389 — multi-tenant isolation scenarios
 - #1390 — full persistent-agent deploy/logs/undeploy happy-path (requires container runtime)
 - #1391 — full Connector E2E scenarios (bind, webhook, unbind)
