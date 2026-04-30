@@ -67,3 +67,10 @@ For more detail on each layer:
 - **Durable decision:** [`docs/decisions/0030-thread-model.md`](../decisions/0030-thread-model.md) — the ADR capturing the architectural shape.
 
 The thread model underpins how agents reason about work, how the platform tracks history and memory, and how users navigate their ongoing relationships with agents and teams.
+
+## Engagement Portal
+
+The engagement-portal work in Area E2 builds the user-facing surface that makes threads, engagements, and collaborations navigable and interactive:
+
+- **[`docs/plan/v0.1/areas/e2-new-ux.md`](../plan/v0.1/areas/e2-new-ux.md)** — scope, engagement model (observe-only, bidirectional Q&A, A2A observability, never-closes semantics), CLI parity requirements, and sub-task breakdown.
+- **[`docs/decisions/0033-two-portal-architecture.md`](../decisions/0033-two-portal-architecture.md)** — ADR-0033: the two-portal architecture (Management Portal + Engagement Portal) that delivers this surface.
