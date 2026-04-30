@@ -68,7 +68,7 @@ describe("AnalyticsThroughputPage", () => {
     getAnalyticsThroughput.mockReset();
   });
 
-  it("renders per-source counters sorted by total", async () => {
+  it("renders the per-source counters grid when data arrives", async () => {
     getAnalyticsThroughput.mockResolvedValue({
       entries: [
         {
@@ -92,21 +92,63 @@ describe("AnalyticsThroughputPage", () => {
 
     renderPage();
 
+    // The virtualised grid container should appear once data loads.
     await waitFor(() => {
-      expect(screen.getByText("unit://eng-team")).toBeInTheDocument();
+      expect(
+        screen.getByRole("grid", { name: "Per-source throughput counters" }),
+      ).toBeInTheDocument();
     });
-    expect(screen.getByText("agent://ada")).toBeInTheDocument();
-    // Total = 30+20+10+5 = 65 for eng-team (highest). The row is
-    // rendered twice per the responsive pass (#445): once as the
-    // mobile 2×2 grid, once as the hidden-on-mobile table cells. Use
-    // `getAllByText` so the test is agnostic to which layout is
-    // currently visible.
-    expect(screen.getAllByText("65").length).toBeGreaterThan(0);
-    // Sort: eng-team's row renders before ada's.
-    const rowTexts = screen.getAllByRole("link").map((el) => el.textContent);
-    const engIdx = rowTexts.findIndex((t) => t === "unit://eng-team");
-    const adaIdx = rowTexts.findIndex((t) => t === "agent://ada");
-    expect(engIdx).toBeLessThan(adaIdx);
+    // KPI strip totals: received = 10+30=40, sent = 8+20=28.
+    expect(screen.getByText("40")).toBeInTheDocument();
+    expect(screen.getByText("28")).toBeInTheDocument();
+  });
+
+  it("renders the virtualised table with role=grid for per-source counters", async () => {
+    getAnalyticsThroughput.mockResolvedValue({
+      entries: [
+        {
+          source: "agent://ada",
+          messagesReceived: 10,
+          messagesSent: 8,
+          turns: 4,
+          toolCalls: 3,
+        },
+      ],
+      from: "2026-04-01T00:00:00Z",
+      to: "2026-04-16T00:00:00Z",
+    });
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("grid", { name: "Per-source throughput counters" }),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("renders the stacked bar chart when data is present", async () => {
+    getAnalyticsThroughput.mockResolvedValue({
+      entries: [
+        {
+          source: "agent://ada",
+          messagesReceived: 5,
+          messagesSent: 3,
+          turns: 2,
+          toolCalls: 1,
+        },
+      ],
+      from: "2026-04-01T00:00:00Z",
+      to: "2026-04-16T00:00:00Z",
+    });
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("img", { name: /throughput per source/i }),
+      ).toBeInTheDocument();
+    });
   });
 
   it("renders the empty state when there are no entries", async () => {

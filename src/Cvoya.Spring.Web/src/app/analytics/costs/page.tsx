@@ -20,6 +20,11 @@
 // v2 reskin (SURF-reskin-analytics, #860): KPIs adopt `<StatCard>`;
 // the per-source breakdown uses the brand + blossom palette for its
 // bars; the per-agent table follows the `TabTraces` styling.
+//
+// #910: cost timeseries upgraded from scalar/bar to an area chart
+//   powered by recharts + useTenantCostTimeseries.
+// #911: per-agent budget table is now virtualised via DataTable /
+//   @tanstack/react-virtual so large tenant rosters stay snappy.
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -33,6 +38,7 @@ import { DollarSign, TrendingUp, Wallet } from "lucide-react";
 
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { StatCard } from "@/components/stat-card";
+import { CostAreaChart } from "@/components/analytics/cost-area-chart";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -40,6 +46,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
@@ -48,9 +55,11 @@ import {
   useDashboardAgents,
   useDashboardCosts,
   useTenantBudget,
+  useTenantCostTimeseries,
 } from "@/lib/api/queries";
 import { queryKeys } from "@/lib/api/query-keys";
 import type {
+  AgentDashboardSummary,
   BudgetResponse,
   CostSummaryResponse,
 } from "@/lib/api/types";
@@ -77,6 +86,65 @@ const BREAKDOWN_HUES = [
   "bg-blossom",
 ] as const;
 
+// ---------------------------------------------------------------------------
+// #911 — Per-agent budget virtualised table
+// ---------------------------------------------------------------------------
+
+interface AgentBudgetRow {
+  agent: AgentDashboardSummary;
+  budget: BudgetResponse | null;
+}
+
+const AGENT_BUDGET_COLUMNS: DataTableColumn[] = [
+  { key: "agent", header: "Agent", className: "flex-1 min-w-0" },
+  { key: "budget", header: "Budget", className: "w-32 text-right" },
+  { key: "actions", header: "", className: "w-28 text-right" },
+];
+
+function AgentBudgetTable({ agentRows }: { agentRows: AgentBudgetRow[] }) {
+  return (
+    <DataTable<AgentBudgetRow>
+      aria-label="Per-agent budgets"
+      columns={AGENT_BUDGET_COLUMNS}
+      rows={agentRows}
+      estimateSize={() => 56}
+      height={Math.min(320, agentRows.length * 56 + 40)}
+      getRowKey={(row) => row.agent.name}
+      renderCell={(row, col) => {
+        if (col.key === "agent") {
+          return (
+            <div className="min-w-0">
+              <div className="truncate font-medium text-sm">
+                {row.agent.displayName}
+              </div>
+              <div className="truncate font-mono text-xs text-muted-foreground">
+                {row.agent.name}
+              </div>
+            </div>
+          );
+        }
+        if (col.key === "budget") {
+          return (
+            <span className="tabular-nums text-xs text-muted-foreground">
+              {row.budget
+                ? `${formatCost(row.budget.dailyBudget)}/day`
+                : "Not set"}
+            </span>
+          );
+        }
+        // actions
+        return (
+          <Link href={`/agents/${encodeURIComponent(row.agent.name)}`}>
+            <Button size="sm" variant="outline">
+              Configure
+            </Button>
+          </Link>
+        );
+      }}
+    />
+  );
+}
+
 function AnalyticsCostsContent() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -88,6 +156,10 @@ function AnalyticsCostsContent() {
   // portal's Costs surface more expressive without blocking PR-S2.
   const dashboardCostsQuery = useDashboardCosts();
   const agentsQuery = useDashboardAgents();
+  // #910: tenant cost timeseries for the area chart. Window maps to the
+  // filter bar window; bucket auto-selects: 1h for 24h, 1d for 7d/30d.
+  const tsBucket = filters.window === "24h" ? "1h" : "1d";
+  const timeseriesQuery = useTenantCostTimeseries(filters.window, tsBucket);
 
   // Windowed scope summary — mirrors `spring analytics costs` exactly
   // (same endpoints, same (from, to) resolution, same filter switch).
@@ -155,6 +227,14 @@ function AnalyticsCostsContent() {
     dashboardCostsQuery.isPending ||
     agentsQuery.isPending ||
     agentBudgetQueries.some((q) => q.isPending);
+
+  // Resolved timeseries points for the area chart. The series is
+  // zero-filled by the server so we can always pass it; empty array
+  // if the query has not resolved yet.
+  const timeseriesPoints = useMemo(() => {
+    const series = timeseriesQuery.data?.series ?? [];
+    return series.map((p) => ({ t: p.t, cost: p.cost }));
+  }, [timeseriesQuery.data]);
 
   const [tenantInput, setTenantInput] = useState("");
 
@@ -352,6 +432,31 @@ function AnalyticsCostsContent() {
         </Card>
       )}
 
+      {/* #910: Cost over time — area chart backed by tenant timeseries.
+          Sits above the breakdown bar list so the "when?" question is
+          answered before the "who?" drill-down. */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <TrendingUp className="h-4 w-4" /> Cost over time
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {timeseriesQuery.isPending ? (
+            <Skeleton className="h-40 w-full" />
+          ) : (
+            <CostAreaChart
+              points={timeseriesPoints}
+              height={160}
+              ariaLabel={`Tenant cost over time (${filters.window} window)`}
+            />
+          )}
+          <p className="mt-2 text-xs text-muted-foreground">
+            Tenant-wide cost bucketed by {tsBucket} over the selected window.
+          </p>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
@@ -494,38 +599,9 @@ function AnalyticsCostsContent() {
               No agents registered.
             </p>
           ) : (
-            // Table styling borrowed from the Explorer `TabTraces` pattern:
-            // mono identifiers, right-aligned numeric columns, a thin row
-            // divider instead of card-per-row.
-            <ul className="divide-y divide-border text-sm">
-              {agentRows.map(({ agent, budget }) => (
-                <li
-                  key={agent.name}
-                  className="flex flex-col gap-2 py-2 sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <div className="min-w-0">
-                    <div className="truncate font-medium">
-                      {agent.displayName}
-                    </div>
-                    <div className="truncate font-mono text-xs text-muted-foreground">
-                      {agent.name}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="tabular-nums text-xs text-muted-foreground">
-                      {budget
-                        ? `${formatCost(budget.dailyBudget)}/day`
-                        : "Not set"}
-                    </span>
-                    <Link href={`/agents/${encodeURIComponent(agent.name)}`}>
-                      <Button size="sm" variant="outline">
-                        Configure
-                      </Button>
-                    </Link>
-                  </div>
-                </li>
-              ))}
-            </ul>
+            // #911: virtualised table so large tenant rosters (up to the
+            // §3 budget of 500 agents) don't incur full-DOM layout cost.
+            <AgentBudgetTable agentRows={agentRows} />
           )}
         </CardContent>
       </Card>

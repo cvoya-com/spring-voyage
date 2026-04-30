@@ -28,14 +28,25 @@ import process from "node:process";
 
 const KB = 1024;
 
-// Budgets — current measured values plus ~30% headroom (2026-04-21).
-//   Total uncompressed: ~1290 KB → cap 1700 KB
-//   Total gzipped:      ~ 371 KB → cap  500 KB
-//   Largest chunk (uncompressed): ~224 KB → cap 300 KB
+// Budgets — current measured values plus ~25-30% headroom.
+//
+// Updated 2026-04-30 (#1427) when the analytics surface adopted
+// recharts (charts: #910) and @tanstack/react-virtual (data-table: #911):
+//   Total uncompressed: ~2185 KB → cap 2800 KB
+//   Total gzipped:      ~ 636 KB → cap  850 KB
+//   Largest chunk (uncompressed): ~356 KB → cap 450 KB
+//
+// Both deps are intentional new functionality on the analytics route.
+// They are eagerly imported on the analytics pages; lazy-loading does
+// not change the on-disk total this script measures (chunks are still
+// emitted), so raising the budget is the right control here.
+//
+// Previous measurements (kept for reference):
+//   2026-04-21: total ~1290 KB / gz ~371 KB / largest ~224 KB
 const BUDGETS = {
-  totalUncompressedKb: 1700,
-  totalGzippedKb: 500,
-  maxChunkUncompressedKb: 300,
+  totalUncompressedKb: 2800,
+  totalGzippedKb: 850,
+  maxChunkUncompressedKb: 450,
 };
 
 const projectRoot = path.resolve(import.meta.dirname, "..");

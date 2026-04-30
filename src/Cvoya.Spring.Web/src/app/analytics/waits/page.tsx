@@ -11,6 +11,10 @@
 // the stacked idle/busy/waiting bar adopts semantic status tokens
 // (success / warning / destructive) so the colour travels through
 // theming instead of reaching for raw Tailwind hex utilities.
+//
+// #910: per-source breakdown now rendered as a stacked bar chart above
+//   the detail list (recharts `<WaitsBarChart>`).
+// #911: the per-source detail list is now virtualised via `<DataTable>`.
 
 import { Suspense, useMemo } from "react";
 import Link from "next/link";
@@ -18,12 +22,14 @@ import { ArrowRight, Clock, Pause, Play, UserCheck } from "lucide-react";
 
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { StatCard } from "@/components/stat-card";
+import { WaitsBarChart } from "@/components/analytics/waits-bar-chart";
 import {
   Card,
   CardContent,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAnalyticsWaits } from "@/lib/api/queries";
 import type { WaitTimeEntryResponse } from "@/lib/api/types";
@@ -71,6 +77,18 @@ function parseSource(source: string): { scheme: string; name: string } | null {
   return { scheme: source.slice(0, idx), name: source.slice(idx + 3) };
 }
 
+// ---------------------------------------------------------------------------
+// #911 — Waits virtualised table columns
+// ---------------------------------------------------------------------------
+
+const WAITS_COLUMNS: DataTableColumn[] = [
+  { key: "source", header: "Source", className: "flex-1 min-w-0" },
+  { key: "idle", header: "Idle", className: "w-20 text-right" },
+  { key: "busy", header: "Busy", className: "w-20 text-right" },
+  { key: "waiting", header: "Waiting", className: "w-24 text-right" },
+  { key: "transitions", header: "Transitions", className: "w-24 text-right" },
+];
+
 function AnalyticsWaitsContent() {
   const filters = useAnalyticsFilters();
   const query = useAnalyticsWaits({
@@ -83,8 +101,6 @@ function AnalyticsWaitsContent() {
     const entries = query.data?.entries ?? [];
     return [...entries].sort((a, b) => totalSeconds(b) - totalSeconds(a));
   }, [query.data]);
-  const maxTotal =
-    sortedEntries.length > 0 ? totalSeconds(sortedEntries[0]) : 0;
 
   // KPI totals across every row in the window. Mirrors the CLI's
   // `spring analytics waits --summary` aggregate.
@@ -99,6 +115,18 @@ function AnalyticsWaitsContent() {
         }),
         { idle: 0, busy: 0, waiting: 0, transitions: 0 },
       ),
+    [sortedEntries],
+  );
+
+  // Shape for the stacked bar chart (#910).
+  const chartEntries = useMemo(
+    () =>
+      sortedEntries.map((e) => ({
+        source: e.source,
+        idleSeconds: n(e.idleSeconds),
+        busySeconds: n(e.busySeconds),
+        waitingSeconds: n(e.waitingForHumanSeconds),
+      })),
     [sortedEntries],
   );
 
@@ -186,126 +214,51 @@ function AnalyticsWaitsContent() {
               No state transitions in this window.
             </p>
           ) : (
-            // See the throughput page for the parallel pattern: the
-            // grid header disappears on mobile, the row turns into a
-            // stacked block with a 2×2 metrics grid, and sm+ restores
-            // the compact table.
-            <ul className="space-y-3" data-testid="waits-list">
-              <li
-                className="hidden items-center gap-3 text-xs font-medium text-muted-foreground sm:grid sm:grid-cols-[1fr_repeat(4,auto)]"
-                aria-hidden="true"
-              >
-                <span>Source</span>
-                <span className="w-16 text-right">Idle</span>
-                <span className="w-16 text-right">Busy</span>
-                <span className="w-20 text-right">Waiting</span>
-                <span className="w-20 text-right">Transitions</span>
-              </li>
-              {sortedEntries.map((entry) => {
-                const idle = n(entry.idleSeconds);
-                const busy = n(entry.busySeconds);
-                const waiting = n(entry.waitingForHumanSeconds);
-                const total = idle + busy + waiting;
-                const parsed = parseSource(entry.source);
-                const href = parsed
-                  ? parsed.scheme === "unit"
-                    ? `/units?node=${encodeURIComponent(parsed.name)}&tab=Overview`
-                    : parsed.scheme === "agent"
-                      ? `/agents/${encodeURIComponent(parsed.name)}`
-                      : null
-                  : null;
-                const rowScale = maxTotal > 0 ? total / maxTotal : 0;
-                // Keep the bar legible even for the shortest row.
-                const barPct = Math.max(rowScale * 100, 4);
-                const idlePct = total > 0 ? (idle / total) * 100 : 0;
-                const busyPct = total > 0 ? (busy / total) * 100 : 0;
-                const waitPct = total > 0 ? (waiting / total) * 100 : 0;
-                return (
-                  <li
-                    key={entry.source}
-                    className="flex flex-col gap-2 text-sm sm:grid sm:grid-cols-[1fr_repeat(4,auto)] sm:items-center sm:gap-3"
-                  >
-                    <div className="min-w-0">
-                      <div className="truncate font-mono text-xs">
+            <div className="space-y-4">
+              {/* #910: stacked bar chart surfaces the idle/busy/waiting
+                  split across sources so spikes are visible without
+                  scanning the whole table. Colours match the legend strip
+                  below. */}
+              <WaitsBarChart entries={chartEntries} />
+
+              {/* #911: virtualised detail table. */}
+              <DataTable<WaitTimeEntryResponse>
+                aria-label="Per-source wait-time durations"
+                columns={WAITS_COLUMNS}
+                rows={sortedEntries}
+                estimateSize={() => 48}
+                height={Math.min(360, sortedEntries.length * 48 + 40)}
+                getRowKey={(row) => row.source}
+                renderCell={(entry, col) => {
+                  if (col.key === "source") {
+                    const parsed = parseSource(entry.source);
+                    const href = parsed
+                      ? parsed.scheme === "unit"
+                        ? `/units?node=${encodeURIComponent(parsed.name)}&tab=Overview`
+                        : parsed.scheme === "agent"
+                          ? `/agents/${encodeURIComponent(parsed.name)}`
+                          : null
+                      : null;
+                    return (
+                      <span className="truncate font-mono text-xs">
                         {href ? (
-                          <Link
-                            href={href}
-                            className="text-primary hover:underline"
-                          >
+                          <Link href={href} className="text-primary hover:underline">
                             {entry.source}
                           </Link>
                         ) : (
                           entry.source
                         )}
-                      </div>
-                      <div
-                        className="mt-1 h-2 overflow-hidden rounded-full bg-muted"
-                        aria-hidden="true"
-                      >
-                        <div
-                          className="flex h-full"
-                          style={{ width: `${barPct}%` }}
-                        >
-                          <div
-                            className="h-full bg-success"
-                            title={`Idle ${formatDuration(idle)}`}
-                            style={{ width: `${idlePct}%` }}
-                          />
-                          <div
-                            className="h-full bg-warning"
-                            title={`Busy ${formatDuration(busy)}`}
-                            style={{ width: `${busyPct}%` }}
-                          />
-                          <div
-                            className="h-full bg-destructive"
-                            title={`Waiting for human ${formatDuration(waiting)}`}
-                            style={{ width: `${waitPct}%` }}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs sm:hidden">
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Idle</span>
-                        <span className="tabular-nums">
-                          {formatDuration(idle)}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Busy</span>
-                        <span className="tabular-nums">
-                          {formatDuration(busy)}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Waiting</span>
-                        <span className="tabular-nums">
-                          {formatDuration(waiting)}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Transitions</span>
-                        <span className="tabular-nums">
-                          {n(entry.stateTransitions).toLocaleString()}
-                        </span>
-                      </div>
-                    </div>
-                    <span className="hidden w-16 text-right tabular-nums sm:inline">
-                      {formatDuration(idle)}
-                    </span>
-                    <span className="hidden w-16 text-right tabular-nums sm:inline">
-                      {formatDuration(busy)}
-                    </span>
-                    <span className="hidden w-20 text-right tabular-nums sm:inline">
-                      {formatDuration(waiting)}
-                    </span>
-                    <span className="hidden w-20 text-right tabular-nums text-muted-foreground sm:inline">
-                      {n(entry.stateTransitions).toLocaleString()}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
+                      </span>
+                    );
+                  }
+                  if (col.key === "idle") return <span className="tabular-nums text-success">{formatDuration(n(entry.idleSeconds))}</span>;
+                  if (col.key === "busy") return <span className="tabular-nums text-warning">{formatDuration(n(entry.busySeconds))}</span>;
+                  if (col.key === "waiting") return <span className="tabular-nums text-destructive">{formatDuration(n(entry.waitingForHumanSeconds))}</span>;
+                  if (col.key === "transitions") return <span className="tabular-nums text-muted-foreground">{n(entry.stateTransitions).toLocaleString()}</span>;
+                  return null;
+                }}
+              />
+            </div>
           )}
         </CardContent>
       </Card>

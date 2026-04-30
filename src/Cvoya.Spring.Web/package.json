@@ -28,6 +28,7 @@
   },
   "dependencies": {
     "@tanstack/react-query": "^5.99.0",
+    "@tanstack/react-virtual": "^3.13.24",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
@@ -38,6 +39,7 @@
     "openapi-fetch": "^0.13.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "recharts": "^3.8.1",
     "tailwind-merge": "^3.0.0"
   },
   "devDependencies": {

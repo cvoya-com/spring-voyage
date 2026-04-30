@@ -9,6 +9,10 @@
 // `<StatCard>`; the per-source bar picks up a cycling brand-extension
 // hue (voyage / blossom) so the visual weight of the list is legible
 // at a glance; the table shell mirrors the Explorer `TabTraces` layout.
+//
+// #910: per-source breakdown now rendered as a stacked bar chart above
+//   the detail list (recharts `<ThroughputBarChart>`).
+// #911: the per-source detail list is now virtualised via `<DataTable>`.
 
 import { Suspense, useMemo } from "react";
 import Link from "next/link";
@@ -16,12 +20,14 @@ import { ArrowRight, BarChart3, Gauge } from "lucide-react";
 
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { StatCard } from "@/components/stat-card";
+import { ThroughputBarChart } from "@/components/analytics/throughput-bar-chart";
 import {
   Card,
   CardContent,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAnalyticsThroughput } from "@/lib/api/queries";
 import type { ThroughputEntryResponse } from "@/lib/api/types";
@@ -56,14 +62,18 @@ function parseSource(source: string): { scheme: string; name: string } | null {
   return { scheme: source.slice(0, idx), name: source.slice(idx + 3) };
 }
 
-/** Rotating hue palette — same set as the Costs breakdown bars. */
-const ROW_HUES = [
-  "bg-voyage",
-  "bg-blossom-deep",
-  "bg-primary",
-  "bg-voyage-soft",
-  "bg-blossom",
-] as const;
+// ---------------------------------------------------------------------------
+// #911 — Throughput virtualised table columns
+// ---------------------------------------------------------------------------
+
+const THROUGHPUT_COLUMNS: DataTableColumn[] = [
+  { key: "source", header: "Source", className: "flex-1 min-w-0" },
+  { key: "received", header: "Received", className: "w-20 text-right" },
+  { key: "sent", header: "Sent", className: "w-20 text-right" },
+  { key: "turns", header: "Turns", className: "w-16 text-right" },
+  { key: "toolCalls", header: "Tool calls", className: "w-20 text-right" },
+  { key: "total", header: "Total", className: "w-16 text-right" },
+];
 
 function AnalyticsThroughputContent() {
   const filters = useAnalyticsFilters();
@@ -77,7 +87,6 @@ function AnalyticsThroughputContent() {
     const entries = query.data?.entries ?? [];
     return [...entries].sort((a, b) => entryTotal(b) - entryTotal(a));
   }, [query.data]);
-  const maxTotal = sortedEntries.length > 0 ? entryTotal(sortedEntries[0]) : 0;
 
   // KPI totals summed across every row in the visible window. Mirrors
   // the CLI's aggregate line `spring analytics throughput --summary`.
@@ -92,6 +101,19 @@ function AnalyticsThroughputContent() {
         }),
         { received: 0, sent: 0, turns: 0, toolCalls: 0 },
       ),
+    [sortedEntries],
+  );
+
+  // Shape for the stacked bar chart (#910).
+  const chartEntries = useMemo(
+    () =>
+      sortedEntries.map((e) => ({
+        source: e.source,
+        received: n(e.messagesReceived),
+        sent: n(e.messagesSent),
+        turns: n(e.turns),
+        toolCalls: n(e.toolCalls),
+      })),
     [sortedEntries],
   );
 
@@ -177,119 +199,50 @@ function AnalyticsThroughputContent() {
               No throughput in this window.
             </p>
           ) : (
-            // Narrow viewports collapse the 6-column grid into a
-            // stacked row: each row renders the source + bar on top and
-            // a 2×2 (plus total) metrics grid below. On sm+ we restore
-            // the original grid so the wide layout reads as a compact
-            // table.
-            <ul
-              className="divide-y divide-border"
-              data-testid="throughput-list"
-            >
-              <li
-                className="hidden items-center gap-3 pb-2 text-xs font-medium text-muted-foreground sm:grid sm:grid-cols-[1fr_repeat(5,auto)]"
-                aria-hidden="true"
-              >
-                <span>Source</span>
-                <span className="w-16 text-right">Received</span>
-                <span className="w-16 text-right">Sent</span>
-                <span className="w-16 text-right">Turns</span>
-                <span className="w-20 text-right">Tool calls</span>
-                <span className="w-14 text-right">Total</span>
-              </li>
-              {sortedEntries.map((entry, i) => {
-                const total = entryTotal(entry);
-                const width = maxTotal > 0 ? (total / maxTotal) * 100 : 0;
-                const parsed = parseSource(entry.source);
-                const href = parsed
-                  ? parsed.scheme === "unit"
-                    ? `/units?node=${encodeURIComponent(parsed.name)}&tab=Overview`
-                    : parsed.scheme === "agent"
-                      ? `/agents/${encodeURIComponent(parsed.name)}`
-                      : null
-                  : null;
-                const hue = ROW_HUES[i % ROW_HUES.length];
-                return (
-                  <li
-                    key={entry.source}
-                    className="flex flex-col gap-2 py-2 text-sm sm:grid sm:grid-cols-[1fr_repeat(5,auto)] sm:items-center sm:gap-3"
-                  >
-                    <div className="min-w-0">
-                      <div className="truncate font-mono text-xs">
+            <div className="space-y-4">
+              {/* #910: stacked bar chart summarises the metric mix at a
+                  glance before the operator scans the per-row detail table. */}
+              <ThroughputBarChart entries={chartEntries} />
+
+              {/* #911: virtualised detail table — keeps DOM lean at 500 rows. */}
+              <DataTable<ThroughputEntryResponse>
+                aria-label="Per-source throughput counters"
+                columns={THROUGHPUT_COLUMNS}
+                rows={sortedEntries}
+                estimateSize={() => 48}
+                height={Math.min(360, sortedEntries.length * 48 + 40)}
+                getRowKey={(row) => row.source}
+                renderCell={(entry, col) => {
+                  if (col.key === "source") {
+                    const parsed = parseSource(entry.source);
+                    const href = parsed
+                      ? parsed.scheme === "unit"
+                        ? `/units?node=${encodeURIComponent(parsed.name)}&tab=Overview`
+                        : parsed.scheme === "agent"
+                          ? `/agents/${encodeURIComponent(parsed.name)}`
+                          : null
+                      : null;
+                    return (
+                      <span className="truncate font-mono text-xs">
                         {href ? (
-                          <Link
-                            href={href}
-                            className="text-primary hover:underline"
-                          >
+                          <Link href={href} className="text-primary hover:underline">
                             {entry.source}
                           </Link>
                         ) : (
                           entry.source
                         )}
-                      </div>
-                      <div
-                        className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted"
-                        aria-hidden="true"
-                      >
-                        <div
-                          className={`h-full ${hue}`}
-                          style={{ width: `${width}%` }}
-                        />
-                      </div>
-                    </div>
-                    {/* Mobile: 2×2 stat grid under the bar.
-                        sm+: restore the legacy per-column cells. */}
-                    <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs sm:hidden">
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Received</span>
-                        <span className="tabular-nums">
-                          {n(entry.messagesReceived).toLocaleString()}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Sent</span>
-                        <span className="tabular-nums">
-                          {n(entry.messagesSent).toLocaleString()}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Turns</span>
-                        <span className="tabular-nums">
-                          {n(entry.turns).toLocaleString()}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Tool calls</span>
-                        <span className="tabular-nums">
-                          {n(entry.toolCalls).toLocaleString()}
-                        </span>
-                      </div>
-                      <div className="col-span-2 flex justify-between border-t border-border pt-1">
-                        <span className="text-muted-foreground">Total</span>
-                        <span className="font-medium tabular-nums">
-                          {total.toLocaleString()}
-                        </span>
-                      </div>
-                    </div>
-                    <span className="hidden w-16 text-right tabular-nums sm:inline">
-                      {n(entry.messagesReceived).toLocaleString()}
-                    </span>
-                    <span className="hidden w-16 text-right tabular-nums sm:inline">
-                      {n(entry.messagesSent).toLocaleString()}
-                    </span>
-                    <span className="hidden w-16 text-right tabular-nums sm:inline">
-                      {n(entry.turns).toLocaleString()}
-                    </span>
-                    <span className="hidden w-20 text-right tabular-nums sm:inline">
-                      {n(entry.toolCalls).toLocaleString()}
-                    </span>
-                    <span className="hidden w-14 text-right font-medium tabular-nums sm:inline">
-                      {total.toLocaleString()}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
+                      </span>
+                    );
+                  }
+                  if (col.key === "received") return <span className="tabular-nums">{n(entry.messagesReceived).toLocaleString()}</span>;
+                  if (col.key === "sent") return <span className="tabular-nums">{n(entry.messagesSent).toLocaleString()}</span>;
+                  if (col.key === "turns") return <span className="tabular-nums">{n(entry.turns).toLocaleString()}</span>;
+                  if (col.key === "toolCalls") return <span className="tabular-nums">{n(entry.toolCalls).toLocaleString()}</span>;
+                  if (col.key === "total") return <span className="font-medium tabular-nums">{entryTotal(entry).toLocaleString()}</span>;
+                  return null;
+                }}
+              />
+            </div>
           )}
         </CardContent>
       </Card>
