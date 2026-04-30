@@ -10,8 +10,17 @@ Implements the full Bucket 1 contract:
   - on_shutdown() called on SIGTERM within grace window (spec §1.3)
   - SIGTERM trapped; SDK calls on_shutdown synchronously (spec §1.3)
 
-The runtime wraps the a2a-sdk v0.3.x server so agent authors implement
+The runtime wraps the a2a-sdk 1.x server so agent authors implement
 only the three hooks, not A2A protocol details.
+
+a2a-sdk 1.x migration (issue #940)
+-----------------------------------
+A2AStarletteApplication was removed in 1.0.  The equivalent is a plain
+Starlette application composed from create_rest_routes() +
+create_agent_card_routes().  DefaultRequestHandler now requires agent_card
+and queue_manager.  TaskState, TaskStatus, TaskStatusUpdateEvent, and
+TaskArtifactUpdateEvent are protobuf types; the helpers new_text_artifact,
+new_agent_text_message, and new_task are gone — use TaskUpdater instead.
 
 Startup model (uvicorn-first)
 -----------------------------
@@ -39,22 +48,19 @@ from typing import Any, Callable
 
 import uvicorn
 from a2a.server.agent_execution import AgentExecutor, RequestContext
-from a2a.server.apps import A2AStarletteApplication
 from a2a.server.events import EventQueue
+from a2a.server.events.in_memory_queue_manager import InMemoryQueueManager
 from a2a.server.request_handlers import DefaultRequestHandler
+from a2a.server.routes import create_agent_card_routes, create_rest_routes
 from a2a.server.tasks import InMemoryTaskStore
+from a2a.server.tasks.task_updater import TaskUpdater
 from a2a.types import (
     AgentCapabilities,
     AgentCard,
     AgentSkill,
-    TaskArtifactUpdateEvent,
-    TaskState,
-    TaskStatus,
-    TaskStatusUpdateEvent,
 )
-from a2a.utils.artifact import new_text_artifact
-from a2a.utils.message import new_agent_text_message
-from a2a.utils.task import new_task
+from a2a.types.a2a_pb2 import AgentInterface, Part, TaskState
+from starlette.applications import Starlette
 
 from spring_voyage_agent.context import IAgentContext
 from spring_voyage_agent.hooks import AgentHooks
@@ -67,35 +73,43 @@ _INIT_TIMEOUT_SECONDS = 30
 _SHUTDOWN_GRACE_SECONDS = 30
 
 
-def _build_message_from_a2a(ctx: RequestContext) -> Message:
-    """Convert an a2a-sdk RequestContext into a SDK Message.
+def _extract_text_from_parts(parts: Any) -> str:
+    """Extract plain text from a sequence of a2a-sdk 1.x Part objects.
 
-    The a2a-sdk v0.3.x ``Part`` shape is a discriminated-union wrapper
-    (``Part(root=TextPart|FilePart|DataPart)``); text is read via
-    ``part.root.text`` not ``part.text``.
+    In a2a-sdk 1.x Parts are protobuf messages with a ``content`` oneof
+    (text | raw | url | data).  We collect all text-typed parts and join them
+    with a newline separator, which mirrors the de-facto convention used by
+    all current callers.
+    """
+    fragments: list[str] = []
+    for part in parts:
+        if part.WhichOneof("content") == "text" and part.text:
+            fragments.append(part.text)
+    return "\n".join(fragments)
+
+
+def _build_message_from_a2a(ctx: RequestContext) -> Message:
+    """Convert an a2a-sdk 1.x RequestContext into a SDK Message.
+
+    In a2a-sdk 1.x ``context.message`` is a protobuf ``Message``; parts are
+    protobuf ``Part`` objects with a ``content`` oneof (text/raw/url/data).
     """
     task_id = ctx.task_id or ""
     context_id = ctx.context_id or ""
 
-    # Reconstruct the raw A2A payload from the request message.
+    # Reconstruct the raw A2A payload from the request message so that the
+    # Spring Voyage agent SDK's Message.text helper can read it.
     raw_payload: dict[str, Any] = {}
     if ctx.message:
         raw_parts: list[Any] = []
-        if ctx.message.parts:
-            for part in ctx.message.parts:
-                # Keep the raw part object so Message.text can access it;
-                # the Message.text property handles both dict and SDK shapes.
-                raw_parts.append(part)
+        for part in ctx.message.parts:
+            # Keep raw proto parts; Message.text handles both dict and proto shapes.
+            raw_parts.append(part)
         raw_payload = {
-            "role": getattr(ctx.message, "role", "user"),
+            "role": "user",
             "parts": raw_parts,
         }
 
-    # The a2a-sdk does not carry Spring-specific sender/thread metadata on the
-    # request context in 0.3.x; we populate from the task/context identifiers
-    # the SDK does expose. Full sender resolution requires platform-level
-    # enrichment (delivered by the dispatcher before the container receives the
-    # A2A call); for now we use what the SDK surface provides.
     sender = Sender(
         kind="human",
         id=context_id or "unknown",
@@ -139,45 +153,30 @@ class _SdkAgentExecutor(AgentExecutor):
 
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
         """Run on_message for one inbound A2A task."""
-        task = context.current_task or new_task(context.message)
-        await event_queue.enqueue_event(task)
+        task_id = context.task_id or ""
+        context_id = context.context_id or ""
+
+        updater = TaskUpdater(event_queue, task_id, context_id)
+        await updater.submit()
 
         # Spec §1.1: on_message MUST NOT run before initialize completes.
         await self._initialize_done.wait()
 
-        await event_queue.enqueue_event(
-            TaskStatusUpdateEvent(
-                task_id=context.task_id,
-                context_id=context.context_id,
-                final=False,
-                status=TaskStatus(
-                    state=TaskState.working,
-                    message=new_agent_text_message("Processing..."),
-                ),
-            )
-        )
+        await updater.start_work()
 
         try:
             if self._serial_lock is not None:
                 async with self._serial_lock:
-                    await self._run_on_message(context, event_queue)
+                    await self._run_on_message(context, updater)
             else:
-                await self._run_on_message(context, event_queue)
+                await self._run_on_message(context, updater)
         except Exception as exc:
             logger.exception("on_message hook raised an unhandled exception")
-            await event_queue.enqueue_event(
-                TaskStatusUpdateEvent(
-                    task_id=context.task_id,
-                    context_id=context.context_id,
-                    final=True,
-                    status=TaskStatus(
-                        state=TaskState.failed,
-                        message=new_agent_text_message(f"Agent error: {exc}"),
-                    ),
-                )
+            await updater.failed(
+                updater.new_agent_message([Part(text=f"Agent error: {exc}")])
             )
 
-    async def _run_on_message(self, context: RequestContext, event_queue: EventQueue) -> None:
+    async def _run_on_message(self, context: RequestContext, updater: TaskUpdater) -> None:
         """Invoke the on_message hook and stream its responses.
 
         Supports both async generators (``async def on_message`` that yields)
@@ -223,50 +222,27 @@ class _SdkAgentExecutor(AgentExecutor):
                     text_chunks.append(response.text)
 
         if error_text is not None:
-            await event_queue.enqueue_event(
-                TaskStatusUpdateEvent(
-                    task_id=context.task_id,
-                    context_id=context.context_id,
-                    final=True,
-                    status=TaskStatus(
-                        state=TaskState.failed,
-                        message=new_agent_text_message(error_text),
-                    ),
-                )
+            await updater.failed(
+                updater.new_agent_message([Part(text=error_text)])
             )
             return
 
         full_text = "".join(text_chunks)
         if full_text:
-            await event_queue.enqueue_event(
-                TaskArtifactUpdateEvent(
-                    task_id=context.task_id,
-                    context_id=context.context_id,
-                    artifact=new_text_artifact(name="response", text=full_text),
-                )
+            await updater.add_artifact(
+                parts=[Part(text=full_text)],
+                name="response",
             )
 
-        await event_queue.enqueue_event(
-            TaskStatusUpdateEvent(
-                task_id=context.task_id,
-                context_id=context.context_id,
-                final=True,
-                status=TaskStatus(state=TaskState.completed),
-            )
-        )
+        await updater.complete()
 
     async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
         """Cancel a running task."""
-        await event_queue.enqueue_event(
-            TaskStatusUpdateEvent(
-                task_id=context.task_id,
-                context_id=context.context_id,
-                final=True,
-                status=TaskStatus(
-                    state=TaskState.canceled,
-                    message=new_agent_text_message("Task canceled."),
-                ),
-            )
+        task_id = context.task_id or ""
+        context_id = context.context_id or ""
+        updater = TaskUpdater(event_queue, task_id, context_id)
+        await updater.cancel(
+            updater.new_agent_message([Part(text="Task canceled.")])
         )
 
 
@@ -286,7 +262,8 @@ def _build_agent_card(port: int) -> AgentCard:
     return AgentCard(
         name=f"Spring Voyage Agent — {agent_id}",
         description=(f"Agent {agent_id} running on tenant {tenant_id}. Powered by the Spring Voyage Agent SDK."),
-        url=f"http://localhost:{port}",
+        # In a2a-sdk 1.x the agent URL lives in supported_interfaces.
+        supported_interfaces=[AgentInterface(url=f"http://localhost:{port}")],
         version="1.0.0",
         default_input_modes=["text"],
         default_output_modes=["text"],
@@ -436,12 +413,17 @@ class AgentRuntime:
         handler = DefaultRequestHandler(
             agent_executor=executor,
             task_store=InMemoryTaskStore(),
+            agent_card=card,
+            queue_manager=InMemoryQueueManager(),
         )
-        app = A2AStarletteApplication(agent_card=card, http_handler=handler)
+        # In a2a-sdk 1.x A2AStarletteApplication is gone; compose a plain
+        # Starlette application from the A2A route builders.
+        routes = create_rest_routes(handler) + create_agent_card_routes(card)
+        app = Starlette(routes=routes)
 
         # Run uvicorn until SIGTERM arrives.
         config = uvicorn.Config(
-            app=app.build(),
+            app=app,
             host="0.0.0.0",
             port=self._port,
             log_config=None,

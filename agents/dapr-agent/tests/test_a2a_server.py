@@ -23,8 +23,11 @@ class TestBuildAgentCard:
         assert "openai" in card.skills[0].tags
 
     def test_card_uses_custom_port(self):
+        # In a2a-sdk 1.x the agent URL lives in supported_interfaces, not as a
+        # top-level url field on AgentCard.
         card = build_agent_card(port=7777)
-        assert "7777" in card.url
+        assert len(card.supported_interfaces) == 1
+        assert "7777" in card.supported_interfaces[0].url
 
     def test_card_reads_env_vars(self, monkeypatch):
         monkeypatch.setenv("SPRING_MODEL", "phi3:mini")
@@ -34,7 +37,8 @@ class TestBuildAgentCard:
         card = build_agent_card()
         assert "phi3:mini" in card.name
         assert "local" in card.name
-        assert "5555" in card.url
+        # URL is in supported_interfaces in a2a-sdk 1.x.
+        assert "5555" in card.supported_interfaces[0].url
 
 
 class TestCreateA2aApp:

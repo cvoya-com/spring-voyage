@@ -8,6 +8,10 @@ Covers:
   - cancel enqueues canceled status
   - bare-startup (no env vars): _load_and_initialize logs a warning and
     leaves _initialize_done unset without crashing (smoke-test contract)
+
+a2a-sdk 1.x migration (issue #940): TaskState enum values are now
+TASK_STATE_COMPLETED / TASK_STATE_FAILED / TASK_STATE_CANCELED (protobuf
+style) rather than the 0.3.x aliased names.
 """
 
 from __future__ import annotations
@@ -46,7 +50,11 @@ def _make_hooks(
 
 
 def _make_context(*, task_id="t1", context_id="ctx1", text="hello"):
-    """Build a minimal RequestContext-like mock."""
+    """Build a minimal RequestContext-like mock.
+
+    Parts use the old SimpleNamespace shape (root.text) which Message.text
+    still handles via its fallback ``getattr(part, 'root', part)`` path.
+    """
     part = SimpleNamespace(root=SimpleNamespace(kind="text", text=text))
     message = SimpleNamespace(
         role="user",
@@ -88,14 +96,14 @@ class TestSdkAgentExecutor:
 
         await executor.execute(ctx, eq)
 
-        # Expect: task, working, artifact, completed — 4 events.
+        # Expect: submitted, working, artifact, completed — 4 events.
         assert eq.enqueue_event.call_count == 4
         # Last event is completed status.
         last_call = eq.enqueue_event.call_args_list[-1][0][0]
         from a2a.types import TaskState, TaskStatusUpdateEvent
 
         assert isinstance(last_call, TaskStatusUpdateEvent)
-        assert last_call.status.state == TaskState.completed
+        assert last_call.status.state == TaskState.TASK_STATE_COMPLETED
 
     @pytest.mark.asyncio
     async def test_coroutine_hook_produces_completed_status(self):
@@ -122,7 +130,7 @@ class TestSdkAgentExecutor:
 
         last_call = eq.enqueue_event.call_args_list[-1][0][0]
         assert isinstance(last_call, TaskStatusUpdateEvent)
-        assert last_call.status.state == TaskState.completed
+        assert last_call.status.state == TaskState.TASK_STATE_COMPLETED
 
     @pytest.mark.asyncio
     async def test_error_response_produces_failed_status(self):
@@ -149,7 +157,7 @@ class TestSdkAgentExecutor:
 
         last_call = eq.enqueue_event.call_args_list[-1][0][0]
         assert isinstance(last_call, TaskStatusUpdateEvent)
-        assert last_call.status.state == TaskState.failed
+        assert last_call.status.state == TaskState.TASK_STATE_FAILED
 
     @pytest.mark.asyncio
     async def test_unhandled_exception_produces_failed_status(self):
@@ -177,7 +185,7 @@ class TestSdkAgentExecutor:
 
         last_call = eq.enqueue_event.call_args_list[-1][0][0]
         assert isinstance(last_call, TaskStatusUpdateEvent)
-        assert last_call.status.state == TaskState.failed
+        assert last_call.status.state == TaskState.TASK_STATE_FAILED
 
     @pytest.mark.asyncio
     async def test_on_message_waits_for_initialize(self):
@@ -236,7 +244,7 @@ class TestSdkAgentExecutor:
         assert eq.enqueue_event.call_count == 1
         call = eq.enqueue_event.call_args_list[0][0][0]
         assert isinstance(call, TaskStatusUpdateEvent)
-        assert call.status.state == TaskState.canceled
+        assert call.status.state == TaskState.TASK_STATE_CANCELED
 
     @pytest.mark.asyncio
     async def test_concurrent_threads_false_serialises(self):

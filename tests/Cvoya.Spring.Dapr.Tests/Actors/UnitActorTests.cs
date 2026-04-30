@@ -1249,55 +1249,20 @@ public class UnitActorTests
         captured.Members.ShouldContain(unit);
     }
 
-    // #368 — Compound Draft → Starting transition
+    // #939 — Draft → Starting is rejected; units must pass through Validating first
 
     [Fact]
-    public async Task TransitionAsync_DraftToStarting_WithModel_Succeeds()
+    public async Task TransitionAsync_DraftToStarting_IsRejected()
     {
-        _stateManager.TryGetStateAsync<string>(StateKeys.UnitModel, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<string>(true, "claude-sonnet-4-6"));
-
-        var result = await _actor.TransitionAsync(UnitStatus.Starting, TestContext.Current.CancellationToken);
-
-        result.Success.ShouldBeTrue();
-        result.CurrentStatus.ShouldBe(UnitStatus.Starting);
-
-        // Compound transition writes Stopped then Starting.
-        Received.InOrder(() =>
-        {
-            _stateManager.SetStateAsync(
-                StateKeys.UnitStatus, UnitStatus.Stopped, Arg.Any<CancellationToken>());
-            _stateManager.SetStateAsync(
-                StateKeys.UnitStatus, UnitStatus.Starting, Arg.Any<CancellationToken>());
-        });
-    }
-
-    [Fact]
-    public async Task TransitionAsync_DraftToStarting_WithoutModel_Fails()
-    {
-        // Default: no model set.
-        _stateManager.TryGetStateAsync<string>(StateKeys.UnitModel, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<string>(false, default!));
-
+        // Draft → Starting is no longer a valid transition (#939).
+        // Units must go Draft → Validating → Stopped → Starting.
         var result = await _actor.TransitionAsync(UnitStatus.Starting, TestContext.Current.CancellationToken);
 
         result.Success.ShouldBeFalse();
         result.CurrentStatus.ShouldBe(UnitStatus.Draft);
         result.RejectionReason.ShouldNotBeNull();
-        result.RejectionReason.ShouldContain("model");
-    }
-
-    [Fact]
-    public async Task TransitionAsync_DraftToStarting_EmptyModel_Fails()
-    {
-        _stateManager.TryGetStateAsync<string>(StateKeys.UnitModel, Arg.Any<CancellationToken>())
-            .Returns(new ConditionalValue<string>(true, "  "));
-
-        var result = await _actor.TransitionAsync(UnitStatus.Starting, TestContext.Current.CancellationToken);
-
-        result.Success.ShouldBeFalse();
-        result.RejectionReason.ShouldNotBeNull();
-        result.RejectionReason!.ShouldContain("model");
+        result.RejectionReason.ShouldContain("Draft");
+        result.RejectionReason.ShouldContain("Starting");
     }
 
     // #368 — Readiness check
