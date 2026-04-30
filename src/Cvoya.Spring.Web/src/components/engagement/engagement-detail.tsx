@@ -234,6 +234,7 @@ export function EngagementDetail({ threadId }: EngagementDetailProps) {
           threadId={threadId}
           participants={participants}
           initialKind={composerKind}
+          onKindChange={setComposerKind}
           onSendSuccess={() => setComposerKind("information")}
         />
       )}

@@ -35,14 +35,17 @@ interface EngagementComposerProps {
   /** Participants on the thread — used to pre-populate the recipient picker. */
   participants?: string[];
   /**
-   * When set to "answer", the composer opens in "answer-a-question" mode:
-   * the kind is locked to "answer" and visual cues indicate it's a reply.
-   * The user can dismiss back to "information" mode.
+   * Controlled `kind` for the composer. Parent owns the state.
+   * When "answer", visual cues indicate a reply and the textarea is focused
+   * on prop change. The user can dismiss back to "information" via the
+   * inline "Send as regular message instead" button (which calls onKindChange).
    */
   initialKind?: MessageKind;
+  /** Called when the composer toggles its mode internally. */
+  onKindChange?: (next: MessageKind) => void;
   /**
    * Called after a successful send so the parent can clear any
-   * "question pending" state.
+   * "question pending" state and reset its own kind back to "information".
    */
   onSendSuccess?: () => void;
 }
@@ -60,6 +63,7 @@ export function EngagementComposer({
   threadId,
   participants = [],
   initialKind = "information",
+  onKindChange,
   onSendSuccess,
 }: EngagementComposerProps) {
   const { toast } = useToast();
@@ -76,12 +80,15 @@ export function EngagementComposer({
 
   const [recipient, setRecipient] = useState(defaultRecipient);
   const [text, setText] = useState("");
-  const [kind, setKind] = useState<MessageKind>(initialKind);
 
-  // When initialKind changes (e.g. user clicks "Answer this question"),
-  // switch mode and focus the textarea.
+  // `kind` is fully controlled by the parent. Toggling the inline
+  // "Send as regular message instead" button calls onKindChange("information");
+  // post-send reset is the parent's responsibility (see onSendSuccess).
+  const kind = initialKind;
+  const setKind = (next: MessageKind) => onKindChange?.(next);
+
+  // Focus the textarea when the parent flips into answer mode.
   useEffect(() => {
-    setKind(initialKind);
     if (initialKind === "answer") {
       textareaRef.current?.focus();
     }
@@ -109,8 +116,8 @@ export function EngagementComposer({
     },
     onSuccess: () => {
       setText("");
-      // Reset to information mode after a successful answer.
-      setKind("information");
+      // Mode reset after a successful send is the parent's job — invoked via
+      // onSendSuccess below. Don't toggle local kind here (it's controlled).
       queryClient.invalidateQueries({
         queryKey: queryKeys.threads.detail(threadId),
       });

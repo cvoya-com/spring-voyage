@@ -148,7 +148,7 @@ describe("MyEngagementsPage slice dispatch", () => {
     // The returned JSX element has the EngagementList as a child; we can
     // inspect its props directly from the React element tree.
     // Find the mock list prop by walking the JSX element structure.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const findEngagementList = (node: any): any => {
       if (!node || typeof node !== "object") return null;
       if (node.type?.displayName === "EngagementList" ||
@@ -178,7 +178,7 @@ describe("MyEngagementsPage slice dispatch", () => {
     const jsxEl = await MyEngagementsPage({
       searchParams: Promise.resolve({ unit: "eng-team" }),
     });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const findProps = (node: any): Record<string, unknown> | null => {
       if (!node || typeof node !== "object") return null;
       if (node.props?.slice === "unit") return node.props as Record<string, unknown>;
@@ -202,7 +202,7 @@ describe("MyEngagementsPage slice dispatch", () => {
     const jsxEl = await MyEngagementsPage({
       searchParams: Promise.resolve({ agent: "ada" }),
     });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const findProps = (node: any): Record<string, unknown> | null => {
       if (!node || typeof node !== "object") return null;
       if (node.props?.slice === "agent") return node.props as Record<string, unknown>;

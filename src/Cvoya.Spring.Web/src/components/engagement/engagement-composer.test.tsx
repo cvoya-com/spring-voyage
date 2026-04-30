@@ -1,5 +1,6 @@
 // Tests for the engagement composer component (E2.5 + E2.6, #1417, #1418).
 
+import * as React from "react";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
@@ -170,13 +171,21 @@ describe("EngagementComposer", () => {
 
   describe("mode switching", () => {
     it("switches from answer to information mode when 'Send as regular message' is clicked", () => {
-      render(
-        <EngagementComposer
-          threadId="thread-abc"
-          participants={["human://savas", "agent://ada"]}
-          initialKind="answer"
-        />,
-      );
+      // The composer is now controlled — parent owns kind. Wrap it so the
+      // toggle button can flip the prop value the way the real parent does.
+      function Harness() {
+        const [k, setK] = React.useState<"information" | "answer">("answer");
+        return (
+          <EngagementComposer
+            threadId="thread-abc"
+            participants={["human://savas", "agent://ada"]}
+            initialKind={k}
+            onKindChange={setK}
+          />
+        );
+      }
+
+      render(<Harness />);
 
       expect(screen.getByTestId("engagement-composer")).toHaveAttribute(
         "data-kind",
