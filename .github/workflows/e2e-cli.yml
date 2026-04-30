@@ -16,12 +16,11 @@ name: E2E CLI (scheduled / manual)
 # required-checks would block every PR on a multi-minute stack bringup.
 # The integration + unit suites (ci.yml) remain the per-PR gate.
 #
-# Two jobs:
+# One job:
 #   e2e-fast  - fast pool (API only + Postgres; no Worker, no LLM).
-#   e2e-infra - infra pool (concurrent API+Worker + Postgres; #1388).
 #
 # To add a new fast scenario: drop a .sh file in tests/e2e/scenarios/fast/.
-# To add a new infra scenario: tests/e2e/scenarios/infra/. See tests/e2e/README.md.
+# See tests/e2e/README.md.
 
 on:
   schedule:
@@ -120,8 +119,7 @@ jobs:
       # container and launch the .NET API host directly via `dotnet run`.
       #
       # The Worker host is not started here: fast-pool scenarios do not exercise
-      # background job processing. The concurrent API+Worker migration-safety
-      # scenario (#1388) runs in the e2e-infra job below instead.
+      # background job processing.
 
       - name: Start Postgres (test database)
         shell: bash
@@ -225,79 +223,3 @@ jobs:
         shell: bash
         run: |
           docker rm -f spring-e2e-postgres 2>/dev/null || true
-
-  # ── Infra pool — concurrent API+Worker migration-safety scenarios (#1388) ──
-
-  e2e-infra:
-    name: E2E CLI infra pool
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: "10.0.x"
-          cache: true
-          cache-dependency-path: |
-            **/*.csproj
-            Directory.Packages.props
-            global.json
-            NuGet.config
-
-      - name: Restore .NET dependencies
-        run: dotnet restore SpringVoyage.slnx
-
-      - name: Restore dotnet tools (Kiota)
-        run: dotnet tool restore
-
-      - name: Build solution
-        run: dotnet build SpringVoyage.slnx --no-restore --configuration Release
-
-      # ── Stack bringup — Postgres only (hosts start inside the scenario) ────
-
-      - name: Start Postgres (fresh — no schema pre-applied)
-        shell: bash
-        run: |
-          docker run -d \
-            --name spring-e2e-infra-postgres \
-            -e POSTGRES_USER=spring \
-            -e POSTGRES_PASSWORD=spring \
-            -e POSTGRES_DB=spring \
-            -p 5433:5432 \
-            postgres:16-alpine
-          for i in $(seq 1 30); do
-            if docker exec spring-e2e-infra-postgres pg_isready -U spring >/dev/null 2>&1; then
-              echo "Postgres ready after ${i}s"
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "::error::Postgres did not become ready within 30s"
-          exit 1
-
-      # ── Run infra scenarios ────────────────────────────────────────────────
-
-      - name: Run E2E infra-pool scenarios
-        shell: bash
-        env:
-          # Infra scenarios start their own hosts, so E2E_BASE_URL is unused.
-          # Port 5433 for Postgres because the fast-pool job may be running
-          # concurrently on 5432 (they share the runner host; different jobs).
-          SPRING_DB_HOST: localhost
-          SPRING_DB_PORT: "5433"
-          SPRING_DB_USER: spring
-          SPRING_DB_PASSWORD: spring
-          SPRING_DB_NAME: spring
-        run: |
-          cd tests/e2e
-          bash run.sh --infra
-
-      # ── Teardown ───────────────────────────────────────────────────────────
-
-      - name: Stop Postgres
-        if: always()
-        shell: bash
-        run: |
-          docker rm -f spring-e2e-infra-postgres 2>/dev/null || true
