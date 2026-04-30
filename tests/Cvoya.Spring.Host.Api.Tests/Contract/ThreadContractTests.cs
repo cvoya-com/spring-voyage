@@ -144,6 +144,86 @@ public class ThreadContractTests : IClassFixture<ThreadContractTests.Factory>
             "/api/v1/tenant/threads/{id}/messages", "post", "200", responseBody);
     }
 
+    /// <summary>
+    /// Round-trip contract test for the <c>kind</c> discriminator (#1421).
+    /// Verifies that the accepted <c>kind</c> value is echoed back on the response
+    /// for each valid kind value (information, question, answer, error).
+    /// </summary>
+    [Theory]
+    [InlineData("information")]
+    [InlineData("question")]
+    [InlineData("answer")]
+    [InlineData("error")]
+    public async Task PostThreadMessage_KindRoundTrip_EchoesKindOnResponse(string kind)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        _factory.MessageRouter.ClearSubstitute();
+
+        var reply = new Message(
+            Guid.NewGuid(),
+            new Address("agent", "contract-bot"),
+            new Address("human", "local-dev-user"),
+            MessageType.Domain,
+            $"contract-conv-kind-{kind}",
+            System.Text.Json.JsonSerializer.SerializeToElement(new { ack = "received" }),
+            DateTimeOffset.UtcNow);
+        _factory.MessageRouter
+            .RouteAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Returns(Result<Message?, RoutingError>.Success(reply));
+
+        var body = new ThreadMessageRequest(
+            new AddressDto("agent", "contract-bot"),
+            $"Test message for kind={kind}",
+            kind);
+
+        var response = await _client.PostAsJsonAsync(
+            $"/api/v1/tenant/threads/contract-conv-kind-{kind}/messages", body, ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var responseBody = await response.Content.ReadAsStringAsync(ct);
+        OpenApiContract.AssertResponse(
+            "/api/v1/tenant/threads/{id}/messages", "post", "200", responseBody);
+
+        // Verify the kind is echoed back on the response body.
+        var json = System.Text.Json.JsonDocument.Parse(responseBody);
+        json.RootElement.GetProperty("kind").GetString().ShouldBe(kind);
+    }
+
+    [Fact]
+    public async Task PostThreadMessage_KindOmitted_DefaultsToInformation()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        _factory.MessageRouter.ClearSubstitute();
+
+        var reply = new Message(
+            Guid.NewGuid(),
+            new Address("agent", "contract-bot"),
+            new Address("human", "local-dev-user"),
+            MessageType.Domain,
+            "contract-conv-kind-default",
+            System.Text.Json.JsonSerializer.SerializeToElement(new { ack = "received" }),
+            DateTimeOffset.UtcNow);
+        _factory.MessageRouter
+            .RouteAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Returns(Result<Message?, RoutingError>.Success(reply));
+
+        // Omit kind — server must default to "information".
+        var body = new ThreadMessageRequest(
+            new AddressDto("agent", "contract-bot"),
+            "Test message with no kind");
+
+        var response = await _client.PostAsJsonAsync(
+            "/api/v1/tenant/threads/contract-conv-kind-default/messages", body, ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var responseBody = await response.Content.ReadAsStringAsync(ct);
+        OpenApiContract.AssertResponse(
+            "/api/v1/tenant/threads/{id}/messages", "post", "200", responseBody);
+
+        var json = System.Text.Json.JsonDocument.Parse(responseBody);
+        json.RootElement.GetProperty("kind").GetString().ShouldBe("information");
+    }
+
     [Fact]
     public async Task CloseThread_NotFound_MatchesProblemDetailsContract()
     {

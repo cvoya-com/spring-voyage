@@ -371,6 +371,59 @@ The full memory model — artifact uniformity, the `ThreadMemoryPolicy` resoluti
 
 ---
 
+## Message kind discriminator
+
+Thread messages carry an optional `kind` string that lets the engagement portal (and other consumers) classify messages semantically without inspecting the payload text. The discriminator is **convention-driven** — the platform accepts, persists, and echoes the value, but does not enforce it. Units and agents are expected to set the appropriate `kind` when sending; the platform does not validate or gate on it.
+
+### Valid values (v0.1)
+
+| `kind` | Meaning | Set by |
+|---|---|---|
+| `information` | Default. A regular status update, progress report, or result. | Anything that does not fit another kind. |
+| `question` | The sender is asking a participant for clarification before proceeding. | Unit / agent asking a human or another agent. |
+| `answer` | A reply to a clarifying question. | Human (`engagement answer`), or an agent responding to a question. |
+| `error` | The sender encountered an error and is surfacing it on the thread for visibility. | Unit / agent on failure paths. |
+
+### Wire shape
+
+`POST /api/v1/tenant/threads/{id}/messages` accepts an optional `kind` field on the request body. When omitted, the server defaults to `information`. The response body echoes the accepted kind so callers can confirm what was persisted.
+
+```json
+// Request
+{
+  "to": { "scheme": "agent", "path": "ada" },
+  "text": "Which branch should I target?",
+  "kind": "question"
+}
+
+// Response
+{
+  "messageId": "...",
+  "threadId": "...",
+  "responsePayload": null,
+  "kind": "question"
+}
+```
+
+### CLI mapping
+
+- `spring engagement send` — always sends `kind=information`.
+- `spring engagement answer` — always sends `kind=answer`.
+- `spring engagement errors` — currently filters by `eventType=ErrorOccurred` or `severity=Error` on the Timeline; future work may additionally surface messages with `kind=error`.
+
+### Instruction to units
+
+When a unit implementation produces a structured message, it should set `kind` appropriately:
+
+- A clarifying question before a potentially destructive action → `kind=question`
+- A human/agent reply in a clarification loop → `kind=answer`
+- An error that surfaced during execution → `kind=error`
+- Any other message (status, result, progress) → `kind=information` (or omit)
+
+The discriminator is a lightweight convention. It is not a security boundary. Consumers must not make security-relevant decisions based on `kind` alone.
+
+---
+
 ## See also
 
 - [Thread model — participant-set design](thread-model.md) — the long-form F1 design covering naming, container/execution model, dispatch semantics, memory, tasks, participant-set changes, the Timeline, retraction UX, cold start, and migration.

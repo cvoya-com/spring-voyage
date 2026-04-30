@@ -92,6 +92,7 @@ public static class ActivityEndpoints
         string? source,
         string? severity,
         string? unitId,
+        string? thread,
         CancellationToken cancellationToken)
     {
         var logger = loggerFactory.CreateLogger("Cvoya.Spring.Host.Api.Endpoints.ActivityEndpoints");
@@ -151,6 +152,17 @@ public static class ActivityEndpoints
             Enum.TryParse<ActivitySeverity>(severity, ignoreCase: true, out var severityFilter))
         {
             stream = stream.Where(evt => evt.Severity >= severityFilter);
+        }
+
+        // Thread-scoped filter: when ?thread=<id> is supplied, only events
+        // whose CorrelationId matches are forwarded. This is the foundation
+        // for engagement-level observability (#1421) — the CorrelationId on
+        // ActivityEvent carries the thread id that the messaging layer stamps
+        // on every event for a given thread.
+        if (!string.IsNullOrEmpty(thread))
+        {
+            stream = stream.Where(evt =>
+                string.Equals(evt.CorrelationId, thread, StringComparison.Ordinal));
         }
 
         // Bounded channel decouples the Rx producer from the HTTP writer:

@@ -54,6 +54,7 @@ public class Program
                 UnitCommand.Create(outputOption),
                 MessageCommand.Create(outputOption),
                 ThreadCommand.Create(outputOption),
+                EngagementCommand.Create(outputOption),
                 InboxCommand.Create(outputOption),
                 ActivityCommand.Create(outputOption),
                 AgentRuntimeCommand.Create(outputOption),
