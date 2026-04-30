@@ -60,3 +60,44 @@
         reverse_proxy spring-web:3000
     }
 }
+
+# --------------------------------------------------------------------------
+# Tenant-to-platform ingress — ADR 0028 Decision D.
+#
+# Agent containers and workflow containers run on the per-tenant bridge
+# network (spring-tenant-default). They reach the platform's authenticated
+# public Web API at http://spring-caddy:8443 from inside that network —
+# the same authenticated path external clients use, with no special-case
+# routing or direct-infra-access shortcuts.
+#
+# Caddy is dual-attached to spring-net (platform) and spring-tenant-default
+# (tenant) so it is reachable from both sides. The DNS name "spring-caddy"
+# resolves via Docker/Podman container DNS within any network the container
+# is attached to.
+#
+# Port 8443 is used for the tenant-facing listener to avoid colliding with
+# the host-published ports 80/443 that are reserved for external traffic.
+# This is a plain HTTP listener on the internal network — TLS between tenant
+# containers and Caddy on a container-internal path is tracked in #1375.
+#
+# Authorization is enforced by the API host's auth middleware; Caddy only
+# proxies and does not add or strip auth headers on this path.
+# --------------------------------------------------------------------------
+:8443 {
+    # All tenant→platform traffic is destined for the REST API. The tenant
+    # containers use the full /api/v1/... paths, matching the same surface
+    # external clients use.
+    handle /api/* {
+        reverse_proxy spring-api:8080
+    }
+
+    handle /health {
+        reverse_proxy spring-api:8080
+    }
+
+    # Reject everything else — tenant containers must not discover or reach
+    # the web portal or internal endpoints through this listener.
+    handle {
+        respond 404
+    }
+}

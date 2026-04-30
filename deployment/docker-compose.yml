@@ -299,6 +299,13 @@ services:
 
   # -----------------------------------------------------------------
   # Caddy — reverse proxy + automatic Let's Encrypt TLS.
+  #
+  # Dual-attached to spring-net (platform) and spring-tenant-default
+  # (per-tenant) so that:
+  #   - External clients and the web portal reach it via host ports 80/443.
+  #   - Tenant containers (agents, workflow containers) reach it at
+  #     http://spring-caddy:8443 from inside spring-tenant-default without
+  #     crossing onto spring-net — ADR 0028 Decision D, issue #1169.
   # -----------------------------------------------------------------
   spring-caddy:
     image: ${CADDY_IMAGE:-docker.io/library/caddy:2}
@@ -308,6 +315,9 @@ services:
     ports:
       - "80:80"
       - "443:443"
+      # Port 8443 is the tenant-facing listener. It is not published to the
+      # host — tenant containers reach it in-network via spring-tenant-default.
+      # Publishing here is intentionally omitted to keep it container-internal.
     volumes:
       # Defaults to the single-host path-routed Caddyfile. Switch to
       # ./Caddyfile.multi-host if you set WEB_HOSTNAME / API_HOSTNAME /
@@ -315,7 +325,7 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - spring-caddy-data:/data
       - spring-caddy-config:/config
-    networks: [spring-net]
+    networks: [spring-net, spring-tenant-default]
     depends_on:
       - spring-api
       - spring-web

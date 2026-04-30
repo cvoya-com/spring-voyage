@@ -49,7 +49,7 @@ curl -fsS http://localhost/health
 
 ## Container stack
 
-Every container attaches to a single bridge network called `spring-net`. `deployment/Dockerfile` produces one `localhost/spring-voyage:<tag>` image; the container `command` selects which process to run.
+`deployment/Dockerfile` produces one `localhost/spring-voyage:<tag>` image; the container `command` selects which process to run. Platform services share the `spring-net` bridge. Caddy and selected control-plane services are also dual-attached to `spring-tenant-default` so agent and workflow containers on the tenant bridge can reach them.
 
 | Container | Image | Role |
 |-----------|-------|------|
@@ -62,9 +62,22 @@ Every container attaches to a single bridge network called `spring-net`. `deploy
 | `spring-worker` | `localhost/spring-voyage:<tag>` | Dapr actor host + EF migrations |
 | `spring-api` | `localhost/spring-voyage:<tag>` | ASP.NET Core REST API (port 8080) |
 | `spring-web` | `localhost/spring-voyage:<tag>` | Next.js portal (port 3000) |
-| `spring-caddy` | `caddy:2` | Reverse proxy + TLS (host `:80`/`:443`) |
+| `spring-caddy` | `caddy:2` | Reverse proxy + TLS (host `:80`/`:443`); also tenant-to-platform ingress at `:8443` (see below) |
 
 Each .NET host talks to its own daprd sidecar container. See [Architecture — Deployment](../../architecture/deployment.md) for the topology rationale.
+
+### Tenant-to-platform ingress
+
+Agent containers and workflow containers run on the `spring-tenant-default` bridge network and must reach the platform's authenticated REST API without crossing onto `spring-net`. Caddy is dual-attached to both networks and exposes a dedicated listener at port 8443 inside the tenant bridge.
+
+Tenant containers call the API at `http://spring-caddy:8443/api/v1/...` — the same authenticated surface external clients use, via the same auth middleware. No special-case routing or direct-infra-access shortcuts are involved (ADR 0028 Decision D).
+
+```
+# From inside spring-tenant-default (agent or workflow container):
+curl -H "Authorization: Bearer <token>" http://spring-caddy:8443/api/v1/units
+```
+
+Port 8443 is not published to the host. It is accessible only from containers on `spring-tenant-default`. Production TLS hardening for this internal path is tracked in [#1375](https://github.com/cvoya-com/spring-voyage/issues/1375).
 
 ## Docker Compose
 

@@ -13,6 +13,9 @@
 #   spring-worker, spring-api, spring-web, spring-caddy
 #
 # Containers on spring-tenant-default:
+#   spring-caddy (also on spring-net — dual-attached so agent/workflow
+#                 containers resolve `spring-caddy:8443` from inside the
+#                 tenant namespace — ADR 0028 Decision D, issue #1169)
 #   spring-ollama (also on spring-net — dual-attached so agents can resolve
 #                  `spring-ollama:11434` from inside the tenant namespace)
 #   …plus ephemeral / persistent agent containers launched at dispatch time.
@@ -503,6 +506,13 @@ start_caddy() {
         -v spring-caddy-data:/data \
         -v spring-caddy-config:/config \
         "${CADDY_IMAGE:-docker.io/library/caddy:2}"
+
+    # Dual-attach Caddy to the tenant network so agent containers and
+    # workflow containers (which join spring-tenant-default — ADR 0028
+    # Decision A) can reach the platform's authenticated Web API at
+    # http://spring-caddy:8443 from inside the tenant namespace without
+    # crossing onto spring-net. ADR 0028 Decision D, issue #1169.
+    ensure_tenant_network_attachment spring-caddy "${TENANT_NETWORK_NAME}"
 }
 
 wait_healthy() {

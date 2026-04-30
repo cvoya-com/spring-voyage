@@ -199,9 +199,9 @@ Workflow containers (not agent containers) typically need their own Dapr sidecar
 
 ## Topology
 
-Spring Voyage runs every business-tenant-aware container on a **per-tenant network** (`spring-tenant-<id>`) and reserves `spring-net` for platform services. The dispatcher (host process) is the only process that bridges platform→tenant traffic; tenant→platform traffic flows through the public Web API behind ingress. The worker stays single-network on `spring-net` as a structural constraint — dual-homing would let every actor in the worker reach every tenant's namespace, defeating the isolation.
+Spring Voyage runs every business-tenant-aware container on a **per-tenant network** (`spring-tenant-<id>`) and reserves `spring-net` for platform services. The dispatcher (host process) is the only process that bridges platform→tenant traffic; tenant→platform traffic flows through the public Web API behind Caddy ingress (OSS) or K8s ingress (cloud). The worker stays single-network on `spring-net` as a structural constraint — dual-homing would let every actor in the worker reach every tenant's namespace, defeating the isolation.
 
-**OSS uses a single `spring-tenant-default` network.** The reference `docker-compose` attaches `spring-postgres`, `spring-redis`, `spring-placement`, and `spring-scheduler` to that bridge as well as to `spring-net`, matching `deploy.sh`, so Dapr sidecars and tenant-scoped app containers resolve the same hostnames for state and the control plane. Cloud uses one network per tenant; the K8s mapping is namespace-per-tenant with the dispatcher as the control-plane bridge and ingress as the data-plane entry point.
+**OSS uses a single `spring-tenant-default` network.** The reference `docker-compose` attaches `spring-postgres`, `spring-redis`, `spring-placement`, and `spring-scheduler` to that bridge as well as to `spring-net`, matching `deploy.sh`, so Dapr sidecars and tenant-scoped app containers resolve the same hostnames for state and the control plane. `spring-caddy` is also dual-attached to `spring-tenant-default` so agent and workflow containers can reach the authenticated REST API at `http://spring-caddy:8443/api/...` from inside the tenant network without crossing onto `spring-net` — ADR 0028 Decision D / [#1169](https://github.com/cvoya-com/spring-voyage/issues/1169). Cloud uses one network per tenant; the K8s mapping is namespace-per-tenant with the dispatcher as the control-plane bridge and ingress as the data-plane entry point.
 
 Rationale, alternatives rejected, and the decision history that produced this topology live in [ADR 0028 — Tenant-scoped runtime topology](../decisions/0028-tenant-scoped-runtime-topology.md). Execution status (which sub-issues land each part of the work) lives on [#1165](https://github.com/cvoya-com/spring-voyage/issues/1165).
 
@@ -216,7 +216,6 @@ flowchart LR
     api["spring-api + sidecar"]
     worker["spring-worker + sidecar"]
     web["spring-web"]
-    caddy["spring-caddy (ingress — external + tenant→platform)"]
     pg["spring-postgres"]
     redis["spring-redis"]
     placement["spring-placement"]
@@ -224,8 +223,9 @@ flowchart LR
     mcp["host MCP server (tenancy TBD — #1167)"]
   end
 
+  caddy["spring-caddy (ingress)\n:80/:443 external\n:8443 tenant-facing\n[spring-net + spring-tenant-default]"]
+
   subgraph tenantNet [spring-tenant-default — per-tenant]
-    tenantOllama["tenant-ollama (OSS: single; cloud: per-tenant — see #1164)"]
     delegatedAgent["delegated / ephemeral agent container"]
     persistentAgent["persistent agent container"]
     workflowContainer["workflow container + per-workflow daprd"]
@@ -237,11 +237,10 @@ flowchart LR
   podman -.->|"on tenant net"| persistentAgent
   podman -.->|"on tenant net"| workflowContainer
   dispatcher -- "POST /v1/containers/{id}/a2a" --> delegatedAgent
-  dispatcher -- "tenant-ollama:11434 (worker-proxied LLM)" --> tenantOllama
-  delegatedAgent -- "tenant-ollama:11434 (direct)" --> tenantOllama
-  workflowContainer -- "tenant-ollama:11434 (direct)" --> tenantOllama
-  delegatedAgent -- "ingress → spring-api (auth)" --> caddy
-  workflowContainer -- "ingress → spring-api (auth)" --> caddy
+  delegatedAgent -- "spring-caddy:8443/api/* (auth)" --> caddy
+  workflowContainer -- "spring-caddy:8443/api/* (auth)" --> caddy
+  caddy -- "reverse proxy" --> api
+  caddy -- "external traffic (80/443)" --> web
 ```
 
 ### Service inventory
@@ -252,7 +251,7 @@ flowchart LR
 | `spring-redis`                             | platform                                                                               | Topic names carry tenant id at the application layer                                      |
 | `spring-placement`, `spring-scheduler`     | platform                                                                               | Dapr control plane; always platform                                                       |
 | `spring-api`, `spring-web`                 | platform                                                                               | Stateless, multi-tenant by request                                                        |
-| `spring-caddy`                             | platform (ingress — external + tenant→platform)                                        | Single authenticated entry point for tenant-initiated traffic into platform               |
+| `spring-caddy`                             | platform (ingress — external + tenant→platform); dual-attached to `spring-net` + `spring-tenant-default` | Single authenticated entry point; tenant containers reach it at `http://spring-caddy:8443` from the tenant bridge (ADR 0028 Decision D, [#1169](https://github.com/cvoya-com/spring-voyage/issues/1169)) |
 | `spring-worker` (+ sidecar)                | platform; single-network on `spring-net`                                               | Tenancy enforced at actor layer; **must not** dual-home onto tenant networks              |
 | `spring-dispatcher` (host process)         | platform; tenant-aware via `Dispatcher__Tokens__<token>__TenantId` (see ADR 0012)      | Only cross-network bridge; terminal architecture extends its proxy surface (see #1170)    |
 | Agent containers (all hosting modes)       | **tenant** (`spring-tenant-<id>`)                                                      | Tracked in #1165; bug-fix slice rides #1160 implementation                                |
