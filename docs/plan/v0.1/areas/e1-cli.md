@@ -1,6 +1,10 @@
 # Area E1: CLI as primary UX
 
-**Status:** Planning session pending. Build phase depends on C2.
+**Status:** ✅ **Done.** Umbrella [#1218](https://github.com/cvoya-com/spring-voyage/issues/1218) closed.
+
+Original planning notes preserved below for context.
+
+---
 
 ## Scope (provisional)
 

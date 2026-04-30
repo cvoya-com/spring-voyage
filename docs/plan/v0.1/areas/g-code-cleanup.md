@@ -1,6 +1,6 @@
 # Area G: Code review + decomposition
 
-**Status:** 🟢 **Discovery done.** Cleanup sub-issues populated under umbrella [#1221](https://github.com/cvoya-com/spring-voyage/issues/1221) — see the sub-issue panel for the live work breakdown. No ADR-0029 boundary violations found in existing code; cleanup PRs are gated on Area D establishing the new boundaries (with two structural-cleanup exceptions noted below that should land *before* D Stage 3 to reduce merge cost).
+**Status:** ✅ **Done.** Umbrella [#1221](https://github.com/cvoya-com/spring-voyage/issues/1221) closed. Discovery completed; cleanup sub-issues were populated and executed. No ADR-0029 boundary violations were found in existing code.
 
 ## Stage 0 — complete ✅
 

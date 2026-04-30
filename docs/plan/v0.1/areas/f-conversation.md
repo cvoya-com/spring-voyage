@@ -1,6 +1,6 @@
 # Area F: Conversation concept
 
-**Status:** 🟢 **Planning done.** Sub-issues, supersessions, and live work breakdown live on umbrella [#1220](https://github.com/cvoya-com/spring-voyage/issues/1220) — see its sub-issue panel.
+**Status:** 🟢 **Substantially done.** F1, F2, and F3 all shipped. Two sub-issues (#1292, #1293) are explicitly v0.1-deferred and tracked under umbrella [#1220](https://github.com/cvoya-com/spring-voyage/issues/1220).
 
 ## Reframing anchor
 
