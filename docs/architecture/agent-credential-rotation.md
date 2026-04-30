@@ -149,6 +149,49 @@ Each of these is its own follow-up; this design intentionally does not pull them
 
 ---
 
+## Telemetry
+
+The supervisor restart path and the container health probe both emit signals operators can graph.
+
+### Structured logs
+
+All supervisor restart events are logged by `ContainerSupervisorActor` with structured event IDs. Key events to alert on:
+
+| Log event | EventId | Meaning |
+|---|---|---|
+| `SupervisorCredentialRefreshFailed` | 2063 | `RefreshForRestartAsync` threw; restart deferred to next poll. |
+| `SupervisorRestarted` | 2059 | Restart succeeded; new container id logged. |
+| `SupervisorGaveUp` | 2061 | Restart limit (`MaxRestarts`) reached; container is now `Failed`. |
+
+### Metrics — `spring.container.healthy` gauge
+
+`ContainerHealthMetricsService` emits a BCL `System.Diagnostics.Metrics.Meter` gauge
+(meter name: `Cvoya.Spring.Dapr`) that operators can scrape via any OpenTelemetry-compatible
+backend (Prometheus, Grafana Cloud, Datadog, Azure Monitor, …). The OTel SDK in the host
+project auto-discovers the meter; no additional NuGet package is needed in the Dapr library.
+
+| Metric name | Type | Description |
+|---|---|---|
+| `spring.container.healthy` | gauge (int, 1 or 0) | 1 when the container's native HEALTHCHECK is healthy (or when no HEALTHCHECK is declared — healthy by convention); 0 when the inspect reports unhealthy or when the container id is no longer known to the runtime. |
+
+Tag set on every observation:
+
+| Tag key | Value |
+|---|---|
+| `agent_id` | The agent's stable identifier (matches `SPRING_AGENT_ID` in the container's env). |
+| `container_id` | The running container identifier as returned by the container runtime. |
+
+The gauge is collected every 30 seconds (same cadence as the supervisor's health-check
+reminder). It uses `IContainerRuntime.GetHealthAsync` — the inspect-based native
+HEALTHCHECK probe — rather than the HTTP Agent Card probe `PersistentAgentRegistry`
+uses internally, so the two signals are independent and operators can alert on either.
+
+Example PromQL alert (gauge drops to 0 and stays there for two polling cycles):
+
+```promql
+spring_container_healthy == 0
+```
+
 ## Compatibility with what's shipped
 
 | Surface | Change? |

@@ -17,6 +17,13 @@ Configuration via environment variables:
 - SPRING_SYSTEM_PROMPT: System prompt passed to the agent via stdin
 - SPRING_MCP_ENDPOINT:  MCP server URL the agent should connect to
 - SPRING_AGENT_TOKEN:   Bearer token for MCP authentication
+
+Wire shape: A2A v0.3 per the .NET A2A.V0_3 SDK contract (issue #1198 / #1368).
+  - Enum values are kebab-case-lower ("completed", "failed", "agent", ...)
+  - Every AgentTask carries kind: "task" (A2AEventConverterViaKindDiscriminator)
+  - Part objects carry kind: "text" (PartConverterViaKindDiscriminator)
+  - Status messages carry kind: "message" (AgentMessage discriminator)
+  - message/send result is the flat AgentTask - NOT wrapped under result.task
 """
 
 import asyncio
@@ -24,7 +31,6 @@ import json
 import logging
 import os
 import signal
-import sys
 import uuid
 from datetime import datetime, timezone
 
@@ -38,8 +44,69 @@ AGENT_ARGS = os.environ.get("AGENT_ARGS", "").split() if os.environ.get("AGENT_A
 AGENT_NAME = os.environ.get("AGENT_NAME", "CLI Agent")
 AGENT_PORT = int(os.environ.get("AGENT_PORT", "8999"))
 
-# Active tasks: task_id -> { "process": Process, "status": str, "output": str }
+# Active tasks: task_id -> { "process": Process, "state": str, "output": str,
+#                            "error_message": str | None }
 active_tasks: dict[str, dict] = {}
+
+# A2A v0.3 TaskState values - kebab-case-lower per
+# KebabCaseLowerJsonStringEnumConverter on the .NET side (#1198).
+_STATE_WORKING = "working"
+_STATE_COMPLETED = "completed"
+_STATE_FAILED = "failed"
+_STATE_CANCELED = "canceled"
+
+
+def _build_task_response(
+    task_id: str,
+    state: str,
+    output: "str | None",
+    error_message: "str | None",
+) -> dict:
+    """Build a v0.3-conformant AgentTask payload.
+
+    Wire shape per A2A v0.3 and the .NET A2A.V0_3 SDK:
+    - kind: "task" at top level (A2AEventConverterViaKindDiscriminator + [JsonRequired])
+    - status.state is kebab-case-lower (KebabCaseLowerJsonStringEnumConverter)
+    - status.message carries kind: "message" (AgentMessage discriminator)
+    - parts carry kind: "text" (PartConverterViaKindDiscriminator)
+
+    Mirrors deployment/agent-sidecar/src/a2a.ts buildTaskResponse (#1368).
+    """
+    response: dict = {
+        # A2A v0.3 kind discriminator ([JsonRequired] on AgentTask).
+        "kind": "task",
+        "id": task_id,
+        # contextId is [JsonRequired] on A2A.V0_3.AgentTask; the sidecar
+        # mirrors the per-task id since it has no separate conversation handle.
+        "contextId": task_id,
+        "status": {
+            "state": state,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        },
+    }
+
+    artifacts: list[dict] = []
+    if output:
+        artifacts.append({
+            "artifactId": str(uuid.uuid4()),
+            # A2A v0.3: Part objects carry a "kind" discriminator.
+            "parts": [{"kind": "text", "text": output}],
+        })
+    if artifacts:
+        response["artifacts"] = artifacts
+
+    if error_message is not None:
+        # AgentMessage embedded in TaskStatus.Message is also polymorphic in
+        # the V0_3 SDK and serialized with kind: "message". role and messageId
+        # are [JsonRequired]; we mint a fresh messageId per error message.
+        response["status"]["message"] = {
+            "kind": "message",
+            "role": "agent",
+            "messageId": str(uuid.uuid4()),
+            "parts": [{"kind": "text", "text": error_message}],
+        }
+
+    return response
 
 
 def build_agent_card() -> dict:
@@ -106,7 +173,13 @@ async def handle_a2a(request: web.Request) -> web.Response:
 
 
 async def handle_send_message(params: dict, rpc_id) -> web.Response:
-    """Launch the CLI agent and return the result as an A2A task."""
+    """Launch the CLI agent and return the result as an A2A v0.3 task.
+
+    A2A v0.3: message/send result is the flat AgentTask (kind: "task") consumed
+    by the .NET SDK's SendMessageAsync as A2AResponse via the kind discriminator.
+    No "task" wrapper - the AgentTask itself is the result, identified by its
+    top-level "kind" field. (#1198 / #1368)
+    """
     message = params.get("message", {})
     parts = message.get("parts", [])
     user_text = ""
@@ -116,13 +189,11 @@ async def handle_send_message(params: dict, rpc_id) -> web.Response:
 
     task_id = str(uuid.uuid4())
 
-    # State strings use the proto-style enum names that the .NET A2A SDK
-    # pins via [JsonStringEnumMemberName] (issue #1115). See
-    # https://github.com/a2aproject/a2a-dotnet/blob/main/src/A2A/Models/TaskState.cs.
     active_tasks[task_id] = {
         "process": None,
-        "status": "TASK_STATE_WORKING",
+        "state": _STATE_WORKING,
         "output": "",
+        "error_message": None,
     }
 
     try:
@@ -152,71 +223,45 @@ async def handle_send_message(params: dict, rpc_id) -> web.Response:
         error_output = stderr_data.decode(errors="replace") if stderr_data else ""
 
         if exit_code == 0:
-            active_tasks[task_id]["status"] = "TASK_STATE_COMPLETED"
+            active_tasks[task_id]["state"] = _STATE_COMPLETED
             active_tasks[task_id]["output"] = output
+            active_tasks[task_id]["error_message"] = None
+
+            task_response = _build_task_response(task_id, _STATE_COMPLETED, output, None)
         else:
-            active_tasks[task_id]["status"] = "TASK_STATE_FAILED"
-            active_tasks[task_id]["output"] = error_output or output
+            error_message = error_output or output or f"Agent CLI exited with code {exit_code}"
+            active_tasks[task_id]["state"] = _STATE_FAILED
+            active_tasks[task_id]["output"] = output
+            active_tasks[task_id]["error_message"] = error_message
 
-        result_status = (
-            "TASK_STATE_COMPLETED" if exit_code == 0 else "TASK_STATE_FAILED"
-        )
-        # contextId is [JsonRequired] on A2A.AgentTask in the .NET SDK;
-        # the sidecar mirrors the per-task id since it has no separate
-        # conversation handle to thread through here.
-        task_response = {
-            "id": task_id,
-            "contextId": task_id,
-            "status": {
-                "state": result_status,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            },
-            "artifacts": [
-                {
-                    "artifactId": str(uuid.uuid4()),
-                    "parts": [{"text": output}],
-                }
-            ]
-            if output
-            else [],
-        }
+            task_response = _build_task_response(task_id, _STATE_FAILED, output or None, error_message)
 
-        # message/send result is the .NET SDK's SendMessageResponse, a
-        # field-presence wrapper around `task` or `message`. Wrap so
-        # the dispatcher's deserializer picks up the AgentTask. See
-        # the equivalent comment in deployment/agent-sidecar/src/a2a.ts.
+        # A2A v0.3: message/send result is the flat AgentTask - NOT wrapped
+        # under result.task. The .NET SDK's SendMessageAsync reads result as
+        # A2AResponse using the kind discriminator at the top of the result.
         return web.json_response(
-            {"jsonrpc": "2.0", "result": {"task": task_response}, "id": rpc_id}
+            {"jsonrpc": "2.0", "result": task_response, "id": rpc_id}
         )
 
     except Exception as exc:
         logger.exception("Agent execution failed for task %s", task_id)
-        active_tasks[task_id]["status"] = "TASK_STATE_FAILED"
-        # role + messageId are [JsonRequired] on A2A.Message in the
-        # .NET SDK; the sidecar emits the proto-style `ROLE_AGENT` and
-        # mints a fresh per-error messageId because the SDK rejects
-        # either field being missing.
-        task_response = {
-            "id": task_id,
-            "contextId": task_id,
-            "status": {
-                "state": "TASK_STATE_FAILED",
-                "message": {
-                    "role": "ROLE_AGENT",
-                    "messageId": str(uuid.uuid4()),
-                    "parts": [{"text": str(exc)}],
-                },
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            },
-            "artifacts": [],
-        }
+        error_message = str(exc)
+        active_tasks[task_id]["state"] = _STATE_FAILED
+        active_tasks[task_id]["error_message"] = error_message
+
+        task_response = _build_task_response(task_id, _STATE_FAILED, None, error_message)
         return web.json_response(
-            {"jsonrpc": "2.0", "result": {"task": task_response}, "id": rpc_id}
+            {"jsonrpc": "2.0", "result": task_response, "id": rpc_id}
         )
 
 
 async def handle_cancel_task(params: dict, rpc_id) -> web.Response:
-    """Cancel a running task by sending SIGTERM to the CLI process."""
+    """Cancel a running task by sending SIGTERM to the CLI process.
+
+    A2A v0.3: tasks/cancel result is the AgentTask with kind: "task".
+    The .NET SDK's CancelTaskAsync deserializes the result as AgentTask
+    directly; AgentTask is [JsonRequired] for "kind" so it must be present.
+    """
     task_id = params.get("id")
     if not task_id or task_id not in active_tasks:
         return web.json_response(
@@ -237,25 +282,20 @@ async def handle_cancel_task(params: dict, rpc_id) -> web.Response:
         except ProcessLookupError:
             pass
 
-    entry["status"] = "TASK_STATE_CANCELED"
-    # tasks/cancel result deserializes as `AgentTask` directly on the
-    # dispatcher side (CancelTaskAsync<AgentTask>), so the result is
-    # the bare AgentTask shape — no `task` wrapper here.
-    task_response = {
-        "id": task_id,
-        "contextId": task_id,
-        "status": {
-            "state": "TASK_STATE_CANCELED",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        },
-    }
+    entry["state"] = _STATE_CANCELED
+    task_response = _build_task_response(task_id, _STATE_CANCELED, None, None)
     return web.json_response(
         {"jsonrpc": "2.0", "result": task_response, "id": rpc_id}
     )
 
 
 async def handle_get_task(params: dict, rpc_id) -> web.Response:
-    """Return current status of a task."""
+    """Return current status of a task.
+
+    A2A v0.3: tasks/get result is the AgentTask with kind: "task".
+    The .NET SDK's GetTaskAsync deserializes the result as AgentTask
+    directly; AgentTask is [JsonRequired] for "kind" so it must be present.
+    """
     task_id = params.get("id")
     if not task_id or task_id not in active_tasks:
         return web.json_response(
@@ -268,24 +308,11 @@ async def handle_get_task(params: dict, rpc_id) -> web.Response:
         )
 
     entry = active_tasks[task_id]
-    # tasks/get result deserializes as `AgentTask` directly on the
-    # dispatcher side (GetTaskAsync<AgentTask>), so the result is the
-    # bare AgentTask shape — no `task` wrapper here.
-    task_response = {
-        "id": task_id,
-        "contextId": task_id,
-        "status": {
-            "state": entry["status"],
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        },
-    }
-    if entry.get("output"):
-        task_response["artifacts"] = [
-            {
-                "artifactId": str(uuid.uuid4()),
-                "parts": [{"text": entry["output"]}],
-            }
-        ]
+    state = entry["state"]
+    output = entry.get("output") or None
+    error_message = entry.get("error_message")
+
+    task_response = _build_task_response(task_id, state, output, error_message)
     return web.json_response(
         {"jsonrpc": "2.0", "result": task_response, "id": rpc_id}
     )

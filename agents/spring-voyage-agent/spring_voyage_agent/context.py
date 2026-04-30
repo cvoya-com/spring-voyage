@@ -22,6 +22,7 @@ logger = logging.getLogger("spring-voyage-agent.context")
 _ENV_TENANT_ID = "SPRING_TENANT_ID"
 _ENV_UNIT_ID = "SPRING_UNIT_ID"
 _ENV_AGENT_ID = "SPRING_AGENT_ID"
+_ENV_THREAD_ID = "SPRING_THREAD_ID"
 _ENV_BUCKET2_URL = "SPRING_BUCKET2_URL"
 _ENV_BUCKET2_TOKEN = "SPRING_BUCKET2_TOKEN"
 _ENV_LLM_PROVIDER_URL = "SPRING_LLM_PROVIDER_URL"
@@ -76,6 +77,17 @@ class IAgentContext:
     tenant_id: str
     agent_id: str
     unit_id: str | None
+    thread_id: str | None
+    """The Spring Voyage thread id associated with this launch.
+
+    Present when the container launch was triggered by a dispatch on a known
+    thread (i.e. every normal message dispatch).  ``None`` on supervisor-driven
+    restarts, which are agent-level lifecycle events not bound to any particular
+    thread.
+
+    Spec: docs/specs/agent-runtime-boundary.md §2.1, §2.2.1
+    (``SPRING_THREAD_ID``, optional).
+    """
 
     # Bucket-2 endpoint
     bucket2_url: str
@@ -128,6 +140,7 @@ class IAgentContext:
             tenant_id=os.environ[_ENV_TENANT_ID],
             agent_id=os.environ[_ENV_AGENT_ID],
             unit_id=os.environ.get(_ENV_UNIT_ID) or None,
+            thread_id=os.environ.get(_ENV_THREAD_ID) or None,
             bucket2_url=os.environ[_ENV_BUCKET2_URL],
             bucket2_token=os.environ[_ENV_BUCKET2_TOKEN],
             llm_provider_url=os.environ[_ENV_LLM_PROVIDER_URL],
@@ -143,10 +156,11 @@ class IAgentContext:
         )
 
         logger.info(
-            "IAgentContext loaded: tenant=%s agent=%s unit=%s concurrent_threads=%s workspace=%s",
+            "IAgentContext loaded: tenant=%s agent=%s unit=%s thread=%s concurrent_threads=%s workspace=%s",
             ctx.tenant_id,
             ctx.agent_id,
             ctx.unit_id,
+            ctx.thread_id,
             ctx.concurrent_threads,
             ctx.workspace_path,
         )
