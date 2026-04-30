@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Cli.Commands;
 
 using System;
+using System.Collections.Generic;
 using System.CommandLine;
 using System.Globalization;
 
@@ -39,6 +40,23 @@ public static class AnalyticsCommand
         new("workCost", r => r.WorkCost),
         new("initiativeCost", r => r.InitiativeCost),
         new("records", r => r.Records),
+        new("from", r => r.From),
+        new("to", r => r.To),
+    };
+
+    // #554: per-source breakdown row emitted by `spring analytics costs --by-source`.
+    // The dashboard costs endpoint returns a flat list of (source, totalCost) tuples;
+    // the table here mirrors the portal's Analytics breakdown panel.
+    private sealed record CostBySourceRow(
+        string Source,
+        string TotalCost,
+        string From,
+        string To);
+
+    private static readonly OutputFormatter.Column<CostBySourceRow>[] CostBySourceColumns =
+    {
+        new("source", r => r.Source),
+        new("totalCost", r => r.TotalCost),
         new("from", r => r.From),
         new("to", r => r.To),
     };
@@ -115,16 +133,34 @@ public static class AnalyticsCommand
         {
             Description = "Filter the rollup to a specific agent (mutually exclusive with --unit).",
         };
+        // #554: per-source breakdown flag. When set, the command hits the
+        // dashboard costs endpoint (/api/v1/tenant/dashboard/costs) instead of
+        // the scalar summary endpoint and prints a table with one row per source.
+        // --unit and --agent have no effect in breakdown mode: the endpoint
+        // is tenant-scoped and always returns all sources. A follow-up can
+        // add scoped breakdown endpoints if the demand materialises.
+        var bySourceOption = new Option<bool>("--by-source")
+        {
+            Description =
+                "Show cost broken down by source (agent / unit). Calls the dashboard " +
+                "costs endpoint and prints a per-source table. " +
+                "--unit and --agent are ignored when --by-source is set.",
+            DefaultValueFactory = _ => false,
+        };
+        bySourceOption.Aliases.Add("--breakdown");
+
         var command = new Command(name, description);
         command.Options.Add(windowOption);
         command.Options.Add(unitOption);
         command.Options.Add(agentOption);
+        command.Options.Add(bySourceOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
             var window = parseResult.GetValue(windowOption);
             var unit = parseResult.GetValue(unitOption);
             var agent = parseResult.GetValue(agentOption);
+            var bySource = parseResult.GetValue(bySourceOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
 
             if (!string.IsNullOrEmpty(unit) && !string.IsNullOrEmpty(agent))
@@ -136,6 +172,32 @@ public static class AnalyticsCommand
 
             var (from, to) = ResolveWindow(window);
             var client = ClientFactory.Create();
+
+            // #554: --by-source routes to the dashboard costs endpoint and
+            // returns a per-source breakdown table. The scalar summary path
+            // is unchanged.
+            if (bySource)
+            {
+                var breakdown = await client.GetCostBreakdownAsync(from, to, ct);
+                if (output == "json")
+                {
+                    Console.WriteLine(OutputFormatter.FormatJson(breakdown));
+                }
+                else
+                {
+                    var rows = new List<CostBySourceRow>();
+                    foreach (var entry in breakdown.CostsBySource ?? new List<CostBySource>())
+                    {
+                        rows.Add(new CostBySourceRow(
+                            entry.Source ?? string.Empty,
+                            (entry.TotalCost ?? 0).ToString("0.####", CultureInfo.InvariantCulture),
+                            FormatTimestamp(breakdown.PeriodStart),
+                            FormatTimestamp(breakdown.PeriodEnd)));
+                    }
+                    Console.WriteLine(OutputFormatter.FormatTable(rows, CostBySourceColumns));
+                }
+                return;
+            }
 
             CostSummaryResponse result;
             string scope;

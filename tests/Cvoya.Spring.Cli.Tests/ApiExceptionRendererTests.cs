@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
 
+using Cvoya.Spring.Cli;
 using Cvoya.Spring.Cli.ErrorHandling;
 using Cvoya.Spring.Cli.Generated.Models;
 
@@ -215,6 +216,102 @@ public class ApiExceptionRendererTests
         error.TryGetProperty("next", out _).ShouldBeFalse();
         error.TryGetProperty("extensions", out _).ShouldBeFalse();
         error.GetProperty("status").GetInt32().ShouldBe(500);
+    }
+
+    // #990: DetermineExitCode maps ProblemDetails code extension to 20-27.
+
+    [Theory]
+    [InlineData("ImagePullFailed", 20)]
+    [InlineData("ImageStartFailed", 21)]
+    [InlineData("ToolMissing", 22)]
+    [InlineData("CredentialInvalid", 23)]
+    [InlineData("CredentialFormatRejected", 24)]
+    [InlineData("ModelNotFound", 25)]
+    [InlineData("ProbeTimeout", 26)]
+    [InlineData("ProbeInternalError", 27)]
+    public void Render_ProblemDetails_WithKnownCodeExtension_ReturnsDocumentedExitCode(
+        string code, int expectedExitCode)
+    {
+        var problem = new ProblemDetails
+        {
+            Title = "Validation failed",
+            Detail = "The unit could not be validated.",
+            AdditionalData = new Dictionary<string, object>
+            {
+                // The server emits the code as a plain string in AdditionalData.
+                ["code"] = code,
+            },
+        };
+        problem.ResponseStatusCode = 422;
+
+        var (exitCode, _, _) = Capture((so, se) =>
+            new ApiExceptionRenderer().Render(
+                problem,
+                new CliRenderContext("table", Verbose: false, null, so, se)));
+
+        exitCode.ShouldBe(expectedExitCode);
+    }
+
+    [Fact]
+    public void Render_ProblemDetails_WithUnknownCodeExtension_ReturnsUnknownError()
+    {
+        var problem = new ProblemDetails
+        {
+            Title = "Something unexpected",
+            AdditionalData = new Dictionary<string, object>
+            {
+                ["code"] = "NotAKnownValidationCode",
+            },
+        };
+        problem.ResponseStatusCode = 500;
+
+        var (exitCode, _, _) = Capture((so, se) =>
+            new ApiExceptionRenderer().Render(
+                problem,
+                new CliRenderContext("table", Verbose: false, null, so, se)));
+
+        exitCode.ShouldBe(UnitValidationExitCodes.UnknownError);
+    }
+
+    [Fact]
+    public void Render_ProblemDetails_WithoutCodeExtension_ReturnsUnknownError()
+    {
+        var problem = new ProblemDetails
+        {
+            Title = "Bad request",
+        };
+        problem.ResponseStatusCode = 400;
+
+        var (exitCode, _, _) = Capture((so, se) =>
+            new ApiExceptionRenderer().Render(
+                problem,
+                new CliRenderContext("table", Verbose: false, null, so, se)));
+
+        exitCode.ShouldBe(UnitValidationExitCodes.UnknownError);
+    }
+
+    [Fact]
+    public void Render_ProblemDetails_WithCodeExtension_DoesNotAlterStderrText()
+    {
+        // The formatter text output must be unchanged — #990 is purely an
+        // exit-code routing change. The message the operator sees on stderr
+        // must still reflect the ProblemDetails title / detail.
+        var problem = new ProblemDetails
+        {
+            Title = "Validation failed",
+            Detail = "Tool is missing in the container image.",
+            AdditionalData = new Dictionary<string, object> { ["code"] = "ToolMissing" },
+        };
+        problem.ResponseStatusCode = 422;
+
+        var (exitCode, _, stderr) = Capture((so, se) =>
+            new ApiExceptionRenderer().Render(
+                problem,
+                new CliRenderContext("table", Verbose: false, "Failed to create unit", so, se)));
+
+        exitCode.ShouldBe(22); // ToolMissing
+        stderr.ShouldContain("Validation failed");
+        stderr.ShouldContain("Tool is missing");
     }
 
     /// <summary>

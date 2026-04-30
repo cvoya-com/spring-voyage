@@ -10,6 +10,7 @@ using System.Linq;
 using System.Text;
 using System.Text.Json;
 
+using Cvoya.Spring.Cli;
 using Cvoya.Spring.Cli.Generated.Models;
 
 using Microsoft.Kiota.Abstractions;
@@ -184,8 +185,47 @@ public class ApiExceptionRenderer : IApiExceptionRenderer
         _ => $"Server returned status {status.Value}.",
     };
 
-    /// <summary>Default exit code returned by <see cref="Render"/>.</summary>
-    protected virtual int DetermineExitCode(ApiException exception) => 1;
+    /// <summary>
+    /// Returns the process exit code for <paramref name="exception"/>. When
+    /// the exception is a <see cref="ProblemDetails"/> that carries a
+    /// <c>code</c> extension value matching a known validation code (see
+    /// <see cref="UnitValidationExitCodes.ForCode"/>), the mapped 20–27
+    /// range is returned so operator scripts can branch on the specific
+    /// validation failure. Falls back to <c>1</c> (UnknownError) for all
+    /// other exceptions. (#990)
+    /// </summary>
+    protected virtual int DetermineExitCode(ApiException exception)
+    {
+        if (exception is ProblemDetails problem
+            && problem.AdditionalData is { Count: > 0 } data)
+        {
+            // The server emits the code in AdditionalData["code"]. Kiota
+            // deserialises string scalar extensions as UntypedString; plain
+            // string handles the rare case where the runtime holds a boxed
+            // string directly. CollectExtensions normalises the key to
+            // camelCase but the code field is already camelCase on the wire.
+            if (data.TryGetValue("code", out var raw))
+            {
+                var codeString = raw switch
+                {
+                    string s => s,
+                    Microsoft.Kiota.Abstractions.Serialization.UntypedString us => us.GetValue(),
+                    _ => null,
+                };
+
+                if (!string.IsNullOrEmpty(codeString))
+                {
+                    var mapped = UnitValidationExitCodes.ForCode(codeString);
+                    if (mapped != UnitValidationExitCodes.UnknownError)
+                    {
+                        return mapped;
+                    }
+                }
+            }
+        }
+
+        return UnitValidationExitCodes.UnknownError;
+    }
 
     /// <summary>
     /// Set to <see langword="true"/> when <c>SPRING_CLI_DEBUG=1</c> is in the

@@ -1253,6 +1253,31 @@ public class SpringApiClient
             $"Server returned an empty agent cost response for '{agentId}'.");
     }
 
+    // Cost breakdown by source — backs `spring analytics costs --by-source` (#554).
+    // Hits the dashboard costs endpoint (/api/v1/tenant/dashboard/costs) which
+    // already exists for the portal's Analytics surface; the CLI just reuses it.
+
+    /// <summary>
+    /// Gets the per-source cost breakdown from the dashboard costs endpoint.
+    /// The response includes a <c>costsBySource</c> list (source address + total
+    /// cost) and the overall <c>totalCost</c> for the window.
+    /// </summary>
+    public async Task<CostDashboardSummary> GetCostBreakdownAsync(
+        DateTimeOffset? from = null,
+        DateTimeOffset? to = null,
+        CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Tenant.Dashboard.Costs.GetAsync(
+            config =>
+            {
+                config.QueryParameters.From = from;
+                config.QueryParameters.To = to;
+            },
+            cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            "Server returned an empty cost breakdown response.");
+    }
+
     // Analytics — throughput + waits. The costs slice reuses the Costs
     // wrappers above because the portal's Costs tab and the CLI's `analytics
     // costs` verb both point at /api/v1/costs; adding a third aggregation

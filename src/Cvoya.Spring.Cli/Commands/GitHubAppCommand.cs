@@ -4,12 +4,15 @@
 namespace Cvoya.Spring.Cli.Commands;
 
 using System;
+using System.Collections.Generic;
 using System.CommandLine;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -42,6 +45,8 @@ public static class GitHubAppCommand
             "manual steps of the GitHub docs down to one browser click.");
 
         cmd.Subcommands.Add(CreateRegisterCommand(outputOption));
+        cmd.Subcommands.Add(CreateRotateKeyCommand());
+        cmd.Subcommands.Add(CreateRotateWebhookSecretCommand());
 
         return cmd;
     }
@@ -167,6 +172,471 @@ public static class GitHubAppCommand
 
         return command;
     }
+
+    // ------------------------------------------------------------------
+    // rotate-key
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// Builds the <c>rotate-key</c> subcommand (#636). GitHub has no public API
+    /// for rotating an App's own private key — the operator generates a new PEM
+    /// on GitHub's App settings page and hands it to the CLI via
+    /// <c>--from-file</c>. The CLI validates the PEM, persists it, and prints a
+    /// restart reminder.
+    /// </summary>
+    private static Command CreateRotateKeyCommand()
+    {
+        var fromFileOption = new Option<string?>("--from-file")
+        {
+            Description =
+                "Path to the new PEM file downloaded from " +
+                "github.com/settings/apps/<slug>/keys. Required unless --dry-run.",
+        };
+        var slugOption = new Option<string?>("--slug")
+        {
+            Description =
+                "GitHub App slug (the name shown in the App URL). Used to build " +
+                "the settings deep-link printed in the preamble.",
+        };
+        var writeEnvOption = new Option<bool>("--write-env")
+        {
+            Description = "Persist the new key to deployment/spring.env (default when neither flag is set).",
+            DefaultValueFactory = _ => false,
+        };
+        var writeSecretsOption = new Option<bool>("--write-secrets")
+        {
+            Description = "Persist the new key via `spring secret --scope platform create`.",
+            DefaultValueFactory = _ => false,
+        };
+        var envPathOption = new Option<string?>("--env-path")
+        {
+            Description = "Override the spring.env path used by --write-env.",
+        };
+        var dryRunOption = new Option<bool>("--dry-run")
+        {
+            Description = "Validate the PEM and print what would be written without persisting anything.",
+            DefaultValueFactory = _ => false,
+        };
+
+        var command = new Command(
+            "rotate-key",
+            "Replace the GitHub App's private key. " +
+            "Because GitHub has no API to rotate a key, this is a guided flow: " +
+            "generate a new key on GitHub's App settings page, download the PEM, " +
+            "then pass it here via --from-file.");
+        command.Options.Add(fromFileOption);
+        command.Options.Add(slugOption);
+        command.Options.Add(writeEnvOption);
+        command.Options.Add(writeSecretsOption);
+        command.Options.Add(envPathOption);
+        command.Options.Add(dryRunOption);
+
+        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var fromFile = parseResult.GetValue(fromFileOption);
+            var slug = parseResult.GetValue(slugOption);
+            var writeEnv = parseResult.GetValue(writeEnvOption);
+            var writeSecrets = parseResult.GetValue(writeSecretsOption);
+            var envPathOverride = parseResult.GetValue(envPathOption);
+            var dryRun = parseResult.GetValue(dryRunOption);
+
+            try
+            {
+                await RunRotateKeyAsync(
+                    fromFile: fromFile,
+                    slug: slug,
+                    writeEnv: writeEnv,
+                    writeSecrets: writeSecrets,
+                    envFilePathOverride: envPathOverride,
+                    dryRun: dryRun,
+                    cancellationToken: ct).ConfigureAwait(false);
+            }
+            catch (GitHubAppRegisterException ex)
+            {
+                Console.Error.WriteLine(ex.Message);
+                Environment.Exit(ex.ExitCode);
+            }
+        });
+
+        return command;
+    }
+
+    /// <summary>
+    /// Executes the guided private-key rotation flow. Exposed publicly for
+    /// integration-test consumption.
+    /// </summary>
+    public static async Task RunRotateKeyAsync(
+        string? fromFile,
+        string? slug,
+        bool writeEnv,
+        bool writeSecrets,
+        string? envFilePathOverride,
+        bool dryRun,
+        CancellationToken cancellationToken,
+        TextWriter? stdout = null)
+    {
+        stdout ??= Console.Out;
+
+        if (writeEnv && writeSecrets)
+        {
+            throw new GitHubAppRegisterException(
+                "--write-env and --write-secrets are mutually exclusive.");
+        }
+
+        // Preamble — tell the operator what they need to do on the GitHub side.
+        stdout.WriteLine("spring github-app rotate-key");
+        stdout.WriteLine("============================");
+        stdout.WriteLine();
+        stdout.WriteLine("GitHub has no public API for rotating a private key.");
+        stdout.WriteLine("Complete these steps BEFORE running this command (or use --dry-run to inspect):");
+        stdout.WriteLine();
+        stdout.WriteLine("  1. Open your GitHub App settings:");
+        if (!string.IsNullOrWhiteSpace(slug))
+        {
+            stdout.WriteLine($"       https://github.com/settings/apps/{slug.Trim()}/keys");
+        }
+        else
+        {
+            stdout.WriteLine("       https://github.com/settings/apps/<your-app-slug>/keys");
+            stdout.WriteLine("     (pass --slug <slug> to get a clickable URL above)");
+        }
+        stdout.WriteLine("  2. Click \"Generate a private key\". A .pem file downloads.");
+        stdout.WriteLine("  3. Re-run this command with --from-file <path-to-downloaded.pem>.");
+        stdout.WriteLine();
+
+        if (!dryRun && string.IsNullOrWhiteSpace(fromFile))
+        {
+            throw new GitHubAppRegisterException(
+                "--from-file <path> is required. Download the new PEM from GitHub's App settings page first.",
+                exitCode: 1);
+        }
+
+        string pem = string.Empty;
+        if (!string.IsNullOrWhiteSpace(fromFile))
+        {
+            if (!File.Exists(fromFile))
+            {
+                throw new GitHubAppRegisterException(
+                    $"PEM file not found: {fromFile}",
+                    exitCode: 1);
+            }
+
+            pem = await File.ReadAllTextAsync(fromFile, cancellationToken).ConfigureAwait(false);
+            if (!pem.Contains("BEGIN RSA PRIVATE KEY", StringComparison.OrdinalIgnoreCase)
+                && !pem.Contains("BEGIN PRIVATE KEY", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new GitHubAppRegisterException(
+                    $"The file '{fromFile}' does not appear to be a valid PEM private key. " +
+                    "Expected a file containing '-----BEGIN RSA PRIVATE KEY-----' or '-----BEGIN PRIVATE KEY-----'.",
+                    exitCode: 1);
+            }
+
+            stdout.WriteLine($"PEM validated: {fromFile}");
+        }
+
+        if (dryRun)
+        {
+            stdout.WriteLine("--dry-run: no changes will be written.");
+            if (!string.IsNullOrWhiteSpace(fromFile))
+            {
+                stdout.WriteLine($"Would write {GitHubApp.CredentialWriter.EnvKeys.PrivateKeyPem} to {ResolveEnvPath(envFilePathOverride)}.");
+            }
+            return;
+        }
+
+        // Determine persistence target (mirrors register flow).
+        var persistence = writeSecrets ? Persistence.WriteSecrets : Persistence.WriteEnv;
+        var envPath = ResolveEnvPath(envFilePathOverride);
+
+        if (persistence == Persistence.WriteEnv)
+        {
+            // Update just the PEM key in the env file. Reuse the env-file
+            // comment/overwrite convention from CredentialWriter.WriteEnvAsync
+            // (comment out the old line, append the new one).
+            var lines = File.Exists(envPath)
+                ? (await File.ReadAllLinesAsync(envPath, cancellationToken).ConfigureAwait(false)).ToList()
+                : new System.Collections.Generic.List<string>();
+
+            var stamp = DateTimeOffset.UtcNow.ToString("O");
+            var key = GitHubApp.CredentialWriter.EnvKeys.PrivateKeyPem;
+            for (var i = 0; i < lines.Count; i++)
+            {
+                var line = lines[i];
+                if (line.TrimStart().StartsWith("#", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+                var eq = line.IndexOf('=', StringComparison.Ordinal);
+                if (eq > 0 && line.AsSpan(0, eq).Trim().Equals(key.AsSpan(), StringComparison.Ordinal))
+                {
+                    lines[i] = $"# {line}  # overwritten by `spring github-app rotate-key` at {stamp}";
+                }
+            }
+
+            var pemEscaped = pem
+                .Replace("\r\n", "\n", StringComparison.Ordinal)
+                .Replace("\n", "\\n", StringComparison.Ordinal);
+            lines.Add($"# GitHub App private key — rotated by `spring github-app rotate-key` at {stamp}");
+            lines.Add($"{key}={pemEscaped}");
+
+            var dir = Path.GetDirectoryName(envPath);
+            if (!string.IsNullOrEmpty(dir))
+            {
+                Directory.CreateDirectory(dir);
+            }
+            await File.WriteAllTextAsync(envPath, string.Join(Environment.NewLine, lines) + Environment.NewLine, cancellationToken).ConfigureAwait(false);
+            stdout.WriteLine($"New private key written to: {envPath}");
+        }
+        else
+        {
+            var apiClient = ClientFactory.Create();
+            await apiClient.CreatePlatformSecretAsync(
+                name: GitHubApp.CredentialWriter.SecretNames.PrivateKeyPem,
+                value: pem,
+                externalStoreKey: null,
+                ct: cancellationToken).ConfigureAwait(false);
+            stdout.WriteLine($"New private key written to platform secret: {GitHubApp.CredentialWriter.SecretNames.PrivateKeyPem}");
+        }
+
+        stdout.WriteLine();
+        stdout.WriteLine("Rotation complete.");
+        stdout.WriteLine("IMPORTANT: Restart any running services so they pick up the new key.");
+        stdout.WriteLine("The old key remains active on GitHub until you revoke it from the App settings page.");
+    }
+
+    // ------------------------------------------------------------------
+    // rotate-webhook-secret
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// Builds the <c>rotate-webhook-secret</c> subcommand (#636). Generates a
+    /// new cryptographically strong secret, walks the operator through updating
+    /// it on GitHub, and persists the new value.
+    /// </summary>
+    private static Command CreateRotateWebhookSecretCommand()
+    {
+        var fromValueOption = new Option<string?>("--from-value")
+        {
+            Description =
+                "Use a caller-supplied secret instead of generating one " +
+                "(for scripting / HSM-backed secrets). Must be at least 16 characters.",
+        };
+        var writeEnvOption = new Option<bool>("--write-env")
+        {
+            Description = "Persist the new secret to deployment/spring.env (default when neither flag is set).",
+            DefaultValueFactory = _ => false,
+        };
+        var writeSecretsOption = new Option<bool>("--write-secrets")
+        {
+            Description = "Persist the new secret via `spring secret --scope platform create`.",
+            DefaultValueFactory = _ => false,
+        };
+        var envPathOption = new Option<string?>("--env-path")
+        {
+            Description = "Override the spring.env path used by --write-env.",
+        };
+        var slugOption = new Option<string?>("--slug")
+        {
+            Description = "GitHub App slug — used to build the settings deep-link in the preamble.",
+        };
+        var dryRunOption = new Option<bool>("--dry-run")
+        {
+            Description = "Generate and print the secret without persisting or prompting.",
+            DefaultValueFactory = _ => false,
+        };
+
+        var command = new Command(
+            "rotate-webhook-secret",
+            "Replace the GitHub App's webhook HMAC secret. " +
+            "Generates a new secret (or accepts one via --from-value), walks the operator " +
+            "through updating it on GitHub's App settings page, then persists it.");
+        command.Options.Add(fromValueOption);
+        command.Options.Add(writeEnvOption);
+        command.Options.Add(writeSecretsOption);
+        command.Options.Add(envPathOption);
+        command.Options.Add(slugOption);
+        command.Options.Add(dryRunOption);
+
+        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var fromValue = parseResult.GetValue(fromValueOption);
+            var writeEnv = parseResult.GetValue(writeEnvOption);
+            var writeSecrets = parseResult.GetValue(writeSecretsOption);
+            var envPathOverride = parseResult.GetValue(envPathOption);
+            var slug = parseResult.GetValue(slugOption);
+            var dryRun = parseResult.GetValue(dryRunOption);
+
+            try
+            {
+                await RunRotateWebhookSecretAsync(
+                    fromValue: fromValue,
+                    writeEnv: writeEnv,
+                    writeSecrets: writeSecrets,
+                    envFilePathOverride: envPathOverride,
+                    slug: slug,
+                    dryRun: dryRun,
+                    cancellationToken: ct).ConfigureAwait(false);
+            }
+            catch (GitHubAppRegisterException ex)
+            {
+                Console.Error.WriteLine(ex.Message);
+                Environment.Exit(ex.ExitCode);
+            }
+        });
+
+        return command;
+    }
+
+    /// <summary>
+    /// Executes the webhook-secret rotation flow. Exposed publicly for
+    /// integration-test consumption.
+    /// </summary>
+    public static async Task RunRotateWebhookSecretAsync(
+        string? fromValue,
+        bool writeEnv,
+        bool writeSecrets,
+        string? envFilePathOverride,
+        string? slug,
+        bool dryRun,
+        CancellationToken cancellationToken,
+        TextWriter? stdout = null,
+        Func<string, Task<bool>>? confirmationPrompt = null)
+    {
+        stdout ??= Console.Out;
+
+        if (writeEnv && writeSecrets)
+        {
+            throw new GitHubAppRegisterException(
+                "--write-env and --write-secrets are mutually exclusive.");
+        }
+
+        // Generate or use the caller-supplied secret.
+        string newSecret;
+        if (!string.IsNullOrWhiteSpace(fromValue))
+        {
+            if (fromValue!.Length < 16)
+            {
+                throw new GitHubAppRegisterException(
+                    "--from-value must be at least 16 characters.",
+                    exitCode: 1);
+            }
+            newSecret = fromValue;
+        }
+        else
+        {
+            // 32 random bytes → base64url (no padding) — matches GitHub's
+            // "generate a strong random secret" guidance.
+            var bytes = RandomNumberGenerator.GetBytes(32);
+            newSecret = Convert.ToBase64String(bytes)
+                .TrimEnd('=')
+                .Replace('+', '-')
+                .Replace('/', '_');
+        }
+
+        stdout.WriteLine("spring github-app rotate-webhook-secret");
+        stdout.WriteLine("=======================================");
+        stdout.WriteLine();
+        stdout.WriteLine("New webhook secret (copy this now — it will not be shown again after you confirm):");
+        stdout.WriteLine();
+        stdout.WriteLine($"  {newSecret}");
+        stdout.WriteLine();
+
+        if (dryRun)
+        {
+            stdout.WriteLine("--dry-run: secret generated but not persisted and no confirmation prompted.");
+            return;
+        }
+
+        stdout.WriteLine("Next steps:");
+        stdout.WriteLine("  1. Open your GitHub App settings:");
+        if (!string.IsNullOrWhiteSpace(slug))
+        {
+            stdout.WriteLine($"       https://github.com/settings/apps/{slug.Trim()}");
+        }
+        else
+        {
+            stdout.WriteLine("       https://github.com/settings/apps/<your-app-slug>");
+            stdout.WriteLine("     (pass --slug <slug> to get a clickable URL above)");
+        }
+        stdout.WriteLine("  2. Paste the secret above into the \"Webhook secret\" field and click Save.");
+        stdout.WriteLine();
+
+        // Prompt for confirmation (default implementation reads from stdin).
+        var confirm = confirmationPrompt ?? DefaultConfirmSaved;
+        var confirmed = await confirm(newSecret).ConfigureAwait(false);
+        if (!confirmed)
+        {
+            stdout.WriteLine("Rotation aborted. The old webhook secret is still active.");
+            Environment.Exit(1);
+            return;
+        }
+
+        // Persist the new secret.
+        var persistence = writeSecrets ? Persistence.WriteSecrets : Persistence.WriteEnv;
+        var envPath = ResolveEnvPath(envFilePathOverride);
+
+        if (persistence == Persistence.WriteEnv)
+        {
+            var lines = File.Exists(envPath)
+                ? (await File.ReadAllLinesAsync(envPath, cancellationToken).ConfigureAwait(false)).ToList()
+                : new System.Collections.Generic.List<string>();
+
+            var stamp = DateTimeOffset.UtcNow.ToString("O");
+            var key = GitHubApp.CredentialWriter.EnvKeys.WebhookSecret;
+            for (var i = 0; i < lines.Count; i++)
+            {
+                var line = lines[i];
+                if (line.TrimStart().StartsWith("#", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+                var eq = line.IndexOf('=', StringComparison.Ordinal);
+                if (eq > 0 && line.AsSpan(0, eq).Trim().Equals(key.AsSpan(), StringComparison.Ordinal))
+                {
+                    lines[i] = $"# {line}  # overwritten by `spring github-app rotate-webhook-secret` at {stamp}";
+                }
+            }
+
+            lines.Add($"# GitHub App webhook secret — rotated by `spring github-app rotate-webhook-secret` at {stamp}");
+            lines.Add($"{key}={newSecret}");
+
+            var dir = Path.GetDirectoryName(envPath);
+            if (!string.IsNullOrEmpty(dir))
+            {
+                Directory.CreateDirectory(dir);
+            }
+            await File.WriteAllTextAsync(envPath, string.Join(Environment.NewLine, lines) + Environment.NewLine, cancellationToken).ConfigureAwait(false);
+            stdout.WriteLine($"New webhook secret written to: {envPath}");
+        }
+        else
+        {
+            var apiClient = ClientFactory.Create();
+            await apiClient.CreatePlatformSecretAsync(
+                name: GitHubApp.CredentialWriter.SecretNames.WebhookSecret,
+                value: newSecret,
+                externalStoreKey: null,
+                ct: cancellationToken).ConfigureAwait(false);
+            stdout.WriteLine($"New webhook secret written to platform secret: {GitHubApp.CredentialWriter.SecretNames.WebhookSecret}");
+        }
+
+        stdout.WriteLine();
+        stdout.WriteLine("Rotation complete.");
+        stdout.WriteLine("IMPORTANT: Restart any running services so they pick up the new webhook secret.");
+    }
+
+    private static async Task<bool> DefaultConfirmSaved(string _)
+    {
+        Console.Write("Have you saved the new secret in GitHub's App settings? [y/N] ");
+        var line = Console.ReadLine();
+        await Task.CompletedTask.ConfigureAwait(false);
+        return !string.IsNullOrWhiteSpace(line)
+            && line.Trim().StartsWith("y", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string ResolveEnvPath(string? envFilePathOverride)
+        => string.IsNullOrWhiteSpace(envFilePathOverride)
+            ? Path.Combine(Directory.GetCurrentDirectory(), "deployment", "spring.env")
+            : envFilePathOverride;
 
     // ------------------------------------------------------------------
     // Core flow. Extracted from the SetAction callback so integration

@@ -895,4 +895,68 @@ public class CommandParsingTests
         parseResult.GetValue<string>("id").ShouldBe("t-42");
         parseResult.GetValue<string>("--reason").ShouldBe("Container exited 125");
     }
+
+    // #636: rotate-key + rotate-webhook-secret verb parsing.
+
+    [Fact]
+    public void GitHubAppRotateKey_ParsesFromFileAndSlugOptions()
+    {
+        var outputOption = CreateOutputOption();
+        var gitHubAppCommand = GitHubAppCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(gitHubAppCommand);
+
+        var parseResult = rootCommand.Parse(
+            "github-app rotate-key --from-file /tmp/key.pem --slug my-app --write-env");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<string>("--from-file").ShouldBe("/tmp/key.pem");
+        parseResult.GetValue<string>("--slug").ShouldBe("my-app");
+        parseResult.GetValue<bool>("--write-env").ShouldBeTrue();
+    }
+
+    [Fact]
+    public void GitHubAppRotateKey_DryRunFlag_ParsesWithoutFromFile()
+    {
+        var outputOption = CreateOutputOption();
+        var gitHubAppCommand = GitHubAppCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(gitHubAppCommand);
+
+        var parseResult = rootCommand.Parse("github-app rotate-key --dry-run");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<bool>("--dry-run").ShouldBeTrue();
+    }
+
+    [Fact]
+    public void GitHubAppRotateWebhookSecret_ParsesFromValueAndWriteSecrets()
+    {
+        var outputOption = CreateOutputOption();
+        var gitHubAppCommand = GitHubAppCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(gitHubAppCommand);
+
+        var parseResult = rootCommand.Parse(
+            "github-app rotate-webhook-secret --from-value myNewSecret123456 --write-secrets");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<string>("--from-value").ShouldBe("myNewSecret123456");
+        parseResult.GetValue<bool>("--write-secrets").ShouldBeTrue();
+    }
+
+    [Fact]
+    public void GitHubAppRotateWebhookSecret_DryRunFlag_Parses()
+    {
+        var outputOption = CreateOutputOption();
+        var gitHubAppCommand = GitHubAppCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(gitHubAppCommand);
+
+        var parseResult = rootCommand.Parse("github-app rotate-webhook-secret --dry-run --slug acme");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<bool>("--dry-run").ShouldBeTrue();
+        parseResult.GetValue<string>("--slug").ShouldBe("acme");
+    }
 }

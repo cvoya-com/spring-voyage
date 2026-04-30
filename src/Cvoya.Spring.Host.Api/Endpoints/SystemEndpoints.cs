@@ -260,13 +260,21 @@ public static class SystemEndpoints
         // Only Anthropic exercises this today (Claude.ai OAuth tokens on
         // the REST path), but keep the copy generic so other runtimes
         // inheriting this signal later don't need a second branch.
+        //
+        // #931: The message must be operator-actionable and must not expose
+        // internal implementation details (e.g. C# method names). Tell the
+        // operator exactly what they need and how to remediate, referencing
+        // the dispatch path that will consume the credential. The wizard
+        // renders this string as-is; follow-up #931 can enrich it with the
+        // chosen agent image once the wizard passes image context here.
         if (provider == ProviderAnthropic && path == CredentialDispatchPath.Rest)
         {
-            return "The stored Anthropic credential is a Claude.ai OAuth token (sk-ant-oat…), " +
-                "which the Anthropic Platform REST endpoint rejects. " +
-                "OAuth tokens are only usable through the `claude` CLI running inside a unit container. " +
-                "Either replace the tenant-default 'anthropic-api-key' with an Anthropic Platform API key " +
-                "(sk-ant-api…), or pin the unit to a runtime that dispatches via the in-container path.";
+            return "The stored credential is a Claude.ai OAuth token (sk-ant-oat…), which the " +
+                "Anthropic Platform REST API rejects. OAuth tokens require the `claude` CLI " +
+                "installed inside the agent image and only work with the Claude Code in-container path. " +
+                "To fix: either replace the 'anthropic-api-key' secret with an Anthropic Platform API " +
+                "key (sk-ant-api…) from console.anthropic.com, or pick an agent image that includes the " +
+                "`claude` CLI and select the Claude Code runtime.";
         }
 
         var displayName = provider switch
@@ -279,8 +287,9 @@ public static class SystemEndpoints
         var pathLabel = path == CredentialDispatchPath.Rest
             ? "the host-side REST path"
             : "the in-container agent-runtime path";
-        return $"The stored {displayName} credential's format is rejected by {pathLabel}. " +
-            "Replace it with a credential shape the path accepts, or dispatch through the other path.";
+        return $"The stored {displayName} credential's format is not accepted by {pathLabel}. " +
+            "Replace it with a credential in the expected format for this path, " +
+            "or switch to a dispatch path that accepts the current format.";
     }
 
     private static bool TryParseDispatchPath(string? raw, out CredentialDispatchPath path)

@@ -572,7 +572,11 @@ public static class UnitCommand
             {
                 await Console.Error.WriteLineAsync(
                     $"Failed to revalidate unit '{name}': {ExtractServerDetail(ex)}");
-                Environment.Exit(UnitValidationExitCodes.UnknownError);
+                // #990: route through ForCode so scripts can branch on the
+                // specific validation failure (20-27) rather than the generic
+                // UnknownError (1). ForCode returns UnknownError when the code
+                // is absent or unknown, so the fallback is unchanged.
+                Environment.Exit(ExtractValidationExitCode(ex));
                 return;
             }
 
@@ -695,6 +699,39 @@ public static class UnitCommand
         return string.IsNullOrWhiteSpace(message)
             ? "server rejected the request."
             : message;
+    }
+
+    /// <summary>
+    /// #990: Extracts the <c>code</c> extension from a
+    /// <see cref="ProblemDetails"/> response and returns the documented
+    /// 20–27 exit code for the recognised validation failures, or
+    /// <see cref="UnitValidationExitCodes.UnknownError"/> (1) for anything
+    /// else. The message output is unchanged — this only affects the exit code.
+    /// </summary>
+    internal static int ExtractValidationExitCode(ApiException ex)
+    {
+        if (ex is ProblemDetails problem
+            && problem.AdditionalData is { Count: > 0 } data
+            && data.TryGetValue("code", out var raw))
+        {
+            var codeString = raw switch
+            {
+                string s => s,
+                Microsoft.Kiota.Abstractions.Serialization.UntypedString us => us.GetValue(),
+                _ => null,
+            };
+
+            if (!string.IsNullOrEmpty(codeString))
+            {
+                var mapped = UnitValidationExitCodes.ForCode(codeString);
+                if (mapped != UnitValidationExitCodes.UnknownError)
+                {
+                    return mapped;
+                }
+            }
+        }
+
+        return UnitValidationExitCodes.UnknownError;
     }
 
     /// <summary>

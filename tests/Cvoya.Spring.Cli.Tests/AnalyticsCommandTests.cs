@@ -110,4 +110,50 @@ public class AnalyticsCommandTests
     {
         Should.Throw<ArgumentException>(() => AnalyticsCommand.ResolveWindow(window));
     }
+
+    // #554: --by-source / --breakdown flag tests.
+
+    [Fact]
+    public void AnalyticsCosts_ParsesBySourceFlag()
+    {
+        var outputOption = CreateOutputOption();
+        var analyticsCommand = AnalyticsCommand.Create(outputOption);
+        var root = new RootCommand { Options = { outputOption } };
+        root.Subcommands.Add(analyticsCommand);
+
+        var parseResult = root.Parse("analytics costs --by-source --window 7d");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<bool>("--by-source").ShouldBeTrue();
+        parseResult.GetValue<string>("--window").ShouldBe("7d");
+    }
+
+    [Fact]
+    public void AnalyticsCosts_ParsesBreakdownAlias()
+    {
+        var outputOption = CreateOutputOption();
+        var analyticsCommand = AnalyticsCommand.Create(outputOption);
+        var root = new RootCommand { Options = { outputOption } };
+        root.Subcommands.Add(analyticsCommand);
+
+        // --breakdown is an alias for --by-source.
+        var parseResult = root.Parse("analytics costs --breakdown");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<bool>("--by-source").ShouldBeTrue();
+    }
+
+    [Fact]
+    public void AnalyticsCosts_BySourceDefault_IsFalse()
+    {
+        var outputOption = CreateOutputOption();
+        var analyticsCommand = AnalyticsCommand.Create(outputOption);
+        var root = new RootCommand { Options = { outputOption } };
+        root.Subcommands.Add(analyticsCommand);
+
+        var parseResult = root.Parse("analytics costs --window 7d");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<bool>("--by-source").ShouldBeFalse();
+    }
 }
