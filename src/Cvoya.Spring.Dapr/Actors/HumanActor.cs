@@ -117,13 +117,29 @@ public class HumanActor(
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Defaults to <see cref="PermissionLevel.Operator"/> when no explicit
+    /// state has been written for this human actor. The previous default
+    /// (<see cref="PermissionLevel.Viewer"/>) caused inbound Domain messages
+    /// — including the agent's reply to a thread the user themselves
+    /// started — to be rejected with "insufficient permission (Viewer)",
+    /// breaking the new-conversation round-trip in the OSS deployment
+    /// (#1473, #1476).
+    ///
+    /// Defaulting to Operator is an interim OSS unblocker, NOT the
+    /// long-term shape of the permission model. Tracked under #1479,
+    /// which redesigns the model around owner-by-creation and
+    /// thread-scoped participation. Once that lands this default goes
+    /// away and the per-resource ownership / per-thread membership
+    /// records become the source of truth.
+    /// </remarks>
     public async Task<PermissionLevel> GetPermissionAsync(CancellationToken cancellationToken = default)
     {
         var result = await StateManager
             .TryGetStateAsync<PermissionLevel>(StateKeys.HumanPermission, cancellationToken)
             ;
 
-        return result.HasValue ? result.Value : PermissionLevel.Viewer;
+        return result.HasValue ? result.Value : PermissionLevel.Operator;
     }
 
     /// <summary>

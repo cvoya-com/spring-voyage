@@ -43,7 +43,8 @@ public class HumanActorTests
         _actor = new HumanActor(host, _activityEventBus, _loggerFactory);
         SetStateManager(_actor, _stateManager);
 
-        // Default: no state stored (defaults to Viewer permission).
+        // Default: no state stored (HumanActor.GetPermissionAsync now
+        // defaults to Operator — see #1479 / #1473).
         _stateManager.TryGetStateAsync<PermissionLevel>(StateKeys.HumanPermission, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<PermissionLevel>(false, default));
         _stateManager.TryGetStateAsync<string>(StateKeys.HumanIdentity, Arg.Any<CancellationToken>())
@@ -146,7 +147,10 @@ public class HumanActorTests
     [Fact]
     public async Task ReceiveAsync_DomainMessageAsViewer_ReturnsError()
     {
-        // Default is Viewer (no state stored), so no override needed.
+        // The default is now Operator (#1479 interim) — explicitly set
+        // Viewer here so this test still exercises the rejection path.
+        _stateManager.TryGetStateAsync<PermissionLevel>(StateKeys.HumanPermission, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<PermissionLevel>(true, PermissionLevel.Viewer));
         var message = CreateMessage(type: MessageType.Domain);
 
         var result = await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
@@ -176,11 +180,15 @@ public class HumanActorTests
     }
 
     [Fact]
-    public async Task GetPermissionAsync_NoState_ReturnsViewer()
+    public async Task GetPermissionAsync_NoState_ReturnsOperator()
     {
+        // #1479 interim: HumanActor defaults to Operator (not Viewer) so the
+        // OSS new-conversation round-trip works without a separate promotion
+        // step. Long-term shape (owner-by-creation + thread membership) is
+        // tracked in #1479; this test will change again when that lands.
         var permission = await _actor.GetPermissionAsync(TestContext.Current.CancellationToken);
 
-        permission.ShouldBe(PermissionLevel.Viewer);
+        permission.ShouldBe(PermissionLevel.Operator);
     }
 
     // --- Unit-Scoped Permission Tests ---
