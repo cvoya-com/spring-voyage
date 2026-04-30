@@ -113,6 +113,10 @@ public static class AgentCommand
         // agent slot only.
         agentCommand.Subcommands.Add(AgentExecutionCommand.Create(outputOption));
 
+        // #1377: `spring agent health <id>` — read the health status of a
+        // persistent agent's backing container from the deployment endpoint.
+        agentCommand.Subcommands.Add(CreateHealthCommand(outputOption));
+
         return agentCommand;
     }
 
@@ -714,6 +718,78 @@ public static class AgentCommand
             if (!string.IsNullOrEmpty(result.Logs) && !result.Logs.EndsWith('\n'))
             {
                 Console.WriteLine();
+            }
+        });
+
+        return command;
+    }
+
+    // #1377: `spring agent health <id>` -----------------------------------------------
+    //
+    // Reads health from GET /api/v1/tenant/agents/{id}/deployment which surfaces
+    // healthStatus ("healthy" / "unhealthy" / "unknown"), running, and containerId.
+    // This is the public API path — the lower-level dispatcher endpoint is
+    // server-internal and not reachable by the CLI per CONVENTIONS.md § CLI rules.
+    //
+    // Exit codes: 0 = healthy, 1 = unhealthy or not deployed, 2 = unknown status.
+
+    private sealed record HealthRow(
+        string AgentId,
+        string Status,
+        string Running,
+        string ContainerId);
+
+    private static readonly OutputFormatter.Column<HealthRow>[] HealthColumns =
+    {
+        new("agentId", r => r.AgentId),
+        new("status", r => r.Status),
+        new("running", r => r.Running),
+        new("container", r => r.ContainerId),
+    };
+
+    private static Command CreateHealthCommand(Option<string> outputOption)
+    {
+        var idArg = new Argument<string>("id") { Description = "The agent identifier" };
+        var command = new Command(
+            "health",
+            "Read the health status of a persistent agent's backing container. " +
+            "Exits 0 when healthy, 1 when unhealthy or not deployed, 2 when status is unknown.")
+        {
+            idArg,
+        };
+
+        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var id = parseResult.GetValue(idArg)!;
+            var output = parseResult.GetValue(outputOption) ?? "table";
+            var client = ClientFactory.Create();
+
+            var deployment = await client.GetPersistentAgentDeploymentAsync(id, ct);
+
+            var status = deployment.HealthStatus ?? "unknown";
+            var running = deployment.Running?.ToString().ToLowerInvariant() ?? "false";
+            var container = deployment.ContainerId ?? string.Empty;
+
+            if (output == "json")
+            {
+                Console.WriteLine(OutputFormatter.FormatJson(deployment));
+            }
+            else
+            {
+                var row = new HealthRow(id, status, running, container);
+                Console.WriteLine(OutputFormatter.FormatTable(row, HealthColumns));
+            }
+
+            // Exit code reflects the health verdict so scripts can branch on it.
+            var exitCode = status switch
+            {
+                "healthy" => 0,
+                "unknown" => 2,
+                _ => 1,    // "unhealthy" or any unrecognised value
+            };
+            if (exitCode != 0)
+            {
+                Environment.Exit(exitCode);
             }
         });
 

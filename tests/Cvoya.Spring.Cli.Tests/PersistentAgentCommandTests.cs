@@ -139,4 +139,50 @@ public class PersistentAgentCommandTests
         parseResult.Errors.ShouldBeEmpty();
         parseResult.GetValue<string>("id").ShouldBe("ada");
     }
+
+    // #1377: `spring agent health <id>` — parser coverage.
+
+    [Fact]
+    public void AgentHealth_ParsesId()
+    {
+        var root = BuildRoot(out _);
+
+        var parseResult = root.Parse("agent health ada");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<string>("id").ShouldBe("ada");
+    }
+
+    [Fact]
+    public void AgentHealth_RequiresId()
+    {
+        var root = BuildRoot(out _);
+
+        var parseResult = root.Parse("agent health");
+
+        parseResult.Errors.ShouldNotBeEmpty();
+    }
+
+    [Fact]
+    public void AgentHealth_AcceptsJsonOutputOption()
+    {
+        // Use Recursive = true so --output placed after the subcommand is
+        // resolved correctly — mirrors the production binding in Program.cs
+        // and the convention in CommandParsingTests.
+        var outputOption = new Option<string>("--output", "-o")
+        {
+            Description = "Output format",
+            DefaultValueFactory = _ => "table",
+            Recursive = true,
+        };
+        var agentCommand = AgentCommand.Create(outputOption);
+        var root = new RootCommand { Options = { outputOption } };
+        root.Subcommands.Add(agentCommand);
+
+        var parseResult = root.Parse("--output json agent health ada");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<string>("id").ShouldBe("ada");
+        parseResult.GetValue(outputOption).ShouldBe("json");
+    }
 }

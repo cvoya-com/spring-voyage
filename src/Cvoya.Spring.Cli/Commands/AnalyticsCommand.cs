@@ -61,6 +61,34 @@ public static class AnalyticsCommand
         new("to", r => r.To),
     };
 
+    // #1361: cost time-series row emitted by `spring analytics costs --series`.
+    // Hits /api/v1/tenant/analytics/{agents|units}/{id}/cost-timeseries.
+    private sealed record CostTimeseriesRow(
+        string T,
+        string CostUsd);
+
+    private static readonly OutputFormatter.Column<CostTimeseriesRow>[] CostTimeseriesColumns =
+    {
+        new("t", r => r.T),
+        new("costUsd", r => r.CostUsd),
+    };
+
+    // #1362: per-agent model breakdown row emitted by `spring analytics costs --agent X --breakdown`.
+    // Hits /api/v1/tenant/cost/agents/{id}/breakdown.
+    private sealed record CostBreakdownEntryRow(
+        string Key,
+        string Kind,
+        string TotalCost,
+        string RecordCount);
+
+    private static readonly OutputFormatter.Column<CostBreakdownEntryRow>[] CostBreakdownEntryColumns =
+    {
+        new("key", r => r.Key),
+        new("kind", r => r.Kind),
+        new("totalCost", r => r.TotalCost),
+        new("records", r => r.RecordCount),
+    };
+
     private sealed record ThroughputRow(
         string Source,
         string MessagesReceived,
@@ -133,27 +161,48 @@ public static class AnalyticsCommand
         {
             Description = "Filter the rollup to a specific agent (mutually exclusive with --unit).",
         };
-        // #554: per-source breakdown flag. When set, the command hits the
-        // dashboard costs endpoint (/api/v1/tenant/dashboard/costs) instead of
-        // the scalar summary endpoint and prints a table with one row per source.
-        // --unit and --agent have no effect in breakdown mode: the endpoint
-        // is tenant-scoped and always returns all sources. A follow-up can
-        // add scoped breakdown endpoints if the demand materialises.
+        // #554: per-source breakdown flag. When set and --agent is NOT supplied,
+        // the command hits the dashboard costs endpoint and returns a per-source
+        // breakdown table. When --agent IS supplied with --breakdown, it routes to
+        // the per-agent model-breakdown endpoint (#1362).
         var bySourceOption = new Option<bool>("--by-source")
         {
             Description =
                 "Show cost broken down by source (agent / unit). Calls the dashboard " +
                 "costs endpoint and prints a per-source table. " +
-                "--unit and --agent are ignored when --by-source is set.",
+                "When combined with --agent, shows the per-model breakdown for that agent " +
+                "instead (hits the agent breakdown endpoint). " +
+                "--unit is ignored when --by-source is set.",
             DefaultValueFactory = _ => false,
         };
         bySourceOption.Aliases.Add("--breakdown");
+
+        // #1361: --series flag. When set, the command hits the cost-timeseries
+        // endpoint for the supplied --agent or --unit and prints a bucketed table.
+        // Requires either --agent or --unit; --series on the tenant scope is not
+        // supported (no tenant-level timeseries endpoint).
+        var seriesOption = new Option<bool>("--series")
+        {
+            Description =
+                "Show cost as a bucketed time-series (sparkline data). Requires --agent or --unit. " +
+                "Use --bucket to select bucket size (1h, 1d, 7d; default 1d) and " +
+                "--window to control the time span (default 30d).",
+            DefaultValueFactory = _ => false,
+        };
+
+        var bucketOption = new Option<string?>("--bucket")
+        {
+            Description = "Bucket size for --series output: 1h, 1d, or 7d (default: 1d).",
+        };
+        bucketOption.AcceptOnlyFromAmong("1h", "1d", "7d");
 
         var command = new Command(name, description);
         command.Options.Add(windowOption);
         command.Options.Add(unitOption);
         command.Options.Add(agentOption);
         command.Options.Add(bySourceOption);
+        command.Options.Add(seriesOption);
+        command.Options.Add(bucketOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
@@ -161,6 +210,8 @@ public static class AnalyticsCommand
             var unit = parseResult.GetValue(unitOption);
             var agent = parseResult.GetValue(agentOption);
             var bySource = parseResult.GetValue(bySourceOption);
+            var series = parseResult.GetValue(seriesOption);
+            var bucket = parseResult.GetValue(bucketOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
 
             if (!string.IsNullOrEmpty(unit) && !string.IsNullOrEmpty(agent))
@@ -173,9 +224,62 @@ public static class AnalyticsCommand
             var (from, to) = ResolveWindow(window);
             var client = ClientFactory.Create();
 
-            // #554: --by-source routes to the dashboard costs endpoint and
-            // returns a per-source breakdown table. The scalar summary path
-            // is unchanged.
+            // #1361: --series mode. Requires --agent or --unit scope.
+            if (series)
+            {
+                if (string.IsNullOrEmpty(agent) && string.IsNullOrEmpty(unit))
+                {
+                    await Console.Error.WriteLineAsync(
+                        "--series requires --agent <name> or --unit <name>. " +
+                        "There is no tenant-level timeseries endpoint.");
+                    Environment.Exit(1);
+                    return;
+                }
+
+                // The analytics timeseries endpoints accept the window as a
+                // server-side string (e.g. "30d") rather than from/to offsets.
+                // Pass the raw window label through; the server applies its own
+                // default (30d) when omitted — matching the scalar cost path.
+                if (!string.IsNullOrEmpty(agent))
+                {
+                    var timeseries = await client.GetAgentCostTimeseriesAsync(agent, window, bucket, ct);
+                    RenderTimeseries(timeseries, output);
+                }
+                else
+                {
+                    var timeseries = await client.GetUnitCostTimeseriesAsync(unit!, window, bucket, ct);
+                    RenderTimeseries(timeseries, output);
+                }
+                return;
+            }
+
+            // #1362: --breakdown (--by-source) with --agent → per-agent model breakdown.
+            // Without --agent, falls through to the existing per-source dashboard path.
+            if (bySource && !string.IsNullOrEmpty(agent))
+            {
+                var agentBreakdown = await client.GetAgentCostBreakdownAsync(agent, from, to, ct);
+                if (output == "json")
+                {
+                    Console.WriteLine(OutputFormatter.FormatJson(agentBreakdown));
+                }
+                else
+                {
+                    var rows = new List<CostBreakdownEntryRow>();
+                    foreach (var entry in agentBreakdown.Entries ?? new List<CostBreakdownEntryResponse>())
+                    {
+                        rows.Add(new CostBreakdownEntryRow(
+                            entry.Key ?? string.Empty,
+                            entry.Kind ?? string.Empty,
+                            (entry.TotalCost ?? 0).ToString("0.####", CultureInfo.InvariantCulture),
+                            KiotaConversions.ToInt(entry.RecordCount).ToString(CultureInfo.InvariantCulture)));
+                    }
+                    Console.WriteLine(OutputFormatter.FormatTable(rows, CostBreakdownEntryColumns));
+                }
+                return;
+            }
+
+            // #554: --by-source without --agent routes to the dashboard costs endpoint
+            // and returns a per-source breakdown table. Unchanged from original behaviour.
             if (bySource)
             {
                 var breakdown = await client.GetCostBreakdownAsync(from, to, ct);
@@ -242,6 +346,29 @@ public static class AnalyticsCommand
         });
 
         return command;
+    }
+
+    private static void RenderTimeseries(
+        Cvoya.Spring.Cli.Generated.Models.AnalyticsCostTimeseriesResponse timeseries,
+        string output)
+    {
+        if (output == "json")
+        {
+            Console.WriteLine(OutputFormatter.FormatJson(timeseries));
+        }
+        else
+        {
+            var rows = new List<CostTimeseriesRow>();
+            foreach (var point in timeseries.Points ?? new List<Cvoya.Spring.Cli.Generated.Models.AnalyticsCostTimeseriesBucketResponse>())
+            {
+                rows.Add(new CostTimeseriesRow(
+                    point.T is DateTimeOffset dto
+                        ? dto.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)
+                        : string.Empty,
+                    (point.CostUsd ?? 0).ToString("0.######", CultureInfo.InvariantCulture)));
+            }
+            Console.WriteLine(OutputFormatter.FormatTable(rows, CostTimeseriesColumns));
+        }
     }
 
     private static Command CreateThroughputCommand(Option<string> outputOption)

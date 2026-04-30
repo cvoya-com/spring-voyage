@@ -1278,6 +1278,77 @@ public class SpringApiClient
             "Server returned an empty cost breakdown response.");
     }
 
+    // Cost time-series — backs `spring analytics costs --series` (#1361).
+    // Hits /api/v1/tenant/analytics/agents/{id}/cost-timeseries or
+    // /api/v1/tenant/analytics/units/{id}/cost-timeseries with optional
+    // window + bucket query parameters.
+
+    /// <summary>
+    /// Gets the cost time-series for an agent over a window, bucketed by a
+    /// fixed interval. Suitable for sparkline rendering in CLI or portal (#1361).
+    /// </summary>
+    public async Task<AnalyticsCostTimeseriesResponse> GetAgentCostTimeseriesAsync(
+        string agentId,
+        string? window = null,
+        string? bucket = null,
+        CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Tenant.Analytics.Agents[agentId].CostTimeseries.GetAsync(
+            config =>
+            {
+                config.QueryParameters.Window = window;
+                config.QueryParameters.Bucket = bucket;
+            },
+            cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty cost-timeseries response for agent '{agentId}'.");
+    }
+
+    /// <summary>
+    /// Gets the cost time-series for a unit over a window, bucketed by a
+    /// fixed interval. Suitable for sparkline rendering in CLI or portal (#1361).
+    /// </summary>
+    public async Task<AnalyticsCostTimeseriesResponse> GetUnitCostTimeseriesAsync(
+        string unitId,
+        string? window = null,
+        string? bucket = null,
+        CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Tenant.Analytics.Units[unitId].CostTimeseries.GetAsync(
+            config =>
+            {
+                config.QueryParameters.Window = window;
+                config.QueryParameters.Bucket = bucket;
+            },
+            cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty cost-timeseries response for unit '{unitId}'.");
+    }
+
+    // Per-agent model breakdown — backs `spring analytics costs --agent X --breakdown` (#1362).
+    // Hits /api/v1/tenant/cost/agents/{id}/breakdown with optional from/to.
+
+    /// <summary>
+    /// Gets the per-model cost breakdown for an agent. Returns one entry per
+    /// model used, descending by cost (#1362 / #570).
+    /// </summary>
+    public async Task<CostBreakdownResponse> GetAgentCostBreakdownAsync(
+        string agentId,
+        DateTimeOffset? from = null,
+        DateTimeOffset? to = null,
+        CancellationToken ct = default)
+    {
+        var result = await _client.Api.V1.Tenant.Cost.Agents[agentId].Breakdown.GetAsync(
+            config =>
+            {
+                config.QueryParameters.From = from;
+                config.QueryParameters.To = to;
+            },
+            cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty cost-breakdown response for agent '{agentId}'.");
+    }
+
     // Analytics — throughput + waits. The costs slice reuses the Costs
     // wrappers above because the portal's Costs tab and the CLI's `analytics
     // costs` verb both point at /api/v1/costs; adding a third aggregation
