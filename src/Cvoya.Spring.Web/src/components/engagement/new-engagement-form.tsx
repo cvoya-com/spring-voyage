@@ -12,7 +12,7 @@
 // query strings (read once on mount). The picker treats them like any
 // other selection — they can be removed before submit.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Bot,
@@ -74,51 +74,43 @@ export function NewEngagementForm() {
   const { toast } = useToast();
   const treeQuery = useTenantTree();
 
-  const [selected, setSelected] = useState<ParticipantRef[]>([]);
+  // Seed initial selection from `?participant=<scheme>://<path>` query
+  // strings via the lazy state initializer so we never have to call
+  // `setSelected` from inside an effect (the React 19 lint rule
+  // `react-hooks/set-state-in-effect` flags effect-driven setState
+  // because cascading renders are a perf/correctness foot-gun).
+  const [selected, setSelected] = useState<ParticipantRef[]>(() => {
+    if (!searchParams) return [];
+    const raw = searchParams.getAll("participant");
+    return raw
+      .map(parseAddress)
+      .filter((r): r is ParticipantRef => r !== null);
+  });
   const [body, setBody] = useState("");
   const [filter, setFilter] = useState("");
   const [validationError, setValidationError] = useState<string | null>(null);
-  const seededRef = useRef(false);
 
   const catalog = useMemo<ParticipantRef[]>(() => {
     if (!treeQuery.data) return [];
     return flattenTree(treeQuery.data);
   }, [treeQuery.data]);
 
-  useEffect(() => {
-    if (seededRef.current) return;
-    if (!searchParams) return;
-    const raw = searchParams.getAll("participant");
-    if (raw.length === 0) {
-      seededRef.current = true;
-      return;
-    }
-    const parsed = raw
-      .map(parseAddress)
-      .filter((r): r is ParticipantRef => r !== null);
-    if (parsed.length > 0) {
-      setSelected(parsed);
-    }
-    seededRef.current = true;
-  }, [searchParams]);
-
-  useEffect(() => {
-    if (catalog.length === 0) return;
-    setSelected((prev) => {
-      let dirty = false;
-      const next = prev.map((ref) => {
-        const hit = catalog.find(
-          (c) => c.scheme === ref.scheme && c.path === ref.path,
-        );
-        if (hit && hit.label !== ref.label) {
-          dirty = true;
-          return { ...ref, label: hit.label };
-        }
-        return ref;
-      });
-      return dirty ? next : prev;
+  // Catalog-aware label resolver: a chip's display name comes from the
+  // catalog when the entry has loaded, otherwise it falls back to the
+  // ref's seeded label (typically the path itself for query-string
+  // seeding before the tree loads). Computed at render — no effect
+  // mutation of `selected` required.
+  const selectedDisplay = useMemo<ParticipantRef[]>(() => {
+    if (catalog.length === 0) return selected;
+    return selected.map((ref) => {
+      const hit = catalog.find(
+        (c) => c.scheme === ref.scheme && c.path === ref.path,
+      );
+      return hit && hit.label !== ref.label
+        ? { ...ref, label: hit.label }
+        : ref;
     });
-  }, [catalog]);
+  }, [catalog, selected]);
 
   const send = useMutation({
     mutationFn: async () => {
@@ -239,12 +231,12 @@ export function NewEngagementForm() {
             className="flex flex-wrap gap-2"
             data-testid="engagement-new-selected"
           >
-            {selected.length === 0 && (
+            {selectedDisplay.length === 0 && (
               <p className="text-xs text-muted-foreground">
                 No participants picked yet.
               </p>
             )}
-            {selected.map((ref) => (
+            {selectedDisplay.map((ref) => (
               <span
                 key={refKey(ref)}
                 data-testid={

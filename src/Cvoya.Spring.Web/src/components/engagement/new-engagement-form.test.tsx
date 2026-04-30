@@ -69,7 +69,7 @@ const tree: ValidatedTenantTreeNode = {
       id: "engineering",
       name: "Engineering",
       kind: "Unit",
-      status: "Stopped",
+      status: "stopped",
       children: [
         {
           id: "ada",
@@ -84,7 +84,7 @@ const tree: ValidatedTenantTreeNode = {
       id: "design",
       name: "Design",
       kind: "Unit",
-      status: "Stopped",
+      status: "stopped",
       children: [],
     },
   ],
