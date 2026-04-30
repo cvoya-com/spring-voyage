@@ -365,15 +365,38 @@ function NavLink({
         {badge ? <NavItemBadge spec={badge} collapsed={collapsed} /> : null}
       </span>
       {collapsed ? (
-        <span className="sr-only">{item.label}</span>
+        <span className="sr-only">
+          {item.label}
+          {item.secondaryLabel ? ` ${item.secondaryLabel}` : null}
+        </span>
       ) : (
-        <span className="truncate">{item.label}</span>
+        // #1454: routes can carry a `secondaryLabel` (e.g. `(experimental)`)
+        // rendered subordinately below the primary label.
+        <span className="flex min-w-0 flex-col leading-tight">
+          <span className="truncate">{item.label}</span>
+          {item.secondaryLabel ? (
+            <span
+              data-testid={`sidebar-nav-link-${item.path}-secondary`}
+              className="truncate text-[10px] font-normal opacity-70"
+            >
+              {item.secondaryLabel}
+            </span>
+          ) : null}
+        </span>
       )}
     </Link>
   );
 
   return (
-    <Tooltip label={item.label} side="right" enabled={collapsed}>
+    <Tooltip
+      label={
+        item.secondaryLabel
+          ? `${item.label} ${item.secondaryLabel}`
+          : item.label
+      }
+      side="right"
+      enabled={collapsed}
+    >
       {link}
     </Tooltip>
   );

@@ -152,6 +152,27 @@ export const defaultRoutes: readonly RouteEntry[] = [
     description:
       "Browse and search expertise declared by every agent and unit.",
   },
+  // #1454: surface the engagement portal in the management sidebar so
+  // the "start a conversation" entry point is one click from anywhere.
+  // Marked experimental until the multi-participant create flow has
+  // soaked.
+  {
+    path: "/engagement",
+    label: "Engagement",
+    secondaryLabel: "(experimental)",
+    icon: MessagesSquare,
+    navSection: "orchestrate",
+    orderHint: 65,
+    keywords: [
+      "conversations",
+      "threads",
+      "talk",
+      "chat",
+      "engagements",
+    ],
+    description:
+      "Talk to units and agents — start new engagements or pick up open threads.",
+  },
 
   // ----- Control ----------------------------------------------------
   {

@@ -36,6 +36,9 @@ interface NavEntry {
 
 const ENGAGEMENT_NAV: readonly NavEntry[] = [
   { href: "/engagement/mine", label: "My engagements", exact: false },
+  // #1455: dedicated entry point for kicking off a new engagement
+  // with one or more participants.
+  { href: "/engagement/new", label: "New engagement", exact: true },
 ];
 
 /**

@@ -12,7 +12,8 @@
 // the default "mine" view but visible in the per-unit / per-agent slices
 // (they can be observed read-only from the detail view).
 
-import { MessagesSquare } from "lucide-react";
+import { MessagesSquare, Plus } from "lucide-react";
+import Link from "next/link";
 import type { Metadata } from "next";
 import { EngagementList } from "@/components/engagement/engagement-list";
 
@@ -50,12 +51,24 @@ export default async function MyEngagementsPage({
 
   return (
     <div className="space-y-6" data-testid="my-engagements-page">
-      <div>
-        <h1 className="flex items-center gap-2 text-2xl font-bold">
-          <MessagesSquare className="h-5 w-5" aria-hidden="true" />
-          {heading}
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="flex items-center gap-2 text-2xl font-bold">
+            <MessagesSquare className="h-5 w-5" aria-hidden="true" />
+            {heading}
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+        </div>
+        {slice === "mine" && (
+          <Link
+            href="/engagement/new"
+            data-testid="engagement-mine-new-cta"
+            className="inline-flex h-8 items-center justify-center gap-1 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          >
+            <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+            New engagement
+          </Link>
+        )}
       </div>
 
       {/* The list component is a client component that fetches and renders

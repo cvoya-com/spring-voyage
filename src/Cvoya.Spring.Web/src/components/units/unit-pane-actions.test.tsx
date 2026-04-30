@@ -209,6 +209,29 @@ describe("UnitPaneActions — Unit status gating", () => {
 // onto the create-unit API call. The button is unconditional — see
 // the status-gating loop above for the cross-status assertion that
 // every UnitStatus surfaces it.
+describe("UnitPaneActions — Start engagement (#1456)", () => {
+  it("navigates to /engagement/new with the unit pre-seeded", async () => {
+    useUnitMock.mockReturnValue({ data: makeUnit("Stopped") });
+    render(wrap(<UnitPaneActions node={unitNode} />));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("unit-action-start-engagement"));
+    });
+    expect(routerPushMock).toHaveBeenCalledWith(
+      "/engagement/new?participant=" + encodeURIComponent("unit://alpha"),
+    );
+  });
+
+  it("navigates to /engagement/new with the agent pre-seeded", async () => {
+    render(wrap(<UnitPaneActions node={agentNode} />));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("agent-action-start-engagement"));
+    });
+    expect(routerPushMock).toHaveBeenCalledWith(
+      "/engagement/new?participant=" + encodeURIComponent("agent://ada"),
+    );
+  });
+});
+
 describe("UnitPaneActions — Create sub-unit (#1150)", () => {
   it("navigates to /units/create with the parent query param", async () => {
     useUnitMock.mockReturnValue({ data: makeUnit("Running") });
@@ -405,9 +428,13 @@ describe("UnitPaneActions — Force delete recovery (#1137)", () => {
 });
 
 describe("UnitPaneActions — Agent", () => {
-  it("renders only Delete for an agent node", () => {
+  it("renders Start engagement + Delete for an agent node", () => {
     render(wrap(<UnitPaneActions node={agentNode} />));
     expect(screen.getByTestId("agent-action-delete")).toBeInTheDocument();
+    // #1456: agent panes also surface the engagement entry-point.
+    expect(
+      screen.getByTestId("agent-action-start-engagement"),
+    ).toBeInTheDocument();
     expect(screen.queryByTestId("unit-action-start")).toBeNull();
     expect(screen.queryByTestId("unit-action-stop")).toBeNull();
     expect(screen.queryByTestId("unit-action-revalidate")).toBeNull();

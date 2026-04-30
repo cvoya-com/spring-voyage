@@ -85,6 +85,11 @@ export interface RouteEntry {
   orderHint?: number;
   keywords?: readonly string[];
   description?: string;
+  /**
+   * Optional sub-label rendered below the primary label in a smaller,
+   * subordinate font. Used to mark routes as `(experimental)` etc.
+   */
+  secondaryLabel?: string;
 }
 
 /**

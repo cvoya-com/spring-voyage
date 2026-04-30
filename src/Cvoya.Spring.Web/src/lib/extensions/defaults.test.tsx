@@ -19,7 +19,7 @@ describe("defaultRoutes (IA §2)", () => {
     ]);
   });
 
-  it("groups the 10 v2 sidebar items into their clusters", () => {
+  it("groups the 11 v2 sidebar items into their clusters", () => {
     const byPath = Object.fromEntries(
       defaultRoutes.map((r) => [r.path, r.navSection]),
     );
@@ -31,11 +31,29 @@ describe("defaultRoutes (IA §2)", () => {
     expect(byPath["/units"]).toBe("orchestrate");
     expect(byPath["/inbox"]).toBe("orchestrate");
     expect(byPath["/discovery"]).toBe("orchestrate");
+    // #1454: Engagement is the latest Orchestrate entry, sitting
+    // immediately below Discovery and marked experimental.
+    expect(byPath["/engagement"]).toBe("orchestrate");
 
     expect(byPath["/connectors"]).toBe("control");
     expect(byPath["/policies"]).toBe("control");
     expect(byPath["/budgets"]).toBe("control");
     expect(byPath["/settings"]).toBe("control");
+  });
+
+  it("renders the Engagement entry directly below Discovery in the Orchestrate cluster (#1454)", () => {
+    const orchestrate = defaultRoutes
+      .filter((r) => r.navSection === "orchestrate")
+      .sort((a, b) => (a.orderHint ?? 0) - (b.orderHint ?? 0));
+
+    const discoveryIdx = orchestrate.findIndex((r) => r.path === "/discovery");
+    const engagementIdx = orchestrate.findIndex((r) => r.path === "/engagement");
+    expect(discoveryIdx).toBeGreaterThanOrEqual(0);
+    expect(engagementIdx).toBe(discoveryIdx + 1);
+
+    const engagement = orchestrate[engagementIdx]!;
+    expect(engagement.label).toBe("Engagement");
+    expect(engagement.secondaryLabel).toMatch(/experimental/i);
   });
 
   it("drops the routes retired by the v2 IA", () => {

@@ -262,6 +262,15 @@ function EngagementListEmpty({ slice, unit, agent }: EmptyStateProps) {
         />
         <p className="mb-1 font-medium">No engagements</p>
         <p className="text-sm text-muted-foreground">{message}</p>
+        {slice === "mine" && (
+          <Link
+            href="/engagement/new"
+            data-testid="engagement-list-empty-new-cta"
+            className="mt-4 inline-flex h-8 items-center justify-center gap-1 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          >
+            Start a new engagement
+          </Link>
+        )}
       </CardContent>
     </Card>
   );

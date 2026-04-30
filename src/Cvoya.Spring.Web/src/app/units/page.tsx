@@ -12,7 +12,7 @@
 
 import { Suspense } from "react";
 import Link from "next/link";
-import { AlertCircle, Loader2, Plus } from "lucide-react";
+import { AlertCircle, Loader2, MessagesSquare, Plus } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { Card, CardContent } from "@/components/ui/card";
@@ -131,8 +131,20 @@ function UnitsPageHeader() {
   return (
     <header
       data-testid="units-page-header"
-      className="flex shrink-0 items-center justify-end"
+      className="flex shrink-0 items-center justify-end gap-2"
     >
+      {/* #1456: ambient "New engagement" button on the Units page so
+          the user can start a conversation without first picking a
+          unit/agent. The per-node "Start engagement" affordance lives
+          on the unit-pane-actions strip and pre-seeds the participant. */}
+      <Link
+        href="/engagement/new"
+        className="inline-flex h-8 items-center justify-center rounded-md border border-border bg-background px-3 text-sm font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        data-testid="units-page-new-engagement"
+      >
+        <MessagesSquare className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+        New engagement
+      </Link>
       <Link
         href="/units/create"
         className="inline-flex h-8 items-center justify-center rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
