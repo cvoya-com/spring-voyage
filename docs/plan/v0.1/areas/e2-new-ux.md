@@ -1,6 +1,6 @@
 # Area E2: New unit/agent-interaction UX
 
-**Status:** Planning session pending. Design can run parallel with D / F; build follows.
+**Status:** 🟡 **Newly unblocked; planning session pending.** D and F dependencies are now resolved (D1/D2/D3a–d shipped; F1/F2/F3 done). C2 (API freeze) is also done. Planning session is the next step before implementation begins.
 
 ## Scope (provisional)
 

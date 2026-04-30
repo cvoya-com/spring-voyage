@@ -43,3 +43,16 @@ All ADRs reviewed for evolve / retire / stand. Owned by Area J.
 Hybrid tracking: this directory owns narrative; GitHub owns state via milestone `v0.1`, per-area umbrella issues (thin body, sub-issue panel), `area:*` labels, and sub-issues + `addBlockedBy` for real cross-area dependencies. No top-level v0.1 umbrella — the milestone + the README cover that role.
 
 This refines the prior "no umbrella that duplicates the milestone" lesson (2026-04-18): umbrellas that anchor cross-cutting structure inside a milestone are net-positive when bodies stay thin (link + sub-issue panel) and don't replicate prose.
+
+## 2026-04-30 — Area status correction: most umbrellas now closed
+
+State-of-the-plan pass to record actual shipped state.
+
+**Closed umbrellas:** A (#1214), B (#1215), C (#1216), E1 (#1218), G (#1221), H (#1222), J (#1223) — all done.
+
+**Residual deferred sub-issues:**
+
+- D (#1217): D1–D3d shipped; three sub-issues (#1165, #1203, #1301) explicitly deferred as design-required.
+- F (#1220): F1/F2/F3 shipped; two sub-issues (#1292, #1293) explicitly v0.1-deferred.
+
+**E2 (#1219) is now unblocked.** D, F, and C2 dependencies are all resolved. A planning session is the next step before implementation begins.

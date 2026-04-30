@@ -1,6 +1,6 @@
 # Area B: Documentation overhaul
 
-**Status:** 🟢 **First wave done.** B1.1 (V2 framing scrub), B1.2 (audience-led `guide/` restructure: `intro/`, `user/`, `operator/`, `developer/`), B1.3 (audience-led navigation in `docs/README.md`), and B1.4 (`docs-evergreen-framing` CI lint) merged. B2.1 (content compression — including `guide/user/portal.md` trim and CLI-vs-portal section split) and B2.2 (`architecture/units.md` decomposition) are deferred behind Areas D / F / G.
+**Status:** ✅ **Done.** Umbrella [#1215](https://github.com/cvoya-com/spring-voyage/issues/1215) closed. B1.1 (V2 framing scrub), B1.2 (audience-led `guide/` restructure: `intro/`, `user/`, `operator/`, `developer/`), B1.3 (audience-led navigation in `docs/README.md`), and B1.4 (`docs-evergreen-framing` CI lint) all shipped. B2.1 (content compression) and B2.2 (`architecture/units.md` decomposition) were deferred behind Areas D / F / G and are tracked as separate backlog items.
 
 Original planning notes preserved below.
 
