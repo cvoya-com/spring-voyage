@@ -77,24 +77,28 @@ public static class ConnectorEndpoints
         // match the agent-runtimes surface (#693). A connector must be
         // installed on the current tenant before the wizard, CLI, or unit
         // Connector tab can see it.
+        // C1.2 authz audit: read routes → TenantUser; mutation routes →
+        // TenantOperator. The old bare RequireAuthorization() calls have
+        // been promoted to explicit named policies.
         connectors.MapGet("/", ListConnectorsAsync)
             .WithName("ListConnectors")
             .WithSummary("List every connector installed on the current tenant")
             .Produces<InstalledConnectorResponse[]>(StatusCodes.Status200OK)
-            .RequireAuthorization();
+            .RequireAuthorization(RolePolicies.TenantUser);
 
         connectors.MapGet("/{slugOrId}", GetConnectorAsync)
             .WithName("GetConnector")
             .WithSummary("Get a single installed connector on the current tenant by slug or id")
             .Produces<InstalledConnectorResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound)
-            .RequireAuthorization();
+            .RequireAuthorization(RolePolicies.TenantUser);
 
         connectors.MapGet("/{slugOrId}/bindings", ListConnectorBindingsAsync)
             .WithName("ListConnectorBindings")
             .WithSummary("List every unit bound to the given connector type (#520)")
             .Produces<ConnectorUnitBindingResponse[]>(StatusCodes.Status200OK)
-            .ProducesProblem(StatusCodes.Status404NotFound);
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .RequireAuthorization(RolePolicies.TenantUser);
 
         // Tenant bind lifecycle (#1259 / C1.2c). `/bind` (POST) is the
         // tenant-scoped counterpart to the platform `/provision` verb —
@@ -108,35 +112,35 @@ public static class ConnectorEndpoints
             .WithSummary("Bind (install) the connector on the current tenant (idempotent)")
             .Produces<InstalledConnectorResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound)
-            .RequireAuthorization();
+            .RequireAuthorization(RolePolicies.TenantOperator);
 
         connectors.MapDelete("/{slugOrId}", UnbindConnectorAsync)
             .WithName("UnbindConnector")
             .WithSummary("Unbind (uninstall) the connector from the current tenant")
             .Produces(StatusCodes.Status204NoContent)
             .ProducesProblem(StatusCodes.Status404NotFound)
-            .RequireAuthorization();
+            .RequireAuthorization(RolePolicies.TenantOperator);
 
         connectors.MapPatch("/{slugOrId}/config", UpdateInstallConfigAsync)
             .WithName("UpdateConnectorInstallConfig")
             .WithSummary("Replace the tenant-scoped install configuration for a connector")
             .Produces<InstalledConnectorResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound)
-            .RequireAuthorization();
+            .RequireAuthorization(RolePolicies.TenantOperator);
 
         connectors.MapPost("/{slugOrId}/validate-credential", ValidateConnectorCredentialAsync)
             .WithName("ValidateConnectorCredential")
             .WithSummary("Validate a candidate credential against the connector's backing service; records the outcome in the credential-health store")
             .Produces<CredentialValidateResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound)
-            .RequireAuthorization();
+            .RequireAuthorization(RolePolicies.TenantOperator);
 
         connectors.MapGet("/{slugOrId}/credential-health", GetConnectorCredentialHealthAsync)
             .WithName("GetConnectorCredentialHealth")
             .WithSummary("Get the current credential-health row for a connector on the current tenant")
             .Produces<CredentialHealthResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound)
-            .RequireAuthorization();
+            .RequireAuthorization(RolePolicies.TenantUser);
 
         // Each connector owns its typed routes under /api/v1/connectors/{slug}/...
         // The host calls MapRoutes on a pre-scoped group so the connector
@@ -145,7 +149,7 @@ public static class ConnectorEndpoints
         foreach (var type in types)
         {
             var slugGroup = app.MapGroup($"/api/v1/tenant/connectors/{type.Slug}")
-                .RequireAuthorization();
+                .RequireAuthorization(RolePolicies.TenantUser);
             type.MapRoutes(slugGroup);
         }
     }

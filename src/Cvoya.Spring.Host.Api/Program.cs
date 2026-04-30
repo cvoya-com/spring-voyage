@@ -254,7 +254,9 @@ try
 
     // Auth/token management — TenantUser scope (caller manages their own
     // tokens inside their tenant). C1.2b moved the routes under
-    // /api/v1/tenant/auth/.
+    // /api/v1/tenant/auth/. C1.2 audit: role gate is self-applied inside
+    // MapAuthEndpoints via .RequireAuthorization(RolePolicies.TenantUser)
+    // on the group — do NOT add a second call here.
     app.MapAuthEndpoints();
     // Platform info is deliberately anonymous — the About panel / CLI verb
     // needs to work before a caller has negotiated an auth token. The
@@ -308,11 +310,14 @@ try
     // #1259) introduces a /api/v1/platform/agent-runtimes/ registry view.
     app.MapAgentRuntimeEndpoints().RequireAuthorization(RolePolicies.TenantOperator);
     // Secrets endpoint group covers all three scopes (unit / tenant /
-    // platform). The platform-scope routes are gated to PlatformOperator
-    // inside the endpoint via ISecretAccessPolicy; here we apply the
-    // TenantOperator default — endpoints that write to platform scope
-    // also pass through the access-policy gate.
-    app.MapSecretEndpoints().RequireAuthorization(RolePolicies.TenantOperator);
+    // platform). Role gates are applied per-group inside SecretEndpoints:
+    // unit/tenant groups → TenantOperator; platform group → PlatformOperator.
+    // A second ISecretAccessPolicy gate enforces scope-shaped checks on top.
+    // Do NOT chain a second .RequireAuthorization() here — the groups
+    // self-gate internally and the returned unit group already carries
+    // TenantOperator; a second call would override it with the default
+    // policy rather than elevating it.
+    app.MapSecretEndpoints();
     // /api/v1/ollama/models was retired in C1.2b. Callers (CLI / portal)
     // discover Ollama models through the per-runtime install path:
     // GET /api/v1/tenant/agent-runtimes/installs/ollama/models.

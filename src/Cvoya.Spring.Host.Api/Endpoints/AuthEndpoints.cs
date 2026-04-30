@@ -25,33 +25,33 @@ public static class AuthEndpoints
     /// <returns>The route group builder for chaining.</returns>
     public static RouteGroupBuilder MapAuthEndpoints(this IEndpointRouteBuilder app)
     {
+        // C1.2 authz audit: token self-management is in-product usage —
+        // every route requires TenantUser (a caller who can use the product
+        // should be able to manage their own tokens).
         var group = app.MapGroup("/api/v1/tenant/auth")
-            .WithTags("Auth");
+            .WithTags("Auth")
+            .RequireAuthorization(RolePolicies.TenantUser);
 
         group.MapPost("/tokens", CreateTokenAsync)
             .WithName("CreateToken")
             .WithSummary("Create a new API token")
-            .RequireAuthorization()
             .Produces<CreateTokenResponse>(StatusCodes.Status201Created)
             .ProducesProblem(StatusCodes.Status409Conflict);
 
         group.MapGet("/tokens", ListTokensAsync)
             .WithName("ListTokens")
             .WithSummary("List all API tokens for the current user")
-            .RequireAuthorization()
             .Produces<TokenResponse[]>(StatusCodes.Status200OK);
 
         group.MapDelete("/tokens/{name}", RevokeTokenAsync)
             .WithName("RevokeToken")
             .WithSummary("Revoke an API token by name")
-            .RequireAuthorization()
             .Produces(StatusCodes.Status204NoContent)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapGet("/me", GetCurrentUserAsync)
             .WithName("GetCurrentUser")
             .WithSummary("Get the current authenticated user's profile")
-            .RequireAuthorization()
             .Produces<UserProfileResponse>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status401Unauthorized);
 

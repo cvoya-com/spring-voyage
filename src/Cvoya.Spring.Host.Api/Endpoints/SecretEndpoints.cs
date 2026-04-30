@@ -9,6 +9,7 @@ using Cvoya.Spring.Core.Secrets;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Tenancy;
+using Cvoya.Spring.Host.Api.Auth;
 using Cvoya.Spring.Host.Api.Models;
 
 using Microsoft.AspNetCore.Mvc;
@@ -30,11 +31,13 @@ using Microsoft.Extensions.Options;
 /// </para>
 ///
 /// <para>
-/// <b>RBAC.</b> Authorization is delegated to <see cref="ISecretAccessPolicy"/>.
-/// The OSS host wires the allow-all default; the private cloud repo
-/// registers an implementation that enforces tenant-admin and
-/// platform-admin roles. The endpoints do not reference role strings —
-/// the extension point is intentionally scope-shaped.
+/// <b>RBAC.</b> Role gates are applied at the group level (C1.2 audit):
+/// unit-scoped and tenant-scoped groups require <c>TenantOperator</c>;
+/// the platform-scoped group requires <c>PlatformOperator</c>. Within
+/// each group, <see cref="ISecretAccessPolicy"/> provides a second,
+/// scope-shaped gate. The OSS host wires the allow-all default; the
+/// private cloud repo registers an implementation that enforces
+/// tenant-admin and platform-admin roles.
 /// </para>
 ///
 /// <para>
@@ -79,7 +82,8 @@ public static class SecretEndpoints
     public static RouteGroupBuilder MapSecretEndpoints(this IEndpointRouteBuilder app)
     {
         var unitGroup = app.MapGroup("/api/v1/tenant/units/{id}/secrets")
-            .WithTags("Secrets");
+            .WithTags("Secrets")
+            .RequireAuthorization(RolePolicies.TenantOperator);
 
         unitGroup.MapGet("/", ListUnitSecretsAsync)
             .WithName("ListUnitSecrets")
@@ -129,7 +133,8 @@ public static class SecretEndpoints
             .ProducesProblem(StatusCodes.Status500InternalServerError);
 
         var tenantGroup = app.MapGroup("/api/v1/tenant/secrets")
-            .WithTags("Secrets");
+            .WithTags("Secrets")
+            .RequireAuthorization(RolePolicies.TenantOperator);
 
         tenantGroup.MapGet("/", ListTenantSecretsAsync)
             .WithName("ListTenantSecrets")
@@ -177,7 +182,8 @@ public static class SecretEndpoints
             .ProducesProblem(StatusCodes.Status500InternalServerError);
 
         var platformGroup = app.MapGroup("/api/v1/platform/secrets")
-            .WithTags("Secrets");
+            .WithTags("Secrets")
+            .RequireAuthorization(RolePolicies.PlatformOperator);
 
         platformGroup.MapGet("/", ListPlatformSecretsAsync)
             .WithName("ListPlatformSecrets")
