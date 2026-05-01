@@ -66,6 +66,42 @@ public static class WorkerComposition
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
 
+        // Register Dapr workflows FIRST, before AddCvoyaSpringDapr.
+        //
+        // The Dapr Workflow SDK uses TryAddSingleton for IWorkflowsFactory,
+        // so the FIRST call to AddDaprWorkflow wins. AddCvoyaSpringDapr
+        // (called below) itself calls AddDaprWorkflow(options => {}) with an
+        // empty options lambda as part of AddCvoyaSpringInfrastructure. If the
+        // Worker's workflow registrations went after AddCvoyaSpringDapr, the
+        // TryAddSingleton for IWorkflowsFactory would be a no-op and the
+        // factory would end up with zero workflows — every
+        // ScheduleNewWorkflowAsync call would appear to succeed (the sidecar
+        // accepts the schedule) but the Worker would immediately fail the
+        // orchestration with "Workflow 'UnitValidationWorkflow' not found in
+        // registry" (IsNonRetriable = true), leaving the unit stuck in
+        // Validating forever. This was the root cause of issue #1452.
+        //
+        // Registering here ensures the factory is populated with the full
+        // workflow set before the shared infrastructure layer's empty-options
+        // call has any opportunity to register a competing factory.
+        services.AddDaprWorkflow(options =>
+        {
+            options.RegisterWorkflow<AgentLifecycleWorkflow>();
+            options.RegisterWorkflow<CloningLifecycleWorkflow>();
+            options.RegisterWorkflow<UnitValidationWorkflow>();
+            options.RegisterActivity<ValidateAgentDefinitionActivity>();
+            options.RegisterActivity<RegisterAgentActivity>();
+            options.RegisterActivity<UnregisterAgentActivity>();
+            options.RegisterActivity<ValidateCloneRequestActivity>();
+            options.RegisterActivity<CreateCloneActorActivity>();
+            options.RegisterActivity<RegisterCloneActivity>();
+            options.RegisterActivity<DestroyCloneActivity>();
+            options.RegisterActivity<PullImageActivity>();
+            options.RegisterActivity<RunContainerProbeActivity>();
+            options.RegisterActivity<EmitValidationProgressActivity>();
+            options.RegisterActivity<CompleteUnitValidationActivity>();
+        });
+
         // Register Spring services
         services
             .AddCvoyaSpringCore()
@@ -125,25 +161,6 @@ public static class WorkerComposition
         // owns the actor runtime, so the actor proxies actually
         // resolve to local activations and the round-trip is cheap.
         services.AddCvoyaSpringUnitSubunitMembershipReconciliation();
-
-        // Register Dapr workflows
-        services.AddDaprWorkflow(options =>
-        {
-            options.RegisterWorkflow<AgentLifecycleWorkflow>();
-            options.RegisterWorkflow<CloningLifecycleWorkflow>();
-            options.RegisterWorkflow<UnitValidationWorkflow>();
-            options.RegisterActivity<ValidateAgentDefinitionActivity>();
-            options.RegisterActivity<RegisterAgentActivity>();
-            options.RegisterActivity<UnregisterAgentActivity>();
-            options.RegisterActivity<ValidateCloneRequestActivity>();
-            options.RegisterActivity<CreateCloneActorActivity>();
-            options.RegisterActivity<RegisterCloneActivity>();
-            options.RegisterActivity<DestroyCloneActivity>();
-            options.RegisterActivity<PullImageActivity>();
-            options.RegisterActivity<RunContainerProbeActivity>();
-            options.RegisterActivity<EmitValidationProgressActivity>();
-            options.RegisterActivity<CompleteUnitValidationActivity>();
-        });
 
         // Register Dapr actors
         services.AddActors(options =>
