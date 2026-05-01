@@ -63,6 +63,12 @@ interface ThreadEventRowProps {
  * If the event carries a message body, render the body in place of the
  * envelope summary so the thread reads as a real conversation rather
  * than a list of "Received Domain message X from Y" lines.
+ *
+ * Header row rules (#1502):
+ *  - Human bubbles: omit the role badge entirely. Show displayName only
+ *    when it is non-empty (no fallback to raw address / UUID).
+ *  - Agent / unit / system bubbles: keep the role badge; show displayName
+ *    (or the address path as a readable fallback).
  */
 export function ThreadEventRow({ event }: ThreadEventRowProps) {
   // Attribute MessageReceived bubbles to the sender (event.from) rather
@@ -71,17 +77,41 @@ export function ThreadEventRow({ event }: ThreadEventRowProps) {
   const attributed =
     isMessageReceived && event.from ? event.from : event.source;
 
-  const role = roleFromEvent(attributed.address, event.eventType);
+  // `attributed` may be a ParticipantRef object (address + displayName)
+  // or a plain address string when served by an older API version.
+   
+  const attributedAny = attributed as any;
+  const attributedAddress: string =
+    typeof attributed === "string"
+      ? attributed
+      : (attributedAny?.address ?? String(attributed));
+
+  const role = roleFromEvent(attributedAddress, event.eventType);
   const style = ROLE_STYLES[role];
-  const source = parseThreadSource(attributed.address);
+  const source = parseThreadSource(attributedAddress);
   const collapsible = isCollapsibleByDefault(event.eventType, role);
   const [expanded, setExpanded] = useState(!collapsible);
 
   const timestamp = new Date(event.timestamp);
+  // Show the message body for all MessageReceived events so the thread
+  // reads as a real conversation rather than a list of envelope summaries.
   const bodyText = isMessageReceived && event.body ? event.body : null;
 
-  const sourceDisplayName =
-    attributed.displayName || source.path || source.raw;
+  // Display name resolution:
+  //  - If the attributed value is a ParticipantRef with a non-empty
+  //    displayName, use it.
+  //  - Otherwise for non-human roles fall back to the address path so
+  //    the source is still identifiable.
+  //  - For human roles never fall back to the raw address (could be a
+  //    UUID) — return null instead so the caller can omit the name.
+  const resolvedDisplayName: string | null = (() => {
+    const dn: string | null | undefined =
+      typeof attributed === "string" ? null : attributedAny?.displayName;
+    if (dn) return dn;
+    if (role === "human") return null;
+    // Non-human fallback: address path (e.g. "ada" from "agent://ada")
+    return source.path || null;
+  })();
 
   // #1161: error events render with destructive styling and are never
   // collapsed — the user cannot be expected to open the activity log to
@@ -105,7 +135,9 @@ export function ThreadEventRow({ event }: ThreadEventRowProps) {
             >
               Error
             </Badge>
-            <span className="truncate font-medium text-foreground/80" data-testid="conversation-event-source-name">{sourceDisplayName}</span>
+            {resolvedDisplayName && (
+              <span className="truncate font-medium text-foreground/80" data-testid="conversation-event-source-name">{resolvedDisplayName}</span>
+            )}
             <span aria-hidden="true">·</span>
             <time
               dateTime={event.timestamp}
@@ -151,16 +183,22 @@ export function ThreadEventRow({ event }: ThreadEventRowProps) {
       data-role={role}
     >
       <div className={cn("flex max-w-[80%] min-w-0 flex-col gap-1")}>
+        {/* Header row: omit the role badge for human bubbles (#1502 Fix 1).
+            Show displayName only when non-empty (never fall back to UUID). */}
         <div
           className={cn(
             "flex items-center gap-2 text-xs text-muted-foreground",
             style.align === "end" ? "justify-end" : "justify-start",
           )}
         >
-          <Badge variant="outline" className="h-5 px-1.5 text-[10px]">
-            {style.label}
-          </Badge>
-          <span className="truncate font-medium text-foreground/80" data-testid="conversation-event-source-name">{sourceDisplayName}</span>
+          {role !== "human" && (
+            <Badge variant="outline" className="h-5 px-1.5 text-[10px]">
+              {style.label}
+            </Badge>
+          )}
+          {resolvedDisplayName && (
+            <span className="truncate font-medium text-foreground/80" data-testid="conversation-event-source-name">{resolvedDisplayName}</span>
+          )}
           <span aria-hidden="true">·</span>
           <time
             dateTime={event.timestamp}

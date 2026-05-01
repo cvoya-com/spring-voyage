@@ -83,7 +83,7 @@ function isHumanAddress(address: string): boolean {
  * Returns true when none of the participants is a human.
  */
 function isA2aOnly(participants: ParticipantRef[]): boolean {
-  return participants.every((p) => !isHumanAddress(p.address));
+  return participants.every((p) => !isHumanAddress(participantAddress(p)));
 }
 
 /**
@@ -94,7 +94,7 @@ function userIsParticipant(
   currentUserAddress: string | undefined,
 ): boolean {
   if (!currentUserAddress) return false;
-  return participants.some((p) => p.address === currentUserAddress);
+  return participants.some((p) => participantAddress(p) === currentUserAddress);
 }
 
 /**
@@ -135,6 +135,41 @@ const FRESHNESS_OPACITY: Record<string, string> = {
 };
 
 /**
+ * Resolve a participant entry to its canonical address string.
+ * Handles both `ParticipantRef` objects (server v2) and plain address
+ * strings (server v1 or schema fallback).
+ */
+function participantAddress(p: ParticipantRef): string {
+   
+  const pAny = p as any;
+  if (typeof p === "string") return p;
+  return pAny?.address ?? "";
+}
+
+/**
+ * Resolve a participant entry to its human-readable display name.
+ * For non-human participants we fall back to the address path segment
+ * (e.g. "ada" from "agent://ada") so the label is always meaningful.
+ * For human participants we skip the raw address — it could be a UUID —
+ * and return null so the caller can omit the entry.
+ */
+function participantDisplayName(p: ParticipantRef): string | null {
+   
+  const pAny = p as any;
+  // ParticipantRef object path (server v2):
+  if (typeof p !== "string" && pAny?.displayName) return pAny.displayName;
+  // Plain string path (server v1): extract the path segment from the address.
+  const addr = participantAddress(p);
+  const idx = addr.indexOf("://");
+  if (idx <= 0) return addr || null;
+  const scheme = addr.slice(0, idx).toLowerCase();
+  const path = addr.slice(idx + 3);
+  // Don't show UUID-shaped paths for human participants — they're meaningless.
+  if (scheme === "human") return null;
+  return path || null;
+}
+
+/**
  * Build the visible title for an engagement card: the display names of
  * everyone except the current user, joined by commas. Long lists fall back
  * to the first three names plus an ellipsis indicator.
@@ -142,18 +177,25 @@ const FRESHNESS_OPACITY: Record<string, string> = {
  * When the participant list — after excluding self — is empty (e.g. a
  * solo thread) we surface a neutral "Just you" placeholder so the card
  * always has a meaningful label.
+ *
+ * Defensive against both `ParticipantRef` objects (server v2) and plain
+ * address strings (server v1 / schema fallback). #1502 Fix 4.
  */
 function engagementTitle(
   participants: ParticipantRef[],
   currentUserAddress: string | undefined,
 ): string {
   const others = participants.filter((p) =>
-    currentUserAddress ? p.address !== currentUserAddress : true,
+    currentUserAddress ? participantAddress(p) !== currentUserAddress : true,
   );
   if (others.length === 0) return "Just you";
-  const visible = others.slice(0, 3).map((p) => p.displayName);
-  const rest = others.length - visible.length;
-  const head = visible.join(", ");
+  const visibleNames = others
+    .slice(0, 3)
+    .map(participantDisplayName)
+    .filter(Boolean) as string[];
+  const rest = others.length - 3;
+  const head = visibleNames.join(", ");
+  if (!head) return "Just you";
   return rest > 0 ? `${head}, …` : head;
 }
 

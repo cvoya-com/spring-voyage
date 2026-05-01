@@ -26,7 +26,7 @@ export const metadata: Metadata = {
 
 export default function NewEngagementPage() {
   return (
-    <div className="space-y-6" data-testid="engagement-new-page">
+    <div className="space-y-6 overflow-y-auto p-4 md:p-6" data-testid="engagement-new-page">
       <div>
         <h1 className="text-2xl font-bold">New engagement</h1>
         <p className="mt-1 text-sm text-muted-foreground">
