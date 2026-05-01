@@ -85,7 +85,8 @@ public static class MembershipEndpoints
         }
 
         var memberships = await repository.ListByAgentAsync(address.Path, cancellationToken);
-        return Results.Ok(memberships.Select(ToResponse).ToArray());
+        var actorIdMap = await ResolveAgentActorIdsAsync(memberships, directoryService, cancellationToken);
+        return Results.Ok(memberships.Select(m => ToResponse(m, actorIdMap)).ToArray());
     }
 
     private static async Task<IResult> ListUnitMembershipsAsync(
@@ -104,7 +105,8 @@ public static class MembershipEndpoints
         }
 
         var memberships = await repository.ListByUnitAsync(id, cancellationToken);
-        return Results.Ok(memberships.Select(ToResponse).ToArray());
+        var actorIdMap = await ResolveAgentActorIdsAsync(memberships, directoryService, cancellationToken);
+        return Results.Ok(memberships.Select(m => ToResponse(m, actorIdMap)).ToArray());
     }
 
     private static async Task<IResult> UpsertMembershipAsync(
@@ -151,8 +153,15 @@ public static class MembershipEndpoints
         await repository.UpsertAsync(membership, cancellationToken);
 
         var persisted = await repository.GetAsync(unitId, agentAddress, cancellationToken);
+        var row = persisted ?? membership;
+        var actorId = agentEntry.ActorId;
+        var actorIdMap = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            [agentAddress] = actorId,
+        };
+
         // persisted cannot be null here — we just wrote the row — but guard for safety.
-        return Results.Ok(persisted is null ? ToResponse(membership) : ToResponse(persisted));
+        return Results.Ok(ToResponse(row, actorIdMap));
     }
 
     private static async Task<IResult> DeleteMembershipAsync(
@@ -191,17 +200,76 @@ public static class MembershipEndpoints
         return Results.NoContent();
     }
 
-    internal static UnitMembershipResponse ToResponse(UnitMembership m) =>
-        new(
+    /// <summary>
+    /// Batch-resolves actor IDs for all distinct agent addresses in
+    /// <paramref name="memberships"/>. Missing or failed lookups fall back
+    /// to the <c>AgentAddress</c> slug so the projection always completes.
+    /// </summary>
+    private static async Task<Dictionary<string, string>> ResolveAgentActorIdsAsync(
+        IReadOnlyList<UnitMembership> memberships,
+        IDirectoryService directoryService,
+        CancellationToken cancellationToken)
+    {
+        var distinct = memberships
+            .Select(m => m.AgentAddress)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        var map = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var agentAddress in distinct)
+        {
+            try
+            {
+                var entry = await directoryService.ResolveAsync(
+                    new Address("agent", agentAddress), cancellationToken);
+                map[agentAddress] = entry?.ActorId ?? agentAddress;
+            }
+            catch
+            {
+                // Directory failures must not break the listing.
+                map[agentAddress] = agentAddress;
+            }
+        }
+
+        return map;
+    }
+
+    /// <summary>
+    /// Projects a <see cref="UnitMembership"/> row into its wire representation.
+    /// The <c>Member</c> field is emitted as <c>agent:id:&lt;actorId&gt;</c>
+    /// (the identity form) so consumers get an unambiguous stable identifier
+    /// that is not confused with a slug-shaped actor id (#1490).
+    /// The <paramref name="actorIdMap"/> provides the resolved actor UUID for
+    /// the agent; when absent the agent's <c>AgentAddress</c> slug is used
+    /// as a safe fallback so the projection always completes.
+    /// </summary>
+    internal static UnitMembershipResponse ToResponse(
+        UnitMembership m,
+        IReadOnlyDictionary<string, string>? actorIdMap = null)
+    {
+        // Prefer the resolved actor UUID; fall back to the slug stored in the row.
+        var actorId = actorIdMap is not null && actorIdMap.TryGetValue(m.AgentAddress, out var id)
+            ? id
+            : m.AgentAddress;
+
+        string member;
+        if (Guid.TryParse(actorId, out var guid))
+        {
+            // Resolved to a proper UUID — emit the unambiguous identity form.
+            member = Address.ForIdentity(Address.AgentScheme, guid).ToIdentityUri();
+        }
+        else
+        {
+            // Fallback: the actor id is slug-shaped (dev / test scenarios
+            // without a real directory). Keep the navigation form so the
+            // field is still useful.
+            member = Address.ForAgent(actorId).ToCanonicalUri();
+        }
+
+        return new UnitMembershipResponse(
             m.UnitId,
             m.AgentAddress,
-            // #1060: scheme-prefixed canonical address of the member. The
-            // server only persists agent-scheme rows in unit_memberships
-            // (sub-unit members live on the actor and surface via /members),
-            // so this is always agent://{AgentAddress} here. Sharing the
-            // canonical-uri builder with the rest of the codebase avoids
-            // string-concat drift.
-            Address.ForAgent(m.AgentAddress).ToCanonicalUri(),
+            member,
             m.Model,
             m.Specialty,
             m.Enabled,
@@ -209,4 +277,5 @@ public static class MembershipEndpoints
             m.CreatedAt,
             m.UpdatedAt,
             m.IsPrimary);
+    }
 }

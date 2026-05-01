@@ -352,18 +352,25 @@ public class ThreadQueryService(
     /// <summary>
     /// Builds the candidate participant strings for a slug-or-id filter.
     /// When the directory service resolves the value to a UUID, only the
-    /// UUID form is returned so that threads from previous instances of an
-    /// entity with the same slug name are not incorrectly included in the
-    /// filter results (#1488). The literal form is returned as a fallback
-    /// when: (a) no directory service is available, (b) the value already
-    /// is the UUID (slug == actorId), or (c) resolution fails.
+    /// identity form (<c>scheme:id:&lt;uuid&gt;</c>) is returned so that
+    /// threads from previous instances of an entity with the same slug name
+    /// are not incorrectly included in the filter results (#1488). The literal
+    /// navigation form is returned as a fallback when: (a) no directory
+    /// service is available, (b) the value already is the UUID, or
+    /// (c) resolution fails.
     /// </summary>
     private async Task<IReadOnlyList<string>> BuildAddressNeedlesAsync(
         string scheme,
         string value,
         CancellationToken cancellationToken)
     {
-        var literal = $"{scheme}://{value}";
+        // Build the fallback needle. If the caller already passed a UUID we
+        // use the identity form; otherwise we use the navigation form.
+        var isUuidValue = Guid.TryParse(value, out _);
+        var literal = isUuidValue
+            ? $"{scheme}:id:{value}"
+            : $"{scheme}://{value}";
+
         if (directoryService is null)
         {
             return new[] { literal };
@@ -380,16 +387,10 @@ public class ThreadQueryService(
                 return new[] { literal };
             }
 
-            if (string.Equals(entry.ActorId, value, StringComparison.Ordinal))
-            {
-                // The caller already passed a UUID; the literal IS the UUID form.
-                return new[] { literal };
-            }
-
-            // The caller passed a slug. Return only the resolved UUID form so
-            // activity events from a previous instance with the same slug are
-            // not accidentally matched (#1488).
-            return new[] { $"{scheme}://{entry.ActorId}" };
+            // NormaliseSource emits agent/unit sources as "scheme:id:<uuid>"
+            // when the stored path is a valid UUID. Return the same form so
+            // participant filter comparisons hit (#1490).
+            return new[] { $"{scheme}:id:{entry.ActorId}" };
         }
         catch
         {
@@ -400,9 +401,24 @@ public class ThreadQueryService(
 
     /// <summary>
     /// Turns the persistence-layer source format (<c>scheme:path</c>) into the
-    /// wire-friendly <c>scheme://path</c> form. The activity mapper stores
-    /// sources with a single colon to keep the column compact; the CLI and
-    /// portal render the full URI.
+    /// appropriate wire form.
+    /// <list type="bullet">
+    ///   <item><description>
+    ///     <c>agent:&lt;uuid&gt;</c> / <c>unit:&lt;uuid&gt;</c> → <c>scheme:id:&lt;uuid&gt;</c>
+    ///     (identity form). Activity events for agents and units are persisted
+    ///     with the actor UUID as the path. The <c>id:</c> discriminator makes
+    ///     the form unambiguous versus a slug that happens to look like a UUID.
+    ///   </description></item>
+    ///   <item><description>
+    ///     <c>human:&lt;username&gt;</c> and all other schemes → <c>scheme://path</c>
+    ///     (navigation form). Humans do not yet have stable UUIDs (#1491), so
+    ///     the navigation form is retained until that migration lands.
+    ///   </description></item>
+    ///   <item><description>
+    ///     Anything already in <c>scheme://path</c> or <c>scheme:id:&lt;uuid&gt;</c>
+    ///     form is returned unchanged.
+    ///   </description></item>
+    /// </list>
     /// </summary>
     internal static string NormaliseSource(string source)
     {
@@ -417,21 +433,46 @@ public class ThreadQueryService(
             return source;
         }
 
-        // Already in "scheme://path" form.
-        if (source.AsSpan(colon + 1).StartsWith("//"))
+        var afterColon = source.AsSpan(colon + 1);
+
+        // Already in "scheme://path" form — return unchanged.
+        if (afterColon.StartsWith("//"))
+        {
+            return source;
+        }
+
+        // Already in identity form "scheme:id:<uuid>" — return unchanged.
+        if (afterColon.StartsWith("id:"))
         {
             return source;
         }
 
         var scheme = source[..colon];
         var path = source[(colon + 1)..];
+
+        // For agent and unit schemes, if the path is a valid UUID the event
+        // was written with the actor id as the source — emit the stable
+        // identity form so consumers get an unambiguous "this is a UUID, not
+        // a slug" signal (#1490). Human sources keep the navigation form
+        // until #1491 lands.
+        if ((string.Equals(scheme, "agent", StringComparison.OrdinalIgnoreCase)
+             || string.Equals(scheme, "unit", StringComparison.OrdinalIgnoreCase))
+            && Guid.TryParse(path, out var actorId))
+        {
+            return $"{scheme}:id:{actorId}";
+        }
+
         return $"{scheme}://{path}";
     }
 
     /// <summary>
-    /// Accepts either <c>scheme://path</c> or <c>scheme:path</c> and returns
-    /// the persistence-layer form (<c>scheme:path</c>) so we can compare
-    /// against <see cref="ActivityEventRecord.Source"/> values.
+    /// Accepts <c>scheme://path</c>, <c>scheme:id:&lt;uuid&gt;</c>, or
+    /// <c>scheme:path</c> and returns the persistence-layer form
+    /// (<c>scheme:path</c>) so we can compare against
+    /// <see cref="ActivityEventRecord.Source"/> values.
+    /// The identity form (<c>scheme:id:&lt;uuid&gt;</c>) is reduced to
+    /// <c>scheme:&lt;uuid&gt;</c> (the compact persistence form stored by
+    /// the activity mapper).
     /// </summary>
     internal static string ToPersistenceSource(string address)
     {
@@ -440,6 +481,16 @@ public class ThreadQueryService(
             return address;
         }
 
+        // Handle identity form: "scheme:id:<uuid>" → "scheme:<uuid>"
+        var idIdx = address.IndexOf(":id:", StringComparison.Ordinal);
+        if (idIdx > 0)
+        {
+            var scheme = address[..idIdx];
+            var uuid = address[(idIdx + 4)..];
+            return $"{scheme}:{uuid}";
+        }
+
+        // Handle navigation form: "scheme://path" → "scheme:path"
         var split = address.IndexOf("://", StringComparison.Ordinal);
         if (split < 0)
         {

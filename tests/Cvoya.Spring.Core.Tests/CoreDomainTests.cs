@@ -113,6 +113,164 @@ public class AddressTests
         address.Scheme.ShouldBe("unit");
         address.Path.ShouldBe("engineering");
     }
+
+    // --- Identity form tests (#1490) ---
+
+    [Fact]
+    public void ForIdentity_SetsIsIdentityTrue()
+    {
+        var id = Guid.Parse("1f9e3c2d-0000-0000-0000-000000000001");
+        var address = Address.ForIdentity("agent", id);
+
+        address.Scheme.ShouldBe("agent");
+        address.Path.ShouldBe(id.ToString());
+        address.IsIdentity.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void ToIdentityUri_IdentityAddress_ReturnsSchemeIdUuid()
+    {
+        var id = Guid.Parse("1f9e3c2d-0000-0000-0000-000000000001");
+        var address = Address.ForIdentity("agent", id);
+
+        address.ToIdentityUri().ShouldBe($"agent:id:{id}");
+    }
+
+    [Fact]
+    public void ToCanonicalUri_IdentityAddress_DelegatesToToIdentityUri()
+    {
+        var id = Guid.Parse("1f9e3c2d-0000-0000-0000-000000000002");
+        var address = Address.ForIdentity("unit", id);
+
+        address.ToCanonicalUri().ShouldBe($"unit:id:{id}");
+    }
+
+    [Fact]
+    public void ToIdentityUri_NavigationAddress_ThrowsInvalidOperationException()
+    {
+        var address = Address.ForAgent("ada");
+
+        Should.Throw<InvalidOperationException>(() => address.ToIdentityUri());
+    }
+
+    [Fact]
+    public void ToString_IdentityAddress_ReturnsSchemeIdUuid()
+    {
+        var id = Guid.Parse("1f9e3c2d-0000-0000-0000-000000000001");
+        var address = Address.ForIdentity("agent", id);
+
+        address.ToString().ShouldBe($"agent:id:{id}");
+    }
+
+    [Fact]
+    public void TryParse_NavigationForm_ReturnsTrueAndNavigationAddress()
+    {
+        var ok = Address.TryParse("agent://engineering/ada", out var address);
+
+        ok.ShouldBeTrue();
+        address.ShouldNotBeNull();
+        address!.Scheme.ShouldBe("agent");
+        address.Path.ShouldBe("engineering/ada");
+        address.IsIdentity.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void TryParse_IdentityForm_ReturnsTrueAndIdentityAddress()
+    {
+        var id = Guid.Parse("1f9e3c2d-0000-0000-0000-000000000001");
+        var ok = Address.TryParse($"agent:id:{id}", out var address);
+
+        ok.ShouldBeTrue();
+        address.ShouldNotBeNull();
+        address!.Scheme.ShouldBe("agent");
+        address.Path.ShouldBe(id.ToString());
+        address.IsIdentity.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void TryParse_IdentityForm_UnitScheme_Works()
+    {
+        var id = Guid.Parse("2a3b4c5d-0000-0000-0000-000000000002");
+        var ok = Address.TryParse($"unit:id:{id}", out var address);
+
+        ok.ShouldBeTrue();
+        address!.Scheme.ShouldBe("unit");
+        address.IsIdentity.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void TryParse_IdentityFormNotAUuid_ReturnsFalse()
+    {
+        // The path after ":id:" must be a valid UUID; a slug-shaped value is rejected.
+        var ok = Address.TryParse("agent:id:not-a-uuid", out _);
+
+        ok.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void TryParse_EmptyString_ReturnsFalse()
+    {
+        Address.TryParse(string.Empty, out _).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void TryParse_NoSeparator_ReturnsFalse()
+    {
+        Address.TryParse("justalabel", out _).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void IdentityAddress_RoundTrip_ParseFormatParse()
+    {
+        // Construct → ToIdentityUri → parse back → same value.
+        var id = Guid.Parse("abcdef12-1234-5678-9abc-def012345678");
+        var original = Address.ForIdentity("agent", id);
+        var uri = original.ToIdentityUri();
+
+        var ok = Address.TryParse(uri, out var parsed);
+
+        ok.ShouldBeTrue();
+        parsed!.Scheme.ShouldBe("agent");
+        parsed.Path.ShouldBe(id.ToString());
+        parsed.IsIdentity.ShouldBeTrue();
+        parsed.ShouldBe(original);
+    }
+
+    [Fact]
+    public void NavigationAddress_RoundTrip_ParseFormatParse()
+    {
+        // Construct → ToCanonicalUri → parse back → same value.
+        var original = Address.ForAgent("engineering/ada");
+        var uri = original.ToCanonicalUri();
+
+        var ok = Address.TryParse(uri, out var parsed);
+
+        ok.ShouldBeTrue();
+        parsed!.Scheme.ShouldBe("agent");
+        parsed.Path.ShouldBe("engineering/ada");
+        parsed.IsIdentity.ShouldBeFalse();
+        parsed.ShouldBe(original);
+    }
+
+    [Fact]
+    public void NavigationAddress_IsIdentity_DefaultsFalse()
+    {
+        var address = new Address("agent", "ada");
+        address.IsIdentity.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void IdentityAndNavigationAddresses_WithSameSchemeAndPath_AreNotEqual()
+    {
+        // The uuid-shaped slug "1f9e3c2d-..." stored in a navigation address
+        // must NOT equal an identity address for the same uuid. This is the
+        // core disambiguation that #1490 ships.
+        var id = Guid.Parse("1f9e3c2d-0000-0000-0000-000000000001");
+        var navAddress = new Address("agent", id.ToString(), IsIdentity: false);
+        var idAddress = Address.ForIdentity("agent", id);
+
+        navAddress.ShouldNotBe(idAddress);
+    }
 }
 
 public class MessageTests

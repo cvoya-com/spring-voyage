@@ -104,17 +104,32 @@ vi.mock("next/link", () => ({
 }));
 
 vi.mock("@/components/thread/role", () => ({
+  // Mirrors the real parseThreadSource — handles both navigation (scheme://path)
+  // and identity (scheme:id:<uuid>) forms (#1490).
   parseThreadSource: (src: string) => {
-    const idx = src.indexOf("://");
-    return idx > 0
-      ? { raw: src, scheme: src.slice(0, idx), path: src.slice(idx + 3) }
-      : { raw: src, scheme: "system", path: src };
+    const idIdx = src.indexOf(":id:");
+    if (idIdx > 0) {
+      const scheme = src.slice(0, idIdx).toLowerCase();
+      const path = src.slice(idIdx + 4);
+      if (path && !path.includes("/") && !path.includes(":")) {
+        return { raw: src, scheme, path, kind: "identity" };
+      }
+    }
+    const navIdx = src.indexOf("://");
+    if (navIdx > 0) {
+      return { raw: src, scheme: src.slice(0, navIdx).toLowerCase(), path: src.slice(navIdx + 3), kind: "navigation" };
+    }
+    return { raw: src, scheme: "system", path: src, kind: "navigation" };
   },
   roleFromEvent: (_src: string, eventType: string) => {
     if (eventType === "DecisionMade") return "tool";
-    if (_src.startsWith("human://")) return "human";
-    if (_src.startsWith("agent://")) return "agent";
-    if (_src.startsWith("unit://")) return "unit";
+    // Match both navigation (scheme://) and identity (scheme:id:) forms.
+    const scheme = _src.includes(":id:") ? _src.slice(0, _src.indexOf(":id:")).toLowerCase()
+      : _src.includes("://") ? _src.slice(0, _src.indexOf("://")).toLowerCase()
+      : "system";
+    if (scheme === "human") return "human";
+    if (scheme === "agent") return "agent";
+    if (scheme === "unit") return "unit";
     return "system";
   },
   ROLE_STYLES: {
@@ -135,10 +150,15 @@ function Wrapper({ children }: { children: ReactNode }) {
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
 }
 
+// Agent and unit participants now carry the identity form (#1490).
+// Human participants keep the navigation form until #1491 lands.
+const ADA_ID = "a1b2c3d4-0000-0000-0000-000000000001";
+const DESIGN_ID = "a1b2c3d4-0000-0000-0000-000000000002";
+
 const rows: InboxItem[] = [
   {
     threadId: "conv-1",
-    from: { address: "agent://engineering-team/ada", displayName: "engineering-team/ada" },
+    from: { address: `agent:id:${ADA_ID}`, displayName: "engineering-team/ada" },
     human: { address: "human://savas", displayName: "savas" },
     pendingSince: new Date(Date.now() - 1000 * 60 * 10).toISOString(),
     summary: "Need your call on the migration plan",
@@ -146,7 +166,7 @@ const rows: InboxItem[] = [
   },
   {
     threadId: "conv-2",
-    from: { address: "unit://design", displayName: "design" },
+    from: { address: `unit:id:${DESIGN_ID}`, displayName: "design" },
     human: { address: "human://savas", displayName: "savas" },
     pendingSince: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
     summary: "Ready to ship the portal redesign?",
@@ -272,7 +292,7 @@ describe("InboxPage — thread row label uses display names (#1482)", () => {
     _markReadMutate.mockReset();
   });
 
-  it("shows the address path (not full address) as the row label", async () => {
+  it("shows the display name as the row label", async () => {
     setupInbox(rows);
     render(
       <Wrapper>
@@ -280,11 +300,12 @@ describe("InboxPage — thread row label uses display names (#1482)", () => {
       </Wrapper>,
     );
     await waitFor(() => {
-      // "engineering-team/ada" is the path stripped from "agent://engineering-team/ada"
+      // displayName from the ParticipantRef is used for the row label (#1490:
+      // "from" now carries the identity form, but the API resolves displayName)
       expect(
         screen.getByTestId("inbox-row-label-conv-1"),
       ).toHaveTextContent("engineering-team/ada");
-      // "design" from "unit://design"
+      // displayName from the unit identity-form ParticipantRef
       expect(
         screen.getByTestId("inbox-row-label-conv-2"),
       ).toHaveTextContent("design");
@@ -303,13 +324,15 @@ describe("InboxPage — timeline participant popover (#1482)", () => {
   });
 
   it("renders participant names in the timeline header when thread has participants", async () => {
+    // Agents now carry the identity form (#1490).
+    const agentAddr = `agent:id:${ADA_ID}`;
     setupThread({
       summary: {
         id: "conv-1",
         status: "active",
         participants: [
           { address: "human://savas", displayName: "savas" },
-          { address: "agent://ada", displayName: "ada" },
+          { address: agentAddr, displayName: "ada" },
         ],
       },
       events: [],
@@ -320,21 +343,22 @@ describe("InboxPage — timeline participant popover (#1482)", () => {
       </Wrapper>,
     );
     await waitFor(() => {
-      // "ada" displayed (human:// excluded)
+      // "ada" displayed (human:// excluded); test-id is keyed off the address string.
       expect(
-        screen.getByTestId("participant-name-agent://ada"),
+        screen.getByTestId(`participant-name-${agentAddr}`),
       ).toHaveTextContent("ada");
     });
   });
 
   it("opens the address popover when the (i) info button is clicked", async () => {
+    const agentAddr = `agent:id:${ADA_ID}`;
     setupThread({
       summary: {
         id: "conv-1",
         status: "active",
         participants: [
           { address: "human://savas", displayName: "savas" },
-          { address: "agent://ada", displayName: "ada" },
+          { address: agentAddr, displayName: "ada" },
         ],
       },
       events: [],
@@ -345,12 +369,12 @@ describe("InboxPage — timeline participant popover (#1482)", () => {
       </Wrapper>,
     );
     // Wait for participant info button to appear
-    const infoBtn = await screen.findByTestId("participant-info-btn-agent://ada");
+    const infoBtn = await screen.findByTestId(`participant-info-btn-${agentAddr}`);
     fireEvent.click(infoBtn);
-    // Popover should appear with the full address
-    const popover = screen.getByTestId("participant-popover-agent://ada");
+    // Popover should appear with the full identity-form address
+    const popover = screen.getByTestId(`participant-popover-${agentAddr}`);
     expect(popover).toBeInTheDocument();
-    expect(popover).toHaveTextContent("agent://ada");
+    expect(popover).toHaveTextContent(agentAddr);
   });
 });
 
@@ -365,13 +389,14 @@ describe("InboxPage — timeline/messages dropdown (#1482)", () => {
   });
 
   it("renders the filter dropdown defaulting to Messages", async () => {
+    const agentAddr = `agent:id:${ADA_ID}`;
     setupThread({
       summary: {
         id: "conv-1",
         status: "active",
         participants: [
           { address: "human://savas", displayName: "savas" },
-          { address: "agent://ada", displayName: "ada" },
+          { address: agentAddr, displayName: "ada" },
         ],
       },
       events: [],
@@ -388,20 +413,21 @@ describe("InboxPage — timeline/messages dropdown (#1482)", () => {
   });
 
   it("filters to only MessageReceived events under Messages mode", async () => {
+    const agentAddr = `agent:id:${ADA_ID}`;
     setupThread({
       summary: {
         id: "conv-1",
         status: "active",
         participants: [
           { address: "human://savas", displayName: "savas" },
-          { address: "agent://ada", displayName: "ada" },
+          { address: agentAddr, displayName: "ada" },
         ],
       },
       events: [
         {
           id: "e-msg",
           eventType: "MessageReceived",
-          source: { address: "agent://ada", displayName: "ada" },
+          source: { address: agentAddr, displayName: "ada" },
           timestamp: "2026-04-30T10:00:00Z",
           severity: "Info",
           summary: "hello",
@@ -410,7 +436,7 @@ describe("InboxPage — timeline/messages dropdown (#1482)", () => {
         {
           id: "e-state",
           eventType: "StateChanged",
-          source: { address: "agent://ada", displayName: "ada" },
+          source: { address: agentAddr, displayName: "ada" },
           timestamp: "2026-04-30T10:01:00Z",
           severity: "Info",
           summary: "state changed",
@@ -431,20 +457,21 @@ describe("InboxPage — timeline/messages dropdown (#1482)", () => {
   });
 
   it("shows all events when switched to Full timeline", async () => {
+    const agentAddr = `agent:id:${ADA_ID}`;
     setupThread({
       summary: {
         id: "conv-1",
         status: "active",
         participants: [
           { address: "human://savas", displayName: "savas" },
-          { address: "agent://ada", displayName: "ada" },
+          { address: agentAddr, displayName: "ada" },
         ],
       },
       events: [
         {
           id: "e-msg",
           eventType: "MessageReceived",
-          source: { address: "agent://ada", displayName: "ada" },
+          source: { address: agentAddr, displayName: "ada" },
           timestamp: "2026-04-30T10:00:00Z",
           severity: "Info",
           summary: "hello",
@@ -453,7 +480,7 @@ describe("InboxPage — timeline/messages dropdown (#1482)", () => {
         {
           id: "e-state",
           eventType: "StateChanged",
-          source: { address: "agent://ada", displayName: "ada" },
+          source: { address: agentAddr, displayName: "ada" },
           timestamp: "2026-04-30T10:01:00Z",
           severity: "Info",
           summary: "state changed",
@@ -489,13 +516,14 @@ describe("InboxPage — user's own message renders text, not placeholder (#1482)
   });
 
   it("renders the body text of a user MessageReceived event", async () => {
+    const agentAddr = `agent:id:${ADA_ID}`;
     setupThread({
       summary: {
         id: "conv-1",
         status: "active",
         participants: [
           { address: "human://savas", displayName: "savas" },
-          { address: "agent://ada", displayName: "ada" },
+          { address: agentAddr, displayName: "ada" },
         ],
       },
       events: [
@@ -583,10 +611,12 @@ describe("InboxPage — unread badge and mark-read (#1477)", () => {
   });
 
   it("sorts unread threads before read threads", async () => {
+    const aliceId = "b1b2b3b4-0000-0000-0000-000000000010";
+    const bobId = "b1b2b3b4-0000-0000-0000-000000000011";
     const mixed: InboxItem[] = [
       {
         threadId: "read-thread",
-        from: { address: "agent://alice", displayName: "alice" },
+        from: { address: `agent:id:${aliceId}`, displayName: "alice" },
         human: { address: "human://savas", displayName: "savas" },
         pendingSince: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
         summary: "Read thread",
@@ -594,7 +624,7 @@ describe("InboxPage — unread badge and mark-read (#1477)", () => {
       },
       {
         threadId: "unread-thread",
-        from: { address: "agent://bob", displayName: "bob" },
+        from: { address: `agent:id:${bobId}`, displayName: "bob" },
         human: { address: "human://savas", displayName: "savas" },
         // older, but should still sort first because it has unread events
         pendingSince: new Date(Date.now() - 1000 * 60 * 60).toISOString(),

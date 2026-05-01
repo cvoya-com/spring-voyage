@@ -112,18 +112,22 @@ public class MembershipEndpointTests : IClassFixture<CustomWebApplicationFactory
         list.ShouldContain(m => m.AgentAddress == "hopper" && !m.Enabled);
     }
 
-    // #1060: every projected row carries a unified `member` column whose
-    // value is the scheme-prefixed canonical address of the member. The
-    // /memberships surface only persists agent-scheme rows, so `member` is
-    // always agent://{agentAddress} here. Lock the wire shape so future
-    // projections (or a future server that mixes unit-scheme rows in)
-    // don't quietly drop the field.
+    // #1060 / #1490: every projected row carries a unified `member` column
+    // whose value is the identity-form address "agent:id:<actorId>" when the
+    // actor id is a valid UUID, so consumers get an unambiguous stable
+    // identifier that cannot be confused with a slug-shaped actor id.
     [Fact]
-    public async Task ListUnitMemberships_EachRow_CarriesSchemePrefixedMemberUri()
+    public async Task ListUnitMemberships_EachRow_CarriesIdentityFormMemberUri()
     {
         var ct = TestContext.Current.CancellationToken;
         ClearMemberships();
         ArrangeDirectoryHit("unit", "engineering", "actor-eng");
+
+        // Arrange directory entries for the individual agents with UUID actor ids.
+        var adaId = "a1a1a1a1-0000-0000-0000-000000000001";
+        var hopperId = "b2b2b2b2-0000-0000-0000-000000000002";
+        ArrangeDirectoryHit("agent", "ada", adaId);
+        ArrangeDirectoryHit("agent", "hopper", hopperId);
 
         await UpsertAsync("engineering", "ada");
         await UpsertAsync("engineering", "hopper");
@@ -133,18 +137,20 @@ public class MembershipEndpointTests : IClassFixture<CustomWebApplicationFactory
 
         var list = await response.Content.ReadFromJsonAsync<List<UnitMembershipResponse>>(JsonOptions, ct);
         list.ShouldNotBeNull();
-        list!.ShouldContain(m => m.AgentAddress == "ada" && m.Member == "agent://ada");
-        list.ShouldContain(m => m.AgentAddress == "hopper" && m.Member == "agent://hopper");
+        // Member must be the identity form, not the navigation form.
+        list!.ShouldContain(m => m.AgentAddress == "ada" && m.Member == $"agent:id:{adaId}");
+        list.ShouldContain(m => m.AgentAddress == "hopper" && m.Member == $"agent:id:{hopperId}");
     }
 
-    // #1060: the same projection applies to the /agents/{id}/memberships
+    // #1060 / #1490: the same projection applies to the /agents/{id}/memberships
     // surface, since it goes through the same ToResponse helper.
     [Fact]
-    public async Task ListAgentMemberships_EachRow_CarriesSchemePrefixedMemberUri()
+    public async Task ListAgentMemberships_EachRow_CarriesIdentityFormMemberUri()
     {
         var ct = TestContext.Current.CancellationToken;
         ClearMemberships();
-        ArrangeDirectoryHit("agent", "ada", "actor-ada");
+        var adaId = "a1a1a1a1-0000-0000-0000-000000000001";
+        ArrangeDirectoryHit("agent", "ada", adaId);
 
         await UpsertAsync("engineering", "ada");
         await UpsertAsync("marketing", "ada");
@@ -154,7 +160,29 @@ public class MembershipEndpointTests : IClassFixture<CustomWebApplicationFactory
 
         var list = await response.Content.ReadFromJsonAsync<List<UnitMembershipResponse>>(JsonOptions, ct);
         list.ShouldNotBeNull();
-        list!.ShouldAllBe(m => m.Member == "agent://ada");
+        list!.ShouldAllBe(m => m.Member == $"agent:id:{adaId}");
+    }
+
+    // #1490: Regression — when the actor id is NOT a valid UUID (dev / test
+    // scenarios or slug-shaped ids), the Member field falls back to the
+    // navigation form so the projection still completes.
+    [Fact]
+    public async Task ListUnitMemberships_SlugShapedActorId_FallsBackToNavigationForm()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        ClearMemberships();
+        ArrangeDirectoryHit("unit", "engineering", "actor-eng");
+        ArrangeDirectoryHit("agent", "ada", "actor-ada"); // non-UUID actor id
+
+        await UpsertAsync("engineering", "ada");
+
+        var response = await _client.GetAsync("/api/v1/tenant/units/engineering/memberships", ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var list = await response.Content.ReadFromJsonAsync<List<UnitMembershipResponse>>(JsonOptions, ct);
+        list.ShouldNotBeNull();
+        // Slug-shaped actor id falls back to navigation form "agent://<actorId>".
+        list!.ShouldContain(m => m.AgentAddress == "ada" && m.Member == "agent://actor-ada");
     }
 
     [Fact]

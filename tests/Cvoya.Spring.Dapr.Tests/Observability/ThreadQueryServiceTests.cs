@@ -479,6 +479,158 @@ public class ThreadQueryServiceTests : IDisposable
         inbox[0].UnreadCount.ShouldBe(0);
     }
 
+    // --- NormaliseSource identity-form tests (#1490) ---
+
+    [Fact]
+    public void NormaliseSource_AgentWithUuidPath_EmitsIdentityForm()
+    {
+        // Activity events for agents are stored as "agent:<uuid>".
+        // NormaliseSource must upgrade these to "agent:id:<uuid>".
+        var actorId = "2ab56e09-6746-40b2-9a34-f0d6babfc0f3";
+        ThreadQueryService.NormaliseSource($"agent:{actorId}")
+            .ShouldBe($"agent:id:{actorId}");
+    }
+
+    [Fact]
+    public void NormaliseSource_UnitWithUuidPath_EmitsIdentityForm()
+    {
+        var actorId = "4c5d6e7f-0000-0000-0000-000000000001";
+        ThreadQueryService.NormaliseSource($"unit:{actorId}")
+            .ShouldBe($"unit:id:{actorId}");
+    }
+
+    [Fact]
+    public void NormaliseSource_AgentWithSlugPath_EmitsNavigationForm()
+    {
+        // Non-UUID paths are kept in the navigation form.
+        ThreadQueryService.NormaliseSource("agent:backend-engineer")
+            .ShouldBe("agent://backend-engineer");
+    }
+
+    [Fact]
+    public void NormaliseSource_HumanWithAnyPath_EmitsNavigationForm()
+    {
+        // Human sources always use the navigation form until #1491 lands.
+        ThreadQueryService.NormaliseSource("human:savasp")
+            .ShouldBe("human://savasp");
+    }
+
+    [Fact]
+    public void NormaliseSource_AlreadyInIdentityForm_Passthrough()
+    {
+        var actorId = "2ab56e09-6746-40b2-9a34-f0d6babfc0f3";
+        var source = $"agent:id:{actorId}";
+        ThreadQueryService.NormaliseSource(source).ShouldBe(source);
+    }
+
+    [Fact]
+    public void NormaliseSource_AlreadyInNavigationForm_Passthrough()
+    {
+        ThreadQueryService.NormaliseSource("agent://ada").ShouldBe("agent://ada");
+    }
+
+    [Fact]
+    public async Task ListAsync_AgentSourceWithUuidPath_ParticipantInIdentityForm()
+    {
+        // When activity events carry "agent:<uuid>" as the source, the
+        // participants list on the thread summary must expose the identity form
+        // "agent:id:<uuid>", not the navigation form "agent://<uuid>".
+        var actorId = "2ab56e09-6746-40b2-9a34-f0d6babfc0f3";
+        await SeedThreadAsync("c-uuid", new[]
+        {
+            ($"agent:{actorId}", "ThreadStarted", "Started", DateTimeOffset.UtcNow.AddMinutes(-5)),
+            ($"agent:{actorId}", "MessageReceived", "Replied", DateTimeOffset.UtcNow.AddMinutes(-3)),
+            ("human:savasp", "MessageReceived", "Ask", DateTimeOffset.UtcNow.AddMinutes(-1)),
+        });
+
+        var svc = new ThreadQueryService(_db);
+        var result = await svc.ListAsync(new ThreadQueryFilters(), TestContext.Current.CancellationToken);
+
+        var thread = result.Single(t => t.Id == "c-uuid");
+        // Agent participant must be the identity form.
+        thread.Participants.ShouldContain($"agent:id:{actorId}");
+        // Human participant stays in navigation form until #1491.
+        thread.Participants.ShouldContain("human://savasp");
+        // The slug-shaped navigation form must NOT appear for UUID-path sources.
+        thread.Participants.ShouldNotContain($"agent://{actorId}");
+    }
+
+    [Fact]
+    public async Task ListInboxAsync_AgentSourceWithUuidPath_FromInIdentityForm()
+    {
+        var actorId = "4c5d6e7f-0000-0000-0000-000000000002";
+        var t0 = DateTimeOffset.UtcNow.AddMinutes(-5);
+        await SeedThreadAsync("c-inbox-uuid", new[]
+        {
+            ($"agent:{actorId}", "ThreadStarted", "Started", t0),
+            ($"agent:{actorId}", "MessageReceived", "Replied", t0.AddSeconds(30)),
+            ("human:savasp", "MessageReceived", "Ask", t0.AddSeconds(60)),
+        });
+
+        var svc = new ThreadQueryService(_db);
+        var inbox = await svc.ListInboxAsync("human://savasp", null, TestContext.Current.CancellationToken);
+
+        inbox.Count.ShouldBe(1);
+        // The "from" field must be the stable identity form.
+        inbox[0].From.ShouldBe($"agent:id:{actorId}");
+    }
+
+    [Fact]
+    public async Task ListAsync_AgentFilterBySlug_IdentityFormNeedleMatchesUuidSourceEvents()
+    {
+        // Regression guard for #1490: when the directory resolves a slug
+        // to a UUID, the filter needle must be in the identity form
+        // ("agent:id:<uuid>") to match participants that NormaliseSource
+        // upgraded to the same form.
+        var actorId = "2ab56e09-6746-40b2-9a34-f0d6babfc0f3";
+        await SeedThreadAsync("c-id-filter", new[]
+        {
+            ($"agent:{actorId}", "MessageReceived", "Msg", DateTimeOffset.UtcNow.AddMinutes(-5)),
+        });
+
+        var directory = Substitute.For<IDirectoryService>();
+        directory.ResolveAsync(
+                Arg.Is<Address>(a => a.Scheme == "agent" && a.Path == "backend-engineer"),
+                Arg.Any<CancellationToken>())
+            .Returns(new DirectoryEntry(
+                Address: new Address("agent", "backend-engineer"),
+                ActorId: actorId,
+                DisplayName: "backend-engineer",
+                Description: string.Empty,
+                Role: null,
+                RegisteredAt: DateTimeOffset.UtcNow));
+
+        var svc = new ThreadQueryService(_db, directory);
+
+        var result = await svc.ListAsync(
+            new ThreadQueryFilters(Agent: "backend-engineer"),
+            TestContext.Current.CancellationToken);
+
+        result.Count.ShouldBe(1);
+        result[0].Id.ShouldBe("c-id-filter");
+    }
+
+    [Fact]
+    public void ToPersistenceSource_IdentityForm_ConvertsToCompactForm()
+    {
+        // "agent:id:<uuid>" → "agent:<uuid>" (the compact persistence form).
+        var actorId = "2ab56e09-6746-40b2-9a34-f0d6babfc0f3";
+        ThreadQueryService.ToPersistenceSource($"agent:id:{actorId}")
+            .ShouldBe($"agent:{actorId}");
+    }
+
+    [Fact]
+    public void ToPersistenceSource_NavigationForm_ConvertsToCompactForm()
+    {
+        ThreadQueryService.ToPersistenceSource("human://savasp").ShouldBe("human:savasp");
+    }
+
+    [Fact]
+    public void ToPersistenceSource_AlreadyCompact_Passthrough()
+    {
+        ThreadQueryService.ToPersistenceSource("human:savasp").ShouldBe("human:savasp");
+    }
+
     private async Task SeedThreadAsync(
         string threadId,
         (string source, string eventType, string summary, DateTimeOffset ts)[] events)
