@@ -93,18 +93,48 @@ public static class TenantTreeEndpoints
 
         var allMemberships = await memberships.ListAllAsync(cancellationToken);
 
-        // Primary-parent lookup keyed on agent address. There is exactly one
-        // row with IsPrimary = true per agent post-migration (see
-        // SVR-membership), so the dictionary collapses cleanly.
-        var primaryByAgent = allMemberships
-            .Where(m => m.IsPrimary)
-            .ToDictionary(m => m.AgentAddress, m => m.UnitId, StringComparer.Ordinal);
+        // Build UUID→slug lookup maps from the already-loaded directory entries.
+        // UnitMembership now carries Guid UnitId / Guid AgentId (not slugs) after
+        // the #1492 migration. We resolve back to slugs for tree building so that
+        // the frontend-visible node ids remain stable slug-based paths.
+        var agentSlugByUuid = entries
+            .Where(e => string.Equals(e.Address.Scheme, "agent", StringComparison.OrdinalIgnoreCase)
+                     && !string.IsNullOrEmpty(e.Address.Path)
+                     && !string.IsNullOrEmpty(e.ActorId))
+            .ToDictionary(
+                e => e.ActorId, // ActorId is the UUID string
+                e => e.Address.Path,
+                StringComparer.OrdinalIgnoreCase);
 
-        // Memberships grouped by unit. For multi-parent agents the same
-        // agent address appears in several buckets — that's the desired
-        // aliasing; the frontend disambiguates via PrimaryParentId.
+        var unitSlugByUuid = entries
+            .Where(e => string.Equals(e.Address.Scheme, "unit", StringComparison.OrdinalIgnoreCase)
+                     && !string.IsNullOrEmpty(e.Address.Path)
+                     && !string.IsNullOrEmpty(e.ActorId))
+            .ToDictionary(
+                e => e.ActorId,
+                e => e.Address.Path,
+                StringComparer.OrdinalIgnoreCase);
+
+        // Primary-parent lookup keyed on agent slug. There is exactly one
+        // row with IsPrimary = true per agent post-migration (see
+        // SVR-membership), so the dictionary collapses cleanly. Memberships
+        // whose agent/unit UUID cannot be resolved to a live directory entry
+        // are skipped (ghost rows from a partially-failed registration).
+        var primaryByAgent = allMemberships
+            .Where(m => m.IsPrimary
+                     && agentSlugByUuid.ContainsKey(m.AgentId.ToString())
+                     && unitSlugByUuid.ContainsKey(m.UnitId.ToString()))
+            .ToDictionary(
+                m => agentSlugByUuid[m.AgentId.ToString()],
+                m => unitSlugByUuid[m.UnitId.ToString()],
+                StringComparer.Ordinal);
+
+        // Memberships grouped by unit slug. For multi-parent agents the same
+        // agent appears in several buckets — that's the desired aliasing; the
+        // frontend disambiguates via PrimaryParentId.
         var membershipsByUnit = allMemberships
-            .GroupBy(m => m.UnitId, StringComparer.Ordinal)
+            .Where(m => unitSlugByUuid.ContainsKey(m.UnitId.ToString()))
+            .GroupBy(m => unitSlugByUuid[m.UnitId.ToString()], StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
 
         // #1154: pull the persistent sub-unit projection so the tree can
@@ -165,6 +195,7 @@ public static class TenantTreeEndpoints
                 childUnitsByParent,
                 agentEntries,
                 primaryByAgent,
+                agentSlugByUuid,
                 visited,
                 logger))
             .ToList();
@@ -190,6 +221,7 @@ public static class TenantTreeEndpoints
         IReadOnlyDictionary<string, IReadOnlyList<string>> childUnitsByParent,
         IReadOnlyDictionary<string, DirectoryEntry> agentEntries,
         IReadOnlyDictionary<string, string> primaryByAgent,
+        IReadOnlyDictionary<string, string> agentSlugByUuid,
         HashSet<string> visited,
         ILogger logger)
     {
@@ -225,7 +257,7 @@ public static class TenantTreeEndpoints
 
         var agentNodes = rows
             .Where(m => m.Enabled)
-            .Select(m => BuildAgentNode(m, agentEntries, primaryByAgent))
+            .Select(m => BuildAgentNode(m, agentEntries, primaryByAgent, agentSlugByUuid))
             .Where(n => n is not null)
             .Cast<TenantTreeNode>()
             .ToList();
@@ -246,6 +278,7 @@ public static class TenantTreeEndpoints
                     childUnitsByParent,
                     agentEntries,
                     primaryByAgent,
+                    agentSlugByUuid,
                     visited,
                     logger))
                 .ToList()
@@ -314,17 +347,25 @@ public static class TenantTreeEndpoints
     private static TenantTreeNode? BuildAgentNode(
         UnitMembership membership,
         IReadOnlyDictionary<string, DirectoryEntry> agentEntries,
-        IReadOnlyDictionary<string, string> primaryByAgent)
+        IReadOnlyDictionary<string, string> primaryByAgent,
+        IReadOnlyDictionary<string, string> agentSlugByUuid)
     {
-        // An agent might have a membership row but no directory entry
+        // Resolve the agent UUID to its slug so we can look up the directory
+        // entry. An agent might have a membership row but no directory entry
         // (transient during registration). Skip it rather than render a
-        // half-typed node; the next fetch (15 s later) will pick it up.
-        if (!agentEntries.TryGetValue(membership.AgentAddress, out var agent))
+        // half-typed node; the next fetch will pick it up.
+        var agentUuidStr = membership.AgentId.ToString();
+        if (!agentSlugByUuid.TryGetValue(agentUuidStr, out var agentSlug))
         {
             return null;
         }
 
-        primaryByAgent.TryGetValue(membership.AgentAddress, out var primary);
+        if (!agentEntries.TryGetValue(agentSlug, out var agent))
+        {
+            return null;
+        }
+
+        primaryByAgent.TryGetValue(agentSlug, out var primary);
 
         return new TenantTreeNode(
             Id: agent.Address.Path,

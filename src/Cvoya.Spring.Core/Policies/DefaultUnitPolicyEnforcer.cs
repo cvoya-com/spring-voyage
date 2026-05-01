@@ -133,7 +133,12 @@ public class DefaultUnitPolicyEnforcer(
             return PolicyDecision.Allowed;
         }
 
-        var agentMemberships = await memberships.ListByAgentAsync(agentId, cancellationToken);
+        if (!Guid.TryParse(agentId, out var agentUuid))
+        {
+            return PolicyDecision.Allowed;
+        }
+
+        var agentMemberships = await memberships.ListByAgentAsync(agentUuid, cancellationToken);
         if (agentMemberships.Count == 0)
         {
             return PolicyDecision.Allowed;
@@ -143,14 +148,15 @@ public class DefaultUnitPolicyEnforcer(
         // window sums, so we can short-circuit without a database call.
         foreach (var membership in agentMemberships)
         {
-            var policy = await policies.GetAsync(membership.UnitId, cancellationToken);
+            var unitIdStr = membership.UnitId.ToString();
+            var policy = await policies.GetAsync(unitIdStr, cancellationToken);
             if (policy.Cost?.MaxCostPerInvocation is { } perCall &&
                 projectedCost > perCall)
             {
                 return PolicyDecision.Deny(
                     $"Projected cost {projectedCost:C} exceeds per-invocation cap " +
-                    $"{perCall:C} for unit '{membership.UnitId}'.",
-                    membership.UnitId);
+                    $"{perCall:C} for unit '{unitIdStr}'.",
+                    unitIdStr);
             }
         }
 
@@ -168,7 +174,8 @@ public class DefaultUnitPolicyEnforcer(
 
         foreach (var membership in agentMemberships)
         {
-            var policy = await policies.GetAsync(membership.UnitId, cancellationToken);
+            var unitIdStr = membership.UnitId.ToString();
+            var policy = await policies.GetAsync(unitIdStr, cancellationToken);
             if (policy.Cost is null)
             {
                 continue;
@@ -183,8 +190,8 @@ public class DefaultUnitPolicyEnforcer(
                 {
                     return PolicyDecision.Deny(
                         $"Hourly spend {hourlySum.Value:C} + projected {projectedCost:C} " +
-                        $"exceeds per-hour cap {perHour:C} for unit '{membership.UnitId}'.",
-                        membership.UnitId);
+                        $"exceeds per-hour cap {perHour:C} for unit '{unitIdStr}'.",
+                        unitIdStr);
                 }
             }
 
@@ -197,8 +204,8 @@ public class DefaultUnitPolicyEnforcer(
                 {
                     return PolicyDecision.Deny(
                         $"Daily spend {dailySum.Value:C} + projected {projectedCost:C} " +
-                        $"exceeds per-day cap {perDay:C} for unit '{membership.UnitId}'.",
-                        membership.UnitId);
+                        $"exceeds per-day cap {perDay:C} for unit '{unitIdStr}'.",
+                        unitIdStr);
                 }
             }
         }
@@ -236,7 +243,12 @@ public class DefaultUnitPolicyEnforcer(
             return ExecutionModeResolution.AllowAsIs(mode);
         }
 
-        var agentMemberships = await memberships.ListByAgentAsync(agentId, cancellationToken);
+        if (!Guid.TryParse(agentId, out var agentUuid))
+        {
+            return ExecutionModeResolution.AllowAsIs(mode);
+        }
+
+        var agentMemberships = await memberships.ListByAgentAsync(agentUuid, cancellationToken);
         if (agentMemberships.Count == 0)
         {
             return ExecutionModeResolution.AllowAsIs(mode);
@@ -245,7 +257,8 @@ public class DefaultUnitPolicyEnforcer(
         // First pass: any unit that forces a mode wins — coercion is strongest.
         foreach (var membership in agentMemberships)
         {
-            var policy = await policies.GetAsync(membership.UnitId, cancellationToken);
+            var unitIdStr = membership.UnitId.ToString();
+            var policy = await policies.GetAsync(unitIdStr, cancellationToken);
             if (policy.ExecutionMode?.Forced is { } forced)
             {
                 return new ExecutionModeResolution(PolicyDecision.Allowed, forced);
@@ -256,14 +269,15 @@ public class DefaultUnitPolicyEnforcer(
         // allow-list is denied.
         foreach (var membership in agentMemberships)
         {
-            var policy = await policies.GetAsync(membership.UnitId, cancellationToken);
+            var unitIdStr = membership.UnitId.ToString();
+            var policy = await policies.GetAsync(unitIdStr, cancellationToken);
             if (policy.ExecutionMode?.Allowed is { Count: > 0 } allowed &&
                 !allowed.Contains(mode))
             {
                 return new ExecutionModeResolution(
                     PolicyDecision.Deny(
-                        $"Execution mode '{mode}' is not permitted by unit '{membership.UnitId}'.",
-                        membership.UnitId),
+                        $"Execution mode '{mode}' is not permitted by unit '{unitIdStr}'.",
+                        unitIdStr),
                     mode);
             }
         }
@@ -293,14 +307,40 @@ public class DefaultUnitPolicyEnforcer(
         }, cancellationToken);
     }
 
-    /// <summary>
-    /// Pure evaluation of a single <see cref="SkillPolicy"/> against a tool
-    /// name. Exposed as <c>protected</c> so subclasses can reuse the rule
-    /// engine when they compose additional checks.
-    /// </summary>
-    /// <param name="policy">The skill policy to evaluate.</param>
-    /// <param name="toolName">The tool being invoked.</param>
-    /// <param name="unitId">The unit id to record on deny decisions.</param>
+    private async Task<PolicyDecision> EvaluateAcrossUnitsAsync(
+        string agentId,
+        Func<UnitPolicy, string, PolicyDecision> evaluator,
+        CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(agentId, out var agentUuid))
+        {
+            // agentId is not a UUID — cannot resolve memberships.
+            return PolicyDecision.Allowed;
+        }
+
+        var agentMemberships = await memberships.ListByAgentAsync(agentUuid, cancellationToken);
+
+        if (agentMemberships.Count == 0)
+        {
+            return PolicyDecision.Allowed;
+        }
+
+        foreach (var membership in agentMemberships)
+        {
+            // Policy repo uses the unit's stable UUID string as key
+            // (matches how UnitPolicyEndpoints stores policies post #1492).
+            var unitIdStr = membership.UnitId.ToString();
+            var policy = await policies.GetAsync(unitIdStr, cancellationToken);
+            var decision = evaluator(policy, unitIdStr);
+            if (!decision.IsAllowed)
+            {
+                return decision;
+            }
+        }
+
+        return PolicyDecision.Allowed;
+    }
+
     protected static PolicyDecision EvaluateSkillPolicy(
         SkillPolicy policy,
         string toolName,
@@ -403,34 +443,4 @@ public class DefaultUnitPolicyEnforcer(
         return PolicyDecision.Allowed;
     }
 
-    /// <summary>
-    /// Iterates over every unit the agent belongs to, loading the unit's
-    /// policy and applying the supplied per-dimension evaluator. The first
-    /// deny short-circuits. Shared by every dimension whose evaluation rule
-    /// is "first denying unit wins" (skill, model, initiative).
-    /// </summary>
-    private async Task<PolicyDecision> EvaluateAcrossUnitsAsync(
-        string agentId,
-        Func<UnitPolicy, string, PolicyDecision> evaluator,
-        CancellationToken cancellationToken)
-    {
-        var agentMemberships = await memberships.ListByAgentAsync(agentId, cancellationToken);
-
-        if (agentMemberships.Count == 0)
-        {
-            return PolicyDecision.Allowed;
-        }
-
-        foreach (var membership in agentMemberships)
-        {
-            var policy = await policies.GetAsync(membership.UnitId, cancellationToken);
-            var decision = evaluator(policy, membership.UnitId);
-            if (!decision.IsAllowed)
-            {
-                return decision;
-            }
-        }
-
-        return PolicyDecision.Allowed;
-    }
 }

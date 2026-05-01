@@ -12,6 +12,7 @@ using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
+using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Host.Api.Models;
 
 using global::Dapr.Actors;
@@ -31,6 +32,10 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     {
         Converters = { new JsonStringEnumConverter() },
     };
+
+    // Stable UUID for the "engineering" unit actor (#1492: endpoints now
+    // require Guid-parseable ActorIds for membership lookups).
+    private static readonly Guid UnitEngineeringUuid = new("ee1ee111-0000-0000-0000-000000000001");
 
     private readonly CustomWebApplicationFactory _factory;
     private readonly HttpClient _client;
@@ -67,7 +72,10 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     public async Task CreateAgent_RegistersAndReturnsCreated()
     {
         var ct = TestContext.Current.CancellationToken;
-        ArrangeUnitEntry("engineering", "actor-eng");
+        // Clear any residual membership rows from previous tests that share
+        // the IClassFixture in-memory DB.
+        ClearMemberships();
+        ArrangeUnitEntry("engineering", UnitEngineeringUuid.ToString());
         ArrangeAgentActorProxy();
 
         var request = new CreateAgentRequest(
@@ -86,10 +94,13 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
                 e.DisplayName == "New Agent"),
             Arg.Any<CancellationToken>());
 
-        // Verify the membership row was written.
+        // Verify the membership row was written. Agent UUID is assigned by
+        // the endpoint (Guid.NewGuid()), so query by unit UUID and check any
+        // row exists for the engineering unit (#1492).
         using var scope = _factory.Services.CreateScope();
         var repo = scope.ServiceProvider.GetRequiredService<IUnitMembershipRepository>();
-        (await repo.GetAsync("engineering", "new-agent", ct)).ShouldNotBeNull();
+        var members = await repo.ListByUnitAsync(UnitEngineeringUuid, ct);
+        members.ShouldNotBeEmpty();
     }
 
     [Fact]
@@ -158,5 +169,13 @@ public class AgentEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         _factory.ActorProxyFactory
             .CreateActorProxy<IAgentActor>(Arg.Any<ActorId>(), Arg.Any<string>())
             .Returns(Substitute.For<IAgentActor>());
+    }
+
+    private void ClearMemberships()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var ctx = scope.ServiceProvider.GetRequiredService<Cvoya.Spring.Dapr.Data.SpringDbContext>();
+        ctx.UnitMemberships.RemoveRange(ctx.UnitMemberships.ToList());
+        ctx.SaveChanges();
     }
 }

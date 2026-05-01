@@ -42,7 +42,13 @@ using Xunit;
 /// </summary>
 public class AgentActorEffectiveMetadataTests
 {
-    private const string AgentId = "test-agent";
+    // Stable UUIDs for the agent actor and test units.
+    private static readonly Guid AgentActorUuid = new("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee");
+    private static readonly Guid UnitAUuid = new("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+    private static readonly Guid UnitBUuid = new("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+
+    private const string AgentId = "test-agent";   // address slug; actor ID is the UUID above
+    private const string UnitId = "unit-a";         // address slug for UnitAUuid
 
     private readonly IActorStateManager _stateManager = Substitute.For<IActorStateManager>();
     private readonly IActivityEventBus _activityEventBus = Substitute.For<IActivityEventBus>();
@@ -50,6 +56,7 @@ public class AgentActorEffectiveMetadataTests
     private readonly MessageRouter _router;
     private readonly IAgentDefinitionProvider _definitionProvider = Substitute.For<IAgentDefinitionProvider>();
     private readonly IUnitMembershipRepository _membershipRepository = Substitute.For<IUnitMembershipRepository>();
+    private readonly IDirectoryService _directoryService = Substitute.For<IDirectoryService>();
     private readonly AgentActor _actor;
 
     public AgentActorEffectiveMetadataTests()
@@ -66,12 +73,22 @@ public class AgentActorEffectiveMetadataTests
         _dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns((Message?)null);
 
-        _definitionProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
-            .Returns(new AgentDefinition(AgentId, "Test", "Agent instructions", null));
+        _definitionProvider.GetByIdAsync(AgentActorUuid.ToString(), Arg.Any<CancellationToken>())
+            .Returns(new AgentDefinition(AgentActorUuid.ToString(), "Test", "Agent instructions", null));
 
+        // Wire directory service to resolve unit slugs → directory entries with UUID ActorIds.
+        _directoryService
+            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "unit" && a.Path == "unit-a"), Arg.Any<CancellationToken>())
+            .Returns(new DirectoryEntry(new Address("unit", "unit-a"), UnitAUuid.ToString(), "unit-a", string.Empty, null, DateTimeOffset.UtcNow));
+        _directoryService
+            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "unit" && a.Path == "unit-b"), Arg.Any<CancellationToken>())
+            .Returns(new DirectoryEntry(new Address("unit", "unit-b"), UnitBUuid.ToString(), "unit-b", string.Empty, null, DateTimeOffset.UtcNow));
+        // Unknown units → null by default (NSubstitute returns null for unmatched reference-type calls).
+
+        // The actor ID is the agent's stable UUID (not the slug).
         var host = ActorHost.CreateForTest<AgentActor>(new ActorTestOptions
         {
-            ActorId = new ActorId(AgentId),
+            ActorId = new ActorId(AgentActorUuid.ToString()),
         });
 
         var unitPolicyEnforcer = Substitute.For<IUnitPolicyEnforcer>().WithAllowByDefault();
@@ -91,7 +108,8 @@ public class AgentActorEffectiveMetadataTests
             Substitute.For<IAgentLifecycleCoordinator>(),
             new AgentStateCoordinator(Substitute.For<ILogger<AgentStateCoordinator>>()),
             new AgentAmendmentCoordinator(Substitute.For<ILogger<AgentAmendmentCoordinator>>()),
-            new AgentUnitPolicyCoordinator(Substitute.For<ILogger<AgentUnitPolicyCoordinator>>()));
+            new AgentUnitPolicyCoordinator(Substitute.For<ILogger<AgentUnitPolicyCoordinator>>()),
+            directoryService: _directoryService);
 
         SetStateManager(_actor, _stateManager);
 
@@ -110,7 +128,7 @@ public class AgentActorEffectiveMetadataTests
 
         // Default: no membership row for any (unit, agent) pair.
         _membershipRepository
-            .GetAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .GetAsync(Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns((UnitMembership?)null);
     }
 
@@ -160,11 +178,10 @@ public class AgentActorEffectiveMetadataTests
     [Fact]
     public async Task UnitSender_ModelOverride_DrivesEffectiveModelForTurn()
     {
-        const string UnitId = "unit-a";
         SetAgentGlobalMetadata(model: "claude-3-haiku");
 
-        _membershipRepository.GetAsync(UnitId, AgentId, Arg.Any<CancellationToken>())
-            .Returns(new UnitMembership(UnitId, AgentId, Model: "gpt-4", Enabled: true));
+        _membershipRepository.GetAsync(UnitAUuid, AgentActorUuid, Arg.Any<CancellationToken>())
+            .Returns(new UnitMembership(UnitAUuid, AgentActorUuid, Model: "gpt-4", Enabled: true));
 
         var message = DomainMessageFrom(new Address("unit", UnitId));
 
@@ -183,9 +200,8 @@ public class AgentActorEffectiveMetadataTests
     [Fact]
     public async Task UnitSender_MembershipDisabled_ShortCircuitsWithoutDispatch()
     {
-        const string UnitId = "unit-a";
-        _membershipRepository.GetAsync(UnitId, AgentId, Arg.Any<CancellationToken>())
-            .Returns(new UnitMembership(UnitId, AgentId, Enabled: false));
+        _membershipRepository.GetAsync(UnitAUuid, AgentActorUuid, Arg.Any<CancellationToken>())
+            .Returns(new UnitMembership(UnitAUuid, AgentActorUuid, Enabled: false));
 
         var message = DomainMessageFrom(new Address("unit", UnitId));
 
@@ -218,11 +234,10 @@ public class AgentActorEffectiveMetadataTests
     [Fact]
     public async Task UnitSender_SpecialtyOverride_PropagatesInEffectiveMetadata()
     {
-        const string UnitId = "unit-a";
         SetAgentGlobalMetadata(specialty: "generalist");
 
-        _membershipRepository.GetAsync(UnitId, AgentId, Arg.Any<CancellationToken>())
-            .Returns(new UnitMembership(UnitId, AgentId, Specialty: "reviewer", Enabled: true));
+        _membershipRepository.GetAsync(UnitAUuid, AgentActorUuid, Arg.Any<CancellationToken>())
+            .Returns(new UnitMembership(UnitAUuid, AgentActorUuid, Specialty: "reviewer", Enabled: true));
 
         var message = DomainMessageFrom(new Address("unit", UnitId));
 
@@ -241,13 +256,12 @@ public class AgentActorEffectiveMetadataTests
     [Fact]
     public async Task UnitSender_ExecutionModeOverride_PropagatesInEffectiveMetadata()
     {
-        const string UnitId = "unit-a";
         SetAgentGlobalMetadata(executionMode: AgentExecutionMode.Auto);
 
-        _membershipRepository.GetAsync(UnitId, AgentId, Arg.Any<CancellationToken>())
+        _membershipRepository.GetAsync(UnitAUuid, AgentActorUuid, Arg.Any<CancellationToken>())
             .Returns(new UnitMembership(
-                UnitId,
-                AgentId,
+                UnitAUuid,
+                AgentActorUuid,
                 Enabled: true,
                 ExecutionMode: AgentExecutionMode.OnDemand));
 
@@ -271,10 +285,9 @@ public class AgentActorEffectiveMetadataTests
         // Defensive — post-C2b-1 the backfill service creates a membership for
         // every agent that had a ParentUnit, but the receive path must still
         // tolerate a missing row without exploding.
-        const string UnitId = "unit-a";
         SetAgentGlobalMetadata(model: "claude-3-opus", specialty: "generalist");
 
-        _membershipRepository.GetAsync(UnitId, AgentId, Arg.Any<CancellationToken>())
+        _membershipRepository.GetAsync(UnitAUuid, AgentActorUuid, Arg.Any<CancellationToken>())
             .Returns((UnitMembership?)null);
 
         var message = DomainMessageFrom(new Address("unit", UnitId));
@@ -303,8 +316,8 @@ public class AgentActorEffectiveMetadataTests
         await _actor.PendingDispatchTask!;
 
         await _membershipRepository.DidNotReceive().GetAsync(
-            Arg.Any<string>(),
-            Arg.Any<string>(),
+            Arg.Any<Guid>(),
+            Arg.Any<Guid>(),
             Arg.Any<CancellationToken>());
 
         await _dispatcher.Received(1).DispatchAsync(
@@ -327,8 +340,8 @@ public class AgentActorEffectiveMetadataTests
         await _actor.PendingDispatchTask!;
 
         await _membershipRepository.DidNotReceive().GetAsync(
-            Arg.Any<string>(),
-            Arg.Any<string>(),
+            Arg.Any<Guid>(),
+            Arg.Any<Guid>(),
             Arg.Any<CancellationToken>());
     }
 
@@ -339,9 +352,8 @@ public class AgentActorEffectiveMetadataTests
         // active; subsequent messages that append to the active conversation
         // don't redo the merge or dispatch. This documents the current
         // boundary: effective metadata is resolved at conversation-start time.
-        const string UnitId = "unit-a";
-        _membershipRepository.GetAsync(UnitId, AgentId, Arg.Any<CancellationToken>())
-            .Returns(new UnitMembership(UnitId, AgentId, Model: "gpt-4", Enabled: true));
+        _membershipRepository.GetAsync(UnitAUuid, AgentActorUuid, Arg.Any<CancellationToken>())
+            .Returns(new UnitMembership(UnitAUuid, AgentActorUuid, Model: "gpt-4", Enabled: true));
 
         var msg1 = DomainMessageFrom(new Address("unit", UnitId), "conv-1");
         await _actor.ReceiveAsync(msg1, TestContext.Current.CancellationToken);
@@ -365,10 +377,10 @@ public class AgentActorEffectiveMetadataTests
     public async Task TwoUnitsWithDifferentOverrides_ReceiveSequentially_EachSeesOwnConfig()
     {
         // unit-a → model gpt-4; unit-b → model sonnet.
-        _membershipRepository.GetAsync("unit-a", AgentId, Arg.Any<CancellationToken>())
-            .Returns(new UnitMembership("unit-a", AgentId, Model: "gpt-4", Enabled: true));
-        _membershipRepository.GetAsync("unit-b", AgentId, Arg.Any<CancellationToken>())
-            .Returns(new UnitMembership("unit-b", AgentId, Model: "claude-3-5-sonnet", Enabled: true));
+        _membershipRepository.GetAsync(UnitAUuid, AgentActorUuid, Arg.Any<CancellationToken>())
+            .Returns(new UnitMembership(UnitAUuid, AgentActorUuid, Model: "gpt-4", Enabled: true));
+        _membershipRepository.GetAsync(UnitBUuid, AgentActorUuid, Arg.Any<CancellationToken>())
+            .Returns(new UnitMembership(UnitBUuid, AgentActorUuid, Model: "claude-3-5-sonnet", Enabled: true));
 
         // Turn 1: unit-a opens conversation conv-a; verify gpt-4.
         var msgA = DomainMessageFrom(new Address("unit", "unit-a"), "conv-a");
@@ -402,10 +414,9 @@ public class AgentActorEffectiveMetadataTests
     [Fact]
     public async Task MembershipLookupThrows_FallsBackToAgentGlobal()
     {
-        const string UnitId = "unit-a";
         SetAgentGlobalMetadata(model: "claude-3-opus");
 
-        _membershipRepository.GetAsync(UnitId, AgentId, Arg.Any<CancellationToken>())
+        _membershipRepository.GetAsync(UnitAUuid, AgentActorUuid, Arg.Any<CancellationToken>())
             .Returns<Task<UnitMembership?>>(_ => throw new InvalidOperationException("db down"));
 
         var message = DomainMessageFrom(new Address("unit", UnitId));

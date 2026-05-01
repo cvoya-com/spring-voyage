@@ -18,9 +18,25 @@ using Xunit;
 /// get / list access paths, and delete behavior. The in-memory provider
 /// does not enforce database defaults, so fields are explicitly supplied
 /// in these tests.
+///
+/// All primary keys are stable UUIDs (post #1492 migration). Stable
+/// constants are defined below so every test shares the same identities
+/// and the intent is readable without UUID strings inline.
 /// </summary>
 public class UnitMembershipRepositoryTests : IDisposable
 {
+    // Agents
+    private static readonly Guid AgentAda = new("aadaadaa-0000-0000-0000-000000000001");
+    private static readonly Guid AgentHopper = new("aadaadaa-0000-0000-0000-000000000002");
+
+    // Units — named so their lexicographic UUID order matches intent.
+    // aaaa... < bbbb... < cccc... preserves the "alpha < marketing < zeta" tiebreaker test.
+    private static readonly Guid UnitAlpha = new("aaaaaaaa-0000-0000-0000-000000000001");
+    private static readonly Guid UnitEngineering = new("bbbbbbbb-0000-0000-0000-000000000001");
+    private static readonly Guid UnitMarketing = new("bbbbbbbb-0000-0000-0000-000000000002");
+    private static readonly Guid UnitSales = new("bbbbbbbb-0000-0000-0000-000000000003");
+    private static readonly Guid UnitZeta = new("cccccccc-0000-0000-0000-000000000001");
+
     private readonly SpringDbContext _context;
     private readonly UnitMembershipRepository _repository;
 
@@ -40,13 +56,13 @@ public class UnitMembershipRepositoryTests : IDisposable
         var ct = TestContext.Current.CancellationToken;
 
         await _repository.UpsertAsync(
-            new UnitMembership("engineering", "ada", Enabled: true),
+            new UnitMembership(UnitEngineering, AgentAda, Enabled: true),
             ct);
 
-        var persisted = await _repository.GetAsync("engineering", "ada", ct);
+        var persisted = await _repository.GetAsync(UnitEngineering, AgentAda, ct);
         persisted.ShouldNotBeNull();
-        persisted!.UnitId.ShouldBe("engineering");
-        persisted.AgentAddress.ShouldBe("ada");
+        persisted!.UnitId.ShouldBe(UnitEngineering);
+        persisted.AgentId.ShouldBe(AgentAda);
         persisted.Enabled.ShouldBeTrue();
         persisted.CreatedAt.ShouldNotBe(default);
         persisted.UpdatedAt.ShouldNotBe(default);
@@ -58,19 +74,19 @@ public class UnitMembershipRepositoryTests : IDisposable
         var ct = TestContext.Current.CancellationToken;
 
         await _repository.UpsertAsync(
-            new UnitMembership("engineering", "ada", Enabled: true),
+            new UnitMembership(UnitEngineering, AgentAda, Enabled: true),
             ct);
-        var created = await _repository.GetAsync("engineering", "ada", ct);
+        var created = await _repository.GetAsync(UnitEngineering, AgentAda, ct);
 
         await _repository.UpsertAsync(
-            new UnitMembership("engineering", "ada",
+            new UnitMembership(UnitEngineering, AgentAda,
                 Model: "claude-opus",
                 Specialty: "reviewer",
                 Enabled: false,
                 ExecutionMode: AgentExecutionMode.OnDemand),
             ct);
 
-        var updated = await _repository.GetAsync("engineering", "ada", ct);
+        var updated = await _repository.GetAsync(UnitEngineering, AgentAda, ct);
         updated.ShouldNotBeNull();
         updated!.Model.ShouldBe("claude-opus");
         updated.Specialty.ShouldBe("reviewer");
@@ -85,7 +101,8 @@ public class UnitMembershipRepositoryTests : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
 
-        var result = await _repository.GetAsync("ghost", "ghost", ct);
+        var ghost = Guid.NewGuid();
+        var result = await _repository.GetAsync(ghost, ghost, ct);
         result.ShouldBeNull();
     }
 
@@ -94,13 +111,13 @@ public class UnitMembershipRepositoryTests : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
 
-        await _repository.UpsertAsync(new UnitMembership("engineering", "ada"), ct);
-        await _repository.UpsertAsync(new UnitMembership("engineering", "hopper"), ct);
-        await _repository.UpsertAsync(new UnitMembership("marketing", "ada"), ct);
+        await _repository.UpsertAsync(new UnitMembership(UnitEngineering, AgentAda), ct);
+        await _repository.UpsertAsync(new UnitMembership(UnitEngineering, AgentHopper), ct);
+        await _repository.UpsertAsync(new UnitMembership(UnitMarketing, AgentAda), ct);
 
-        var list = await _repository.ListByUnitAsync("engineering", ct);
+        var list = await _repository.ListByUnitAsync(UnitEngineering, ct);
         list.Count.ShouldBe(2);
-        list.ShouldAllBe(m => m.UnitId == "engineering");
+        list.ShouldAllBe(m => m.UnitId == UnitEngineering);
     }
 
     [Fact]
@@ -108,14 +125,14 @@ public class UnitMembershipRepositoryTests : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
 
-        await _repository.UpsertAsync(new UnitMembership("engineering", "ada"), ct);
+        await _repository.UpsertAsync(new UnitMembership(UnitEngineering, AgentAda), ct);
         await Task.Delay(10, ct);
-        await _repository.UpsertAsync(new UnitMembership("marketing", "ada"), ct);
+        await _repository.UpsertAsync(new UnitMembership(UnitMarketing, AgentAda), ct);
 
-        var list = await _repository.ListByAgentAsync("ada", ct);
+        var list = await _repository.ListByAgentAsync(AgentAda, ct);
         list.Count.ShouldBe(2);
-        list[0].UnitId.ShouldBe("engineering");
-        list[1].UnitId.ShouldBe("marketing");
+        list[0].UnitId.ShouldBe(UnitEngineering);
+        list[1].UnitId.ShouldBe(UnitMarketing);
     }
 
     [Fact]
@@ -125,12 +142,12 @@ public class UnitMembershipRepositoryTests : IDisposable
 
         // Two memberships for the same agent so the #744 last-membership
         // guard does not trip when we drop one of them.
-        await _repository.UpsertAsync(new UnitMembership("engineering", "ada"), ct);
-        await _repository.UpsertAsync(new UnitMembership("marketing", "ada"), ct);
-        await _repository.DeleteAsync("engineering", "ada", ct);
+        await _repository.UpsertAsync(new UnitMembership(UnitEngineering, AgentAda), ct);
+        await _repository.UpsertAsync(new UnitMembership(UnitMarketing, AgentAda), ct);
+        await _repository.DeleteAsync(UnitEngineering, AgentAda, ct);
 
-        (await _repository.GetAsync("engineering", "ada", ct)).ShouldBeNull();
-        (await _repository.GetAsync("marketing", "ada", ct)).ShouldNotBeNull();
+        (await _repository.GetAsync(UnitEngineering, AgentAda, ct)).ShouldBeNull();
+        (await _repository.GetAsync(UnitMarketing, AgentAda, ct)).ShouldNotBeNull();
     }
 
     [Fact]
@@ -138,8 +155,9 @@ public class UnitMembershipRepositoryTests : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
 
+        var ghost = Guid.NewGuid();
         // Should not throw.
-        await _repository.DeleteAsync("ghost", "ghost", ct);
+        await _repository.DeleteAsync(ghost, ghost, ct);
     }
 
     [Fact]
@@ -147,15 +165,15 @@ public class UnitMembershipRepositoryTests : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
 
-        await _repository.UpsertAsync(new UnitMembership("engineering", "ada"), ct);
+        await _repository.UpsertAsync(new UnitMembership(UnitEngineering, AgentAda), ct);
 
         var ex = await Should.ThrowAsync<AgentMembershipRequiredException>(
-            () => _repository.DeleteAsync("engineering", "ada", ct));
-        ex.AgentAddress.ShouldBe("ada");
-        ex.UnitId.ShouldBe("engineering");
+            () => _repository.DeleteAsync(UnitEngineering, AgentAda, ct));
+        ex.AgentId.ShouldBe(AgentAda);
+        ex.UnitId.ShouldBe(UnitEngineering);
 
         // Row must still exist — the invariant is enforced as a transactional rejection.
-        (await _repository.GetAsync("engineering", "ada", ct)).ShouldNotBeNull();
+        (await _repository.GetAsync(UnitEngineering, AgentAda, ct)).ShouldNotBeNull();
     }
 
     [Fact]
@@ -163,12 +181,12 @@ public class UnitMembershipRepositoryTests : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
 
-        await _repository.UpsertAsync(new UnitMembership("engineering", "ada"), ct);
-        await _repository.UpsertAsync(new UnitMembership("marketing", "ada"), ct);
+        await _repository.UpsertAsync(new UnitMembership(UnitEngineering, AgentAda), ct);
+        await _repository.UpsertAsync(new UnitMembership(UnitMarketing, AgentAda), ct);
 
-        await _repository.DeleteAllForAgentAsync("ada", ct);
+        await _repository.DeleteAllForAgentAsync(AgentAda, ct);
 
-        (await _repository.ListByAgentAsync("ada", ct)).ShouldBeEmpty();
+        (await _repository.ListByAgentAsync(AgentAda, ct)).ShouldBeEmpty();
     }
 
     [Fact]
@@ -176,8 +194,9 @@ public class UnitMembershipRepositoryTests : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
 
+        var ghost = Guid.NewGuid();
         // Should not throw.
-        await _repository.DeleteAllForAgentAsync("ghost", ct);
+        await _repository.DeleteAllForAgentAsync(ghost, ct);
     }
 
     [Fact]
@@ -185,9 +204,9 @@ public class UnitMembershipRepositoryTests : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
 
-        await _repository.UpsertAsync(new UnitMembership("engineering", "ada"), ct);
+        await _repository.UpsertAsync(new UnitMembership(UnitEngineering, AgentAda), ct);
 
-        var persisted = await _repository.GetAsync("engineering", "ada", ct);
+        var persisted = await _repository.GetAsync(UnitEngineering, AgentAda, ct);
         persisted!.IsPrimary.ShouldBeTrue();
     }
 
@@ -196,11 +215,11 @@ public class UnitMembershipRepositoryTests : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
 
-        await _repository.UpsertAsync(new UnitMembership("engineering", "ada"), ct);
-        await _repository.UpsertAsync(new UnitMembership("marketing", "ada"), ct);
+        await _repository.UpsertAsync(new UnitMembership(UnitEngineering, AgentAda), ct);
+        await _repository.UpsertAsync(new UnitMembership(UnitMarketing, AgentAda), ct);
 
-        var first = await _repository.GetAsync("engineering", "ada", ct);
-        var second = await _repository.GetAsync("marketing", "ada", ct);
+        var first = await _repository.GetAsync(UnitEngineering, AgentAda, ct);
+        var second = await _repository.GetAsync(UnitMarketing, AgentAda, ct);
         first!.IsPrimary.ShouldBeTrue();
         second!.IsPrimary.ShouldBeFalse();
     }
@@ -210,11 +229,11 @@ public class UnitMembershipRepositoryTests : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
 
-        await _repository.UpsertAsync(new UnitMembership("engineering", "ada"), ct);
+        await _repository.UpsertAsync(new UnitMembership(UnitEngineering, AgentAda), ct);
         await _repository.UpsertAsync(
-            new UnitMembership("engineering", "ada", Model: "claude-opus"), ct);
+            new UnitMembership(UnitEngineering, AgentAda, Model: "claude-opus"), ct);
 
-        var persisted = await _repository.GetAsync("engineering", "ada", ct);
+        var persisted = await _repository.GetAsync(UnitEngineering, AgentAda, ct);
         persisted!.IsPrimary.ShouldBeTrue();
         persisted.Model.ShouldBe("claude-opus");
     }
@@ -224,19 +243,19 @@ public class UnitMembershipRepositoryTests : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
 
-        // engineering is inserted first → becomes primary. marketing + sales
-        // are non-primary. Delete engineering → oldest survivor (marketing)
-        // should be promoted to primary; sales unchanged.
-        await _repository.UpsertAsync(new UnitMembership("engineering", "ada"), ct);
+        // Engineering is inserted first → becomes primary. Marketing + Sales
+        // are non-primary. Delete Engineering → oldest survivor (Marketing)
+        // should be promoted to primary; Sales unchanged.
+        await _repository.UpsertAsync(new UnitMembership(UnitEngineering, AgentAda), ct);
         await Task.Delay(10, ct);
-        await _repository.UpsertAsync(new UnitMembership("marketing", "ada"), ct);
+        await _repository.UpsertAsync(new UnitMembership(UnitMarketing, AgentAda), ct);
         await Task.Delay(10, ct);
-        await _repository.UpsertAsync(new UnitMembership("sales", "ada"), ct);
+        await _repository.UpsertAsync(new UnitMembership(UnitSales, AgentAda), ct);
 
-        await _repository.DeleteAsync("engineering", "ada", ct);
+        await _repository.DeleteAsync(UnitEngineering, AgentAda, ct);
 
-        var marketing = await _repository.GetAsync("marketing", "ada", ct);
-        var sales = await _repository.GetAsync("sales", "ada", ct);
+        var marketing = await _repository.GetAsync(UnitMarketing, AgentAda, ct);
+        var sales = await _repository.GetAsync(UnitSales, AgentAda, ct);
         marketing!.IsPrimary.ShouldBeTrue();
         sales!.IsPrimary.ShouldBeFalse();
     }
@@ -247,27 +266,28 @@ public class UnitMembershipRepositoryTests : IDisposable
         var ct = TestContext.Current.CancellationToken;
 
         // Zeta (primary — first insert), then Marketing + Alpha created at the
-        // same logical time (no delay). When zeta is removed, the tiebreaker
-        // should pick alpha (lex < marketing), not marketing.
-        await _repository.UpsertAsync(new UnitMembership("zeta", "ada"), ct);
-        await _repository.UpsertAsync(new UnitMembership("marketing", "ada"), ct);
-        await _repository.UpsertAsync(new UnitMembership("alpha", "ada"), ct);
+        // same logical time (no delay). When Zeta is removed, the tiebreaker
+        // should pick Alpha (UUID lex < Marketing UUID), not Marketing.
+        // UUID ordering: UnitAlpha (aaaa...) < UnitMarketing (bbbb...*02) < UnitZeta (cccc...).
+        await _repository.UpsertAsync(new UnitMembership(UnitZeta, AgentAda), ct);
+        await _repository.UpsertAsync(new UnitMembership(UnitMarketing, AgentAda), ct);
+        await _repository.UpsertAsync(new UnitMembership(UnitAlpha, AgentAda), ct);
 
         // Force identical CreatedAt on the two survivors so the unit-id
         // tiebreaker is the only deciding signal.
         var now = DateTimeOffset.UtcNow;
         foreach (var row in await _context.UnitMemberships
-            .Where(m => m.AgentAddress == "ada" && m.UnitId != "zeta")
+            .Where(m => m.AgentId == AgentAda && m.UnitId != UnitZeta)
             .ToListAsync(ct))
         {
             row.CreatedAt = now;
         }
         await _context.SaveChangesAsync(ct);
 
-        await _repository.DeleteAsync("zeta", "ada", ct);
+        await _repository.DeleteAsync(UnitZeta, AgentAda, ct);
 
-        var alpha = await _repository.GetAsync("alpha", "ada", ct);
-        var marketing = await _repository.GetAsync("marketing", "ada", ct);
+        var alpha = await _repository.GetAsync(UnitAlpha, AgentAda, ct);
+        var marketing = await _repository.GetAsync(UnitMarketing, AgentAda, ct);
         alpha!.IsPrimary.ShouldBeTrue();
         marketing!.IsPrimary.ShouldBeFalse();
     }
@@ -277,12 +297,12 @@ public class UnitMembershipRepositoryTests : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
 
-        await _repository.UpsertAsync(new UnitMembership("engineering", "ada"), ct);
-        await _repository.UpsertAsync(new UnitMembership("marketing", "ada"), ct);
+        await _repository.UpsertAsync(new UnitMembership(UnitEngineering, AgentAda), ct);
+        await _repository.UpsertAsync(new UnitMembership(UnitMarketing, AgentAda), ct);
 
-        await _repository.DeleteAsync("marketing", "ada", ct);
+        await _repository.DeleteAsync(UnitMarketing, AgentAda, ct);
 
-        var engineering = await _repository.GetAsync("engineering", "ada", ct);
+        var engineering = await _repository.GetAsync(UnitEngineering, AgentAda, ct);
         engineering!.IsPrimary.ShouldBeTrue();
     }
 

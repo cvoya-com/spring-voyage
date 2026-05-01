@@ -798,16 +798,36 @@ public class UnitCreationService : IUnitCreationService
                 // agent-scheme members get a row. Template creation passes no
                 // per-membership overrides so Model/Specialty/ExecutionMode
                 // default to null and Enabled defaults to true.
+                // After #1492, membership rows use UUID keys, so resolve both
+                // the unit and agent slugs to their stable UUIDs first.
                 if (string.Equals(resolved.Value.Scheme, "agent", StringComparison.OrdinalIgnoreCase))
                 {
                     try
                     {
-                        await _membershipRepository.UpsertAsync(
-                            new UnitMembership(
-                                UnitId: name,
-                                AgentAddress: resolved.Value.Path,
-                                Enabled: true),
-                            cancellationToken);
+                        // Resolve unit UUID from the newly-registered entry.
+                        var unitDir = await _directoryService.ResolveAsync(address, cancellationToken);
+                        var agentDir = await _directoryService.ResolveAsync(
+                            new Address("agent", resolved.Value.Path), cancellationToken);
+
+                        if (unitDir is not null && agentDir is not null
+                            && Guid.TryParse(unitDir.ActorId, out var unitMemberUuid)
+                            && Guid.TryParse(agentDir.ActorId, out var agentMemberUuid))
+                        {
+                            await _membershipRepository.UpsertAsync(
+                                new UnitMembership(
+                                    UnitId: unitMemberUuid,
+                                    AgentId: agentMemberUuid,
+                                    Enabled: true),
+                                cancellationToken);
+                        }
+                        else
+                        {
+                            _logger.LogWarning(
+                                "Unit '{UnitName}' member {Member}: could not resolve UUIDs for membership row; skipping DB write.",
+                                name, $"{resolved.Value.Scheme}:{resolved.Value.Path}");
+                            warnings.Add(
+                                $"member {resolved.Value.Scheme}:{resolved.Value.Path} added to actor state but membership UUID resolution failed");
+                        }
                     }
                     catch (Exception ex)
                     {

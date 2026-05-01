@@ -39,8 +39,11 @@ using Xunit;
 /// </summary>
 public class AgentActorAmendmentTests
 {
-    private const string AgentId = "ada";
-    private const string UnitId = "engineering";
+    // Use stable UUIDs as actor IDs so the UUID-keyed membership repo resolves correctly.
+    private static readonly Guid AgentActorUuid = new("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+    private static readonly Guid UnitActorUuid = new("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+    private const string AgentId = "ada";             // slug / address path
+    private const string UnitId = "engineering";      // slug / address path
 
     private readonly IActorStateManager _stateManager = Substitute.For<IActorStateManager>();
     private readonly IActivityEventBus _activityEventBus = Substitute.For<IActivityEventBus>();
@@ -49,6 +52,7 @@ public class AgentActorAmendmentTests
     private readonly IAgentDefinitionProvider _definitionProvider = Substitute.For<IAgentDefinitionProvider>();
     private readonly IUnitMembershipRepository _membershipRepository = Substitute.For<IUnitMembershipRepository>();
     private readonly IUnitPolicyEnforcer _unitPolicyEnforcer = Substitute.For<IUnitPolicyEnforcer>();
+    private readonly IDirectoryService _directoryService = Substitute.For<IDirectoryService>();
     private readonly AgentActor _actor;
 
     public AgentActorAmendmentTests()
@@ -62,14 +66,27 @@ public class AgentActorAmendmentTests
             Substitute.For<IPermissionService>(),
             loggerFactory);
 
+        // Wire directory service: unit slug → UUID entry.
+        _directoryService
+            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "unit" && a.Path == UnitId), Arg.Any<CancellationToken>())
+            .Returns(new DirectoryEntry(
+                new Address("unit", UnitId),
+                UnitActorUuid.ToString(),
+                UnitId,
+                string.Empty,
+                null,
+                DateTimeOffset.UtcNow));
+
+        // Default: no membership row for any (unit, agent) pair.
+        _membershipRepository
+            .GetAsync(Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns((UnitMembership?)null);
+
+        // The actor ID is the agent's stable UUID.
         var host = ActorHost.CreateForTest<AgentActor>(new ActorTestOptions
         {
-            ActorId = new ActorId(AgentId),
+            ActorId = new ActorId(AgentActorUuid.ToString()),
         });
-
-        _membershipRepository
-            .GetAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns((UnitMembership?)null);
 
         _unitPolicyEnforcer.WithAllowByDefault();
 
@@ -88,7 +105,8 @@ public class AgentActorAmendmentTests
             Substitute.For<IAgentLifecycleCoordinator>(),
             new AgentStateCoordinator(Substitute.For<ILogger<AgentStateCoordinator>>()),
             new AgentAmendmentCoordinator(Substitute.For<ILogger<AgentAmendmentCoordinator>>()),
-            new AgentUnitPolicyCoordinator(Substitute.For<ILogger<AgentUnitPolicyCoordinator>>()));
+            new AgentUnitPolicyCoordinator(Substitute.For<ILogger<AgentUnitPolicyCoordinator>>()),
+            directoryService: _directoryService);
 
         SetStateManager(_actor, _stateManager);
 
@@ -139,8 +157,8 @@ public class AgentActorAmendmentTests
     [Fact]
     public async Task Amendment_FromParentUnit_AcceptedAndQueued()
     {
-        _membershipRepository.GetAsync(UnitId, AgentId, Arg.Any<CancellationToken>())
-            .Returns(new UnitMembership(UnitId, AgentId));
+        _membershipRepository.GetAsync(UnitActorUuid, AgentActorUuid, Arg.Any<CancellationToken>())
+            .Returns(new UnitMembership(UnitActorUuid, AgentActorUuid));
 
         var message = CreateAmendment(new Address("unit", UnitId));
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
@@ -157,7 +175,7 @@ public class AgentActorAmendmentTests
     [Fact]
     public async Task Amendment_FromNonMemberUnit_Rejected()
     {
-        _membershipRepository.GetAsync(UnitId, AgentId, Arg.Any<CancellationToken>())
+        _membershipRepository.GetAsync(UnitActorUuid, AgentActorUuid, Arg.Any<CancellationToken>())
             .Returns((UnitMembership?)null);
 
         var message = CreateAmendment(new Address("unit", UnitId));
@@ -175,7 +193,8 @@ public class AgentActorAmendmentTests
     [Fact]
     public async Task Amendment_FromSelf_Accepted()
     {
-        var message = CreateAmendment(new Address("agent", AgentId));
+        // The actor's ID is the UUID, so self-amendments come from the UUID-based address.
+        var message = CreateAmendment(new Address("agent", AgentActorUuid.ToString()));
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
         await _stateManager.Received().SetStateAsync(
@@ -205,8 +224,8 @@ public class AgentActorAmendmentTests
     [Fact]
     public async Task Amendment_FromUnitWhereAgentDisabled_LogAndDrop()
     {
-        _membershipRepository.GetAsync(UnitId, AgentId, Arg.Any<CancellationToken>())
-            .Returns(new UnitMembership(UnitId, AgentId, Enabled: false));
+        _membershipRepository.GetAsync(UnitActorUuid, AgentActorUuid, Arg.Any<CancellationToken>())
+            .Returns(new UnitMembership(UnitActorUuid, AgentActorUuid, Enabled: false));
 
         var message = CreateAmendment(new Address("unit", UnitId));
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
@@ -246,7 +265,7 @@ public class AgentActorAmendmentTests
     [Fact]
     public async Task Amendment_StopAndWaitPriority_SetsPausedFlag()
     {
-        var message = CreateAmendment(new Address("agent", AgentId),
+        var message = CreateAmendment(new Address("agent", AgentActorUuid.ToString()),
             priority: AmendmentPriority.StopAndWait);
 
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
@@ -285,7 +304,7 @@ public class AgentActorAmendmentTests
         _stateManager.TryGetStateAsync<List<PendingAmendment>>(StateKeys.AgentPendingAmendments, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<List<PendingAmendment>>(true, [existing]));
 
-        var message = CreateAmendment(new Address("agent", AgentId), text: "new one");
+        var message = CreateAmendment(new Address("agent", AgentActorUuid.ToString()), text: "new one");
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
         await _stateManager.Received().SetStateAsync(

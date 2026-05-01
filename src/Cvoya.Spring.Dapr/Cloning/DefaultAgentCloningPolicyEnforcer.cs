@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Dapr.Cloning;
 
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Cloning;
+using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.State;
 using Cvoya.Spring.Core.Tenancy;
@@ -49,6 +50,7 @@ public class DefaultAgentCloningPolicyEnforcer(
     IUnitMembershipRepository membershipRepository,
     IUnitBoundaryStore boundaryStore,
     IStateStore stateStore,
+    IDirectoryService directoryService,
     ILoggerFactory loggerFactory) : IAgentCloningPolicyEnforcer
 {
     private readonly ILogger _logger = loggerFactory.CreateLogger<DefaultAgentCloningPolicyEnforcer>();
@@ -209,11 +211,16 @@ public class DefaultAgentCloningPolicyEnforcer(
 
     private async Task<string?> CheckBoundaryOpacityAsync(string agentId, CancellationToken cancellationToken)
     {
+        // agentId is the actor UUID string. Parse to Guid for the membership repo.
+        if (!Guid.TryParse(agentId, out var agentUuid))
+        {
+            return null;
+        }
+
         IReadOnlyList<UnitMembership> memberships;
         try
         {
-            memberships = await membershipRepository.ListByAgentAsync(
-                $"agent://{agentId}", cancellationToken);
+            memberships = await membershipRepository.ListByAgentAsync(agentUuid, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -223,10 +230,29 @@ public class DefaultAgentCloningPolicyEnforcer(
             return null;
         }
 
+        // Pre-load directory entries once for UUID→slug resolution.
+        IReadOnlyList<Spring.Core.Directory.DirectoryEntry> allEntries;
+        try
+        {
+            allEntries = await directoryService.ListAllAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to list directory entries during boundary check; skipping");
+            return null;
+        }
+
         foreach (var membership in memberships)
         {
-            var unitId = membership.UnitId;
-            if (string.IsNullOrWhiteSpace(unitId))
+            var unitUuidStr = membership.UnitId.ToString();
+
+            // Resolve the unit UUID to its slug-based Address for the boundary store,
+            // which uses the directory-service-resolved address (slug scheme).
+            var unitEntry = allEntries.FirstOrDefault(
+                e => string.Equals(e.Address.Scheme, "unit", StringComparison.OrdinalIgnoreCase)
+                  && string.Equals(e.ActorId, unitUuidStr, StringComparison.OrdinalIgnoreCase));
+
+            if (unitEntry is null)
             {
                 continue;
             }
@@ -234,19 +260,19 @@ public class DefaultAgentCloningPolicyEnforcer(
             UnitBoundary boundary;
             try
             {
-                boundary = await boundaryStore.GetAsync(new Address("unit", unitId), cancellationToken);
+                boundary = await boundaryStore.GetAsync(unitEntry.Address, cancellationToken);
             }
             catch (Exception ex)
             {
                 _logger.LogDebug(ex,
                     "Failed to read boundary for unit {UnitId} during cloning check; skipping",
-                    unitId);
+                    unitUuidStr);
                 continue;
             }
 
             if (HasOpaqueBoundary(boundary))
             {
-                return $"Agent '{agentId}' is a member of unit '{unitId}' which has opaque " +
+                return $"Agent '{agentId}' is a member of unit '{unitEntry.Address.Path}' which has opaque " +
                     "boundary rules. A detached clone would surface outside that boundary; " +
                     "use --attachment-mode attached or widen the unit boundary first.";
             }

@@ -9,6 +9,7 @@ using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Agents;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Cloning;
+using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Initiative;
 using Cvoya.Spring.Core.Messaging;
@@ -45,7 +46,8 @@ public class AgentActor(
     IAgentAmendmentCoordinator amendmentCoordinator,
     IAgentUnitPolicyCoordinator unitPolicyCoordinator,
     IExpertiseSeedProvider? expertiseSeedProvider = null,
-    IActorProxyFactory? actorProxyFactory = null) : Actor(host), IAgentActor, IRemindable
+    IActorProxyFactory? actorProxyFactory = null,
+    IDirectoryService? directoryService = null) : Actor(host), IAgentActor, IRemindable
 {
     /// <summary>
     /// Name of the Dapr reminder that drives periodic initiative checks.
@@ -258,8 +260,27 @@ public class AgentActor(
         await amendmentCoordinator.HandleAmendmentAsync(
             agentId: Id.GetId(),
             message: message,
-            getMembership: (unitId, ct) =>
-                membershipRepository.GetAsync(unitId: unitId, agentAddress: Id.GetId(), ct),
+            getMembership: async (unitSlug, ct) =>
+            {
+                if (directoryService is null)
+                {
+                    return null;
+                }
+
+                // Resolve the sender unit slug → UUID and this agent's UUID.
+                var unitEntry = await directoryService.ResolveAsync(new Address("unit", unitSlug), ct);
+                if (unitEntry is null || !Guid.TryParse(unitEntry.ActorId, out var unitUuid))
+                {
+                    return null;
+                }
+
+                if (!Guid.TryParse(Id.GetId(), out var agentUuid))
+                {
+                    return null;
+                }
+
+                return await membershipRepository.GetAsync(unitId: unitUuid, agentId: agentUuid, ct);
+            },
             getPendingAmendments: async ct =>
             {
                 var v = await StateManager
@@ -419,9 +440,26 @@ public class AgentActor(
         UnitMembership? membership;
         try
         {
+            if (directoryService is null)
+            {
+                // No directory service available (e.g. test context without DI).
+                // Fall back to agent-global metadata.
+                return global;
+            }
+
+            // Resolve slugs → UUIDs: the membership table is now UUID-keyed (#1492).
+            // message.From.Path is the sender unit's slug; Id.GetId() is this agent's actor UUID.
+            var unitEntry = await directoryService.ResolveAsync(message.From, cancellationToken);
+            if (unitEntry is null
+                || !Guid.TryParse(unitEntry.ActorId, out var unitUuid)
+                || !Guid.TryParse(Id.GetId(), out var agentUuid))
+            {
+                return global;
+            }
+
             membership = await membershipRepository.GetAsync(
-                unitId: message.From.Path,
-                agentAddress: Id.GetId(),
+                unitId: unitUuid,
+                agentId: agentUuid,
                 cancellationToken);
         }
         catch (OperationCanceledException)

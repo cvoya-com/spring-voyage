@@ -36,7 +36,15 @@ using Xunit;
 public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory>
 {
     private const string UnitName = "engineering";
-    private const string UnitActorId = "actor-engineering";
+
+    // Stable UUID used as the "engineering" unit's ActorId (#1492: endpoints
+    // now require Guid-parseable ActorIds for membership lookups).
+    private static readonly Guid UnitEngineeringUuid = new("ee1ee111-0000-0000-0000-000000000001");
+    private static readonly Guid UnitMarketingUuid = new("ee1ee111-0000-0000-0000-000000000002");
+    private static readonly Guid AgentAdaUuid = new("aadaadaa-0000-0000-0000-000000000001");
+    private static readonly Guid AgentBabbageUuid = new("aadaadaa-0000-0000-0000-000000000002");
+    private static readonly Guid AgentTuringUuid = new("aadaadaa-0000-0000-0000-000000000003");
+    private static readonly Guid AgentForeignAdaUuid = new("aadaadaa-0000-0000-0000-000000000099");
 
     // Server uses JsonStringEnumConverter (Program.cs#134); tests must match.
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
@@ -46,6 +54,17 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
 
     private readonly CustomWebApplicationFactory _factory;
     private readonly HttpClient _client;
+
+    // Tracks slug → UUID mappings set up by ArrangeUnit / ArrangeAgent so
+    // UpsertMembershipAsync / GetMembershipAsync can resolve the right UUIDs
+    // without duplicating the actorId constants at every call site.
+    private readonly Dictionary<string, Guid> _slugToUuid
+        = new(StringComparer.OrdinalIgnoreCase);
+
+    // Accumulates all arranged directory entries so ListAllAsync returns a
+    // consistent set (required for GetDerivedAgentMetadataAsync UUID→slug
+    // resolution of ParentUnit).
+    private readonly List<DirectoryEntry> _arrangedEntries = [];
 
     public UnitAgentsEndpointTests(CustomWebApplicationFactory factory)
     {
@@ -81,7 +100,7 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
                 new("unit", "marketing"), // sub-unit member — must be filtered out
             });
 
-        ArrangeAgent("ada", "actor-ada",
+        ArrangeAgent("ada", AgentAdaUuid,
             new AgentMetadata(
                 Model: "claude-opus",
                 Specialty: "reviewer",
@@ -136,11 +155,11 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
                 new("agent", "turing"),
             });
 
-        ArrangeAgent("ada", "actor-ada",
+        ArrangeAgent("ada", AgentAdaUuid,
             new AgentMetadata(Model: "claude-opus", Enabled: true));
-        ArrangeAgent("babbage", "actor-babbage",
+        ArrangeAgent("babbage", AgentBabbageUuid,
             new AgentMetadata(Model: "gpt-4", Enabled: true));
-        ArrangeAgent("turing", "actor-turing",
+        ArrangeAgent("turing", AgentTuringUuid,
             new AgentMetadata(Model: "claude-sonnet", Enabled: true));
 
         await UpsertMembershipAsync(UnitName, "ada");
@@ -191,7 +210,7 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
         ClearAllMocks();
 
         var unitProxy = ArrangeUnit();
-        ArrangeAgent("ada", "actor-ada", new AgentMetadata());
+        ArrangeAgent("ada", AgentAdaUuid, new AgentMetadata());
 
         var response = await _client.PostAsync(
             $"/api/v1/tenant/units/{UnitName}/agents/ada", content: null, ct);
@@ -218,7 +237,7 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
         ClearAllMocks();
 
         var unitProxy = ArrangeUnit();
-        ArrangeAgent("foreign-ada", "actor-foreign-ada", new AgentMetadata());
+        ArrangeAgent("foreign-ada", AgentForeignAdaUuid, new AgentMetadata());
 
         _factory.TenantGuard
             .EnsureSameTenantAsync(
@@ -248,8 +267,8 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
         ClearAllMocks();
 
         ArrangeUnit();
-        ArrangeUnit("marketing", "actor-marketing");
-        ArrangeAgent("ada", "actor-ada", new AgentMetadata());
+        ArrangeUnit("marketing", UnitMarketingUuid);
+        ArrangeAgent("ada", AgentAdaUuid, new AgentMetadata());
 
         (await _client.PostAsync($"/api/v1/tenant/units/{UnitName}/agents/ada", content: null, ct))
             .StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -267,7 +286,7 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
         ClearAllMocks();
 
         var unitProxy = ArrangeUnit();
-        ArrangeAgent("ada", "actor-ada", new AgentMetadata());
+        ArrangeAgent("ada", AgentAdaUuid, new AgentMetadata());
         await UpsertMembershipAsync(UnitName, "ada");
 
         var response = await _client.PostAsync(
@@ -292,8 +311,8 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
         // The solo-membership case is covered by
         // UnassignUnitAgent_LastMembership_Returns409 below.
         var unitProxy = ArrangeUnit();
-        ArrangeUnit("marketing", "actor-marketing");
-        var agentProxy = ArrangeAgent("ada", "actor-ada", new AgentMetadata());
+        ArrangeUnit("marketing", UnitMarketingUuid);
+        var agentProxy = ArrangeAgent("ada", AgentAdaUuid, new AgentMetadata());
         await UpsertMembershipAsync(UnitName, "ada");
         await UpsertMembershipAsync("marketing", "ada");
 
@@ -319,7 +338,7 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
         ClearAllMocks();
 
         ArrangeUnit();
-        ArrangeAgent("ada", "actor-ada", new AgentMetadata());
+        ArrangeAgent("ada", AgentAdaUuid, new AgentMetadata());
         await UpsertMembershipAsync(UnitName, "ada");
 
         var response = await _client.DeleteAsync(
@@ -337,8 +356,8 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
         ClearAllMocks();
 
         ArrangeUnit();
-        ArrangeUnit("marketing", "actor-marketing");
-        ArrangeAgent("ada", "actor-ada", new AgentMetadata());
+        ArrangeUnit("marketing", UnitMarketingUuid);
+        ArrangeAgent("ada", AgentAdaUuid, new AgentMetadata());
 
         await UpsertMembershipAsync(UnitName, "ada");
         await UpsertMembershipAsync("marketing", "ada");
@@ -391,7 +410,7 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
         var ct = TestContext.Current.CancellationToken;
         ClearAllMocks();
 
-        var agentProxy = ArrangeAgent("ada", "actor-ada",
+        var agentProxy = ArrangeAgent("ada", AgentAdaUuid,
             new AgentMetadata(
                 Model: "claude-opus",
                 Specialty: "reviewer",
@@ -443,11 +462,16 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
 
     private void ClearAllMocks()
     {
+        _slugToUuid.Clear();
+        _arrangedEntries.Clear();
         _factory.DirectoryService.ClearReceivedCalls();
         _factory.ActorProxyFactory.ClearReceivedCalls();
         _factory.DirectoryService
             .ResolveAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
             .Returns((DirectoryEntry?)null);
+        _factory.DirectoryService
+            .ListAllAsync(Arg.Any<CancellationToken>())
+            .Returns(_ => Task.FromResult<IReadOnlyList<DirectoryEntry>>(_arrangedEntries.AsReadOnly()));
 
         // #745: reset the tenant-guard substitute back to allow-all so
         // tests that seed cross-tenant rejection don't bleed into the
@@ -469,15 +493,24 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
         ctx.SaveChanges();
     }
 
-    private IUnitActor ArrangeUnit(string name = UnitName, string actorId = UnitActorId)
+    private IUnitActor ArrangeUnit(string name = UnitName, Guid actorUuid = default)
     {
+        // Default to UnitEngineeringUuid when no uuid is supplied (preserves
+        // the zero-arg call sites for the "engineering" unit).
+        var uuid = actorUuid == default ? UnitEngineeringUuid : actorUuid;
+        var actorId = uuid.ToString();
+        _slugToUuid[$"unit:{name}"] = uuid;
+
         var entry = new DirectoryEntry(
             new Address("unit", name),
             actorId,
-            "Engineering",
-            "Engineering unit",
+            name,
+            $"{name} unit",
             null,
             DateTimeOffset.UtcNow);
+
+        _arrangedEntries.RemoveAll(e => e.Address.Scheme == "unit" && e.Address.Path == name);
+        _arrangedEntries.Add(entry);
 
         _factory.DirectoryService
             .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "unit" && a.Path == name),
@@ -492,8 +525,11 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
         return proxy;
     }
 
-    private IAgentActor ArrangeAgent(string agentId, string actorId, AgentMetadata metadata)
+    private IAgentActor ArrangeAgent(string agentId, Guid actorUuid, AgentMetadata metadata)
     {
+        var actorId = actorUuid.ToString();
+        _slugToUuid[$"agent:{agentId}"] = actorUuid;
+
         var entry = new DirectoryEntry(
             new Address("agent", agentId),
             actorId,
@@ -501,6 +537,9 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
             $"Agent {agentId}",
             null,
             DateTimeOffset.UtcNow);
+
+        _arrangedEntries.RemoveAll(e => e.Address.Scheme == "agent" && e.Address.Path == agentId);
+        _arrangedEntries.Add(entry);
 
         _factory.DirectoryService
             .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "agent" && a.Path == agentId),
@@ -516,20 +555,34 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
         return proxy;
     }
 
-    private async Task UpsertMembershipAsync(string unitId, string agentAddress)
+    /// <summary>
+    /// Seeds a membership row using the UUIDs registered by
+    /// <see cref="ArrangeUnit"/> and <see cref="ArrangeAgent"/>.
+    /// Falls back to a new UUID when the slug has no corresponding
+    /// arranged entry (ghost-agent / ghost-unit scenarios).
+    /// </summary>
+    private async Task UpsertMembershipAsync(string unitName, string agentName)
     {
+        var unitUuid = _slugToUuid.TryGetValue($"unit:{unitName}", out var uid) ? uid : Guid.NewGuid();
+        var agentUuid = _slugToUuid.TryGetValue($"agent:{agentName}", out var aid) ? aid : Guid.NewGuid();
         using var scope = _factory.Services.CreateScope();
         var repo = scope.ServiceProvider.GetRequiredService<IUnitMembershipRepository>();
         await repo.UpsertAsync(
-            new UnitMembership(UnitId: unitId, AgentAddress: agentAddress, Enabled: true),
+            new UnitMembership(unitUuid, agentUuid, Enabled: true),
             CancellationToken.None);
     }
 
-    private async Task<UnitMembership?> GetMembershipAsync(string unitId, string agentAddress)
+    private async Task<UnitMembership?> GetMembershipAsync(string unitName, string agentName)
     {
+        var unitUuid = _slugToUuid.TryGetValue($"unit:{unitName}", out var uid) ? uid : Guid.Empty;
+        var agentUuid = _slugToUuid.TryGetValue($"agent:{agentName}", out var aid) ? aid : Guid.Empty;
+        if (unitUuid == Guid.Empty || agentUuid == Guid.Empty)
+        {
+            return null;
+        }
         using var scope = _factory.Services.CreateScope();
         var repo = scope.ServiceProvider.GetRequiredService<IUnitMembershipRepository>();
-        return await repo.GetAsync(unitId, agentAddress, CancellationToken.None);
+        return await repo.GetAsync(unitUuid, agentUuid, CancellationToken.None);
     }
 
     /// <summary>
@@ -562,22 +615,22 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
         public Task UpsertAsync(UnitMembership membership, CancellationToken cancellationToken = default)
             => _inner.UpsertAsync(membership, cancellationToken);
 
-        public Task DeleteAsync(string unitId, string agentAddress, CancellationToken cancellationToken = default)
-            => _inner.DeleteAsync(unitId, agentAddress, cancellationToken);
+        public Task DeleteAsync(Guid unitId, Guid agentId, CancellationToken cancellationToken = default)
+            => _inner.DeleteAsync(unitId, agentId, cancellationToken);
 
-        public Task DeleteAllForAgentAsync(string agentAddress, CancellationToken cancellationToken = default)
-            => _inner.DeleteAllForAgentAsync(agentAddress, cancellationToken);
+        public Task DeleteAllForAgentAsync(Guid agentId, CancellationToken cancellationToken = default)
+            => _inner.DeleteAllForAgentAsync(agentId, cancellationToken);
 
-        public Task<UnitMembership?> GetAsync(string unitId, string agentAddress, CancellationToken cancellationToken = default)
-            => _inner.GetAsync(unitId, agentAddress, cancellationToken);
+        public Task<UnitMembership?> GetAsync(Guid unitId, Guid agentId, CancellationToken cancellationToken = default)
+            => _inner.GetAsync(unitId, agentId, cancellationToken);
 
-        public Task<IReadOnlyList<UnitMembership>> ListByUnitAsync(string unitId, CancellationToken cancellationToken = default)
+        public Task<IReadOnlyList<UnitMembership>> ListByUnitAsync(Guid unitId, CancellationToken cancellationToken = default)
             => _inner.ListByUnitAsync(unitId, cancellationToken);
 
         public Task<IReadOnlyList<UnitMembership>> ListAllAsync(CancellationToken cancellationToken = default)
             => _inner.ListAllAsync(cancellationToken);
 
-        public async Task<IReadOnlyList<UnitMembership>> ListByAgentAsync(string agentAddress, CancellationToken cancellationToken = default)
+        public async Task<IReadOnlyList<UnitMembership>> ListByAgentAsync(Guid agentId, CancellationToken cancellationToken = default)
         {
             var current = Interlocked.Increment(ref s_inFlight);
             // Track the peak via a compare-and-swap loop so we don't race
@@ -598,7 +651,7 @@ public class UnitAgentsEndpointTests : IClassFixture<CustomWebApplicationFactory
                 // Give parallel callers, if any, time to overlap so the
                 // probe has a chance to observe concurrency.
                 await Task.Delay(20, cancellationToken);
-                return await _inner.ListByAgentAsync(agentAddress, cancellationToken);
+                return await _inner.ListByAgentAsync(agentId, cancellationToken);
             }
             finally
             {

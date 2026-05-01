@@ -40,6 +40,11 @@ public class TenantTreeEndpointTests : IClassFixture<CustomWebApplicationFactory
     private readonly CustomWebApplicationFactory _factory;
     private readonly HttpClient _client;
 
+    // Tracks UUID actorIds assigned by ArrangeDirectoryEntries so that
+    // UpsertMembershipAsync can seed membership rows with matching keys
+    // (#1492: membership table is now keyed by UUID, not slug).
+    private readonly Dictionary<string, Guid> _entryUuids = new(StringComparer.OrdinalIgnoreCase);
+
     public TenantTreeEndpointTests(CustomWebApplicationFactory factory)
     {
         _factory = factory;
@@ -159,9 +164,11 @@ public class TenantTreeEndpointTests : IClassFixture<CustomWebApplicationFactory
                 ("error-unit", "Error Unit"),
             ]);
 
-        ArrangeUnitStatus("actor-draft-unit", UnitStatus.Draft);
-        ArrangeUnitStatus("actor-running-unit", UnitStatus.Running);
-        ArrangeUnitStatus("actor-error-unit", UnitStatus.Error);
+        // ArrangeDirectoryEntries now assigns UUID actorIds; retrieve them
+        // for wiring the actor-proxy stubs.
+        ArrangeUnitStatus(_entryUuids["unit:draft-unit"].ToString(), UnitStatus.Draft);
+        ArrangeUnitStatus(_entryUuids["unit:running-unit"].ToString(), UnitStatus.Running);
+        ArrangeUnitStatus(_entryUuids["unit:error-unit"].ToString(), UnitStatus.Error);
 
         var body = await FetchTreeAsync(ct);
         var tenant = body!.Tree;
@@ -181,7 +188,7 @@ public class TenantTreeEndpointTests : IClassFixture<CustomWebApplicationFactory
         var ct = TestContext.Current.CancellationToken;
         ClearMemberships();
         ArrangeDirectoryEntries(units: [("flaky", "Flaky Unit")]);
-        ArrangeUnitStatusThrows("actor-flaky");
+        ArrangeUnitStatusThrows(_entryUuids["unit:flaky"].ToString());
 
         var body = await FetchTreeAsync(ct);
         body!.Tree.Children!.Single(u => u.Id == "flaky").Status.ShouldBe("draft");
@@ -213,6 +220,7 @@ public class TenantTreeEndpointTests : IClassFixture<CustomWebApplicationFactory
 
     private void ClearMemberships()
     {
+        _entryUuids.Clear();
         _factory.DirectoryService.ClearReceivedCalls();
         _factory.DirectoryService
             .ListAllAsync(Arg.Any<CancellationToken>())
@@ -231,9 +239,13 @@ public class TenantTreeEndpointTests : IClassFixture<CustomWebApplicationFactory
         var list = new List<DirectoryEntry>();
         foreach (var (path, displayName) in units ?? Array.Empty<(string, string)>())
         {
+            // #1492: use a deterministic UUID actorId so UpsertMembershipAsync
+            // can seed membership rows whose UnitId matches the entry.ActorId.
+            var uuid = Guid.NewGuid();
+            _entryUuids[$"unit:{path}"] = uuid;
             list.Add(new DirectoryEntry(
                 Address: new Address("unit", path),
-                ActorId: $"actor-{path}",
+                ActorId: uuid.ToString(),
                 DisplayName: displayName,
                 Description: string.Empty,
                 Role: null,
@@ -241,9 +253,11 @@ public class TenantTreeEndpointTests : IClassFixture<CustomWebApplicationFactory
         }
         foreach (var (path, displayName, role) in agents ?? Array.Empty<(string, string, string?)>())
         {
+            var uuid = Guid.NewGuid();
+            _entryUuids[$"agent:{path}"] = uuid;
             list.Add(new DirectoryEntry(
                 Address: new Address("agent", path),
-                ActorId: $"actor-{path}",
+                ActorId: uuid.ToString(),
                 DisplayName: displayName,
                 Description: string.Empty,
                 Role: role,
@@ -278,12 +292,20 @@ public class TenantTreeEndpointTests : IClassFixture<CustomWebApplicationFactory
             .Returns(proxy);
     }
 
-    private async Task UpsertMembershipAsync(string unitId, string agentAddress, bool enabled = true)
+    /// <summary>
+    /// Seeds a membership row in the DB using the UUID actorIds that
+    /// <see cref="ArrangeDirectoryEntries"/> assigned. Falls back to a new
+    /// <see cref="Guid"/> when a slug has no corresponding directory entry
+    /// (intentional ghost-agent / ghost-unit scenarios).
+    /// </summary>
+    private async Task UpsertMembershipAsync(string unitPath, string agentPath, bool enabled = true)
     {
+        var unitUuid = _entryUuids.TryGetValue($"unit:{unitPath}", out var uid) ? uid : Guid.NewGuid();
+        var agentUuid = _entryUuids.TryGetValue($"agent:{agentPath}", out var aid) ? aid : Guid.NewGuid();
         using var scope = _factory.Services.CreateScope();
         var repo = scope.ServiceProvider.GetRequiredService<IUnitMembershipRepository>();
         await repo.UpsertAsync(
-            new UnitMembership(unitId, agentAddress, Enabled: enabled),
+            new UnitMembership(unitUuid, agentUuid, Enabled: enabled),
             CancellationToken.None);
     }
 }

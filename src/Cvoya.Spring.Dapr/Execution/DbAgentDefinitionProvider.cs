@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Dapr.Execution;
 
 using System.Text.Json;
 
+using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Data;
@@ -41,6 +42,7 @@ using Microsoft.Extensions.Logging;
 public class DbAgentDefinitionProvider(
     IServiceScopeFactory scopeFactory,
     ILoggerFactory loggerFactory,
+    IDirectoryService? directoryService = null,
     IUnitExecutionStore? unitExecutionStore = null) : IAgentDefinitionProvider
 {
     private readonly ILogger _logger = loggerFactory.CreateLogger<DbAgentDefinitionProvider>();
@@ -68,25 +70,35 @@ public class DbAgentDefinitionProvider(
         // rule as AgentMetadata.ParentUnit) and merge its defaults.
         // Membership repo is scoped so we resolve it from the fresh scope
         // above rather than constructor-injecting it (singleton ≠ scoped).
+        // After #1492, UnitMembership.UnitId is a Guid; resolve to slug via
+        // IDirectoryService for IUnitExecutionStore which is slug-keyed.
         if (unitExecutionStore is not null)
         {
             try
             {
                 var membershipRepo = scope.ServiceProvider
                     .GetService<IUnitMembershipRepository>();
-                if (membershipRepo is not null)
+                if (membershipRepo is not null && Guid.TryParse(agentId, out var agentUuid))
                 {
                     var memberships = await membershipRepo
-                        .ListByAgentAsync(agentId, cancellationToken);
-                    if (memberships.Count > 0)
+                        .ListByAgentAsync(agentUuid, cancellationToken);
+                    if (memberships.Count > 0 && directoryService is not null)
                     {
-                        var parentUnit = memberships[0].UnitId;
-                        var unitDefaults = await unitExecutionStore
-                            .GetAsync(parentUnit, cancellationToken);
-                        if (unitDefaults is not null)
+                        var unitUuidStr = memberships[0].UnitId.ToString();
+                        // Resolve UUID → slug via directory service.
+                        var allEntries = await directoryService.ListAllAsync(cancellationToken);
+                        var unitEntry = allEntries.FirstOrDefault(
+                            e => string.Equals(e.Address.Scheme, "unit", StringComparison.OrdinalIgnoreCase)
+                              && string.Equals(e.ActorId, unitUuidStr, StringComparison.OrdinalIgnoreCase));
+                        if (unitEntry is not null)
                         {
-                            var merged = Merge(projected.Execution, unitDefaults);
-                            return projected with { Execution = merged };
+                            var unitDefaults = await unitExecutionStore
+                                .GetAsync(unitEntry.Address.Path, cancellationToken);
+                            if (unitDefaults is not null)
+                            {
+                                var merged = Merge(projected.Execution, unitDefaults);
+                                return projected with { Execution = merged };
+                            }
                         }
                     }
                 }

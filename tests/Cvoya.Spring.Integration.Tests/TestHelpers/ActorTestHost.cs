@@ -55,7 +55,17 @@ public static class ActorTestHost
     /// membership repository, unit-policy enforcer, reflection-action
     /// registry, or activity bus without reaching into private fields.
     /// </summary>
-    public static AgentActorTestHarness CreateAgentActorWithHarness(string? actorId = null)
+    /// <param name="actorId">
+    /// The actor identifier. Defaults to a new GUID. Use a UUID string when
+    /// the test involves membership lookups (#1492: membership table is UUID-keyed).
+    /// </param>
+    /// <param name="directoryService">
+    /// Optional directory service. Required for amendment sender authorisation
+    /// when the amendment originates from a unit (#1492: slug → UUID resolution).
+    /// </param>
+    public static AgentActorTestHarness CreateAgentActorWithHarness(
+        string? actorId = null,
+        IDirectoryService? directoryService = null)
     {
         var stateManager = Substitute.For<IActorStateManager>();
         var loggerFactory = Substitute.For<ILoggerFactory>();
@@ -78,7 +88,7 @@ public static class ActorTestHost
         var definitionProvider = Substitute.For<IAgentDefinitionProvider>();
         var membershipRepository = Substitute.For<IUnitMembershipRepository>();
         membershipRepository
-            .GetAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .GetAsync(Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns((UnitMembership?)null);
         var reflectionRegistry = Substitute.For<IReflectionActionHandlerRegistry>();
         reflectionRegistry.Find(Arg.Any<string?>()).Returns((IReflectionActionHandler?)null);
@@ -131,14 +141,17 @@ public static class ActorTestHost
             Substitute.For<IAgentLifecycleCoordinator>(),
             new AgentStateCoordinator(Substitute.For<ILogger<AgentStateCoordinator>>()),
             new AgentAmendmentCoordinator(Substitute.For<ILogger<AgentAmendmentCoordinator>>()),
-            new AgentUnitPolicyCoordinator(Substitute.For<ILogger<AgentUnitPolicyCoordinator>>()));
+            new AgentUnitPolicyCoordinator(Substitute.For<ILogger<AgentUnitPolicyCoordinator>>()),
+            directoryService: directoryService);
         SetStateManager(actor, stateManager);
 
-        // Default: no active conversation, no pending conversations.
+        // Default: no active conversation, no pending conversations, no pending amendments.
         stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<ThreadChannel>(false, default!));
         stateManager.TryGetStateAsync<List<ThreadChannel>>(StateKeys.PendingConversations, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<List<ThreadChannel>>(false, default!));
+        stateManager.TryGetStateAsync<List<PendingAmendment>>(StateKeys.AgentPendingAmendments, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<List<PendingAmendment>>(false, default!));
 
         return new AgentActorTestHarness(
             actor, stateManager, activityEventBus, membershipRepository,

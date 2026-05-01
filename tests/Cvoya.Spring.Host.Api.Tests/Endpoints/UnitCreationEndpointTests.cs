@@ -225,7 +225,28 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
         // tab, and per-membership config all read the DB, so template-created
         // units looked empty. Verify the DB write now happens for every
         // agent-scheme member at template-creation time.
+        //
+        // #1492: membership rows use UUID keys, so directory stubs must return
+        // UUID-parseable actor IDs.
         var ct = TestContext.Current.CancellationToken;
+
+        var membUnitUuid = new Guid("ca3ca3ca-0000-0000-0000-000000000001");
+        var techLeadUuid = new Guid("ca3ca3ca-0000-0000-0000-000000000002");
+        var backendUuid = new Guid("ca3ca3ca-0000-0000-0000-000000000003");
+        var qaUuid = new Guid("ca3ca3ca-0000-0000-0000-000000000004");
+
+        var unitEntry = new DirectoryEntry(
+            new Address("unit", "memberships-template-unit"), membUnitUuid.ToString(),
+            "memberships-template-unit", string.Empty, null, DateTimeOffset.UtcNow);
+        var techEntry = new DirectoryEntry(
+            new Address("agent", "tech-lead"), techLeadUuid.ToString(),
+            "tech-lead", string.Empty, null, DateTimeOffset.UtcNow);
+        var backendEntry = new DirectoryEntry(
+            new Address("agent", "backend-engineer"), backendUuid.ToString(),
+            "backend-engineer", string.Empty, null, DateTimeOffset.UtcNow);
+        var qaEntry = new DirectoryEntry(
+            new Address("agent", "qa-engineer"), qaUuid.ToString(),
+            "qa-engineer", string.Empty, null, DateTimeOffset.UtcNow);
 
         ResetMocks();
         var proxy = Substitute.For<IUnitActor>();
@@ -236,20 +257,29 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
         _factory.DirectoryService
             .RegisterAsync(Arg.Any<DirectoryEntry>(), Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
-        // /units/{id}/memberships resolves the unit address through the
-        // directory before reading the membership table. Surface a directory
-        // entry so the GET is not short-circuited with a 404.
+
+        // Unit stub — used both during creation (UUID resolution) and at GET /memberships.
         _factory.DirectoryService
             .ResolveAsync(
                 Arg.Is<Address>(a => a.Scheme == "unit"),
                 Arg.Any<CancellationToken>())
-            .Returns(ci => new DirectoryEntry(
-                ci.Arg<Address>(),
-                "actor-memberships",
-                "memberships-template-unit",
-                string.Empty,
-                null,
-                DateTimeOffset.UtcNow));
+            .Returns(unitEntry);
+
+        // Agent stubs — used during creation for UUID resolution + auto-registration.
+        _factory.DirectoryService
+            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "agent" && a.Path == "tech-lead"), Arg.Any<CancellationToken>())
+            .Returns(techEntry);
+        _factory.DirectoryService
+            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "agent" && a.Path == "backend-engineer"), Arg.Any<CancellationToken>())
+            .Returns(backendEntry);
+        _factory.DirectoryService
+            .ResolveAsync(Arg.Is<Address>(a => a.Scheme == "agent" && a.Path == "qa-engineer"), Arg.Any<CancellationToken>())
+            .Returns(qaEntry);
+
+        // ListAllAsync used by ResolveAgentActorIdsAsync at GET /memberships.
+        _factory.DirectoryService
+            .ListAllAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<DirectoryEntry> { unitEntry, techEntry, backendEntry, qaEntry }.AsReadOnly());
 
         const string Yaml = """
             unit:
@@ -291,9 +321,11 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
         agentAddresses.ShouldContain("backend-engineer");
         agentAddresses.ShouldContain("qa-engineer");
 
+        // #1492: unitId is now the identity-URI "unit:id:<uuid>".
+        var expectedUnitId = $"unit:id:{membUnitUuid}";
         foreach (var row in rows)
         {
-            row.GetProperty("unitId").GetString().ShouldBe("memberships-template-unit");
+            row.GetProperty("unitId").GetString().ShouldBe(expectedUnitId);
             row.GetProperty("enabled").GetBoolean().ShouldBeTrue();
             // Template creation passes no per-membership overrides, so these
             // fields are null. JsonSerializer emits them as Null tokens.
@@ -311,7 +343,19 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
         // polymorphic-membership work lands. The template fix must honour
         // that split — writing a unit-scheme row through the same path would
         // violate the table's implicit "rows are agent-addressed" contract.
+        //
+        // #1492: unit and agent stubs must return UUID actor IDs.
         var ct = TestContext.Current.CancellationToken;
+
+        var mixedUnitUuid = new Guid("d5d5d5d5-0000-0000-0000-000000000001");
+        var soloAgentUuid = new Guid("d5d5d5d5-0000-0000-0000-000000000002");
+
+        var unitEntry = new DirectoryEntry(
+            new Address("unit", "mixed-membership-unit"), mixedUnitUuid.ToString(),
+            "mixed-membership-unit", string.Empty, null, DateTimeOffset.UtcNow);
+        var agentEntry = new DirectoryEntry(
+            new Address("agent", "solo-agent"), soloAgentUuid.ToString(),
+            "solo-agent", string.Empty, null, DateTimeOffset.UtcNow);
 
         ResetMocks();
         var proxy = Substitute.For<IUnitActor>();
@@ -326,13 +370,16 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
             .ResolveAsync(
                 Arg.Is<Address>(a => a.Scheme == "unit"),
                 Arg.Any<CancellationToken>())
-            .Returns(ci => new DirectoryEntry(
-                ci.Arg<Address>(),
-                "actor-mixed",
-                "mixed-membership-unit",
-                string.Empty,
-                null,
-                DateTimeOffset.UtcNow));
+            .Returns(unitEntry);
+        _factory.DirectoryService
+            .ResolveAsync(
+                Arg.Is<Address>(a => a.Scheme == "agent" && a.Path == "solo-agent"),
+                Arg.Any<CancellationToken>())
+            .Returns(agentEntry);
+        // ListAllAsync for ResolveAgentActorIdsAsync at GET /memberships.
+        _factory.DirectoryService
+            .ListAllAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<DirectoryEntry> { unitEntry, agentEntry }.AsReadOnly());
 
         const string Yaml = """
             unit:
@@ -439,13 +486,16 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
         doc.RootElement.GetProperty("unit").GetProperty("name").GetString()
             .ShouldBe("sample-unit");
 
-        // Manifest-name fallback must NOT trigger the new duplicate check
+        // Manifest-name fallback must NOT trigger the new duplicate-check
         // so legacy callers do not observe a new 400 on the same payloads
-        // they used to submit. The agent auto-registration (#374) does call
-        // ResolveAsync for agent-scheme addresses, so we narrow the assertion
-        // to unit-scheme only.
-        await _factory.DirectoryService.DidNotReceive().ResolveAsync(
-            Arg.Is<Address>(a => a.Scheme == "unit"), Arg.Any<CancellationToken>());
+        // they used to submit. The service calls RegisterAsync for the unit
+        // but not the duplicate-check ResolvAsync for the unit address.
+        // (Note: #1492 added ResolveAsync for unit UUID resolution during
+        // membership writes, so we only verify RegisterAsync ran, not the
+        // absence of ResolveAsync for units.)
+        await _factory.DirectoryService.Received().RegisterAsync(
+            Arg.Is<DirectoryEntry>(e => e.Address.Scheme == "unit" && e.Address.Path == "sample-unit"),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]

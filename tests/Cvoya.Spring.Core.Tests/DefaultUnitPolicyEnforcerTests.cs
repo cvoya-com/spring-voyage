@@ -22,6 +22,13 @@ using Xunit;
 /// </summary>
 public class DefaultUnitPolicyEnforcerTests
 {
+    // Stable UUIDs used as actor IDs in every test. The enforcer requires
+    // UUID-shaped agentId strings (post #1492 migration) and uses
+    // UnitId.ToString() as the policy-repo key.
+    private static readonly Guid AgentAda = new("aaaaaaaa-0000-0000-0000-000000000001");
+    private static readonly Guid UnitEngineering = new("bbbbbbbb-0000-0000-0000-000000000001");
+    private static readonly Guid UnitMarketing = new("bbbbbbbb-0000-0000-0000-000000000002");
+
     [Fact]
     public async Task EvaluateSkillInvocation_NoMemberships_Allowed()
     {
@@ -29,7 +36,7 @@ public class DefaultUnitPolicyEnforcerTests
             new FakeMembershipRepository(),
             new FakePolicyRepository());
 
-        var result = await enforcer.EvaluateSkillInvocationAsync("ada", "search", TestContext.Current.CancellationToken);
+        var result = await enforcer.EvaluateSkillInvocationAsync(AgentAda.ToString(), "search", TestContext.Current.CancellationToken);
 
         result.IsAllowed.ShouldBeTrue();
     }
@@ -38,10 +45,10 @@ public class DefaultUnitPolicyEnforcerTests
     public async Task EvaluateSkillInvocation_UnitWithNoPolicy_Allowed()
     {
         var enforcer = new DefaultUnitPolicyEnforcer(
-            FakeMembershipRepository.With(("engineering", "ada")),
+            FakeMembershipRepository.With((UnitEngineering, AgentAda)),
             new FakePolicyRepository());
 
-        var result = await enforcer.EvaluateSkillInvocationAsync("ada", "search", TestContext.Current.CancellationToken);
+        var result = await enforcer.EvaluateSkillInvocationAsync(AgentAda.ToString(), "search", TestContext.Current.CancellationToken);
 
         result.IsAllowed.ShouldBeTrue();
     }
@@ -50,10 +57,10 @@ public class DefaultUnitPolicyEnforcerTests
     public async Task EvaluateSkillInvocation_UnitWithEmptyPolicy_Allowed()
     {
         var enforcer = new DefaultUnitPolicyEnforcer(
-            FakeMembershipRepository.With(("engineering", "ada")),
-            FakePolicyRepository.With(("engineering", UnitPolicy.Empty)));
+            FakeMembershipRepository.With((UnitEngineering, AgentAda)),
+            FakePolicyRepository.With((UnitEngineering, UnitPolicy.Empty)));
 
-        var result = await enforcer.EvaluateSkillInvocationAsync("ada", "search", TestContext.Current.CancellationToken);
+        var result = await enforcer.EvaluateSkillInvocationAsync(AgentAda.ToString(), "search", TestContext.Current.CancellationToken);
 
         result.IsAllowed.ShouldBeTrue();
     }
@@ -63,13 +70,13 @@ public class DefaultUnitPolicyEnforcerTests
     {
         var policy = new UnitPolicy(new SkillPolicy(Blocked: new[] { "delete_repo" }));
         var enforcer = new DefaultUnitPolicyEnforcer(
-            FakeMembershipRepository.With(("engineering", "ada")),
-            FakePolicyRepository.With(("engineering", policy)));
+            FakeMembershipRepository.With((UnitEngineering, AgentAda)),
+            FakePolicyRepository.With((UnitEngineering, policy)));
 
-        var result = await enforcer.EvaluateSkillInvocationAsync("ada", "delete_repo", TestContext.Current.CancellationToken);
+        var result = await enforcer.EvaluateSkillInvocationAsync(AgentAda.ToString(), "delete_repo", TestContext.Current.CancellationToken);
 
         result.IsAllowed.ShouldBeFalse();
-        result.DenyingUnitId.ShouldBe("engineering");
+        result.DenyingUnitId.ShouldBe(UnitEngineering.ToString());
         result.Reason!.ShouldContain("blocked");
     }
 
@@ -78,13 +85,13 @@ public class DefaultUnitPolicyEnforcerTests
     {
         var policy = new UnitPolicy(new SkillPolicy(Allowed: new[] { "search" }));
         var enforcer = new DefaultUnitPolicyEnforcer(
-            FakeMembershipRepository.With(("engineering", "ada")),
-            FakePolicyRepository.With(("engineering", policy)));
+            FakeMembershipRepository.With((UnitEngineering, AgentAda)),
+            FakePolicyRepository.With((UnitEngineering, policy)));
 
-        var result = await enforcer.EvaluateSkillInvocationAsync("ada", "delete_repo", TestContext.Current.CancellationToken);
+        var result = await enforcer.EvaluateSkillInvocationAsync(AgentAda.ToString(), "delete_repo", TestContext.Current.CancellationToken);
 
         result.IsAllowed.ShouldBeFalse();
-        result.DenyingUnitId.ShouldBe("engineering");
+        result.DenyingUnitId.ShouldBe(UnitEngineering.ToString());
     }
 
     [Fact]
@@ -92,10 +99,10 @@ public class DefaultUnitPolicyEnforcerTests
     {
         var policy = new UnitPolicy(new SkillPolicy(Allowed: new[] { "search", "summarize" }));
         var enforcer = new DefaultUnitPolicyEnforcer(
-            FakeMembershipRepository.With(("engineering", "ada")),
-            FakePolicyRepository.With(("engineering", policy)));
+            FakeMembershipRepository.With((UnitEngineering, AgentAda)),
+            FakePolicyRepository.With((UnitEngineering, policy)));
 
-        var result = await enforcer.EvaluateSkillInvocationAsync("ada", "summarize", TestContext.Current.CancellationToken);
+        var result = await enforcer.EvaluateSkillInvocationAsync(AgentAda.ToString(), "summarize", TestContext.Current.CancellationToken);
 
         result.IsAllowed.ShouldBeTrue();
     }
@@ -107,10 +114,10 @@ public class DefaultUnitPolicyEnforcerTests
             Allowed: new[] { "search", "delete_repo" },
             Blocked: new[] { "delete_repo" }));
         var enforcer = new DefaultUnitPolicyEnforcer(
-            FakeMembershipRepository.With(("engineering", "ada")),
-            FakePolicyRepository.With(("engineering", policy)));
+            FakeMembershipRepository.With((UnitEngineering, AgentAda)),
+            FakePolicyRepository.With((UnitEngineering, policy)));
 
-        var result = await enforcer.EvaluateSkillInvocationAsync("ada", "delete_repo", TestContext.Current.CancellationToken);
+        var result = await enforcer.EvaluateSkillInvocationAsync(AgentAda.ToString(), "delete_repo", TestContext.Current.CancellationToken);
 
         result.IsAllowed.ShouldBeFalse();
         result.Reason!.ShouldContain("blocked");
@@ -121,10 +128,10 @@ public class DefaultUnitPolicyEnforcerTests
     {
         var policy = new UnitPolicy(new SkillPolicy(Blocked: new[] { "Delete_Repo" }));
         var enforcer = new DefaultUnitPolicyEnforcer(
-            FakeMembershipRepository.With(("engineering", "ada")),
-            FakePolicyRepository.With(("engineering", policy)));
+            FakeMembershipRepository.With((UnitEngineering, AgentAda)),
+            FakePolicyRepository.With((UnitEngineering, policy)));
 
-        var result = await enforcer.EvaluateSkillInvocationAsync("ada", "DELETE_REPO", TestContext.Current.CancellationToken);
+        var result = await enforcer.EvaluateSkillInvocationAsync(AgentAda.ToString(), "DELETE_REPO", TestContext.Current.CancellationToken);
 
         result.IsAllowed.ShouldBeFalse();
     }
@@ -136,10 +143,10 @@ public class DefaultUnitPolicyEnforcerTests
         // from Allowed: null which means "no whitelist constraint".
         var policy = new UnitPolicy(new SkillPolicy(Allowed: Array.Empty<string>()));
         var enforcer = new DefaultUnitPolicyEnforcer(
-            FakeMembershipRepository.With(("engineering", "ada")),
-            FakePolicyRepository.With(("engineering", policy)));
+            FakeMembershipRepository.With((UnitEngineering, AgentAda)),
+            FakePolicyRepository.With((UnitEngineering, policy)));
 
-        var result = await enforcer.EvaluateSkillInvocationAsync("ada", "search", TestContext.Current.CancellationToken);
+        var result = await enforcer.EvaluateSkillInvocationAsync(AgentAda.ToString(), "search", TestContext.Current.CancellationToken);
 
         result.IsAllowed.ShouldBeFalse();
     }
@@ -150,19 +157,19 @@ public class DefaultUnitPolicyEnforcerTests
         // Agent belongs to two units — marketing is permissive, engineering
         // blocks the tool. Either iteration order is legal; the test asserts
         // that SOME denying unit is identified.
-        var memberships = FakeMembershipRepository.With(
-            ("marketing", "ada"),
-            ("engineering", "ada"));
-        var policies = FakePolicyRepository.With(
-            ("marketing", UnitPolicy.Empty),
-            ("engineering", new UnitPolicy(new SkillPolicy(Blocked: new[] { "delete_repo" }))));
+        var membershipRepo = FakeMembershipRepository.With(
+            (UnitMarketing, AgentAda),
+            (UnitEngineering, AgentAda));
+        var policyRepo = FakePolicyRepository.With(
+            (UnitMarketing, UnitPolicy.Empty),
+            (UnitEngineering, new UnitPolicy(new SkillPolicy(Blocked: new[] { "delete_repo" }))));
 
-        var enforcer = new DefaultUnitPolicyEnforcer(memberships, policies);
+        var enforcer = new DefaultUnitPolicyEnforcer(membershipRepo, policyRepo);
 
-        var result = await enforcer.EvaluateSkillInvocationAsync("ada", "delete_repo", TestContext.Current.CancellationToken);
+        var result = await enforcer.EvaluateSkillInvocationAsync(AgentAda.ToString(), "delete_repo", TestContext.Current.CancellationToken);
 
         result.IsAllowed.ShouldBeFalse();
-        result.DenyingUnitId.ShouldBe("engineering");
+        result.DenyingUnitId.ShouldBe(UnitEngineering.ToString());
     }
 
     [Fact]
@@ -173,9 +180,10 @@ public class DefaultUnitPolicyEnforcerTests
             new FakePolicyRepository());
 
         var ct = TestContext.Current.CancellationToken;
+        // Empty string is not a valid UUID — enforcer returns Allowed immediately.
         (await enforcer.EvaluateSkillInvocationAsync("", "search", ct))
             .IsAllowed.ShouldBeTrue();
-        (await enforcer.EvaluateSkillInvocationAsync("ada", "", ct))
+        (await enforcer.EvaluateSkillInvocationAsync(AgentAda.ToString(), "", ct))
             .IsAllowed.ShouldBeTrue();
     }
 
@@ -187,10 +195,10 @@ public class DefaultUnitPolicyEnforcerTests
     public async Task EvaluateModel_NoPolicy_Allowed()
     {
         var enforcer = new DefaultUnitPolicyEnforcer(
-            FakeMembershipRepository.With(("engineering", "ada")),
-            FakePolicyRepository.With(("engineering", UnitPolicy.Empty)));
+            FakeMembershipRepository.With((UnitEngineering, AgentAda)),
+            FakePolicyRepository.With((UnitEngineering, UnitPolicy.Empty)));
 
-        var result = await enforcer.EvaluateModelAsync("ada", "gpt-4", TestContext.Current.CancellationToken);
+        var result = await enforcer.EvaluateModelAsync(AgentAda.ToString(), "gpt-4", TestContext.Current.CancellationToken);
 
         result.IsAllowed.ShouldBeTrue();
     }
@@ -200,13 +208,13 @@ public class DefaultUnitPolicyEnforcerTests
     {
         var policy = new UnitPolicy(Model: new ModelPolicy(Blocked: new[] { "gpt-4" }));
         var enforcer = new DefaultUnitPolicyEnforcer(
-            FakeMembershipRepository.With(("engineering", "ada")),
-            FakePolicyRepository.With(("engineering", policy)));
+            FakeMembershipRepository.With((UnitEngineering, AgentAda)),
+            FakePolicyRepository.With((UnitEngineering, policy)));
 
-        var result = await enforcer.EvaluateModelAsync("ada", "gpt-4", TestContext.Current.CancellationToken);
+        var result = await enforcer.EvaluateModelAsync(AgentAda.ToString(), "gpt-4", TestContext.Current.CancellationToken);
 
         result.IsAllowed.ShouldBeFalse();
-        result.DenyingUnitId.ShouldBe("engineering");
+        result.DenyingUnitId.ShouldBe(UnitEngineering.ToString());
         result.Reason!.ShouldContain("blocked");
     }
 
@@ -215,10 +223,10 @@ public class DefaultUnitPolicyEnforcerTests
     {
         var policy = new UnitPolicy(Model: new ModelPolicy(Allowed: new[] { "claude-sonnet" }));
         var enforcer = new DefaultUnitPolicyEnforcer(
-            FakeMembershipRepository.With(("engineering", "ada")),
-            FakePolicyRepository.With(("engineering", policy)));
+            FakeMembershipRepository.With((UnitEngineering, AgentAda)),
+            FakePolicyRepository.With((UnitEngineering, policy)));
 
-        var result = await enforcer.EvaluateModelAsync("ada", "gpt-4", TestContext.Current.CancellationToken);
+        var result = await enforcer.EvaluateModelAsync(AgentAda.ToString(), "gpt-4", TestContext.Current.CancellationToken);
 
         result.IsAllowed.ShouldBeFalse();
         result.Reason!.ShouldContain("not in unit");
@@ -229,10 +237,10 @@ public class DefaultUnitPolicyEnforcerTests
     {
         var policy = new UnitPolicy(Model: new ModelPolicy(Allowed: new[] { "claude-sonnet", "gpt-4" }));
         var enforcer = new DefaultUnitPolicyEnforcer(
-            FakeMembershipRepository.With(("engineering", "ada")),
-            FakePolicyRepository.With(("engineering", policy)));
+            FakeMembershipRepository.With((UnitEngineering, AgentAda)),
+            FakePolicyRepository.With((UnitEngineering, policy)));
 
-        var result = await enforcer.EvaluateModelAsync("ada", "Claude-Sonnet", TestContext.Current.CancellationToken);
+        var result = await enforcer.EvaluateModelAsync(AgentAda.ToString(), "Claude-Sonnet", TestContext.Current.CancellationToken);
 
         result.IsAllowed.ShouldBeTrue();
     }
@@ -244,10 +252,10 @@ public class DefaultUnitPolicyEnforcerTests
             Allowed: new[] { "gpt-4" },
             Blocked: new[] { "gpt-4" }));
         var enforcer = new DefaultUnitPolicyEnforcer(
-            FakeMembershipRepository.With(("engineering", "ada")),
-            FakePolicyRepository.With(("engineering", policy)));
+            FakeMembershipRepository.With((UnitEngineering, AgentAda)),
+            FakePolicyRepository.With((UnitEngineering, policy)));
 
-        var result = await enforcer.EvaluateModelAsync("ada", "gpt-4", TestContext.Current.CancellationToken);
+        var result = await enforcer.EvaluateModelAsync(AgentAda.ToString(), "gpt-4", TestContext.Current.CancellationToken);
 
         result.IsAllowed.ShouldBeFalse();
         result.Reason!.ShouldContain("blocked");
@@ -261,11 +269,11 @@ public class DefaultUnitPolicyEnforcerTests
     public async Task EvaluateCost_NoPolicy_Allowed()
     {
         var enforcer = new DefaultUnitPolicyEnforcer(
-            FakeMembershipRepository.With(("engineering", "ada")),
-            FakePolicyRepository.With(("engineering", UnitPolicy.Empty)),
+            FakeMembershipRepository.With((UnitEngineering, AgentAda)),
+            FakePolicyRepository.With((UnitEngineering, UnitPolicy.Empty)),
             new FakeCostQueryService());
 
-        var result = await enforcer.EvaluateCostAsync("ada", 1.00m, TestContext.Current.CancellationToken);
+        var result = await enforcer.EvaluateCostAsync(AgentAda.ToString(), 1.00m, TestContext.Current.CancellationToken);
 
         result.IsAllowed.ShouldBeTrue();
     }
@@ -275,13 +283,13 @@ public class DefaultUnitPolicyEnforcerTests
     {
         var policy = new UnitPolicy(Cost: new CostPolicy(MaxCostPerInvocation: 0.50m));
         var enforcer = new DefaultUnitPolicyEnforcer(
-            FakeMembershipRepository.With(("engineering", "ada")),
-            FakePolicyRepository.With(("engineering", policy)));
+            FakeMembershipRepository.With((UnitEngineering, AgentAda)),
+            FakePolicyRepository.With((UnitEngineering, policy)));
 
-        var result = await enforcer.EvaluateCostAsync("ada", 0.75m, TestContext.Current.CancellationToken);
+        var result = await enforcer.EvaluateCostAsync(AgentAda.ToString(), 0.75m, TestContext.Current.CancellationToken);
 
         result.IsAllowed.ShouldBeFalse();
-        result.DenyingUnitId.ShouldBe("engineering");
+        result.DenyingUnitId.ShouldBe(UnitEngineering.ToString());
         result.Reason!.ShouldContain("per-invocation");
     }
 
@@ -290,10 +298,10 @@ public class DefaultUnitPolicyEnforcerTests
     {
         var policy = new UnitPolicy(Cost: new CostPolicy(MaxCostPerInvocation: 0.50m));
         var enforcer = new DefaultUnitPolicyEnforcer(
-            FakeMembershipRepository.With(("engineering", "ada")),
-            FakePolicyRepository.With(("engineering", policy)));
+            FakeMembershipRepository.With((UnitEngineering, AgentAda)),
+            FakePolicyRepository.With((UnitEngineering, policy)));
 
-        var result = await enforcer.EvaluateCostAsync("ada", 0.50m, TestContext.Current.CancellationToken);
+        var result = await enforcer.EvaluateCostAsync(AgentAda.ToString(), 0.50m, TestContext.Current.CancellationToken);
 
         result.IsAllowed.ShouldBeTrue();
     }
@@ -303,14 +311,14 @@ public class DefaultUnitPolicyEnforcerTests
     {
         var policy = new UnitPolicy(Cost: new CostPolicy(MaxCostPerHour: 2.00m));
         var costs = new FakeCostQueryService();
-        costs.SetHourlyCost("ada", 1.80m);
+        costs.SetHourlyCost(AgentAda.ToString(), 1.80m);
 
         var enforcer = new DefaultUnitPolicyEnforcer(
-            FakeMembershipRepository.With(("engineering", "ada")),
-            FakePolicyRepository.With(("engineering", policy)),
+            FakeMembershipRepository.With((UnitEngineering, AgentAda)),
+            FakePolicyRepository.With((UnitEngineering, policy)),
             costs);
 
-        var result = await enforcer.EvaluateCostAsync("ada", 0.50m, TestContext.Current.CancellationToken);
+        var result = await enforcer.EvaluateCostAsync(AgentAda.ToString(), 0.50m, TestContext.Current.CancellationToken);
 
         result.IsAllowed.ShouldBeFalse();
         result.Reason!.ShouldContain("per-hour");
@@ -321,14 +329,14 @@ public class DefaultUnitPolicyEnforcerTests
     {
         var policy = new UnitPolicy(Cost: new CostPolicy(MaxCostPerHour: 2.00m));
         var costs = new FakeCostQueryService();
-        costs.SetHourlyCost("ada", 1.00m);
+        costs.SetHourlyCost(AgentAda.ToString(), 1.00m);
 
         var enforcer = new DefaultUnitPolicyEnforcer(
-            FakeMembershipRepository.With(("engineering", "ada")),
-            FakePolicyRepository.With(("engineering", policy)),
+            FakeMembershipRepository.With((UnitEngineering, AgentAda)),
+            FakePolicyRepository.With((UnitEngineering, policy)),
             costs);
 
-        var result = await enforcer.EvaluateCostAsync("ada", 0.50m, TestContext.Current.CancellationToken);
+        var result = await enforcer.EvaluateCostAsync(AgentAda.ToString(), 0.50m, TestContext.Current.CancellationToken);
 
         result.IsAllowed.ShouldBeTrue();
     }
@@ -338,14 +346,14 @@ public class DefaultUnitPolicyEnforcerTests
     {
         var policy = new UnitPolicy(Cost: new CostPolicy(MaxCostPerDay: 10.00m));
         var costs = new FakeCostQueryService();
-        costs.SetDailyCost("ada", 9.80m);
+        costs.SetDailyCost(AgentAda.ToString(), 9.80m);
 
         var enforcer = new DefaultUnitPolicyEnforcer(
-            FakeMembershipRepository.With(("engineering", "ada")),
-            FakePolicyRepository.With(("engineering", policy)),
+            FakeMembershipRepository.With((UnitEngineering, AgentAda)),
+            FakePolicyRepository.With((UnitEngineering, policy)),
             costs);
 
-        var result = await enforcer.EvaluateCostAsync("ada", 0.50m, TestContext.Current.CancellationToken);
+        var result = await enforcer.EvaluateCostAsync(AgentAda.ToString(), 0.50m, TestContext.Current.CancellationToken);
 
         result.IsAllowed.ShouldBeFalse();
         result.Reason!.ShouldContain("per-day");
@@ -359,11 +367,11 @@ public class DefaultUnitPolicyEnforcerTests
     public async Task ResolveExecutionMode_NoPolicy_ReturnsInputUnchanged()
     {
         var enforcer = new DefaultUnitPolicyEnforcer(
-            FakeMembershipRepository.With(("engineering", "ada")),
-            FakePolicyRepository.With(("engineering", UnitPolicy.Empty)));
+            FakeMembershipRepository.With((UnitEngineering, AgentAda)),
+            FakePolicyRepository.With((UnitEngineering, UnitPolicy.Empty)));
 
         var resolution = await enforcer.ResolveExecutionModeAsync(
-            "ada", AgentExecutionMode.Auto, TestContext.Current.CancellationToken);
+            AgentAda.ToString(), AgentExecutionMode.Auto, TestContext.Current.CancellationToken);
 
         resolution.Decision.IsAllowed.ShouldBeTrue();
         resolution.Mode.ShouldBe(AgentExecutionMode.Auto);
@@ -374,11 +382,11 @@ public class DefaultUnitPolicyEnforcerTests
     {
         var policy = new UnitPolicy(ExecutionMode: new ExecutionModePolicy(Forced: AgentExecutionMode.OnDemand));
         var enforcer = new DefaultUnitPolicyEnforcer(
-            FakeMembershipRepository.With(("engineering", "ada")),
-            FakePolicyRepository.With(("engineering", policy)));
+            FakeMembershipRepository.With((UnitEngineering, AgentAda)),
+            FakePolicyRepository.With((UnitEngineering, policy)));
 
         var resolution = await enforcer.ResolveExecutionModeAsync(
-            "ada", AgentExecutionMode.Auto, TestContext.Current.CancellationToken);
+            AgentAda.ToString(), AgentExecutionMode.Auto, TestContext.Current.CancellationToken);
 
         resolution.Decision.IsAllowed.ShouldBeTrue();
         resolution.Mode.ShouldBe(AgentExecutionMode.OnDemand);
@@ -390,14 +398,14 @@ public class DefaultUnitPolicyEnforcerTests
         var policy = new UnitPolicy(ExecutionMode: new ExecutionModePolicy(
             Allowed: new[] { AgentExecutionMode.OnDemand }));
         var enforcer = new DefaultUnitPolicyEnforcer(
-            FakeMembershipRepository.With(("engineering", "ada")),
-            FakePolicyRepository.With(("engineering", policy)));
+            FakeMembershipRepository.With((UnitEngineering, AgentAda)),
+            FakePolicyRepository.With((UnitEngineering, policy)));
 
         var resolution = await enforcer.ResolveExecutionModeAsync(
-            "ada", AgentExecutionMode.Auto, TestContext.Current.CancellationToken);
+            AgentAda.ToString(), AgentExecutionMode.Auto, TestContext.Current.CancellationToken);
 
         resolution.Decision.IsAllowed.ShouldBeFalse();
-        resolution.Decision.DenyingUnitId.ShouldBe("engineering");
+        resolution.Decision.DenyingUnitId.ShouldBe(UnitEngineering.ToString());
     }
 
     [Fact]
@@ -406,11 +414,11 @@ public class DefaultUnitPolicyEnforcerTests
         var policy = new UnitPolicy(ExecutionMode: new ExecutionModePolicy(
             Allowed: new[] { AgentExecutionMode.OnDemand, AgentExecutionMode.Auto }));
         var enforcer = new DefaultUnitPolicyEnforcer(
-            FakeMembershipRepository.With(("engineering", "ada")),
-            FakePolicyRepository.With(("engineering", policy)));
+            FakeMembershipRepository.With((UnitEngineering, AgentAda)),
+            FakePolicyRepository.With((UnitEngineering, policy)));
 
         var resolution = await enforcer.ResolveExecutionModeAsync(
-            "ada", AgentExecutionMode.OnDemand, TestContext.Current.CancellationToken);
+            AgentAda.ToString(), AgentExecutionMode.OnDemand, TestContext.Current.CancellationToken);
 
         resolution.Decision.IsAllowed.ShouldBeTrue();
         resolution.Mode.ShouldBe(AgentExecutionMode.OnDemand);
@@ -424,11 +432,11 @@ public class DefaultUnitPolicyEnforcerTests
         // input mode. ResolveExecutionModeAsync remains Allow-with-coerced-mode.
         var policy = new UnitPolicy(ExecutionMode: new ExecutionModePolicy(Forced: AgentExecutionMode.OnDemand));
         var enforcer = new DefaultUnitPolicyEnforcer(
-            FakeMembershipRepository.With(("engineering", "ada")),
-            FakePolicyRepository.With(("engineering", policy)));
+            FakeMembershipRepository.With((UnitEngineering, AgentAda)),
+            FakePolicyRepository.With((UnitEngineering, policy)));
 
         var result = await enforcer.EvaluateExecutionModeAsync(
-            "ada", AgentExecutionMode.Auto, TestContext.Current.CancellationToken);
+            AgentAda.ToString(), AgentExecutionMode.Auto, TestContext.Current.CancellationToken);
 
         result.IsAllowed.ShouldBeFalse();
         result.Reason!.ShouldContain("coerced");
@@ -442,11 +450,11 @@ public class DefaultUnitPolicyEnforcerTests
     public async Task EvaluateInitiativeAction_NoPolicy_Allowed()
     {
         var enforcer = new DefaultUnitPolicyEnforcer(
-            FakeMembershipRepository.With(("engineering", "ada")),
-            FakePolicyRepository.With(("engineering", UnitPolicy.Empty)));
+            FakeMembershipRepository.With((UnitEngineering, AgentAda)),
+            FakePolicyRepository.With((UnitEngineering, UnitPolicy.Empty)));
 
         var result = await enforcer.EvaluateInitiativeActionAsync(
-            "ada", "send-message", TestContext.Current.CancellationToken);
+            AgentAda.ToString(), "send-message", TestContext.Current.CancellationToken);
 
         result.IsAllowed.ShouldBeTrue();
     }
@@ -457,11 +465,11 @@ public class DefaultUnitPolicyEnforcerTests
         var policy = new UnitPolicy(Initiative: new InitiativePolicy(
             BlockedActions: new[] { "send-message" }));
         var enforcer = new DefaultUnitPolicyEnforcer(
-            FakeMembershipRepository.With(("engineering", "ada")),
-            FakePolicyRepository.With(("engineering", policy)));
+            FakeMembershipRepository.With((UnitEngineering, AgentAda)),
+            FakePolicyRepository.With((UnitEngineering, policy)));
 
         var result = await enforcer.EvaluateInitiativeActionAsync(
-            "ada", "send-message", TestContext.Current.CancellationToken);
+            AgentAda.ToString(), "send-message", TestContext.Current.CancellationToken);
 
         result.IsAllowed.ShouldBeFalse();
         result.Reason!.ShouldContain("blocked");
@@ -473,11 +481,11 @@ public class DefaultUnitPolicyEnforcerTests
         var policy = new UnitPolicy(Initiative: new InitiativePolicy(
             AllowedActions: new[] { "start-conversation" }));
         var enforcer = new DefaultUnitPolicyEnforcer(
-            FakeMembershipRepository.With(("engineering", "ada")),
-            FakePolicyRepository.With(("engineering", policy)));
+            FakeMembershipRepository.With((UnitEngineering, AgentAda)),
+            FakePolicyRepository.With((UnitEngineering, policy)));
 
         var result = await enforcer.EvaluateInitiativeActionAsync(
-            "ada", "send-message", TestContext.Current.CancellationToken);
+            AgentAda.ToString(), "send-message", TestContext.Current.CancellationToken);
 
         result.IsAllowed.ShouldBeFalse();
     }
@@ -488,23 +496,25 @@ public class DefaultUnitPolicyEnforcerTests
         var policy = new UnitPolicy(Initiative: new InitiativePolicy(
             AllowedActions: new[] { "send-message", "start-conversation" }));
         var enforcer = new DefaultUnitPolicyEnforcer(
-            FakeMembershipRepository.With(("engineering", "ada")),
-            FakePolicyRepository.With(("engineering", policy)));
+            FakeMembershipRepository.With((UnitEngineering, AgentAda)),
+            FakePolicyRepository.With((UnitEngineering, policy)));
 
         var result = await enforcer.EvaluateInitiativeActionAsync(
-            "ada", "send-message", TestContext.Current.CancellationToken);
+            AgentAda.ToString(), "send-message", TestContext.Current.CancellationToken);
 
         result.IsAllowed.ShouldBeTrue();
     }
 
     /// <summary>
     /// Hand-rolled fake — the Core test project has no NSubstitute dependency.
+    /// The repository now uses Guid primary keys matching the post-#1492
+    /// <see cref="IUnitMembershipRepository"/> interface.
     /// </summary>
     private sealed class FakeMembershipRepository : IUnitMembershipRepository
     {
         private readonly List<UnitMembership> _rows = new();
 
-        public static FakeMembershipRepository With(params (string unit, string agent)[] rows)
+        public static FakeMembershipRepository With(params (Guid unit, Guid agent)[] rows)
         {
             var repo = new FakeMembershipRepository();
             foreach (var (unit, agent) in rows)
@@ -517,22 +527,22 @@ public class DefaultUnitPolicyEnforcerTests
         public Task UpsertAsync(UnitMembership membership, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
-        public Task DeleteAsync(string unitId, string agentAddress, CancellationToken cancellationToken = default) =>
+        public Task DeleteAsync(Guid unitId, Guid agentId, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
-        public Task DeleteAllForAgentAsync(string agentAddress, CancellationToken cancellationToken = default) =>
+        public Task DeleteAllForAgentAsync(Guid agentId, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
-        public Task<UnitMembership?> GetAsync(string unitId, string agentAddress, CancellationToken cancellationToken = default) =>
+        public Task<UnitMembership?> GetAsync(Guid unitId, Guid agentId, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
-        public Task<IReadOnlyList<UnitMembership>> ListByUnitAsync(string unitId, CancellationToken cancellationToken = default) =>
+        public Task<IReadOnlyList<UnitMembership>> ListByUnitAsync(Guid unitId, CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<UnitMembership>>(
                 _rows.Where(r => r.UnitId == unitId).ToList());
 
-        public Task<IReadOnlyList<UnitMembership>> ListByAgentAsync(string agentAddress, CancellationToken cancellationToken = default) =>
+        public Task<IReadOnlyList<UnitMembership>> ListByAgentAsync(Guid agentId, CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<UnitMembership>>(
-                _rows.Where(r => r.AgentAddress == agentAddress).ToList());
+                _rows.Where(r => r.AgentId == agentId).ToList());
 
         public Task<IReadOnlyList<UnitMembership>> ListAllAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<UnitMembership>>(_rows.ToList());
@@ -540,14 +550,16 @@ public class DefaultUnitPolicyEnforcerTests
 
     private sealed class FakePolicyRepository : IUnitPolicyRepository
     {
+        // Policy repo is keyed by unit UUID string, matching what
+        // DefaultUnitPolicyEnforcer passes: membership.UnitId.ToString().
         private readonly Dictionary<string, UnitPolicy> _rows = new(StringComparer.Ordinal);
 
-        public static FakePolicyRepository With(params (string unit, UnitPolicy policy)[] rows)
+        public static FakePolicyRepository With(params (Guid unit, UnitPolicy policy)[] rows)
         {
             var repo = new FakePolicyRepository();
             foreach (var (unit, policy) in rows)
             {
-                repo._rows[unit] = policy;
+                repo._rows[unit.ToString()] = policy;
             }
             return repo;
         }

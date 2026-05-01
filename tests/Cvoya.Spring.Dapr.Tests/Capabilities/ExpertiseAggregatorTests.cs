@@ -69,7 +69,7 @@ public class ExpertiseAggregatorTests
                 return actor;
             });
 
-        _memberships.ListByAgentAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _memberships.ListByAgentAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<UnitMembership>());
         _directory.ListAllAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<DirectoryEntry>());
@@ -289,14 +289,29 @@ public class ExpertiseAggregatorTests
     [Fact]
     public async Task InvalidateAsync_ForAgent_EvictsEveryUnitThatContainsIt()
     {
+        var adaUuid = new Guid("aadaadaa-0000-0000-0000-000000000001");
+        var engUuid = new Guid("ee1ee111-0000-0000-0000-000000000001");
+
         var aggregator = CreateAggregator();
         var unit = new Address("unit", "eng");
         var ada = new Address("agent", "ada");
 
         RegisterUnit("eng", ada);
         ArrangeExpertise(ada, new ExpertiseDomain("python", "", ExpertiseLevel.Advanced));
-        _memberships.ListByAgentAsync("ada", Arg.Any<CancellationToken>())
-            .Returns(new[] { new UnitMembership(unit.Path, "ada") });
+
+        // Directory resolves "ada" to a stable UUID so the aggregator can look up memberships.
+        _directory.ResolveAsync(ada, Arg.Any<CancellationToken>())
+            .Returns(new DirectoryEntry(ada, adaUuid.ToString(), "ada", string.Empty, null, DateTimeOffset.UtcNow));
+
+        // ListAllAsync must include the "eng" unit with its UUID for the reverse walk.
+        _directory.ListAllAsync(Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new DirectoryEntry(unit, engUuid.ToString(), "eng", string.Empty, null, DateTimeOffset.UtcNow),
+            });
+
+        _memberships.ListByAgentAsync(adaUuid, Arg.Any<CancellationToken>())
+            .Returns(new[] { new UnitMembership(engUuid, adaUuid) });
 
         await aggregator.GetAsync(unit, TestContext.Current.CancellationToken);
         // Invalidation driven by an agent-level edit must evict the unit's

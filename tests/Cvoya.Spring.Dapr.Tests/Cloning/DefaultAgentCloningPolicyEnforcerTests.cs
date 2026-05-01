@@ -7,6 +7,7 @@ using System.Collections.Concurrent;
 
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Cloning;
+using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.State;
 using Cvoya.Spring.Core.Tenancy;
@@ -30,11 +31,16 @@ using Xunit;
 /// </summary>
 public class DefaultAgentCloningPolicyEnforcerTests
 {
+    // Stable UUID for the "ada" agent used in boundary tests.
+    private static readonly Guid AgentAdaUuid = new("aadaadaa-0000-0000-0000-000000000001");
+    private static readonly Guid UnitResearchCellUuid = new("cccccccc-0000-0000-0000-000000000001");
+
     private readonly InMemoryStateStore _stateStore = new();
     private readonly StateStoreAgentCloningPolicyRepository _repository;
     private readonly IUnitMembershipRepository _membershipRepository = Substitute.For<IUnitMembershipRepository>();
     private readonly IUnitBoundaryStore _boundaryStore = Substitute.For<IUnitBoundaryStore>();
     private readonly ITenantContext _tenantContext = Substitute.For<ITenantContext>();
+    private readonly IDirectoryService _directoryService = Substitute.For<IDirectoryService>();
     private readonly DefaultAgentCloningPolicyEnforcer _sut;
 
     public DefaultAgentCloningPolicyEnforcerTests()
@@ -43,8 +49,12 @@ public class DefaultAgentCloningPolicyEnforcerTests
         _tenantContext.CurrentTenantId.Returns("test-tenant");
 
         _membershipRepository
-            .ListByAgentAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .ListByAgentAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<UnitMembership>());
+
+        // By default the directory returns no entries (no units visible).
+        _directoryService.ListAllAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<DirectoryEntry>());
 
         _sut = new DefaultAgentCloningPolicyEnforcer(
             _repository,
@@ -52,6 +62,7 @@ public class DefaultAgentCloningPolicyEnforcerTests
             _membershipRepository,
             _boundaryStore,
             _stateStore,
+            _directoryService,
             NullLoggerFactory.Instance);
     }
 
@@ -173,21 +184,29 @@ public class DefaultAgentCloningPolicyEnforcerTests
     [Fact]
     public async Task EvaluateAsync_OpaqueBoundary_DeniesDetachedAttachment()
     {
+        var unitAddr = new Address("unit", "research-cell");
+
         _membershipRepository
-            .ListByAgentAsync("agent://ada", Arg.Any<CancellationToken>())
+            .ListByAgentAsync(AgentAdaUuid, Arg.Any<CancellationToken>())
             .Returns(new[]
             {
-                new UnitMembership(
-                    UnitId: "research-cell",
-                    AgentAddress: "agent://ada"),
+                new UnitMembership(UnitResearchCellUuid, AgentAdaUuid),
             });
+
+        // Directory must expose the unit entry so the enforcer can resolve the UUID → address.
+        _directoryService.ListAllAsync(Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new DirectoryEntry(unitAddr, UnitResearchCellUuid.ToString(), "research-cell", string.Empty, null, DateTimeOffset.UtcNow),
+            });
+
         _boundaryStore
-            .GetAsync(new Address("unit", "research-cell"), Arg.Any<CancellationToken>())
+            .GetAsync(unitAddr, Arg.Any<CancellationToken>())
             .Returns(new UnitBoundary(
                 Opacities: new[] { new BoundaryOpacityRule("*", null) }));
 
         var decision = await _sut.EvaluateAsync(
-            "ada", CloningPolicy.EphemeralNoMemory, AttachmentMode.Detached,
+            AgentAdaUuid.ToString(), CloningPolicy.EphemeralNoMemory, AttachmentMode.Detached,
             TestContext.Current.CancellationToken);
 
         decision.Allowed.ShouldBeFalse();
@@ -199,21 +218,28 @@ public class DefaultAgentCloningPolicyEnforcerTests
     {
         // Attached clones roll up inside the parent's boundary, so the
         // opacity rule does not surface them to the outside.
+        var unitAddr = new Address("unit", "research-cell");
+
         _membershipRepository
-            .ListByAgentAsync("agent://ada", Arg.Any<CancellationToken>())
+            .ListByAgentAsync(AgentAdaUuid, Arg.Any<CancellationToken>())
             .Returns(new[]
             {
-                new UnitMembership(
-                    UnitId: "research-cell",
-                    AgentAddress: "agent://ada"),
+                new UnitMembership(UnitResearchCellUuid, AgentAdaUuid),
             });
+
+        _directoryService.ListAllAsync(Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new DirectoryEntry(unitAddr, UnitResearchCellUuid.ToString(), "research-cell", string.Empty, null, DateTimeOffset.UtcNow),
+            });
+
         _boundaryStore
-            .GetAsync(new Address("unit", "research-cell"), Arg.Any<CancellationToken>())
+            .GetAsync(unitAddr, Arg.Any<CancellationToken>())
             .Returns(new UnitBoundary(
                 Opacities: new[] { new BoundaryOpacityRule("*", null) }));
 
         var decision = await _sut.EvaluateAsync(
-            "ada", CloningPolicy.EphemeralNoMemory, AttachmentMode.Attached,
+            AgentAdaUuid.ToString(), CloningPolicy.EphemeralNoMemory, AttachmentMode.Attached,
             TestContext.Current.CancellationToken);
 
         decision.Allowed.ShouldBeTrue();

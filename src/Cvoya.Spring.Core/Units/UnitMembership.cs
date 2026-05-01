@@ -13,12 +13,15 @@ using Cvoya.Spring.Core.Agents;
 /// value" at dispatch time; a non-<c>null</c> value overrides it for
 /// messages flowing through this particular unit.
 /// </summary>
-/// <param name="UnitId">The unit this membership attaches the agent to (the unit's <c>Address.Path</c>).</param>
-/// <param name="AgentAddress">
-/// Canonical string form of the agent's address — currently just the
-/// agent id (equivalent to <c>new Address("agent", id).Path</c>). Stored
-/// as a string so the membership table does not depend on an
-/// address-serialization library.
+/// <param name="UnitId">
+/// The stable UUID identity of the unit this membership attaches the agent
+/// to (#1492). Matches the unit's <c>ActorId</c> so a delete + recreate of
+/// a unit with the same slug does not inherit stale membership rows.
+/// </param>
+/// <param name="AgentId">
+/// The stable UUID identity of the agent (#1492). Matches the agent's
+/// <c>ActorId</c>; renamed from the prior <c>AgentAddress</c> because
+/// "address" implied a slug-shaped URI string.
 /// </param>
 /// <param name="Model">Per-membership model override, or <c>null</c> to inherit the agent's own <c>Model</c>.</param>
 /// <param name="Specialty">Per-membership specialty override, or <c>null</c> to inherit.</param>
@@ -34,8 +37,8 @@ using Cvoya.Spring.Core.Agents;
 /// the canonical surface for multi-parent agents (§3 of the v2 plan).
 /// </param>
 public record UnitMembership(
-    string UnitId,
-    string AgentAddress,
+    Guid UnitId,
+    Guid AgentId,
     string? Model = null,
     string? Specialty = null,
     bool Enabled = true,

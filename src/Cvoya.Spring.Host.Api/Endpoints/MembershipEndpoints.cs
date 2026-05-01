@@ -18,6 +18,10 @@ using Microsoft.AspNetCore.Mvc;
 /// <c>DELETE /api/v1/units/{unitId}/memberships/{agentAddress}</c>.
 /// </summary>
 /// <remarks>
+/// URL path parameters remain slug-shaped for human-friendly URLs. Each
+/// handler resolves the slug to a stable UUID (actor ID) via
+/// <see cref="IDirectoryService"/> at the boundary and passes the UUID
+/// downstream so the underlying storage is identity-stable (#1492).
 /// Per-membership config overrides (<c>model</c>, <c>specialty</c>,
 /// <c>enabled</c>, <c>executionMode</c>) are PERSISTED here but NOT YET
 /// CONSULTED at dispatch time. Receive-path consumption lands in the
@@ -84,9 +88,18 @@ public static class MembershipEndpoints
                 statusCode: StatusCodes.Status404NotFound);
         }
 
-        var memberships = await repository.ListByAgentAsync(address.Path, cancellationToken);
-        var actorIdMap = await ResolveAgentActorIdsAsync(memberships, directoryService, cancellationToken);
-        return Results.Ok(memberships.Select(m => ToResponse(m, actorIdMap)).ToArray());
+        // Resolve slug → UUID at the boundary (#1492).
+        if (!Guid.TryParse(entry.ActorId, out var agentUuid))
+        {
+            return Results.Problem(
+                detail: $"Agent '{id}' has no stable UUID identity.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        var memberships = await repository.ListByAgentAsync(agentUuid, cancellationToken);
+        var unitActorIdMap = await ResolveUnitActorIdsAsync(memberships, directoryService, cancellationToken);
+        var agentActorIdMap = await ResolveAgentActorIdsAsync(memberships, directoryService, cancellationToken);
+        return Results.Ok(memberships.Select(m => ToResponse(m, unitActorIdMap, agentActorIdMap, entry)).ToArray());
     }
 
     private static async Task<IResult> ListUnitMembershipsAsync(
@@ -104,9 +117,18 @@ public static class MembershipEndpoints
                 statusCode: StatusCodes.Status404NotFound);
         }
 
-        var memberships = await repository.ListByUnitAsync(id, cancellationToken);
-        var actorIdMap = await ResolveAgentActorIdsAsync(memberships, directoryService, cancellationToken);
-        return Results.Ok(memberships.Select(m => ToResponse(m, actorIdMap)).ToArray());
+        // Resolve slug → UUID at the boundary (#1492).
+        if (!Guid.TryParse(entry.ActorId, out var unitUuid))
+        {
+            return Results.Problem(
+                detail: $"Unit '{id}' has no stable UUID identity.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        var memberships = await repository.ListByUnitAsync(unitUuid, cancellationToken);
+        var unitActorIdMap = new Dictionary<Guid, DirectoryEntry> { [unitUuid] = entry };
+        var agentActorIdMap = await ResolveAgentActorIdsAsync(memberships, directoryService, cancellationToken);
+        return Results.Ok(memberships.Select(m => ToResponse(m, unitActorIdMap, agentActorIdMap, null)).ToArray());
     }
 
     private static async Task<IResult> UpsertMembershipAsync(
@@ -142,9 +164,24 @@ public static class MembershipEndpoints
                 statusCode: StatusCodes.Status404NotFound);
         }
 
+        // Resolve slugs → UUIDs at the boundary (#1492).
+        if (!Guid.TryParse(unitEntry.ActorId, out var unitUuid))
+        {
+            return Results.Problem(
+                detail: $"Unit '{unitId}' has no stable UUID identity.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        if (!Guid.TryParse(agentEntry.ActorId, out var agentUuid))
+        {
+            return Results.Problem(
+                detail: $"Agent '{agentAddress}' has no stable UUID identity.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
         var membership = new UnitMembership(
-            UnitId: unitId,
-            AgentAddress: agentAddress,
+            UnitId: unitUuid,
+            AgentId: agentUuid,
             Model: request.Model,
             Specialty: request.Specialty,
             Enabled: request.Enabled ?? true,
@@ -152,25 +189,39 @@ public static class MembershipEndpoints
 
         await repository.UpsertAsync(membership, cancellationToken);
 
-        var persisted = await repository.GetAsync(unitId, agentAddress, cancellationToken);
+        var persisted = await repository.GetAsync(unitUuid, agentUuid, cancellationToken);
         var row = persisted ?? membership;
-        var actorId = agentEntry.ActorId;
-        var actorIdMap = new Dictionary<string, string>(StringComparer.Ordinal)
-        {
-            [agentAddress] = actorId,
-        };
+        var unitActorIdMap = new Dictionary<Guid, DirectoryEntry> { [unitUuid] = unitEntry };
+        var agentActorIdMap = new Dictionary<Guid, DirectoryEntry> { [agentUuid] = agentEntry };
 
-        // persisted cannot be null here — we just wrote the row — but guard for safety.
-        return Results.Ok(ToResponse(row, actorIdMap));
+        return Results.Ok(ToResponse(row, unitActorIdMap, agentActorIdMap, agentEntry));
     }
 
     private static async Task<IResult> DeleteMembershipAsync(
         string unitId,
         string agentAddress,
+        [FromServices] IDirectoryService directoryService,
         [FromServices] IUnitMembershipRepository repository,
         CancellationToken cancellationToken)
     {
-        var existing = await repository.GetAsync(unitId, agentAddress, cancellationToken);
+        // Resolve slugs → UUIDs at the boundary (#1492).
+        var unitEntry = await directoryService.ResolveAsync(new Address("unit", unitId), cancellationToken);
+        if (unitEntry is null || !Guid.TryParse(unitEntry.ActorId, out var unitUuid))
+        {
+            return Results.Problem(
+                detail: $"Unit '{unitId}' not found",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        var agentEntry = await directoryService.ResolveAsync(new Address("agent", agentAddress), cancellationToken);
+        if (agentEntry is null || !Guid.TryParse(agentEntry.ActorId, out var agentUuid))
+        {
+            return Results.Problem(
+                detail: $"Agent '{agentAddress}' not found",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        var existing = await repository.GetAsync(unitUuid, agentUuid, cancellationToken);
         if (existing is null)
         {
             return Results.Problem(
@@ -180,7 +231,7 @@ public static class MembershipEndpoints
 
         try
         {
-            await repository.DeleteAsync(unitId, agentAddress, cancellationToken);
+            await repository.DeleteAsync(unitUuid, agentUuid, cancellationToken);
         }
         catch (AgentMembershipRequiredException ex)
         {
@@ -193,7 +244,7 @@ public static class MembershipEndpoints
                 statusCode: StatusCodes.Status409Conflict,
                 extensions: new Dictionary<string, object?>
                 {
-                    ["agentAddress"] = ex.AgentAddress,
+                    ["agentId"] = ex.AgentId,
                     ["unitId"] = ex.UnitId,
                 });
         }
@@ -201,33 +252,78 @@ public static class MembershipEndpoints
     }
 
     /// <summary>
-    /// Batch-resolves actor IDs for all distinct agent addresses in
-    /// <paramref name="memberships"/>. Missing or failed lookups fall back
-    /// to the <c>AgentAddress</c> slug so the projection always completes.
+    /// Batch-resolves unit directory entries for all distinct unit UUIDs in
+    /// <paramref name="memberships"/>. Missing or failed lookups are omitted
+    /// from the map — <see cref="ToResponse"/> falls back to the UUID string.
     /// </summary>
-    private static async Task<Dictionary<string, string>> ResolveAgentActorIdsAsync(
+    private static async Task<Dictionary<Guid, DirectoryEntry>> ResolveUnitActorIdsAsync(
         IReadOnlyList<UnitMembership> memberships,
         IDirectoryService directoryService,
         CancellationToken cancellationToken)
     {
-        var distinct = memberships
-            .Select(m => m.AgentAddress)
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
+        // Use ListAll for a single round-trip when resolving multiple units.
+        // The directory warms its in-memory cache on the first ListAll call,
+        // so subsequent single-unit resolves are cache hits.
+        var distinctUnitIds = memberships
+            .Select(m => m.UnitId)
+            .Distinct()
+            .ToHashSet();
 
-        var map = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var agentAddress in distinct)
+        if (distinctUnitIds.Count == 0)
         {
-            try
+            return [];
+        }
+
+        var map = new Dictionary<Guid, DirectoryEntry>();
+        var allEntries = await directoryService.ListAllAsync(cancellationToken);
+        foreach (var entry in allEntries)
+        {
+            if (!string.Equals(entry.Address.Scheme, "unit", StringComparison.OrdinalIgnoreCase))
             {
-                var entry = await directoryService.ResolveAsync(
-                    new Address("agent", agentAddress), cancellationToken);
-                map[agentAddress] = entry?.ActorId ?? agentAddress;
+                continue;
             }
-            catch
+
+            if (Guid.TryParse(entry.ActorId, out var uuid) && distinctUnitIds.Contains(uuid))
             {
-                // Directory failures must not break the listing.
-                map[agentAddress] = agentAddress;
+                map[uuid] = entry;
+            }
+        }
+
+        return map;
+    }
+
+    /// <summary>
+    /// Batch-resolves agent directory entries for all distinct agent UUIDs in
+    /// <paramref name="memberships"/>. Missing or failed lookups are omitted
+    /// from the map — <see cref="ToResponse"/> falls back to the UUID string.
+    /// </summary>
+    private static async Task<Dictionary<Guid, DirectoryEntry>> ResolveAgentActorIdsAsync(
+        IReadOnlyList<UnitMembership> memberships,
+        IDirectoryService directoryService,
+        CancellationToken cancellationToken)
+    {
+        var distinctAgentIds = memberships
+            .Select(m => m.AgentId)
+            .Distinct()
+            .ToHashSet();
+
+        if (distinctAgentIds.Count == 0)
+        {
+            return [];
+        }
+
+        var map = new Dictionary<Guid, DirectoryEntry>();
+        var allEntries = await directoryService.ListAllAsync(cancellationToken);
+        foreach (var entry in allEntries)
+        {
+            if (!string.Equals(entry.Address.Scheme, "agent", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (Guid.TryParse(entry.ActorId, out var uuid) && distinctAgentIds.Contains(uuid))
+            {
+                map[uuid] = entry;
             }
         }
 
@@ -236,39 +332,54 @@ public static class MembershipEndpoints
 
     /// <summary>
     /// Projects a <see cref="UnitMembership"/> row into its wire representation.
-    /// The <c>Member</c> field is emitted as <c>agent:id:&lt;actorId&gt;</c>
-    /// (the identity form) so consumers get an unambiguous stable identifier
-    /// that is not confused with a slug-shaped actor id (#1490).
-    /// The <paramref name="actorIdMap"/> provides the resolved actor UUID for
-    /// the agent; when absent the agent's <c>AgentAddress</c> slug is used
-    /// as a safe fallback so the projection always completes.
+    ///
+    /// Wire shape (#1492):
+    /// <list type="bullet">
+    ///   <item><description>
+    ///     <c>UnitId</c> carries the unit's identity-form address
+    ///     <c>unit:id:&lt;uuid&gt;</c> so consumers get the stable, unambiguous
+    ///     UUID — not a slug that could be reused after a delete/recreate.
+    ///   </description></item>
+    ///   <item><description>
+    ///     <c>AgentAddress</c> carries the agent's slug-form path (e.g. "ada")
+    ///     for backward-compat URL routing (portal uses this as a URL segment).
+    ///     The <c>Member</c> field carries the agent's identity-form address
+    ///     <c>agent:id:&lt;uuid&gt;</c> — the two together avoid duplication
+    ///     while preserving the routing convenience (see #1492 design note).
+    ///   </description></item>
+    /// </list>
     /// </summary>
     internal static UnitMembershipResponse ToResponse(
         UnitMembership m,
-        IReadOnlyDictionary<string, string>? actorIdMap = null)
+        IReadOnlyDictionary<Guid, DirectoryEntry>? unitActorIdMap = null,
+        IReadOnlyDictionary<Guid, DirectoryEntry>? agentActorIdMap = null,
+        DirectoryEntry? agentEntryHint = null)
     {
-        // Prefer the resolved actor UUID; fall back to the slug stored in the row.
-        var actorId = actorIdMap is not null && actorIdMap.TryGetValue(m.AgentAddress, out var id)
-            ? id
-            : m.AgentAddress;
+        // Unit identity: emit unit:id:<uuid> form.
+        var unitAddress = Address.ForIdentity(Address.UnitScheme, m.UnitId).ToIdentityUri();
 
-        string member;
-        if (Guid.TryParse(actorId, out var guid))
+        // Agent slug for URL routing (agentAddress field stays slug-shaped).
+        string agentSlug;
+        if (agentActorIdMap is not null && agentActorIdMap.TryGetValue(m.AgentId, out var agentEntry))
         {
-            // Resolved to a proper UUID — emit the unambiguous identity form.
-            member = Address.ForIdentity(Address.AgentScheme, guid).ToIdentityUri();
+            agentSlug = agentEntry.Address.Path;
+        }
+        else if (agentEntryHint is not null)
+        {
+            agentSlug = agentEntryHint.Address.Path;
         }
         else
         {
-            // Fallback: the actor id is slug-shaped (dev / test scenarios
-            // without a real directory). Keep the navigation form so the
-            // field is still useful.
-            member = Address.ForAgent(actorId).ToCanonicalUri();
+            // Fallback: emit the UUID string so the field is never empty.
+            agentSlug = m.AgentId.ToString();
         }
 
+        // Member field: identity-form agent:id:<uuid>.
+        var member = Address.ForIdentity(Address.AgentScheme, m.AgentId).ToIdentityUri();
+
         return new UnitMembershipResponse(
-            m.UnitId,
-            m.AgentAddress,
+            unitAddress,
+            agentSlug,
             member,
             m.Model,
             m.Specialty,

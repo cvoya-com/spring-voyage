@@ -11,7 +11,8 @@ using Microsoft.EntityFrameworkCore;
 /// <summary>
 /// EF Core-backed implementation of <see cref="IUnitMembershipRepository"/>.
 /// Stores rows in the <c>unit_memberships</c> table; composite primary key
-/// on <c>(tenant_id, unit_id, agent_address)</c>.
+/// on <c>(tenant_id, unit_id, agent_id)</c> where both identity columns
+/// are stable UUIDs (actor IDs) as of #1492.
 /// </summary>
 public class UnitMembershipRepository(SpringDbContext context) : IUnitMembershipRepository
 {
@@ -26,7 +27,7 @@ public class UnitMembershipRepository(SpringDbContext context) : IUnitMembership
         // insert, so inserts don't need to set it explicitly.
         var existing = await context.UnitMemberships
             .FirstOrDefaultAsync(
-                m => m.UnitId == membership.UnitId && m.AgentAddress == membership.AgentAddress,
+                m => m.UnitId == membership.UnitId && m.AgentId == membership.AgentId,
                 cancellationToken);
 
         if (existing is null)
@@ -37,13 +38,13 @@ public class UnitMembershipRepository(SpringDbContext context) : IUnitMembership
             // repository owns the invariant.
             var hasPrimary = await context.UnitMemberships
                 .AnyAsync(
-                    m => m.AgentAddress == membership.AgentAddress && m.IsPrimary,
+                    m => m.AgentId == membership.AgentId && m.IsPrimary,
                     cancellationToken);
 
             var entity = new UnitMembershipEntity
             {
                 UnitId = membership.UnitId,
-                AgentAddress = membership.AgentAddress,
+                AgentId = membership.AgentId,
                 Model = membership.Model,
                 Specialty = membership.Specialty,
                 Enabled = membership.Enabled,
@@ -65,11 +66,11 @@ public class UnitMembershipRepository(SpringDbContext context) : IUnitMembership
     }
 
     /// <inheritdoc />
-    public async Task DeleteAsync(string unitId, string agentAddress, CancellationToken cancellationToken = default)
+    public async Task DeleteAsync(Guid unitId, Guid agentId, CancellationToken cancellationToken = default)
     {
         var existing = await context.UnitMemberships
             .FirstOrDefaultAsync(
-                m => m.UnitId == unitId && m.AgentAddress == agentAddress,
+                m => m.UnitId == unitId && m.AgentId == agentId,
                 cancellationToken);
 
         if (existing is null)
@@ -82,13 +83,13 @@ public class UnitMembershipRepository(SpringDbContext context) : IUnitMembership
         // intend a full teardown must delete the agent itself (e.g.
         // `spring agent purge`), which cascades the membership rows.
         var remaining = await context.UnitMemberships
-            .CountAsync(m => m.AgentAddress == agentAddress, cancellationToken);
+            .CountAsync(m => m.AgentId == agentId, cancellationToken);
         if (remaining <= 1)
         {
             throw new AgentMembershipRequiredException(
-                agentAddress,
+                agentId,
                 unitId,
-                $"Cannot remove agent '{agentAddress}' from unit '{unitId}': this is the agent's last unit membership. "
+                $"Cannot remove agent '{agentId}' from unit '{unitId}': this is the agent's last unit membership. "
                 + "Assign the agent to another unit first, or delete the agent itself.");
         }
 
@@ -97,11 +98,12 @@ public class UnitMembershipRepository(SpringDbContext context) : IUnitMembership
 
         // Promote the oldest surviving membership when removing the primary.
         // Tiebreaker (per plan §3, confirmed for v2.0): oldest CreatedAt,
-        // then lexicographic UnitId — stable under unit rename + deterministic.
+        // then lexicographic UnitId (as string) — stable under unit rename
+        // + deterministic.
         if (wasPrimary)
         {
             var successor = await context.UnitMemberships
-                .Where(m => m.AgentAddress == agentAddress && m.UnitId != unitId)
+                .Where(m => m.AgentId == agentId && m.UnitId != unitId)
                 .OrderBy(m => m.CreatedAt)
                 .ThenBy(m => m.UnitId)
                 .FirstOrDefaultAsync(cancellationToken);
@@ -116,10 +118,10 @@ public class UnitMembershipRepository(SpringDbContext context) : IUnitMembership
     }
 
     /// <inheritdoc />
-    public async Task DeleteAllForAgentAsync(string agentAddress, CancellationToken cancellationToken = default)
+    public async Task DeleteAllForAgentAsync(Guid agentId, CancellationToken cancellationToken = default)
     {
         var rows = await context.UnitMemberships
-            .Where(m => m.AgentAddress == agentAddress)
+            .Where(m => m.AgentId == agentId)
             .ToListAsync(cancellationToken);
 
         if (rows.Count == 0)
@@ -132,19 +134,19 @@ public class UnitMembershipRepository(SpringDbContext context) : IUnitMembership
     }
 
     /// <inheritdoc />
-    public async Task<UnitMembership?> GetAsync(string unitId, string agentAddress, CancellationToken cancellationToken = default)
+    public async Task<UnitMembership?> GetAsync(Guid unitId, Guid agentId, CancellationToken cancellationToken = default)
     {
         var entity = await context.UnitMemberships
             .AsNoTracking()
             .FirstOrDefaultAsync(
-                m => m.UnitId == unitId && m.AgentAddress == agentAddress,
+                m => m.UnitId == unitId && m.AgentId == agentId,
                 cancellationToken);
 
         return entity is null ? null : ToDto(entity);
     }
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<UnitMembership>> ListByUnitAsync(string unitId, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<UnitMembership>> ListByUnitAsync(Guid unitId, CancellationToken cancellationToken = default)
     {
         var rows = await context.UnitMemberships
             .AsNoTracking()
@@ -156,11 +158,11 @@ public class UnitMembershipRepository(SpringDbContext context) : IUnitMembership
     }
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<UnitMembership>> ListByAgentAsync(string agentAddress, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<UnitMembership>> ListByAgentAsync(Guid agentId, CancellationToken cancellationToken = default)
     {
         var rows = await context.UnitMemberships
             .AsNoTracking()
-            .Where(m => m.AgentAddress == agentAddress)
+            .Where(m => m.AgentId == agentId)
             .OrderBy(m => m.CreatedAt)
             .ToListAsync(cancellationToken);
 
@@ -182,7 +184,7 @@ public class UnitMembershipRepository(SpringDbContext context) : IUnitMembership
     private static UnitMembership ToDto(UnitMembershipEntity e) =>
         new(
             e.UnitId,
-            e.AgentAddress,
+            e.AgentId,
             e.Model,
             e.Specialty,
             e.Enabled,

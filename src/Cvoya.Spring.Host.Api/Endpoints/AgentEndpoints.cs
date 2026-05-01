@@ -528,7 +528,9 @@ public static class AgentEndpoints
 
         var proxy = actorProxyFactory.CreateActorProxy<IAgentActor>(
             new ActorId(entry.ActorId), nameof(AgentActor));
-        var metadata = await GetDerivedAgentMetadataAsync(proxy, membershipRepository, id, cancellationToken);
+        // Resolve slug → UUID to query membership by stable identity (#1492).
+        var agentActorUuid = Guid.TryParse(entry.ActorId, out var parsedUuid) ? parsedUuid : Guid.Empty;
+        var metadata = await GetDerivedAgentMetadataAsync(proxy, membershipRepository, agentActorUuid, directoryService, cancellationToken);
 
         // #339: Thread the authenticated caller's identity through as the
         // From address rather than hardcoding `human://api`. The router's
@@ -755,14 +757,31 @@ public static class AgentEndpoints
         // preserved from the caller's UnitIds list — the repository's
         // CreatedAt tie-break picks whichever row was written first, and
         // we write them in declaration order.
+        // #1492: resolve agent UUID from the newly-registered directory entry.
+        // actorId was set above (line: actorId = Guid.NewGuid().ToString()).
+        var agentUuid = Guid.Parse(actorId);
+
         for (var i = 0; i < resolvedUnits.Count; i++)
         {
             var (unitId, unitEntry) = resolvedUnits[i];
 
+            // #1492: membership is now keyed by stable UUIDs (actor IDs).
+            if (!Guid.TryParse(unitEntry.ActorId, out var unitUuid))
+            {
+                // Unit has no stable UUID — skip membership row but still
+                // wire the actor-state member list. This should not happen
+                // in production (every unit has an ActorId), but degrade
+                // gracefully rather than failing the whole create.
+                var unitProxy2 = actorProxyFactory.CreateActorProxy<IUnitActor>(
+                    new ActorId(unitEntry.ActorId), nameof(UnitActor));
+                await unitProxy2.AddMemberAsync(address, cancellationToken);
+                continue;
+            }
+
             await membershipRepository.UpsertAsync(
                 new UnitMembership(
-                    UnitId: unitId,
-                    AgentAddress: request.Name,
+                    UnitId: unitUuid,
+                    AgentId: agentUuid,
                     Enabled: true),
                 cancellationToken);
 
@@ -823,7 +842,13 @@ public static class AgentEndpoints
         // the authorised bulk-clear seam the repository exposes for this
         // purpose; call it before the directory unregister so the write
         // is persisted even if a downstream step hiccups.
-        await membershipRepository.DeleteAllForAgentAsync(id, cancellationToken);
+        //
+        // #1492: DeleteAllForAgentAsync now takes the agent's stable UUID.
+        if (Guid.TryParse(entry.ActorId, out var agentDeleteUuid))
+        {
+            await membershipRepository.DeleteAllForAgentAsync(agentDeleteUuid, cancellationToken);
+        }
+
         await directoryService.UnregisterAsync(address, cancellationToken);
 
         return Results.NoContent();
@@ -953,8 +978,9 @@ public static class AgentEndpoints
     internal static async Task<AgentMetadata?> GetDerivedAgentMetadataAsync(
         IAgentActor proxy,
         IUnitMembershipRepository membershipRepository,
-        string agentAddress,
-        CancellationToken cancellationToken)
+        Guid agentActorUuid,
+        IDirectoryService? directoryService = null,
+        CancellationToken cancellationToken = default)
     {
         AgentMetadata? metadata = null;
         try
@@ -966,8 +992,31 @@ public static class AgentEndpoints
             // Falls through to the membership-driven projection below.
         }
 
-        var memberships = await membershipRepository.ListByAgentAsync(agentAddress, cancellationToken);
-        var derivedParent = memberships.Count > 0 ? memberships[0].UnitId : null;
+        // #1492: membership is now keyed by UUID. Derive the primary unit slug
+        // by resolving the UUID back to the navigation-form address for the
+        // ParentUnit field (slug-based legacy compat).
+        string? derivedParent = null;
+        if (agentActorUuid != Guid.Empty)
+        {
+            var memberships = await membershipRepository.ListByAgentAsync(agentActorUuid, cancellationToken);
+            if (memberships.Count > 0)
+            {
+                var primaryUnitId = memberships[0].UnitId;
+                // Resolve UUID → slug via directory for the ParentUnit string field.
+                if (directoryService is not null)
+                {
+                    var allEntries = await directoryService.ListAllAsync(cancellationToken);
+                    var unitEntry = allEntries.FirstOrDefault(
+                        e => string.Equals(e.Address.Scheme, "unit", StringComparison.OrdinalIgnoreCase)
+                             && e.ActorId == primaryUnitId.ToString());
+                    derivedParent = unitEntry?.Address.Path ?? primaryUnitId.ToString();
+                }
+                else
+                {
+                    derivedParent = primaryUnitId.ToString();
+                }
+            }
+        }
 
         if (metadata is null)
         {

@@ -69,7 +69,7 @@ public class BoundaryFilteringExpertiseAggregatorTests
                 return actor;
             });
 
-        _memberships.ListByAgentAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _memberships.ListByAgentAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<UnitMembership>());
         _directory.ListAllAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<DirectoryEntry>());

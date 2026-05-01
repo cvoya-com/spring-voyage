@@ -46,6 +46,10 @@ public class AgentActorUnitPolicyDispatchTests
     private const string AgentId = "ada";
     private const string UnitId = "engineering";
 
+    // Stable UUIDs for membership mock lookups (post #1492 interface).
+    private static readonly Guid AgentAdaUuid = new("aadaadaa-0000-0000-0000-000000000001");
+    private static readonly Guid UnitEngineeringUuid = new("ee1ee111-0000-0000-0000-000000000001");
+
     private readonly IActorStateManager _stateManager = Substitute.For<IActorStateManager>();
     private readonly IActivityEventBus _activityEventBus = Substitute.For<IActivityEventBus>();
     private readonly IExecutionDispatcher _dispatcher = Substitute.For<IExecutionDispatcher>();
@@ -53,6 +57,7 @@ public class AgentActorUnitPolicyDispatchTests
     private readonly IAgentDefinitionProvider _definitionProvider = Substitute.For<IAgentDefinitionProvider>();
     private readonly IUnitMembershipRepository _membershipRepository = Substitute.For<IUnitMembershipRepository>();
     private readonly IUnitPolicyEnforcer _enforcer = Substitute.For<IUnitPolicyEnforcer>();
+    private readonly IDirectoryService _directoryService = Substitute.For<IDirectoryService>();
     private readonly AgentActor _actor;
 
     public AgentActorUnitPolicyDispatchTests()
@@ -69,15 +74,29 @@ public class AgentActorUnitPolicyDispatchTests
         _dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns((Message?)null);
 
-        _definitionProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
-            .Returns(new AgentDefinition(AgentId, "Test", "instructions", null));
+        // Actor ID is the stable UUID; definition lookup keyed by UUID string.
+        _definitionProvider.GetByIdAsync(AgentAdaUuid.ToString(), Arg.Any<CancellationToken>())
+            .Returns(new AgentDefinition(AgentAdaUuid.ToString(), "Test", "instructions", null));
+
+        // Wire directory service: unit slug → UUID entry.
+        _directoryService
+            .ResolveAsync(
+                Arg.Is<Address>(a => a.Scheme == "unit" && a.Path == UnitId),
+                Arg.Any<CancellationToken>())
+            .Returns(new DirectoryEntry(
+                new Address("unit", UnitId),
+                UnitEngineeringUuid.ToString(),
+                UnitId,
+                string.Empty,
+                null,
+                DateTimeOffset.UtcNow));
 
         var host = ActorHost.CreateForTest<AgentActor>(new ActorTestOptions
         {
-            ActorId = new ActorId(AgentId),
+            ActorId = new ActorId(AgentAdaUuid.ToString()),
         });
 
-        _membershipRepository.GetAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _membershipRepository.GetAsync(Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns((UnitMembership?)null);
 
         _enforcer.WithAllowByDefault();
@@ -97,7 +116,8 @@ public class AgentActorUnitPolicyDispatchTests
             Substitute.For<IAgentLifecycleCoordinator>(),
             new AgentStateCoordinator(Substitute.For<ILogger<AgentStateCoordinator>>()),
             new AgentAmendmentCoordinator(Substitute.For<ILogger<AgentAmendmentCoordinator>>()),
-            new AgentUnitPolicyCoordinator(Substitute.For<ILogger<AgentUnitPolicyCoordinator>>()));
+            new AgentUnitPolicyCoordinator(Substitute.For<ILogger<AgentUnitPolicyCoordinator>>()),
+            directoryService: _directoryService);
 
         SetStateManager(_actor, _stateManager);
 
@@ -122,7 +142,7 @@ public class AgentActorUnitPolicyDispatchTests
     {
         ArrangeMembership(model: "gpt-4");
 
-        _enforcer.EvaluateModelAsync(AgentId, "gpt-4", Arg.Any<CancellationToken>())
+        _enforcer.EvaluateModelAsync(Arg.Any<string>(), "gpt-4", Arg.Any<CancellationToken>())
             .Returns(PolicyDecision.Deny("Model 'gpt-4' is blocked.", UnitId));
 
         var message = DomainMessageFromUnit();
@@ -158,7 +178,7 @@ public class AgentActorUnitPolicyDispatchTests
         // turn must be refused. Demonstrates "unit policy wins over membership".
         ArrangeMembership(model: "gpt-4");
 
-        _enforcer.EvaluateModelAsync(AgentId, "gpt-4", Arg.Any<CancellationToken>())
+        _enforcer.EvaluateModelAsync(Arg.Any<string>(), "gpt-4", Arg.Any<CancellationToken>())
             .Returns(PolicyDecision.Deny("Model 'gpt-4' is blocked.", UnitId));
 
         var message = DomainMessageFromUnit();
@@ -194,7 +214,7 @@ public class AgentActorUnitPolicyDispatchTests
     {
         ArrangeMembership();
 
-        _enforcer.EvaluateCostAsync(AgentId, Arg.Any<decimal>(), Arg.Any<CancellationToken>())
+        _enforcer.EvaluateCostAsync(Arg.Any<string>(), Arg.Any<decimal>(), Arg.Any<CancellationToken>())
             .Returns(PolicyDecision.Deny("Hourly spend exceeds cap.", UnitId));
 
         var message = DomainMessageFromUnit();
@@ -215,7 +235,7 @@ public class AgentActorUnitPolicyDispatchTests
     {
         ArrangeMembership();
 
-        _enforcer.EvaluateCostAsync(AgentId, Arg.Any<decimal>(), Arg.Any<CancellationToken>())
+        _enforcer.EvaluateCostAsync(Arg.Any<string>(), Arg.Any<decimal>(), Arg.Any<CancellationToken>())
             .Returns<Task<PolicyDecision>>(_ => throw new InvalidOperationException("simulated outage"));
 
         var message = DomainMessageFromUnit();
@@ -235,7 +255,7 @@ public class AgentActorUnitPolicyDispatchTests
     {
         ArrangeMembership(executionMode: AgentExecutionMode.Auto);
 
-        _enforcer.ResolveExecutionModeAsync(AgentId, Arg.Any<AgentExecutionMode>(), Arg.Any<CancellationToken>())
+        _enforcer.ResolveExecutionModeAsync(Arg.Any<string>(), Arg.Any<AgentExecutionMode>(), Arg.Any<CancellationToken>())
             .Returns(new ExecutionModeResolution(PolicyDecision.Allowed, AgentExecutionMode.OnDemand));
 
         var message = DomainMessageFromUnit();
@@ -256,7 +276,7 @@ public class AgentActorUnitPolicyDispatchTests
     {
         ArrangeMembership(executionMode: AgentExecutionMode.Auto);
 
-        _enforcer.ResolveExecutionModeAsync(AgentId, Arg.Any<AgentExecutionMode>(), Arg.Any<CancellationToken>())
+        _enforcer.ResolveExecutionModeAsync(Arg.Any<string>(), Arg.Any<AgentExecutionMode>(), Arg.Any<CancellationToken>())
             .Returns(new ExecutionModeResolution(
                 PolicyDecision.Deny("Mode 'Auto' not in unit allow-list.", UnitId),
                 AgentExecutionMode.Auto));
@@ -274,9 +294,9 @@ public class AgentActorUnitPolicyDispatchTests
 
     private void ArrangeMembership(string? model = null, AgentExecutionMode? executionMode = null)
     {
-        _membershipRepository.GetAsync(UnitId, AgentId, Arg.Any<CancellationToken>())
+        _membershipRepository.GetAsync(Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns(new UnitMembership(
-                UnitId, AgentId,
+                UnitEngineeringUuid, AgentAdaUuid,
                 Model: model,
                 Enabled: true,
                 ExecutionMode: executionMode));

@@ -12,21 +12,30 @@ using Cvoya.Spring.Core.Tenancy;
 /// at the actor layer with an M:N join row (see #160 / C2b). Unit-typed
 /// members remain 1:N and are not stored here — only <c>agent://</c>
 /// members have rows in this table.
+///
+/// As of #1492 the primary key columns are stable UUIDs (actor IDs),
+/// not slug strings. A delete + recreate of a unit or agent with the
+/// same slug no longer inherits stale membership rows from the prior
+/// instance.
 /// </summary>
 public class UnitMembershipEntity : ITenantScopedEntity
 {
     /// <summary>Gets or sets the tenant that owns this membership row.</summary>
     public string TenantId { get; set; } = string.Empty;
 
-    /// <summary>The unit this membership attaches the agent to.</summary>
-    public string UnitId { get; set; } = string.Empty;
+    /// <summary>
+    /// Stable UUID identity of the unit this membership attaches the agent
+    /// to. Matches the unit's <c>ActorId</c> so a delete + recreate of a
+    /// unit with the same slug does not inherit stale rows (#1492).
+    /// </summary>
+    public Guid UnitId { get; set; }
 
     /// <summary>
-    /// Canonical string form of the agent's address
-    /// (<c>Address.Path</c> for <c>scheme=agent</c>). Stored as a string
-    /// to avoid persisting the full two-tuple; the scheme is implied.
+    /// Stable UUID identity of the agent. Matches the agent's <c>ActorId</c>.
+    /// Renamed from the prior <c>AgentAddress</c> column because "address"
+    /// implied a slug-shaped URI string (#1492).
     /// </summary>
-    public string AgentAddress { get; set; } = string.Empty;
+    public Guid AgentId { get; set; }
 
     /// <summary>Optional per-membership model override.</summary>
     public string? Model { get; set; }
@@ -52,7 +61,7 @@ public class UnitMembershipEntity : ITenantScopedEntity
 
     /// <summary>
     /// Marks this membership as the agent's primary parent unit. Exactly
-    /// one row per <c>(tenant_id, agent_address)</c> carries <c>true</c>;
+    /// one row per <c>(tenant_id, agent_id)</c> carries <c>true</c>;
     /// the repository auto-assigns on first insert and auto-promotes when
     /// the primary row is deleted.
     /// </summary>

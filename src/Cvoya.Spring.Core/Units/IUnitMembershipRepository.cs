@@ -11,17 +11,23 @@ namespace Cvoya.Spring.Core.Units;
 /// <c>(unit, agent)</c> relation is M:N at the storage level.
 /// </summary>
 /// <remarks>
+/// All parameters that identify a unit or agent are stable UUIDs (actor
+/// IDs) as of #1492, not slug strings. The slug-as-identity bug class is
+/// described in #1488; this interface was migrated alongside the
+/// <c>unit_memberships</c> table primary-key change.
+/// <para>
 /// Defined in <c>Cvoya.Spring.Core</c> so the private cloud repo can swap
 /// the implementation (e.g. a tenant-scoped wrapper) via DI without
 /// taking a dependency on <c>Cvoya.Spring.Dapr</c>. The default
 /// implementation lives in <c>Cvoya.Spring.Dapr.Data</c> and uses
 /// <c>SpringDbContext</c>.
+/// </para>
 /// </remarks>
 public interface IUnitMembershipRepository
 {
     /// <summary>
     /// Creates or updates the membership row for
-    /// <c>(membership.UnitId, membership.AgentAddress)</c>. Audit timestamps
+    /// <c>(membership.UnitId, membership.AgentId)</c>. Audit timestamps
     /// on <paramref name="membership"/> are ignored — the repository stamps
     /// <c>CreatedAt</c> on insert and <c>UpdatedAt</c> on every write.
     /// </summary>
@@ -30,47 +36,47 @@ public interface IUnitMembershipRepository
     /// <summary>
     /// Removes the membership row for the given composite key. No-op when
     /// no row matches — callers that need 404 semantics must check via
-    /// <see cref="GetAsync(string, string, CancellationToken)"/> first.
+    /// <see cref="GetAsync(Guid, Guid, CancellationToken)"/> first.
     /// <para>
     /// Per #744 every agent must carry at least one unit membership. The
     /// implementation throws <see cref="AgentMembershipRequiredException"/>
     /// when removing this row would leave the agent with zero memberships;
     /// callers that intend a full teardown (e.g. delete-agent cascade)
-    /// must use <see cref="DeleteAllForAgentAsync(string, CancellationToken)"/>.
+    /// must use <see cref="DeleteAllForAgentAsync(Guid, CancellationToken)"/>.
     /// </para>
     /// </summary>
-    Task DeleteAsync(string unitId, string agentAddress, CancellationToken cancellationToken = default);
+    Task DeleteAsync(Guid unitId, Guid agentId, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Bulk-removes every membership row attached to the given agent.
+    /// Bulk-removes every membership row attached to the given agent UUID.
     /// Bypasses the last-membership guard enforced by
-    /// <see cref="DeleteAsync(string, string, CancellationToken)"/> — this
+    /// <see cref="DeleteAsync(Guid, Guid, CancellationToken)"/> — this
     /// is the cascade path used by delete-agent so purging an agent does
     /// not trip the "at least one membership" invariant on the final row.
     /// No-op when the agent has no memberships.
     /// </summary>
-    Task DeleteAllForAgentAsync(string agentAddress, CancellationToken cancellationToken = default);
+    Task DeleteAllForAgentAsync(Guid agentId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Returns the membership for the given composite key, or <c>null</c>
     /// if no row exists.
     /// </summary>
-    Task<UnitMembership?> GetAsync(string unitId, string agentAddress, CancellationToken cancellationToken = default);
+    Task<UnitMembership?> GetAsync(Guid unitId, Guid agentId, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Returns every membership attached to the given unit, in stable
+    /// Returns every membership attached to the given unit UUID, in stable
     /// <c>CreatedAt</c> order so callers that treat the first entry as the
     /// "primary" unit see a deterministic choice.
     /// </summary>
-    Task<IReadOnlyList<UnitMembership>> ListByUnitAsync(string unitId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<UnitMembership>> ListByUnitAsync(Guid unitId, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Returns every membership the given agent participates in, in stable
-    /// <c>CreatedAt</c> order. The first entry acts as the derived parent
-    /// unit for wire-compat surfaces (<c>AgentMetadata.ParentUnit</c>,
+    /// Returns every membership the given agent UUID participates in, in
+    /// stable <c>CreatedAt</c> order. The first entry acts as the derived
+    /// parent unit for wire-compat surfaces (<c>AgentMetadata.ParentUnit</c>,
     /// <c>AgentResponse.ParentUnit</c>).
     /// </summary>
-    Task<IReadOnlyList<UnitMembership>> ListByAgentAsync(string agentAddress, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<UnitMembership>> ListByAgentAsync(Guid agentId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Returns every membership visible in the current tenant scope. Used

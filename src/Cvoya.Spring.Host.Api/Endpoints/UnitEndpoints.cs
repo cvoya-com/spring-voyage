@@ -1521,8 +1521,10 @@ public static class UnitEndpoints
             }
             var proxy = actorProxyFactory.CreateActorProxy<IAgentActor>(
                 new ActorId(entry.ActorId), nameof(AgentActor));
+            // #1492: GetDerivedAgentMetadataAsync takes a UUID now.
+            var memberUuid = Guid.TryParse(entry.ActorId, out var mu) ? mu : Guid.Empty;
             var metadata = await AgentEndpoints.GetDerivedAgentMetadataAsync(
-                proxy, membershipRepository, member.Path, cancellationToken);
+                proxy, membershipRepository, memberUuid, directoryService, cancellationToken);
             responses.Add(AgentEndpoints.ToAgentResponse(entry, metadata));
         }
 
@@ -1578,14 +1580,29 @@ public static class UnitEndpoints
                 statusCode: StatusCodes.Status404NotFound);
         }
 
+        // #1492: resolve slugs → UUIDs at the boundary. Both entries resolved above.
+        if (!Guid.TryParse(unitEntry.ActorId, out var unitAssignUuid))
+        {
+            return Results.Problem(
+                detail: $"Unit '{id}' has no stable UUID identity.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        if (!Guid.TryParse(agentEntry.ActorId, out var agentAssignUuid))
+        {
+            return Results.Problem(
+                detail: $"Agent '{agentId}' has no stable UUID identity.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
         // C2b-1: M:N membership model (see #160). An agent may be a member
         // of multiple units. No 1:N conflict check — the old guard is gone
         // and operators may freely add the same agent to several units.
         // Existing membership rows are preserved (idempotent re-assign).
-        var existing = await membershipRepository.GetAsync(id, agentId, cancellationToken);
+        var existing = await membershipRepository.GetAsync(unitAssignUuid, agentAssignUuid, cancellationToken);
         var membership = existing is null
-            ? new UnitMembership(UnitId: id, AgentAddress: agentId, Enabled: true)
-            : existing with { UnitId = id, AgentAddress = agentId };
+            ? new UnitMembership(UnitId: unitAssignUuid, AgentId: agentAssignUuid, Enabled: true)
+            : existing with { UnitId = unitAssignUuid, AgentId = agentAssignUuid };
 
         await membershipRepository.UpsertAsync(membership, cancellationToken);
 
@@ -1610,7 +1627,7 @@ public static class UnitEndpoints
             "Agent {AgentId} assigned to unit {UnitId}.", agentId, id);
 
         var refreshed = await AgentEndpoints.GetDerivedAgentMetadataAsync(
-            agentProxy, membershipRepository, agentId, cancellationToken);
+            agentProxy, membershipRepository, agentAssignUuid, directoryService, cancellationToken);
         return Results.Ok(AgentEndpoints.ToAgentResponse(agentEntry, refreshed));
     }
 
@@ -1640,6 +1657,21 @@ public static class UnitEndpoints
             return Results.Problem(detail: $"Agent '{agentId}' not found", statusCode: StatusCodes.Status404NotFound);
         }
 
+        // #1492: resolve slugs → UUIDs at the boundary.
+        if (!Guid.TryParse(unitEntry.ActorId, out var unitUnassignUuid))
+        {
+            return Results.Problem(
+                detail: $"Unit '{id}' has no stable UUID identity.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        if (!Guid.TryParse(agentEntry.ActorId, out var agentUnassignUuid))
+        {
+            return Results.Problem(
+                detail: $"Agent '{agentId}' has no stable UUID identity.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
         // Delete the membership row. Other units the agent still belongs to
         // are unaffected — this is the point of M:N. Per #744 the repo
         // rejects removal when this is the agent's last membership; we
@@ -1647,7 +1679,7 @@ public static class UnitEndpoints
         // another unit first or deletes the agent via DELETE /agents/{id}.
         try
         {
-            await membershipRepository.DeleteAsync(id, agentId, cancellationToken);
+            await membershipRepository.DeleteAsync(unitUnassignUuid, agentUnassignUuid, cancellationToken);
         }
         catch (AgentMembershipRequiredException ex)
         {
@@ -1657,7 +1689,7 @@ public static class UnitEndpoints
                 statusCode: StatusCodes.Status409Conflict,
                 extensions: new Dictionary<string, object?>
                 {
-                    ["agentAddress"] = ex.AgentAddress,
+                    ["agentId"] = ex.AgentId,
                     ["unitId"] = ex.UnitId,
                 });
         }
@@ -1669,7 +1701,7 @@ public static class UnitEndpoints
         // Refresh the cached pointer on the agent actor. If any memberships
         // remain, the derivation rule (first by CreatedAt) picks the new
         // "primary" unit; if this was the last membership, clear the pointer.
-        var remaining = await membershipRepository.ListByAgentAsync(agentId, cancellationToken);
+        var remaining = await membershipRepository.ListByAgentAsync(agentUnassignUuid, cancellationToken);
         var agentProxy = actorProxyFactory.CreateActorProxy<IAgentActor>(
             new ActorId(agentEntry.ActorId), nameof(AgentActor));
         if (remaining.Count == 0)
@@ -1678,8 +1710,16 @@ public static class UnitEndpoints
         }
         else
         {
+            // Resolve UUID → slug for the ParentUnit field (#1492).
+            // ListAll warms the in-memory directory cache on first call so
+            // this is O(1) for subsequent requests within the same process.
+            var allEntries = await directoryService.ListAllAsync(cancellationToken);
+            var primaryUnitEntry = allEntries.FirstOrDefault(
+                e => string.Equals(e.Address.Scheme, "unit", StringComparison.OrdinalIgnoreCase)
+                     && e.ActorId == remaining[0].UnitId.ToString());
+            var primaryUnitSlug = primaryUnitEntry?.Address.Path ?? remaining[0].UnitId.ToString();
             await agentProxy.SetMetadataAsync(
-                new AgentMetadata(ParentUnit: remaining[0].UnitId),
+                new AgentMetadata(ParentUnit: primaryUnitSlug),
                 cancellationToken);
         }
 

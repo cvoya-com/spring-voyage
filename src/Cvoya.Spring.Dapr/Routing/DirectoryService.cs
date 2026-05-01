@@ -331,16 +331,27 @@ public class DirectoryService(
             return;
         }
 
+        // #1492: membership rows are now keyed by stable UUIDs (actor IDs).
+        // Resolve the unit's actor UUID from the definition row so we can
+        // target only the memberships that belong to THIS instance of the
+        // unit — not any future unit recreated with the same slug.
+        var actorId = entity.ActorId;
+
         // Load every membership edge into the tracked change set so the same
         // SaveChangesAsync that flips the unit's DeletedAt also hard-deletes
         // the rows and commits the agent ref-count decisions below.
-        var memberships = await db.UnitMemberships
-            .Where(m => m.UnitId == unitId)
-            .ToListAsync(cancellationToken);
-
-        foreach (var membership in memberships)
+        // Only proceed with UUID-keyed deletion when the unit has a valid UUID.
+        var memberships = new List<Cvoya.Spring.Dapr.Data.Entities.UnitMembershipEntity>();
+        if (!string.IsNullOrEmpty(actorId) && Guid.TryParse(actorId, out var unitActorUuid))
         {
-            db.UnitMemberships.Remove(membership);
+            memberships = await db.UnitMemberships
+                .Where(m => m.UnitId == unitActorUuid)
+                .ToListAsync(cancellationToken);
+
+            foreach (var membership in memberships)
+            {
+                db.UnitMemberships.Remove(membership);
+            }
         }
 
         // #1154: tear down every persistent sub-unit edge that mentions
@@ -363,7 +374,6 @@ public class DirectoryService(
         // #1488: delete the unit's policy row. Policy rows are keyed by
         // ActorId (UUID) so the delete targets the specific instance of this
         // unit — not any future unit recreated with the same slug.
-        var actorId = entity.ActorId;
         if (!string.IsNullOrEmpty(actorId))
         {
             var policyRow = await db.UnitPolicies
@@ -391,21 +401,38 @@ public class DirectoryService(
         // back as "deleted") and EXCLUDE the unit we're tearing down so a
         // single-membership agent always becomes orphaned and gets
         // soft-deleted here, not just its edge removed.
+        //
+        // #1492: membership rows are now keyed by agent UUID (AgentId), not
+        // slug. Resolve the agent's definition row by UUID to get the slug
+        // needed for cache eviction.
         foreach (var membership in memberships)
         {
-            var agentAddress = membership.AgentAddress;
+            var agentUuid = membership.AgentId;
+            var agentUuidStr = agentUuid.ToString();
 
-            var otherUnitIds = await db.UnitMemberships
-                .Where(m => m.AgentAddress == agentAddress && m.UnitId != unitId)
-                .Select(m => m.UnitId)
-                .ToListAsync(cancellationToken);
+            // Resolve agent by UUID to get its slug-based address for cache eviction.
+            var agentEntity = await db.AgentDefinitions
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(a => a.ActorId == agentUuidStr, cancellationToken);
 
+            // Check for surviving memberships via UUID keys (excluding this unit).
             var hasLiveOtherUnit = false;
-            if (otherUnitIds.Count > 0)
+            if (!string.IsNullOrEmpty(actorId) && Guid.TryParse(actorId, out var thisUnitUuid))
             {
-                hasLiveOtherUnit = await db.UnitDefinitions
-                    .Where(u => otherUnitIds.Contains(u.UnitId))
-                    .AnyAsync(cancellationToken);
+                var otherUnitUuids = await db.UnitMemberships
+                    .Where(m => m.AgentId == agentUuid && m.UnitId != thisUnitUuid)
+                    .Select(m => m.UnitId)
+                    .ToListAsync(cancellationToken);
+
+                if (otherUnitUuids.Count > 0)
+                {
+                    // At least one surviving membership edge — check if any of
+                    // those units is still live (not soft-deleted).
+                    var otherActorIds = otherUnitUuids.Select(u => u.ToString()).ToList();
+                    hasLiveOtherUnit = await db.UnitDefinitions
+                        .Where(u => otherActorIds.Contains(u.ActorId!) && u.DeletedAt == null)
+                        .AnyAsync(cancellationToken);
+                }
             }
 
             if (hasLiveOtherUnit)
@@ -415,18 +442,12 @@ public class DirectoryService(
                 continue;
             }
 
-            // Agent has no surviving unit membership — soft-delete it.
-            // IgnoreQueryFilters so an already-soft-deleted agent still
-            // matches (idempotent) rather than silently skipping.
-            var agentEntity = await db.AgentDefinitions
-                .IgnoreQueryFilters()
-                .FirstOrDefaultAsync(a => a.AgentId == agentAddress, cancellationToken);
-
             if (agentEntity is null)
             {
                 continue;
             }
 
+            // Agent has no surviving unit membership — soft-delete it.
             if (agentEntity.DeletedAt is null)
             {
                 agentEntity.DeletedAt = DateTimeOffset.UtcNow;
@@ -434,9 +455,9 @@ public class DirectoryService(
 
             // Evict from the in-memory map + cache so the next resolve falls
             // through to the DB and sees "deleted".
-            var agentKey = ToKey(new Address("agent", agentAddress));
+            var agentKey = ToKey(new Address("agent", agentEntity.AgentId));
             _entries.TryRemove(agentKey, out _);
-            cache.Invalidate(new Address("agent", agentAddress));
+            cache.Invalidate(new Address("agent", agentEntity.AgentId));
         }
 
         entity.DeletedAt = DateTimeOffset.UtcNow;

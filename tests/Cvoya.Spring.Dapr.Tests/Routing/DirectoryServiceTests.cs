@@ -337,30 +337,39 @@ public class DirectoryServiceTests : IDisposable
     /// row referencing the unit. The table has no <c>DeletedAt</c> column so
     /// soft-delete is not representable — the invariant is "no row points at a
     /// deleted unit".
+    ///
+    /// Post #1492 the membership rows are keyed by stable UUIDs (actor IDs), so
+    /// all RegisterAsync calls in cascade tests use UUID-shaped ActorId values.
     /// </summary>
     [Fact]
     public async Task UnregisterAsync_unit_removes_all_memberships()
     {
+        // Stable UUIDs: must be valid Guid strings for cascade path to parse.
+        var unitEngUuid = new Guid("eeee0001-0000-0000-0000-000000000000");
+
         var ct = TestContext.Current.CancellationToken;
         var proxyFactory = Substitute.For<IActorProxyFactory>();
         var service = CreateServiceWithActorFactory(proxyFactory);
 
         var unitAddress = new Address("unit", "engineering");
         await service.RegisterAsync(
-            new DirectoryEntry(unitAddress, "unit-actor-eng", "Engineering", "", null, DateTimeOffset.UtcNow),
+            new DirectoryEntry(unitAddress, unitEngUuid.ToString(), "Engineering", "", null, DateTimeOffset.UtcNow),
             ct);
 
-        StubUnitMembers(proxyFactory, "unit-actor-eng", Array.Empty<Address>());
+        StubUnitMembers(proxyFactory, unitEngUuid.ToString(), Array.Empty<Address>());
 
-        await SeedMembershipAsync("engineering", "ada", ct);
-        await SeedMembershipAsync("engineering", "hopper", ct);
+        // Seed two memberships into this unit (using deterministic agent UUIDs).
+        var agentAda = new Guid("aaaa0010-0000-0000-0000-000000000000");
+        var agentHopper = new Guid("aaaa0011-0000-0000-0000-000000000000");
+        await SeedMembershipAsync(unitEngUuid, agentAda, ct);
+        await SeedMembershipAsync(unitEngUuid, agentHopper, ct);
 
         await service.UnregisterAsync(unitAddress, ct);
 
         using var scope = _serviceProvider.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
         var remaining = await db.UnitMemberships
-            .Where(m => m.UnitId == "engineering")
+            .Where(m => m.UnitId == unitEngUuid)
             .CountAsync(ct);
         remaining.ShouldBe(0);
     }
@@ -372,20 +381,23 @@ public class DirectoryServiceTests : IDisposable
     [Fact]
     public async Task UnregisterAsync_unit_soft_deletes_exclusive_agent()
     {
+        var unitEngUuid = new Guid("eeee0002-0000-0000-0000-000000000000");
+        var agentAdaUuid = new Guid("aaaa0001-0000-0000-0000-000000000000");
+
         var ct = TestContext.Current.CancellationToken;
         var proxyFactory = Substitute.For<IActorProxyFactory>();
         var service = CreateServiceWithActorFactory(proxyFactory);
 
         var unitAddress = new Address("unit", "engineering");
         await service.RegisterAsync(
-            new DirectoryEntry(unitAddress, "unit-actor-eng", "Engineering", "", null, DateTimeOffset.UtcNow),
+            new DirectoryEntry(unitAddress, unitEngUuid.ToString(), "Engineering", "", null, DateTimeOffset.UtcNow),
             ct);
         await service.RegisterAsync(
-            new DirectoryEntry(new Address("agent", "ada"), "actor-ada", "Ada", "", "engineer", DateTimeOffset.UtcNow),
+            new DirectoryEntry(new Address("agent", "ada"), agentAdaUuid.ToString(), "Ada", "", "engineer", DateTimeOffset.UtcNow),
             ct);
 
-        StubUnitMembers(proxyFactory, "unit-actor-eng", Array.Empty<Address>());
-        await SeedMembershipAsync("engineering", "ada", ct);
+        StubUnitMembers(proxyFactory, unitEngUuid.ToString(), Array.Empty<Address>());
+        await SeedMembershipAsync(unitEngUuid, agentAdaUuid, ct);
 
         await service.UnregisterAsync(unitAddress, ct);
 
@@ -405,6 +417,10 @@ public class DirectoryServiceTests : IDisposable
     [Fact]
     public async Task UnregisterAsync_unit_preserves_shared_agent()
     {
+        var unitXUuid = new Guid("aaaa0001-0000-0000-0000-000000000001");
+        var unitYUuid = new Guid("aaaa0001-0000-0000-0000-000000000002");
+        var agentAdaUuid = new Guid("aaaa0002-0000-0000-0000-000000000000");
+
         var ct = TestContext.Current.CancellationToken;
         var proxyFactory = Substitute.For<IActorProxyFactory>();
         var service = CreateServiceWithActorFactory(proxyFactory);
@@ -412,15 +428,15 @@ public class DirectoryServiceTests : IDisposable
         var unitX = new Address("unit", "x");
         var unitY = new Address("unit", "y");
         await service.RegisterAsync(
-            new DirectoryEntry(unitX, "unit-actor-x", "X", "", null, DateTimeOffset.UtcNow), ct);
+            new DirectoryEntry(unitX, unitXUuid.ToString(), "X", "", null, DateTimeOffset.UtcNow), ct);
         await service.RegisterAsync(
-            new DirectoryEntry(unitY, "unit-actor-y", "Y", "", null, DateTimeOffset.UtcNow), ct);
+            new DirectoryEntry(unitY, unitYUuid.ToString(), "Y", "", null, DateTimeOffset.UtcNow), ct);
         await service.RegisterAsync(
-            new DirectoryEntry(new Address("agent", "ada"), "actor-ada", "Ada", "", null, DateTimeOffset.UtcNow), ct);
+            new DirectoryEntry(new Address("agent", "ada"), agentAdaUuid.ToString(), "Ada", "", null, DateTimeOffset.UtcNow), ct);
 
-        StubUnitMembers(proxyFactory, "unit-actor-x", Array.Empty<Address>());
-        await SeedMembershipAsync("x", "ada", ct);
-        await SeedMembershipAsync("y", "ada", ct);
+        StubUnitMembers(proxyFactory, unitXUuid.ToString(), Array.Empty<Address>());
+        await SeedMembershipAsync(unitXUuid, agentAdaUuid, ct);
+        await SeedMembershipAsync(unitYUuid, agentAdaUuid, ct);
 
         await service.UnregisterAsync(unitX, ct);
 
@@ -428,10 +444,10 @@ public class DirectoryServiceTests : IDisposable
         var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
 
         // Edge into X is gone.
-        (await db.UnitMemberships.AnyAsync(m => m.UnitId == "x" && m.AgentAddress == "ada", ct))
+        (await db.UnitMemberships.AnyAsync(m => m.UnitId == unitXUuid && m.AgentId == agentAdaUuid, ct))
             .ShouldBeFalse();
         // Edge into Y is preserved.
-        (await db.UnitMemberships.AnyAsync(m => m.UnitId == "y" && m.AgentAddress == "ada", ct))
+        (await db.UnitMemberships.AnyAsync(m => m.UnitId == unitYUuid && m.AgentId == agentAdaUuid, ct))
             .ShouldBeTrue();
         // Agent itself survives.
         var agent = await db.AgentDefinitions
@@ -448,6 +464,10 @@ public class DirectoryServiceTests : IDisposable
     [Fact]
     public async Task UnregisterAsync_unit_cascades_sub_units()
     {
+        var unitPUuid = new Guid("bbbb0001-0000-0000-0000-000000000001");
+        var unitSUuid = new Guid("bbbb0001-0000-0000-0000-000000000002");
+        var agentExclusiveUuid = new Guid("eeeeeeee-0001-0000-0000-000000000000");
+
         var ct = TestContext.Current.CancellationToken;
         var proxyFactory = Substitute.For<IActorProxyFactory>();
         var service = CreateServiceWithActorFactory(proxyFactory);
@@ -455,18 +475,18 @@ public class DirectoryServiceTests : IDisposable
         var parent = new Address("unit", "p");
         var sub = new Address("unit", "s");
         await service.RegisterAsync(
-            new DirectoryEntry(parent, "unit-actor-p", "P", "", null, DateTimeOffset.UtcNow), ct);
+            new DirectoryEntry(parent, unitPUuid.ToString(), "P", "", null, DateTimeOffset.UtcNow), ct);
         await service.RegisterAsync(
-            new DirectoryEntry(sub, "unit-actor-s", "S", "", null, DateTimeOffset.UtcNow), ct);
+            new DirectoryEntry(sub, unitSUuid.ToString(), "S", "", null, DateTimeOffset.UtcNow), ct);
         await service.RegisterAsync(
-            new DirectoryEntry(new Address("agent", "exclusive"), "actor-exclusive", "Ex", "", null, DateTimeOffset.UtcNow),
+            new DirectoryEntry(new Address("agent", "exclusive"), agentExclusiveUuid.ToString(), "Ex", "", null, DateTimeOffset.UtcNow),
             ct);
 
         // Parent lists sub as a unit-typed member; sub has no further nesting.
-        StubUnitMembers(proxyFactory, "unit-actor-p", new[] { sub });
-        StubUnitMembers(proxyFactory, "unit-actor-s", Array.Empty<Address>());
+        StubUnitMembers(proxyFactory, unitPUuid.ToString(), new[] { sub });
+        StubUnitMembers(proxyFactory, unitSUuid.ToString(), Array.Empty<Address>());
 
-        await SeedMembershipAsync("s", "exclusive", ct);
+        await SeedMembershipAsync(unitSUuid, agentExclusiveUuid, ct);
 
         await service.UnregisterAsync(parent, ct);
 
@@ -488,7 +508,7 @@ public class DirectoryServiceTests : IDisposable
             .FirstAsync(a => a.AgentId == "exclusive", ct);
         agent.DeletedAt.ShouldNotBeNull();
 
-        (await db.UnitMemberships.CountAsync(m => m.UnitId == "s", ct)).ShouldBe(0);
+        (await db.UnitMemberships.CountAsync(m => m.UnitId == unitSUuid, ct)).ShouldBe(0);
     }
 
     /// <summary>
@@ -499,6 +519,11 @@ public class DirectoryServiceTests : IDisposable
     [Fact]
     public async Task UnregisterAsync_unit_cascades_sub_unit_but_preserves_shared_agent()
     {
+        var unitPUuid = new Guid("cccc0001-0000-0000-0000-000000000001");
+        var unitSUuid = new Guid("cccc0001-0000-0000-0000-000000000002");
+        var unitUUuid = new Guid("cccc0001-0000-0000-0000-000000000003");
+        var agentSharedUuid = new Guid("aaaa0003-0000-0000-0000-000000000000");
+
         var ct = TestContext.Current.CancellationToken;
         var proxyFactory = Substitute.For<IActorProxyFactory>();
         var service = CreateServiceWithActorFactory(proxyFactory);
@@ -507,20 +532,20 @@ public class DirectoryServiceTests : IDisposable
         var sub = new Address("unit", "s");
         var unrelated = new Address("unit", "u");
         await service.RegisterAsync(
-            new DirectoryEntry(parent, "unit-actor-p", "P", "", null, DateTimeOffset.UtcNow), ct);
+            new DirectoryEntry(parent, unitPUuid.ToString(), "P", "", null, DateTimeOffset.UtcNow), ct);
         await service.RegisterAsync(
-            new DirectoryEntry(sub, "unit-actor-s", "S", "", null, DateTimeOffset.UtcNow), ct);
+            new DirectoryEntry(sub, unitSUuid.ToString(), "S", "", null, DateTimeOffset.UtcNow), ct);
         await service.RegisterAsync(
-            new DirectoryEntry(unrelated, "unit-actor-u", "U", "", null, DateTimeOffset.UtcNow), ct);
+            new DirectoryEntry(unrelated, unitUUuid.ToString(), "U", "", null, DateTimeOffset.UtcNow), ct);
         await service.RegisterAsync(
-            new DirectoryEntry(new Address("agent", "shared"), "actor-shared", "Sh", "", null, DateTimeOffset.UtcNow),
+            new DirectoryEntry(new Address("agent", "shared"), agentSharedUuid.ToString(), "Sh", "", null, DateTimeOffset.UtcNow),
             ct);
 
-        StubUnitMembers(proxyFactory, "unit-actor-p", new[] { sub });
-        StubUnitMembers(proxyFactory, "unit-actor-s", Array.Empty<Address>());
+        StubUnitMembers(proxyFactory, unitPUuid.ToString(), new[] { sub });
+        StubUnitMembers(proxyFactory, unitSUuid.ToString(), Array.Empty<Address>());
 
-        await SeedMembershipAsync("s", "shared", ct);
-        await SeedMembershipAsync("u", "shared", ct);
+        await SeedMembershipAsync(unitSUuid, agentSharedUuid, ct);
+        await SeedMembershipAsync(unitUUuid, agentSharedUuid, ct);
 
         await service.UnregisterAsync(parent, ct);
 
@@ -546,10 +571,10 @@ public class DirectoryServiceTests : IDisposable
 
         // Only the membership into U remains.
         var remaining = await db.UnitMemberships
-            .Where(m => m.AgentAddress == "shared")
+            .Where(m => m.AgentId == agentSharedUuid)
             .Select(m => m.UnitId)
             .ToListAsync(ct);
-        remaining.ShouldBe(new[] { "u" });
+        remaining.ShouldBe(new[] { unitUUuid });
     }
 
     /// <summary>
@@ -709,14 +734,14 @@ public class DirectoryServiceTests : IDisposable
             .Returns(proxy);
     }
 
-    private async Task SeedMembershipAsync(string unitId, string agentAddress, CancellationToken ct)
+    private async Task SeedMembershipAsync(Guid unitId, Guid agentId, CancellationToken ct)
     {
         using var scope = _serviceProvider.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
         db.UnitMemberships.Add(new UnitMembershipEntity
         {
             UnitId = unitId,
-            AgentAddress = agentAddress,
+            AgentId = agentId,
             Enabled = true,
             CreatedAt = DateTimeOffset.UtcNow,
             UpdatedAt = DateTimeOffset.UtcNow,

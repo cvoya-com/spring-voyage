@@ -31,6 +31,14 @@ using Xunit;
 /// </summary>
 public class MembershipEndpointTests : IClassFixture<CustomWebApplicationFactory>
 {
+    // Stable UUIDs for the well-known test entities.
+    // After #1492 all membership rows use UUID keys, and the endpoints
+    // require Guid-parseable ActorIds in directory entries.
+    private static readonly Guid AgentAdaUuid = new("aadaadaa-0000-0000-0000-000000000001");
+    private static readonly Guid AgentHopperUuid = new("aadaadaa-0000-0000-0000-000000000002");
+    private static readonly Guid UnitEngineeringUuid = new("ee1ee111-0000-0000-0000-000000000001");
+    private static readonly Guid UnitMarketingUuid = new("ee1ee111-0000-0000-0000-000000000002");
+
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         Converters = { new JsonStringEnumConverter() },
@@ -38,6 +46,10 @@ public class MembershipEndpointTests : IClassFixture<CustomWebApplicationFactory
 
     private readonly CustomWebApplicationFactory _factory;
     private readonly HttpClient _client;
+
+    // Tracks directory entries registered via ArrangeDirectoryHit so that
+    // ListAllAsync returns a consistent set for ToResponse slug resolution.
+    private readonly List<DirectoryEntry> _arrangedEntries = [];
 
     public MembershipEndpointTests(CustomWebApplicationFactory factory)
     {
@@ -64,10 +76,10 @@ public class MembershipEndpointTests : IClassFixture<CustomWebApplicationFactory
     {
         var ct = TestContext.Current.CancellationToken;
         ClearMemberships();
-        ArrangeDirectoryHit("agent", "ada", "actor-ada");
+        ArrangeDirectoryHit("agent", "ada", AgentAdaUuid);
 
-        await UpsertAsync("engineering", "ada");
-        await UpsertAsync("marketing", "ada", model: "gpt-4o");
+        await UpsertAsync(UnitEngineeringUuid, AgentAdaUuid);
+        await UpsertAsync(UnitMarketingUuid, AgentAdaUuid, model: "gpt-4o");
 
         var response = await _client.GetAsync("/api/v1/tenant/agents/ada/memberships", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -75,8 +87,9 @@ public class MembershipEndpointTests : IClassFixture<CustomWebApplicationFactory
         var list = await response.Content.ReadFromJsonAsync<List<UnitMembershipResponse>>(JsonOptions, ct);
         list.ShouldNotBeNull();
         list!.Count.ShouldBe(2);
-        list.ShouldContain(m => m.UnitId == "engineering");
-        list.ShouldContain(m => m.UnitId == "marketing" && m.Model == "gpt-4o");
+        // UnitId is now the identity-form URI (#1492).
+        list.ShouldContain(m => m.UnitId == $"unit:id:{UnitEngineeringUuid}");
+        list.ShouldContain(m => m.UnitId == $"unit:id:{UnitMarketingUuid}" && m.Model == "gpt-4o");
     }
 
     [Fact]
@@ -97,10 +110,12 @@ public class MembershipEndpointTests : IClassFixture<CustomWebApplicationFactory
     {
         var ct = TestContext.Current.CancellationToken;
         ClearMemberships();
-        ArrangeDirectoryHit("unit", "engineering", "actor-eng");
+        ArrangeDirectoryHit("unit", "engineering", UnitEngineeringUuid);
+        ArrangeDirectoryHit("agent", "ada", AgentAdaUuid);
+        ArrangeDirectoryHit("agent", "hopper", AgentHopperUuid);
 
-        await UpsertAsync("engineering", "ada", specialty: "reviewer");
-        await UpsertAsync("engineering", "hopper", enabled: false);
+        await UpsertAsync(UnitEngineeringUuid, AgentAdaUuid, specialty: "reviewer");
+        await UpsertAsync(UnitEngineeringUuid, AgentHopperUuid, enabled: false);
 
         var response = await _client.GetAsync("/api/v1/tenant/units/engineering/memberships", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -121,16 +136,12 @@ public class MembershipEndpointTests : IClassFixture<CustomWebApplicationFactory
     {
         var ct = TestContext.Current.CancellationToken;
         ClearMemberships();
-        ArrangeDirectoryHit("unit", "engineering", "actor-eng");
+        ArrangeDirectoryHit("unit", "engineering", UnitEngineeringUuid);
+        ArrangeDirectoryHit("agent", "ada", AgentAdaUuid);
+        ArrangeDirectoryHit("agent", "hopper", AgentHopperUuid);
 
-        // Arrange directory entries for the individual agents with UUID actor ids.
-        var adaId = "a1a1a1a1-0000-0000-0000-000000000001";
-        var hopperId = "b2b2b2b2-0000-0000-0000-000000000002";
-        ArrangeDirectoryHit("agent", "ada", adaId);
-        ArrangeDirectoryHit("agent", "hopper", hopperId);
-
-        await UpsertAsync("engineering", "ada");
-        await UpsertAsync("engineering", "hopper");
+        await UpsertAsync(UnitEngineeringUuid, AgentAdaUuid);
+        await UpsertAsync(UnitEngineeringUuid, AgentHopperUuid);
 
         var response = await _client.GetAsync("/api/v1/tenant/units/engineering/memberships", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -138,8 +149,8 @@ public class MembershipEndpointTests : IClassFixture<CustomWebApplicationFactory
         var list = await response.Content.ReadFromJsonAsync<List<UnitMembershipResponse>>(JsonOptions, ct);
         list.ShouldNotBeNull();
         // Member must be the identity form, not the navigation form.
-        list!.ShouldContain(m => m.AgentAddress == "ada" && m.Member == $"agent:id:{adaId}");
-        list.ShouldContain(m => m.AgentAddress == "hopper" && m.Member == $"agent:id:{hopperId}");
+        list!.ShouldContain(m => m.AgentAddress == "ada" && m.Member == $"agent:id:{AgentAdaUuid}");
+        list.ShouldContain(m => m.AgentAddress == "hopper" && m.Member == $"agent:id:{AgentHopperUuid}");
     }
 
     // #1060 / #1490: the same projection applies to the /agents/{id}/memberships
@@ -149,40 +160,34 @@ public class MembershipEndpointTests : IClassFixture<CustomWebApplicationFactory
     {
         var ct = TestContext.Current.CancellationToken;
         ClearMemberships();
-        var adaId = "a1a1a1a1-0000-0000-0000-000000000001";
-        ArrangeDirectoryHit("agent", "ada", adaId);
+        ArrangeDirectoryHit("agent", "ada", AgentAdaUuid);
 
-        await UpsertAsync("engineering", "ada");
-        await UpsertAsync("marketing", "ada");
+        await UpsertAsync(UnitEngineeringUuid, AgentAdaUuid);
+        await UpsertAsync(UnitMarketingUuid, AgentAdaUuid);
 
         var response = await _client.GetAsync("/api/v1/tenant/agents/ada/memberships", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var list = await response.Content.ReadFromJsonAsync<List<UnitMembershipResponse>>(JsonOptions, ct);
         list.ShouldNotBeNull();
-        list!.ShouldAllBe(m => m.Member == $"agent:id:{adaId}");
+        list!.ShouldAllBe(m => m.Member == $"agent:id:{AgentAdaUuid}");
     }
 
-    // #1490: Regression — when the actor id is NOT a valid UUID (dev / test
-    // scenarios or slug-shaped ids), the Member field falls back to the
-    // navigation form so the projection still completes.
+    // #1490: Regression guard — after #1492, endpoints that encounter a
+    // non-UUID ActorId on a unit entry surface a 404 (no stable UUID
+    // identity) rather than silently falling back. This pins the new contract.
     [Fact]
-    public async Task ListUnitMemberships_SlugShapedActorId_FallsBackToNavigationForm()
+    public async Task ListUnitMemberships_SlugShapedUnitActorId_Returns404()
     {
         var ct = TestContext.Current.CancellationToken;
         ClearMemberships();
-        ArrangeDirectoryHit("unit", "engineering", "actor-eng");
-        ArrangeDirectoryHit("agent", "ada", "actor-ada"); // non-UUID actor id
-
-        await UpsertAsync("engineering", "ada");
+        ArrangeDirectoryHit("unit", "engineering", "actor-eng"); // non-UUID actor id
 
         var response = await _client.GetAsync("/api/v1/tenant/units/engineering/memberships", ct);
-        response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        var list = await response.Content.ReadFromJsonAsync<List<UnitMembershipResponse>>(JsonOptions, ct);
-        list.ShouldNotBeNull();
-        // Slug-shaped actor id falls back to navigation form "agent://<actorId>".
-        list!.ShouldContain(m => m.AgentAddress == "ada" && m.Member == "agent://actor-ada");
+        // #1492: the endpoint requires a UUID-parseable ActorId to key
+        // membership lookups — non-UUID ids are rejected with 404.
+        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
     [Fact]
@@ -190,8 +195,8 @@ public class MembershipEndpointTests : IClassFixture<CustomWebApplicationFactory
     {
         var ct = TestContext.Current.CancellationToken;
         ClearMemberships();
-        ArrangeDirectoryHit("unit", "engineering", "actor-eng");
-        ArrangeDirectoryHit("agent", "ada", "actor-ada");
+        ArrangeDirectoryHit("unit", "engineering", UnitEngineeringUuid);
+        ArrangeDirectoryHit("agent", "ada", AgentAdaUuid);
 
         var body = new UpsertMembershipRequest(
             Model: "claude-opus",
@@ -203,7 +208,7 @@ public class MembershipEndpointTests : IClassFixture<CustomWebApplicationFactory
             "/api/v1/tenant/units/engineering/memberships/ada", body, JsonOptions, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        var persisted = await GetAsync("engineering", "ada");
+        var persisted = await GetAsync(UnitEngineeringUuid, AgentAdaUuid);
         persisted.ShouldNotBeNull();
         persisted!.Model.ShouldBe("claude-opus");
         persisted.Specialty.ShouldBe("reviewer");
@@ -230,17 +235,21 @@ public class MembershipEndpointTests : IClassFixture<CustomWebApplicationFactory
     {
         var ct = TestContext.Current.CancellationToken;
         ClearMemberships();
+        ArrangeDirectoryHit("unit", "engineering", UnitEngineeringUuid);
+        ArrangeDirectoryHit("unit", "marketing", UnitMarketingUuid);
+        ArrangeDirectoryHit("agent", "ada", AgentAdaUuid);
+
         // Two memberships — the agent must retain at least one after the
         // delete, per the #744 invariant. Without the second row the
         // repository rejects the removal with 409.
-        await UpsertAsync("engineering", "ada");
-        await UpsertAsync("marketing", "ada");
+        await UpsertAsync(UnitEngineeringUuid, AgentAdaUuid);
+        await UpsertAsync(UnitMarketingUuid, AgentAdaUuid);
 
         var response = await _client.DeleteAsync(
             "/api/v1/tenant/units/engineering/memberships/ada", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
-        (await GetAsync("engineering", "ada")).ShouldBeNull();
-        (await GetAsync("marketing", "ada")).ShouldNotBeNull();
+        (await GetAsync(UnitEngineeringUuid, AgentAdaUuid)).ShouldBeNull();
+        (await GetAsync(UnitMarketingUuid, AgentAdaUuid)).ShouldNotBeNull();
     }
 
     [Fact]
@@ -259,17 +268,20 @@ public class MembershipEndpointTests : IClassFixture<CustomWebApplicationFactory
     {
         var ct = TestContext.Current.CancellationToken;
         ClearMemberships();
+        ArrangeDirectoryHit("unit", "engineering", UnitEngineeringUuid);
+        ArrangeDirectoryHit("agent", "ada", AgentAdaUuid);
+
         // Only one membership; removing it would orphan the agent, which
         // #744 forbids — the endpoint surfaces the repository's
         // AgentMembershipRequiredException as 409 Conflict.
-        await UpsertAsync("engineering", "ada");
+        await UpsertAsync(UnitEngineeringUuid, AgentAdaUuid);
 
         var response = await _client.DeleteAsync(
             "/api/v1/tenant/units/engineering/memberships/ada", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.Conflict);
 
         // The membership must still exist — the rejection was not a soft fail.
-        (await GetAsync("engineering", "ada")).ShouldNotBeNull();
+        (await GetAsync(UnitEngineeringUuid, AgentAdaUuid)).ShouldNotBeNull();
     }
 
     [Fact]
@@ -277,20 +289,23 @@ public class MembershipEndpointTests : IClassFixture<CustomWebApplicationFactory
     {
         var ct = TestContext.Current.CancellationToken;
         ClearMemberships();
-        ArrangeDirectoryHit("agent", "ada", "actor-ada");
+        ArrangeDirectoryHit("agent", "ada", AgentAdaUuid);
+        ArrangeDirectoryHit("unit", "engineering", UnitEngineeringUuid);
+        ArrangeDirectoryHit("unit", "marketing", UnitMarketingUuid);
+
         var agentProxy = Substitute.For<Cvoya.Spring.Dapr.Actors.IAgentActor>();
         agentProxy.GetMetadataAsync(Arg.Any<CancellationToken>())
             .Returns(new AgentMetadata(Model: "claude-opus"));
         _factory.ActorProxyFactory
             .CreateActorProxy<Cvoya.Spring.Dapr.Actors.IAgentActor>(
-                Arg.Is<global::Dapr.Actors.ActorId>(a => a.GetId() == "actor-ada"),
+                Arg.Is<global::Dapr.Actors.ActorId>(a => a.GetId() == AgentAdaUuid.ToString()),
                 Arg.Any<string>())
             .Returns(agentProxy);
 
         // Add two memberships with deterministic CreatedAt ordering.
-        await UpsertAsync("engineering", "ada");
+        await UpsertAsync(UnitEngineeringUuid, AgentAdaUuid);
         await Task.Delay(20, ct);
-        await UpsertAsync("marketing", "ada");
+        await UpsertAsync(UnitMarketingUuid, AgentAdaUuid);
 
         var response = await _client.GetAsync("/api/v1/tenant/agents/ada", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -311,17 +326,18 @@ public class MembershipEndpointTests : IClassFixture<CustomWebApplicationFactory
     {
         var ct = TestContext.Current.CancellationToken;
         ClearMemberships();
-        ArrangeDirectoryHit("agent", "ada", "actor-ada");
+        ArrangeDirectoryHit("agent", "ada", AgentAdaUuid);
+
         var agentProxy = Substitute.For<Cvoya.Spring.Dapr.Actors.IAgentActor>();
         agentProxy.GetMetadataAsync(Arg.Any<CancellationToken>())
             .Returns(new AgentMetadata());
         _factory.ActorProxyFactory
             .CreateActorProxy<Cvoya.Spring.Dapr.Actors.IAgentActor>(
-                Arg.Is<global::Dapr.Actors.ActorId>(a => a.GetId() == "actor-ada"),
+                Arg.Is<global::Dapr.Actors.ActorId>(a => a.GetId() == AgentAdaUuid.ToString()),
                 Arg.Any<string>())
             .Returns(agentProxy);
 
-        await UpsertAsync("engineering", "ada");
+        await UpsertAsync(UnitEngineeringUuid, AgentAdaUuid);
 
         var response = await _client.GetAsync("/api/v1/tenant/agents/ada", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -342,34 +358,48 @@ public class MembershipEndpointTests : IClassFixture<CustomWebApplicationFactory
     {
         var ct = TestContext.Current.CancellationToken;
         ClearMemberships();
-        ArrangeDirectoryHit("agent", "ada", "actor-ada");
+        ArrangeDirectoryHit("agent", "ada", AgentAdaUuid);
 
-        await UpsertAsync("engineering", "ada");
+        await UpsertAsync(UnitEngineeringUuid, AgentAdaUuid);
         await Task.Delay(10, ct);
-        await UpsertAsync("marketing", "ada");
+        await UpsertAsync(UnitMarketingUuid, AgentAdaUuid);
 
         var response = await _client.GetAsync("/api/v1/tenant/agents/ada/memberships", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var list = await response.Content.ReadFromJsonAsync<List<UnitMembershipResponse>>(JsonOptions, ct);
         list.ShouldNotBeNull();
-        list!.Single(m => m.UnitId == "engineering").IsPrimary.ShouldBeTrue();
-        list.Single(m => m.UnitId == "marketing").IsPrimary.ShouldBeFalse();
+        // UnitId is now the identity-form URI (#1492).
+        list!.Single(m => m.UnitId == $"unit:id:{UnitEngineeringUuid}").IsPrimary.ShouldBeTrue();
+        list.Single(m => m.UnitId == $"unit:id:{UnitMarketingUuid}").IsPrimary.ShouldBeFalse();
     }
 
     private void ClearMemberships()
     {
+        _arrangedEntries.Clear();
         _factory.DirectoryService.ClearReceivedCalls();
         _factory.ActorProxyFactory.ClearReceivedCalls();
         _factory.DirectoryService
             .ResolveAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
             .Returns((DirectoryEntry?)null);
+        _factory.DirectoryService
+            .ListAllAsync(Arg.Any<CancellationToken>())
+            .Returns(_ => Task.FromResult<IReadOnlyList<DirectoryEntry>>(_arrangedEntries.AsReadOnly()));
 
         using var scope = _factory.Services.CreateScope();
         var ctx = scope.ServiceProvider.GetRequiredService<Cvoya.Spring.Dapr.Data.SpringDbContext>();
         ctx.UnitMemberships.RemoveRange(ctx.UnitMemberships.ToList());
         ctx.SaveChanges();
     }
+
+    /// <summary>
+    /// Registers a directory entry with a UUID actor id so the endpoint can
+    /// resolve slug → UUID. Also maintains <see cref="_arrangedEntries"/> so
+    /// <c>ListAllAsync</c> returns a consistent set for slug-resolution in
+    /// <c>ToResponse</c>.
+    /// </summary>
+    private void ArrangeDirectoryHit(string scheme, string path, Guid actorUuid)
+        => ArrangeDirectoryHit(scheme, path, actorUuid.ToString());
 
     private void ArrangeDirectoryHit(string scheme, string path, string actorId)
     {
@@ -384,11 +414,15 @@ public class MembershipEndpointTests : IClassFixture<CustomWebApplicationFactory
             .ResolveAsync(Arg.Is<Address>(a => a.Scheme == scheme && a.Path == path),
                 Arg.Any<CancellationToken>())
             .Returns(entry);
+
+        // Keep the list in sync so ListAllAsync returns all arranged entries.
+        _arrangedEntries.RemoveAll(e => e.Address.Scheme == scheme && e.Address.Path == path);
+        _arrangedEntries.Add(entry);
     }
 
     private async Task UpsertAsync(
-        string unitId,
-        string agentAddress,
+        Guid unitId,
+        Guid agentId,
         string? model = null,
         string? specialty = null,
         bool enabled = true)
@@ -396,14 +430,14 @@ public class MembershipEndpointTests : IClassFixture<CustomWebApplicationFactory
         using var scope = _factory.Services.CreateScope();
         var repo = scope.ServiceProvider.GetRequiredService<IUnitMembershipRepository>();
         await repo.UpsertAsync(
-            new UnitMembership(unitId, agentAddress, model, specialty, enabled),
+            new UnitMembership(unitId, agentId, model, specialty, enabled),
             CancellationToken.None);
     }
 
-    private async Task<UnitMembership?> GetAsync(string unitId, string agentAddress)
+    private async Task<UnitMembership?> GetAsync(Guid unitId, Guid agentId)
     {
         using var scope = _factory.Services.CreateScope();
         var repo = scope.ServiceProvider.GetRequiredService<IUnitMembershipRepository>();
-        return await repo.GetAsync(unitId, agentAddress, CancellationToken.None);
+        return await repo.GetAsync(unitId, agentId, CancellationToken.None);
     }
 }
