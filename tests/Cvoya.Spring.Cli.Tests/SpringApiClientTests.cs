@@ -1203,9 +1203,7 @@ public class SpringApiClientTests
             TestContext.Current.CancellationToken);
 
         result.Name.ShouldBe("openai-api-key");
-        // Version is modelled as UntypedNode because Kiota drops int32 format
-        // for integer/string unions — unpack via the shared helper.
-        Cvoya.Spring.Cli.KiotaConversions.ToInt(result.Version).ShouldBe(2);
+        result.Version.ShouldBe(2);
         handler.WasCalled.ShouldBeTrue();
     }
 
@@ -1247,8 +1245,8 @@ public class SpringApiClientTests
 
         capturedQuery.ShouldNotBeNull();
         capturedQuery!.ShouldContain("keep=2");
-        Cvoya.Spring.Cli.KiotaConversions.ToInt(result.Keep).ShouldBe(2);
-        Cvoya.Spring.Cli.KiotaConversions.ToInt(result.Pruned).ShouldBe(3);
+        result.Keep.ShouldBe(2);
+        result.Pruned.ShouldBe(3);
         handler.WasCalled.ShouldBeTrue();
     }
 

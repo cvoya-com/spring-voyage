@@ -147,15 +147,10 @@ public class SpringApiClient
         int? replicas = null,
         CancellationToken ct = default)
     {
-        // OpenAPI 3.1 models nullable ints as the integer-or-null union, which
-        // Kiota maps to UntypedNode. Wrap the C# int? in UntypedInteger when
-        // present so the wire representation is a plain JSON number, not an
-        // object. The policy/boundary wrappers above use the same oneOf
-        // request-body pattern; mirror their discriminator shape.
         var typed = new DeployPersistentAgentRequest
         {
             Image = string.IsNullOrWhiteSpace(image) ? null : image,
-            Replicas = replicas is int r ? new UntypedInteger(r) : null,
+            Replicas = replicas,
         };
         var body = new Cvoya.Spring.Cli.Generated.Api.V1.Tenant.Agents.Item.Deploy.DeployRequestBuilder.DeployPostRequestBody
         {
@@ -192,7 +187,7 @@ public class SpringApiClient
     {
         var request = new ScalePersistentAgentRequest
         {
-            Replicas = new UntypedInteger(replicas),
+            Replicas = replicas,
         };
         var result = await _client.Api.V1.Tenant.Agents[agentId].Scale.PostAsync(request, cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
@@ -213,11 +208,7 @@ public class SpringApiClient
             {
                 if (tail is int t)
                 {
-                    // Kiota's query-param helper treats ints as strings when
-                    // the OpenAPI spec doesn't pin format: int32. The server
-                    // parses it back with int.TryParse, so sending the
-                    // invariant-culture representation is fine.
-                    config.QueryParameters.Tail = t.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                    config.QueryParameters.Tail = t;
                 }
             },
             cancellationToken: ct);
@@ -968,7 +959,7 @@ public class SpringApiClient
                 config.QueryParameters.Source = source;
                 config.QueryParameters.EventType = eventType;
                 config.QueryParameters.Severity = severity;
-                config.QueryParameters.PageSize = pageSize?.ToString();
+                config.QueryParameters.PageSize = pageSize;
             },
             cancellationToken: ct);
         return result ?? throw new InvalidOperationException("Server returned an empty activity query response.");
@@ -1031,10 +1022,7 @@ public class SpringApiClient
                 config.QueryParameters.Agent = agent;
                 config.QueryParameters.Status = status;
                 config.QueryParameters.Participant = participant;
-                // Kiota treats int32 query params as strings when the
-                // OpenAPI `format: int32` hint is ignored (warning surfaced
-                // at generation time); convert on the way out.
-                config.QueryParameters.Limit = limit?.ToString();
+                config.QueryParameters.Limit = limit;
             },
             cancellationToken: ct);
         return result ?? new List<ThreadSummaryResponse>();
@@ -1259,12 +1247,8 @@ public class SpringApiClient
             Domains = domains?.ToList(),
             TypedOnly = typedOnly,
             InsideUnit = insideUnit,
-            // The int fields are modelled as UntypedNode because the
-            // server's record defaults push them into an integer-or-null
-            // union at the OpenAPI layer. Wrap concrete values in
-            // UntypedInteger for a plain JSON number on the wire.
-            Limit = limit is int l ? new UntypedInteger(l) : null,
-            Offset = offset is int o ? new UntypedInteger(o) : null,
+            Limit = limit,
+            Offset = offset,
         };
         if (!string.IsNullOrWhiteSpace(ownerScheme) && !string.IsNullOrWhiteSpace(ownerPath))
         {
@@ -1385,14 +1369,11 @@ public class SpringApiClient
         {
             Owner = owner,
             Repo = repo,
-            // The server accepts installationId as either a number or a
-            // string depending on how the client serialises it. Kiota
-            // models the field as UntypedNode; we pass it through as a
-            // string node when supplied so downstream deserialisation
-            // sees the raw value the operator typed.
             AppInstallationId = string.IsNullOrWhiteSpace(appInstallationId)
                 ? null
-                : new UntypedString(appInstallationId),
+                : long.TryParse(appInstallationId, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var parsedId)
+                    ? parsedId
+                    : null,
             Events = events?.ToList(),
             Reviewer = string.IsNullOrWhiteSpace(reviewer) ? null : reviewer,
         };
@@ -2020,9 +2001,7 @@ public class SpringApiClient
         var result = await _client.Api.V1.Tenant.Units[unitId].Secrets[name].Prune.PostAsync(
             config =>
             {
-                // Kiota emits this as a string query parameter because the
-                // OpenAPI `format: int32` hint is dropped during generation.
-                config.QueryParameters.Keep = keep.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                config.QueryParameters.Keep = keep;
             },
             cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
@@ -2036,7 +2015,7 @@ public class SpringApiClient
         var result = await _client.Api.V1.Tenant.Secrets[name].Prune.PostAsync(
             config =>
             {
-                config.QueryParameters.Keep = keep.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                config.QueryParameters.Keep = keep;
             },
             cancellationToken: ct);
         return result ?? throw new InvalidOperationException(
@@ -2050,7 +2029,7 @@ public class SpringApiClient
         var result = await _client.Api.V1.Platform.Secrets[name].Prune.PostAsync(
             config =>
             {
-                config.QueryParameters.Keep = keep.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                config.QueryParameters.Keep = keep;
             },
             cancellationToken: ct);
         return result ?? throw new InvalidOperationException(

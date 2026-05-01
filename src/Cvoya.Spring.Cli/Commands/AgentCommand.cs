@@ -8,7 +8,6 @@ using System.CommandLine;
 using Cvoya.Spring.Cli.ErrorHandling;
 using Cvoya.Spring.Cli.Generated.Models;
 using Cvoya.Spring.Cli.Output;
-using Cvoya.Spring.Cli.Utilities;
 
 using Microsoft.Kiota.Abstractions;
 
@@ -53,7 +52,7 @@ public static class AgentCommand
         new("agentId", d => d.AgentId),
         new("running", d => d.Running?.ToString().ToLowerInvariant()),
         new("health", d => d.HealthStatus),
-        new("replicas", d => UntypedNodeFormatter.FormatScalar(d.Replicas)),
+        new("replicas", d => d.Replicas?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty),
         new("image", d => d.Image),
         new("endpoint", d => d.Endpoint),
         new("container", d => d.ContainerId),

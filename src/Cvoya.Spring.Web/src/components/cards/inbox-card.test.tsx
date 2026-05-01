@@ -24,7 +24,7 @@ const baseItem = {
   human: { address: "human://savas", displayName: "savas" },
   pendingSince: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
   summary: "Need your call on the migration plan",
-  unreadCount: 0 as number | string,
+  unreadCount: 0,
 };
 
 describe("InboxCard", () => {

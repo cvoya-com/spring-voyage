@@ -13,7 +13,6 @@ using Cvoya.Spring.Cli.ErrorHandling;
 using Cvoya.Spring.Cli.Generated.Models;
 
 using Microsoft.Kiota.Abstractions;
-using Microsoft.Kiota.Abstractions.Serialization;
 
 using Shouldly;
 
@@ -111,7 +110,7 @@ public class ApiExceptionRendererTests
         {
             Title = "Unit is not stopped",
             Detail = "Unit 'demo' is Running; stop it before deleting.",
-            Status = new UntypedInteger(409),
+            Status = 409,
             AdditionalData = new Dictionary<string, object>
             {
                 ["Hint"] = "POST /api/v1/tenant/units/demo/stop",
@@ -156,7 +155,7 @@ public class ApiExceptionRendererTests
         {
             Title = "Unit is not stopped",
             Detail = "Unit 'demo' is Running; stop it before deleting.",
-            Status = new UntypedInteger(409),
+            Status = 409,
             AdditionalData = new Dictionary<string, object>
             {
                 ["Hint"] = "POST /api/v1/tenant/units/demo/stop",

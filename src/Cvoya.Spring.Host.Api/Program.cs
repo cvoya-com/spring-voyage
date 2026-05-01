@@ -181,16 +181,17 @@ try
     // exposes /openapi/v1.json at runtime for introspection.
     builder.Services.AddOpenApi("v1", options =>
     {
-        // `decimal` fields round-trip through JSON as plain numbers with our
-        // default serialization, but the generator advertises them as
-        // `["number", "string"]` to accommodate extreme-precision strings.
-        // That poisons every TypeScript consumer (widening the field to
-        // `string | number` — see #181). Tighten the contract to `number`
-        // only; any client needing the full decimal precision would have
-        // to opt in via a custom type.
-        // For `decimal?` the generated schema must remain nullable so the
-        // wire shape and C# model agree — closing #1367. Non-nullable
-        // `decimal` stays as a plain `"type": "number"`.
+        // Numeric primitives round-trip through JSON as plain numbers with
+        // our default serialization, but .NET 10's OpenAPI generator
+        // advertises them as `["<numeric>", "string"]` unions to reflect
+        // STJ's "may read from string" tolerance. That poisons every
+        // TypeScript consumer (widening fields to `string | number` — see
+        // #181) and breaks Kiota: it can't reconcile a union with
+        // `format: int32`/`int64` and silently falls back to `string`.
+        // Tighten the contract to the numeric type only; clients needing
+        // string-encoded numbers would have to opt in via a custom type.
+        // Nullable variants remain nullable so the wire shape and C# model
+        // agree (closing #1367 for decimal; same logic for the rest).
         options.AddSchemaTransformer((schema, context, _) =>
         {
             var t = context.JsonTypeInfo.Type;
@@ -204,6 +205,28 @@ try
             {
                 schema.Type = Microsoft.OpenApi.JsonSchemaType.Number | Microsoft.OpenApi.JsonSchemaType.Null;
                 schema.Format = "double";
+                schema.Pattern = null;
+            }
+            else if (t == typeof(double) || t == typeof(float))
+            {
+                schema.Type = Microsoft.OpenApi.JsonSchemaType.Number;
+                schema.Pattern = null;
+            }
+            else if (t == typeof(double?) || t == typeof(float?))
+            {
+                schema.Type = Microsoft.OpenApi.JsonSchemaType.Number | Microsoft.OpenApi.JsonSchemaType.Null;
+                schema.Pattern = null;
+            }
+            else if (t == typeof(int) || t == typeof(long) || t == typeof(short) || t == typeof(byte)
+                  || t == typeof(uint) || t == typeof(ulong) || t == typeof(ushort) || t == typeof(sbyte))
+            {
+                schema.Type = Microsoft.OpenApi.JsonSchemaType.Integer;
+                schema.Pattern = null;
+            }
+            else if (t == typeof(int?) || t == typeof(long?) || t == typeof(short?) || t == typeof(byte?)
+                  || t == typeof(uint?) || t == typeof(ulong?) || t == typeof(ushort?) || t == typeof(sbyte?))
+            {
+                schema.Type = Microsoft.OpenApi.JsonSchemaType.Integer | Microsoft.OpenApi.JsonSchemaType.Null;
                 schema.Pattern = null;
             }
             return Task.CompletedTask;

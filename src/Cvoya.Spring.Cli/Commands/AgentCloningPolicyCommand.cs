@@ -10,7 +10,6 @@ using System.Text;
 using Cvoya.Spring.Cli.Generated.Models;
 using Cvoya.Spring.Cli.Output;
 
-using Microsoft.Kiota.Abstractions.Serialization;
 
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
@@ -305,11 +304,11 @@ public static class AgentCloningPolicyCommand
         }
         if (maxClones.HasValue)
         {
-            policy.MaxClones = new UntypedInteger(maxClones.Value);
+            policy.MaxClones = maxClones.Value;
         }
         if (maxDepth.HasValue)
         {
-            policy.MaxDepth = new UntypedInteger(maxDepth.Value);
+            policy.MaxDepth = maxDepth.Value;
         }
         if (budget.HasValue)
         {
@@ -356,23 +355,10 @@ public static class AgentCloningPolicyCommand
     {
         allowedPolicies = policy.AllowedPolicies?.Where(p => p.HasValue).Select(p => CloningPolicyToWire(p!.Value)).ToList(),
         allowedAttachmentModes = policy.AllowedAttachmentModes?.Where(m => m.HasValue).Select(m => AttachmentModeToWire(m!.Value)).ToList(),
-        maxClones = MaxIntToInt(policy.MaxClones),
-        maxDepth = MaxIntToInt(policy.MaxDepth),
+        maxClones = policy.MaxClones,
+        maxDepth = policy.MaxDepth,
         budget = policy.Budget,
     };
-
-    private static int? MaxIntToInt(UntypedNode? node)
-    {
-        if (node is null)
-        {
-            return null;
-        }
-        if (node is UntypedInteger i)
-        {
-            return i.GetValue();
-        }
-        return null;
-    }
 
     private static string CloningPolicyToWire(CloningPolicy policy) => policy switch
     {
@@ -427,8 +413,8 @@ public static class AgentCloningPolicyCommand
             }
         }
 
-        sb.AppendLine($"Max clones:     {MaxIntToInt(policy.MaxClones)?.ToString() ?? "(unconstrained)"}");
-        sb.AppendLine($"Max depth:      {MaxIntToInt(policy.MaxDepth)?.ToString() ?? "(unconstrained)"}");
+        sb.AppendLine($"Max clones:     {policy.MaxClones?.ToString() ?? "(unconstrained)"}");
+        sb.AppendLine($"Max depth:      {policy.MaxDepth?.ToString() ?? "(unconstrained)"}");
         sb.AppendLine($"Budget:         {(policy.Budget.HasValue ? policy.Budget.Value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) : "(unconstrained)")}");
 
         return sb.ToString();

@@ -25,7 +25,7 @@ public static class ThreadCommand
         new("status", c => c.Status),
         new("origin", c => c.Origin?.DisplayName ?? c.Origin?.Address ?? string.Empty),
         new("participants", c => FormatParticipants(c.Participants)),
-        new("events", c => UntypedNodeFormatter.FormatScalar(c.EventCount)),
+        new("events", c => c.EventCount?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty),
         new("lastActivity", c => FormatTimestamp(c.LastActivity)),
         new("summary", c => Truncate(c.Summary, 60)),
     };

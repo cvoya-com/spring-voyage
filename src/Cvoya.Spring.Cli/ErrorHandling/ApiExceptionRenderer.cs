@@ -88,13 +88,9 @@ public class ApiExceptionRenderer : IApiExceptionRenderer
             title = NullIfBlank(problem.Title);
             detail = NullIfBlank(problem.Detail);
 
-            if (status is null)
+            if (status is null && problem.Status is int bodyStatus)
             {
-                var fromBody = TryParseStatus(problem.Status);
-                if (fromBody is int parsed)
-                {
-                    status = parsed;
-                }
+                status = bodyStatus;
             }
 
             CollectExtensions(problem.AdditionalData, extensions);
@@ -322,36 +318,6 @@ public class ApiExceptionRenderer : IApiExceptionRenderer
             return char.ToLowerInvariant(key[0]) + key.Substring(1);
         }
         return key;
-    }
-
-    private static int? TryParseStatus(UntypedNode? node)
-    {
-        if (node is null)
-        {
-            return null;
-        }
-
-        switch (node)
-        {
-            case UntypedInteger ui:
-                return ui.GetValue();
-            case UntypedLong ul:
-                {
-                    var value = ul.GetValue();
-                    return value is >= int.MinValue and <= int.MaxValue
-                        ? (int)value
-                        : null;
-                }
-            case UntypedString us:
-                {
-                    var raw = us.GetValue();
-                    return int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
-                        ? parsed
-                        : null;
-                }
-            default:
-                return null;
-        }
     }
 
     private static string? TryAsScalar(object? value)

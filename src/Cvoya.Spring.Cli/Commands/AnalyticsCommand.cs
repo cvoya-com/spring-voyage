@@ -271,7 +271,7 @@ public static class AnalyticsCommand
                             entry.Key ?? string.Empty,
                             entry.Kind ?? string.Empty,
                             (entry.TotalCost ?? 0).ToString("0.####", CultureInfo.InvariantCulture),
-                            KiotaConversions.ToInt(entry.RecordCount).ToString(CultureInfo.InvariantCulture)));
+                            (entry.RecordCount ?? 0).ToString(CultureInfo.InvariantCulture)));
                     }
                     Console.WriteLine(OutputFormatter.FormatTable(rows, CostBreakdownEntryColumns));
                 }
@@ -338,7 +338,7 @@ public static class AnalyticsCommand
                     (result.TotalCost ?? 0).ToString("0.####", CultureInfo.InvariantCulture),
                     (result.WorkCost ?? 0).ToString("0.####", CultureInfo.InvariantCulture),
                     (result.InitiativeCost ?? 0).ToString("0.####", CultureInfo.InvariantCulture),
-                    KiotaConversions.ToInt(result.RecordCount).ToString(CultureInfo.InvariantCulture),
+                    (result.RecordCount ?? 0).ToString(CultureInfo.InvariantCulture),
                     FormatTimestamp(result.From),
                     FormatTimestamp(result.To));
                 Console.WriteLine(OutputFormatter.FormatTable(row, CostColumns));
@@ -420,10 +420,10 @@ public static class AnalyticsCommand
                 {
                     rows.Add(new ThroughputRow(
                         entry.Source ?? string.Empty,
-                        KiotaConversions.ToLong(entry.MessagesReceived).ToString(CultureInfo.InvariantCulture),
-                        KiotaConversions.ToLong(entry.MessagesSent).ToString(CultureInfo.InvariantCulture),
-                        KiotaConversions.ToLong(entry.Turns).ToString(CultureInfo.InvariantCulture),
-                        KiotaConversions.ToLong(entry.ToolCalls).ToString(CultureInfo.InvariantCulture)));
+                        (entry.MessagesReceived ?? 0L).ToString(CultureInfo.InvariantCulture),
+                        (entry.MessagesSent ?? 0L).ToString(CultureInfo.InvariantCulture),
+                        (entry.Turns ?? 0L).ToString(CultureInfo.InvariantCulture),
+                        (entry.ToolCalls ?? 0L).ToString(CultureInfo.InvariantCulture)));
                 }
 
                 Console.WriteLine(OutputFormatter.FormatTable(rows, ThroughputColumns));
@@ -482,10 +482,10 @@ public static class AnalyticsCommand
                 {
                     rows.Add(new WaitRow(
                         entry.Source ?? string.Empty,
-                        KiotaConversions.ToDouble(entry.IdleSeconds).ToString("0.##", CultureInfo.InvariantCulture),
-                        KiotaConversions.ToDouble(entry.BusySeconds).ToString("0.##", CultureInfo.InvariantCulture),
-                        KiotaConversions.ToDouble(entry.WaitingForHumanSeconds).ToString("0.##", CultureInfo.InvariantCulture),
-                        KiotaConversions.ToLong(entry.StateTransitions).ToString(CultureInfo.InvariantCulture)));
+                        (entry.IdleSeconds ?? 0d).ToString("0.##", CultureInfo.InvariantCulture),
+                        (entry.BusySeconds ?? 0d).ToString("0.##", CultureInfo.InvariantCulture),
+                        (entry.WaitingForHumanSeconds ?? 0d).ToString("0.##", CultureInfo.InvariantCulture),
+                        (entry.StateTransitions ?? 0L).ToString(CultureInfo.InvariantCulture)));
                 }
 
                 Console.WriteLine(OutputFormatter.FormatTable(rows, WaitColumns));

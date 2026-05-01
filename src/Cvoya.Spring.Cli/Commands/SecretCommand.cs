@@ -38,7 +38,7 @@ public static class SecretCommand
 
     private static readonly OutputFormatter.Column<SecretVersionEntry>[] VersionColumns =
     {
-        new("version", e => KiotaConversions.ToInt(e.Version).ToString(System.Globalization.CultureInfo.InvariantCulture)),
+        new("version", e => (e.Version ?? 0).ToString(System.Globalization.CultureInfo.InvariantCulture)),
         new("origin", e => e.Origin?.ToString()),
         new("createdAt", e => e.CreatedAt?.ToString("O")),
         new("isCurrent", e => e.IsCurrent?.ToString().ToLowerInvariant()),
@@ -306,7 +306,7 @@ public static class SecretCommand
                 SecretVersionEntry? selected;
                 if (version is int pin)
                 {
-                    selected = rows.FirstOrDefault(v => KiotaConversions.ToInt(v.Version) == pin);
+                    selected = rows.FirstOrDefault(v => (v.Version ?? 0) == pin);
                     if (selected is null)
                     {
                         DieWith($"Secret '{name}' has no version {pin}.");
@@ -325,7 +325,7 @@ public static class SecretCommand
                     {
                         name = versions.Name,
                         scope = versions.Scope?.ToString(),
-                        version = selected is null ? (int?)null : KiotaConversions.ToInt(selected.Version),
+                        version = selected?.Version,
                         origin = selected?.Origin?.ToString(),
                         createdAt = selected?.CreatedAt,
                         isCurrent = selected?.IsCurrent ?? false,
@@ -339,7 +339,7 @@ public static class SecretCommand
                 sb.AppendLine($"Scope:   {versions.Scope?.ToString()}");
                 if (selected is not null)
                 {
-                    sb.AppendLine($"Version: {KiotaConversions.ToInt(selected.Version)}" +
+                    sb.AppendLine($"Version: {selected.Version ?? 0}" +
                         (selected.IsCurrent == true ? " (current)" : string.Empty));
                     sb.AppendLine($"Origin:  {selected.Origin?.ToString()}");
                     sb.AppendLine($"Created: {selected.CreatedAt?.ToString("O")}");
@@ -435,7 +435,7 @@ public static class SecretCommand
                     _ => throw new InvalidOperationException($"Unknown scope '{scope}'."),
                 };
 
-                var newVersion = KiotaConversions.ToInt(response.Version);
+                var newVersion = response.Version ?? 0;
                 if (output == "json")
                 {
                     Console.WriteLine(OutputFormatter.FormatJsonPlain(new
@@ -566,8 +566,8 @@ public static class SecretCommand
                     _ => throw new InvalidOperationException($"Unknown scope '{scope}'."),
                 };
 
-                var prunedCount = KiotaConversions.ToInt(response.Pruned);
-                var keepCount = KiotaConversions.ToInt(response.Keep);
+                var prunedCount = response.Pruned ?? 0;
+                var keepCount = response.Keep ?? 0;
                 if (output == "json")
                 {
                     Console.WriteLine(OutputFormatter.FormatJsonPlain(new

@@ -172,16 +172,15 @@ public static class DirectoryCommand
                         Aggregating: aggregating is null
                             ? string.Empty
                             : $"{aggregating.Scheme}://{aggregating.Path}",
-                        Score: KiotaConversions.ToDouble(h.Score)
-                            .ToString("F1", CultureInfo.InvariantCulture));
+                        Score: (h.Score ?? 0d).ToString("F1", CultureInfo.InvariantCulture));
                 })
                 .ToList();
 
             Console.WriteLine(OutputFormatter.FormatTable(rows, SearchColumns));
             Console.WriteLine();
             Console.WriteLine(
-                $"Showing {hits.Count} of {KiotaConversions.ToInt(response.TotalCount)}   " +
-                $"(limit={KiotaConversions.ToInt(response.Limit)}, offset={KiotaConversions.ToInt(response.Offset)})");
+                $"Showing {hits.Count} of {response.TotalCount ?? 0}   " +
+                $"(limit={response.Limit ?? 0}, offset={response.Offset ?? 0})");
         });
 
         return command;
@@ -291,8 +290,8 @@ public static class DirectoryCommand
             Console.WriteLine(OutputFormatter.FormatTable(rows, ListColumns));
             Console.WriteLine();
             Console.WriteLine(
-                $"Showing {hits.Count} of {KiotaConversions.ToInt(response.TotalCount)}   " +
-                $"(limit={KiotaConversions.ToInt(response.Limit)}, offset={KiotaConversions.ToInt(response.Offset)})");
+                $"Showing {hits.Count} of {response.TotalCount ?? 0}   " +
+                $"(limit={response.Limit ?? 0}, offset={response.Offset ?? 0})");
         });
 
         return command;
@@ -421,7 +420,7 @@ public static class DirectoryCommand
             ("Typed contract", hit.TypedContract == true ? "yes" : "no"),
             ("Match reason", hit.MatchReason ?? string.Empty),
             ("Score",
-                KiotaConversions.ToDouble(hit.Score).ToString("F1", CultureInfo.InvariantCulture)),
+                (hit.Score ?? 0d).ToString("F1", CultureInfo.InvariantCulture)),
         };
 
         var keyWidth = fields.Max(f => f.Key.Length);

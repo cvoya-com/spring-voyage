@@ -243,12 +243,7 @@ public static class ConnectorCommand
                         owner = config.Owner,
                         repo = config.Repo,
                         events = config.Events,
-                        // AppInstallationId is an UntypedNode on the wire
-                        // (the server accepts either a number or a
-                        // string). Unwrap it so the CLI prints the
-                        // underlying scalar rather than the
-                        // UntypedInteger class name.
-                        appInstallationId = UntypedNodeFormatter.FormatScalar(config.AppInstallationId),
+                        appInstallationId = config.AppInstallationId?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty,
                     };
                 }
             }

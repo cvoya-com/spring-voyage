@@ -93,15 +93,15 @@ public class ProblemDetailsFormatterTests
     }
 
     [Fact]
-    public void Format_NullTitle_WithStatusUntypedInteger_FallsBackToStatusLine()
+    public void Format_NullTitle_WithStatusInt_FallsBackToStatusLine()
     {
-        // The generated ProblemDetails types Status as UntypedNode?. When the
-        // server omits title but includes status (RFC 7807 allows title to
-        // default to the HTTP reason phrase), we emit "Status {value}" so
-        // the message isn't blank.
+        // ProblemDetails.Status is typed int? (narrowed from the [integer,string]
+        // union in the OpenAPI schema). When the server omits title but includes
+        // status (RFC 7807 allows title to default to the HTTP reason phrase),
+        // we emit "Status {value}" so the message isn't blank.
         var problem = new ProblemDetails
         {
-            Status = new UntypedInteger(409),
+            Status = 409,
             Detail = "Unit 'x' is Draft; revalidation is only allowed from Error or Stopped.",
         };
 

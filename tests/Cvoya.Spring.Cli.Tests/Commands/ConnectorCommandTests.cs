@@ -269,10 +269,9 @@ public class ConnectorCommandTests
                 var json = JsonSerializer.Deserialize<JsonElement>(body);
                 json.GetProperty("owner").GetString().ShouldBe("acme");
                 json.GetProperty("repo").GetString().ShouldBe("platform");
-                // appInstallationId rides across the wire as an untyped
-                // node — the CLI passes it as a string so whatever the
-                // operator typed is what the server receives.
-                json.GetProperty("appInstallationId").GetString().ShouldBe("12345");
+                // appInstallationId is now typed as long? in the generated model;
+                // the CLI parses the operator-supplied string and sends a JSON number.
+                json.GetProperty("appInstallationId").GetInt64().ShouldBe(12345L);
                 var events = json.GetProperty("events").EnumerateArray()
                     .Select(e => e.GetString())
                     .ToArray();

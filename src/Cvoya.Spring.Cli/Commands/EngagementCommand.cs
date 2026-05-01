@@ -52,7 +52,7 @@ public static class EngagementCommand
         new("id", c => c.Id),
         new("status", c => c.Status),
         new("participants", c => FormatParticipants(c.Participants)),
-        new("events", c => UntypedNodeFormatter.FormatScalar(c.EventCount)),
+        new("events", c => c.EventCount?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty),
         new("lastActivity", c => FormatTimestamp(c.LastActivity)),
         new("summary", c => Truncate(c.Summary, 60)),
     };

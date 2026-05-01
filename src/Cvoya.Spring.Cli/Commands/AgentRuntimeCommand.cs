@@ -7,7 +7,6 @@ using System.CommandLine;
 
 using Cvoya.Spring.Cli.Generated.Models;
 using Cvoya.Spring.Cli.Output;
-using Cvoya.Spring.Cli.Utilities;
 
 /// <summary>
 /// Builds the <c>spring agent-runtime</c> verb family (#688 / #674
@@ -52,7 +51,7 @@ public static class AgentRuntimeCommand
     {
         new("id", m => m.Id),
         new("displayName", m => m.DisplayName),
-        new("contextWindow", m => UntypedNodeFormatter.FormatScalar(m.ContextWindow)),
+        new("contextWindow", m => m.ContextWindow?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty),
     };
 
     /// <summary>

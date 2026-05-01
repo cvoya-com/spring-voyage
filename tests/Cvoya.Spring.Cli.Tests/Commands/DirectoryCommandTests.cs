@@ -130,7 +130,7 @@ public class DirectoryCommandTests
                 AddressDto = new AddressDto { Scheme = "unit", Path = "root" },
             },
             TypedContract = false,
-            Score = new global::Microsoft.Kiota.Abstractions.Serialization.UntypedDouble(20.0),
+            Score = 20.0,
             MatchReason = "aggregated coverage",
             AncestorChain = new List<AddressDto>
             {
@@ -179,7 +179,7 @@ public class DirectoryCommandTests
             OwnerDisplayName = "Engineering",
             AggregatingUnit = null,
             TypedContract = false,
-            Score = new global::Microsoft.Kiota.Abstractions.Serialization.UntypedDouble(100.0),
+            Score = 100.0,
             MatchReason = "exact slug",
             AncestorChain = new List<AddressDto>(),
             ProjectionPaths = new List<string>(),

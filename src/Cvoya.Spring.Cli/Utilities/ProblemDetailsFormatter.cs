@@ -88,15 +88,9 @@ public static class ProblemDetailsFormatter
         return detail is null ? title : $"{title} — {detail}";
     }
 
-    private static string FormatStatus(UntypedNode? status)
+    private static string FormatStatus(int? status)
     {
-        if (status is null)
-        {
-            return "unknown";
-        }
-
-        var scalar = TryAsScalar(status);
-        return scalar ?? "unknown";
+        return status?.ToString(CultureInfo.InvariantCulture) ?? "unknown";
     }
 
     private static List<string> FormatExtensions(IDictionary<string, object>? data)

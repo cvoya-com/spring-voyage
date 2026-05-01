@@ -26,32 +26,13 @@ public static class PackageCommand
     private static readonly OutputFormatter.Column<PackageSummary>[] ListColumns =
     {
         new("name", p => p.Name),
-        new("units", p => NumericNodeToString(p.UnitTemplateCount)),
-        new("agents", p => NumericNodeToString(p.AgentTemplateCount)),
-        new("skills", p => NumericNodeToString(p.SkillCount)),
-        new("connectors", p => NumericNodeToString(p.ConnectorCount)),
-        new("workflows", p => NumericNodeToString(p.WorkflowCount)),
+        new("units", p => p.UnitTemplateCount?.ToString()),
+        new("agents", p => p.AgentTemplateCount?.ToString()),
+        new("skills", p => p.SkillCount?.ToString()),
+        new("connectors", p => p.ConnectorCount?.ToString()),
+        new("workflows", p => p.WorkflowCount?.ToString()),
         new("description", p => p.Description),
     };
-
-    // Kiota models int32-formatted schema fields as UntypedNode because
-    // the generator cannot commit to a fixed C# type for the format
-    // int32 hint (see the OpenAPI generator warnings — #481). Convert
-    // the node to a plain string when it carries an integer value so
-    // the table output stays legible. Values that come back as anything
-    // other than integer/string nodes are rendered as empty so a single
-    // malformed row never breaks the whole table.
-    private static string? NumericNodeToString(
-        Microsoft.Kiota.Abstractions.Serialization.UntypedNode? node)
-    {
-        return node switch
-        {
-            Microsoft.Kiota.Abstractions.Serialization.UntypedInteger i => i.GetValue().ToString(),
-            Microsoft.Kiota.Abstractions.Serialization.UntypedLong l => l.GetValue().ToString(),
-            Microsoft.Kiota.Abstractions.Serialization.UntypedString s => s.GetValue(),
-            _ => null,
-        };
-    }
 
     private static readonly OutputFormatter.Column<UnitTemplateSummary>[] UnitTemplateColumns =
     {
