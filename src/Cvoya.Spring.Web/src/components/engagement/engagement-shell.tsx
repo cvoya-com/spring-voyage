@@ -1,84 +1,27 @@
 "use client";
 
-// Engagement-portal shell (E2.3, #1415).
+// Engagement-portal shell.
 //
-// Renders inside the root AppShell's <main> area. Provides the chrome that
-// visually distinguishes the engagement portal from the management portal:
-//
-//   ┌─────────────────────────────────────────────────────────┐
-//   │ [conversations icon] Engagement  · Spring Voyage   [Back to Management →] │
-//   ├────────────────────┬────────────────────────────────────┤
-//   │  My engagements    │                                    │
-//   │  (mine link)       │   {children}                      │
-//   └────────────────────┴────────────────────────────────────┘
-//
-// The engagement header band uses bg-secondary (darker than the main canvas)
-// and the voyage-cyan accent to signal a different surface. Per ADR-0033,
-// links between portals are standard anchors — no shared shell components
-// cross the route boundary.
+// The sidebar shows the live list of engagements (see <EngagementList>) and
+// selecting one navigates to /engagement/<id> where {children} renders the
+// detail. The "+ New engagement" CTA lives in the top-right of the header,
+// mirroring the /units page pattern.
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { MessagesSquare, ArrowLeft } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { Suspense } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
+import { MessagesSquare, ArrowLeft, Plus } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useInbox } from "@/lib/api/queries";
+import { EngagementList } from "./engagement-list";
 
 interface EngagementShellProps {
   children: React.ReactNode;
 }
 
-interface NavEntry {
-  href: string;
-  label: string;
-  /** Match exact path or any child path */
-  exact?: boolean;
-}
-
-const ENGAGEMENT_NAV: readonly NavEntry[] = [
-  { href: "/engagement/mine", label: "My engagements", exact: false },
-  // #1455: dedicated entry point for kicking off a new engagement
-  // with one or more participants.
-  { href: "/engagement/new", label: "New engagement", exact: true },
-];
-
-/**
- * Thin nav link inside the engagement sidebar. Active when the current
- * pathname matches the entry's href (exact or prefix).
- */
-function EngagementNavLink({
-  entry,
-  pathname,
-}: {
-  entry: NavEntry;
-  pathname: string;
-}) {
-  const active = entry.exact
-    ? pathname === entry.href
-    : pathname === entry.href || pathname.startsWith(entry.href + "/");
-
-  return (
-    <Link
-      href={entry.href}
-      aria-current={active ? "page" : undefined}
-      data-testid={`engagement-nav-${entry.href.replace(/\//g, "-").replace(/^-/, "")}`}
-      className={cn(
-        "flex items-center rounded-md px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        active
-          ? "bg-primary/10 text-primary font-medium"
-          : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-      )}
-    >
-      {entry.label}
-      {entry.href === "/engagement/mine" && <GlobalInboxBadge />}
-    </Link>
-  );
-}
-
 /**
  * Global inbox badge: total count of engagements that have an unanswered
- * question from a unit/agent awaiting the current human. Computed from the
- * inbox endpoint (GET /api/v1/tenant/inbox) which returns items where the
- * human is the intended next responder.
+ * question from a unit/agent awaiting the current human.
  */
 function GlobalInboxBadge() {
   const inbox = useInbox({ staleTime: 30_000 });
@@ -97,20 +40,70 @@ function GlobalInboxBadge() {
   );
 }
 
-export function EngagementShell({ children }: EngagementShellProps) {
+/**
+ * Pull the currently-selected thread id out of /engagement/<id>. Returns
+ * undefined for /engagement/mine, /engagement/new, and the bare
+ * /engagement route so the sidebar list shows no highlight on those pages.
+ */
+function selectedThreadIdFromPath(pathname: string): string | undefined {
+  const m = /^\/engagement\/([^/]+)$/.exec(pathname);
+  if (!m) return undefined;
+  const id = m[1];
+  if (id === "mine" || id === "new") return undefined;
+  return id;
+}
+
+/**
+ * Sidebar list lives in its own component so the `useSearchParams()` /
+ * `usePathname()` call sites stay inside a Suspense boundary — Next.js
+ * requires that for any client hook that reads URL state, otherwise
+ * static prerendering of /engagement/mine bails out.
+ */
+function EngagementSidebarList() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  const unit = searchParams.get("unit") ?? undefined;
+  const agent = searchParams.get("agent") ?? undefined;
+  const slice: "mine" | "unit" | "agent" = unit
+    ? "unit"
+    : agent
+      ? "agent"
+      : "mine";
+
+  const selectedThreadId = selectedThreadIdFromPath(pathname);
 
   return (
-    // Negative margin compensates for the AppShell <main>'s padding so the
-    // engagement chrome fills the full pane edge-to-edge.
+    <EngagementList
+      slice={slice}
+      unit={unit}
+      agent={agent}
+      selectedThreadId={selectedThreadId}
+      variant="sidebar"
+    />
+  );
+}
+
+function EngagementSidebarFallback() {
+  return (
+    <div className="space-y-2" aria-hidden="true">
+      <Skeleton className="h-10 w-full rounded-md" />
+      <Skeleton className="h-10 w-full rounded-md" />
+      <Skeleton className="h-10 w-full rounded-md" />
+    </div>
+  );
+}
+
+export function EngagementShell({ children }: EngagementShellProps) {
+  return (
     <div
       data-testid="engagement-shell"
-      className="-m-4 md:-m-6 flex flex-col min-h-full"
+      className="-m-4 flex min-h-full flex-col md:-m-6"
     >
       {/* Engagement portal header band */}
       <header
         data-testid="engagement-header"
-        className="flex items-center justify-between border-b border-border bg-secondary px-4 py-3"
+        className="flex items-center justify-between gap-2 border-b border-border bg-secondary px-4 py-3"
       >
         <div className="flex items-center gap-2">
           <MessagesSquare
@@ -124,53 +117,48 @@ export function EngagementShell({ children }: EngagementShellProps) {
           >
             · Spring Voyage
           </span>
-          {/* Global pending-question count badge — visible on mobile only.
-              On desktop, the badge appears on the "My engagements" nav link. */}
           <span className="md:hidden" aria-hidden="true">
             <GlobalInboxBadge />
           </span>
         </div>
 
-        {/* Cross-portal anchor: back to the management portal.
-            Per ADR-0033 rule 6: cross-portal navigation is a standard anchor. */}
-        <Link
-          href="/"
-          data-testid="engagement-back-to-management"
-          className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <ArrowLeft className="h-3 w-3" aria-hidden="true" />
-          Back to Management
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/"
+            data-testid="engagement-back-to-management"
+            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <ArrowLeft className="h-3 w-3" aria-hidden="true" />
+            Back to Management
+          </Link>
+
+          <Link
+            href="/engagement/new"
+            data-testid="engagement-new-cta"
+            className="inline-flex h-8 items-center justify-center gap-1 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          >
+            <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+            New engagement
+          </Link>
+        </div>
       </header>
 
-      {/* Two-pane layout: sidebar (left) + content (right) */}
-      <div className="flex flex-1 min-h-0">
-        {/* Engagement sidebar */}
-        <nav
-          aria-label="Engagement navigation"
+      <div className="flex min-h-0 flex-1">
+        {/* Engagement sidebar — the live list of threads. */}
+        <aside
+          aria-label="Engagement list"
           data-testid="engagement-sidebar"
-          className="hidden w-48 shrink-0 border-r border-border bg-card px-2 py-3 md:flex md:flex-col"
+          className="hidden w-72 shrink-0 flex-col gap-3 overflow-y-auto border-r border-border bg-card px-3 py-3 md:flex"
         >
-          <div
-            className="mb-1 px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
-            aria-hidden="true"
-          >
-            Engagements
-          </div>
-          {ENGAGEMENT_NAV.map((entry) => (
-            <EngagementNavLink
-              key={entry.href}
-              entry={entry}
-              pathname={pathname}
-            />
-          ))}
-        </nav>
+          <Suspense fallback={<EngagementSidebarFallback />}>
+            <EngagementSidebarList />
+          </Suspense>
+        </aside>
 
-        {/* Page content */}
         <main
           id="engagement-main-content"
           tabIndex={-1}
-          className="flex-1 min-w-0 overflow-y-auto p-4 md:p-6 focus:outline-none"
+          className="flex min-w-0 flex-1 flex-col overflow-y-auto p-4 focus:outline-none md:p-6"
         >
           {children}
         </main>

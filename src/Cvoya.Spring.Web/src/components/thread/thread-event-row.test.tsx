@@ -67,6 +67,67 @@ describe("ThreadEventRow", () => {
     expect(screen.queryByText("leaked body")).toBeNull();
   });
 
+  describe("MessageReceived attribution", () => {
+    // The receiving actor projects the event, so event.source is the
+    // receiver and event.from is the sender. The bubble must be attributed
+    // to the sender, otherwise an agent's reply renders as a human-sent
+    // (right-aligned) bubble on the human's timeline.
+    it("attributes the bubble to event.from when present", () => {
+      const { container } = render(
+        <ThreadEventRow
+          event={makeEvent({
+            // Receiver-projected: human emitted the receive event.
+            source: { address: "human://savas", displayName: "savas" },
+            // Underlying sender: the agent.
+            from: { address: "agent://ada", displayName: "ada" },
+            body: "Hello savas",
+          })}
+        />,
+      );
+
+      const row = container.querySelector("[data-testid^='conversation-event-']");
+      expect(row?.getAttribute("data-role")).toBe("agent");
+      expect(
+        screen.getByTestId("conversation-event-source-name").textContent,
+      ).toBe("ada");
+    });
+
+    it("falls back to event.source when from is absent", () => {
+      const { container } = render(
+        <ThreadEventRow
+          event={makeEvent({
+            source: { address: "agent://ada", displayName: "ada" },
+            body: "Hello",
+          })}
+        />,
+      );
+
+      const row = container.querySelector("[data-testid^='conversation-event-']");
+      expect(row?.getAttribute("data-role")).toBe("agent");
+      expect(
+        screen.getByTestId("conversation-event-source-name").textContent,
+      ).toBe("ada");
+    });
+
+    it("attributes a human-sent message to the human even when the receiver projected it", () => {
+      const { container } = render(
+        <ThreadEventRow
+          event={makeEvent({
+            source: { address: "agent://ada", displayName: "ada" },
+            from: { address: "human://savas", displayName: "savas" },
+            body: "What's up?",
+          })}
+        />,
+      );
+
+      const row = container.querySelector("[data-testid^='conversation-event-']");
+      expect(row?.getAttribute("data-role")).toBe("human");
+      expect(
+        screen.getByTestId("conversation-event-source-name").textContent,
+      ).toBe("savas");
+    });
+  });
+
   // #1161: dispatch failures must surface inline in the conversation thread
   // with the platform's error styling — operators cannot be expected to
   // open the activity log to discover that a message failed to dispatch.

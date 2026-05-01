@@ -192,6 +192,17 @@ export function EngagementDetail({ threadId }: EngagementDetailProps) {
     );
   }
 
+  // Header label: display names of everyone except the current user.
+  // Falls back to all participants when self is unknown so the header is
+  // never blank.
+  const headerNames = (() => {
+    const others = currentUserAddress
+      ? participants.filter((p) => p.address !== currentUserAddress)
+      : participants;
+    if (others.length === 0) return "Just you";
+    return others.map((p) => p.displayName).join(" · ");
+  })();
+
   return (
     <div
       className="flex flex-col min-h-0 flex-1"
@@ -199,8 +210,11 @@ export function EngagementDetail({ threadId }: EngagementDetailProps) {
     >
       {/* Participant summary header */}
       <div className="flex items-center gap-2 border-b border-border px-4 py-2 text-xs">
-        <span className="font-mono text-muted-foreground truncate">
-          {participants.map((p) => p.displayName).join(" · ")}
+        <span
+          className="truncate font-medium text-foreground"
+          data-testid="engagement-detail-header-names"
+        >
+          {headerNames}
         </span>
         {thread.summary?.status && (
           <Badge variant="outline">{thread.summary.status}</Badge>

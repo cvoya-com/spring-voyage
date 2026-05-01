@@ -52,36 +52,36 @@ interface ThreadEventRowProps {
  * other role → left). Tool/lifecycle events start collapsed; text
  * messages stay expanded.
  *
- * The row also surfaces a "View in activity" jump-link that opens the
- * activity page filtered to this event's source — useful when an
- * operator wants the full event payload rather than the chat-style
- * summary rendered here.
+ * For `MessageReceived` events the bubble represents the *sender* of the
+ * underlying message — i.e. `event.from` — not `event.source` (which is
+ * the receiving actor that emitted the event). Without this distinction
+ * a message from agent://qa-engineer to a human would render as a
+ * right-aligned "human-sent" bubble because the human's actor projected
+ * the receive event. For all other event types, source is the canonical
+ * attribution.
  *
- * #1209: when the event carries a message body (the projection now
- * stamps it on every `MessageReceived` event), render the body in
- * place of the envelope summary so the thread reads as a real
- * conversation rather than a list of "Received Domain message X from Y"
- * lines.
- *
- * #1482: message bubble header shows the display name (path of the source
- * address) rather than the full address. The full address is available via
- * the "View in activity" jump-link or the (i) toggle in the inbox view.
+ * If the event carries a message body, render the body in place of the
+ * envelope summary so the thread reads as a real conversation rather
+ * than a list of "Received Domain message X from Y" lines.
  */
 export function ThreadEventRow({ event }: ThreadEventRowProps) {
-  const role = roleFromEvent(event.source.address, event.eventType);
+  // Attribute MessageReceived bubbles to the sender (event.from) rather
+  // than the receiver-projected event.source.
+  const isMessageReceived = event.eventType === "MessageReceived";
+  const attributed =
+    isMessageReceived && event.from ? event.from : event.source;
+
+  const role = roleFromEvent(attributed.address, event.eventType);
   const style = ROLE_STYLES[role];
-  const source = parseThreadSource(event.source.address);
+  const source = parseThreadSource(attributed.address);
   const collapsible = isCollapsibleByDefault(event.eventType, role);
   const [expanded, setExpanded] = useState(!collapsible);
 
   const timestamp = new Date(event.timestamp);
-  const bodyText =
-    event.eventType === "MessageReceived" && event.body ? event.body : null;
+  const bodyText = isMessageReceived && event.body ? event.body : null;
 
-  // Display name: prefer the API-enriched displayName, fall back to the
-  // path portion of the source address (e.g. "agent://engineering/ada" →
-  // "engineering/ada"), then the raw address string.
-  const sourceDisplayName = event.source.displayName || source.path || source.raw;
+  const sourceDisplayName =
+    attributed.displayName || source.path || source.raw;
 
   // #1161: error events render with destructive styling and are never
   // collapsed — the user cannot be expected to open the activity log to
