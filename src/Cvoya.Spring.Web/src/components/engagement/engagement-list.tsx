@@ -140,7 +140,7 @@ const FRESHNESS_OPACITY: Record<string, string> = {
  * strings (server v1 or schema fallback).
  */
 function participantAddress(p: ParticipantRef): string {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   const pAny = p as any;
   if (typeof p === "string") return p;
   return pAny?.address ?? "";
@@ -154,7 +154,7 @@ function participantAddress(p: ParticipantRef): string {
  * and return null so the caller can omit the entry.
  */
 function participantDisplayName(p: ParticipantRef): string | null {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   const pAny = p as any;
   // ParticipantRef object path (server v2):
   if (typeof p !== "string" && pAny?.displayName) return pAny.displayName;

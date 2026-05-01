@@ -148,7 +148,7 @@ function FilterChip({
  * JSON.
  */
 function getEventPayload(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   event: any,
 ): { kind: "message"; body: string } | { kind: "json"; value: unknown } | null {
   // A `body` string field is the plaintext message content on
@@ -184,7 +184,7 @@ function EventRow({
   onToggle: () => void;
 }) {
   const severity = event.severity as ActivitySeverity;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   const payload = getEventPayload(event as any);
   return (
     <div className="border-b border-border last:border-0">

@@ -153,7 +153,7 @@ export function EngagementDetail({ threadId }: EngagementDetailProps) {
   const currentUserAddress = userQuery.data?.address;
   const isParticipant = useMemo(() => {
     if (!currentUserAddress) return false;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     return participants.some((p: any) => {
       const addr = typeof p === "string" ? p : (p?.address ?? "");
       return addr === currentUserAddress;
@@ -202,10 +202,10 @@ export function EngagementDetail({ threadId }: EngagementDetailProps) {
   // never blank. Handles both ParticipantRef objects (server v2) and
   // plain address strings (server v1). #1502 Fix 1/4.
   const headerNames = (() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const getAddr = (p: any): string =>
       typeof p === "string" ? p : (p?.address ?? "");
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const getName = (p: any): string | null => {
       if (typeof p !== "string" && p?.displayName) return p.displayName;
       const addr = getAddr(p);
@@ -217,7 +217,7 @@ export function EngagementDetail({ threadId }: EngagementDetailProps) {
       return path || null;
     };
     const others = currentUserAddress
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       ? participants.filter((p: any) => getAddr(p) !== currentUserAddress)
       : participants;
     if (others.length === 0) return "Just you";
@@ -268,7 +268,7 @@ export function EngagementDetail({ threadId }: EngagementDetailProps) {
       {isParticipant && (
         <EngagementComposer
           threadId={threadId}
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+           
           participants={participants.map((p: any) => (typeof p === "string" ? p : (p?.address ?? "")))}
           initialKind={composerKind}
           onKindChange={setComposerKind}

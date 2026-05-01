@@ -79,7 +79,7 @@ export function ThreadEventRow({ event }: ThreadEventRowProps) {
 
   // `attributed` may be a ParticipantRef object (address + displayName)
   // or a plain address string when served by an older API version.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   const attributedAny = attributed as any;
   const attributedAddress: string =
     typeof attributed === "string"
