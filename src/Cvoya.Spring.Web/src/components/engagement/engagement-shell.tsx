@@ -8,8 +8,10 @@
 // mirroring the /units page pattern.
 
 import Link from "next/link";
+import { Suspense } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { MessagesSquare, ArrowLeft, Plus } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useInbox } from "@/lib/api/queries";
 import { EngagementList } from "./engagement-list";
 
@@ -51,13 +53,16 @@ function selectedThreadIdFromPath(pathname: string): string | undefined {
   return id;
 }
 
-export function EngagementShell({ children }: EngagementShellProps) {
+/**
+ * Sidebar list lives in its own component so the `useSearchParams()` /
+ * `usePathname()` call sites stay inside a Suspense boundary — Next.js
+ * requires that for any client hook that reads URL state, otherwise
+ * static prerendering of /engagement/mine bails out.
+ */
+function EngagementSidebarList() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  // Deep-linked unit/agent slices come from /engagement/mine?unit=… or
-  // ?agent=… on the management portal — honour them in the sidebar so
-  // the list matches what the user expects from the link.
   const unit = searchParams.get("unit") ?? undefined;
   const agent = searchParams.get("agent") ?? undefined;
   const slice: "mine" | "unit" | "agent" = unit
@@ -68,6 +73,28 @@ export function EngagementShell({ children }: EngagementShellProps) {
 
   const selectedThreadId = selectedThreadIdFromPath(pathname);
 
+  return (
+    <EngagementList
+      slice={slice}
+      unit={unit}
+      agent={agent}
+      selectedThreadId={selectedThreadId}
+      variant="sidebar"
+    />
+  );
+}
+
+function EngagementSidebarFallback() {
+  return (
+    <div className="space-y-2" aria-hidden="true">
+      <Skeleton className="h-10 w-full rounded-md" />
+      <Skeleton className="h-10 w-full rounded-md" />
+      <Skeleton className="h-10 w-full rounded-md" />
+    </div>
+  );
+}
+
+export function EngagementShell({ children }: EngagementShellProps) {
   return (
     <div
       data-testid="engagement-shell"
@@ -123,13 +150,9 @@ export function EngagementShell({ children }: EngagementShellProps) {
           data-testid="engagement-sidebar"
           className="hidden w-72 shrink-0 flex-col gap-3 overflow-y-auto border-r border-border bg-card px-3 py-3 md:flex"
         >
-          <EngagementList
-            slice={slice}
-            unit={unit}
-            agent={agent}
-            selectedThreadId={selectedThreadId}
-            variant="sidebar"
-          />
+          <Suspense fallback={<EngagementSidebarFallback />}>
+            <EngagementSidebarList />
+          </Suspense>
         </aside>
 
         <main
