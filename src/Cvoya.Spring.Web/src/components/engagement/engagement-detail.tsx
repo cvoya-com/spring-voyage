@@ -149,10 +149,15 @@ export function EngagementDetail({ threadId }: EngagementDetailProps) {
 
   // Determine whether the current authenticated human is a participant.
   // The user profile returns an `address` field (human:// scheme://path).
+  // Handles both ParticipantRef objects and plain address strings.
   const currentUserAddress = userQuery.data?.address;
   const isParticipant = useMemo(() => {
     if (!currentUserAddress) return false;
-    return participants.some((p) => p.address === currentUserAddress);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return participants.some((p: any) => {
+      const addr = typeof p === "string" ? p : (p?.address ?? "");
+      return addr === currentUserAddress;
+    });
   }, [participants, currentUserAddress]);
 
   // Detect whether there's a pending question for this engagement in the inbox.
@@ -194,13 +199,30 @@ export function EngagementDetail({ threadId }: EngagementDetailProps) {
 
   // Header label: display names of everyone except the current user.
   // Falls back to all participants when self is unknown so the header is
-  // never blank.
+  // never blank. Handles both ParticipantRef objects (server v2) and
+  // plain address strings (server v1). #1502 Fix 1/4.
   const headerNames = (() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const getAddr = (p: any): string =>
+      typeof p === "string" ? p : (p?.address ?? "");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const getName = (p: any): string | null => {
+      if (typeof p !== "string" && p?.displayName) return p.displayName;
+      const addr = getAddr(p);
+      const idx = addr.indexOf("://");
+      if (idx <= 0) return addr || null;
+      const scheme = addr.slice(0, idx).toLowerCase();
+      const path = addr.slice(idx + 3);
+      if (scheme === "human") return null; // don't show UUID-shaped human addresses
+      return path || null;
+    };
     const others = currentUserAddress
-      ? participants.filter((p) => p.address !== currentUserAddress)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ? participants.filter((p: any) => getAddr(p) !== currentUserAddress)
       : participants;
     if (others.length === 0) return "Just you";
-    return others.map((p) => p.displayName).join(" · ");
+    const names = others.map(getName).filter(Boolean) as string[];
+    return names.length > 0 ? names.join(" · ") : "Just you";
   })();
 
   return (
@@ -246,7 +268,8 @@ export function EngagementDetail({ threadId }: EngagementDetailProps) {
       {isParticipant && (
         <EngagementComposer
           threadId={threadId}
-          participants={participants.map((p) => p.address)}
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          participants={participants.map((p: any) => (typeof p === "string" ? p : (p?.address ?? "")))}
           initialKind={composerKind}
           onKindChange={setComposerKind}
           onSendSuccess={() => setComposerKind("information")}

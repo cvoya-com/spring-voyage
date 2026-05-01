@@ -137,6 +137,43 @@ function FilterChip({
   );
 }
 
+/**
+ * Extract event payload / body for the expanded detail view (#1502 Fix 5).
+ *
+ * The OpenAPI `Item` schema does not yet expose a `payload` field, but the
+ * server includes it in the JSON response for message-related events. We
+ * access it via an `any` assertion so the portal can surface it without
+ * waiting for the next schema regeneration. Structured rendering is used
+ * for known message types; unknown payloads fall back to pretty-printed
+ * JSON.
+ */
+function getEventPayload(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  event: any,
+): { kind: "message"; body: string } | { kind: "json"; value: unknown } | null {
+  // A `body` string field is the plaintext message content on
+  // MessageReceived / MessageSent events.
+  if (typeof event.body === "string" && event.body.trim()) {
+    return { kind: "message", body: event.body };
+  }
+  // A `payload` object carries the structured event detail.
+  if (
+    event.payload !== undefined &&
+    event.payload !== null &&
+    !(typeof event.payload === "object" && Object.keys(event.payload).length === 0)
+  ) {
+    return { kind: "json", value: event.payload };
+  }
+  // Some events expose `details` (e.g. ValidationProgress).
+  if (
+    event.details !== undefined &&
+    event.details !== null
+  ) {
+    return { kind: "json", value: event.details };
+  }
+  return null;
+}
+
 function EventRow({
   event,
   expanded,
@@ -147,6 +184,8 @@ function EventRow({
   onToggle: () => void;
 }) {
   const severity = event.severity as ActivitySeverity;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const payload = getEventPayload(event as any);
   return (
     <div className="border-b border-border last:border-0">
       <button
@@ -199,7 +238,26 @@ function EventRow({
         </div>
       </button>
       {expanded && (
-        <div className="mb-3 ml-10 space-y-1 rounded-md border border-border bg-muted/30 p-3 text-sm">
+        <div className="mb-3 ml-10 space-y-2 rounded-md border border-border bg-muted/30 p-3 text-sm">
+          {/* Event payload / message body (#1502 Fix 5): surface the message
+              content or structured event detail when present. */}
+          {payload && (
+            <div className="space-y-1">
+              <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                {payload.kind === "message" ? "Message" : "Payload"}
+              </span>
+              {payload.kind === "message" ? (
+                <p className="whitespace-pre-wrap break-words rounded border border-border bg-background px-2 py-1.5 text-xs">
+                  {payload.body}
+                </p>
+              ) : (
+                <pre className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words rounded border border-border bg-background px-2 py-1.5 text-xs">
+                  {JSON.stringify(payload.value, null, 2)}
+                </pre>
+              )}
+            </div>
+          )}
+
           <div className="flex gap-2">
             <span className="text-muted-foreground">ID:</span>
             <span className="font-mono text-xs">{event.id}</span>

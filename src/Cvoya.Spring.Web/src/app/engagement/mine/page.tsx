@@ -32,7 +32,7 @@ export default async function MyEngagementsPage({
 
   return (
     <div
-      className="flex h-full min-h-[40vh] flex-col items-center justify-center gap-3 text-center"
+      className="flex h-full min-h-[40vh] flex-col items-center justify-center gap-3 p-4 text-center md:p-6"
       data-testid="my-engagements-page"
     >
       <MessagesSquare

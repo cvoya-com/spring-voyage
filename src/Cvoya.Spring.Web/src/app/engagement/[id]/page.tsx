@@ -36,7 +36,7 @@ export default async function EngagementDetailPage({
 
   return (
     <div
-      className="-mx-4 -my-4 flex h-full min-h-0 flex-col md:-mx-6 md:-my-6"
+      className="flex h-full min-h-0 flex-1 flex-col"
       data-testid="engagement-detail-page"
     >
       <EngagementDetail threadId={id} />

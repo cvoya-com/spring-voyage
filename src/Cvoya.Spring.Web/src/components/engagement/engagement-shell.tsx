@@ -155,10 +155,15 @@ export function EngagementShell({ children }: EngagementShellProps) {
           </Suspense>
         </aside>
 
+        {/* Fix 3 (#1502): remove overflow-y-auto and padding from main so
+            the engagement-detail flex column owns its own scroll budget.
+            The timeline scrolls independently; the composer stays pinned
+            at the bottom of the detail pane. Non-engagement routes (new,
+            mine) are wrapped to restore padding via their own containers. */}
         <main
           id="engagement-main-content"
           tabIndex={-1}
-          className="flex min-w-0 flex-1 flex-col overflow-y-auto p-4 focus:outline-none md:p-6"
+          className="flex min-h-0 min-w-0 flex-1 flex-col focus:outline-none"
         >
           {children}
         </main>
