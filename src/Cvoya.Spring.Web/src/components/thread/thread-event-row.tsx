@@ -62,6 +62,10 @@ interface ThreadEventRowProps {
  * place of the envelope summary so the thread reads as a real
  * conversation rather than a list of "Received Domain message X from Y"
  * lines.
+ *
+ * #1482: message bubble header shows the display name (path of the source
+ * address) rather than the full address. The full address is available via
+ * the "View in activity" jump-link or the (i) toggle in the inbox view.
  */
 export function ThreadEventRow({ event }: ThreadEventRowProps) {
   const role = roleFromEvent(event.source, event.eventType);
@@ -73,6 +77,11 @@ export function ThreadEventRow({ event }: ThreadEventRowProps) {
   const timestamp = new Date(event.timestamp);
   const bodyText =
     event.eventType === "MessageReceived" && event.body ? event.body : null;
+
+  // Display name: path portion of the source address.
+  // E.g. "agent://engineering/ada" → "engineering/ada".
+  // Falls back to the raw source string when no scheme separator is found.
+  const sourceDisplayName = source.path || source.raw;
 
   // #1161: error events render with destructive styling and are never
   // collapsed — the user cannot be expected to open the activity log to
@@ -96,7 +105,7 @@ export function ThreadEventRow({ event }: ThreadEventRowProps) {
             >
               Error
             </Badge>
-            <span className="truncate font-mono">{source.raw}</span>
+            <span className="truncate font-medium text-foreground/80" data-testid="conversation-event-source-name">{sourceDisplayName}</span>
             <span aria-hidden="true">·</span>
             <time
               dateTime={event.timestamp}
@@ -151,7 +160,7 @@ export function ThreadEventRow({ event }: ThreadEventRowProps) {
           <Badge variant="outline" className="h-5 px-1.5 text-[10px]">
             {style.label}
           </Badge>
-          <span className="truncate font-mono">{source.raw}</span>
+          <span className="truncate font-medium text-foreground/80" data-testid="conversation-event-source-name">{sourceDisplayName}</span>
           <span aria-hidden="true">·</span>
           <time
             dateTime={event.timestamp}

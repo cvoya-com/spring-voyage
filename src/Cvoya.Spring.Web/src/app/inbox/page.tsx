@@ -4,20 +4,29 @@
 //
 // Left pane: compact thread rows from GET /api/v1/inbox, sorted by
 // last activity descending (unread-first sort deferred until the server
-// exposes unreadCount — filed as follow-up). Each row shows the other
-// participants' names (user is implicit), a "pending since" timestamp,
-// and the thread summary. No unread badge — see #1484.
+// exposes unreadCount — filed as follow-up). Each row shows the display
+// names of the other participants (derived from address paths, excluding
+// human:// scheme addresses which are the current user), a "pending since"
+// timestamp, and the thread summary. No unread badge — see #1484.
 //
-// Right pane: the selected thread's timeline rendered via the same
-// ThreadEventRow primitive used by the engagement portal, with a small
-// (i) metadata toggle per event. Auto-selects the first thread on entry
-// when no ?thread= param is present.
+// Right pane: the selected thread's timeline rendered via <InboxEventRow>,
+// with a small (i) metadata toggle per event. The timeline header shows
+// the full list of other participants with per-participant (i) popover
+// cards (address + "Open 1:1" button). A "Full timeline / Messages"
+// dropdown at the top-right of the right pane filters what events render;
+// default is "Messages" (only MessageReceived events).
 //
 // Blocker note: agent replies do not surface here yet because #1476
 // (HumanActor permission default) is not fixed. Once that lands, inbox
 // items will include agent-reply events and the timeline will populate.
 
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Suspense,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   AlertTriangle,
   ChevronDown,
@@ -45,21 +54,230 @@ import { parseThreadSource, roleFromEvent, ROLE_STYLES } from "@/components/thre
 import type { InboxItem, ThreadEvent } from "@/lib/api/types";
 
 // ---------------------------------------------------------------------------
-// Thread-row helpers
+// Address / display-name helpers
 // ---------------------------------------------------------------------------
 
 /**
- * Derive the display label for a thread row: the other participants
- * excluding any human:// address (the current user is implicit).
- * Falls back to the threadId when no participants are available.
+ * Extract the path component from a scheme://path address string.
+ * This is used as the display name since the wire does not carry
+ * a separate display-name field for participants in v0.1.
+ * Examples: "agent://ada" → "ada", "unit://engineering/ops" → "engineering/ops"
  */
-function otherParticipants(item: InboxItem): string {
-  // InboxItem carries `from` (the sender address) — use that as the
-  // primary identity, stripping the scheme prefix for brevity.
+export function addressToDisplayName(address: string): string {
+  const idx = address.indexOf("://");
+  return idx > 0 ? address.slice(idx + 3) : address;
+}
+
+/**
+ * Returns true when the address belongs to the human (current user).
+ * Human addresses use the "human://" scheme.
+ */
+function isHumanAddress(address: string): boolean {
+  return address.startsWith("human://");
+}
+
+/**
+ * Derive the display label for a thread row from the `from` field of
+ * the inbox item. The `from` field holds the other participant's address;
+ * we strip the scheme:// prefix so "agent://ada" renders as "ada".
+ * Falls back to the threadId when `from` is absent.
+ */
+export function otherParticipantsFromInboxItem(item: InboxItem): string {
   const from = item.from ?? "";
-  // Strip scheme:// prefix for a friendlier label (e.g. "ada" not "agent://ada").
-  const idx = from.indexOf("://");
-  return idx > 0 ? from.slice(idx + 3) : from || item.threadId;
+  return addressToDisplayName(from) || item.threadId;
+}
+
+/**
+ * Derive display names for other participants from a participants address
+ * array, excluding any human:// addresses (the current user is always a
+ * human participant). Returns up to `max` names with a trailing "..." when
+ * the list is truncated.
+ */
+export function otherParticipantNames(
+  participants: string[],
+  max = 3,
+): string {
+  const others = participants.filter((p) => !isHumanAddress(p));
+  if (others.length === 0) return "";
+  const names = others.map(addressToDisplayName);
+  if (names.length <= max) return names.join(", ");
+  return names.slice(0, max).join(", ") + ", ...";
+}
+
+// ---------------------------------------------------------------------------
+// Timeline filter type
+// ---------------------------------------------------------------------------
+
+type TimelineFilter = "messages" | "full";
+
+const TIMELINE_FILTER_LABELS: Record<TimelineFilter, string> = {
+  messages: "Messages",
+  full: "Full timeline",
+};
+
+/**
+ * Returns true when the event should be visible under the "messages" filter.
+ * This includes MessageReceived events and any future interaction-event types
+ * (report cards, question cards, etc.). Everything else (lifecycle, tool, etc.)
+ * is hidden.
+ */
+function isMessageEvent(event: ThreadEvent): boolean {
+  return event.eventType === "MessageReceived";
+}
+
+// ---------------------------------------------------------------------------
+// Timeline filter dropdown
+// ---------------------------------------------------------------------------
+
+interface TimelineFilterDropdownProps {
+  value: TimelineFilter;
+  onChange: (v: TimelineFilter) => void;
+}
+
+function TimelineFilterDropdown({ value, onChange }: TimelineFilterDropdownProps) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative" data-testid="timeline-filter-dropdown">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={cn(
+          "flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+          open && "bg-accent text-foreground",
+        )}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label="Filter timeline events"
+        data-testid="timeline-filter-trigger"
+      >
+        <span data-testid="timeline-filter-label">{TIMELINE_FILTER_LABELS[value]}</span>
+        <ChevronDown className="h-3 w-3 shrink-0" aria-hidden="true" />
+      </button>
+      {open && (
+        <div
+          role="listbox"
+          aria-label="Timeline filter options"
+          className="absolute right-0 top-full z-10 mt-1 min-w-[10rem] rounded-md border border-border bg-popover shadow-md"
+          data-testid="timeline-filter-menu"
+        >
+          {(["messages", "full"] as TimelineFilter[]).map((opt) => (
+            <button
+              key={opt}
+              type="button"
+              role="option"
+              aria-selected={value === opt}
+              onClick={() => {
+                onChange(opt);
+                setOpen(false);
+              }}
+              className={cn(
+                "flex w-full items-center px-3 py-1.5 text-xs text-left transition-colors hover:bg-accent",
+                value === opt ? "font-medium text-foreground" : "text-muted-foreground",
+              )}
+              data-testid={`timeline-filter-option-${opt}`}
+            >
+              {TIMELINE_FILTER_LABELS[opt]}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Participant popover card
+// ---------------------------------------------------------------------------
+
+interface ParticipantPopoverProps {
+  address: string;
+  currentThreadId: string;
+}
+
+/**
+ * Per-participant (i) button that toggles a popover card showing the
+ * participant's full address and a "Open 1:1" button that navigates to
+ * the 1:1 thread with that participant (when not already in a 1:1 with them).
+ */
+function ParticipantPopover({ address, currentThreadId }: ParticipantPopoverProps) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const displayName = addressToDisplayName(address);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  // The "Open 1:1" button navigates to the inbox filtered to threads
+  // involving this participant. The button is hidden when the current
+  // thread already is a 1:1 with this participant (single non-human participant).
+  // For now we always show it since we don't track that state without a
+  // thread detail fetch — the page already has the thread data loaded.
+  const open1on1Href = `/inbox?participant=${encodeURIComponent(address)}`;
+
+  return (
+    <div ref={ref} className="relative inline-flex items-center">
+      <span className="text-xs font-medium" data-testid={`participant-name-${address}`}>
+        {displayName}
+      </span>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-label={`Show info for ${displayName}`}
+        aria-pressed={open}
+        className={cn(
+          "ml-0.5 rounded p-0.5 transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+          open ? "text-primary" : "text-muted-foreground/50 hover:text-muted-foreground",
+        )}
+        data-testid={`participant-info-btn-${address}`}
+      >
+        <Info className="h-3 w-3" aria-hidden="true" />
+      </button>
+      {open && (
+        <div
+          className="absolute left-0 top-full z-10 mt-1 w-64 rounded-md border border-border bg-popover p-3 shadow-md"
+          data-testid={`participant-popover-${address}`}
+        >
+          <p className="text-xs font-medium text-foreground mb-1">{displayName}</p>
+          <p className="text-[10px] font-mono text-muted-foreground break-all mb-2">
+            {address}
+          </p>
+          {currentThreadId !== address && (
+            <Link
+              href={open1on1Href}
+              className="inline-flex items-center rounded-md border border-border bg-accent px-2 py-1 text-xs hover:bg-accent/80 transition-colors"
+              onClick={() => setOpen(false)}
+              data-testid={`participant-open-1on1-${address}`}
+            >
+              Open 1:1 with {displayName}
+            </Link>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -73,7 +291,7 @@ interface ThreadRowProps {
 }
 
 function ThreadRow({ item, selected, onSelect }: ThreadRowProps) {
-  const label = otherParticipants(item);
+  const label = otherParticipantsFromInboxItem(item);
   const summary = item.summary?.trim();
   const unread = (item.unreadCount ?? 0) as number;
 
@@ -88,6 +306,7 @@ function ThreadRow({ item, selected, onSelect }: ThreadRowProps) {
         selected
           ? "border-primary/40 bg-primary/10 text-foreground"
           : "border-transparent hover:border-border hover:bg-accent text-foreground",
+        unread > 0 && !selected && "font-medium",
       )}
     >
       <div className="flex items-center justify-between gap-2">
@@ -133,6 +352,9 @@ interface InboxEventRowProps {
  * source URI, type, payload). Mirrors the engagement portal's
  * ThreadEventRow but replaces the "View in activity" link with the
  * inline metadata toggle.
+ *
+ * Message bubbles show the display name (path of the address) rather than
+ * the full address. The full address is always available via the (i) popover.
  */
 function InboxEventRow({ event }: InboxEventRowProps) {
   const [showMeta, setShowMeta] = useState(false);
@@ -142,6 +364,9 @@ function InboxEventRow({ event }: InboxEventRowProps) {
   const style = ROLE_STYLES[role];
   const source = parseThreadSource(event.source);
   const timestamp = new Date(event.timestamp);
+
+  // Display name: path portion of the source address (e.g. "ada" from "agent://ada").
+  const sourceDisplayName = source.path || source.raw;
 
   const isToolOrLifecycle =
     role === "tool" ||
@@ -164,7 +389,8 @@ function InboxEventRow({ event }: InboxEventRowProps) {
       >
         <div className="flex max-w-[80%] min-w-0 flex-col gap-1">
           <MetaHeader
-            source={source.raw}
+            sourceDisplayName={sourceDisplayName}
+            sourceAddress={source.raw}
             timestamp={timestamp}
             eventTimestamp={event.timestamp}
             showMeta={showMeta}
@@ -199,7 +425,8 @@ function InboxEventRow({ event }: InboxEventRowProps) {
     >
       <div className="flex max-w-[80%] min-w-0 flex-col gap-1">
         <MetaHeader
-          source={source.raw}
+          sourceDisplayName={sourceDisplayName}
+          sourceAddress={source.raw}
           timestamp={timestamp}
           eventTimestamp={event.timestamp}
           showMeta={showMeta}
@@ -251,7 +478,10 @@ function InboxEventRow({ event }: InboxEventRowProps) {
 }
 
 interface MetaHeaderProps {
-  source: string;
+  /** Short display name (address path, e.g. "ada"). */
+  sourceDisplayName: string;
+  /** Full address string (e.g. "agent://ada"). Used in the meta panel. */
+  sourceAddress: string;
   timestamp: Date;
   eventTimestamp: string;
   showMeta: boolean;
@@ -261,7 +491,7 @@ interface MetaHeaderProps {
 }
 
 function MetaHeader({
-  source,
+  sourceDisplayName,
   timestamp,
   eventTimestamp,
   showMeta,
@@ -281,7 +511,9 @@ function MetaHeader({
           Error
         </Badge>
       )}
-      <span className="truncate font-mono">{source}</span>
+      <span className="truncate font-medium text-foreground/80" data-testid="inbox-event-source-name">
+        {sourceDisplayName}
+      </span>
       <span aria-hidden="true">·</span>
       <time dateTime={eventTimestamp} title={timestamp.toLocaleString()}>
         {timestamp.toLocaleTimeString([], {
@@ -354,8 +586,20 @@ function ThreadTimeline({ threadId }: ThreadTimelineProps) {
   const threadQuery = useThread(threadId, { staleTime: 0 });
   const { connected } = useThreadStream(threadId);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const [filter, setFilter] = useState<TimelineFilter>("messages");
 
-  const events = threadQuery.data?.events ?? [];
+  const allEvents = useMemo(
+    () => threadQuery.data?.events ?? [],
+    [threadQuery.data],
+  );
+
+  const events = useMemo(
+    () =>
+      filter === "messages"
+        ? allEvents.filter(isMessageEvent)
+        : allEvents,
+    [allEvents, filter],
+  );
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -395,14 +639,33 @@ function ThreadTimeline({ threadId }: ThreadTimelineProps) {
   }
 
   const participants = threadQuery.data.summary?.participants ?? [];
+  const otherParticipants = participants.filter((p) => !isHumanAddress(p));
 
   return (
     <div className="flex flex-col min-h-0 flex-1" data-testid="inbox-thread-timeline">
       {/* Thread metadata strip */}
       <div className="border-b border-border px-4 py-2 text-xs text-muted-foreground space-y-1">
-        <div className="flex items-center gap-2 font-mono truncate">
-          {participants.join(" · ")}
+        {/* Participants row: names with (i) popover, and the filter dropdown */}
+        <div className="flex items-center justify-between gap-2">
+          <div
+            className="flex items-center gap-3 flex-wrap"
+            data-testid="inbox-thread-participants"
+          >
+            {otherParticipants.length > 0 ? (
+              otherParticipants.map((address) => (
+                <ParticipantPopover
+                  key={address}
+                  address={address}
+                  currentThreadId={threadId}
+                />
+              ))
+            ) : (
+              <span className="font-mono truncate">{participants.join(" · ")}</span>
+            )}
+          </div>
+          <TimelineFilterDropdown value={filter} onChange={setFilter} />
         </div>
+        {/* Live status row */}
         <div className="flex items-center gap-1.5">
           {connected ? (
             <>
@@ -422,7 +685,7 @@ function ThreadTimeline({ threadId }: ThreadTimelineProps) {
             </>
           )}
           <span aria-hidden="true">·</span>
-          <span>{events.length} event{events.length === 1 ? "" : "s"}</span>
+          <span>{allEvents.length} event{allEvents.length === 1 ? "" : "s"}</span>
           <span aria-hidden="true">·</span>
           <Link
             href={`/inbox?thread=${encodeURIComponent(threadId)}`}
@@ -444,10 +707,14 @@ function ThreadTimeline({ threadId }: ThreadTimelineProps) {
       >
         {events.length === 0 ? (
           <p className="text-sm text-muted-foreground" data-testid="inbox-thread-empty">
-            No events in this thread yet.{" "}
-            <span className="text-xs">
-              Agent replies require #1476 to be fixed first.
-            </span>
+            {filter === "messages"
+              ? "No messages in this thread yet."
+              : "No events in this thread yet."}
+            {filter === "full" && (
+              <span className="text-xs">
+                {" "}Agent replies require #1476 to be fixed first.
+              </span>
+            )}
           </p>
         ) : (
           events.map((event) => (
@@ -554,11 +821,6 @@ function InboxPageContent() {
         <div className="space-y-1">
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <InboxIcon className="h-5 w-5" aria-hidden="true" /> Inbox
-            {items.length > 0 && (
-              <Badge variant="warning" data-testid="inbox-count-badge">
-                {items.length}
-              </Badge>
-            )}
             {stream.connected && (
               <Badge
                 variant="outline"
@@ -569,12 +831,8 @@ function InboxPageContent() {
               </Badge>
             )}
           </h1>
-          <p className="text-sm text-muted-foreground">
-            Conversations addressed to you. Mirrors{" "}
-            <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">
-              spring inbox list
-            </code>
-            .
+          <p className="text-sm text-muted-foreground" data-testid="inbox-subtitle">
+            Engagements with you as a participant
           </p>
         </div>
         <Button

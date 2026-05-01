@@ -384,6 +384,10 @@ Every mutation invalidates `queryKeys.units.detail(id)` / `queryKeys.agents.deta
 
 The Messages tab renders all threads involving the hosting unit/agent via `GET /api/v1/threads?unit=<id>` or `?agent=<id>` (#1459 / #1460, fixed #1472). The most-recently-active matching thread is shown inline as a single timeline plus a persistent composer. There is no master/detail list and no modal "+ New conversation" dialog — the engagement is conceptually a single thread per pair. Sending a message when no thread exists posts `/api/v1/messages` with `to: { scheme: "unit"|"agent", path }`, `type: "Domain"`, and a null `threadId`; the server auto-generates a fresh id and the next refetch picks it up. Subsequent sends append to that thread via `POST /api/v1/threads/{id}/messages`. On successful send, the sent text is **optimistically injected** into the timeline as a synthetic `MessageReceived` event (source `human://me`) so the user sees their message immediately (#1473). Non-dialog events (tool calls, lifecycle transitions) render as collapsible call-outs inside the same timeline. **Participant filter dropped (#1472)**: the tab filters by agent/unit id only — `UserProfileResponse.address` is not on the wire in v0.1, so the previous `participant` filter always produced an empty list.
 
+**Timeline filter dropdown (#1482).** A dropdown at the top-right of the timeline area lets the user switch between **Messages** (default — only `MessageReceived` events) and **Full timeline** (all events including tool calls, lifecycle transitions, and system events). The dropdown appears in both the inbox right-pane (`<ThreadTimeline>`) and the unit/agent Messages tab (`<UnitAgentMessagesView>`). Trigger: small `text-xs` button with a chevron, styled `hover:bg-accent`; menu: `min-w-[10rem] rounded-md border bg-popover shadow-md` with per-option `py-1.5 px-3` rows. Default selection: Messages. `data-testid="timeline-filter-dropdown"` on the container; `data-testid="timeline-filter-trigger"` on the button; `data-testid="timeline-filter-label"` on the label span; `data-testid="timeline-filter-option-{messages|full}"` on each option.
+
+**Message bubble source label (#1482).** The per-event meta-header row (in both `<InboxEventRow>` and `<ThreadEventRow>`) now shows the **display name** (address path, e.g. `ada` from `agent://ada`) instead of the full address string. The full address is available via the `(i)` metadata toggle or the "View in activity" link. `data-testid="inbox-event-source-name"` / `data-testid="conversation-event-source-name"` on the name span.
+
 ---
 
 ## 10. Memory tab contract
@@ -616,12 +620,14 @@ The container image `<input>` on step 2 ("Execution") is wired to a `<datalist i
 
 **No backend.** The list is entirely frontend-managed; no API round-trip is needed. If the image field is blank at submit time, nothing is recorded.
 
-### 12.14 Inbox page — two-pane list-detail (#1474)
+### 12.14 Inbox page — two-pane list-detail (#1474, polished #1482)
 
 `/inbox` redesigned as a two-pane list-detail layout. The old grid-of-`<InboxCard>`s is replaced.
 
+**Header (#1482).** H1 reads "Inbox" with no count badge (count badge is per-thread, not global — see #1477). Subtitle: "Engagements with you as a participant" (no CLI mirror sentence).
+
 **Left pane (thread list, `w-64 shrink-0 border-r`).** One compact row per inbox item from `GET /api/v1/inbox`, sorted by `pendingSince` descending. Each row (`<button>` with `data-testid="inbox-thread-row-<id>"`) shows:
-- **Primary label** — the other participant's name, derived from the `from` address field by stripping the `scheme://` prefix (e.g. `agent://ada` → `ada`).
+- **Primary label** — the other participant's display name, derived from the `from` address field by stripping the `scheme://` prefix (e.g. `agent://engineering-team/ada` → `engineering-team/ada`). `data-testid="inbox-row-label-<id>"`.
 - **Timestamp** — `timeAgo(pendingSince)` mono in `text-[10px]`.
 - **Summary** — truncated `text-xs text-muted-foreground` below the label when available.
 
@@ -630,6 +636,17 @@ Active selection uses `bg-primary/10 border-primary/40`; hover uses `hover:bg-ac
 No unread badge in this release — `unreadCount` is not in the OpenAPI schema. Follow-up tracked in #1484.
 
 **Right pane (thread timeline).** `<ThreadTimeline>` renders the selected thread's events from `GET /api/v1/threads/{id}`, live-updated via `useThreadStream`. Each event renders as `<InboxEventRow>`: a chat-bubble identical to `<ThreadEventRow>` but with an `(i)` icon in the meta-header row that toggles an inline `<EventMeta>` panel showing event id, type, source, severity, and summary.
+
+**Timeline header — participant strip (#1482).** Replaces the raw participant addresses line. Shows the display name (address path) of each non-human participant. Each name has a small `(i)` button (`data-testid="participant-info-btn-<address>"`) that toggles a popover card (`data-testid="participant-popover-<address>"`) containing:
+- Display name (bold)
+- Full address in `font-mono text-[10px]`
+- "Open 1:1 with \<name\>" link (`data-testid="participant-open-1on1-<address>"`) navigating to `/inbox?participant=<encoded-address>`.
+
+The participant name element carries `data-testid="participant-name-<address>"`. Human (`human://`) participants are excluded — the current user is always a human participant.
+
+**Timeline filter dropdown (#1482).** At the top-right of the thread header strip: a **Messages / Full timeline** dropdown (see § 9.3 for the shared spec). Default: Messages.
+
+**Message bubble source name (#1482).** Each event bubble's meta-header shows the display name (address path) of the sender, not the full address. Full address is in the `<EventMeta>` panel toggled by `(i)`.
 
 **Auto-select.** On entry with no `?thread=` param present, the page calls `router.replace("/inbox?thread=<first-id>")` so the right pane is never blank when the inbox is non-empty.
 

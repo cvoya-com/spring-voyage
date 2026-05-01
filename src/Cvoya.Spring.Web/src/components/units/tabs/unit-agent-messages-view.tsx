@@ -29,18 +29,22 @@
 // #1473 fix: after a successful send the sent text is optimistically
 // prepended to the timeline as a synthetic event so the user sees their
 // message immediately rather than waiting for the next SSE/refetch cycle.
+//
+// #1482: added timeline filter dropdown (Full timeline / Messages).
+// Default is "Messages" (only MessageReceived events visible).
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Send } from "lucide-react";
+import { ChevronDown, Loader2, Send } from "lucide-react";
 
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
+import { cn } from "@/lib/utils";
 import { api } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/query-keys";
 import { useThread, useThreads } from "@/lib/api/queries";
-import type { ThreadDetail, ThreadSummary } from "@/lib/api/types";
+import type { ThreadDetail, ThreadEvent, ThreadSummary } from "@/lib/api/types";
 
 import { ThreadEventRow } from "@/components/thread/thread-event-row";
 
@@ -65,6 +69,94 @@ function pickCanonicalThread(threads: ThreadSummary[]): ThreadSummary | null {
     return ba.localeCompare(aa);
   })[0];
 }
+
+// ---------------------------------------------------------------------------
+// Timeline filter
+// ---------------------------------------------------------------------------
+
+type TimelineFilter = "messages" | "full";
+
+const TIMELINE_FILTER_LABELS: Record<TimelineFilter, string> = {
+  messages: "Messages",
+  full: "Full timeline",
+};
+
+function isMessageEvent(event: ThreadEvent): boolean {
+  return event.eventType === "MessageReceived";
+}
+
+interface TimelineFilterDropdownProps {
+  value: TimelineFilter;
+  onChange: (v: TimelineFilter) => void;
+}
+
+function TimelineFilterDropdown({ value, onChange }: TimelineFilterDropdownProps) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative" data-testid="timeline-filter-dropdown">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={cn(
+          "flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+          open && "bg-accent text-foreground",
+        )}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label="Filter timeline events"
+        data-testid="timeline-filter-trigger"
+      >
+        <span data-testid="timeline-filter-label">{TIMELINE_FILTER_LABELS[value]}</span>
+        <ChevronDown className="h-3 w-3 shrink-0" aria-hidden="true" />
+      </button>
+      {open && (
+        <div
+          role="listbox"
+          aria-label="Timeline filter options"
+          className="absolute right-0 top-full z-10 mt-1 min-w-[10rem] rounded-md border border-border bg-popover shadow-md"
+          data-testid="timeline-filter-menu"
+        >
+          {(["messages", "full"] as TimelineFilter[]).map((opt) => (
+            <button
+              key={opt}
+              type="button"
+              role="option"
+              aria-selected={value === opt}
+              onClick={() => {
+                onChange(opt);
+                setOpen(false);
+              }}
+              className={cn(
+                "flex w-full items-center px-3 py-1.5 text-xs text-left transition-colors hover:bg-accent",
+                value === opt ? "font-medium text-foreground" : "text-muted-foreground",
+              )}
+              data-testid={`timeline-filter-option-${opt}`}
+            >
+              {TIMELINE_FILTER_LABELS[opt]}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main view
+// ---------------------------------------------------------------------------
 
 export function UnitAgentMessagesView({
   targetScheme,
@@ -96,7 +188,23 @@ export function UnitAgentMessagesView({
     (Boolean(canonical?.id) && threadDetailQuery.isPending);
 
   const threadDetail = threadDetailQuery.data ?? null;
-  const events = threadDetail?.events ?? [];
+
+  const allEvents = useMemo(
+    () => threadDetail?.events ?? [],
+    [threadDetail],
+  );
+
+  // Timeline filter state — default to "messages" so the user sees only
+  // the conversation without lifecycle/tool noise.
+  const [filter, setFilter] = useState<TimelineFilter>("messages");
+
+  const events = useMemo(
+    () =>
+      filter === "messages"
+        ? allEvents.filter(isMessageEvent)
+        : allEvents,
+    [allEvents, filter],
+  );
 
   if (isInitialLoading) {
     return (
@@ -137,14 +245,25 @@ export function UnitAgentMessagesView({
         className="flex-1 space-y-3 overflow-auto rounded-md border border-border bg-background p-3"
         data-testid={`${rootTestId}-timeline`}
       >
+        {/* Timeline filter header */}
+        <div className="flex items-center justify-end pb-1 border-b border-border/50">
+          <TimelineFilterDropdown value={filter} onChange={setFilter} />
+        </div>
+
         {events.length === 0 ? (
           <p
             className="text-sm text-muted-foreground"
             data-testid={`${rootTestId}-empty`}
           >
-            No conversation with{" "}
-            <span className="font-medium">{targetName}</span> yet. Send the
-            first message below to start one.
+            {allEvents.length === 0 ? (
+              <>
+                No conversation with{" "}
+                <span className="font-medium">{targetName}</span> yet. Send the
+                first message below to start one.
+              </>
+            ) : (
+              <>No messages yet — switch to &ldquo;Full timeline&rdquo; to see all events.</>
+            )}
           </p>
         ) : (
           events.map((event) => (
