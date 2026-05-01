@@ -131,17 +131,25 @@ public sealed class ContainerHealthMetricsService : IHostedService, IDisposable
     {
         _logger.LogInformation(EventIds.HealthMetricsStopping, "Container health metrics service stopping");
 
-        if (_timer is not null)
+        // Use Interlocked.Exchange so that a concurrent Dispose() call (which can
+        // occur on abnormal host-shutdown paths before StartAsync completes) cannot
+        // leave _timer as a non-null reference to an already-disposed Timer that
+        // then causes a NullReferenceException inside DisposeAsync().
+        var timer = Interlocked.Exchange(ref _timer, null);
+        if (timer is not null)
         {
-            await _timer.DisposeAsync();
-            _timer = null;
+            await timer.DisposeAsync();
         }
     }
 
     /// <inheritdoc />
     public void Dispose()
     {
-        _timer?.Dispose();
+        // Null out _timer after disposing so that a subsequent StopAsync call
+        // (which can race with Dispose in abnormal host-shutdown paths) skips the
+        // DisposeAsync branch rather than calling it on an already-disposed timer.
+        var timer = Interlocked.Exchange(ref _timer, null);
+        timer?.Dispose();
         _meter.Dispose();
     }
 
