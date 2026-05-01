@@ -30,6 +30,12 @@ public static class ServiceCollectionExtensions
         services.TryAddScoped<IUnitCreationService, UnitCreationService>();
         services.TryAddScoped<IAuthenticatedCallerAccessor, AuthenticatedCallerAccessor>();
 
+        // Participant display-name resolution (#1485). Registered as scoped so the
+        // per-request cache in ParticipantDisplayNameResolver stays request-bounded.
+        // TryAdd so the private cloud repo can register a tenant-aware variant ahead of
+        // this call.
+        services.TryAddScoped<IParticipantDisplayNameResolver, ParticipantDisplayNameResolver>();
+
         // OSS default: grant every authenticated caller all three platform
         // roles (PlatformOperator / TenantOperator / TenantUser). The cloud
         // overlay registers its own IRoleClaimSource via TryAddSingleton

@@ -9,6 +9,7 @@ using Cvoya.Spring.Core.Observability;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Host.Api.Auth;
 using Cvoya.Spring.Host.Api.Models;
+using Cvoya.Spring.Host.Api.Services;
 
 using global::Dapr.Actors;
 using global::Dapr.Actors.Client;
@@ -39,12 +40,12 @@ public static class ThreadEndpoints
         group.MapGet("/", ListThreadsAsync)
             .WithName("ListThreads")
             .WithSummary("List threads derived from the activity event stream")
-            .Produces<IReadOnlyList<ThreadSummary>>(StatusCodes.Status200OK);
+            .Produces<IReadOnlyList<ThreadSummaryResponse>>(StatusCodes.Status200OK);
 
         group.MapGet("/{id}", GetThreadAsync)
             .WithName("GetThread")
             .WithSummary("Get a single thread (summary + ordered events)")
-            .Produces<ThreadDetail>(StatusCodes.Status200OK)
+            .Produces<ThreadDetailResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapPost("/{id}/messages", PostThreadMessageAsync)
@@ -64,7 +65,7 @@ public static class ThreadEndpoints
         group.MapPost("/{id}/close", CloseThreadAsync)
             .WithName("CloseThread")
             .WithSummary("Close (abort) an in-flight or pending thread across all participating agents")
-            .Produces<ThreadDetail>(StatusCodes.Status200OK)
+            .Produces<ThreadDetailResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
         return group;
@@ -73,6 +74,7 @@ public static class ThreadEndpoints
     private static async Task<IResult> ListThreadsAsync(
         [AsParameters] ThreadListQuery query,
         IThreadQueryService queryService,
+        IParticipantDisplayNameResolver resolver,
         CancellationToken cancellationToken)
     {
         var filters = new ThreadQueryFilters(
@@ -83,12 +85,14 @@ public static class ThreadEndpoints
             Limit: query.Limit);
 
         var summaries = await queryService.ListAsync(filters, cancellationToken);
-        return Results.Ok(summaries);
+        var enriched = await EnrichSummariesAsync(summaries, resolver, cancellationToken);
+        return Results.Ok(enriched);
     }
 
     private static async Task<IResult> GetThreadAsync(
         string id,
         IThreadQueryService queryService,
+        IParticipantDisplayNameResolver resolver,
         CancellationToken cancellationToken)
     {
         var detail = await queryService.GetAsync(id, cancellationToken);
@@ -99,7 +103,8 @@ public static class ThreadEndpoints
                 statusCode: StatusCodes.Status404NotFound);
         }
 
-        return Results.Ok(detail);
+        var enriched = await EnrichDetailAsync(detail, resolver, cancellationToken);
+        return Results.Ok(enriched);
     }
 
     private static async Task<IResult> PostThreadMessageAsync(
@@ -189,6 +194,7 @@ public static class ThreadEndpoints
         IThreadQueryService queryService,
         IDirectoryService directoryService,
         IActorProxyFactory actorProxyFactory,
+        IParticipantDisplayNameResolver resolver,
         ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
@@ -262,7 +268,84 @@ public static class ThreadEndpoints
         // actors just emitted (the read model is event-sourced — by the time
         // we return, the ThreadClosed events should be projected).
         var updated = await queryService.GetAsync(id, cancellationToken) ?? detail;
-        return Results.Ok(updated);
+        var enriched = await EnrichDetailAsync(updated, resolver, cancellationToken);
+        return Results.Ok(enriched);
+    }
+
+    // ---------------------------------------------------------------------------
+    // Enrichment helpers
+    // ---------------------------------------------------------------------------
+
+    internal static async Task<ParticipantRef> ToRefAsync(
+        string address,
+        IParticipantDisplayNameResolver resolver,
+        CancellationToken ct)
+    {
+        var displayName = await resolver.ResolveAsync(address, ct);
+        return new ParticipantRef(address, displayName);
+    }
+
+    internal static async Task<IReadOnlyList<ThreadSummaryResponse>> EnrichSummariesAsync(
+        IReadOnlyList<Cvoya.Spring.Core.Observability.ThreadSummary> summaries,
+        IParticipantDisplayNameResolver resolver,
+        CancellationToken ct)
+    {
+        var result = new List<ThreadSummaryResponse>(summaries.Count);
+        foreach (var s in summaries)
+        {
+            result.Add(await EnrichSummaryAsync(s, resolver, ct));
+        }
+        return result;
+    }
+
+    internal static async Task<ThreadSummaryResponse> EnrichSummaryAsync(
+        Cvoya.Spring.Core.Observability.ThreadSummary s,
+        IParticipantDisplayNameResolver resolver,
+        CancellationToken ct)
+    {
+        var participants = new List<ParticipantRef>(s.Participants.Count);
+        foreach (var p in s.Participants)
+        {
+            participants.Add(await ToRefAsync(p, resolver, ct));
+        }
+        var origin = await ToRefAsync(s.Origin, resolver, ct);
+        return new ThreadSummaryResponse(
+            s.Id,
+            participants,
+            s.Status,
+            s.LastActivity,
+            s.CreatedAt,
+            s.EventCount,
+            origin,
+            s.Summary);
+    }
+
+    internal static async Task<ThreadDetailResponse> EnrichDetailAsync(
+        Cvoya.Spring.Core.Observability.ThreadDetail detail,
+        IParticipantDisplayNameResolver resolver,
+        CancellationToken ct)
+    {
+        var summary = await EnrichSummaryAsync(detail.Summary, resolver, ct);
+        var events = new List<ThreadEventResponse>(detail.Events.Count);
+        foreach (var e in detail.Events)
+        {
+            var source = await ToRefAsync(e.Source, resolver, ct);
+            ParticipantRef? from = e.From is not null
+                ? await ToRefAsync(e.From, resolver, ct)
+                : null;
+            events.Add(new ThreadEventResponse(
+                e.Id,
+                e.Timestamp,
+                source,
+                e.EventType,
+                e.Severity,
+                e.Summary,
+                e.MessageId,
+                from,
+                e.To,
+                e.Body));
+        }
+        return new ThreadDetailResponse(summary, events);
     }
 
     private static bool TryParseAgentParticipant(string participant, out Address address)
@@ -331,12 +414,12 @@ public static class InboxEndpoints
         group.MapGet("/", ListInboxAsync)
             .WithName("ListInbox")
             .WithSummary("List threads awaiting the current human caller")
-            .Produces<IReadOnlyList<InboxItem>>(StatusCodes.Status200OK);
+            .Produces<IReadOnlyList<InboxItemResponse>>(StatusCodes.Status200OK);
 
         group.MapPost("/{threadId}/mark-read", MarkReadAsync)
             .WithName("MarkInboxThreadRead")
             .WithSummary("Record that the current human has read the specified inbox thread")
-            .Produces<InboxItem>(StatusCodes.Status200OK)
+            .Produces<InboxItemResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
         return group;
@@ -346,6 +429,7 @@ public static class InboxEndpoints
         IThreadQueryService queryService,
         IAuthenticatedCallerAccessor callerAccessor,
         IActorProxyFactory actorProxyFactory,
+        IParticipantDisplayNameResolver resolver,
         CancellationToken cancellationToken)
     {
         var caller = callerAccessor.GetHumanAddress();
@@ -367,13 +451,14 @@ public static class InboxEndpoints
         }
 
         var items = await queryService.ListInboxAsync(callerAddress, lastReadAt, cancellationToken);
-        return Results.Ok(items);
+        var enriched = await EnrichInboxItemsAsync(items, resolver, cancellationToken);
+        return Results.Ok(enriched);
     }
 
     /// <summary>
     /// Records <c>now</c> as the read cursor for <paramref name="threadId"/>
     /// on the caller's <see cref="IHumanActor"/>. Idempotent — repeated calls
-    /// only advance the cursor. Returns the updated <see cref="InboxItem"/> so
+    /// only advance the cursor. Returns the updated <see cref="InboxItemResponse"/> so
     /// the portal can reconcile the cache in one round-trip.
     /// </summary>
     private static async Task<IResult> MarkReadAsync(
@@ -381,6 +466,7 @@ public static class InboxEndpoints
         IAuthenticatedCallerAccessor callerAccessor,
         IThreadQueryService queryService,
         IActorProxyFactory actorProxyFactory,
+        IParticipantDisplayNameResolver resolver,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(threadId))
@@ -403,15 +489,49 @@ public static class InboxEndpoints
         var lastReadAt = entries.ToDictionary(e => e.ThreadId, e => e.LastReadAt);
         var callerAddress = $"{caller.Scheme}://{caller.Path}";
         var items = await queryService.ListInboxAsync(callerAddress, lastReadAt, cancellationToken);
-        var updated = items.FirstOrDefault(i => string.Equals(i.ThreadId, threadId, StringComparison.Ordinal));
+        var rawUpdated = items.FirstOrDefault(i => string.Equals(i.ThreadId, threadId, StringComparison.Ordinal));
 
-        if (updated is null)
+        if (rawUpdated is null)
         {
             return Results.Problem(
                 detail: $"Thread '{threadId}' not found in inbox.",
                 statusCode: StatusCodes.Status404NotFound);
         }
 
+        var updated = await EnrichInboxItemAsync(rawUpdated, resolver, cancellationToken);
         return Results.Ok(updated);
+    }
+
+    // ---------------------------------------------------------------------------
+    // Inbox enrichment helpers
+    // ---------------------------------------------------------------------------
+
+    private static async Task<IReadOnlyList<InboxItemResponse>> EnrichInboxItemsAsync(
+        IReadOnlyList<Cvoya.Spring.Core.Observability.InboxItem> items,
+        IParticipantDisplayNameResolver resolver,
+        CancellationToken ct)
+    {
+        var result = new List<InboxItemResponse>(items.Count);
+        foreach (var item in items)
+        {
+            result.Add(await EnrichInboxItemAsync(item, resolver, ct));
+        }
+        return result;
+    }
+
+    private static async Task<InboxItemResponse> EnrichInboxItemAsync(
+        Cvoya.Spring.Core.Observability.InboxItem item,
+        IParticipantDisplayNameResolver resolver,
+        CancellationToken ct)
+    {
+        var from = await ThreadEndpoints.ToRefAsync(item.From, resolver, ct);
+        var human = await ThreadEndpoints.ToRefAsync(item.Human, resolver, ct);
+        return new InboxItemResponse(
+            item.ThreadId,
+            from,
+            human,
+            item.PendingSince,
+            item.Summary,
+            item.UnreadCount);
     }
 }

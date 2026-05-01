@@ -52,7 +52,7 @@ export function InboxCard({ item, className }: InboxCardProps) {
   // is never a 404. The query string preserves the conversation id so
   // future routing can scroll/highlight the corresponding row.
   const href = `/inbox?thread=${encodeURIComponent(item.threadId)}`;
-  const from = parseThreadSource(item.from);
+  const from = parseThreadSource(item.from.address);
   const fromLink = fromHref(from);
   const title = item.summary?.trim() || item.threadId;
 
@@ -83,10 +83,10 @@ export function InboxCard({ item, className }: InboxCardProps) {
                 className="hover:text-foreground hover:underline"
                 data-testid={`inbox-from-link-${item.threadId}`}
               >
-                {item.from}
+                {item.from.displayName}
               </Link>
             ) : (
-              <span>{item.from}</span>
+              <span>{item.from.displayName}</span>
             )}
           </div>
           <Badge

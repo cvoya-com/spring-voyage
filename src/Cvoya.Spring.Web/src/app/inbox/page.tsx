@@ -47,29 +47,18 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn, timeAgo } from "@/lib/utils";
-import { useInbox, useMarkInboxRead, useThread } from "@/lib/api/queries";
+import { useCurrentUser, useInbox, useMarkInboxRead, useThread } from "@/lib/api/queries";
 import { useActivityStream } from "@/lib/stream/use-activity-stream";
 import { useThreadStream } from "@/lib/stream/use-thread-stream";
 import { parseThreadSource, roleFromEvent, ROLE_STYLES } from "@/components/thread/role";
-import type { InboxItem, ThreadEvent } from "@/lib/api/types";
+import type { InboxItem, ParticipantRef, ThreadEvent } from "@/lib/api/types";
 
 // ---------------------------------------------------------------------------
 // Address / display-name helpers
 // ---------------------------------------------------------------------------
 
 /**
- * Extract the path component from a scheme://path address string.
- * This is used as the display name since the wire does not carry
- * a separate display-name field for participants in v0.1.
- * Examples: "agent://ada" → "ada", "unit://engineering/ops" → "engineering/ops"
- */
-export function addressToDisplayName(address: string): string {
-  const idx = address.indexOf("://");
-  return idx > 0 ? address.slice(idx + 3) : address;
-}
-
-/**
- * Returns true when the address belongs to the human (current user).
+ * Returns true when the address belongs to the human scheme.
  * Human addresses use the "human://" scheme.
  */
 function isHumanAddress(address: string): boolean {
@@ -77,29 +66,40 @@ function isHumanAddress(address: string): boolean {
 }
 
 /**
- * Derive the display label for a thread row from the `from` field of
- * the inbox item. The `from` field holds the other participant's address;
- * we strip the scheme:// prefix so "agent://ada" renders as "ada".
- * Falls back to the threadId when `from` is absent.
+ * Returns true when the ParticipantRef belongs to a human participant.
  */
-export function otherParticipantsFromInboxItem(item: InboxItem): string {
-  const from = item.from ?? "";
-  return addressToDisplayName(from) || item.threadId;
+function isHumanParticipant(p: ParticipantRef): boolean {
+  return isHumanAddress(p.address);
 }
 
 /**
- * Derive display names for other participants from a participants address
- * array, excluding any human:// addresses (the current user is always a
- * human participant). Returns up to `max` names with a trailing "..." when
- * the list is truncated.
+ * Derive the display label for a thread row from the `from` field of
+ * the inbox item. Uses the resolved displayName from the API wire shape,
+ * falling back to the threadId when absent.
+ */
+export function otherParticipantsFromInboxItem(item: InboxItem): string {
+  return item.from?.displayName || item.threadId;
+}
+
+/**
+ * Derive display names for other participants from a ParticipantRef array,
+ * excluding any human:// addresses. The caller's address is used to filter
+ * "self" when provided; otherwise all human participants are excluded.
+ * Returns up to `max` names with a trailing "..." when the list is truncated.
  */
 export function otherParticipantNames(
-  participants: string[],
+  participants: ParticipantRef[],
+  selfAddress?: string | null,
   max = 3,
 ): string {
-  const others = participants.filter((p) => !isHumanAddress(p));
+  const others = participants.filter((p) => {
+    if (selfAddress) {
+      return p.address !== selfAddress;
+    }
+    return !isHumanParticipant(p);
+  });
   if (others.length === 0) return "";
-  const names = others.map(addressToDisplayName);
+  const names = others.map((p) => p.displayName);
   if (names.length <= max) return names.join(", ");
   return names.slice(0, max).join(", ") + ", ...";
 }
@@ -204,7 +204,7 @@ function TimelineFilterDropdown({ value, onChange }: TimelineFilterDropdownProps
 // ---------------------------------------------------------------------------
 
 interface ParticipantPopoverProps {
-  address: string;
+  participant: ParticipantRef;
   currentThreadId: string;
 }
 
@@ -213,10 +213,10 @@ interface ParticipantPopoverProps {
  * participant's full address and a "Open 1:1" button that navigates to
  * the 1:1 thread with that participant (when not already in a 1:1 with them).
  */
-function ParticipantPopover({ address, currentThreadId }: ParticipantPopoverProps) {
+function ParticipantPopover({ participant, currentThreadId }: ParticipantPopoverProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  const displayName = addressToDisplayName(address);
+  const { address, displayName } = participant;
 
   // Close on outside click
   useEffect(() => {
@@ -235,7 +235,7 @@ function ParticipantPopover({ address, currentThreadId }: ParticipantPopoverProp
   // thread already is a 1:1 with this participant (single non-human participant).
   // For now we always show it since we don't track that state without a
   // thread detail fetch — the page already has the thread data loaded.
-  const open1on1Href = `/inbox?participant=${encodeURIComponent(address)}`;
+  const open1on1Href = `/inbox?participant=${encodeURIComponent(participant.address)}`;
 
   return (
     <div ref={ref} className="relative inline-flex items-center">
@@ -360,13 +360,13 @@ function InboxEventRow({ event }: InboxEventRowProps) {
   const [showMeta, setShowMeta] = useState(false);
   const [expanded, setExpanded] = useState(true);
 
-  const role = roleFromEvent(event.source, event.eventType);
+  const role = roleFromEvent(event.source.address, event.eventType);
   const style = ROLE_STYLES[role];
-  const source = parseThreadSource(event.source);
+  const source = parseThreadSource(event.source.address);
   const timestamp = new Date(event.timestamp);
 
-  // Display name: path portion of the source address (e.g. "ada" from "agent://ada").
-  const sourceDisplayName = source.path || source.raw;
+  // Display name: use the resolved displayName from the API wire shape.
+  const sourceDisplayName = event.source.displayName || source.path || source.raw;
 
   const isToolOrLifecycle =
     role === "tool" ||
@@ -558,7 +558,7 @@ function EventMeta({ event }: EventMetaProps) {
       </p>
       <p>
         <span className="text-foreground">source</span>{" "}
-        {event.source}
+        {event.source.address}
       </p>
       <p>
         <span className="text-foreground">severity</span>{" "}
@@ -580,9 +580,11 @@ function EventMeta({ event }: EventMetaProps) {
 
 interface ThreadTimelineProps {
   threadId: string;
+  /** The current user's human:// address for self-filtering in participant lists. */
+  selfAddress?: string | null;
 }
 
-function ThreadTimeline({ threadId }: ThreadTimelineProps) {
+function ThreadTimeline({ threadId, selfAddress }: ThreadTimelineProps) {
   const threadQuery = useThread(threadId, { staleTime: 0 });
   const { connected } = useThreadStream(threadId);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -639,7 +641,11 @@ function ThreadTimeline({ threadId }: ThreadTimelineProps) {
   }
 
   const participants = threadQuery.data.summary?.participants ?? [];
-  const otherParticipants = participants.filter((p) => !isHumanAddress(p));
+  // Filter "self" using the resolved address when available; fall back to
+  // excluding all human:// addresses when the profile hasn't loaded yet.
+  const otherParticipants = participants.filter((p) =>
+    selfAddress ? p.address !== selfAddress : !isHumanParticipant(p),
+  );
 
   return (
     <div className="flex flex-col min-h-0 flex-1" data-testid="inbox-thread-timeline">
@@ -652,15 +658,15 @@ function ThreadTimeline({ threadId }: ThreadTimelineProps) {
             data-testid="inbox-thread-participants"
           >
             {otherParticipants.length > 0 ? (
-              otherParticipants.map((address) => (
+              otherParticipants.map((p) => (
                 <ParticipantPopover
-                  key={address}
-                  address={address}
+                  key={p.address}
+                  participant={p}
                   currentThreadId={threadId}
                 />
               ))
             ) : (
-              <span className="font-mono truncate">{participants.join(" · ")}</span>
+              <span className="font-mono truncate">{participants.map((p) => p.displayName).join(" · ")}</span>
             )}
           </div>
           <TimelineFilterDropdown value={filter} onChange={setFilter} />
@@ -760,6 +766,13 @@ function InboxPageContent() {
   const inboxQuery = useInbox();
   const markRead = useMarkInboxRead();
   const stream = useActivityStream();
+
+  // Fetch the current user profile so we can identify "self" by address
+  // in participant lists (#1485). The profile carries a human:// address
+  // field that's compared against each participant's address rather than
+  // relying on display-name equality or scheme-based exclusion.
+  const profileQuery = useCurrentUser();
+  const selfAddress = profileQuery.data?.address ?? null;
 
   // Wrap the empty-array fallback in its own useMemo so `items`'s identity
   // is stable when `inboxQuery.data` is unchanged. Otherwise the `??` would
@@ -920,7 +933,7 @@ function InboxPageContent() {
           {/* Right pane: thread timeline */}
           <div className="flex-1 min-w-0 flex flex-col bg-background">
             {selectedThreadId ? (
-              <ThreadTimeline threadId={selectedThreadId} />
+              <ThreadTimeline threadId={selectedThreadId} selfAddress={selfAddress} />
             ) : (
               <NoThreadSelected />
             )}

@@ -26,16 +26,20 @@ let _inboxPending = false;
 const _markReadMutate = vi.fn();
 
 // Thread detail returned by useThread — controls right-pane rendering.
+interface MockParticipantRef {
+  address: string;
+  displayName: string;
+}
 interface MockThreadDetail {
   summary: {
     id: string;
     status: string;
-    participants: string[];
+    participants: MockParticipantRef[];
   };
   events: Array<{
     id: string;
     eventType: string;
-    source: string;
+    source: MockParticipantRef;
     timestamp: string;
     severity: string;
     summary: string;
@@ -63,6 +67,11 @@ vi.mock("@/lib/api/queries", () => ({
   useMarkInboxRead: () => ({
     mutate: _markReadMutate,
     isPending: false,
+  }),
+  useCurrentUser: () => ({
+    data: { address: "human://savas" },
+    isPending: false,
+    error: null,
   }),
 }));
 
@@ -129,16 +138,16 @@ function Wrapper({ children }: { children: ReactNode }) {
 const rows: InboxItem[] = [
   {
     threadId: "conv-1",
-    from: "agent://engineering-team/ada",
-    human: "human://savas",
+    from: { address: "agent://engineering-team/ada", displayName: "engineering-team/ada" },
+    human: { address: "human://savas", displayName: "savas" },
     pendingSince: new Date(Date.now() - 1000 * 60 * 10).toISOString(),
     summary: "Need your call on the migration plan",
     unreadCount: 3,
   },
   {
     threadId: "conv-2",
-    from: "unit://design",
-    human: "human://savas",
+    from: { address: "unit://design", displayName: "design" },
+    human: { address: "human://savas", displayName: "savas" },
     pendingSince: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
     summary: "Ready to ship the portal redesign?",
     unreadCount: 0,
@@ -298,7 +307,10 @@ describe("InboxPage — timeline participant popover (#1482)", () => {
       summary: {
         id: "conv-1",
         status: "active",
-        participants: ["human://savas", "agent://ada"],
+        participants: [
+          { address: "human://savas", displayName: "savas" },
+          { address: "agent://ada", displayName: "ada" },
+        ],
       },
       events: [],
     });
@@ -320,7 +332,10 @@ describe("InboxPage — timeline participant popover (#1482)", () => {
       summary: {
         id: "conv-1",
         status: "active",
-        participants: ["human://savas", "agent://ada"],
+        participants: [
+          { address: "human://savas", displayName: "savas" },
+          { address: "agent://ada", displayName: "ada" },
+        ],
       },
       events: [],
     });
@@ -354,7 +369,10 @@ describe("InboxPage — timeline/messages dropdown (#1482)", () => {
       summary: {
         id: "conv-1",
         status: "active",
-        participants: ["human://savas", "agent://ada"],
+        participants: [
+          { address: "human://savas", displayName: "savas" },
+          { address: "agent://ada", displayName: "ada" },
+        ],
       },
       events: [],
     });
@@ -374,13 +392,16 @@ describe("InboxPage — timeline/messages dropdown (#1482)", () => {
       summary: {
         id: "conv-1",
         status: "active",
-        participants: ["human://savas", "agent://ada"],
+        participants: [
+          { address: "human://savas", displayName: "savas" },
+          { address: "agent://ada", displayName: "ada" },
+        ],
       },
       events: [
         {
           id: "e-msg",
           eventType: "MessageReceived",
-          source: "agent://ada",
+          source: { address: "agent://ada", displayName: "ada" },
           timestamp: "2026-04-30T10:00:00Z",
           severity: "Info",
           summary: "hello",
@@ -389,7 +410,7 @@ describe("InboxPage — timeline/messages dropdown (#1482)", () => {
         {
           id: "e-state",
           eventType: "StateChanged",
-          source: "agent://ada",
+          source: { address: "agent://ada", displayName: "ada" },
           timestamp: "2026-04-30T10:01:00Z",
           severity: "Info",
           summary: "state changed",
@@ -414,13 +435,16 @@ describe("InboxPage — timeline/messages dropdown (#1482)", () => {
       summary: {
         id: "conv-1",
         status: "active",
-        participants: ["human://savas", "agent://ada"],
+        participants: [
+          { address: "human://savas", displayName: "savas" },
+          { address: "agent://ada", displayName: "ada" },
+        ],
       },
       events: [
         {
           id: "e-msg",
           eventType: "MessageReceived",
-          source: "agent://ada",
+          source: { address: "agent://ada", displayName: "ada" },
           timestamp: "2026-04-30T10:00:00Z",
           severity: "Info",
           summary: "hello",
@@ -429,7 +453,7 @@ describe("InboxPage — timeline/messages dropdown (#1482)", () => {
         {
           id: "e-state",
           eventType: "StateChanged",
-          source: "agent://ada",
+          source: { address: "agent://ada", displayName: "ada" },
           timestamp: "2026-04-30T10:01:00Z",
           severity: "Info",
           summary: "state changed",
@@ -469,13 +493,16 @@ describe("InboxPage — user's own message renders text, not placeholder (#1482)
       summary: {
         id: "conv-1",
         status: "active",
-        participants: ["human://savas", "agent://ada"],
+        participants: [
+          { address: "human://savas", displayName: "savas" },
+          { address: "agent://ada", displayName: "ada" },
+        ],
       },
       events: [
         {
           id: "e-human",
           eventType: "MessageReceived",
-          source: "human://savas",
+          source: { address: "human://savas", displayName: "savas" },
           timestamp: "2026-04-30T10:00:00Z",
           severity: "Info",
           summary: "Received Domain message from human://savas",
@@ -559,16 +586,16 @@ describe("InboxPage — unread badge and mark-read (#1477)", () => {
     const mixed: InboxItem[] = [
       {
         threadId: "read-thread",
-        from: "agent://alice",
-        human: "human://savas",
+        from: { address: "agent://alice", displayName: "alice" },
+        human: { address: "human://savas", displayName: "savas" },
         pendingSince: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
         summary: "Read thread",
         unreadCount: 0,
       },
       {
         threadId: "unread-thread",
-        from: "agent://bob",
-        human: "human://savas",
+        from: { address: "agent://bob", displayName: "bob" },
+        human: { address: "human://savas", displayName: "savas" },
         // older, but should still sort first because it has unread events
         pendingSince: new Date(Date.now() - 1000 * 60 * 60).toISOString(),
         summary: "Unread thread",

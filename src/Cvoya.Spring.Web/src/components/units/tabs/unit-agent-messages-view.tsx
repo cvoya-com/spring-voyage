@@ -345,7 +345,7 @@ function InlineMessageComposer({
           const syntheticEvent = {
             id: `optimistic-${Date.now()}`,
             eventType: "MessageReceived",
-            source: "human://me",
+            source: { address: "human://me", displayName: "me" },
             timestamp: new Date().toISOString(),
             severity: "Info",
             summary: trimmed,

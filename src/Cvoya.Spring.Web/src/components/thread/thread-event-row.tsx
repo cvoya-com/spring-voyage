@@ -68,9 +68,9 @@ interface ThreadEventRowProps {
  * the "View in activity" jump-link or the (i) toggle in the inbox view.
  */
 export function ThreadEventRow({ event }: ThreadEventRowProps) {
-  const role = roleFromEvent(event.source, event.eventType);
+  const role = roleFromEvent(event.source.address, event.eventType);
   const style = ROLE_STYLES[role];
-  const source = parseThreadSource(event.source);
+  const source = parseThreadSource(event.source.address);
   const collapsible = isCollapsibleByDefault(event.eventType, role);
   const [expanded, setExpanded] = useState(!collapsible);
 
@@ -78,10 +78,10 @@ export function ThreadEventRow({ event }: ThreadEventRowProps) {
   const bodyText =
     event.eventType === "MessageReceived" && event.body ? event.body : null;
 
-  // Display name: path portion of the source address.
-  // E.g. "agent://engineering/ada" → "engineering/ada".
-  // Falls back to the raw source string when no scheme separator is found.
-  const sourceDisplayName = source.path || source.raw;
+  // Display name: prefer the API-enriched displayName, fall back to the
+  // path portion of the source address (e.g. "agent://engineering/ada" →
+  // "engineering/ada"), then the raw address string.
+  const sourceDisplayName = event.source.displayName || source.path || source.raw;
 
   // #1161: error events render with destructive styling and are never
   // collapsed — the user cannot be expected to open the activity log to

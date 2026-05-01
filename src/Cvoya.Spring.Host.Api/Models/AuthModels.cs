@@ -42,6 +42,13 @@ public record CreateTokenResponse(
 /// </summary>
 /// <param name="UserId">The user's identifier.</param>
 /// <param name="DisplayName">The user's display name.</param>
+/// <param name="Address">
+/// The canonical <c>human://</c> address for the authenticated user
+/// (e.g. <c>human://savas</c>). Callers use this to identify "self"
+/// in participant lists so they can filter out the current user's own
+/// address without relying on display-name equality (#1485).
+/// </param>
 public record UserProfileResponse(
     string UserId,
-    string DisplayName);
+    string DisplayName,
+    string? Address = null);

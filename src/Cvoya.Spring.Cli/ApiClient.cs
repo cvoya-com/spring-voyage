@@ -1016,7 +1016,7 @@ public class SpringApiClient
     /// Lists thread summaries, optionally filtered by unit, agent,
     /// status, or participant. Backs <c>spring thread list</c>.
     /// </summary>
-    public async Task<IReadOnlyList<ThreadSummary>> ListThreadsAsync(
+    public async Task<IReadOnlyList<ThreadSummaryResponse>> ListThreadsAsync(
         string? unit = null,
         string? agent = null,
         string? status = null,
@@ -1037,14 +1037,14 @@ public class SpringApiClient
                 config.QueryParameters.Limit = limit?.ToString();
             },
             cancellationToken: ct);
-        return result ?? new List<ThreadSummary>();
+        return result ?? new List<ThreadSummaryResponse>();
     }
 
     /// <summary>
     /// Fetches the detail view (summary + ordered events) for a single
     /// thread. Backs <c>spring thread show</c>.
     /// </summary>
-    public async Task<ThreadDetail> GetThreadAsync(string id, CancellationToken ct = default)
+    public async Task<ThreadDetailResponse> GetThreadAsync(string id, CancellationToken ct = default)
     {
         var result = await _client.Api.V1.Tenant.Threads[id].GetAsync(cancellationToken: ct);
         return result ?? throw new InvalidOperationException($"Server returned an empty response for thread '{id}'.");
@@ -1091,7 +1091,7 @@ public class SpringApiClient
     /// confirmation and the trailing event timeline including the
     /// <c>ThreadClosed</c> events the actors just emitted.
     /// </summary>
-    public async Task<ThreadDetail> CloseThreadAsync(
+    public async Task<ThreadDetailResponse> CloseThreadAsync(
         string threadId,
         string? reason = null,
         CancellationToken ct = default)
@@ -1221,10 +1221,10 @@ public class SpringApiClient
     /// Lists inbox rows for the authenticated caller — threads awaiting
     /// a reply from the current <c>human://</c> address.
     /// </summary>
-    public async Task<IReadOnlyList<InboxItem>> ListInboxAsync(CancellationToken ct = default)
+    public async Task<IReadOnlyList<InboxItemResponse>> ListInboxAsync(CancellationToken ct = default)
     {
         var result = await _client.Api.V1.Tenant.Inbox.GetAsync(cancellationToken: ct);
-        return result ?? new List<InboxItem>();
+        return result ?? new List<InboxItemResponse>();
     }
 
     // Directory

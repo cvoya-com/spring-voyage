@@ -71,7 +71,11 @@ public static class AuthEndpoints
 
         var displayName = user.FindFirstValue(ClaimTypes.Name) ?? userIdClaim;
 
-        return Results.Ok(new UserProfileResponse(userIdClaim, displayName));
+        // Expose the human:// address so the portal can identify "self" in
+        // participant lists without relying on display-name matching (#1485).
+        var address = $"human://{userIdClaim}";
+
+        return Results.Ok(new UserProfileResponse(userIdClaim, displayName, address));
     }
 
     private static async Task<IResult> CreateTokenAsync(

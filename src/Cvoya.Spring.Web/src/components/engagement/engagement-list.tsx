@@ -28,7 +28,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { useThreads, useInbox } from "@/lib/api/queries";
-import type { ThreadSummary } from "@/lib/api/types";
+import type { ParticipantRef, ThreadSummary } from "@/lib/api/types";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -57,9 +57,9 @@ interface EngagementListProps {
  * Returns true when all participants are agents/units (no human:// address).
  * Used to hide A2A-only engagements from the "mine" slice.
  */
-function isA2aOnly(participants: string[]): boolean {
+function isA2aOnly(participants: ParticipantRef[]): boolean {
   return participants.every(
-    (p) => !p.startsWith("human://"),
+    (p) => !p.address.startsWith("human://"),
   );
 }
 
@@ -105,8 +105,8 @@ const FRESHNESS_OPACITY: Record<string, string> = {
 /**
  * Format the participants list for display. Truncates at 3 with a +N remainder.
  */
-function formatParticipants(participants: string[]): string {
-  const display = participants.slice(0, 3).join(", ");
+function formatParticipants(participants: ParticipantRef[]): string {
+  const display = participants.slice(0, 3).map((p) => p.displayName).join(", ");
   const rest = participants.length - 3;
   return rest > 0 ? `${display} (+${rest})` : display;
 }

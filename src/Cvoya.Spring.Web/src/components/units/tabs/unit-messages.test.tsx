@@ -126,7 +126,10 @@ describe("UnitMessagesTab — single 1:1 engagement timeline (#1459)", () => {
           summary: "Latest",
           lastActivity: "2026-04-30T10:00:00Z",
           status: "active",
-          participants: ["human://alice", "unit://engineering"],
+          participants: [
+            { address: "human://alice", displayName: "alice" },
+            { address: "unit://engineering", displayName: "engineering" },
+          ],
         },
       ],
       isLoading: false,
@@ -137,13 +140,16 @@ describe("UnitMessagesTab — single 1:1 engagement timeline (#1459)", () => {
         summary: {
           id: "t-1",
           status: "active",
-          participants: ["human://alice", "unit://engineering"],
+          participants: [
+            { address: "human://alice", displayName: "alice" },
+            { address: "unit://engineering", displayName: "engineering" },
+          ],
         },
         events: [
           {
             id: "e-1",
             eventType: "MessageReceived",
-            source: "human://alice",
+            source: { address: "human://alice", displayName: "alice" },
             timestamp: "2026-04-30T10:00:00Z",
             severity: "Info",
             summary: "hello",

@@ -26,7 +26,7 @@ public class ThreadClientTests
         var handler = new MockHttpMessageHandler(
             expectedPath: "/api/v1/tenant/threads",
             expectedMethod: HttpMethod.Get,
-            responseBody: """[{"id":"c-1","participants":["agent://ada","human://savasp"],"status":"active","lastActivity":"2026-04-01T10:00:00Z","createdAt":"2026-04-01T09:55:00Z","eventCount":4,"origin":"agent://ada","summary":"Starting review."}]""");
+            responseBody: """[{"id":"c-1","participants":[{"address":"agent://ada","displayName":"ada"},{"address":"human://savasp","displayName":"savasp"}],"status":"active","lastActivity":"2026-04-01T10:00:00Z","createdAt":"2026-04-01T09:55:00Z","eventCount":4,"origin":{"address":"agent://ada","displayName":"ada"},"summary":"Starting review."}]""");
 
         var httpClient = new HttpClient(handler);
         var client = new SpringApiClient(httpClient, BaseUrl);
@@ -37,7 +37,8 @@ public class ThreadClientTests
         result.Count.ShouldBe(1);
         result[0].Id.ShouldBe("c-1");
         result[0].Status.ShouldBe("active");
-        result[0].Origin.ShouldBe("agent://ada");
+        result[0].Origin.ShouldNotBeNull();
+        result[0].Origin!.Address.ShouldBe("agent://ada");
         result[0].Participants.ShouldNotBeNull();
         result[0].Participants!.Count.ShouldBe(2);
         handler.WasCalled.ShouldBeTrue();
@@ -127,7 +128,7 @@ public class ThreadClientTests
         var handler = new MockHttpMessageHandler(
             expectedPath: "/api/v1/tenant/inbox",
             expectedMethod: HttpMethod.Get,
-            responseBody: """[{"threadId":"c-9","from":"agent://ada","human":"human://savasp","pendingSince":"2026-04-01T10:00:00Z","summary":"Needs your approval to merge."}]""");
+            responseBody: """[{"threadId":"c-9","from":{"address":"agent://ada","displayName":"ada"},"human":{"address":"human://savasp","displayName":"savasp"},"pendingSince":"2026-04-01T10:00:00Z","summary":"Needs your approval to merge."}]""");
 
         var httpClient = new HttpClient(handler);
         var client = new SpringApiClient(httpClient, BaseUrl);
@@ -136,7 +137,8 @@ public class ThreadClientTests
 
         result.Count.ShouldBe(1);
         result[0].ThreadId.ShouldBe("c-9");
-        result[0].From.ShouldBe("agent://ada");
+        result[0].From.ShouldNotBeNull();
+        result[0].From!.Address.ShouldBe("agent://ada");
         handler.WasCalled.ShouldBeTrue();
     }
 

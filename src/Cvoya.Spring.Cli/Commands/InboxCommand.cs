@@ -24,11 +24,11 @@ using Cvoya.Spring.Cli.Utilities;
 /// </summary>
 public static class InboxCommand
 {
-    private static readonly OutputFormatter.Column<InboxItem>[] ListColumns =
+    private static readonly OutputFormatter.Column<InboxItemResponse>[] ListColumns =
     {
         new("thread", r => r.ThreadId),
-        new("from", r => r.From),
-        new("human", r => r.Human),
+        new("from", r => r.From?.DisplayName ?? r.From?.Address ?? string.Empty),
+        new("human", r => r.Human?.DisplayName ?? r.Human?.Address ?? string.Empty),
         new("pendingSince", r => FormatTimestamp(r.PendingSince)),
         new("summary", r => Truncate(r.Summary, 80)),
     };
@@ -104,7 +104,7 @@ public static class InboxCommand
                 if (summary is not null)
                 {
                     Console.WriteLine($"Inbox item:   {summary.Id}");
-                    Console.WriteLine($"Origin:       {summary.Origin}");
+                    Console.WriteLine($"Origin:       {summary.Origin?.DisplayName ?? summary.Origin?.Address ?? string.Empty}");
                     Console.WriteLine($"Status:       {summary.Status}");
                     Console.WriteLine($"Last activity: {FormatTimestamp(summary.LastActivity)}");
                     Console.WriteLine();
@@ -113,7 +113,7 @@ public static class InboxCommand
                 // #1209: thin alias of `spring thread show` — share
                 // the renderer so message bodies surface inline on inbox
                 // show too.
-                var events = detail.Events ?? new List<ThreadEvent>();
+                var events = detail.Events ?? new List<ThreadEventResponse>();
                 ThreadCommand.RenderThreadEvents(events);
             }
             catch (Microsoft.Kiota.Abstractions.ApiException ex)
@@ -167,14 +167,15 @@ public static class InboxCommand
                 var inbox = await client.ListInboxAsync(ct);
                 var match = inbox.FirstOrDefault(i =>
                     string.Equals(i.ThreadId, id, StringComparison.Ordinal));
-                if (match is null || string.IsNullOrEmpty(match.From))
+                var fromAddress = match?.From?.Address;
+                if (match is null || string.IsNullOrEmpty(fromAddress))
                 {
                     await Console.Error.WriteLineAsync(
                         $"No inbox row found for thread '{id}'. Pass --to <address> to force a reply target.");
                     Environment.Exit(1);
                     return;
                 }
-                targetAddress = match.From!;
+                targetAddress = fromAddress!;
             }
 
             var (scheme, path) = AddressParser.Parse(targetAddress);

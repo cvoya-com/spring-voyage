@@ -19,11 +19,11 @@ using Cvoya.Spring.Cli.Utilities;
 /// </summary>
 public static class ThreadCommand
 {
-    private static readonly OutputFormatter.Column<ThreadSummary>[] ListColumns =
+    private static readonly OutputFormatter.Column<ThreadSummaryResponse>[] ListColumns =
     {
         new("id", c => c.Id),
         new("status", c => c.Status),
-        new("origin", c => c.Origin),
+        new("origin", c => c.Origin?.DisplayName ?? c.Origin?.Address ?? string.Empty),
         new("participants", c => FormatParticipants(c.Participants)),
         new("events", c => UntypedNodeFormatter.FormatScalar(c.EventCount)),
         new("lastActivity", c => FormatTimestamp(c.LastActivity)),
@@ -111,14 +111,14 @@ public static class ThreadCommand
                 {
                     Console.WriteLine($"Thread:       {summary.Id}");
                     Console.WriteLine($"Status:       {summary.Status}");
-                    Console.WriteLine($"Origin:       {summary.Origin}");
+                    Console.WriteLine($"Origin:       {summary.Origin?.DisplayName ?? summary.Origin?.Address ?? string.Empty}");
                     Console.WriteLine($"Participants: {FormatParticipants(summary.Participants)}");
                     Console.WriteLine($"Created:      {FormatTimestamp(summary.CreatedAt)}");
                     Console.WriteLine($"Last:         {FormatTimestamp(summary.LastActivity)}");
                     Console.WriteLine();
                 }
 
-                var events = detail.Events ?? new List<ThreadEvent>();
+                var events = detail.Events ?? new List<ThreadEventResponse>();
                 // #1209: render the message body inline for events that
                 // carry one (the activity-projection now stamps the
                 // sender / recipient / body on every MessageReceived
@@ -231,7 +231,8 @@ public static class ThreadCommand
                 if (summary is not null)
                 {
                     Console.WriteLine($"Status:       {summary.Status}");
-                    Console.WriteLine($"Participants: {FormatParticipants(summary.Participants)}");
+                    Console.WriteLine($"Participants: {FormatParticipants(summary.Participants ?? [])}");
+
                     Console.WriteLine($"Last:         {FormatTimestamp(summary.LastActivity)}");
                 }
                 if (!string.IsNullOrWhiteSpace(reason))
@@ -259,7 +260,7 @@ public static class ThreadCommand
     /// from normal output. Other event types fall back to the existing
     /// summary-only row so the timeline stays compact.
     /// </summary>
-    public static void RenderThreadEvents(IReadOnlyList<ThreadEvent> events)
+    public static void RenderThreadEvents(IReadOnlyList<ThreadEventResponse> events)
     {
         if (events.Count == 0)
         {
@@ -270,6 +271,7 @@ public static class ThreadCommand
         foreach (var evt in events)
         {
             var ts = FormatTimestamp(evt.Timestamp);
+            var sourceLabel = evt.Source?.DisplayName ?? evt.Source?.Address ?? string.Empty;
 
             // #1161: dispatch failures and system errors must be visible
             // inline — the operator should not need to open the activity
@@ -285,27 +287,28 @@ public static class ThreadCommand
             if (string.Equals(evt.EventType, "MessageReceived", StringComparison.Ordinal)
                 && !string.IsNullOrEmpty(evt.Body))
             {
-                var sender = !string.IsNullOrWhiteSpace(evt.From) ? evt.From : evt.Source;
-                var recipient = !string.IsNullOrWhiteSpace(evt.To) ? evt.To : evt.Source;
+                var fromRef = evt.From?.ParticipantRef;
+                var sender = fromRef?.DisplayName ?? fromRef?.Address ?? sourceLabel;
+                var recipient = !string.IsNullOrWhiteSpace(evt.To) ? evt.To : sourceLabel;
                 Console.WriteLine($"[{ts}] {sender} -> {recipient}");
                 Console.WriteLine(evt.Body);
                 Console.WriteLine();
             }
             else
             {
-                Console.WriteLine($"[{ts}] [{evt.Source}] {evt.EventType} — {evt.Summary}");
+                Console.WriteLine($"[{ts}] [{sourceLabel}] {evt.EventType} — {evt.Summary}");
             }
         }
     }
 
-    private static string FormatParticipants(IEnumerable<string>? participants)
+    private static string FormatParticipants(IEnumerable<ParticipantRef>? participants)
     {
         if (participants is null)
         {
             return string.Empty;
         }
 
-        var list = participants.ToList();
+        var list = participants.Select(p => p.DisplayName ?? p.Address ?? string.Empty).ToList();
         return list.Count switch
         {
             0 => string.Empty,

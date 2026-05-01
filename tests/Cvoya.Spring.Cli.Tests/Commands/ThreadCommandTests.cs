@@ -21,27 +21,29 @@ using Xunit;
 public class ThreadCommandTests
 {
     // ---------------------------------------------------------------------------
-    // Helper — creates a minimal Kiota-generated ThreadEvent for tests.
+    // Helper — creates a minimal Kiota-generated ThreadEventResponse for tests.
     // The Kiota type is a class with settable properties, not a record.
     // ---------------------------------------------------------------------------
 
-    private static ThreadEvent MakeEvent(
+    private static ThreadEventResponse MakeEvent(
         string eventType,
         string severity,
         string summary,
-        string? from = null,
+        ParticipantRef? from = null,
         string? to = null,
         string? body = null)
     {
-        return new ThreadEvent
+        return new ThreadEventResponse
         {
             Id = Guid.NewGuid(),
             Timestamp = DateTimeOffset.UtcNow,
-            Source = "agent://ada",
+            Source = new ParticipantRef { Address = "agent://ada", DisplayName = "ada" },
             EventType = eventType,
             Severity = severity,
             Summary = summary,
-            From = from,
+            From = from is not null
+                ? new ThreadEventResponse.ThreadEventResponse_from { ParticipantRef = from }
+                : null,
             To = to,
             Body = body,
         };
@@ -54,7 +56,7 @@ public class ThreadCommandTests
     [Fact]
     public void RenderThreadEvents_ErrorOccurred_WritesToStderr()
     {
-        var events = new List<ThreadEvent>
+        var events = new List<ThreadEventResponse>
         {
             MakeEvent(
                 eventType: "ErrorOccurred",
@@ -89,7 +91,7 @@ public class ThreadCommandTests
     {
         // A non-ErrorOccurred event with severity=Error (e.g. a StateChanged
         // that escalated) should also be surfaced inline via stderr.
-        var events = new List<ThreadEvent>
+        var events = new List<ThreadEventResponse>
         {
             MakeEvent(
                 eventType: "StateChanged",
@@ -121,13 +123,13 @@ public class ThreadCommandTests
     [Fact]
     public void RenderThreadEvents_NormalEvents_WriteToStdout()
     {
-        var events = new List<ThreadEvent>
+        var events = new List<ThreadEventResponse>
         {
             MakeEvent(
                 eventType: "MessageReceived",
                 severity: "Info",
                 summary: "Received message",
-                from: "human://savasp",
+                from: new ParticipantRef { Address = "human://savasp", DisplayName = "savasp" },
                 to: "agent://ada",
                 body: "Hello!"),
         };
@@ -161,7 +163,7 @@ public class ThreadCommandTests
         Console.SetOut(stdout);
         try
         {
-            ThreadCommand.RenderThreadEvents(new List<ThreadEvent>());
+            ThreadCommand.RenderThreadEvents(new List<ThreadEventResponse>());
         }
         finally
         {

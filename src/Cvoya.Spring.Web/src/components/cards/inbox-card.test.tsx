@@ -20,8 +20,8 @@ vi.mock("next/link", () => ({
 
 const baseItem = {
   threadId: "conv-42",
-  from: "agent://engineering-team/ada",
-  human: "human://savas",
+  from: { address: "agent://engineering-team/ada", displayName: "engineering-team/ada" },
+  human: { address: "human://savas", displayName: "savas" },
   pendingSince: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
   summary: "Need your call on the migration plan",
   unreadCount: 0 as number | string,
@@ -34,7 +34,7 @@ describe("InboxCard", () => {
       screen.getByText("Need your call on the migration plan"),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("agent://engineering-team/ada"),
+      screen.getByText("engineering-team/ada"),
     ).toBeInTheDocument();
     expect(screen.getByText(/m ago/)).toBeInTheDocument();
   });
@@ -57,7 +57,7 @@ describe("InboxCard", () => {
   it("links unit:// senders to the Explorer node", () => {
     render(
       <InboxCard
-        item={{ ...baseItem, from: "unit://engineering-team" }}
+        item={{ ...baseItem, from: { address: "unit://engineering-team", displayName: "engineering-team" } }}
       />,
     );
     const link = screen.getByTestId("inbox-from-link-conv-42");
@@ -66,12 +66,12 @@ describe("InboxCard", () => {
 
   it("does not link human:// senders (no portal detail page)", () => {
     render(
-      <InboxCard item={{ ...baseItem, from: "human://another-user" }} />,
+      <InboxCard item={{ ...baseItem, from: { address: "human://another-user", displayName: "another-user" } }} />,
     );
     expect(
       screen.queryByTestId("inbox-from-link-conv-42"),
     ).not.toBeInTheDocument();
-    expect(screen.getByText("human://another-user")).toBeInTheDocument();
+    expect(screen.getByText("another-user")).toBeInTheDocument();
   });
 
   it("falls back to the conversation id when summary is empty", () => {

@@ -252,13 +252,20 @@ export type AnalyticsScope =
 // ---------------------------------------------------------------------------
 
 /** Row in the thread list (`GET /api/v1/threads`). */
-export type ThreadSummary = Schemas["ThreadSummary"];
+export type ThreadSummary = Schemas["ThreadSummaryResponse"];
 
 /** Thread payload (`GET /api/v1/threads/{id}`). */
-export type ThreadDetail = Schemas["ThreadDetail"];
+export type ThreadDetail = Schemas["ThreadDetailResponse"];
 
 /** One event row inside a thread (see ThreadDetail.events). */
-export type ThreadEvent = Schemas["ThreadEvent"];
+export type ThreadEvent = Schemas["ThreadEventResponse"];
+
+/**
+ * A participant address with a resolved human-readable display name.
+ * Used in `InboxItem.from`, `InboxItem.human`, `ThreadSummary.participants`,
+ * `ThreadSummary.origin`, `ThreadEvent.source`, and `ThreadEvent.from`.
+ */
+export type ParticipantRef = Schemas["ParticipantRef"];
 
 /** Request body for `POST /api/v1/threads/{id}/messages`. */
 export type ThreadMessageRequest = Schemas["ThreadMessageRequest"];
@@ -270,7 +277,7 @@ export type SendMessageRequest = Schemas["SendMessageRequest"];
 export type MessageResponse = Schemas["MessageResponse"];
 
 /** Row in the awaiting-me queue (`GET /api/v1/inbox`). */
-export type InboxItem = Schemas["InboxItem"];
+export type InboxItem = Schemas["InboxItemResponse"];
 
 /** Query-string filters accepted by `GET /api/v1/threads`. */
 export interface ThreadListFilters {

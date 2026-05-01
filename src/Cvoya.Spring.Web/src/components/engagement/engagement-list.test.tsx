@@ -36,12 +36,15 @@ import { EngagementList } from "./engagement-list";
 function makeThread(overrides: Partial<ThreadSummary> = {}): ThreadSummary {
   return {
     id: "thread-abc",
-    participants: ["human://savas", "agent://ada"],
+    participants: [
+      { address: "human://savas", displayName: "savas" },
+      { address: "agent://ada", displayName: "ada" },
+    ],
     status: "active",
     lastActivity: new Date().toISOString(),
     createdAt: new Date().toISOString(),
     eventCount: 5,
-    origin: "human://savas",
+    origin: { address: "human://savas", displayName: "savas" },
     summary: "Working on the feature",
     ...overrides,
   };
@@ -168,7 +171,10 @@ describe("EngagementList", () => {
     it("excludes A2A-only threads from the 'mine' slice", () => {
       const a2aThread = makeThread({
         id: "thread-a2a",
-        participants: ["agent://ada", "agent://bob"],
+        participants: [
+          { address: "agent://ada", displayName: "ada" },
+          { address: "agent://bob", displayName: "bob" },
+        ],
       });
       const humanThread = makeThread({ id: "thread-human" });
       mockUseThreads.mockReturnValue({
@@ -192,7 +198,10 @@ describe("EngagementList", () => {
     it("includes A2A-only threads in the 'unit' slice", () => {
       const a2aThread = makeThread({
         id: "thread-a2a",
-        participants: ["agent://ada", "agent://bob"],
+        participants: [
+          { address: "agent://ada", displayName: "ada" },
+          { address: "agent://bob", displayName: "bob" },
+        ],
       });
       mockUseThreads.mockReturnValue({
         data: [a2aThread],

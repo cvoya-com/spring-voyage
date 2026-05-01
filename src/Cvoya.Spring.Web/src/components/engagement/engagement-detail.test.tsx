@@ -73,12 +73,15 @@ function makeThread(overrides: Partial<ThreadDetail["summary"]> = {}): ThreadDet
   return {
     summary: {
       id: "thread-abc",
-      participants: ["human://savas", "agent://ada"],
+      participants: [
+        { address: "human://savas", displayName: "savas" },
+        { address: "agent://ada", displayName: "ada" },
+      ],
       status: "active",
       lastActivity: new Date().toISOString(),
       createdAt: new Date().toISOString(),
       eventCount: 3,
-      origin: "human://savas",
+      origin: { address: "human://savas", displayName: "savas" },
       summary: "Test engagement",
       ...overrides,
     },
@@ -89,8 +92,8 @@ function makeThread(overrides: Partial<ThreadDetail["summary"]> = {}): ThreadDet
 function makeInboxItem(overrides: Partial<InboxItem> = {}): InboxItem {
   return {
     threadId: "thread-abc",
-    from: "agent://ada",
-    human: "human://savas",
+    from: { address: "agent://ada", displayName: "ada" },
+    human: { address: "human://savas", displayName: "savas" },
     pendingSince: new Date().toISOString(),
     summary: "Which branch?",
     unreadCount: 0,

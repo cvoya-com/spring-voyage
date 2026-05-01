@@ -20,7 +20,7 @@ function makeEvent(overrides: Partial<ThreadEvent> = {}): ThreadEvent {
   return {
     id: "00000000-0000-0000-0000-000000000001",
     timestamp: "2026-04-26T12:00:00Z",
-    source: "agent://ada",
+    source: { address: "agent://ada", displayName: "ada" },
     eventType: "MessageReceived",
     severity: "Info",
     summary: "Received Domain message X from human://savas",

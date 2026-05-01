@@ -4700,7 +4700,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/ThreadSummary"
+                    "$ref": "#/components/schemas/ThreadSummaryResponse"
                   }
                 }
               }
@@ -4732,7 +4732,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ThreadDetail"
+                  "$ref": "#/components/schemas/ThreadDetailResponse"
                 }
               }
             }
@@ -4854,7 +4854,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ThreadDetail"
+                  "$ref": "#/components/schemas/ThreadDetailResponse"
                 }
               }
             }
@@ -4887,7 +4887,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/InboxItem"
+                    "$ref": "#/components/schemas/InboxItemResponse"
                   }
                 }
               }
@@ -4919,7 +4919,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/InboxItem"
+                  "$ref": "#/components/schemas/InboxItemResponse"
                 }
               }
             }
@@ -10317,7 +10317,7 @@
           }
         }
       },
-      "InboxItem": {
+      "InboxItemResponse": {
         "required": [
           "threadId",
           "from",
@@ -10331,10 +10331,10 @@
             "type": "string"
           },
           "from": {
-            "type": "string"
+            "$ref": "#/components/schemas/ParticipantRef"
           },
           "human": {
-            "type": "string"
+            "$ref": "#/components/schemas/ParticipantRef"
           },
           "pendingSince": {
             "type": "string",
@@ -10975,6 +10975,21 @@
               "string"
             ],
             "format": "int32"
+          }
+        }
+      },
+      "ParticipantRef": {
+        "required": [
+          "address",
+          "displayName"
+        ],
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
           }
         }
       },
@@ -11797,7 +11812,7 @@
           }
         }
       },
-      "ThreadDetail": {
+      "ThreadDetailResponse": {
         "required": [
           "summary",
           "events"
@@ -11805,17 +11820,17 @@
         "type": "object",
         "properties": {
           "summary": {
-            "$ref": "#/components/schemas/ThreadSummary"
+            "$ref": "#/components/schemas/ThreadSummaryResponse"
           },
           "events": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/ThreadEvent"
+              "$ref": "#/components/schemas/ThreadEventResponse"
             }
           }
         }
       },
-      "ThreadEvent": {
+      "ThreadEventResponse": {
         "required": [
           "id",
           "timestamp",
@@ -11835,7 +11850,7 @@
             "format": "date-time"
           },
           "source": {
-            "type": "string"
+            "$ref": "#/components/schemas/ParticipantRef"
           },
           "eventType": {
             "type": "string"
@@ -11854,9 +11869,13 @@
             "format": "uuid"
           },
           "from": {
-            "type": [
-              "null",
-              "string"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ParticipantRef"
+              }
             ]
           },
           "to": {
@@ -11918,7 +11937,7 @@
           }
         }
       },
-      "ThreadSummary": {
+      "ThreadSummaryResponse": {
         "required": [
           "id",
           "participants",
@@ -11937,7 +11956,7 @@
           "participants": {
             "type": "array",
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/ParticipantRef"
             }
           },
           "status": {
@@ -11960,7 +11979,7 @@
             "format": "int32"
           },
           "origin": {
-            "type": "string"
+            "$ref": "#/components/schemas/ParticipantRef"
           },
           "summary": {
             "type": "string"
@@ -13014,6 +13033,12 @@
           },
           "displayName": {
             "type": "string"
+          },
+          "address": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },

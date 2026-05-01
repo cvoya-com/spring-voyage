@@ -47,7 +47,7 @@ using Cvoya.Spring.Cli.Utilities;
 /// </summary>
 public static class EngagementCommand
 {
-    private static readonly OutputFormatter.Column<ThreadSummary>[] ListColumns =
+    private static readonly OutputFormatter.Column<ThreadSummaryResponse>[] ListColumns =
     {
         new("id", c => c.Id),
         new("status", c => c.Status),
@@ -57,10 +57,10 @@ public static class EngagementCommand
         new("summary", c => Truncate(c.Summary, 60)),
     };
 
-    private static readonly OutputFormatter.Column<ThreadEvent>[] ErrorColumns =
+    private static readonly OutputFormatter.Column<ThreadEventResponse>[] ErrorColumns =
     {
         new("timestamp", e => FormatTimestamp(e.Timestamp)),
-        new("source", e => e.Source ?? string.Empty),
+        new("source", e => e.Source?.DisplayName ?? e.Source?.Address ?? string.Empty),
         new("type", e => e.EventType ?? string.Empty),
         new("summary", e => Truncate(e.Summary, 80)),
     };
@@ -386,7 +386,7 @@ public static class EngagementCommand
             {
                 var detail = await client.GetThreadAsync(id, ct);
 
-                var events = detail.Events ?? new List<ThreadEvent>();
+                var events = detail.Events ?? new List<ThreadEventResponse>();
                 var errors = events
                     .Where(e =>
                         string.Equals(e.EventType, "ErrorOccurred", StringComparison.Ordinal)
@@ -425,14 +425,14 @@ public static class EngagementCommand
     // Private helpers (mirrors ThreadCommand helpers)
     // -----------------------------------------------------------------------
 
-    private static string FormatParticipants(IEnumerable<string>? participants)
+    private static string FormatParticipants(IEnumerable<ParticipantRef>? participants)
     {
         if (participants is null)
         {
             return string.Empty;
         }
 
-        var list = participants.ToList();
+        var list = participants.Select(p => p.DisplayName ?? p.Address ?? string.Empty).ToList();
         return list.Count switch
         {
             0 => string.Empty,

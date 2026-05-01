@@ -58,7 +58,7 @@ public class ThreadEndpointsTests : IClassFixture<ThreadEndpointsTests.Factory>
         var response = await _client.GetAsync("/api/v1/tenant/threads", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        var rows = await response.Content.ReadFromJsonAsync<List<ThreadSummary>>(ct);
+        var rows = await response.Content.ReadFromJsonAsync<List<ThreadSummaryResponse>>(ct);
         rows.ShouldNotBeNull();
         rows!.Count.ShouldBe(1);
         rows[0].Id.ShouldBe("c-1");
@@ -118,10 +118,12 @@ public class ThreadEndpointsTests : IClassFixture<ThreadEndpointsTests.Factory>
         var response = await _client.GetAsync("/api/v1/tenant/threads/c-1", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        var detail = await response.Content.ReadFromJsonAsync<ThreadDetail>(ct);
+        var detail = await response.Content.ReadFromJsonAsync<ThreadDetailResponse>(ct);
         detail.ShouldNotBeNull();
-        detail!.Summary.Id.ShouldBe("c-1");
-        detail.Events.Count.ShouldBe(1);
+        detail!.Summary.ShouldNotBeNull();
+        detail.Summary!.Id.ShouldBe("c-1");
+        detail.Events.ShouldNotBeNull();
+        detail.Events!.Count.ShouldBe(1);
     }
 
     [Fact]
@@ -277,10 +279,12 @@ public class ThreadEndpointsTests : IClassFixture<ThreadEndpointsTests.Factory>
         var response = await _client.PostAsJsonAsync("/api/v1/tenant/threads/c-close/close", body, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        var detail = await response.Content.ReadFromJsonAsync<ThreadDetail>(ct);
+        var detail = await response.Content.ReadFromJsonAsync<ThreadDetailResponse>(ct);
         detail.ShouldNotBeNull();
-        detail!.Summary.Status.ShouldBe("closed");
-        detail.Events.Count.ShouldBe(1);
+        detail!.Summary.ShouldNotBeNull();
+        detail.Summary!.Status.ShouldBe("closed");
+        detail.Events.ShouldNotBeNull();
+        detail.Events!.Count.ShouldBe(1);
         detail.Events[0].EventType.ShouldBe("ThreadClosed");
 
         await agentProxy.Received(1).CloseConversationAsync(
@@ -345,7 +349,7 @@ public class ThreadEndpointsTests : IClassFixture<ThreadEndpointsTests.Factory>
         var response = await _client.GetAsync("/api/v1/tenant/inbox", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        var rows = await response.Content.ReadFromJsonAsync<List<InboxItem>>(ct);
+        var rows = await response.Content.ReadFromJsonAsync<List<InboxItemResponse>>(ct);
         rows.ShouldNotBeNull();
         rows!.Count.ShouldBe(1);
         rows[0].ThreadId.ShouldBe("c-9");
