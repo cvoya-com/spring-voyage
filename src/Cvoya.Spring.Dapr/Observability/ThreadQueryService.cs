@@ -5,7 +5,10 @@ namespace Cvoya.Spring.Dapr.Observability;
 
 using System.Text.Json;
 
+using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Capabilities;
+using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Observability;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Data;
@@ -28,7 +31,9 @@ using Microsoft.EntityFrameworkCore;
 /// table (see #410) and swap this service out; every call site depends on the
 /// interface only.
 /// </remarks>
-public class ThreadQueryService(SpringDbContext dbContext) : IThreadQueryService
+public class ThreadQueryService(
+    SpringDbContext dbContext,
+    IDirectoryService? directoryService = null) : IThreadQueryService
 {
     private static readonly string[] TerminalEventTypes =
     {
@@ -47,7 +52,7 @@ public class ThreadQueryService(SpringDbContext dbContext) : IThreadQueryService
             .ToListAsync(cancellationToken);
 
         var summaries = BuildSummaries(rows);
-        summaries = ApplyFilters(summaries, filters);
+        summaries = await ApplyFiltersAsync(summaries, filters, cancellationToken);
 
         var limit = filters.Limit is > 0 ? filters.Limit.Value : 50;
         return summaries
@@ -293,9 +298,22 @@ public class ThreadQueryService(SpringDbContext dbContext) : IThreadQueryService
             Summary: first.Summary);
     }
 
-    private static IReadOnlyList<ThreadSummary> ApplyFilters(
+    /// <summary>
+    /// Filters thread summaries by status / unit / agent / participant. Agent
+    /// and unit needles are resolved through <see cref="IDirectoryService"/> so
+    /// that callers passing a slug (e.g. <c>"qa-engineer"</c>) match threads
+    /// whose participant strings carry the actor id (<c>agent://&lt;uuid&gt;</c>) —
+    /// activity events are written with the actor id as the source, so a
+    /// slug-only filter would otherwise return zero matches even when the
+    /// thread clearly involves the named agent. The literal slug form is kept
+    /// in the needle list as a fallback so direct-uuid lookups, tests with
+    /// slug-shaped actor ids, and any future call site addressing by the
+    /// canonical wire form continue to work unchanged.
+    /// </summary>
+    private async Task<IReadOnlyList<ThreadSummary>> ApplyFiltersAsync(
         IReadOnlyList<ThreadSummary> summaries,
-        ThreadQueryFilters filters)
+        ThreadQueryFilters filters,
+        CancellationToken cancellationToken)
     {
         IEnumerable<ThreadSummary> query = summaries;
 
@@ -307,18 +325,18 @@ public class ThreadQueryService(SpringDbContext dbContext) : IThreadQueryService
 
         if (!string.IsNullOrWhiteSpace(filters.Unit))
         {
-            var needle = $"unit://{filters.Unit}";
+            var needles = await BuildAddressNeedlesAsync("unit", filters.Unit, cancellationToken);
             query = query.Where(s =>
-                s.Participants.Any(p => string.Equals(p, needle, StringComparison.OrdinalIgnoreCase))
-                || string.Equals(s.Origin, needle, StringComparison.OrdinalIgnoreCase));
+                s.Participants.Any(p => needles.Contains(p, StringComparer.OrdinalIgnoreCase))
+                || needles.Contains(s.Origin, StringComparer.OrdinalIgnoreCase));
         }
 
         if (!string.IsNullOrWhiteSpace(filters.Agent))
         {
-            var needle = $"agent://{filters.Agent}";
+            var needles = await BuildAddressNeedlesAsync("agent", filters.Agent, cancellationToken);
             query = query.Where(s =>
-                s.Participants.Any(p => string.Equals(p, needle, StringComparison.OrdinalIgnoreCase))
-                || string.Equals(s.Origin, needle, StringComparison.OrdinalIgnoreCase));
+                s.Participants.Any(p => needles.Contains(p, StringComparer.OrdinalIgnoreCase))
+                || needles.Contains(s.Origin, StringComparer.OrdinalIgnoreCase));
         }
 
         if (!string.IsNullOrWhiteSpace(filters.Participant))
@@ -329,6 +347,42 @@ public class ThreadQueryService(SpringDbContext dbContext) : IThreadQueryService
         }
 
         return query.ToList();
+    }
+
+    /// <summary>
+    /// Builds the candidate participant strings for a slug-or-id filter.
+    /// Always includes <c>scheme://value</c> (the literal form), and — when a
+    /// directory service is available — also <c>scheme://&lt;actorId&gt;</c>
+    /// resolved from the directory entry. Resolution failures are silent: the
+    /// literal form alone keeps the filter usable without a directory.
+    /// </summary>
+    private async Task<IReadOnlyList<string>> BuildAddressNeedlesAsync(
+        string scheme,
+        string value,
+        CancellationToken cancellationToken)
+    {
+        var literal = $"{scheme}://{value}";
+        if (directoryService is null)
+        {
+            return new[] { literal };
+        }
+
+        try
+        {
+            var entry = await directoryService.ResolveAsync(
+                new Address(scheme, value), cancellationToken);
+            if (entry is null || string.Equals(entry.ActorId, value, StringComparison.Ordinal))
+            {
+                return new[] { literal };
+            }
+
+            return new[] { literal, $"{scheme}://{entry.ActorId}" };
+        }
+        catch
+        {
+            // Directory failures should not break read-only thread listing.
+            return new[] { literal };
+        }
     }
 
     /// <summary>

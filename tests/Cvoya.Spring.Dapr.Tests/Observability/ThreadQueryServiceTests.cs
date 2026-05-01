@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Dapr.Tests.Observability;
 using System.Text.Json;
 
 using Cvoya.Spring.Core.Capabilities;
+using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Observability;
 using Cvoya.Spring.Dapr.Actors;
@@ -14,6 +15,8 @@ using Cvoya.Spring.Dapr.Data.Entities;
 using Cvoya.Spring.Dapr.Observability;
 
 using Microsoft.EntityFrameworkCore;
+
+using NSubstitute;
 
 using Shouldly;
 
@@ -81,6 +84,67 @@ public class ThreadQueryServiceTests : IDisposable
 
         var c2 = result.Single(r => r.Id == "c-2");
         c2.Status.ShouldBe("completed");
+    }
+
+    [Fact]
+    public async Task ListAsync_AgentFilterBySlug_ResolvesThroughDirectoryAndMatchesActorIdParticipants()
+    {
+        // Production activity events carry the actor id (a UUID) as their
+        // source — see AgentActor.EmitActivityEventAsync. The portal's
+        // Messages tab and the CLI's `spring conversation list --agent
+        // <name>` both pass the agent slug, so a literal slug-only filter
+        // would return zero matches even when the thread clearly involves
+        // the named agent. The directory resolves the slug to its actor id
+        // and the filter matches against the resolved address.
+        var actorId = "2ab56e09-6746-40b2-9a34-f0d6babfc0f3";
+        await SeedThreadAsync("c-1", new[]
+        {
+            ($"agent:{actorId}", "MessageReceived", "Received human ask", DateTimeOffset.UtcNow.AddMinutes(-5)),
+            ($"agent:{actorId}", "ThreadStarted", "Started c-1", DateTimeOffset.UtcNow.AddMinutes(-5)),
+        });
+
+        var directory = Substitute.For<IDirectoryService>();
+        directory.ResolveAsync(
+                Arg.Is<Address>(a => a.Scheme == "agent" && a.Path == "backend-engineer"),
+                Arg.Any<CancellationToken>())
+            .Returns(new DirectoryEntry(
+                Address: new Address("agent", "backend-engineer"),
+                ActorId: actorId,
+                DisplayName: "backend-engineer",
+                Description: string.Empty,
+                Role: null,
+                RegisteredAt: DateTimeOffset.UtcNow));
+
+        var svc = new ThreadQueryService(_db, directory);
+
+        var result = await svc.ListAsync(
+            new ThreadQueryFilters(Agent: "backend-engineer"),
+            TestContext.Current.CancellationToken);
+
+        result.Count.ShouldBe(1);
+        result[0].Id.ShouldBe("c-1");
+    }
+
+    [Fact]
+    public async Task ListAsync_AgentFilter_NoDirectory_FallsBackToLiteralMatch()
+    {
+        // Tests in this suite seed events with the slug-form source
+        // (`agent:ada`) — the existing assertions all rely on the literal
+        // form matching, so injecting no directory must keep that path
+        // working unchanged.
+        await SeedThreadAsync("c-ada", new[]
+        {
+            ("agent:ada", "ThreadStarted", "Started c-ada", DateTimeOffset.UtcNow.AddMinutes(-5)),
+        });
+
+        var svc = new ThreadQueryService(_db);
+
+        var result = await svc.ListAsync(
+            new ThreadQueryFilters(Agent: "ada"),
+            TestContext.Current.CancellationToken);
+
+        result.Count.ShouldBe(1);
+        result[0].Id.ShouldBe("c-ada");
     }
 
     [Fact]

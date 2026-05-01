@@ -957,6 +957,72 @@ public class AgentActorTests
     /// 100 s default timeout — the actor logged "Dispatch cancelled" and
     /// then refused every follow-up message.
     /// </summary>
+    /// <summary>
+    /// Regression for the success path in <c>RunDispatchAsync</c>: a
+    /// dispatch that returns a non-null response with a zero (or absent)
+    /// exit code MUST also clear the active-conversation slot, otherwise
+    /// the actor sits permanently in Active state after replying — every
+    /// subsequent message in another thread queues as pending forever
+    /// (Case 3 in HandleDomainMessageAsync) and every reply to the same
+    /// thread silently appends to a dead channel (Case 2). Discovered while
+    /// debugging the agent Messages tab: a single successful turn left
+    /// Status=Active, PendingConversationCount=0, and the agent
+    /// stopped responding to anyone.
+    /// </summary>
+    [Fact]
+    public async Task RunDispatchAsync_SuccessfulDispatch_ClearsActiveConversation()
+    {
+        var threadId = "conv-success";
+        var activeChannel = new ThreadChannel
+        {
+            ThreadId = threadId,
+            Messages = []
+        };
+        _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
+            .Returns(
+                new ConditionalValue<ThreadChannel>(false, default!),
+                new ConditionalValue<ThreadChannel>(true, activeChannel));
+
+        var inbound = CreateMessage(threadId: threadId);
+        var successPayload = JsonSerializer.SerializeToElement(new { Output = "ok" });
+        var successResponse = new Message(
+            Guid.NewGuid(),
+            new Address("agent", "test-agent"),
+            inbound.From,
+            MessageType.Domain,
+            threadId,
+            successPayload,
+            DateTimeOffset.UtcNow);
+
+        _dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
+            .Returns(successResponse);
+        _router.RouteAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
+            .Returns(Cvoya.Spring.Core.Result<Message?, RoutingError>.Success(null));
+
+        await _actor.ReceiveAsync(inbound, TestContext.Current.CancellationToken);
+        await _actor.PendingDispatchTask!;
+
+        // Active conversation must be cleared after a successful turn.
+        await _stateManager.Received().TryRemoveStateAsync(
+            StateKeys.ActiveConversation, Arg.Any<CancellationToken>());
+
+        // The Active→Idle StateChanged event must be emitted with the
+        // success-path reason so operators can correlate "turn finished
+        // cleanly" against "turn aborted due to <X>".
+        await _activityEventBus.Received().PublishAsync(
+            Arg.Is<ActivityEvent>(e =>
+                e.EventType == ActivityEventType.StateChanged &&
+                e.Summary.Contains("Active") &&
+                e.Summary.Contains("Idle") &&
+                e.Summary.Contains("dispatch completed")),
+            Arg.Any<CancellationToken>());
+
+        // Original sender still gets the reply routed back.
+        await _router.Received(1).RouteAsync(
+            Arg.Is<Message>(m => m.Id == successResponse.Id),
+            Arg.Any<CancellationToken>());
+    }
+
     [Fact]
     public async Task RunDispatchAsync_CancelledDispatch_ClearsActiveConversation()
     {

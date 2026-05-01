@@ -48,6 +48,12 @@ public class AgentDispatchCoordinator(
                 logger.LogInformation(
                     "Dispatcher returned no response for thread {ThreadId}; nothing to route.",
                     message.ThreadId);
+                // Even when the dispatcher returns nothing to route, the turn
+                // is over from the actor's perspective. The active-thread slot
+                // must be released so the next message can be dispatched
+                // instead of being queued forever as pending. See the success
+                // branch below for the same rationale.
+                await clearActiveConversation("dispatch returned no response");
                 return;
             }
 
@@ -87,6 +93,23 @@ public class AgentDispatchCoordinator(
             }
 
             await TryRouteResponseAsync(agentId, response, message.ThreadId, cancellationToken);
+
+            // The successful turn is complete: the dispatcher returned a
+            // response and we routed it back to the original sender. The
+            // actor's ActiveConversation slot must be released so the next
+            // message dispatched to this agent can run, instead of being
+            // queued behind a thread the actor has actually finished with.
+            // The error/cancel branches above call clearActiveConversation
+            // for the same reason — without an explicit clear here, an
+            // agent that ever completes a turn successfully looks bricked
+            // to every later sender, including the very human it just
+            // replied to. Discovered while debugging an agent stuck in
+            // Active state after a working dispatch (Status=Active,
+            // PendingConversationCount=0): every follow-up send was either
+            // appended to the dead active channel (Case 2 in
+            // HandleDomainMessageAsync) or queued as pending (Case 3) and
+            // never dispatched.
+            await clearActiveConversation("dispatch completed");
         }
         catch (OperationCanceledException)
         {
