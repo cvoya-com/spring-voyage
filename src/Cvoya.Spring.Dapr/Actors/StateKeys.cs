@@ -333,4 +333,15 @@ public static class StateKeys
     /// <see cref="Core.Units.UnitMetadata"/>. See #1065.
     /// </summary>
     public const string UnitHosting = "Unit:Hosting";
+
+    /// <summary>
+    /// State key for the human actor's per-thread read cursor map
+    /// (<c>Dictionary&lt;string, DateTimeOffset&gt;</c> mapping
+    /// <c>threadId → lastReadAt</c>). Absent entries mean the thread
+    /// has never been read; the inbox unread-count computation treats
+    /// absent entries as <see cref="DateTimeOffset.MinValue"/> so all
+    /// events count as unread. Written by the
+    /// <c>POST /api/v1/inbox/{threadId}/mark-read</c> endpoint (#1477).
+    /// </summary>
+    public const string HumanLastReadAt = "Human:LastReadAt";
 }

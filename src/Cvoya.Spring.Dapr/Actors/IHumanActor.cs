@@ -45,4 +45,29 @@ public interface IHumanActor : IAgent
     /// <param name="unitId">The unit identifier.</param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     Task RemovePermissionForUnitAsync(string unitId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Records <paramref name="readAt"/> as the last time this human opened
+    /// <paramref name="threadId"/>. Idempotent — calling it multiple times
+    /// with increasing timestamps advances the cursor; calling it with an
+    /// older timestamp is a no-op (the stored value is never moved backwards).
+    /// </summary>
+    /// <param name="threadId">The thread that was read.</param>
+    /// <param name="readAt">The timestamp to record as the read cursor.</param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    Task MarkReadAsync(string threadId, DateTimeOffset readAt, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the per-thread read cursor array — one <see cref="ThreadReadEntry"/>
+    /// per thread the human has read. Returns an empty array when no threads have
+    /// been read yet (lazy initialisation).
+    /// </summary>
+    /// <remarks>
+    /// Bug #319: returning a concrete array avoids <c>DataContractSerializer</c>
+    /// "type not expected" failures at the Dapr remoting boundary. Dictionary
+    /// types are not data-contract known types by default, so the public contract
+    /// must be an array of a <c>[DataContract]</c>-annotated record.
+    /// </remarks>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    Task<ThreadReadEntry[]> GetLastReadAtAsync(CancellationToken cancellationToken = default);
 }

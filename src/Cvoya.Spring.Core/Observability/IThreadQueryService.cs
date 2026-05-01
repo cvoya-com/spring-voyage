@@ -44,10 +44,23 @@ public interface IThreadQueryService
     /// <c>MessageReceived</c>). The predicate intentionally ignores trailing
     /// observability events such as <c>StateChanged</c> from dispatch
     /// teardown or <c>CostIncurred</c> from a budget enforcer (#1210).
+    ///
+    /// When <paramref name="lastReadAt"/> is supplied, each row's
+    /// <see cref="InboxItem.UnreadCount"/> is set to the count of thread
+    /// events whose timestamp is strictly greater than the stored
+    /// <c>lastReadAt</c> for that thread. Missing entries mean "never read"
+    /// (<see cref="DateTimeOffset.MinValue"/>), making all events count as
+    /// unread.
     /// </summary>
     /// <param name="humanAddress">The <c>scheme://path</c> of the human whose inbox to load.</param>
+    /// <param name="lastReadAt">
+    /// Optional per-thread read cursor — maps <c>threadId</c> to the last
+    /// time the human opened that thread. Pass <c>null</c> to skip unread
+    /// computation (all rows get <c>UnreadCount = 0</c>).
+    /// </param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     Task<IReadOnlyList<InboxItem>> ListInboxAsync(
         string humanAddress,
+        IReadOnlyDictionary<string, DateTimeOffset>? lastReadAt,
         CancellationToken cancellationToken);
 }

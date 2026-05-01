@@ -849,6 +849,52 @@ export function useInbox(
   });
 }
 
+/**
+ * Mark an inbox thread as read (#1477). Posts to
+ * `POST /api/v1/tenant/inbox/{threadId}/mark-read` which writes the read
+ * cursor on the caller's HumanActor and returns the updated InboxItem.
+ *
+ * The mutation performs an optimistic update: it zeroes the `unreadCount`
+ * in the inbox cache immediately so the badge disappears without waiting
+ * for the server round-trip. The server's authoritative response is seeded
+ * back on success to reconcile any drift.
+ */
+export function useMarkInboxRead(): UseMutationResult<
+  InboxItem,
+  Error,
+  string
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (threadId: string) => api.markInboxRead(threadId) as Promise<InboxItem>,
+    onMutate: async (threadId: string) => {
+      // Optimistically zero out unreadCount for the target row.
+      await queryClient.cancelQueries({ queryKey: queryKeys.threads.inbox() });
+      const previous = queryClient.getQueryData<InboxItem[]>(queryKeys.threads.inbox());
+      queryClient.setQueryData<InboxItem[]>(queryKeys.threads.inbox(), (old) =>
+        old?.map((item) =>
+          item.threadId === threadId ? { ...item, unreadCount: 0 } : item,
+        ),
+      );
+      return { previous };
+    },
+    onSuccess: (updated: InboxItem) => {
+      // Seed the server-authoritative row so the cache reflects the real state.
+      queryClient.setQueryData<InboxItem[]>(queryKeys.threads.inbox(), (old) =>
+        old?.map((item) =>
+          item.threadId === updated.threadId ? updated : item,
+        ),
+      );
+    },
+    onError: (_err, _threadId, context) => {
+      // Roll back the optimistic update on failure.
+      if (context?.previous !== undefined) {
+        queryClient.setQueryData(queryKeys.threads.inbox(), context.previous);
+      }
+    },
+  });
+}
+
 
 // ---------------------------------------------------------------------------
 // Tenant

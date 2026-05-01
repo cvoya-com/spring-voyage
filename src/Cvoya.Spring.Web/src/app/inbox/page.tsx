@@ -38,7 +38,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn, timeAgo } from "@/lib/utils";
-import { useInbox, useThread } from "@/lib/api/queries";
+import { useInbox, useMarkInboxRead, useThread } from "@/lib/api/queries";
 import { useActivityStream } from "@/lib/stream/use-activity-stream";
 import { useThreadStream } from "@/lib/stream/use-thread-stream";
 import { parseThreadSource, roleFromEvent, ROLE_STYLES } from "@/components/thread/role";
@@ -75,6 +75,7 @@ interface ThreadRowProps {
 function ThreadRow({ item, selected, onSelect }: ThreadRowProps) {
   const label = otherParticipants(item);
   const summary = item.summary?.trim();
+  const unread = (item.unreadCount ?? 0) as number;
 
   return (
     <button
@@ -96,9 +97,20 @@ function ThreadRow({ item, selected, onSelect }: ThreadRowProps) {
         >
           {label}
         </span>
-        <span className="text-[10px] font-mono text-muted-foreground shrink-0 tabular-nums">
-          {timeAgo(item.pendingSince)}
-        </span>
+        <div className="flex items-center gap-1 shrink-0">
+          {unread > 0 && (
+            <Badge
+              variant="warning"
+              className="h-5 px-1.5 text-[10px] tabular-nums"
+              data-testid={`inbox-unread-badge-${item.threadId}`}
+            >
+              ({unread})
+            </Badge>
+          )}
+          <span className="text-[10px] font-mono text-muted-foreground tabular-nums">
+            {timeAgo(item.pendingSince)}
+          </span>
+        </div>
       </div>
       {summary && (
         <p className="mt-0.5 text-xs text-muted-foreground truncate">{summary}</p>
@@ -479,6 +491,7 @@ function InboxPageContent() {
   const selectedThreadId = searchParams.get("thread") ?? null;
 
   const inboxQuery = useInbox();
+  const markRead = useMarkInboxRead();
   const stream = useActivityStream();
 
   // Wrap the empty-array fallback in its own useMemo so `items`'s identity
@@ -490,14 +503,28 @@ function InboxPageContent() {
     [inboxQuery.data],
   );
 
-  // Sort by last activity descending: pendingSince is the best proxy we have.
+  // Sort: unread-first (any unreadCount > 0 ranks ahead of any unreadCount === 0),
+  // then by pendingSince descending within each bucket (#1477).
+  // We do NOT re-sort on mark-read; the optimistic update zeroes the badge
+  // in-place but the row stays put until the next inbox refetch to avoid
+  // the selected row jumping away while the user is reading.
   const sortedItems = useMemo(
     () =>
-      [...items].sort(
-        (a, b) =>
+      [...items].sort((a, b) => {
+        const aUnread = (a.unreadCount ?? 0) as number;
+        const bUnread = (b.unreadCount ?? 0) as number;
+        const aHasUnread = aUnread > 0 ? 1 : 0;
+        const bHasUnread = bUnread > 0 ? 1 : 0;
+        if (bHasUnread !== aHasUnread) {
+          // Unread rows rank first.
+          return bHasUnread - aHasUnread;
+        }
+        // Within each bucket sort by most recent first.
+        return (
           new Date(b.pendingSince).getTime() -
-          new Date(a.pendingSince).getTime(),
-      ),
+          new Date(a.pendingSince).getTime()
+        );
+      }),
     [items],
   );
 
@@ -508,6 +535,14 @@ function InboxPageContent() {
       router.replace(`/inbox?thread=${encodeURIComponent(firstThreadId)}`);
     }
   }, [selectedThreadId, firstThreadId, router]);
+
+  // Fire mark-read when a thread is selected. Uses the mutation's optimistic
+  // update so the badge clears immediately. This is a best-effort call —
+  // failure is silent because the badge resets on the next inbox refetch.
+  const handleSelectThread = (threadId: string) => {
+    router.replace(`/inbox?thread=${encodeURIComponent(threadId)}`);
+    markRead.mutate(threadId);
+  };
 
   const errorMessage =
     inboxQuery.error instanceof Error ? inboxQuery.error.message : null;
@@ -618,11 +653,7 @@ function InboxPageContent() {
                   key={item.threadId}
                   item={item}
                   selected={item.threadId === selectedThreadId}
-                  onSelect={() =>
-                    router.replace(
-                      `/inbox?thread=${encodeURIComponent(item.threadId)}`,
-                    )
-                  }
+                  onSelect={() => handleSelectThread(item.threadId)}
                 />
               ))}
             </div>

@@ -19,6 +19,7 @@ import type { InboxItem } from "@/lib/api/types";
 let _inboxData: InboxItem[] | null = null;
 let _inboxError: Error | null = null;
 let _inboxPending = false;
+const _markReadMutate = vi.fn();
 
 const mockRouterReplace = vi.fn();
 
@@ -31,6 +32,10 @@ vi.mock("@/lib/api/queries", () => ({
     refetch: vi.fn(),
   }),
   useThread: () => ({ data: null, isPending: false, error: null, isFetching: false }),
+  useMarkInboxRead: () => ({
+    mutate: _markReadMutate,
+    isPending: false,
+  }),
 }));
 
 vi.mock("@/lib/stream/use-activity-stream", () => ({
@@ -89,6 +94,7 @@ const rows: InboxItem[] = [
     human: "human://savas",
     pendingSince: new Date(Date.now() - 1000 * 60 * 10).toISOString(),
     summary: "Need your call on the migration plan",
+    unreadCount: 3,
   },
   {
     threadId: "conv-2",
@@ -96,6 +102,7 @@ const rows: InboxItem[] = [
     human: "human://savas",
     pendingSince: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
     summary: "Ready to ship the portal redesign?",
+    unreadCount: 0,
   },
 ];
 
@@ -117,6 +124,7 @@ describe("InboxPage (redesigned #1474)", () => {
     _inboxError = null;
     _inboxPending = false;
     mockRouterReplace.mockReset();
+    _markReadMutate.mockReset();
   });
 
   it("renders one thread row per inbox item in the left pane", async () => {
@@ -213,6 +221,90 @@ describe("InboxPage (redesigned #1474)", () => {
       const badge = screen.getByTestId("inbox-count-badge");
       expect(badge).toBeInTheDocument();
       expect(badge).toHaveTextContent(String(rows.length));
+    });
+  });
+
+  // --- Unread badge tests (#1477) ---
+
+  it("renders the (N) unread badge when unreadCount > 0", async () => {
+    setupInbox(rows);
+    render(
+      <Wrapper>
+        <InboxPage />
+      </Wrapper>,
+    );
+    await waitFor(() => {
+      // conv-1 has unreadCount=3 → badge should be visible.
+      const badge = screen.getByTestId("inbox-unread-badge-conv-1");
+      expect(badge).toBeInTheDocument();
+      expect(badge).toHaveTextContent("(3)");
+    });
+  });
+
+  it("does not render the unread badge when unreadCount is 0", async () => {
+    setupInbox(rows);
+    render(
+      <Wrapper>
+        <InboxPage />
+      </Wrapper>,
+    );
+    await waitFor(() => {
+      // conv-2 has unreadCount=0 → no badge.
+      expect(
+        screen.queryByTestId("inbox-unread-badge-conv-2"),
+      ).not.toBeInTheDocument();
+    });
+  });
+
+  it("fires mark-read mutation when a thread is selected", async () => {
+    setupInbox(rows);
+    const { getByTestId } = render(
+      <Wrapper>
+        <InboxPage />
+      </Wrapper>,
+    );
+    await waitFor(() => {
+      expect(getByTestId("inbox-thread-row-conv-1")).toBeInTheDocument();
+    });
+
+    getByTestId("inbox-thread-row-conv-1").click();
+
+    await waitFor(() => {
+      expect(_markReadMutate).toHaveBeenCalledWith("conv-1");
+    });
+  });
+
+  it("sorts unread threads before read threads", async () => {
+    const mixed: InboxItem[] = [
+      {
+        threadId: "read-thread",
+        from: "agent://alice",
+        human: "human://savas",
+        pendingSince: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
+        summary: "Read thread",
+        unreadCount: 0,
+      },
+      {
+        threadId: "unread-thread",
+        from: "agent://bob",
+        human: "human://savas",
+        // older, but should still sort first because it has unread events
+        pendingSince: new Date(Date.now() - 1000 * 60 * 60).toISOString(),
+        summary: "Unread thread",
+        unreadCount: 5,
+      },
+    ];
+    setupInbox(mixed);
+    render(
+      <Wrapper>
+        <InboxPage />
+      </Wrapper>,
+    );
+    await waitFor(() => {
+      const rows = screen.getAllByTestId(/^inbox-thread-row-/);
+      // The unread thread must appear first despite being older.
+      expect(rows[0]).toHaveAttribute("data-testid", "inbox-thread-row-unread-thread");
+      expect(rows[1]).toHaveAttribute("data-testid", "inbox-thread-row-read-thread");
     });
   });
 });

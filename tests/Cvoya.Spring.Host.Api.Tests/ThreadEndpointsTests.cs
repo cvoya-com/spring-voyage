@@ -336,7 +336,7 @@ public class ThreadEndpointsTests : IClassFixture<ThreadEndpointsTests.Factory>
         var ct = TestContext.Current.CancellationToken;
         var now = DateTimeOffset.UtcNow;
         _factory.ThreadQueryService
-            .ListInboxAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .ListInboxAsync(Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, DateTimeOffset>?>(), Arg.Any<CancellationToken>())
             .Returns(new List<InboxItem>
             {
                 new("c-9", "agent://ada", "human://local-dev-user", now, "Approve merge?"),

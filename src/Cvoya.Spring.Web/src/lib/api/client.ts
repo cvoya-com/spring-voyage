@@ -773,6 +773,19 @@ export const api = {
     ),
   listInbox: async () => unwrap(await fetchClient.GET("/api/v1/tenant/inbox")),
 
+  /**
+   * POST /api/v1/tenant/inbox/{threadId}/mark-read (#1477). Records now as
+   * the read cursor for the thread on the calling human's actor. Returns the
+   * updated InboxItem with UnreadCount=0.
+   */
+  markInboxRead: async (threadId: string) =>
+    unwrap(
+      await fetchClient.POST(
+        "/api/v1/tenant/inbox/{threadId}/mark-read",
+        { params: { path: { threadId } } },
+      ),
+    ),
+
   // Initiative
   getAgentInitiativePolicy: async (id: string) =>
     unwrap(

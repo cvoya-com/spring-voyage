@@ -85,12 +85,19 @@ public record ThreadEvent(
 /// <param name="Human">The <c>human://</c> address this row belongs to.</param>
 /// <param name="PendingSince">Timestamp of the ask event.</param>
 /// <param name="Summary">Human-readable summary of the ask — the last event's summary text.</param>
+/// <param name="UnreadCount">
+/// Number of thread events whose timestamp is strictly greater than the
+/// human's <c>lastReadAt</c> for this thread. Defaults to <c>0</c> when
+/// the caller omits last-read data. The badge in the portal reads this
+/// field directly — it is always non-negative.
+/// </param>
 public record InboxItem(
     string ThreadId,
     string From,
     string Human,
     DateTimeOffset PendingSince,
-    string Summary);
+    string Summary,
+    int UnreadCount = 0);
 
 /// <summary>
 /// Filters for <see cref="IThreadQueryService.ListAsync"/>. Each filter is

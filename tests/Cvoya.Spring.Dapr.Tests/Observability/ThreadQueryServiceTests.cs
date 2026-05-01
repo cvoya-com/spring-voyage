@@ -149,7 +149,7 @@ public class ThreadQueryServiceTests : IDisposable
         });
 
         var svc = new ThreadQueryService(_db);
-        var inbox = await svc.ListInboxAsync("human://savasp", TestContext.Current.CancellationToken);
+        var inbox = await svc.ListInboxAsync("human://savasp", null, TestContext.Current.CancellationToken);
 
         inbox.Count.ShouldBe(1);
         inbox[0].ThreadId.ShouldBe("c-1");
@@ -169,7 +169,7 @@ public class ThreadQueryServiceTests : IDisposable
         });
 
         var svc = new ThreadQueryService(_db);
-        var inbox = await svc.ListInboxAsync("human://savasp", TestContext.Current.CancellationToken);
+        var inbox = await svc.ListInboxAsync("human://savasp", null, TestContext.Current.CancellationToken);
 
         inbox.ShouldBeEmpty();
     }
@@ -184,7 +184,7 @@ public class ThreadQueryServiceTests : IDisposable
         });
 
         var svc = new ThreadQueryService(_db);
-        var inbox = await svc.ListInboxAsync("human://savasp", TestContext.Current.CancellationToken);
+        var inbox = await svc.ListInboxAsync("human://savasp", null, TestContext.Current.CancellationToken);
 
         inbox.ShouldBeEmpty();
     }
@@ -213,7 +213,7 @@ public class ThreadQueryServiceTests : IDisposable
         });
 
         var svc = new ThreadQueryService(_db);
-        var inbox = await svc.ListInboxAsync("human://local-dev-user", TestContext.Current.CancellationToken);
+        var inbox = await svc.ListInboxAsync("human://local-dev-user", null, TestContext.Current.CancellationToken);
 
         inbox.Count.ShouldBe(1);
         inbox[0].ThreadId.ShouldBe("e58eaf86");
@@ -243,7 +243,7 @@ public class ThreadQueryServiceTests : IDisposable
         });
 
         var svc = new ThreadQueryService(_db);
-        var inbox = await svc.ListInboxAsync("human://local-dev-user", TestContext.Current.CancellationToken);
+        var inbox = await svc.ListInboxAsync("human://local-dev-user", null, TestContext.Current.CancellationToken);
 
         inbox.Count.ShouldBe(2);
         inbox[0].ThreadId.ShouldBe("e58eaf86");
@@ -271,7 +271,7 @@ public class ThreadQueryServiceTests : IDisposable
         });
 
         var svc = new ThreadQueryService(_db);
-        var inbox = await svc.ListInboxAsync("human://savasp", TestContext.Current.CancellationToken);
+        var inbox = await svc.ListInboxAsync("human://savasp", null, TestContext.Current.CancellationToken);
 
         inbox.Count.ShouldBe(1);
         inbox[0].ThreadId.ShouldBe("c-trailing");
@@ -295,7 +295,7 @@ public class ThreadQueryServiceTests : IDisposable
         });
 
         var svc = new ThreadQueryService(_db);
-        var inbox = await svc.ListInboxAsync("human://savasp", TestContext.Current.CancellationToken);
+        var inbox = await svc.ListInboxAsync("human://savasp", null, TestContext.Current.CancellationToken);
 
         inbox.ShouldBeEmpty();
     }
@@ -339,6 +339,80 @@ public class ThreadQueryServiceTests : IDisposable
         evt.From.ShouldBe("human://savasp");
         evt.To.ShouldBe("agent://ada");
         evt.Body.ShouldBe("Approve merge?");
+    }
+
+    // --- UnreadCount tests (#1477) ---
+
+    [Fact]
+    public async Task ListInboxAsync_NullLastReadAt_UnreadCountEqualsAllEvents()
+    {
+        // With no lastReadAt supplied, cursor is DateTimeOffset.MinValue so
+        // all events count as unread.
+        var t0 = DateTimeOffset.UtcNow.AddMinutes(-5);
+        await SeedThreadAsync("c-unread", new[]
+        {
+            ("agent:ada", "ThreadStarted", "Started", t0),
+            ("agent:ada", "MessageReceived", "Agent msg", t0.AddSeconds(30)),
+            ("human:savasp", "MessageReceived", "Agent's reply to human", t0.AddSeconds(60)),
+        });
+
+        var svc = new ThreadQueryService(_db);
+        var inbox = await svc.ListInboxAsync("human://savasp", null, TestContext.Current.CancellationToken);
+
+        inbox.Count.ShouldBe(1);
+        // All 3 events are "after MinValue" → UnreadCount = 3.
+        inbox[0].UnreadCount.ShouldBe(3);
+    }
+
+    [Fact]
+    public async Task ListInboxAsync_WithLastReadAt_UnreadCountReflectsEventsSince()
+    {
+        var t0 = DateTimeOffset.UtcNow.AddMinutes(-5);
+        await SeedThreadAsync("c-partial", new[]
+        {
+            ("agent:ada", "ThreadStarted", "Started", t0),
+            ("agent:ada", "MessageReceived", "Agent msg", t0.AddSeconds(30)),
+            ("human:savasp", "MessageReceived", "Reply", t0.AddSeconds(60)),
+        });
+
+        var svc = new ThreadQueryService(_db);
+
+        // The human last read the thread after the first 2 events — only the
+        // third event (human MessageReceived at t0+60s) is "new".
+        var lastReadAt = new Dictionary<string, DateTimeOffset>
+        {
+            ["c-partial"] = t0.AddSeconds(45),
+        };
+
+        var inbox = await svc.ListInboxAsync("human://savasp", lastReadAt, TestContext.Current.CancellationToken);
+
+        inbox.Count.ShouldBe(1);
+        inbox[0].UnreadCount.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task ListInboxAsync_FullyReadThread_UnreadCountIsZero()
+    {
+        var t0 = DateTimeOffset.UtcNow.AddMinutes(-5);
+        await SeedThreadAsync("c-read", new[]
+        {
+            ("agent:ada", "ThreadStarted", "Started", t0),
+            ("agent:ada", "MessageReceived", "Agent msg", t0.AddSeconds(30)),
+            ("human:savasp", "MessageReceived", "Reply", t0.AddSeconds(60)),
+        });
+
+        var svc = new ThreadQueryService(_db);
+
+        // lastReadAt is after all events → UnreadCount = 0.
+        var lastReadAt = new Dictionary<string, DateTimeOffset>
+        {
+            ["c-read"] = t0.AddSeconds(120),
+        };
+
+        var inbox = await svc.ListInboxAsync("human://savasp", lastReadAt, TestContext.Current.CancellationToken);
+
+        inbox.Count.ShouldBe(1);
+        inbox[0].UnreadCount.ShouldBe(0);
     }
 
     private async Task SeedThreadAsync(

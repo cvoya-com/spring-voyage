@@ -93,6 +93,7 @@ function makeInboxItem(overrides: Partial<InboxItem> = {}): InboxItem {
     human: "human://savas",
     pendingSince: new Date().toISOString(),
     summary: "Which branch?",
+    unreadCount: 0,
     ...overrides,
   };
 }

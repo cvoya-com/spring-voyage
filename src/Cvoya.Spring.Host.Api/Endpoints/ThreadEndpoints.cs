@@ -310,6 +310,11 @@ public static class ThreadEndpoints
 /// <see cref="ThreadEndpoints.MapThreadEndpoints"/> — the
 /// <c>POST /api/v1/threads/{id}/messages</c> call — so we don't fork the
 /// message-send contract.
+///
+/// #1477 adds <c>POST /api/v1/tenant/inbox/{threadId}/mark-read</c> which
+/// writes a per-thread read cursor on the caller's <see cref="IHumanActor"/>
+/// so subsequent <c>GET /api/v1/tenant/inbox</c> calls populate
+/// <see cref="InboxItem.UnreadCount"/> accurately.
 /// </summary>
 public static class InboxEndpoints
 {
@@ -328,18 +333,85 @@ public static class InboxEndpoints
             .WithSummary("List threads awaiting the current human caller")
             .Produces<IReadOnlyList<InboxItem>>(StatusCodes.Status200OK);
 
+        group.MapPost("/{threadId}/mark-read", MarkReadAsync)
+            .WithName("MarkInboxThreadRead")
+            .WithSummary("Record that the current human has read the specified inbox thread")
+            .Produces<InboxItem>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
         return group;
     }
 
     private static async Task<IResult> ListInboxAsync(
         IThreadQueryService queryService,
         IAuthenticatedCallerAccessor callerAccessor,
+        IActorProxyFactory actorProxyFactory,
         CancellationToken cancellationToken)
     {
         var caller = callerAccessor.GetHumanAddress();
-        var items = await queryService.ListInboxAsync(
-            $"{caller.Scheme}://{caller.Path}",
-            cancellationToken);
+        var callerAddress = $"{caller.Scheme}://{caller.Path}";
+
+        // Fetch the caller's per-thread read cursors from their HumanActor so
+        // the query service can compute UnreadCount per row.
+        IReadOnlyDictionary<string, DateTimeOffset>? lastReadAt = null;
+        try
+        {
+            var humanProxy = actorProxyFactory.CreateActorProxy<IHumanActor>(
+                new ActorId(caller.Path), nameof(HumanActor));
+            var entries = await humanProxy.GetLastReadAtAsync(cancellationToken);
+            lastReadAt = entries.ToDictionary(e => e.ThreadId, e => e.LastReadAt);
+        }
+        catch
+        {
+            // Actor unavailable — proceed without unread data; all items get UnreadCount=0.
+        }
+
+        var items = await queryService.ListInboxAsync(callerAddress, lastReadAt, cancellationToken);
         return Results.Ok(items);
+    }
+
+    /// <summary>
+    /// Records <c>now</c> as the read cursor for <paramref name="threadId"/>
+    /// on the caller's <see cref="IHumanActor"/>. Idempotent — repeated calls
+    /// only advance the cursor. Returns the updated <see cref="InboxItem"/> so
+    /// the portal can reconcile the cache in one round-trip.
+    /// </summary>
+    private static async Task<IResult> MarkReadAsync(
+        string threadId,
+        IAuthenticatedCallerAccessor callerAccessor,
+        IThreadQueryService queryService,
+        IActorProxyFactory actorProxyFactory,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(threadId))
+        {
+            return Results.Problem(
+                detail: "Thread id is required.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        var caller = callerAccessor.GetHumanAddress();
+        var readAt = DateTimeOffset.UtcNow;
+
+        var humanProxy = actorProxyFactory.CreateActorProxy<IHumanActor>(
+            new ActorId(caller.Path), nameof(HumanActor));
+
+        await humanProxy.MarkReadAsync(threadId, readAt, cancellationToken);
+
+        // Return the refreshed inbox item (UnreadCount should now be 0).
+        var entries = await humanProxy.GetLastReadAtAsync(cancellationToken);
+        var lastReadAt = entries.ToDictionary(e => e.ThreadId, e => e.LastReadAt);
+        var callerAddress = $"{caller.Scheme}://{caller.Path}";
+        var items = await queryService.ListInboxAsync(callerAddress, lastReadAt, cancellationToken);
+        var updated = items.FirstOrDefault(i => string.Equals(i.ThreadId, threadId, StringComparison.Ordinal));
+
+        if (updated is null)
+        {
+            return Results.Problem(
+                detail: $"Thread '{threadId}' not found in inbox.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        return Results.Ok(updated);
     }
 }

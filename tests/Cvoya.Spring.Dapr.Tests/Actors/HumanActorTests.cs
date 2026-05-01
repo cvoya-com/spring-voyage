@@ -274,4 +274,99 @@ public class HumanActorTests
             Arg.Any<Dictionary<string, PermissionLevel>>(),
             Arg.Any<CancellationToken>());
     }
+
+    // --- Per-thread last-read-at cursor tests (#1477) ---
+
+    [Fact]
+    public async Task MarkReadAsync_NewThread_StoresCursor()
+    {
+        _stateManager.TryGetStateAsync<Dictionary<string, DateTimeOffset>>(
+            StateKeys.HumanLastReadAt, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<Dictionary<string, DateTimeOffset>>(false, default!));
+
+        var readAt = DateTimeOffset.UtcNow;
+        await _actor.MarkReadAsync("thread-1", readAt, TestContext.Current.CancellationToken);
+
+        await _stateManager.Received(1).SetStateAsync(
+            StateKeys.HumanLastReadAt,
+            Arg.Is<Dictionary<string, DateTimeOffset>>(d =>
+                d.ContainsKey("thread-1") && d["thread-1"] == readAt),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task MarkReadAsync_AdvancingCursor_UpdatesStoredValue()
+    {
+        var earlier = DateTimeOffset.UtcNow.AddMinutes(-5);
+        var later = DateTimeOffset.UtcNow;
+
+        _stateManager.TryGetStateAsync<Dictionary<string, DateTimeOffset>>(
+            StateKeys.HumanLastReadAt, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<Dictionary<string, DateTimeOffset>>(
+                true,
+                new Dictionary<string, DateTimeOffset> { ["thread-1"] = earlier }));
+
+        await _actor.MarkReadAsync("thread-1", later, TestContext.Current.CancellationToken);
+
+        await _stateManager.Received(1).SetStateAsync(
+            StateKeys.HumanLastReadAt,
+            Arg.Is<Dictionary<string, DateTimeOffset>>(d =>
+                d.ContainsKey("thread-1") && d["thread-1"] == later),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task MarkReadAsync_OlderTimestamp_IsNoOp()
+    {
+        var earlier = DateTimeOffset.UtcNow.AddMinutes(-5);
+        var later = DateTimeOffset.UtcNow;
+
+        _stateManager.TryGetStateAsync<Dictionary<string, DateTimeOffset>>(
+            StateKeys.HumanLastReadAt, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<Dictionary<string, DateTimeOffset>>(
+                true,
+                new Dictionary<string, DateTimeOffset> { ["thread-1"] = later }));
+
+        // Calling with an older timestamp should not advance the cursor.
+        await _actor.MarkReadAsync("thread-1", earlier, TestContext.Current.CancellationToken);
+
+        await _stateManager.DidNotReceive().SetStateAsync(
+            StateKeys.HumanLastReadAt,
+            Arg.Any<Dictionary<string, DateTimeOffset>>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task GetLastReadAtAsync_NoState_ReturnsEmptyArray()
+    {
+        _stateManager.TryGetStateAsync<Dictionary<string, DateTimeOffset>>(
+            StateKeys.HumanLastReadAt, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<Dictionary<string, DateTimeOffset>>(false, default!));
+
+        var result = await _actor.GetLastReadAtAsync(TestContext.Current.CancellationToken);
+
+        result.ShouldNotBeNull();
+        result.Length.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task GetLastReadAtAsync_WithState_RoundTripsMap()
+    {
+        var ts = DateTimeOffset.UtcNow;
+        _stateManager.TryGetStateAsync<Dictionary<string, DateTimeOffset>>(
+            StateKeys.HumanLastReadAt, Arg.Any<CancellationToken>())
+            .Returns(new ConditionalValue<Dictionary<string, DateTimeOffset>>(
+                true,
+                new Dictionary<string, DateTimeOffset>
+                {
+                    ["thread-a"] = ts,
+                    ["thread-b"] = ts.AddMinutes(-3),
+                }));
+
+        var result = await _actor.GetLastReadAtAsync(TestContext.Current.CancellationToken);
+
+        result.Length.ShouldBe(2);
+        result.ShouldContain(e => e.ThreadId == "thread-a" && e.LastReadAt == ts);
+        result.ShouldContain(e => e.ThreadId == "thread-b" && e.LastReadAt == ts.AddMinutes(-3));
+    }
 }

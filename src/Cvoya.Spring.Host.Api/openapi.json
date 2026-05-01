@@ -4896,6 +4896,47 @@
         }
       }
     },
+    "/api/v1/tenant/inbox/{threadId}/mark-read": {
+      "post": {
+        "tags": [
+          "Inbox"
+        ],
+        "summary": "Record that the current human has read the specified inbox thread",
+        "operationId": "MarkInboxThreadRead",
+        "parameters": [
+          {
+            "name": "threadId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboxItem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tenant/analytics/throughput": {
       "get": {
         "tags": [
@@ -10301,6 +10342,15 @@
           },
           "summary": {
             "type": "string"
+          },
+          "unreadCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32",
+            "default": 0
           }
         }
       },

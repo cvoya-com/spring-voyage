@@ -149,6 +149,7 @@ public class ThreadQueryService(SpringDbContext dbContext) : IThreadQueryService
     /// <inheritdoc />
     public async Task<IReadOnlyList<InboxItem>> ListInboxAsync(
         string humanAddress,
+        IReadOnlyDictionary<string, DateTimeOffset>? lastReadAt,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(humanAddress))
@@ -234,12 +235,21 @@ public class ThreadQueryService(SpringDbContext dbContext) : IThreadQueryService
                 .Select(r => NormaliseSource(r.Source))
                 .LastOrDefault() ?? NormaliseSource(humanReceive.Source);
 
+            // Compute unread count: count events with timestamp strictly greater
+            // than the human's lastReadAt for this thread. Absent entry means
+            // "never read" (DateTimeOffset.MinValue) so all events are unread.
+            var cursor = lastReadAt is not null && lastReadAt.TryGetValue(group.Key, out var storedAt)
+                ? storedAt
+                : DateTimeOffset.MinValue;
+            var unreadCount = ordered.Count(r => r.Timestamp > cursor);
+
             inbox.Add(new InboxItem(
                 ThreadId: group.Key,
                 From: from,
                 Human: humanSourceDisplay,
                 PendingSince: humanReceive.Timestamp,
-                Summary: humanReceive.Summary));
+                Summary: humanReceive.Summary,
+                UnreadCount: unreadCount));
         }
 
         return inbox

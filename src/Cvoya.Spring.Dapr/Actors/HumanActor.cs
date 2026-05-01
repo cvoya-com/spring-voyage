@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Dapr.Actors;
 
+using System.Linq;
 using System.Text.Json;
 
 using Cvoya.Spring.Core;
@@ -191,6 +192,49 @@ public class HumanActor(
         _logger.LogInformation(
             "Human actor {ActorId} permission for unit {UnitId} cleared",
             Id.GetId(), unitId);
+    }
+
+    /// <inheritdoc />
+    public async Task MarkReadAsync(string threadId, DateTimeOffset readAt, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(threadId))
+        {
+            return;
+        }
+
+        var map = await GetLastReadAtMapAsync(cancellationToken);
+
+        // Only advance the cursor — never move it backwards.
+        if (map.TryGetValue(threadId, out var existing) && existing >= readAt)
+        {
+            return;
+        }
+
+        map[threadId] = readAt;
+        await StateManager.SetStateAsync(StateKeys.HumanLastReadAt, map, cancellationToken);
+
+        _logger.LogDebug(
+            "Human actor {ActorId} marked thread {ThreadId} as read at {ReadAt}",
+            Id.GetId(), threadId, readAt);
+    }
+
+    /// <inheritdoc />
+    public async Task<ThreadReadEntry[]> GetLastReadAtAsync(CancellationToken cancellationToken = default)
+    {
+        var map = await GetLastReadAtMapAsync(cancellationToken);
+        return [.. map.Select(kv => new ThreadReadEntry(kv.Key, kv.Value))];
+    }
+
+    /// <summary>
+    /// Retrieves the per-thread last-read-at map from state. Returns a mutable
+    /// dictionary; callers that write to it must persist the result explicitly.
+    /// </summary>
+    private async Task<Dictionary<string, DateTimeOffset>> GetLastReadAtMapAsync(CancellationToken cancellationToken)
+    {
+        var result = await StateManager
+            .TryGetStateAsync<Dictionary<string, DateTimeOffset>>(StateKeys.HumanLastReadAt, cancellationToken);
+
+        return result.HasValue ? result.Value : [];
     }
 
     /// <summary>
