@@ -71,7 +71,7 @@ public static class MessageEndpoints
         // for its creator grant (#328). The local-dev branch is no longer
         // needed: LocalDevAuthHandler surfaces the `local-dev-user`
         // NameIdentifier, and the caller accessor picks it up automatically.
-        var from = callerAccessor.GetHumanAddress();
+        var from = await callerAccessor.GetCallerAddressAsync(cancellationToken);
 
         if (!Enum.TryParse<MessageType>(request.Type, ignoreCase: true, out var messageType))
         {

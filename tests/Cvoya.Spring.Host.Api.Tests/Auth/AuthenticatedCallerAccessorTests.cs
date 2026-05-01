@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Host.Api.Tests.Auth;
 
 using System.Security.Claims;
 
+using Cvoya.Spring.Core.Security;
 using Cvoya.Spring.Host.Api.Auth;
 
 using Microsoft.AspNetCore.Http;
@@ -17,14 +18,26 @@ using Xunit;
 
 /// <summary>
 /// Unit tests for <see cref="AuthenticatedCallerAccessor"/>. Verifies the
-/// #339 fallback semantics: authenticated subjects surface as
-/// <c>human://{nameIdentifier}</c>, anonymous / out-of-request contexts
-/// fall back to the synthetic <c>human://api</c>.
+/// #1491 semantics: authenticated subjects resolve to a stable UUID and
+/// emit <c>human:id:&lt;uuid&gt;</c> via <see cref="IHumanIdentityResolver"/>;
+/// anonymous / out-of-request contexts fall back to the synthetic
+/// <c>human://api</c> navigation form.
 /// </summary>
 public class AuthenticatedCallerAccessorTests
 {
+    private static readonly Guid AliceId = new("aaaaaaaa-0000-0000-0000-000000000001");
+
+    private readonly IHumanIdentityResolver _identityResolver = Substitute.For<IHumanIdentityResolver>();
+
+    public AuthenticatedCallerAccessorTests()
+    {
+        // Default: any username resolves to AliceId.
+        _identityResolver.ResolveByUsernameAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(AliceId);
+    }
+
     [Fact]
-    public void GetHumanAddress_AuthenticatedPrincipal_ReturnsNameIdentifierHuman()
+    public async Task GetCallerAddressAsync_AuthenticatedPrincipal_ReturnsIdentityFormAddress()
     {
         var accessor = Substitute.For<IHttpContextAccessor>();
         var httpContext = new DefaultHttpContext();
@@ -34,30 +47,33 @@ public class AuthenticatedCallerAccessorTests
         httpContext.User = new ClaimsPrincipal(identity);
         accessor.HttpContext.Returns(httpContext);
 
-        var sut = new AuthenticatedCallerAccessor(accessor);
+        var sut = new AuthenticatedCallerAccessor(accessor, _identityResolver);
 
-        var result = sut.GetHumanAddress();
+        var result = await sut.GetCallerAddressAsync(TestContext.Current.CancellationToken);
 
         result.Scheme.ShouldBe("human");
-        result.Path.ShouldBe("alice");
+        result.IsIdentity.ShouldBeTrue();
+        result.Path.ShouldBe(AliceId.ToString());
+        result.ToIdentityUri().ShouldBe($"human:id:{AliceId}");
     }
 
     [Fact]
-    public void GetHumanAddress_NoHttpContext_FallsBackToApi()
+    public async Task GetCallerAddressAsync_NoHttpContext_FallsBackToNavigationForm()
     {
         var accessor = Substitute.For<IHttpContextAccessor>();
         accessor.HttpContext.Returns((HttpContext?)null);
 
-        var sut = new AuthenticatedCallerAccessor(accessor);
+        var sut = new AuthenticatedCallerAccessor(accessor, _identityResolver);
 
-        var result = sut.GetHumanAddress();
+        var result = await sut.GetCallerAddressAsync(TestContext.Current.CancellationToken);
 
         result.Scheme.ShouldBe("human");
-        result.Path.ShouldBe(AuthenticatedCallerAccessor.FallbackHumanId);
+        result.IsIdentity.ShouldBeFalse();
+        result.Path.ShouldBe(AuthenticatedCallerAccessor.FallbackHumanUsername);
     }
 
     [Fact]
-    public void GetHumanAddress_AnonymousPrincipal_FallsBackToApi()
+    public async Task GetCallerAddressAsync_AnonymousPrincipal_FallsBackToNavigationForm()
     {
         var accessor = Substitute.For<IHttpContextAccessor>();
         var httpContext = new DefaultHttpContext
@@ -66,16 +82,17 @@ public class AuthenticatedCallerAccessorTests
         };
         accessor.HttpContext.Returns(httpContext);
 
-        var sut = new AuthenticatedCallerAccessor(accessor);
+        var sut = new AuthenticatedCallerAccessor(accessor, _identityResolver);
 
-        var result = sut.GetHumanAddress();
+        var result = await sut.GetCallerAddressAsync(TestContext.Current.CancellationToken);
 
         result.Scheme.ShouldBe("human");
-        result.Path.ShouldBe(AuthenticatedCallerAccessor.FallbackHumanId);
+        result.IsIdentity.ShouldBeFalse();
+        result.Path.ShouldBe(AuthenticatedCallerAccessor.FallbackHumanUsername);
     }
 
     [Fact]
-    public void GetHumanAddress_AuthenticatedButMissingNameIdentifier_FallsBackToApi()
+    public async Task GetCallerAddressAsync_AuthenticatedButMissingNameIdentifier_FallsBackToNavigationForm()
     {
         var accessor = Substitute.For<IHttpContextAccessor>();
         var identity = new ClaimsIdentity(
@@ -87,11 +104,43 @@ public class AuthenticatedCallerAccessorTests
         };
         accessor.HttpContext.Returns(httpContext);
 
-        var sut = new AuthenticatedCallerAccessor(accessor);
+        var sut = new AuthenticatedCallerAccessor(accessor, _identityResolver);
 
-        var result = sut.GetHumanAddress();
+        var result = await sut.GetCallerAddressAsync(TestContext.Current.CancellationToken);
 
         result.Scheme.ShouldBe("human");
+        result.IsIdentity.ShouldBeFalse();
         result.Path.ShouldBe(AuthenticatedCallerAccessor.FallbackHumanId);
+    }
+
+    [Fact]
+    public void GetUsername_AuthenticatedPrincipal_ReturnsNameIdentifier()
+    {
+        var accessor = Substitute.For<IHttpContextAccessor>();
+        var httpContext = new DefaultHttpContext();
+        var identity = new ClaimsIdentity(
+            new[] { new Claim(ClaimTypes.NameIdentifier, "alice") },
+            authenticationType: "test");
+        httpContext.User = new ClaimsPrincipal(identity);
+        accessor.HttpContext.Returns(httpContext);
+
+        var sut = new AuthenticatedCallerAccessor(accessor, _identityResolver);
+
+        var result = sut.GetUsername();
+
+        result.ShouldBe("alice");
+    }
+
+    [Fact]
+    public void GetUsername_NoHttpContext_ReturnsFallback()
+    {
+        var accessor = Substitute.For<IHttpContextAccessor>();
+        accessor.HttpContext.Returns((HttpContext?)null);
+
+        var sut = new AuthenticatedCallerAccessor(accessor, _identityResolver);
+
+        var result = sut.GetUsername();
+
+        result.ShouldBe(AuthenticatedCallerAccessor.FallbackHumanUsername);
     }
 }

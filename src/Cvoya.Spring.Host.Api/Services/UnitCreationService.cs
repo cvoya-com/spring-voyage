@@ -16,6 +16,7 @@ using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Orchestration;
+using Cvoya.Spring.Core.Security;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
@@ -681,17 +682,18 @@ public class UnitCreationService : IUnitCreationService
             // service-to-actor calls) so they don't need this grant, but the
             // creator will need it for every subsequent HTTP call they make
             // to this unit.
-            var creatorId = ResolveCreatorId();
-            var creatorEntry = new UnitPermissionEntry(creatorId, PermissionLevel.Owner);
-            await proxy.SetHumanPermissionAsync(creatorId, creatorEntry, cancellationToken);
+            var creatorGuid = await ResolveCreatorGuidAsync(cancellationToken);
+            var creatorEntry = new UnitPermissionEntry(creatorGuid.ToString(), PermissionLevel.Owner);
+            await proxy.SetHumanPermissionAsync(creatorGuid, creatorEntry, cancellationToken);
 
             // Mirror the grant onto the human actor's unit-scoped permission
             // map so both sides stay consistent — matches what
             // UnitEndpoints.SetHumanPermissionAsync does on direct PATCH.
+            // HumanActor is keyed by UUID after #1491.
             try
             {
                 var humanProxy = _actorProxyFactory.CreateActorProxy<IHumanActor>(
-                    new ActorId(creatorId), nameof(HumanActor));
+                    new ActorId(creatorGuid.ToString()), nameof(HumanActor));
                 await humanProxy.SetPermissionForUnitAsync(name, PermissionLevel.Owner, cancellationToken);
             }
             catch (Exception ex)
@@ -702,7 +704,7 @@ public class UnitCreationService : IUnitCreationService
                 // transient human-actor hiccup does not block creation.
                 _logger.LogWarning(ex,
                     "Failed to mirror Owner grant onto human actor {HumanId} for unit '{UnitName}'; unit-side grant is authoritative.",
-                    creatorId, name);
+                    creatorGuid, name);
             }
 
             // Review feedback on #744: wire the new unit as a member of each
@@ -1136,28 +1138,32 @@ public class UnitCreationService : IUnitCreationService
     }
 
     /// <summary>
-    /// Resolves the identifier used to grant Owner on a freshly created unit.
-    /// Prefers the authenticated user's <c>NameIdentifier</c> claim (which is
-    /// what <c>Cvoya.Spring.Dapr.Auth.PermissionHandler</c> consults when
-    /// checking permissions on subsequent requests) and falls back to
-    /// <see cref="FallbackCreatorId"/> only when no authenticated principal
-    /// is available — e.g. out-of-request contexts. In local-dev mode the
-    /// LocalDev auth handler surfaces <c>local-dev-user</c>, so the grant
-    /// lands on the right identity without needing the fallback.
+    /// Resolves the stable UUID used to grant Owner on a freshly created unit.
+    /// Reads the authenticated user's <c>NameIdentifier</c> claim and converts
+    /// it to a UUID via <see cref="IHumanIdentityResolver"/> (upsert on first
+    /// contact). Falls back to <see cref="FallbackCreatorId"/> when no
+    /// authenticated principal is available — e.g. out-of-request contexts. In
+    /// local-dev mode the LocalDev auth handler surfaces <c>local-dev-user</c>,
+    /// so the grant lands on the right identity without needing the fallback.
     /// </summary>
-    private string ResolveCreatorId()
+    private async Task<Guid> ResolveCreatorGuidAsync(CancellationToken cancellationToken)
     {
+        var username = FallbackCreatorId;
         var user = _httpContextAccessor.HttpContext?.User;
         if (user?.Identity?.IsAuthenticated == true)
         {
             var claim = user.FindFirstValue(ClaimTypes.NameIdentifier);
             if (!string.IsNullOrWhiteSpace(claim))
             {
-                return claim;
+                username = claim;
             }
         }
 
-        return FallbackCreatorId;
+        // Use a child scope so we get a fresh scoped IHumanIdentityResolver
+        // even when UnitCreationService is registered as transient / singleton.
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var resolver = scope.ServiceProvider.GetRequiredService<IHumanIdentityResolver>();
+        return await resolver.ResolveByUsernameAsync(username, null, cancellationToken);
     }
 
     private static (string Scheme, string Path)? ResolveMemberAddress(MemberManifest member)

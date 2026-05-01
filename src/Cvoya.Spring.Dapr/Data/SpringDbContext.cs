@@ -111,6 +111,9 @@ public class SpringDbContext : DbContext
     /// <summary>Gets the set of first-class tenant records (#1260 / C1.2d).</summary>
     public DbSet<TenantRecordEntity> Tenants => Set<TenantRecordEntity>();
 
+    /// <summary>Gets the set of stable human identity records (#1491).</summary>
+    public DbSet<HumanEntity> Humans => Set<HumanEntity>();
+
     /// <inheritdoc />
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -139,6 +142,7 @@ public class SpringDbContext : DbContext
         modelBuilder.ApplyConfiguration(new CredentialHealthEntityConfiguration());
         modelBuilder.ApplyConfiguration(new TenantSkillBundleBindingEntityConfiguration());
         modelBuilder.ApplyConfiguration(new TenantRecordEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new HumanEntityConfiguration());
 
         // Combined tenant + soft-delete query filters. Each filter
         // captures <c>this</c>, so EF Core parameterises the tenant-id
@@ -179,6 +183,10 @@ public class SpringDbContext : DbContext
         // tenants explicitly call .IgnoreQueryFilters().
         modelBuilder.Entity<TenantRecordEntity>()
             .HasQueryFilter(e => e.DeletedAt == null);
+
+        // Human identity records: tenant-scoped, no soft-delete.
+        modelBuilder.Entity<HumanEntity>()
+            .HasQueryFilter(e => e.TenantId == CurrentTenantId);
     }
 
     /// <inheritdoc />

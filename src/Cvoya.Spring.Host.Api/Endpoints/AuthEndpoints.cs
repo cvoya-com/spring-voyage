@@ -6,6 +6,8 @@ namespace Cvoya.Spring.Host.Api.Endpoints;
 using System.Security.Claims;
 using System.Security.Cryptography;
 
+using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Security;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
 using Cvoya.Spring.Host.Api.Auth;
@@ -60,6 +62,7 @@ public static class AuthEndpoints
 
     private static async Task<IResult> GetCurrentUserAsync(
         ClaimsPrincipal user,
+        IHumanIdentityResolver identityResolver,
         CancellationToken cancellationToken)
     {
         var userIdClaim = user.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -71,9 +74,11 @@ public static class AuthEndpoints
 
         var displayName = user.FindFirstValue(ClaimTypes.Name) ?? userIdClaim;
 
-        // Expose the human:// address so the portal can identify "self" in
-        // participant lists without relying on display-name matching (#1485).
-        var address = $"human://{userIdClaim}";
+        // Resolve the stable UUID so the portal can use the identity-form
+        // address human:id:<uuid> to identify "self" in participant lists
+        // without relying on display-name matching (#1485, #1491).
+        var id = await identityResolver.ResolveByUsernameAsync(userIdClaim, displayName, cancellationToken);
+        var address = Address.ForIdentity("human", id).ToIdentityUri();
 
         return Results.Ok(new UserProfileResponse(userIdClaim, displayName, address));
     }

@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Dapr.Auth;
 
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Security;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Units;
@@ -12,6 +13,7 @@ using Cvoya.Spring.Dapr.Units;
 using global::Dapr.Actors;
 using global::Dapr.Actors.Client;
 
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
@@ -34,12 +36,25 @@ using Microsoft.Extensions.Logging;
 /// (issue #976). Every other unit-scoped endpoint path resolves the
 /// directory entry first; the permission evaluator now does the same so the
 /// two views agree.
+///
+/// <para>
+/// #1491: The <paramref name="scopeFactory"/> resolves a scoped
+/// <see cref="IHumanIdentityResolver"/> per call to convert the incoming
+/// username string (from <see cref="System.Security.Claims.ClaimTypes.NameIdentifier"/>)
+/// into a stable UUID before querying the unit actor's permission map.
+/// When <c>null</c> (legacy test harnesses that construct
+/// <see cref="PermissionService"/> directly), the service falls back to
+/// treating the humanId string as a UUID-string directly — calls that pass
+/// an actual UUID string continue to work unchanged, and the test harness
+/// can continue to exercise the service without a database.
+/// </para>
 /// </remarks>
 public class PermissionService(
     IActorProxyFactory actorProxyFactory,
     IUnitHierarchyResolver hierarchyResolver,
     IDirectoryService directoryService,
-    ILoggerFactory loggerFactory) : IPermissionService
+    ILoggerFactory loggerFactory,
+    IServiceScopeFactory? scopeFactory = null) : IPermissionService
 {
     /// <summary>
     /// Matches <c>UnitMembershipCoordinator.MaxCycleDetectionDepth</c> so the
@@ -59,6 +74,12 @@ public class PermissionService(
     {
         try
         {
+            var humanGuid = await ResolveHumanGuidAsync(humanId, cancellationToken);
+            if (humanGuid == Guid.Empty)
+            {
+                return null;
+            }
+
             var actorId = await ResolveActorIdAsync(unitId, cancellationToken);
             if (actorId is null)
             {
@@ -68,7 +89,7 @@ public class PermissionService(
             var unitProxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
                 new ActorId(actorId), nameof(UnitActor));
 
-            return await unitProxy.GetHumanPermissionAsync(humanId, cancellationToken);
+            return await unitProxy.GetHumanPermissionAsync(humanGuid, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -90,6 +111,12 @@ public class PermissionService(
             return null;
         }
 
+        var humanGuid = await ResolveHumanGuidAsync(humanId, cancellationToken);
+        if (humanGuid == Guid.Empty)
+        {
+            return null;
+        }
+
         // Step 1: explicit grant on the target unit always wins. A direct
         // grant is authoritative — including a deliberate downgrade. The
         // #414 design rule is "direct beats inherited."
@@ -106,7 +133,7 @@ public class PermissionService(
 
             var proxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
                 new ActorId(actorId), nameof(UnitActor));
-            direct = await proxy.GetHumanPermissionAsync(humanId, cancellationToken);
+            direct = await proxy.GetHumanPermissionAsync(humanGuid, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -204,7 +231,7 @@ public class PermissionService(
 
                     var parentProxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
                         new ActorId(parentActorId), nameof(UnitActor));
-                    grant = await parentProxy.GetHumanPermissionAsync(humanId, cancellationToken);
+                    grant = await parentProxy.GetHumanPermissionAsync(humanGuid, cancellationToken);
                 }
                 catch (Exception ex)
                 {
@@ -240,6 +267,40 @@ public class PermissionService(
             current = nextCurrent;
             depth++;
         }
+    }
+
+    /// <summary>
+    /// Converts the incoming human identity string to a UUID.
+    /// When a <see cref="IServiceScopeFactory"/> is available, creates a
+    /// short-lived scope to resolve a scoped <see cref="IHumanIdentityResolver"/>
+    /// and calls <c>ResolveByUsernameAsync</c> (upsert on first-contact).
+    /// Without the factory (legacy test harnesses), falls back to parsing the
+    /// string directly as a UUID; returns <see cref="Guid.Empty"/> when neither
+    /// path succeeds.
+    /// </summary>
+    private async Task<Guid> ResolveHumanGuidAsync(
+        string humanId,
+        CancellationToken cancellationToken)
+    {
+        if (scopeFactory is not null)
+        {
+            try
+            {
+                await using var scope = scopeFactory.CreateAsyncScope();
+                var resolver = scope.ServiceProvider.GetRequiredService<IHumanIdentityResolver>();
+                return await resolver.ResolveByUsernameAsync(humanId, null, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Could not resolve human UUID for username {HumanId}; treating as no permission.",
+                    humanId);
+                return Guid.Empty;
+            }
+        }
+
+        // Fallback for test harnesses that pass a UUID string directly.
+        return Guid.TryParse(humanId, out var guid) ? guid : Guid.Empty;
     }
 
     private async Task<UnitPermissionInheritance> GetInheritanceAsync(Address unit, CancellationToken ct)

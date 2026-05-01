@@ -404,15 +404,17 @@ public class ThreadQueryService(
     /// appropriate wire form.
     /// <list type="bullet">
     ///   <item><description>
-    ///     <c>agent:&lt;uuid&gt;</c> / <c>unit:&lt;uuid&gt;</c> → <c>scheme:id:&lt;uuid&gt;</c>
-    ///     (identity form). Activity events for agents and units are persisted
-    ///     with the actor UUID as the path. The <c>id:</c> discriminator makes
-    ///     the form unambiguous versus a slug that happens to look like a UUID.
+    ///     <c>agent:&lt;uuid&gt;</c> / <c>unit:&lt;uuid&gt;</c> / <c>human:&lt;uuid&gt;</c>
+    ///     → <c>scheme:id:&lt;uuid&gt;</c> (identity form). Activity events for
+    ///     agents, units, and post-#1491 humans are persisted with the actor
+    ///     UUID as the path. The <c>id:</c> discriminator makes the form
+    ///     unambiguous versus a slug that happens to look like a UUID.
     ///   </description></item>
     ///   <item><description>
-    ///     <c>human:&lt;username&gt;</c> and all other schemes → <c>scheme://path</c>
-    ///     (navigation form). Humans do not yet have stable UUIDs (#1491), so
-    ///     the navigation form is retained until that migration lands.
+    ///     <c>human:&lt;username&gt;</c> (legacy, non-UUID path) and all other
+    ///     schemes → <c>scheme://path</c> (navigation form). Pre-#1491 activity
+    ///     events carry the username slug; they are normalised to navigation
+    ///     form for backward compatibility.
     ///   </description></item>
     ///   <item><description>
     ///     Anything already in <c>scheme://path</c> or <c>scheme:id:&lt;uuid&gt;</c>
@@ -450,13 +452,13 @@ public class ThreadQueryService(
         var scheme = source[..colon];
         var path = source[(colon + 1)..];
 
-        // For agent and unit schemes, if the path is a valid UUID the event
-        // was written with the actor id as the source — emit the stable
-        // identity form so consumers get an unambiguous "this is a UUID, not
-        // a slug" signal (#1490). Human sources keep the navigation form
-        // until #1491 lands.
+        // For agent, unit, and human schemes, if the path is a valid UUID the
+        // event was written with the actor id as the source — emit the stable
+        // identity form. Human actors are UUID-keyed after #1491; legacy events
+        // with a username slug fall through to the navigation-form branch.
         if ((string.Equals(scheme, "agent", StringComparison.OrdinalIgnoreCase)
-             || string.Equals(scheme, "unit", StringComparison.OrdinalIgnoreCase))
+             || string.Equals(scheme, "unit", StringComparison.OrdinalIgnoreCase)
+             || string.Equals(scheme, "human", StringComparison.OrdinalIgnoreCase))
             && Guid.TryParse(path, out var actorId))
         {
             return $"{scheme}:id:{actorId}";

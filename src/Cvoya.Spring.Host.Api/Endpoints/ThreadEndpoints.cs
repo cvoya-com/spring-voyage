@@ -128,7 +128,7 @@ public static class ThreadEndpoints
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
-        var from = callerAccessor.GetHumanAddress();
+        var from = await callerAccessor.GetCallerAddressAsync(cancellationToken);
         var to = new Address(request.To.Scheme, request.To.Path ?? string.Empty);
         var messageId = Guid.NewGuid();
 
@@ -432,8 +432,13 @@ public static class InboxEndpoints
         IParticipantDisplayNameResolver resolver,
         CancellationToken cancellationToken)
     {
-        var caller = callerAccessor.GetHumanAddress();
-        var callerAddress = $"{caller.Scheme}://{caller.Path}";
+        var caller = await callerAccessor.GetCallerAddressAsync(cancellationToken);
+        // callerAddress is the canonical form used to match activity event
+        // sources. For identity-form addresses (uuid-keyed humans) use
+        // ToIdentityUri(); for the fallback navigation form use scheme://path.
+        var callerAddress = caller.IsIdentity
+            ? caller.ToIdentityUri()
+            : caller.ToCanonicalUri();
 
         // Fetch the caller's per-thread read cursors from their HumanActor so
         // the query service can compute UnreadCount per row.
@@ -476,7 +481,7 @@ public static class InboxEndpoints
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
-        var caller = callerAccessor.GetHumanAddress();
+        var caller = await callerAccessor.GetCallerAddressAsync(cancellationToken);
         var readAt = DateTimeOffset.UtcNow;
 
         var humanProxy = actorProxyFactory.CreateActorProxy<IHumanActor>(
@@ -487,7 +492,9 @@ public static class InboxEndpoints
         // Return the refreshed inbox item (UnreadCount should now be 0).
         var entries = await humanProxy.GetLastReadAtAsync(cancellationToken);
         var lastReadAt = entries.ToDictionary(e => e.ThreadId, e => e.LastReadAt);
-        var callerAddress = $"{caller.Scheme}://{caller.Path}";
+        var callerAddress = caller.IsIdentity
+            ? caller.ToIdentityUri()
+            : caller.ToCanonicalUri();
         var items = await queryService.ListInboxAsync(callerAddress, lastReadAt, cancellationToken);
         var rawUpdated = items.FirstOrDefault(i => string.Equals(i.ThreadId, threadId, StringComparison.Ordinal));
 

@@ -8,6 +8,7 @@ using System.Text.Json;
 using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Security;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
@@ -47,6 +48,12 @@ public class UnitCreationServiceExpertiseSeedTests
         var dbName = $"seed-{Guid.NewGuid():N}";
         var services = new ServiceCollection();
         services.AddDbContext<SpringDbContext>(opt => opt.UseInMemoryDatabase(dbName));
+
+        var mockIdentityResolver = Substitute.For<IHumanIdentityResolver>();
+        mockIdentityResolver.ResolveByUsernameAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(Guid.NewGuid());
+        services.AddSingleton<IHumanIdentityResolver>(mockIdentityResolver);
+
         var serviceProvider = services.BuildServiceProvider();
         var scopeFactory = serviceProvider.GetRequiredService<IServiceScopeFactory>();
 

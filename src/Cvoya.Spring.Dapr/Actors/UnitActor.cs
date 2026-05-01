@@ -326,7 +326,7 @@ public class UnitActor : Actor, IUnitActor
     }
 
     /// <inheritdoc />
-    public Task SetHumanPermissionAsync(string humanId, UnitPermissionEntry entry, CancellationToken ct = default)
+    public Task SetHumanPermissionAsync(Guid humanId, UnitPermissionEntry entry, CancellationToken ct = default)
         => _permissionCoordinator.SetHumanPermissionAsync(
             unitActorId: Id.GetId(),
             humanId: humanId,
@@ -336,7 +336,7 @@ public class UnitActor : Actor, IUnitActor
             cancellationToken: ct);
 
     /// <inheritdoc />
-    public Task<PermissionLevel?> GetHumanPermissionAsync(string humanId, CancellationToken ct = default)
+    public Task<PermissionLevel?> GetHumanPermissionAsync(Guid humanId, CancellationToken ct = default)
         => _permissionCoordinator.GetHumanPermissionAsync(
             unitActorId: Id.GetId(),
             humanId: humanId,
@@ -344,7 +344,7 @@ public class UnitActor : Actor, IUnitActor
             cancellationToken: ct);
 
     /// <inheritdoc />
-    public Task<bool> RemoveHumanPermissionAsync(string humanId, CancellationToken ct = default)
+    public Task<bool> RemoveHumanPermissionAsync(Guid humanId, CancellationToken ct = default)
         => _permissionCoordinator.RemoveHumanPermissionAsync(
             unitActorId: Id.GetId(),
             humanId: humanId,

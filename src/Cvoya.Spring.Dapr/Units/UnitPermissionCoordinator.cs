@@ -35,14 +35,14 @@ public class UnitPermissionCoordinator(
     /// <inheritdoc />
     public async Task SetHumanPermissionAsync(
         string unitActorId,
-        string humanId,
+        Guid humanId,
         UnitPermissionEntry entry,
         Func<CancellationToken, Task<Dictionary<string, UnitPermissionEntry>>> getPermissions,
         Func<Dictionary<string, UnitPermissionEntry>, CancellationToken, Task> persistPermissions,
         CancellationToken cancellationToken = default)
     {
         var permissions = await getPermissions(cancellationToken);
-        permissions[humanId] = entry;
+        permissions[humanId.ToString()] = entry;
         await persistPermissions(permissions, cancellationToken);
 
         logger.LogInformation(
@@ -53,24 +53,24 @@ public class UnitPermissionCoordinator(
     /// <inheritdoc />
     public async Task<PermissionLevel?> GetHumanPermissionAsync(
         string unitActorId,
-        string humanId,
+        Guid humanId,
         Func<CancellationToken, Task<Dictionary<string, UnitPermissionEntry>>> getPermissions,
         CancellationToken cancellationToken = default)
     {
         var permissions = await getPermissions(cancellationToken);
-        return permissions.TryGetValue(humanId, out var entry) ? entry.Permission : null;
+        return permissions.TryGetValue(humanId.ToString(), out var entry) ? entry.Permission : null;
     }
 
     /// <inheritdoc />
     public async Task<bool> RemoveHumanPermissionAsync(
         string unitActorId,
-        string humanId,
+        Guid humanId,
         Func<CancellationToken, Task<Dictionary<string, UnitPermissionEntry>>> getPermissions,
         Func<Dictionary<string, UnitPermissionEntry>, CancellationToken, Task> persistPermissions,
         CancellationToken cancellationToken = default)
     {
         var permissions = await getPermissions(cancellationToken);
-        if (!permissions.Remove(humanId))
+        if (!permissions.Remove(humanId.ToString()))
         {
             // Idempotent: removing an entry that does not exist is a no-op.
             // The DELETE endpoint still returns 204 to match `spring unit
