@@ -539,7 +539,7 @@ public static class AgentEndpoints
         // when no authenticated principal is present.
         var statusQuery = new Message(
             Guid.NewGuid(),
-            callerAccessor.GetHumanAddress(),
+            await callerAccessor.GetCallerAddressAsync(cancellationToken),
             address,
             MessageType.StatusQuery,
             null,

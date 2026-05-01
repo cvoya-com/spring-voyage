@@ -61,7 +61,7 @@ public interface IUnitPermissionCoordinator
     /// <param name="cancellationToken">Cancels the operation.</param>
     Task SetHumanPermissionAsync(
         string unitActorId,
-        string humanId,
+        Guid humanId,
         UnitPermissionEntry entry,
         Func<CancellationToken, Task<Dictionary<string, UnitPermissionEntry>>> getPermissions,
         Func<Dictionary<string, UnitPermissionEntry>, CancellationToken, Task> persistPermissions,
@@ -85,7 +85,7 @@ public interface IUnitPermissionCoordinator
     /// </returns>
     Task<PermissionLevel?> GetHumanPermissionAsync(
         string unitActorId,
-        string humanId,
+        Guid humanId,
         Func<CancellationToken, Task<Dictionary<string, UnitPermissionEntry>>> getPermissions,
         CancellationToken cancellationToken = default);
 
@@ -112,7 +112,7 @@ public interface IUnitPermissionCoordinator
     /// </returns>
     Task<bool> RemoveHumanPermissionAsync(
         string unitActorId,
-        string humanId,
+        Guid humanId,
         Func<CancellationToken, Task<Dictionary<string, UnitPermissionEntry>>> getPermissions,
         Func<Dictionary<string, UnitPermissionEntry>, CancellationToken, Task> persistPermissions,
         CancellationToken cancellationToken = default);

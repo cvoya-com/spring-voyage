@@ -5,8 +5,10 @@ namespace Cvoya.Spring.Dapr.DependencyInjection;
 
 using Cvoya.Spring.Core.Configuration;
 using Cvoya.Spring.Core.Policies;
+using Cvoya.Spring.Core.Security;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
+using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Configuration;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
@@ -184,6 +186,12 @@ internal static class ServiceCollectionExtensionsInfrastructure
         // wraps the OSS default. Scoped because the underlying repositories
         // use SpringDbContext which is scoped per request.
         services.TryAddScoped<IUnitPolicyEnforcer, DefaultUnitPolicyEnforcer>();
+
+        // Human identity resolver: username → UUID / UUID → display name.
+        // Scoped per request so it caches both directions for the lifetime
+        // of a single HTTP request. TryAddScoped so the cloud overlay can
+        // register a tenant-aware implementation ahead of the OSS default.
+        services.TryAddScoped<IHumanIdentityResolver, HumanIdentityResolver>();
 
         services.AddCvoyaSpringTenantPlugins(configuration);
 

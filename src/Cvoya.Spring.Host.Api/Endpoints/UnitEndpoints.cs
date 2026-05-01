@@ -10,6 +10,7 @@ using Cvoya.Spring.Core.Agents;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Security;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
@@ -1173,6 +1174,7 @@ public static class UnitEndpoints
         IDirectoryService directoryService,
         IPermissionService permissionService,
         IActorProxyFactory actorProxyFactory,
+        IHumanIdentityResolver identityResolver,
         CancellationToken cancellationToken)
     {
         var auth = await UnitPermissionCheck.AuthorizeAsync(
@@ -1192,8 +1194,14 @@ public static class UnitEndpoints
             return Results.Problem(detail: $"Invalid permission level: '{request.Permission}'", statusCode: StatusCodes.Status400BadRequest);
         }
 
+        // Resolve the incoming username (from the URL path) to a stable UUID.
+        // On first contact this upserts a row in the humans table so the
+        // UUID is stable for the lifetime of the deployment.
+        var humanGuid = await identityResolver.ResolveByUsernameAsync(
+            humanId, request.Identity, cancellationToken);
+
         var permissionEntry = new UnitPermissionEntry(
-            humanId,
+            humanGuid.ToString(),
             permissionLevel,
             request.Identity,
             request.Notifications ?? true);
@@ -1201,15 +1209,16 @@ public static class UnitEndpoints
         var unitProxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
             new ActorId(auth.Entry!.ActorId), nameof(UnitActor));
 
-        await unitProxy.SetHumanPermissionAsync(humanId, permissionEntry, cancellationToken);
+        await unitProxy.SetHumanPermissionAsync(humanGuid, permissionEntry, cancellationToken);
 
-        // Also update the human actor's unit-scoped permission map.
+        // Also update the human actor's unit-scoped permission map. The
+        // HumanActor is now keyed by UUID, not by username slug.
         var humanProxy = actorProxyFactory.CreateActorProxy<IHumanActor>(
-            new ActorId(humanId), nameof(HumanActor));
+            new ActorId(humanGuid.ToString()), nameof(HumanActor));
 
         await humanProxy.SetPermissionForUnitAsync(id, permissionLevel, cancellationToken);
 
-        return Results.Ok(new SetHumanPermissionResponse(humanId, permissionLevel));
+        return Results.Ok(new SetHumanPermissionResponse(humanGuid.ToString(), permissionLevel));
     }
 
     private static async Task<IResult> GetHumanPermissionsAsync(
@@ -1255,6 +1264,7 @@ public static class UnitEndpoints
         IDirectoryService directoryService,
         IPermissionService permissionService,
         IActorProxyFactory actorProxyFactory,
+        IHumanIdentityResolver identityResolver,
         CancellationToken cancellationToken)
     {
         var auth = await UnitPermissionCheck.AuthorizeAsync(
@@ -1269,16 +1279,21 @@ public static class UnitEndpoints
             return auth.ToErrorResult(id);
         }
 
+        // Resolve the username to its stable UUID. If no UUID exists yet,
+        // ResolveByUsernameAsync upserts one — the remove that follows will
+        // simply find an empty permission map and return false (idempotent).
+        var humanGuid = await identityResolver.ResolveByUsernameAsync(
+            humanId, null, cancellationToken);
+
         var unitProxy = actorProxyFactory.CreateActorProxy<IUnitActor>(
             new ActorId(auth.Entry!.ActorId), nameof(UnitActor));
 
-        await unitProxy.RemoveHumanPermissionAsync(humanId, cancellationToken);
+        await unitProxy.RemoveHumanPermissionAsync(humanGuid, cancellationToken);
 
-        // Keep the human actor's unit-scoped map in sync so readers on the
-        // human side see the removal immediately — matches what
-        // SetHumanPermissionAsync does on the write path.
+        // Keep the human actor's unit-scoped map in sync. HumanActor is now
+        // keyed by UUID, matching the write path in SetHumanPermissionAsync.
         var humanProxy = actorProxyFactory.CreateActorProxy<IHumanActor>(
-            new ActorId(humanId), nameof(HumanActor));
+            new ActorId(humanGuid.ToString()), nameof(HumanActor));
 
         await humanProxy.RemovePermissionForUnitAsync(id, cancellationToken);
 

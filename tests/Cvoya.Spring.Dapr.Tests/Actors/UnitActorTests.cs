@@ -33,6 +33,11 @@ public class UnitActorTests
 {
     private const string TestUnitActorId = "test-unit";
 
+    // Stable UUID constants for deterministic human-permission tests (#1491).
+    private static readonly Guid Human1 = new("aaaaaaaa-0000-0000-0000-000000000001");
+    private static readonly Guid Human2 = new("aaaaaaaa-0000-0000-0000-000000000002");
+    private static readonly Guid HumanUnknown = new("aaaaaaaa-0000-0000-0000-000000000099");
+
     private readonly IActorStateManager _stateManager = Substitute.For<IActorStateManager>();
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
     private readonly IOrchestrationStrategy _strategy = Substitute.For<IOrchestrationStrategy>();
@@ -372,13 +377,13 @@ public class UnitActorTests
             StateKeys.HumanPermissions, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<Dictionary<string, UnitPermissionEntry>>(false, default!));
 
-        var entry = new UnitPermissionEntry("human-1", PermissionLevel.Operator, "Alice", true);
-        await _actor.SetHumanPermissionAsync("human-1", entry, TestContext.Current.CancellationToken);
+        var entry = new UnitPermissionEntry(Human1.ToString(), PermissionLevel.Operator, "Alice", true);
+        await _actor.SetHumanPermissionAsync(Human1, entry, TestContext.Current.CancellationToken);
 
         await _stateManager.Received(1).SetStateAsync(
             StateKeys.HumanPermissions,
             Arg.Is<Dictionary<string, UnitPermissionEntry>>(d =>
-                d.ContainsKey("human-1") && d["human-1"].Permission == PermissionLevel.Operator),
+                d.ContainsKey(Human1.ToString()) && d[Human1.ToString()].Permission == PermissionLevel.Operator),
             Arg.Any<CancellationToken>());
     }
 
@@ -387,13 +392,13 @@ public class UnitActorTests
     {
         var permissions = new Dictionary<string, UnitPermissionEntry>
         {
-            ["human-1"] = new("human-1", PermissionLevel.Owner, "Alice", true)
+            [Human1.ToString()] = new(Human1.ToString(), PermissionLevel.Owner, "Alice", true)
         };
         _stateManager.TryGetStateAsync<Dictionary<string, UnitPermissionEntry>>(
             StateKeys.HumanPermissions, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<Dictionary<string, UnitPermissionEntry>>(true, permissions));
 
-        var result = await _actor.GetHumanPermissionAsync("human-1", TestContext.Current.CancellationToken);
+        var result = await _actor.GetHumanPermissionAsync(Human1, TestContext.Current.CancellationToken);
 
         result.ShouldBe(PermissionLevel.Owner);
     }
@@ -405,7 +410,7 @@ public class UnitActorTests
             StateKeys.HumanPermissions, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<Dictionary<string, UnitPermissionEntry>>(false, default!));
 
-        var result = await _actor.GetHumanPermissionAsync("unknown", TestContext.Current.CancellationToken);
+        var result = await _actor.GetHumanPermissionAsync(HumanUnknown, TestContext.Current.CancellationToken);
 
         result.ShouldBeNull();
     }
@@ -415,8 +420,8 @@ public class UnitActorTests
     {
         var permissions = new Dictionary<string, UnitPermissionEntry>
         {
-            ["human-1"] = new("human-1", PermissionLevel.Owner, "Alice", true),
-            ["human-2"] = new("human-2", PermissionLevel.Viewer, "Bob", false)
+            [Human1.ToString()] = new(Human1.ToString(), PermissionLevel.Owner, "Alice", true),
+            [Human2.ToString()] = new(Human2.ToString(), PermissionLevel.Viewer, "Bob", false)
         };
         _stateManager.TryGetStateAsync<Dictionary<string, UnitPermissionEntry>>(
             StateKeys.HumanPermissions, Arg.Any<CancellationToken>())
@@ -435,20 +440,20 @@ public class UnitActorTests
         // Verify the map shrinks by one and the persistence call fires.
         var permissions = new Dictionary<string, UnitPermissionEntry>
         {
-            ["human-1"] = new("human-1", PermissionLevel.Owner, "Alice", true),
-            ["human-2"] = new("human-2", PermissionLevel.Viewer, "Bob", false)
+            [Human1.ToString()] = new(Human1.ToString(), PermissionLevel.Owner, "Alice", true),
+            [Human2.ToString()] = new(Human2.ToString(), PermissionLevel.Viewer, "Bob", false)
         };
         _stateManager.TryGetStateAsync<Dictionary<string, UnitPermissionEntry>>(
             StateKeys.HumanPermissions, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<Dictionary<string, UnitPermissionEntry>>(true, permissions));
 
-        var removed = await _actor.RemoveHumanPermissionAsync("human-1", TestContext.Current.CancellationToken);
+        var removed = await _actor.RemoveHumanPermissionAsync(Human1, TestContext.Current.CancellationToken);
 
         removed.ShouldBeTrue();
         await _stateManager.Received(1).SetStateAsync(
             StateKeys.HumanPermissions,
             Arg.Is<Dictionary<string, UnitPermissionEntry>>(d =>
-                !d.ContainsKey("human-1") && d.ContainsKey("human-2")),
+                !d.ContainsKey(Human1.ToString()) && d.ContainsKey(Human2.ToString())),
             Arg.Any<CancellationToken>());
     }
 
@@ -462,7 +467,7 @@ public class UnitActorTests
             StateKeys.HumanPermissions, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<Dictionary<string, UnitPermissionEntry>>(false, default!));
 
-        var removed = await _actor.RemoveHumanPermissionAsync("unknown", TestContext.Current.CancellationToken);
+        var removed = await _actor.RemoveHumanPermissionAsync(HumanUnknown, TestContext.Current.CancellationToken);
 
         removed.ShouldBeFalse();
         await _stateManager.DidNotReceive().SetStateAsync(

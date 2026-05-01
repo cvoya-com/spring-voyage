@@ -54,10 +54,10 @@ public interface IUnitActor : IAgent
     /// <summary>
     /// Sets the permission level for a human within this unit.
     /// </summary>
-    /// <param name="humanId">The human's identifier.</param>
+    /// <param name="humanId">The stable UUID of the human (#1491).</param>
     /// <param name="entry">The permission entry to set.</param>
     /// <param name="ct">A token to cancel the operation.</param>
-    Task SetHumanPermissionAsync(string humanId, UnitPermissionEntry entry, CancellationToken ct = default);
+    Task SetHumanPermissionAsync(Guid humanId, UnitPermissionEntry entry, CancellationToken ct = default);
 
     /// <summary>
     /// Removes any human permission entry for <paramref name="humanId"/> from
@@ -65,22 +65,22 @@ public interface IUnitActor : IAgent
     /// no-op and completes successfully so <c>spring unit humans remove</c>
     /// is safe to retry.
     /// </summary>
-    /// <param name="humanId">The human's identifier.</param>
+    /// <param name="humanId">The stable UUID of the human (#1491).</param>
     /// <param name="ct">A token to cancel the operation.</param>
     /// <returns>
     /// <c>true</c> when an entry was removed, <c>false</c> when no entry
     /// existed for the supplied id. The API endpoint discards the bool and
     /// always returns 204 regardless of prior presence.
     /// </returns>
-    Task<bool> RemoveHumanPermissionAsync(string humanId, CancellationToken ct = default);
+    Task<bool> RemoveHumanPermissionAsync(Guid humanId, CancellationToken ct = default);
 
     /// <summary>
     /// Gets the permission level for a human within this unit.
     /// </summary>
-    /// <param name="humanId">The human's identifier.</param>
+    /// <param name="humanId">The stable UUID of the human (#1491).</param>
     /// <param name="ct">A token to cancel the operation.</param>
     /// <returns>The permission level, or <c>null</c> if the human has no permission entry.</returns>
-    Task<PermissionLevel?> GetHumanPermissionAsync(string humanId, CancellationToken ct = default);
+    Task<PermissionLevel?> GetHumanPermissionAsync(Guid humanId, CancellationToken ct = default);
 
     /// <summary>
     /// Gets all human permission entries for this unit.

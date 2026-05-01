@@ -28,9 +28,15 @@ public class HumanActor(
     private readonly ILogger _logger = loggerFactory.CreateLogger<HumanActor>();
 
     /// <summary>
-    /// Gets the address of this human actor.
+    /// Gets the address of this human actor. When the actor id is a UUID
+    /// (the post-#1491 form) the address is emitted as the stable identity
+    /// form <c>human:id:&lt;uuid&gt;</c>; legacy username-keyed actors
+    /// (deployed before the migration ran) fall back to the navigation form
+    /// <c>human://&lt;username&gt;</c>.
     /// </summary>
-    public Address Address => new("human", Id.GetId());
+    public Address Address => Guid.TryParse(Id.GetId(), out var id)
+        ? Address.ForIdentity("human", id)
+        : new Address("human", Id.GetId());
 
     /// <inheritdoc />
     public async Task<Message?> ReceiveAsync(Message message, CancellationToken cancellationToken = default)

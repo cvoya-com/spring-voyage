@@ -111,9 +111,9 @@ public class MessageEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         observed.ShouldNotBeNull();
         observed!.From.Scheme.ShouldBe("human");
-        // CustomWebApplicationFactory forces LocalDev=true, so the configured
-        // NameIdentifier is 'local-dev-user'.
-        observed.From.Path.ShouldBe(Cvoya.Spring.Host.Api.Auth.AuthConstants.DefaultLocalUserId);
+        // #1491: GetCallerAddressAsync now resolves the username to a stable UUID
+        // via IHumanIdentityResolver and returns the identity form human:id:<uuid>.
+        observed.From.IsIdentity.ShouldBeTrue();
         // And it must NOT be the pre-#339 synthetic 'api' identity.
         observed.From.Path.ShouldNotBe(AuthenticatedCallerAccessor.FallbackHumanId);
     }

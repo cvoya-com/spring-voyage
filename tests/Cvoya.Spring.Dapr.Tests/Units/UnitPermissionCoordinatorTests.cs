@@ -24,6 +24,11 @@ public class UnitPermissionCoordinatorTests
 {
     private const string UnitActorId = "test-unit";
 
+    // Stable UUID constants for deterministic tests.
+    private static readonly Guid Human1 = new("aaaaaaaa-0000-0000-0000-000000000001");
+    private static readonly Guid Human2 = new("aaaaaaaa-0000-0000-0000-000000000002");
+    private static readonly Guid HumanUnknown = Guid.NewGuid();
+
     private readonly ILogger<UnitPermissionCoordinator> _logger =
         Substitute.For<ILogger<UnitPermissionCoordinator>>();
 
@@ -41,19 +46,19 @@ public class UnitPermissionCoordinatorTests
     {
         var permissions = new Dictionary<string, UnitPermissionEntry>();
         Dictionary<string, UnitPermissionEntry>? persisted = null;
-        var entry = new UnitPermissionEntry("human-1", PermissionLevel.Operator, "Alice", true);
+        var entry = new UnitPermissionEntry(Human1.ToString(), PermissionLevel.Operator, "Alice", true);
 
         await _coordinator.SetHumanPermissionAsync(
             unitActorId: UnitActorId,
-            humanId: "human-1",
+            humanId: Human1,
             entry: entry,
             getPermissions: _ => Task.FromResult(permissions),
             persistPermissions: (d, _) => { persisted = d; return Task.CompletedTask; },
             cancellationToken: TestContext.Current.CancellationToken);
 
         persisted.ShouldNotBeNull();
-        persisted!.ContainsKey("human-1").ShouldBeTrue();
-        persisted["human-1"].Permission.ShouldBe(PermissionLevel.Operator);
+        persisted!.ContainsKey(Human1.ToString()).ShouldBeTrue();
+        persisted[Human1.ToString()].Permission.ShouldBe(PermissionLevel.Operator);
     }
 
     [Fact]
@@ -61,21 +66,21 @@ public class UnitPermissionCoordinatorTests
     {
         var permissions = new Dictionary<string, UnitPermissionEntry>
         {
-            ["human-1"] = new("human-1", PermissionLevel.Viewer, "Alice", true)
+            [Human1.ToString()] = new(Human1.ToString(), PermissionLevel.Viewer, "Alice", true)
         };
-        var newEntry = new UnitPermissionEntry("human-1", PermissionLevel.Owner, "Alice", true);
+        var newEntry = new UnitPermissionEntry(Human1.ToString(), PermissionLevel.Owner, "Alice", true);
         Dictionary<string, UnitPermissionEntry>? persisted = null;
 
         await _coordinator.SetHumanPermissionAsync(
             unitActorId: UnitActorId,
-            humanId: "human-1",
+            humanId: Human1,
             entry: newEntry,
             getPermissions: _ => Task.FromResult(permissions),
             persistPermissions: (d, _) => { persisted = d; return Task.CompletedTask; },
             cancellationToken: TestContext.Current.CancellationToken);
 
         persisted.ShouldNotBeNull();
-        persisted!["human-1"].Permission.ShouldBe(PermissionLevel.Owner);
+        persisted![Human1.ToString()].Permission.ShouldBe(PermissionLevel.Owner);
     }
 
     // --- GetHumanPermissionAsync ---
@@ -85,12 +90,12 @@ public class UnitPermissionCoordinatorTests
     {
         var permissions = new Dictionary<string, UnitPermissionEntry>
         {
-            ["human-1"] = new("human-1", PermissionLevel.Owner, "Alice", true)
+            [Human1.ToString()] = new(Human1.ToString(), PermissionLevel.Owner, "Alice", true)
         };
 
         var result = await _coordinator.GetHumanPermissionAsync(
             unitActorId: UnitActorId,
-            humanId: "human-1",
+            humanId: Human1,
             getPermissions: _ => Task.FromResult(permissions),
             cancellationToken: TestContext.Current.CancellationToken);
 
@@ -104,7 +109,7 @@ public class UnitPermissionCoordinatorTests
 
         var result = await _coordinator.GetHumanPermissionAsync(
             unitActorId: UnitActorId,
-            humanId: "unknown",
+            humanId: HumanUnknown,
             getPermissions: _ => Task.FromResult(permissions),
             cancellationToken: TestContext.Current.CancellationToken);
 
@@ -118,22 +123,22 @@ public class UnitPermissionCoordinatorTests
     {
         var permissions = new Dictionary<string, UnitPermissionEntry>
         {
-            ["human-1"] = new("human-1", PermissionLevel.Owner, "Alice", true),
-            ["human-2"] = new("human-2", PermissionLevel.Viewer, "Bob", false)
+            [Human1.ToString()] = new(Human1.ToString(), PermissionLevel.Owner, "Alice", true),
+            [Human2.ToString()] = new(Human2.ToString(), PermissionLevel.Viewer, "Bob", false)
         };
         Dictionary<string, UnitPermissionEntry>? persisted = null;
 
         var result = await _coordinator.RemoveHumanPermissionAsync(
             unitActorId: UnitActorId,
-            humanId: "human-1",
+            humanId: Human1,
             getPermissions: _ => Task.FromResult(permissions),
             persistPermissions: (d, _) => { persisted = d; return Task.CompletedTask; },
             cancellationToken: TestContext.Current.CancellationToken);
 
         result.ShouldBeTrue();
         persisted.ShouldNotBeNull();
-        persisted!.ContainsKey("human-1").ShouldBeFalse();
-        persisted.ContainsKey("human-2").ShouldBeTrue();
+        persisted!.ContainsKey(Human1.ToString()).ShouldBeFalse();
+        persisted.ContainsKey(Human2.ToString()).ShouldBeTrue();
     }
 
     [Fact]
@@ -144,7 +149,7 @@ public class UnitPermissionCoordinatorTests
 
         var result = await _coordinator.RemoveHumanPermissionAsync(
             unitActorId: UnitActorId,
-            humanId: "unknown",
+            humanId: HumanUnknown,
             getPermissions: _ => Task.FromResult(permissions),
             persistPermissions: (_, _) => { persistCalled = true; return Task.CompletedTask; },
             cancellationToken: TestContext.Current.CancellationToken);
@@ -160,8 +165,8 @@ public class UnitPermissionCoordinatorTests
     {
         var permissions = new Dictionary<string, UnitPermissionEntry>
         {
-            ["human-1"] = new("human-1", PermissionLevel.Owner, "Alice", true),
-            ["human-2"] = new("human-2", PermissionLevel.Viewer, "Bob", false)
+            [Human1.ToString()] = new(Human1.ToString(), PermissionLevel.Owner, "Alice", true),
+            [Human2.ToString()] = new(Human2.ToString(), PermissionLevel.Viewer, "Bob", false)
         };
 
         var result = await _coordinator.GetHumanPermissionsAsync(
@@ -170,8 +175,8 @@ public class UnitPermissionCoordinatorTests
             cancellationToken: TestContext.Current.CancellationToken);
 
         result.Length.ShouldBe(2);
-        result.ShouldContain(e => e.HumanId == "human-1" && e.Permission == PermissionLevel.Owner);
-        result.ShouldContain(e => e.HumanId == "human-2" && e.Permission == PermissionLevel.Viewer);
+        result.ShouldContain(e => e.HumanId == Human1.ToString() && e.Permission == PermissionLevel.Owner);
+        result.ShouldContain(e => e.HumanId == Human2.ToString() && e.Permission == PermissionLevel.Viewer);
     }
 
     [Fact]

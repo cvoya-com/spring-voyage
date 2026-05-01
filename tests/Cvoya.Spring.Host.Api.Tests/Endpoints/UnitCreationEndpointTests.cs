@@ -518,17 +518,14 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
 
         response.StatusCode.ShouldBe(HttpStatusCode.Created);
 
-        // The Owner grant lands on the authenticated subject from the
-        // LocalDev handler — NOT on the synthetic "api" fallback.
+        // The Owner grant lands on a stable UUID resolved from the LocalDev
+        // handler's NameIdentifier claim ("local-dev-user") via
+        // IHumanIdentityResolver. The exact UUID is non-deterministic in
+        // the integration test (it depends on the in-memory DB row), but
+        // we can assert the permission level and that exactly one grant fired.
         await proxy.Received(1).SetHumanPermissionAsync(
-            AuthConstants.DefaultLocalUserId,
-            Arg.Is<UnitPermissionEntry>(e =>
-                e.HumanId == AuthConstants.DefaultLocalUserId
-                && e.Permission == PermissionLevel.Owner),
-            Arg.Any<CancellationToken>());
-        await proxy.DidNotReceive().SetHumanPermissionAsync(
-            "api",
-            Arg.Any<UnitPermissionEntry>(),
+            Arg.Any<Guid>(),
+            Arg.Is<UnitPermissionEntry>(e => e.Permission == PermissionLevel.Owner),
             Arg.Any<CancellationToken>());
     }
 
@@ -570,8 +567,10 @@ public class UnitCreationEndpointTests : IClassFixture<UnitCreationEndpointTests
 
         await proxy.DidNotReceive().AddMemberAsync(
             Arg.Any<Address>(), Arg.Any<CancellationToken>());
+        // After #1491 the grant is keyed by the resolved UUID, not the raw
+        // username string. Any non-empty Guid is correct here.
         await proxy.Received(1).SetHumanPermissionAsync(
-            AuthConstants.DefaultLocalUserId,
+            Arg.Any<Guid>(),
             Arg.Is<UnitPermissionEntry>(e => e.Permission == PermissionLevel.Owner),
             Arg.Any<CancellationToken>());
     }

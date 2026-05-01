@@ -8,6 +8,7 @@ using System.Security.Claims;
 using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Security;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
@@ -36,6 +37,10 @@ using Xunit;
 /// </summary>
 public class UnitCreationServiceTests
 {
+    // Stable UUIDs returned by the mock IHumanIdentityResolver.
+    private static readonly Guid FallbackGuid = new("00000000-0000-0000-0000-000000000001");
+    private static readonly Guid AliceGuid = new("aaaaaaaa-0000-0000-0000-000000000001");
+
     [Fact]
     public async Task CreateAsync_NoHttpContext_FallsBackToApiIdentity()
     {
@@ -44,18 +49,18 @@ public class UnitCreationServiceTests
         // Owner grant still lands on a deterministic, well-known id rather
         // than an empty string or null. Matches the existing fallback used
         // by MessageEndpoints / AgentEndpoints.
-        var fixture = new Fixture();
+        var fixture = new Fixture(FallbackGuid, AliceGuid);
         fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
 
         var result = await fixture.CreateAsync("no-ctx-unit");
 
         result.Unit.Name.ShouldBe("no-ctx-unit");
 
-        // The grant went to the fallback id — NOT to any claim.
+        // The grant went to the UUID that the resolver returned for the fallback username.
         await fixture.Proxy.Received(1).SetHumanPermissionAsync(
-            UnitCreationService.FallbackCreatorId,
+            FallbackGuid,
             Arg.Is<UnitPermissionEntry>(e =>
-                e.HumanId == UnitCreationService.FallbackCreatorId
+                e.HumanId == FallbackGuid.ToString()
                 && e.Permission == PermissionLevel.Owner),
             Arg.Any<CancellationToken>());
     }
@@ -64,11 +69,10 @@ public class UnitCreationServiceTests
     public async Task CreateAsync_AuthenticatedUser_GrantsOwnerToNameIdentifierClaim()
     {
         // When the request arrives with an authenticated principal, the
-        // grant must land on that principal's NameIdentifier claim — the
-        // same id PermissionHandler consults when evaluating subsequent
-        // permission checks. This keeps the round-trip consistent: create
-        // → Owner grant → subsequent call passes the router's Viewer gate.
-        var fixture = new Fixture();
+        // grant must land on that principal's resolved UUID — the same id
+        // PermissionHandler consults when evaluating subsequent permission
+        // checks after the #1491 migration.
+        var fixture = new Fixture(FallbackGuid, AliceGuid);
         var identity = new ClaimsIdentity(
             new[] { new Claim(ClaimTypes.NameIdentifier, "alice@example.com") },
             authenticationType: "test");
@@ -79,13 +83,13 @@ public class UnitCreationServiceTests
         await fixture.CreateAsync("auth-unit");
 
         await fixture.Proxy.Received(1).SetHumanPermissionAsync(
-            "alice@example.com",
+            AliceGuid,
             Arg.Is<UnitPermissionEntry>(e =>
-                e.HumanId == "alice@example.com"
+                e.HumanId == AliceGuid.ToString()
                 && e.Permission == PermissionLevel.Owner),
             Arg.Any<CancellationToken>());
         await fixture.Proxy.DidNotReceive().SetHumanPermissionAsync(
-            UnitCreationService.FallbackCreatorId,
+            FallbackGuid,
             Arg.Any<UnitPermissionEntry>(),
             Arg.Any<CancellationToken>());
     }
@@ -96,7 +100,7 @@ public class UnitCreationServiceTests
         // An HttpContext with an anonymous ClaimsPrincipal (Identity.IsAuthenticated == false)
         // must NOT be treated as a real caller — fall back to "api" the same
         // way we do when no HttpContext is present at all.
-        var fixture = new Fixture();
+        var fixture = new Fixture(FallbackGuid, AliceGuid);
         var httpContext = new DefaultHttpContext
         {
             User = new ClaimsPrincipal(new ClaimsIdentity()),
@@ -106,7 +110,7 @@ public class UnitCreationServiceTests
         await fixture.CreateAsync("anon-unit");
 
         await fixture.Proxy.Received(1).SetHumanPermissionAsync(
-            UnitCreationService.FallbackCreatorId,
+            FallbackGuid,
             Arg.Any<UnitPermissionEntry>(),
             Arg.Any<CancellationToken>());
     }
@@ -134,7 +138,9 @@ public class UnitCreationServiceTests
             Substitute.For<Cvoya.Spring.Core.Execution.IUnitExecutionStore>();
         public UnitCreationService Service { get; }
 
-        public Fixture()
+        /// <param name="fallbackGuid">UUID returned when the resolver is called with the fallback username ("api").</param>
+        /// <param name="aliceGuid">UUID returned when the resolver is called with any other username.</param>
+        public Fixture(Guid fallbackGuid, Guid aliceGuid)
         {
             Directory
                 .RegisterAsync(Arg.Any<DirectoryEntry>(), Arg.Any<CancellationToken>())
@@ -152,10 +158,19 @@ public class UnitCreationServiceTests
                 .CreateActorProxy<IHumanActor>(Arg.Any<ActorId>(), Arg.Any<string>())
                 .Returns(Substitute.For<IHumanActor>());
 
-            // A no-op scope factory keeps tests free of a real DbContext —
-            // the service's seed-expertise persistence branch only fires when
-            // a manifest carries `expertise:`, which these tests never do.
-            var scopeFactory = Substitute.For<IServiceScopeFactory>();
+            // Wire a real ServiceCollection so the scope factory returns a
+            // mock IHumanIdentityResolver without needing a real DbContext.
+            var identityResolver = Substitute.For<IHumanIdentityResolver>();
+            identityResolver
+                .ResolveByUsernameAsync(UnitCreationService.FallbackCreatorId, Arg.Any<string?>(), Arg.Any<CancellationToken>())
+                .Returns(fallbackGuid);
+            identityResolver
+                .ResolveByUsernameAsync(Arg.Is<string>(s => s != UnitCreationService.FallbackCreatorId), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+                .Returns(aliceGuid);
+
+            var services = new ServiceCollection();
+            services.AddScoped<IHumanIdentityResolver>(_ => identityResolver);
+            var scopeFactory = services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
 
             Service = new UnitCreationService(
                 Directory,
@@ -210,7 +225,7 @@ public class UnitCreationServiceTests
         // Regression test for #340. Actor-state add via proxy.AddMemberAsync
         // was already happening; this verifies the parallel DB write-through
         // now lands on the membership repository for every agent member.
-        var fixture = new Fixture();
+        var fixture = new Fixture(FallbackGuid, AliceGuid);
         fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
 
         var members = new[]
@@ -245,7 +260,7 @@ public class UnitCreationServiceTests
         // membership table is agent-addressed and polymorphic rows are a
         // future issue. The template fix must not leak unit rows into the
         // table through the same code path.
-        var fixture = new Fixture();
+        var fixture = new Fixture(FallbackGuid, AliceGuid);
         fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
 
         var members = new[]
@@ -274,7 +289,7 @@ public class UnitCreationServiceTests
         // after the actor-state write, we log + surface a warning rather
         // than trying to roll back the actor state. Actor state is the
         // authoritative fast-path; a reconciler repairs divergence.
-        var fixture = new Fixture();
+        var fixture = new Fixture(FallbackGuid, AliceGuid);
         fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
         fixture.MembershipRepository
             .UpsertAsync(Arg.Any<UnitMembership>(), Arg.Any<CancellationToken>())
@@ -304,7 +319,7 @@ public class UnitCreationServiceTests
         // Regression test for #374. Template-created agents should be
         // auto-registered in the directory so GET /api/v1/agents returns them
         // and the dashboard's Agents section populates.
-        var fixture = new Fixture();
+        var fixture = new Fixture(FallbackGuid, AliceGuid);
         fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
 
         var members = new[]
@@ -340,7 +355,7 @@ public class UnitCreationServiceTests
         // Idempotency: if the agent already exists in the directory (e.g.
         // created via `spring agent create` before being added to the unit),
         // the existing entry is preserved — no duplicate, no error.
-        var fixture = new Fixture();
+        var fixture = new Fixture(FallbackGuid, AliceGuid);
         fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
 
         // Pre-register "tech-lead" so the Resolve returns non-null.
@@ -391,7 +406,7 @@ public class UnitCreationServiceTests
         // Full execution config (model + provider) + a resolvable credential
         // must send the unit straight into Validating so the Dapr
         // UnitValidationWorkflow kicks off the in-container probe.
-        var fixture = new Fixture();
+        var fixture = new Fixture(FallbackGuid, AliceGuid);
         fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
         fixture.CredentialResolver
             .ResolveAsync(
@@ -427,7 +442,7 @@ public class UnitCreationServiceTests
         // Model + provider supplied but no credential resolvable: the unit
         // cannot be validated end-to-end yet, so it stays in Draft. The
         // user finishes configuration and later calls /revalidate.
-        var fixture = new Fixture();
+        var fixture = new Fixture(FallbackGuid, AliceGuid);
         fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
         fixture.CredentialResolver
             .ResolveAsync(
@@ -457,7 +472,7 @@ public class UnitCreationServiceTests
     [Fact]
     public async Task CreateAsync_WithoutModel_StatusIsDraft()
     {
-        var fixture = new Fixture();
+        var fixture = new Fixture(FallbackGuid, AliceGuid);
         fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
 
         var result = await fixture.CreateAsync("no-model-unit");
@@ -479,7 +494,7 @@ public class UnitCreationServiceTests
         // `Runtime: provider`, so a unit created with `--provider ollama`
         // surfaced as `runtime: ollama` on `GET /api/v1/units/{id}/execution`
         // — a category error (LLM provider in the container-runtime slot).
-        var fixture = new Fixture();
+        var fixture = new Fixture(FallbackGuid, AliceGuid);
         fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
 
         await fixture.Service.CreateAsync(
@@ -519,7 +534,7 @@ public class UnitCreationServiceTests
         // for `--tool claude-code` alone. Lock the contract anyway so a
         // future regression that tries to default Runtime from anything
         // else (Tool, Hosting…) trips this test.
-        var fixture = new Fixture();
+        var fixture = new Fixture(FallbackGuid, AliceGuid);
         fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
 
         await fixture.Service.CreateAsync(
@@ -554,7 +569,7 @@ public class UnitCreationServiceTests
     [Fact]
     public async Task CreateAsync_WithToolProviderHosting_FlowsThroughSetMetadata()
     {
-        var fixture = new Fixture();
+        var fixture = new Fixture(FallbackGuid, AliceGuid);
         fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
 
         await fixture.Service.CreateAsync(
