@@ -8,5 +8,12 @@
 # Build artifacts that should never be baked into the image context.
 **/.next
 
+# Kiota-generated client — re-emitted from openapi.json on every build.
+# Copying stale local files into the image causes CS2001: the old generated
+# file paths are captured by the MSBuild glob at evaluation time, then
+# --clean-output deletes them before Kiota regenerates with new names,
+# leaving the compiler looking for files that no longer exist.
+src/Cvoya.Spring.Cli/Generated/
+
 # Git history is not needed in the build context.
 .git
