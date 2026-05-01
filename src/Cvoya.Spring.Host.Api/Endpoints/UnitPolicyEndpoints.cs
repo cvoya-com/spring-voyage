@@ -85,7 +85,12 @@ public static class UnitPolicyEndpoints
             return auth.ToErrorResult(id);
         }
 
-        var policy = await repository.GetAsync(id, cancellationToken);
+        // Use the stable ActorId (UUID) as the policy key, not the slug from
+        // the URL. Slugs are reused when a unit is deleted and recreated with
+        // the same name; using the UUID ensures the new unit sees no policy
+        // inherited from the old one (#1488).
+        var actorId = auth.Entry!.ActorId;
+        var policy = await repository.GetAsync(actorId, cancellationToken);
         return Results.Ok(UnitPolicyResponse.From(policy));
     }
 
@@ -110,13 +115,18 @@ public static class UnitPolicyEndpoints
             return auth.ToErrorResult(id);
         }
 
+        // Use the stable ActorId (UUID) as the policy key, not the slug from
+        // the URL. Slugs are reused when a unit is deleted and recreated with
+        // the same name; using the UUID ensures the new unit's policy does not
+        // collide with or overwrite the old one's (#1488).
+        var actorId = auth.Entry!.ActorId;
         var policy = request.ToCore();
-        await repository.SetAsync(id, policy, cancellationToken);
+        await repository.SetAsync(actorId, policy, cancellationToken);
 
         // Re-read so the client sees the canonical post-write shape —
         // in particular, empty policies come back as UnitPolicy.Empty
         // regardless of what was sent.
-        var stored = await repository.GetAsync(id, cancellationToken);
+        var stored = await repository.GetAsync(actorId, cancellationToken);
         return Results.Ok(UnitPolicyResponse.From(stored));
     }
 }

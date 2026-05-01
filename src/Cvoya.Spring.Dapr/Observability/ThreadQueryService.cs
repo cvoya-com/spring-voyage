@@ -351,10 +351,12 @@ public class ThreadQueryService(
 
     /// <summary>
     /// Builds the candidate participant strings for a slug-or-id filter.
-    /// Always includes <c>scheme://value</c> (the literal form), and — when a
-    /// directory service is available — also <c>scheme://&lt;actorId&gt;</c>
-    /// resolved from the directory entry. Resolution failures are silent: the
-    /// literal form alone keeps the filter usable without a directory.
+    /// When the directory service resolves the value to a UUID, only the
+    /// UUID form is returned so that threads from previous instances of an
+    /// entity with the same slug name are not incorrectly included in the
+    /// filter results (#1488). The literal form is returned as a fallback
+    /// when: (a) no directory service is available, (b) the value already
+    /// is the UUID (slug == actorId), or (c) resolution fails.
     /// </summary>
     private async Task<IReadOnlyList<string>> BuildAddressNeedlesAsync(
         string scheme,
@@ -371,12 +373,23 @@ public class ThreadQueryService(
         {
             var entry = await directoryService.ResolveAsync(
                 new Address(scheme, value), cancellationToken);
-            if (entry is null || string.Equals(entry.ActorId, value, StringComparison.Ordinal))
+            if (entry is null)
             {
+                // Unknown entity — fall back to the literal so the filter
+                // still works for direct-UUID lookups or dev scenarios.
                 return new[] { literal };
             }
 
-            return new[] { literal, $"{scheme}://{entry.ActorId}" };
+            if (string.Equals(entry.ActorId, value, StringComparison.Ordinal))
+            {
+                // The caller already passed a UUID; the literal IS the UUID form.
+                return new[] { literal };
+            }
+
+            // The caller passed a slug. Return only the resolved UUID form so
+            // activity events from a previous instance with the same slug are
+            // not accidentally matched (#1488).
+            return new[] { $"{scheme}://{entry.ActorId}" };
         }
         catch
         {

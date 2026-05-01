@@ -259,7 +259,10 @@ public static class SecretEndpoints
                 statusCode: StatusCodes.Status404NotFound);
         }
 
-        var metadata = await ListMetadataAsync(registry, db, SecretScope.Unit, id, cancellationToken);
+        // Use the stable ActorId (UUID) as the secret owner key, not the slug
+        // from the URL. Slugs are reused when a unit is deleted and recreated;
+        // the UUID ensures secrets are scoped to the specific unit instance (#1488).
+        var metadata = await ListMetadataAsync(registry, db, SecretScope.Unit, entry.ActorId, cancellationToken);
         return Results.Ok(new UnitSecretsListResponse(metadata));
     }
 
@@ -294,14 +297,19 @@ public static class SecretEndpoints
                 statusCode: StatusCodes.Status404NotFound);
         }
 
+        // Use the stable ActorId (UUID) as the secret owner key, not the slug from
+        // the URL (#1488). Pass the slug as locationOwnerId so the 201 Location
+        // header contains the human-readable unit id rather than the UUID.
         return await CreateSecretAsync(
-            SecretScope.Unit, id, request, store, registry, db, options.Value, cancellationToken);
+            SecretScope.Unit, entry.ActorId, request, store, registry, db, options.Value, cancellationToken,
+            locationOwnerId: id);
     }
 
     private static async Task<IResult> RotateUnitSecretAsync(
         string id,
         string name,
         RotateSecretRequest request,
+        [FromServices] IDirectoryService directoryService,
         [FromServices] ISecretStore store,
         [FromServices] ISecretRegistry registry,
         [FromServices] ISecretAccessPolicy accessPolicy,
@@ -313,13 +321,24 @@ public static class SecretEndpoints
             return Forbidden(SecretScope.Unit, SecretAccessAction.Rotate);
         }
 
+        var unitAddress = new Address("unit", id);
+        var entry = await directoryService.ResolveAsync(unitAddress, cancellationToken);
+        if (entry is null)
+        {
+            return Results.Problem(
+                detail: $"Unit '{id}' not found",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        // Use the stable ActorId (UUID) as the secret owner key (#1488).
         return await RotateSecretAsync(
-            SecretScope.Unit, id, name, request, store, registry, options.Value, cancellationToken);
+            SecretScope.Unit, entry.ActorId, name, request, store, registry, options.Value, cancellationToken);
     }
 
     private static async Task<IResult> ListUnitSecretVersionsAsync(
         string id,
         string name,
+        [FromServices] IDirectoryService directoryService,
         [FromServices] ISecretRegistry registry,
         [FromServices] ISecretAccessPolicy accessPolicy,
         CancellationToken cancellationToken)
@@ -329,13 +348,24 @@ public static class SecretEndpoints
             return Forbidden(SecretScope.Unit, SecretAccessAction.List);
         }
 
-        return await ListVersionsAsync(SecretScope.Unit, id, name, registry, cancellationToken);
+        var unitAddress = new Address("unit", id);
+        var entry = await directoryService.ResolveAsync(unitAddress, cancellationToken);
+        if (entry is null)
+        {
+            return Results.Problem(
+                detail: $"Unit '{id}' not found",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        // Use the stable ActorId (UUID) as the secret owner key (#1488).
+        return await ListVersionsAsync(SecretScope.Unit, entry.ActorId, name, registry, cancellationToken);
     }
 
     private static async Task<IResult> PruneUnitSecretAsync(
         string id,
         string name,
         int? keep,
+        [FromServices] IDirectoryService directoryService,
         [FromServices] ISecretStore store,
         [FromServices] ISecretRegistry registry,
         [FromServices] ISecretAccessPolicy accessPolicy,
@@ -346,12 +376,23 @@ public static class SecretEndpoints
             return Forbidden(SecretScope.Unit, SecretAccessAction.Prune);
         }
 
-        return await PruneSecretAsync(SecretScope.Unit, id, name, keep, store, registry, cancellationToken);
+        var unitAddress = new Address("unit", id);
+        var entry = await directoryService.ResolveAsync(unitAddress, cancellationToken);
+        if (entry is null)
+        {
+            return Results.Problem(
+                detail: $"Unit '{id}' not found",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        // Use the stable ActorId (UUID) as the secret owner key (#1488).
+        return await PruneSecretAsync(SecretScope.Unit, entry.ActorId, name, keep, store, registry, cancellationToken);
     }
 
     private static async Task<IResult> DeleteUnitSecretAsync(
         string id,
         string name,
+        [FromServices] IDirectoryService directoryService,
         [FromServices] ISecretStore store,
         [FromServices] ISecretRegistry registry,
         [FromServices] ISecretAccessPolicy accessPolicy,
@@ -363,8 +404,18 @@ public static class SecretEndpoints
             return Forbidden(SecretScope.Unit, SecretAccessAction.Delete);
         }
 
+        var unitAddress = new Address("unit", id);
+        var entry = await directoryService.ResolveAsync(unitAddress, cancellationToken);
+        if (entry is null)
+        {
+            return Results.Problem(
+                detail: $"Unit '{id}' not found",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        // Use the stable ActorId (UUID) as the secret owner key (#1488).
         return await DeleteSecretAsync(
-            SecretScope.Unit, id, name, store, registry, loggerFactory, cancellationToken);
+            SecretScope.Unit, entry.ActorId, name, store, registry, loggerFactory, cancellationToken);
     }
 
     // ------------------------------------------------------------------
@@ -843,8 +894,16 @@ public static class SecretEndpoints
         ISecretRegistry registry,
         SpringDbContext db,
         SecretsOptions options,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? locationOwnerId = null)
     {
+        // locationOwnerId is the slug used to build the Location header URL for
+        // unit-scoped secrets. For tenant- and platform-scoped secrets the owner
+        // id already matches the URL segment, so the parameter defaults to null
+        // (use ownerId). See #1488 for why unit secrets use a UUID ownerId but
+        // a slug in the URL.
+        var urlOwnerId = locationOwnerId ?? ownerId;
+
         var max = options.MaxSecretsPerOwner;
         if (max > 0)
         {
@@ -905,7 +964,7 @@ public static class SecretEndpoints
             .FirstOrDefaultAsync(cancellationToken);
 
         var createdAt = row?.CreatedAt ?? DateTimeOffset.UtcNow;
-        var location = BuildResourceLocation(scope, ownerId, request.Name);
+        var location = BuildResourceLocation(scope, urlOwnerId, request.Name);
         return Results.Created(
             location,
             new CreateSecretResponse(request.Name, scope, createdAt));

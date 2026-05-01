@@ -376,13 +376,61 @@ public class SecretEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         body!.Secrets.ShouldNotContain(s => s.Name == "leaked");
     }
 
+    /// <summary>
+    /// Regression test for #1488: if a unit is deleted and recreated with the
+    /// same slug, the new unit must not see the old unit's secrets. Before the
+    /// fix, the secret owner key was the slug so both instances shared the row.
+    /// </summary>
+    [Fact]
+    public async Task Get_AfterRecreateWithSameName_NewUnitSeesNoSecrets()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var unitSlug = NewUnitId();
+
+        // First unit instance — ActorId differs from slug.
+        var actorIdV1 = $"actor-v1-{Guid.NewGuid():N}";
+        StubUnitWithActorId(unitSlug, actorIdV1);
+
+        // Register a secret under the first instance.
+        var createResp = await _client.PostAsJsonAsync(
+            $"/api/v1/tenant/units/{unitSlug}/secrets",
+            new CreateSecretRequest("api-token", "supersecret"),
+            ct);
+        createResp.StatusCode.ShouldBe(HttpStatusCode.Created);
+
+        // Confirm the secret is visible for the first instance.
+        var listV1 = await _client.GetAsync($"/api/v1/tenant/units/{unitSlug}/secrets", ct);
+        listV1.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var bodyV1 = await listV1.Content.ReadFromJsonAsync<UnitSecretsListResponse>(JsonOptions, ct);
+        bodyV1!.Secrets.ShouldContain(s => s.Name == "api-token",
+            "First unit instance must see its own secret");
+
+        // Simulate delete+recreate: the same slug now resolves to a new ActorId.
+        var actorIdV2 = $"actor-v2-{Guid.NewGuid():N}";
+        StubUnitWithActorId(unitSlug, actorIdV2);
+
+        // The second unit instance must not see the first instance's secret.
+        var listV2 = await _client.GetAsync($"/api/v1/tenant/units/{unitSlug}/secrets", ct);
+        listV2.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var bodyV2 = await listV2.Content.ReadFromJsonAsync<UnitSecretsListResponse>(JsonOptions, ct);
+        bodyV2!.Secrets.ShouldBeEmpty(
+            "New unit instance (same slug, new ActorId) must not see the deleted unit's secrets (#1488)");
+    }
+
     private static string NewUnitId() => $"unit-{Guid.NewGuid():N}";
 
     private void StubUnit(string id)
     {
-        var address = new Address("unit", id);
+        // When ActorId == id (slug), the tests exercise the code path without
+        // the slug-vs-uuid distinction. This is the legacy/simple setup.
+        StubUnitWithActorId(id, id);
+    }
+
+    private void StubUnitWithActorId(string slug, string actorId)
+    {
+        var address = new Address("unit", slug);
         var entry = new DirectoryEntry(
-            address, id, id, "test", null, DateTimeOffset.UtcNow);
+            address, actorId, slug, "test", null, DateTimeOffset.UtcNow);
         _factory.DirectoryService.ResolveAsync(address, Arg.Any<CancellationToken>())
             .Returns(entry);
     }

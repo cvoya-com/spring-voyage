@@ -263,6 +263,72 @@ public class UnitPolicyEndpointsTests : IClassFixture<CustomWebApplicationFactor
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
+    /// <summary>
+    /// Regression test for #1488: if a unit is deleted and recreated with the
+    /// same slug, the new unit must not see the old unit's policy. Before the
+    /// fix, both units would share the same slug-keyed policy row.
+    /// </summary>
+    [Fact]
+    public async Task PutPolicy_AfterRecreateWithSameName_NewUnitSeesNoPolicy()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var unitName = NewUnitName();
+
+        // Simulate first unit instance: actorId = "actor-v1-{unitName}".
+        var actorIdV1 = $"actor-v1-{unitName}";
+        _factory.DirectoryService
+            .ResolveAsync(
+                Arg.Is<Address>(a => a.Scheme == "unit" && a.Path == unitName),
+                Arg.Any<CancellationToken>())
+            .Returns(_ => new DirectoryEntry(
+                new Address("unit", unitName),
+                actorIdV1,
+                "Engineering",
+                "Engineering unit v1",
+                null,
+                DateTimeOffset.UtcNow));
+        _factory.PermissionService
+            .ResolveEffectivePermissionAsync(
+                AuthConstants.DefaultLocalUserId, unitName, Arg.Any<CancellationToken>())
+            .Returns(PermissionLevel.Owner);
+
+        // Write a policy on the first unit instance.
+        var putResponse = await _client.PutAsJsonAsync(
+            $"/api/v1/tenant/units/{unitName}/policy",
+            new UnitPolicyResponse(new SkillPolicy(Blocked: new[] { "dangerous-op" })),
+            ct);
+        putResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        // Verify the first instance's policy is readable.
+        var firstRead = await _client
+            .GetFromJsonAsync<UnitPolicyResponse>($"/api/v1/tenant/units/{unitName}/policy", ct);
+        firstRead!.Skill!.Blocked.ShouldBe(new[] { "dangerous-op" });
+
+        // Simulate delete+recreate: the directory now resolves the same slug
+        // to a NEW ActorId (as happens when a unit is deleted and recreated
+        // with the same name). The old ActorId (actorIdV1) is gone.
+        var actorIdV2 = $"actor-v2-{unitName}";
+        _factory.DirectoryService
+            .ResolveAsync(
+                Arg.Is<Address>(a => a.Scheme == "unit" && a.Path == unitName),
+                Arg.Any<CancellationToken>())
+            .Returns(_ => new DirectoryEntry(
+                new Address("unit", unitName),
+                actorIdV2,
+                "Engineering",
+                "Engineering unit v2",
+                null,
+                DateTimeOffset.UtcNow));
+
+        // The new unit instance must see no policy (empty) — the old policy
+        // row is keyed by actorIdV1 and must not be returned for actorIdV2.
+        var newInstanceRead = await _client
+            .GetFromJsonAsync<UnitPolicyResponse>($"/api/v1/tenant/units/{unitName}/policy", ct);
+        newInstanceRead.ShouldNotBeNull();
+        newInstanceRead!.Skill.ShouldBeNull(
+            "New unit instance must not inherit the policy of the deleted unit with the same slug");
+    }
+
     private static string NewUnitName() => $"engineering-{Guid.NewGuid():N}";
 
     /// <summary>

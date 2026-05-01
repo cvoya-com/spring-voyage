@@ -7,6 +7,7 @@ using System.Collections.Concurrent;
 
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Secrets;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
@@ -357,6 +358,31 @@ public class DirectoryService(
         foreach (var edge in subunitEdges)
         {
             db.UnitSubunitMemberships.Remove(edge);
+        }
+
+        // #1488: delete the unit's policy row. Policy rows are keyed by
+        // ActorId (UUID) so the delete targets the specific instance of this
+        // unit — not any future unit recreated with the same slug.
+        var actorId = entity.ActorId;
+        if (!string.IsNullOrEmpty(actorId))
+        {
+            var policyRow = await db.UnitPolicies
+                .FirstOrDefaultAsync(p => p.UnitId == actorId, cancellationToken);
+            if (policyRow is not null)
+            {
+                db.UnitPolicies.Remove(policyRow);
+            }
+
+            // #1488: delete all unit-scoped secret registry entries for this
+            // specific unit instance. Secret rows are keyed by OwnerId = ActorId
+            // so deleting by ActorId targets only this instance.
+            var secretRows = await db.SecretRegistryEntries
+                .Where(e => e.Scope == SecretScope.Unit && e.OwnerId == actorId)
+                .ToListAsync(cancellationToken);
+            if (secretRows.Count > 0)
+            {
+                db.SecretRegistryEntries.RemoveRange(secretRows);
+            }
         }
 
         // Ref-count each affected agent. An agent is soft-deleted iff every
