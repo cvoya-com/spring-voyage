@@ -6017,8 +6017,17 @@
         "tags": [
           "Connectors.GitHub"
         ],
-        "summary": "List repositories visible to the GitHub App, aggregated across installations",
+        "summary": "List repositories visible to the GitHub App, aggregated across installations, optionally scoped to the current user's identity via session_id",
         "operationId": "ListGitHubRepositories",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "OK",

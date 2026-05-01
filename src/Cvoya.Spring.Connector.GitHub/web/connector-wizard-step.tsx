@@ -120,6 +120,15 @@ export interface GitHubConnectorWizardStepProps {
    * wizard step after having filled it out once. Optional.
    */
   initialValue?: UnitGitHubConfigRequest | null;
+
+  /**
+   * #1505: The caller's GitHub OAuth session id. When provided the
+   * list-repositories endpoint scopes the result to only installations
+   * belonging to the user's GitHub account and organisations, preventing
+   * cross-tenant repository leakage. Omit when no GitHub session is
+   * available (the endpoint falls back to the full unfiltered list).
+   */
+  gitHubSessionId?: string;
 }
 
 /**
@@ -132,6 +141,7 @@ export interface GitHubConnectorWizardStepProps {
 export function GitHubConnectorWizardStep({
   onChange,
   initialValue,
+  gitHubSessionId,
 }: GitHubConnectorWizardStepProps) {
   // Persisted on the binding. The wizard splits the chosen full_name
   // client-side so the wire shape stays `(owner, repo, installationId)`.
@@ -195,8 +205,9 @@ export function GitHubConnectorWizardStep({
   // #1132: lifted out of the mount effect so the Recheck button can
   // re-run the fetch without re-mounting the component (and without the
   // monotonic-token gymnastics the previous implementation used). The
-  // function is stable across renders because it has no dependencies —
-  // all reads come from `api`, all writes go through setState.
+  // function is stable across renders when gitHubSessionId doesn't
+  // change — the sessionId is passed on each call so the dependency
+  // array only grows by one entry.
   //
   // Note: every setState below happens AFTER an `await`, which is
   // important — it keeps `react-hooks/set-state-in-effect` quiet when
@@ -206,7 +217,9 @@ export function GitHubConnectorWizardStep({
     let list: GitHubRepositoryResponse[] = [];
     let disabled: string | null = null;
     try {
-      list = await api.listGitHubRepositories();
+      // #1505: pass the GitHub OAuth session id so the backend scopes
+      // the result to only installations the current user can access.
+      list = await api.listGitHubRepositories(gitHubSessionId);
       setRepositories(list);
       setReposError(null);
       setDisabledReason(null);
@@ -243,7 +256,7 @@ export function GitHubConnectorWizardStep({
         // Swallow — the banner already tells the user what's wrong.
       }
     }
-  }, []);
+  }, [gitHubSessionId]);
 
   // #1132: imperative wrapper for the Recheck / Refresh buttons. Lifts
   // the `rechecking` flag around the fetch so the UI can render the

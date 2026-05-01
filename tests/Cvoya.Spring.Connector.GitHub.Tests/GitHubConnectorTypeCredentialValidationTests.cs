@@ -7,11 +7,13 @@ using System.Net;
 using System.Net.Http;
 
 using Cvoya.Spring.Connector.GitHub.Auth;
+using Cvoya.Spring.Connector.GitHub.Auth.OAuth;
 using Cvoya.Spring.Connector.GitHub.Configuration;
 using Cvoya.Spring.Connector.GitHub.Webhooks;
 using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.AgentRuntimes;
 
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -260,6 +262,14 @@ public class GitHubConnectorTypeCredentialValidationTests
     {
         var optionsAccessor = Options.Create(options);
         var requirement = new GitHubAppConfigurationRequirement(optionsAccessor);
+
+        // Build a minimal service provider so GitHubConnectorType can
+        // resolve ISecretStore lazily when list-repositories is called.
+        // The tests in this class don't exercise that path, so a no-op
+        // stub is sufficient.
+        var sp = new ServiceCollection()
+            .BuildServiceProvider();
+
         return new GitHubConnectorType(
             _configStore,
             _runtimeStore,
@@ -268,6 +278,9 @@ public class GitHubConnectorTypeCredentialValidationTests
             Substitute.For<IGitHubCollaboratorsClient>(),
             optionsAccessor,
             requirement,
+            Substitute.For<IOAuthSessionStore>(),
+            sp,
+            Substitute.For<IGitHubUserScopeResolver>(),
             _loggerFactory);
     }
 

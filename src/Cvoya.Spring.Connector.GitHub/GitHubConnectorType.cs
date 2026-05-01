@@ -14,11 +14,13 @@ using Cvoya.Spring.Connector.GitHub.Webhooks;
 using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.AgentRuntimes;
 using Cvoya.Spring.Core.Configuration;
+using Cvoya.Spring.Core.Secrets;
 
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -59,6 +61,9 @@ public class GitHubConnectorType : IConnectorType
     private readonly IGitHubInstallationsClient _installationsClient;
     private readonly IGitHubCollaboratorsClient _collaboratorsClient;
     private readonly GitHubAppConfigurationRequirement _credentialRequirement;
+    private readonly IOAuthSessionStore _oauthSessionStore;
+    private readonly IServiceProvider _serviceProvider;
+    private readonly IGitHubUserScopeResolver _userScopeResolver;
     private readonly ILogger<GitHubConnectorType> _logger;
 
     /// <summary>
@@ -72,6 +77,9 @@ public class GitHubConnectorType : IConnectorType
         IGitHubCollaboratorsClient collaboratorsClient,
         IOptions<GitHubConnectorOptions> options,
         GitHubAppConfigurationRequirement credentialRequirement,
+        IOAuthSessionStore oauthSessionStore,
+        IServiceProvider serviceProvider,
+        IGitHubUserScopeResolver userScopeResolver,
         ILoggerFactory loggerFactory)
     {
         _configStore = configStore;
@@ -81,6 +89,9 @@ public class GitHubConnectorType : IConnectorType
         _collaboratorsClient = collaboratorsClient;
         _options = options;
         _credentialRequirement = credentialRequirement;
+        _oauthSessionStore = oauthSessionStore;
+        _serviceProvider = serviceProvider;
+        _userScopeResolver = userScopeResolver;
         _logger = loggerFactory.CreateLogger<GitHubConnectorType>();
     }
 
@@ -160,9 +171,17 @@ public class GitHubConnectorType : IConnectorType
         // surface with a single dropdown the wizard splits client-side.
         // The installation id rides along on every row so the wizard can
         // post it back without a second resolver call.
+        //
+        // The optional `session_id` query parameter scopes the result to
+        // only installations owned by the calling portal user's GitHub
+        // identity (their login + organisations), preventing cross-tenant
+        // repository leakage when the App is installed across multiple orgs
+        // (#1505). When the parameter is absent the full unfiltered list is
+        // returned — preserved for backward-compatibility with any CLI or
+        // integration that calls this endpoint without a GitHub OAuth session.
         group.MapGet("/actions/list-repositories", ListRepositoriesAsync)
             .WithName("ListGitHubRepositories")
-            .WithSummary("List repositories visible to the GitHub App, aggregated across installations")
+            .WithSummary("List repositories visible to the GitHub App, aggregated across installations, optionally scoped to the current user's identity via session_id")
             .WithTags("Connectors.GitHub")
             .Produces<GitHubRepositoryResponse[]>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound)
@@ -522,7 +541,9 @@ public class GitHubConnectorType : IConnectorType
         }
     }
 
-    private async Task<IResult> ListRepositoriesAsync(CancellationToken cancellationToken)
+    private async Task<IResult> ListRepositoriesAsync(
+        [FromQuery(Name = "session_id")] string? sessionId,
+        CancellationToken cancellationToken)
     {
         // Same disabled short-circuit as list-installations — without
         // valid App credentials we can't mint installation tokens, so
@@ -545,8 +566,84 @@ public class GitHubConnectorType : IConnectorType
 
         try
         {
+            // #1505: Resolve the caller's GitHub identity when a GitHub
+            // OAuth session id is supplied. The session was established by
+            // the portal's OAuth flow (POST /oauth/authorize → GET
+            // /oauth/callback) and ties the portal user to their GitHub
+            // login + org memberships. We filter the App's installations
+            // to only those whose account login is in that set, preventing
+            // cross-tenant repository leakage when the App is installed on
+            // multiple organisations belonging to different tenants.
+            //
+            // When no session_id is supplied we fall back to the
+            // unfiltered list (backward-compatible for CLI and integration
+            // callers that do not carry an OAuth session). A warning is
+            // logged so operators can audit unauthenticated calls.
+            IReadOnlySet<string>? userScope = null;
+            if (!string.IsNullOrWhiteSpace(sessionId))
+            {
+                var session = await _oauthSessionStore.GetAsync(sessionId, cancellationToken);
+                if (session is not null)
+                {
+                    // Resolve ISecretStore lazily — it may have heavyweight
+                    // activation requirements (e.g. Dapr state store needing
+                    // an AES key) that should not block the OpenAPI generation
+                    // process or cold-path startup.
+                    var secretStore = _serviceProvider.GetRequiredService<ISecretStore>();
+                    var accessToken = await secretStore.ReadAsync(
+                        session.AccessTokenStoreKey, cancellationToken);
+                    if (!string.IsNullOrEmpty(accessToken))
+                    {
+                        userScope = await _userScopeResolver.ResolveAsync(
+                            accessToken, cancellationToken);
+                        _logger.LogInformation(
+                            "list-repositories: user scope resolved for session {SessionId} " +
+                            "(login={Login}, accounts={Count})",
+                            sessionId, session.Login, userScope.Count);
+                    }
+                    else
+                    {
+                        _logger.LogWarning(
+                            "list-repositories: session {SessionId} found but access token is missing " +
+                            "from the secret store; returning unfiltered list",
+                            sessionId);
+                    }
+                }
+                else
+                {
+                    _logger.LogWarning(
+                        "list-repositories: session_id '{SessionId}' not found; " +
+                        "returning unfiltered list",
+                        sessionId);
+                }
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "list-repositories: no session_id supplied; " +
+                    "returning all installations (unfiltered)");
+            }
+
             var installations = await _installationsClient
                 .ListInstallationsAsync(cancellationToken);
+
+            // When we have a user scope, retain only installations whose
+            // account login is in { user-login, user-orgs }. GitHub
+            // logins are case-preserving but case-insensitive, so use
+            // the case-insensitive comparer the HashSet was built with.
+            var visibleInstallations = userScope is not null
+                ? installations
+                    .Where(i => userScope.Contains(i.Account))
+                    .ToList()
+                : installations;
+
+            if (userScope is not null)
+            {
+                _logger.LogInformation(
+                    "list-repositories: filtered {Total} installation(s) down to {Visible} " +
+                    "matching the caller's GitHub scope",
+                    installations.Count, visibleInstallations.Count);
+            }
 
             // Aggregate across installations so the wizard can present a
             // single repository dropdown (#1133). The per-installation
@@ -557,7 +654,7 @@ public class GitHubConnectorType : IConnectorType
             // log it and keep the other installations' rows so the wizard
             // still has something to render.
             var aggregated = new List<GitHubRepositoryResponse>();
-            foreach (var installation in installations)
+            foreach (var installation in visibleInstallations)
             {
                 IReadOnlyList<GitHubInstallationRepository> repos;
                 try

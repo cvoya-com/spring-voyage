@@ -211,6 +211,10 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IGitHubUserFetcher, OctokitGitHubUserFetcher>();
         services.TryAddSingleton<IGitHubOAuthService, GitHubOAuthService>();
         services.TryAddSingleton<IGitHubOAuthClientFactory, GitHubOAuthClientFactory>();
+        // #1505: user-scope resolver for the list-repositories endpoint. Resolves
+        // the caller's GitHub login + org memberships from an OAuth access token
+        // so cross-tenant installation leakage can be filtered server-side.
+        services.TryAddSingleton<IGitHubUserScopeResolver, OctokitGitHubUserScopeResolver>();
 
         services.TryAddSingleton<IWebhookSignatureValidator, WebhookSignatureValidator>();
         services.TryAddSingleton<GitHubWebhookHandler>();

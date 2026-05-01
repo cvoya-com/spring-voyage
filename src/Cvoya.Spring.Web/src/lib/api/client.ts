@@ -949,11 +949,21 @@ export const api = {
    * user to type owner+repo and pick an installation. Each row carries
    * the installation id back so the connector never has to re-resolve
    * `(owner, repo) → installation`.
+   *
+   * #1505: The optional `sessionId` parameter scopes the result to only
+   * installations belonging to the calling user's GitHub identity (their
+   * personal login plus any organisations they belong to). When omitted
+   * the full unfiltered list is returned for backward compatibility.
+   * Pass the GitHub OAuth session id from the portal's OAuth flow when
+   * available to prevent cross-tenant repository leakage.
    */
-  listGitHubRepositories: async () =>
+  listGitHubRepositories: async (sessionId?: string) =>
     unwrap(
       await fetchClient.GET(
         "/api/v1/tenant/connectors/github/actions/list-repositories",
+        sessionId
+          ? { params: { query: { session_id: sessionId } as never } }
+          : {},
       ),
     ),
   /**

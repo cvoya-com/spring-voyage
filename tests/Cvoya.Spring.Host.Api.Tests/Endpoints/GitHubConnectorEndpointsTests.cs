@@ -9,8 +9,10 @@ using System.Text.Json;
 
 using Cvoya.Spring.Connector.GitHub;
 using Cvoya.Spring.Connector.GitHub.Auth;
+using Cvoya.Spring.Connector.GitHub.Auth.OAuth;
 using Cvoya.Spring.Connector.GitHub.Webhooks;
 using Cvoya.Spring.Connectors;
+using Cvoya.Spring.Core.Secrets;
 
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
@@ -557,6 +559,243 @@ public class GitHubConnectorEndpointsTests
             .ShouldContain("owner");
     }
 
+    // -----------------------------------------------------------------------
+    // #1505 — user-scoped list-repositories (tenant-isolation fix)
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task ListRepositories_WithSessionId_FiltersToUserScope()
+    {
+        // Two installations: one belonging to "acme" (the user's org) and
+        // one belonging to "other-org" (a different tenant). The caller's
+        // GitHub OAuth session has login "alice" and belongs to org "acme".
+        // Only the installation whose Account is "acme" should appear in
+        // the result — "other-org/secret-repo" must NOT be returned.
+        const string sessionId = "test-session-abc";
+        const string fakeAccessToken = "ghu_faketoken";
+        const string fakeStoreKey = "store-key-123";
+
+        var sessionStore = Substitute.For<IOAuthSessionStore>();
+        sessionStore.GetAsync(sessionId, Arg.Any<CancellationToken>())
+            .Returns(new OAuthSession(
+                SessionId: sessionId,
+                Login: "alice",
+                UserId: 42L,
+                Scopes: "repo read:org",
+                AccessTokenStoreKey: fakeStoreKey,
+                RefreshTokenStoreKey: null,
+                ExpiresAt: null,
+                CreatedAt: DateTimeOffset.UtcNow,
+                ClientState: null));
+
+        var secretStore = Substitute.For<ISecretStore>();
+        secretStore.ReadAsync(fakeStoreKey, Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<string?>(fakeAccessToken));
+
+        // The scope resolver returns { "alice", "acme" } — the user's own
+        // login plus the one org they belong to.
+        var scopeResolver = Substitute.For<IGitHubUserScopeResolver>();
+        scopeResolver.ResolveAsync(fakeAccessToken, Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlySet<string>>(
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "alice", "acme" }));
+
+        var installationsClient = Substitute.For<IGitHubInstallationsClient>();
+        // App sees two installations: one for acme, one for another tenant.
+        installationsClient.ListInstallationsAsync(Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new GitHubInstallation(1001L, "acme", "Organization", "all"),
+                new GitHubInstallation(1002L, "other-org", "Organization", "all"),
+            });
+        installationsClient.ListInstallationRepositoriesAsync(1001L, Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new GitHubInstallationRepository(10L, "acme", "platform", "acme/platform", false),
+            });
+        // Installation 1002 (other-org) must NEVER be called — asserting
+        // at the end that ListInstallationRepositoriesAsync is only called
+        // once (for installation 1001).
+
+        await using var factory = CreateFactory(
+            installationsClient: installationsClient,
+            sessionStore: sessionStore,
+            secretStore: secretStore,
+            scopeResolver: scopeResolver);
+        var client = factory.CreateClient();
+        var ct = TestContext.Current.CancellationToken;
+
+        var response = await client.GetAsync(
+            $"/api/v1/tenant/connectors/github/actions/list-repositories?session_id={sessionId}",
+            ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<GitHubRepositoryResponse[]>(ct);
+        body.ShouldNotBeNull();
+
+        // Only the acme installation's repos should appear.
+        body!.Length.ShouldBe(1);
+        body[0].FullName.ShouldBe("acme/platform");
+        body[0].InstallationId.ShouldBe(1001L);
+
+        // The other-org installation must NOT have been enumerated.
+        await installationsClient.DidNotReceive()
+            .ListInstallationRepositoriesAsync(1002L, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ListRepositories_WithSessionId_IncludesPersonalAccountInstallation()
+    {
+        // The user has a personal installation (account == their login).
+        // Ensure personal-account installations are returned too — the
+        // scope set includes the user's own login, not just their orgs.
+        const string sessionId = "test-session-personal";
+        const string fakeStoreKey = "store-key-personal";
+        const string fakeAccessToken = "ghu_personal";
+
+        var sessionStore = Substitute.For<IOAuthSessionStore>();
+        sessionStore.GetAsync(sessionId, Arg.Any<CancellationToken>())
+            .Returns(new OAuthSession(
+                SessionId: sessionId,
+                Login: "alice",
+                UserId: 42L,
+                Scopes: "repo",
+                AccessTokenStoreKey: fakeStoreKey,
+                RefreshTokenStoreKey: null,
+                ExpiresAt: null,
+                CreatedAt: DateTimeOffset.UtcNow,
+                ClientState: null));
+
+        var secretStore = Substitute.For<ISecretStore>();
+        secretStore.ReadAsync(fakeStoreKey, Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<string?>(fakeAccessToken));
+
+        // Scope: only personal login, no orgs.
+        var scopeResolver = Substitute.For<IGitHubUserScopeResolver>();
+        scopeResolver.ResolveAsync(fakeAccessToken, Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlySet<string>>(
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "alice" }));
+
+        var installationsClient = Substitute.For<IGitHubInstallationsClient>();
+        installationsClient.ListInstallationsAsync(Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new GitHubInstallation(2001L, "alice", "User", "all"),
+                new GitHubInstallation(2002L, "other-corp", "Organization", "all"),
+            });
+        installationsClient.ListInstallationRepositoriesAsync(2001L, Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new GitHubInstallationRepository(20L, "alice", "dotfiles", "alice/dotfiles", false),
+            });
+
+        await using var factory = CreateFactory(
+            installationsClient: installationsClient,
+            sessionStore: sessionStore,
+            secretStore: secretStore,
+            scopeResolver: scopeResolver);
+        var client = factory.CreateClient();
+        var ct = TestContext.Current.CancellationToken;
+
+        var response = await client.GetAsync(
+            $"/api/v1/tenant/connectors/github/actions/list-repositories?session_id={sessionId}",
+            ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<GitHubRepositoryResponse[]>(ct);
+        body.ShouldNotBeNull();
+        body!.Length.ShouldBe(1);
+        body[0].FullName.ShouldBe("alice/dotfiles");
+
+        await installationsClient.DidNotReceive()
+            .ListInstallationRepositoriesAsync(2002L, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ListRepositories_WithUnknownSessionId_ReturnsAllInstallations()
+    {
+        // When the session_id is supplied but not found, the endpoint falls
+        // back to the unfiltered list rather than returning an empty result.
+        // Operators who call without a valid session still get the full
+        // picture; the session is optional for backward compatibility.
+        const string sessionId = "unknown-session";
+
+        var sessionStore = Substitute.For<IOAuthSessionStore>();
+        sessionStore.GetAsync(sessionId, Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<OAuthSession?>(null));
+
+        var installationsClient = Substitute.For<IGitHubInstallationsClient>();
+        installationsClient.ListInstallationsAsync(Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new GitHubInstallation(3001L, "acme", "Organization", "all"),
+                new GitHubInstallation(3002L, "other-org", "Organization", "all"),
+            });
+        installationsClient.ListInstallationRepositoriesAsync(3001L, Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new GitHubInstallationRepository(30L, "acme", "api", "acme/api", false),
+            });
+        installationsClient.ListInstallationRepositoriesAsync(3002L, Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new GitHubInstallationRepository(31L, "other-org", "legacy", "other-org/legacy", false),
+            });
+
+        await using var factory = CreateFactory(
+            installationsClient: installationsClient,
+            sessionStore: sessionStore);
+        var client = factory.CreateClient();
+        var ct = TestContext.Current.CancellationToken;
+
+        var response = await client.GetAsync(
+            $"/api/v1/tenant/connectors/github/actions/list-repositories?session_id={sessionId}",
+            ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<GitHubRepositoryResponse[]>(ct);
+        body.ShouldNotBeNull();
+        // Both installations are returned because the session was unknown.
+        body!.Length.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task ListRepositories_WithoutSessionId_ReturnsAllInstallations()
+    {
+        // The baseline: no session_id supplied → full unfiltered list.
+        // This is the backward-compatible case (CLI, integrations).
+        var installationsClient = Substitute.For<IGitHubInstallationsClient>();
+        installationsClient.ListInstallationsAsync(Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new GitHubInstallation(4001L, "tenant-a", "Organization", "all"),
+                new GitHubInstallation(4002L, "tenant-b", "Organization", "all"),
+            });
+        installationsClient.ListInstallationRepositoriesAsync(4001L, Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new GitHubInstallationRepository(40L, "tenant-a", "core", "tenant-a/core", false),
+            });
+        installationsClient.ListInstallationRepositoriesAsync(4002L, Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new GitHubInstallationRepository(41L, "tenant-b", "infra", "tenant-b/infra", false),
+            });
+
+        await using var factory = CreateFactory(installationsClient: installationsClient);
+        var client = factory.CreateClient();
+        var ct = TestContext.Current.CancellationToken;
+
+        var response = await client.GetAsync(
+            "/api/v1/tenant/connectors/github/actions/list-repositories", ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<GitHubRepositoryResponse[]>(ct);
+        body.ShouldNotBeNull();
+        body!.Length.ShouldBe(2);
+    }
+
+    // -----------------------------------------------------------------------
+
     /// <summary>
     /// Wraps <see cref="CustomWebApplicationFactory"/> with per-test
     /// overrides of <see cref="GitHubConnectorOptions"/>,
@@ -569,7 +808,10 @@ public class GitHubConnectorEndpointsTests
         IGitHubInstallationsClient? installationsClient = null,
         IGitHubCollaboratorsClient? collaboratorsClient = null,
         IUnitConnectorConfigStore? configStore = null,
-        bool appEnabled = true)
+        bool appEnabled = true,
+        IOAuthSessionStore? sessionStore = null,
+        ISecretStore? secretStore = null,
+        IGitHubUserScopeResolver? scopeResolver = null)
     {
         var baseFactory = new CustomWebApplicationFactory();
         return baseFactory.WithWebHostBuilder(builder =>
@@ -656,6 +898,47 @@ public class GitHubConnectorEndpointsTests
                         services.Remove(d);
                     }
                     services.AddSingleton(configStore);
+                }
+
+                // #1505: optional OAuth session store override for user-scope tests.
+                if (sessionStore is not null)
+                {
+                    var descriptors = services
+                        .Where(d => d.ServiceType == typeof(IOAuthSessionStore))
+                        .ToList();
+                    foreach (var d in descriptors)
+                    {
+                        services.Remove(d);
+                    }
+                    services.AddSingleton(sessionStore);
+                }
+
+                // #1505: optional secret store override. The base factory's stub
+                // ReadAsync always returns null; tests that exercise the OAuth-token
+                // read path need to supply a pre-configured one.
+                if (secretStore is not null)
+                {
+                    var descriptors = services
+                        .Where(d => d.ServiceType == typeof(ISecretStore))
+                        .ToList();
+                    foreach (var d in descriptors)
+                    {
+                        services.Remove(d);
+                    }
+                    services.AddSingleton(secretStore);
+                }
+
+                // #1505: optional user-scope resolver override.
+                if (scopeResolver is not null)
+                {
+                    var descriptors = services
+                        .Where(d => d.ServiceType == typeof(IGitHubUserScopeResolver))
+                        .ToList();
+                    foreach (var d in descriptors)
+                    {
+                        services.Remove(d);
+                    }
+                    services.AddSingleton(scopeResolver);
                 }
 
                 services.AddSingleton<GitHubConnectorType>();
