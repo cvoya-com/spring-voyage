@@ -1439,6 +1439,43 @@ export default function CreateUnitPage() {
     cancelMutation.mutate(createdUnitName);
   };
 
+  // #1507: "Back to Execution" after a terminal validation error.
+  // Deletes the failed unit, then rewinds wizard state back to step 2
+  // so the operator can fix execution settings (e.g. add a container
+  // image) and create a fresh unit. Without the delete the next
+  // "Create unit" click would POST the same name and receive a 400
+  // "Duplicate unit name" error.
+  const deleteAndGoBackMutation = useMutation({
+    mutationFn: async (name: string) => {
+      await api.deleteUnit(name);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.units.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.tenant.tree() });
+      // Rewind create-phase state so the wizard returns to a
+      // pristine editable state. The form itself is preserved so the
+      // operator can fix the offending field without re-entering
+      // everything.
+      setCreatedUnitName(null);
+      setStartRequested(false);
+      setStartError(null);
+      setSubmitError(null);
+      setSubmitWarnings([]);
+      setValidationStartedAt(null);
+      setValidationSoftTimedOut(false);
+      setStep(2);
+    },
+    onError: (err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      toast({
+        title: "Failed to remove the failed unit",
+        description: message,
+        variant: "destructive",
+      });
+    },
+  });
+
   // Retry: re-trigger validation against the existing unit. Clears
   // the soft-timeout window so the operator gets a fresh deadline.
   const revalidateMutation = useMutation({
@@ -2868,26 +2905,23 @@ export default function CreateUnitPage() {
                   variant="outline"
                   size="sm"
                   data-testid="wizard-validation-back"
+                  disabled={deleteAndGoBackMutation.isPending}
                   onClick={() => {
-                    // Unwind the create-phase state so the wizard returns to a
-                    // pristine editable state. We don't reset the form itself —
-                    // the operator's choices are preserved so they can fix the
-                    // offending field without re-entering everything. The unit
-                    // itself stays in the directory in `Error` so the operator
-                    // can choose to retry validation from the Explorer instead
-                    // of recreating from scratch.
-                    setCreatedUnitName(null);
-                    setStartRequested(false);
-                    setStartError(null);
-                    setSubmitError(null);
-                    setSubmitWarnings([]);
-                    setValidationStartedAt(null);
-                    setValidationSoftTimedOut(false);
-                    setStep(2);
+                    // #1507: delete the failed unit before going back.
+                    // Without the delete, the next "Create unit" click
+                    // on step 6 would attempt to create a unit with the
+                    // same name and receive a 400 "Duplicate unit name"
+                    // error. The mutation's onSuccess handler rewinds
+                    // the wizard state to step 2.
+                    if (createdUnitName) {
+                      deleteAndGoBackMutation.mutate(createdUnitName);
+                    }
                   }}
                 >
                   <ArrowLeft className="mr-1.5 h-3.5 w-3.5" aria-hidden />
-                  Back to Execution
+                  {deleteAndGoBackMutation.isPending
+                    ? "Removing…"
+                    : "Back to Execution"}
                 </Button>
                 <Button
                   variant="outline"
@@ -2916,7 +2950,12 @@ export default function CreateUnitPage() {
               // the unit exists at that point and the wizard form controls
               // are decoupled from the backend state. Terminal-error state
               // re-enables Back so the operator can fix a field and retry.
-              disabled={step === 1 || submitting || isValidating}
+              disabled={
+                step === 1 ||
+                submitting ||
+                isValidating ||
+                deleteAndGoBackMutation.isPending
+              }
             >
               Back
             </Button>
