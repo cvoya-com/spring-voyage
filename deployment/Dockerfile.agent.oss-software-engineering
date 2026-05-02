@@ -95,7 +95,7 @@ RUN apt-get update \
       libcups2 \
       libdrm2 \
       libgbm1 \
-      libgdk-pixbuf2.0-0 \
+      libgdk-pixbuf-2.0-0 \
       libgtk-3-0 \
       libnspr4 \
       libnss3 \
