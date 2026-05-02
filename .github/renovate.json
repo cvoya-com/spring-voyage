@@ -1,0 +1,63 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+
+  "schedule": ["every weekend on monday"],
+  "timezone": "UTC",
+
+  "prConcurrentLimit": 5,
+  "labels": ["dependencies"],
+
+  "packageRules": [
+    {
+      "description": "Playwright — group all Playwright bumps into one PR because the same version pin appears in multiple Dockerfiles and they must stay in sync.",
+      "matchPackageNames": ["playwright"],
+      "groupName": "Playwright",
+      "groupSlug": "playwright"
+    },
+    {
+      "description": "Mermaid CLI — @mermaid-js/mermaid-cli appears in the design and product-management images; bump together.",
+      "matchPackageNames": ["@mermaid-js/mermaid-cli"],
+      "groupName": "mermaid-cli",
+      "groupSlug": "mermaid-cli"
+    },
+    {
+      "description": "Markdown linting — markdownlint-cli2 appears in the product-management and program-management images; bump together.",
+      "matchPackageNames": ["markdownlint-cli2"],
+      "groupName": "markdownlint-cli2",
+      "groupSlug": "markdownlint-cli2"
+    },
+    {
+      "description": "Anthropic Claude Code CLI — pin bumps across claude-code and spring-voyage-agents images must stay in sync.",
+      "matchPackageNames": ["@anthropic-ai/claude-code"],
+      "groupName": "Claude Code CLI",
+      "groupSlug": "claude-code-cli"
+    },
+    {
+      "description": "OpenAI Codex CLI",
+      "matchPackageNames": ["@openai/codex"],
+      "groupName": "Codex CLI",
+      "groupSlug": "codex-cli"
+    },
+    {
+      "description": "Google Gemini CLI",
+      "matchPackageNames": ["@google/gemini-cli"],
+      "groupName": "Gemini CLI",
+      "groupSlug": "gemini-cli"
+    },
+    {
+      "description": "agent-sidecar TypeScript build toolchain (devDependencies only — not shipped in production images).",
+      "matchFileNames": ["deployment/agent-sidecar/package.json"],
+      "groupName": "agent-sidecar devDependencies",
+      "groupSlug": "agent-sidecar-dev"
+    }
+  ],
+
+  "dockerfile": {
+    "fileMatch": ["^deployment/Dockerfile(\\.[a-zA-Z0-9._-]+)?$"]
+  },
+
+  "npm": {
+    "fileMatch": ["^deployment/agent-sidecar/package\\.json$"]
+  }
+}
