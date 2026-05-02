@@ -750,3 +750,13 @@ export interface ProviderCredentialStatusResponse {
   suggestion: string | null;
 }
 
+// ---------------------------------------------------------------------------
+// Package install (ADR-0035, #1582)
+// ---------------------------------------------------------------------------
+
+/**
+ * Response body for `POST /api/v1/packages/install`,
+ * `POST /api/v1/installs/{id}/retry`, and `GET /api/v1/installs/{id}`.
+ * Carries the shared batch identifier and per-package outcome.
+ */
+export type InstallStatusResponse = Schemas["InstallStatusResponse"];

@@ -21,6 +21,7 @@ import type {
   DirectorySearchResponse,
   ExpertiseDomainDto,
   InitiativePolicy,
+  InstallStatusResponse,
   MessageResponse,
   PersistentAgentDeploymentResponse,
   PersistentAgentLogsResponse,
@@ -1454,6 +1455,55 @@ export const api = {
 
   deleteTenantCloningPolicy: async (): Promise<void> => {
     await fetchClient.DELETE("/api/v1/tenant/cloning-policy", {});
+  },
+
+  // Package install (ADR-0035 / #1582). The wizard scratch path builds a
+  // package in memory and submits it through the same install endpoint the
+  // CLI uses (one pipeline for everything). Two entry points:
+  //
+  // 1. installPackageFile — file upload (multipart). Used by the scratch
+  //    wizard to submit a self-contained AgentPackage or UnitPackage YAML.
+  // 2. getInstallStatus — polls GET /api/v1/installs/{id} until terminal.
+  //
+  // Both surfaces honour the two-phase protocol: 201 Created on Phase-1
+  // commit (status may be "staging" or "failed"), then poll until "active"
+  // or "failed".
+  installPackageFile: async (
+    yamlContent: string,
+    filename = "package.yaml",
+  ): Promise<InstallStatusResponse> => {
+    const formData = new FormData();
+    const blob = new Blob([yamlContent], { type: "text/yaml" });
+    formData.append("file", blob, filename);
+    const resp = await fetch(`${BASE}/api/v1/packages/install/file`, {
+      method: "POST",
+      body: formData,
+    });
+    if (!resp.ok) {
+      const body = await resp.text();
+      throw new ApiError(resp.status, resp.statusText, body);
+    }
+    return resp.json() as Promise<InstallStatusResponse>;
+  },
+  getInstallStatus: async (id: string): Promise<InstallStatusResponse> => {
+    const resp = await fetch(`${BASE}/api/v1/installs/${encodeURIComponent(id)}`);
+    if (!resp.ok) {
+      throw new ApiError(resp.status, resp.statusText, await resp.text());
+    }
+    return resp.json() as Promise<InstallStatusResponse>;
+  },
+  retryInstall: async (id: string): Promise<InstallStatusResponse> =>
+    unwrap(
+      await fetchClient.POST("/api/v1/installs/{id}/retry", {
+        params: { path: { id } },
+      }),
+    ) as InstallStatusResponse,
+  abortInstall: async (id: string): Promise<void> => {
+    assertOk(
+      await fetchClient.POST("/api/v1/installs/{id}/abort", {
+        params: { path: { id } },
+      }),
+    );
   },
 
   // Tenant tree (SVR-tenant-tree, umbrella #815). Single-payload tenant

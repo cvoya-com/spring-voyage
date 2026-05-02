@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
@@ -24,7 +24,6 @@ import {
 import { queryKeys } from "@/lib/api/query-keys";
 import {
   AGENT_NAME_PATTERN,
-  buildCreateAgentRequest,
   describeAgentCreateError,
   validateAgentCreateInput,
 } from "@/lib/agents/create-agent";
@@ -35,12 +34,18 @@ import {
   type ExecutionTool,
 } from "@/lib/ai-models";
 import { EXECUTION_RUNTIMES } from "@/lib/api/types";
-import type { AgentResponse, UnitResponse } from "@/lib/api/types";
+import type { UnitResponse } from "@/lib/api/types";
+import { buildAgentPackageYaml } from "./build-agent-package";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
 interface FormState {
   id: string;
   displayName: string;
   role: string;
+  description: string;
   executionTool: ExecutionTool;
   image: string;
   runtime: string;
@@ -52,6 +57,7 @@ const INITIAL_FORM: FormState = {
   id: "",
   displayName: "",
   role: "",
+  description: "",
   executionTool: DEFAULT_EXECUTION_TOOL,
   image: "",
   runtime: "",
@@ -59,28 +65,56 @@ const INITIAL_FORM: FormState = {
   unitIds: [],
 };
 
+type SubmitPhase =
+  | "idle"
+  | "installing"       // POST /api/v1/packages/install/file in flight
+  | "polling"          // polling GET /api/v1/installs/{id}
+  | "memberships"      // post-install membership-add loop
+  | "done"
+  | "failed"
+  | "install-failed";  // Phase-2 failure; retry/abort available
+
+interface InstallState {
+  installId: string | null;
+  agentId: string | null;
+  phase: SubmitPhase;
+  error: string | null;
+  /** Membership-add failures: unitId → error message */
+  membershipErrors: Record<string, string>;
+  /** Which unit memberships succeeded so far */
+  membershipDone: string[];
+}
+
+const INITIAL_INSTALL: InstallState = {
+  installId: null,
+  agentId: null,
+  phase: "idle",
+  error: null,
+  membershipErrors: {},
+  membershipDone: [],
+};
+
+const POLL_INTERVAL_MS = 2_000;
+const POLL_TIMEOUT_MS = 120_000;
+
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
+
 /**
- * Standalone "create agent" page (#1040). Mirrors the CLI's
- * `spring agent create <id> --name --role --unit ... --image --runtime
- * --tool --definition` field-for-field so portal and CLI stay at parity
- * (CONVENTIONS.md § ui-cli-parity).
+ * New-agent wizard — scratch path (ADR-0035 decision 6).
  *
- * The form deliberately stays a single step — agent creation has fewer
- * decisions than unit creation (no template / scratch / yaml fork), and
- * a wizard would feel ceremonial. Visual chrome reuses the existing
- * Card / Input / Button primitives so no new patterns land in
- * `DESIGN.md`.
+ * On submit the wizard builds an `AgentPackage` YAML in memory and
+ * POSTs it to `POST /api/v1/packages/install/file`, the same two-phase
+ * install endpoint the CLI uses. Unit assignments are wired as post-install
+ * side-effects: once the install reaches `active`, the page fires
+ * `POST /api/v1/units/{id}/agents/{agentId}` for each selected unit,
+ * sequentially, with per-unit progress feedback.
  *
- * Submission flows through `buildCreateAgentRequest` (shared with the
- * inline-create dialog in the unit Agents tab) so the wire body for
- * `POST /api/v1/agents` is constructed in exactly one place.
+ * Full AgentPackage activation in the install pipeline is tracked in #1559.
  *
- * On 201:
- *   - The agents/units/dashboard caches are invalidated so the new agent
- *     is visible immediately.
- *   - The router redirects to the parent unit's Agents tab (the agent
- *     detail route lives under the Explorer; the parent unit is the
- *     most useful landing page after a fresh agent appears).
+ * Visual chrome reuses the existing Card / Input / Button primitives so
+ * no new patterns are needed in DESIGN.md.
  */
 export default function CreateAgentPage() {
   const router = useRouter();
@@ -88,37 +122,32 @@ export default function CreateAgentPage() {
   const { toast } = useToast();
 
   const [form, setForm] = useState<FormState>(INITIAL_FORM);
-  const [submitError, setSubmitError] = useState<string | null>(null);
-  const [validationMessage, setValidationMessage] = useState<string | null>(
-    null,
-  );
+  const [validationMessage, setValidationMessage] = useState<string | null>(null);
+  const [install, setInstall] = useState<InstallState>(INITIAL_INSTALL);
+
+  // Abort controller for the polling loop so Back/Cancel stops it.
+  const pollAbortRef = useRef<AbortController | null>(null);
+
+  // ── Form helpers ───────────────────────────────────────────────────────
 
   const update = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
     setValidationMessage(null);
-    setSubmitError(null);
+    if (install.phase === "idle" || install.phase === "failed") {
+      setInstall(INITIAL_INSTALL);
+    }
   };
 
-  // Available units the operator can assign the new agent to. Reuses
-  // the existing list endpoint the wizard's parent picker rides; the
-  // server already enforces tenant visibility so this is the entire
-  // assignable set.
+  // ── Queries ────────────────────────────────────────────────────────────
+
   const unitsQuery = useQuery<UnitResponse[]>({
     queryKey: queryKeys.units.list(),
     queryFn: () => api.listUnits(),
     staleTime: 30_000,
   });
 
-  // Runtime catalog. Drives the model dropdown via the
-  // `getToolRuntimeId` mapping — the same hook the unit wizard uses
-  // (#735). When the operator picks `dapr-agent` or `custom`, no
-  // specific runtime maps cleanly; the dropdown falls back to "all
-  // installed runtimes" so the user can still pick a model.
   const runtimesQuery = useAgentRuntimes();
-  const runtimes = useMemo(
-    () => runtimesQuery.data ?? [],
-    [runtimesQuery.data],
-  );
+  const runtimes = useMemo(() => runtimesQuery.data ?? [], [runtimesQuery.data]);
 
   const toolRuntimeId = getToolRuntimeId(form.executionTool);
   const modelsQuery = useAgentRuntimeModels(toolRuntimeId ?? "", {
@@ -130,9 +159,6 @@ export default function CreateAgentPage() {
       const list = modelsQuery.data ?? [];
       return list.map((m) => ({ id: m.id, label: m.displayName ?? m.id }));
     }
-    // Fallback: show every model from every installed runtime, grouped
-    // by the runtime label. Matches the inline membership-dialog
-    // behaviour for "no canonical runtime" tools.
     return runtimes.flatMap((r) =>
       (r.models ?? []).map((m) => ({
         id: m,
@@ -141,56 +167,184 @@ export default function CreateAgentPage() {
     );
   }, [toolRuntimeId, modelsQuery.data, runtimes]);
 
-  const createAgent = useMutation({
-    mutationFn: async (): Promise<AgentResponse> => {
-      const body = buildCreateAgentRequest({
-        id: form.id,
-        displayName: form.displayName,
-        role: form.role,
-        unitIds: form.unitIds,
-        image: form.image,
-        runtime: form.runtime,
-        tool: form.executionTool,
-        model: form.model,
-      });
-      return await api.createAgent(body);
-    },
-    onMutate: () => {
-      setSubmitError(null);
-    },
-    onSuccess: (agent) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.agents.all });
-      queryClient.invalidateQueries({ queryKey: queryKeys.units.all });
-      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
-      queryClient.invalidateQueries({ queryKey: queryKeys.tenant.tree() });
-      toast({ title: "Agent created", description: agent.name });
+  // ── Install flow ───────────────────────────────────────────────────────
 
-      // Land on the parent unit's Agents tab so the operator sees the
-      // freshly-assigned membership row. The first unit in the list
-      // acts as the derived primary on the wire (see
-      // `AgentEndpoints.CreateAgentAsync`), so the same one wins here.
-      const target = form.unitIds[0]?.trim();
-      if (target) {
-        router.push(
-          `/units?node=${encodeURIComponent(target)}&tab=Agents`,
-        );
-      } else {
-        // Defensive fallback. The form-level validation guarantees we
-        // always have at least one unit, but the explorer roster is the
-        // safe landing page if we ever reach here.
-        router.push("/units");
+  /**
+   * Polls GET /api/v1/installs/{id} every POLL_INTERVAL_MS until the
+   * status reaches a terminal state (`active` or `failed`), or until the
+   * abort signal fires, or until POLL_TIMEOUT_MS elapses.
+   */
+  const pollUntilTerminal = useCallback(
+    async (installId: string, signal: AbortSignal): Promise<"active" | "failed" | "aborted"> => {
+      const deadline = Date.now() + POLL_TIMEOUT_MS;
+      while (Date.now() < deadline) {
+        if (signal.aborted) return "aborted";
+
+        await new Promise<void>((resolve) => {
+          const t = setTimeout(resolve, POLL_INTERVAL_MS);
+          signal.addEventListener("abort", () => { clearTimeout(t); resolve(); }, { once: true });
+        });
+
+        if (signal.aborted) return "aborted";
+
+        const status = await api.getInstallStatus(installId);
+        if (status.status === "active") return "active";
+        if (status.status === "failed") return "failed";
+        // still "staging" — keep polling
       }
+      return "failed"; // timed out
     },
-    onError: (err) => {
-      const message = err instanceof Error ? err.message : String(err);
-      setSubmitError(message);
+    [],
+  );
+
+  /**
+   * Post-install membership wiring. Fires `assignUnitAgent` for each
+   * selected unit sequentially. Updates install.membershipErrors /
+   * membershipDone in real time.
+   */
+  const addMemberships = useCallback(
+    async (agentId: string, unitIds: string[]) => {
+      const errors: Record<string, string> = {};
+      const done: string[] = [];
+      for (const unitId of unitIds) {
+        try {
+          await api.assignUnitAgent(unitId, agentId);
+          done.push(unitId);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          errors[unitId] = msg;
+        }
+        setInstall((prev) => ({
+          ...prev,
+          membershipErrors: { ...errors },
+          membershipDone: [...done],
+        }));
+      }
+      return { errors, done };
+    },
+    [],
+  );
+
+  const runInstall = useCallback(async () => {
+    // Abort any in-flight poll from a previous attempt.
+    pollAbortRef.current?.abort();
+    const ac = new AbortController();
+    pollAbortRef.current = ac;
+
+    const agentId = form.id.trim();
+    const unitIds = form.unitIds.filter((u) => u.trim().length > 0);
+
+    // Phase: installing (POST /api/v1/packages/install/file)
+    setInstall({
+      installId: null,
+      agentId,
+      phase: "installing",
+      error: null,
+      membershipErrors: {},
+      membershipDone: [],
+    });
+
+    let installId: string;
+    let alreadyActive = false;
+    try {
+      const yaml = buildAgentPackageYaml({
+        id: agentId,
+        displayName: form.displayName.trim(),
+        role: form.role.trim() || undefined,
+        description: form.description.trim() || undefined,
+        image: form.image.trim() || undefined,
+        runtime: form.runtime.trim() || undefined,
+        tool: form.executionTool || undefined,
+        model: form.model.trim() || undefined,
+        unitIds,
+      });
+      const resp = await api.installPackageFile(yaml);
+      installId = resp.installId;
+
+      if (resp.status === "failed") {
+        const pkgErr = resp.packages.find((p) => p.state === "failed")?.errorMessage;
+        setInstall((prev) => ({
+          ...prev,
+          installId,
+          phase: "install-failed",
+          error: pkgErr ?? "Install failed.",
+        }));
+        return;
+      }
+
+      alreadyActive = resp.status === "active";
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setInstall((prev) => ({ ...prev, phase: "failed", error: msg }));
       toast({
-        title: "Failed to create agent",
-        description: message,
+        title: "Install failed",
+        description: msg,
         variant: "destructive",
       });
-    },
-  });
+      return;
+    }
+
+    // Phase: polling (only if not already active from the initial response)
+    if (!alreadyActive) {
+      setInstall((prev) => ({ ...prev, installId, phase: "polling" }));
+
+      const terminal = await pollUntilTerminal(installId, ac.signal);
+      if (ac.signal.aborted) {
+        setInstall(INITIAL_INSTALL);
+        return;
+      }
+
+      if (terminal === "failed") {
+        setInstall((prev) => ({
+          ...prev,
+          phase: "install-failed",
+          error: "Install did not reach active state. Check the install log.",
+        }));
+        return;
+      }
+    }
+
+    // Phase: memberships
+    if (unitIds.length > 0) {
+      setInstall((prev) => ({ ...prev, phase: "memberships" }));
+      const { errors } = await addMemberships(agentId, unitIds);
+
+      if (Object.keys(errors).length > 0) {
+        // Partial success — agent installed but some memberships failed.
+        const failedUnits = Object.keys(errors).join(", ");
+        setInstall((prev) => ({
+          ...prev,
+          phase: "failed",
+          error: `Agent installed. Membership in ${failedUnits} could not be added — see details above.`,
+        }));
+        // Still invalidate caches for the agent.
+        queryClient.invalidateQueries({ queryKey: queryKeys.agents.all });
+        queryClient.invalidateQueries({ queryKey: queryKeys.tenant.tree() });
+        toast({
+          title: "Agent installed (partial)",
+          description: `Membership add failed for: ${failedUnits}`,
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
+    // Phase: done
+    setInstall((prev) => ({ ...prev, phase: "done" }));
+    queryClient.invalidateQueries({ queryKey: queryKeys.agents.all });
+    queryClient.invalidateQueries({ queryKey: queryKeys.units.all });
+    queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
+    queryClient.invalidateQueries({ queryKey: queryKeys.tenant.tree() });
+
+    toast({ title: "Agent created", description: agentId });
+
+    const target = unitIds[0]?.trim();
+    if (target) {
+      router.push(`/units?node=${encodeURIComponent(target)}&tab=Agents`);
+    } else {
+      router.push("/units");
+    }
+  }, [form, addMemberships, pollUntilTerminal, queryClient, router, toast]);
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -204,10 +358,96 @@ export default function CreateAgentPage() {
       return;
     }
     setValidationMessage(null);
-    createAgent.mutate();
+    void runInstall();
   };
 
-  const submitting = createAgent.isPending;
+  const handleRetry = async () => {
+    if (!install.installId) return;
+    try {
+      setInstall((prev) => ({ ...prev, phase: "installing", error: null }));
+      const resp = await api.retryInstall(install.installId);
+      if (resp.status === "active") {
+        // Complete immediately
+        if (form.unitIds.length > 0) {
+          setInstall((prev) => ({ ...prev, phase: "memberships" }));
+          const { errors } = await addMemberships(install.agentId!, form.unitIds);
+          if (Object.keys(errors).length > 0) {
+            const failedUnits = Object.keys(errors).join(", ");
+            setInstall((prev) => ({
+              ...prev,
+              phase: "failed",
+              error: `Agent installed. Membership in ${failedUnits} could not be added.`,
+            }));
+            return;
+          }
+        }
+        setInstall((prev) => ({ ...prev, phase: "done" }));
+        queryClient.invalidateQueries({ queryKey: queryKeys.agents.all });
+        queryClient.invalidateQueries({ queryKey: queryKeys.units.all });
+        queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
+        queryClient.invalidateQueries({ queryKey: queryKeys.tenant.tree() });
+        toast({ title: "Agent created", description: install.agentId ?? "" });
+        const target = form.unitIds[0]?.trim();
+        if (target) router.push(`/units?node=${encodeURIComponent(target)}&tab=Agents`);
+        else router.push("/units");
+      } else if (resp.status === "failed") {
+        const pkgErr = resp.packages.find((p) => p.state === "failed")?.errorMessage;
+        setInstall((prev) => ({
+          ...prev,
+          phase: "install-failed",
+          error: pkgErr ?? "Retry failed.",
+        }));
+      } else {
+        // Back to polling
+        const ac = new AbortController();
+        pollAbortRef.current = ac;
+        setInstall((prev) => ({ ...prev, phase: "polling" }));
+        const terminal = await pollUntilTerminal(install.installId!, ac.signal);
+        if (terminal !== "active") {
+          setInstall((prev) => ({
+            ...prev,
+            phase: "install-failed",
+            error: "Retry did not reach active state.",
+          }));
+        }
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setInstall((prev) => ({ ...prev, phase: "install-failed", error: msg }));
+    }
+  };
+
+  const handleAbort = async () => {
+    pollAbortRef.current?.abort();
+    if (!install.installId) {
+      setInstall(INITIAL_INSTALL);
+      return;
+    }
+    try {
+      await api.abortInstall(install.installId);
+    } catch {
+      // Ignore abort errors — we're discarding the install either way.
+    }
+    setInstall(INITIAL_INSTALL);
+    toast({ title: "Install aborted", description: form.id });
+  };
+
+  // ── Derived UI state ───────────────────────────────────────────────────
+
+  const submitting =
+    install.phase === "installing" ||
+    install.phase === "polling" ||
+    install.phase === "memberships";
+
+  const phaseLabel: Record<SubmitPhase, string> = {
+    idle: "Create agent",
+    installing: "Installing…",
+    polling: "Activating…",
+    memberships: "Wiring memberships…",
+    done: "Create agent",
+    failed: "Create agent",
+    "install-failed": "Create agent",
+  };
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
@@ -225,18 +465,24 @@ export default function CreateAgentPage() {
             Create a new agent
           </h1>
           <p className="text-sm text-muted-foreground">
-            Mirrors{" "}
+            Builds an{" "}
             <code className="rounded bg-muted px-1 py-0.5 text-xs font-mono">
-              spring agent create
+              AgentPackage
+            </code>{" "}
+            and installs it through the same pipeline as{" "}
+            <code className="rounded bg-muted px-1 py-0.5 text-xs font-mono">
+              spring package install
             </code>
-            . The agent is registered in the directory and immediately
-            assigned to the units you pick.
+            .
           </p>
         </div>
         <Button
           variant="outline"
           size="sm"
-          onClick={() => router.back()}
+          onClick={() => {
+            pollAbortRef.current?.abort();
+            router.back();
+          }}
           disabled={submitting}
         >
           <ArrowLeft className="mr-1 h-4 w-4" />
@@ -245,6 +491,7 @@ export default function CreateAgentPage() {
       </div>
 
       <form onSubmit={handleSubmit} noValidate>
+        {/* ── Identity ──────────────────────────────────────────────── */}
         <Card>
           <CardHeader>
             <CardTitle>Identity</CardTitle>
@@ -287,9 +534,7 @@ export default function CreateAgentPage() {
             </label>
 
             <label className="block space-y-1">
-              <span className="text-sm text-muted-foreground">
-                Role (optional)
-              </span>
+              <span className="text-sm text-muted-foreground">Role (optional)</span>
               <Input
                 value={form.role}
                 onChange={(e) => update("role", e.target.value)}
@@ -298,29 +543,34 @@ export default function CreateAgentPage() {
                 disabled={submitting}
               />
             </label>
+
+            <label className="block space-y-1">
+              <span className="text-sm text-muted-foreground">Description (optional)</span>
+              <Input
+                value={form.description}
+                onChange={(e) => update("description", e.target.value)}
+                placeholder="Short description of this agent's purpose"
+                aria-label="Description"
+                disabled={submitting}
+              />
+            </label>
           </CardContent>
         </Card>
 
+        {/* ── Execution ─────────────────────────────────────────────── */}
         <Card className="mt-4">
           <CardHeader>
             <CardTitle>Execution</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <label className="block space-y-1">
-              <span className="text-sm text-muted-foreground">
-                Execution tool
-              </span>
+              <span className="text-sm text-muted-foreground">Execution tool</span>
               <select
                 value={form.executionTool}
                 onChange={(e) => {
                   const tool = e.target.value as ExecutionTool;
-                  setForm((prev) => ({
-                    ...prev,
-                    executionTool: tool,
-                    model: "",
-                  }));
+                  setForm((prev) => ({ ...prev, executionTool: tool, model: "" }));
                   setValidationMessage(null);
-                  setSubmitError(null);
                 }}
                 aria-label="Execution tool"
                 disabled={submitting}
@@ -374,11 +624,6 @@ export default function CreateAgentPage() {
                   </option>
                 ))}
               </select>
-              <span className="block text-xs text-muted-foreground">
-                Persisted under{" "}
-                <code className="font-mono">execution.runtime</code>. Mirrors{" "}
-                <code className="font-mono">--runtime</code>.
-              </span>
             </label>
 
             <label className="block space-y-1">
@@ -409,21 +654,26 @@ export default function CreateAgentPage() {
           </CardContent>
         </Card>
 
+        {/* ── Unit assignment ───────────────────────────────────────── */}
         <Card className="mt-4">
           <CardHeader>
             <CardTitle>Unit assignment</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-xs text-muted-foreground">
-              Every agent must belong to at least one unit (#744). The first
-              unit in the list becomes the derived primary on the wire.
-              Mirrors <code className="font-mono">--unit</code>.
+              Assign the agent to one or more units after it is installed.
+              At least one unit is required. Memberships are wired as
+              post-install side-effects. Mirrors{" "}
+              <code className="font-mono">--unit</code>.
             </p>
 
             {unitsQuery.isPending ? (
               <p className="text-sm text-muted-foreground">Loading units…</p>
             ) : unitsQuery.isError ? (
-              <p className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              <p
+                role="alert"
+                className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+              >
                 Could not load units:{" "}
                 {unitsQuery.error instanceof Error
                   ? unitsQuery.error.message
@@ -444,6 +694,8 @@ export default function CreateAgentPage() {
               >
                 {(unitsQuery.data ?? []).map((unit) => {
                   const checked = form.unitIds.includes(unit.name);
+                  const membershipOk = install.membershipDone.includes(unit.name);
+                  const membershipErr = install.membershipErrors[unit.name];
                   return (
                     <label
                       key={unit.name}
@@ -461,7 +713,6 @@ export default function CreateAgentPage() {
                             return { ...prev, unitIds: next };
                           });
                           setValidationMessage(null);
-                          setSubmitError(null);
                         }}
                         disabled={submitting}
                         aria-label={`Assign to ${unit.displayName || unit.name}`}
@@ -473,6 +724,16 @@ export default function CreateAgentPage() {
                         <span className="font-mono text-xs text-muted-foreground">
                           unit://{unit.name}
                         </span>
+                        {membershipOk && (
+                          <span className="text-xs text-success">
+                            Membership added
+                          </span>
+                        )}
+                        {membershipErr && (
+                          <span className="text-xs text-destructive" role="alert">
+                            Failed: {membershipErr}
+                          </span>
+                        )}
                       </span>
                     </label>
                   );
@@ -482,27 +743,100 @@ export default function CreateAgentPage() {
           </CardContent>
         </Card>
 
-        {(validationMessage || submitError) && (
-          <p
+        {/* ── Install progress ──────────────────────────────────────── */}
+        {install.phase !== "idle" &&
+          install.phase !== "failed" &&
+          install.phase !== "install-failed" && (
+            <div
+              aria-live="polite"
+              className="mt-4 rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground"
+              data-testid="install-progress"
+            >
+              {install.phase === "installing" && "Submitting package…"}
+              {install.phase === "polling" && "Waiting for install to become active…"}
+              {install.phase === "memberships" && (
+                <>
+                  Wiring unit memberships
+                  {install.membershipDone.length > 0 && (
+                    <> ({install.membershipDone.length} / {form.unitIds.length} done)</>
+                  )}
+                  …
+                </>
+              )}
+            </div>
+          )}
+
+        {/* ── Validation / submit errors ────────────────────────────── */}
+        {(validationMessage || install.error) &&
+          install.phase !== "install-failed" && (
+            <p
+              role="alert"
+              className="mt-4 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+              data-testid="agent-create-error"
+            >
+              {validationMessage ?? install.error}
+            </p>
+          )}
+
+        {/* ── Phase-2 failure panel ─────────────────────────────────── */}
+        {install.phase === "install-failed" && (
+          <div
             role="alert"
-            className="mt-4 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-            data-testid="agent-create-error"
+            className="mt-4 space-y-3 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-3 text-sm text-destructive"
+            data-testid="install-failed-panel"
           >
-            {validationMessage ?? submitError}
-          </p>
+            <p className="font-medium">Install failed</p>
+            {install.error && (
+              <p className="text-xs">{install.error}</p>
+            )}
+            {install.installId && (
+              <p className="font-mono text-xs text-muted-foreground">
+                Install id: {install.installId}
+              </p>
+            )}
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => void handleRetry()}
+                disabled={submitting}
+                data-testid="retry-button"
+              >
+                Retry
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => void handleAbort()}
+                disabled={submitting}
+                data-testid="abort-button"
+              >
+                Abort install
+              </Button>
+            </div>
+          </div>
         )}
 
+        {/* ── Actions ───────────────────────────────────────────────── */}
         <div className="mt-6 flex items-center justify-end gap-2">
           <Button
             type="button"
             variant="outline"
-            onClick={() => router.back()}
+            onClick={() => {
+              pollAbortRef.current?.abort();
+              router.back();
+            }}
             disabled={submitting}
           >
             Cancel
           </Button>
-          <Button type="submit" disabled={submitting}>
-            {submitting ? "Creating…" : "Create agent"}
+          <Button
+            type="submit"
+            disabled={submitting || install.phase === "install-failed"}
+          >
+            {phaseLabel[install.phase]}
           </Button>
         </div>
       </form>
