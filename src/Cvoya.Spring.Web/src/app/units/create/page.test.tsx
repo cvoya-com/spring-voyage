@@ -16,17 +16,17 @@ import type {
   ProviderCredentialStatusResponse,
 } from "@/lib/api/types";
 
-// ADR-0035 (#1563): the wizard now routes unit creation through the
-// package install API. The old createUnit / createUnitFromTemplate /
-// createUnitFromYaml paths are replaced by installPackages (catalog) and
-// installPackageFile (scratch). Tests for the old paths have been
-// removed; new tests cover the new install + polling flow.
+// ADR-0035 (#1563): the wizard's catalog branch routes through the
+// package install API (`installPackages`). The scratch branch routes
+// through `createUnit` + `setUnitExecution` until the manifest schema
+// supports inline unit definitions; see the comment in
+// `page.tsx::installMutation`.
 const listOllamaModels = vi.fn();
 const listAgentRuntimes = vi.fn();
 const getAgentRuntimeModels = vi.fn();
 const getProviderCredentialStatus = vi.fn();
 const installPackages = vi.fn();
-const installPackageFile = vi.fn();
+const createUnit = vi.fn();
 const getInstallStatus = vi.fn();
 const retryInstall = vi.fn();
 const abortInstall = vi.fn();
@@ -50,9 +50,10 @@ vi.mock("@/lib/api/client", () => ({
     getProviderCredentialStatus: (p: string) => getProviderCredentialStatus(p),
     getConnectorTypes: vi.fn().mockResolvedValue([]),
     listConnectorTypes: () => listConnectorTypes(),
-    // ADR-0035 install API.
+    // ADR-0035 install API (catalog branch) + direct unit-create
+    // (scratch branch).
     installPackages: (targets: unknown) => installPackages(targets),
-    installPackageFile: (yaml: string) => installPackageFile(yaml),
+    createUnit: (body: unknown) => createUnit(body),
     getInstallStatus: (id: string) => getInstallStatus(id),
     retryInstall: (id: string) => retryInstall(id),
     abortInstall: (id: string) => abortInstall(id),
@@ -296,6 +297,21 @@ function seedDefaultMocks() {
   deleteUnit.mockResolvedValue(undefined);
   revalidateUnit.mockResolvedValue(undefined);
   setUnitExecution.mockResolvedValue(undefined);
+  createUnit.mockResolvedValue({
+    id: "unit-id",
+    name: "acme",
+    displayName: "acme",
+    description: "",
+    registeredAt: new Date().toISOString(),
+    status: "Draft",
+    model: null,
+    color: null,
+    tool: null,
+    provider: null,
+    hosting: null,
+    lastValidationError: null,
+    lastValidationRunId: null,
+  });
   // #814: default to an empty tenant tree so the parent-unit picker
   // renders "No existing units" without failing. Tests that exercise
   // the picker override this.
@@ -509,21 +525,25 @@ describe("CreateUnitPage — scratch branch (#1563)", () => {
   });
 
   it("drives through scratch install and redirects on active status", async () => {
-    const pendingStatus: InstallStatusResponse = {
-      installId: "install-scratch-1",
-      status: "staging",
-      packages: [],
-      startedAt: new Date().toISOString(),
-      completedAt: null,
-      error: null,
-    };
-    const activeStatus: InstallStatusResponse = {
-      ...pendingStatus,
-      status: "active",
-      completedAt: new Date().toISOString(),
-    };
-    installPackageFile.mockResolvedValue(pendingStatus);
-    getInstallStatus.mockResolvedValue(activeStatus);
+    // The scratch branch synthesises an InstallStatusResponse with
+    // status="active" from the createUnit + setUnitExecution result;
+    // there is no real install row to poll. The redirect fires off
+    // that synthesised "active" status.
+    createUnit.mockResolvedValueOnce({
+      id: "unit-id",
+      name: "acme",
+      displayName: "acme",
+      description: "",
+      registeredAt: new Date().toISOString(),
+      status: "Draft",
+      model: "qwen2.5:14b",
+      color: "#6366f1",
+      tool: "dapr-agent",
+      provider: "ollama",
+      hosting: null,
+      lastValidationError: null,
+      lastValidationRunId: null,
+    });
 
     renderPage();
 
@@ -569,34 +589,21 @@ describe("CreateUnitPage — scratch branch (#1563)", () => {
     });
 
     await waitFor(() => {
-      expect(installPackageFile).toHaveBeenCalledTimes(1);
+      expect(createUnit).toHaveBeenCalledTimes(1);
     });
 
-    // Poll returns active → redirect to /units.
+    // Synthesised "active" status → redirect to /units.
     await waitFor(() => {
       expect(pushMock).toHaveBeenCalledWith("/units");
     });
   });
 
-  it("shows Retry and Abort buttons when install fails", async () => {
-    const failedStatus: InstallStatusResponse = {
-      installId: "install-fail-1",
-      status: "failed",
-      packages: [],
-      startedAt: new Date().toISOString(),
-      completedAt: new Date().toISOString(),
-      error: "Package validation failed.",
-    };
-    installPackageFile.mockResolvedValue(failedStatus);
-    getInstallStatus.mockResolvedValue(failedStatus);
-    retryInstall.mockResolvedValue({
-      installId: "install-fail-1-retry",
-      status: "staging",
-      packages: [],
-      startedAt: new Date().toISOString(),
-      completedAt: null,
-      error: null,
-    });
+  it("surfaces an error toast when createUnit rejects", async () => {
+    // The scratch branch no longer goes through the install pipeline,
+    // so retry/abort do not apply. The failure surface is the toast.
+    createUnit.mockRejectedValueOnce(
+      new Error("Name 'fail-unit' is already taken."),
+    );
 
     renderPage();
 
@@ -636,11 +643,14 @@ describe("CreateUnitPage — scratch branch (#1563)", () => {
       fireEvent.click(installBtn);
     });
 
-    // Wait for failed status to render retry/abort buttons.
     await waitFor(() => {
-      expect(screen.getByTestId("install-retry-button")).toBeInTheDocument();
+      expect(toastMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Install failed",
+          variant: "destructive",
+        }),
+      );
     });
-    expect(screen.getByTestId("install-abort-button")).toBeInTheDocument();
   });
 });
 
@@ -1361,21 +1371,21 @@ describe("CreateUnitPage — #968/#622 image-reference suggestions", () => {
   });
 
   it("calls recordImageReference after successful scratch install", async () => {
-    const pendingStatus: InstallStatusResponse = {
-      installId: "install-img-test",
-      status: "staging",
-      packages: [],
-      startedAt: new Date().toISOString(),
-      completedAt: null,
-      error: null,
-    };
-    const activeStatus: InstallStatusResponse = {
-      ...pendingStatus,
-      status: "active",
-      completedAt: new Date().toISOString(),
-    };
-    installPackageFile.mockResolvedValue(pendingStatus);
-    getInstallStatus.mockResolvedValue(activeStatus);
+    createUnit.mockResolvedValueOnce({
+      id: "unit-id",
+      name: "img-test",
+      displayName: "img-test",
+      description: "",
+      registeredAt: new Date().toISOString(),
+      status: "Draft",
+      model: null,
+      color: null,
+      tool: null,
+      provider: null,
+      hosting: null,
+      lastValidationError: null,
+      lastValidationRunId: null,
+    });
 
     renderPage();
 
@@ -1424,7 +1434,7 @@ describe("CreateUnitPage — #968/#622 image-reference suggestions", () => {
     });
 
     await waitFor(() => {
-      expect(installPackageFile).toHaveBeenCalledTimes(1);
+      expect(createUnit).toHaveBeenCalledTimes(1);
     });
 
     // recordImageReference must have been called with the submitted image.

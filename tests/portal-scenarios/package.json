@@ -1,0 +1,22 @@
+{
+  "name": "spring-voyage-portal-scenarios",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Narrative, scenario-style Playwright tests for the Spring Voyage portal. Complement to tests/e2e-portal/ (fixture-driven). NOT part of the npm workspace at the repo root.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "install:browsers": "playwright install --with-deps chromium",
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:debug": "PWDEBUG=1 playwright test",
+    "report": "playwright show-report",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.59.1",
+    "@types/node": "^22.15.0",
+    "typescript": "^5.8.0"
+  }
+}
