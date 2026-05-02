@@ -516,6 +516,27 @@ Shared banner styling for "this thing needs operator attention" callouts inside 
 - **Success** — `rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-900 dark:text-emerald-200`. `role="status"`. Prefix with `CheckCircle2`. A success banner may carry a secondary "Override" `<button>` with `underline underline-offset-2` — never a `div` with `onClick` (axe catches that).
 - **Info / context** — `rounded-md border border-primary/40 bg-primary/10 px-3 py-2 text-sm`, body copy in `text-foreground`. `role="status"`. Prefix with a contextually relevant lucide icon at `h-4 w-4 aria-hidden text-primary` (e.g. `Sparkles` for the create-sub-unit parent banner, #1150). Used to surface neutral, operator-supplied context the wizard or detail surface is operating against ("Creating a sub-unit of …", inherited-from-parent affordances, etc.) — never for failure or success states. May carry a secondary `underline underline-offset-2` `<button>` to clear or change the context (same axe contract as the success banner). When the underlying state cannot be loaded, downgrade to the Warning palette so the operator sees a single failure shape regardless of context category.
 
+#### 12.4.1 SubmitWarningsPanel — server-warning categorisation in the Create wizard
+
+After unit creation via template or YAML, the server may return `warnings[]` in the response. These warnings span two known-informational categories and a generic "unknown" bucket. The `SubmitWarningsPanel` component (`src/app/units/create/page.tsx`) classifies each string and renders the appropriate visual:
+
+- **All-informational** (every warning matches a known pattern): `role="status"`, Info/context palette (`border-primary/40 bg-primary/10`), title "Created with N notices", `Info` icon in `text-primary`. **Default-collapsed** — most operators can continue without reading them.
+- **Any unknown** warning: `role="alert"`, amber palette (`border-amber-500/50 bg-amber-500/10`), title "Created with N warnings", `AlertTriangle` icon. **Default-expanded** so the operator sees the unknown text immediately.
+
+**Known categories and their grouped headers:**
+
+| Pattern | Header | Body |
+|---|---|---|
+| `section 'X' is parsed but not yet applied` | "Some manifest sections are accepted but not yet applied" | Explanation that they take effect in a future release + list of section names. |
+| `bundle 'X' requires tool 'Y', which is not surfaced by any registered connector…` | "Tools that need a connector binding" | Tool names with connector hints (e.g. "bind a GitHub connector" for `software-engineering/` bundles). |
+| Any other string | "Other notices" (amber path only) | Verbatim text. |
+
+Unknown warnings always render in the amber bucket labeled "Other notices".
+
+**Collapse toggle:** The panel header is a `<button type="button" aria-expanded>` with `ChevronDown` / `ChevronRight` glyph. Clicking toggles a `useState` boolean; no persistence.
+
+**Raw disclosure:** A "Show/Hide raw server messages" `<button>` inside the expanded body reveals the verbatim server strings for developer inspection.
+
 ### 12.5 Multi-rule config editor
 
 The canonical "N rules across M dimensions" chrome used inside `Config` tab sections (Unit Boundary, Unit Orchestration label-routing): a summary card on top with a `Transparent` / `Configured` badge and the primary Save / Clear buttons; one sub-card per dimension with a lucide icon + dimension name + effect pill; a `divide-y` `ul` of monospace rule rows with per-row `outline` trash buttons; a nested `rounded-md border border-border p-3` add-rule form below the list. Local edits are staged in `useState` and committed via one PUT; Clear rides the shared `<ConfirmDialog>` and DELETEs.

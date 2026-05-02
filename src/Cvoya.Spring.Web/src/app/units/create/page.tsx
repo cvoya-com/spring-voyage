@@ -8,11 +8,14 @@ import {
   ArrowLeft,
   Check,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   ExternalLink,
   Eye,
   EyeOff,
   FileCode,
   FileText,
+  Info,
   KeyRound,
   Plug,
   RefreshCw,
@@ -2877,17 +2880,7 @@ export default function CreateUnitPage() {
             )}
 
             {submitWarnings.length > 0 && (
-              <div className="rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-200">
-                <p className="font-medium">
-                  Unit created with {submitWarnings.length} warning
-                  {submitWarnings.length === 1 ? "" : "s"}:
-                </p>
-                <ul className="mt-1 list-disc pl-5">
-                  {submitWarnings.map((w, i) => (
-                    <li key={i}>{w}</li>
-                  ))}
-                </ul>
-              </div>
+              <SubmitWarningsPanel warnings={submitWarnings} />
             )}
 
             {missingCredential && missingCredentialMessage && !createdUnitName && (
@@ -3154,6 +3147,315 @@ export function renderNameSummary(
     return "(from YAML manifest)";
   }
   return "—";
+}
+
+// ---------------------------------------------------------------------------
+// #1509: Submit-warnings categorisation and panel
+//
+// The server returns two stable, well-understood warning shapes that are
+// not operator errors. We pattern-match these and present them as info
+// notices rather than alarming amber warnings. Any string that doesn't
+// match a known pattern falls through to the "unknown" bucket and keeps
+// the amber colour.
+// ---------------------------------------------------------------------------
+
+/** A "section not yet applied" warning from the manifest parser. */
+const SECTION_NOT_APPLIED_RE =
+  /^section '([^']+)' is parsed but not yet applied$/i;
+
+/**
+ * A tool-not-surfaced warning.
+ * Groups: 1 = bundle path, 2 = tool name.
+ */
+const TOOL_NOT_SURFACED_RE =
+  /^bundle '([^']+)' requires tool '([^']+)', which is not surfaced by any registered connector/i;
+
+export type WarningCategory =
+  | { kind: "section-not-applied"; section: string; raw: string }
+  | { kind: "tool-not-surfaced"; bundle: string; tool: string; raw: string }
+  | { kind: "unknown"; raw: string };
+
+/** Classify a single server warning string into a typed category. */
+export function categorizeWarning(warning: string): WarningCategory {
+  const sectionMatch = SECTION_NOT_APPLIED_RE.exec(warning);
+  if (sectionMatch) {
+    return {
+      kind: "section-not-applied",
+      section: sectionMatch[1] ?? warning,
+      raw: warning,
+    };
+  }
+  const toolMatch = TOOL_NOT_SURFACED_RE.exec(warning);
+  if (toolMatch) {
+    return {
+      kind: "tool-not-surfaced",
+      bundle: toolMatch[1] ?? warning,
+      tool: toolMatch[2] ?? warning,
+      raw: warning,
+    };
+  }
+  return { kind: "unknown", raw: warning };
+}
+
+/**
+ * Return a connector hint derived from the bundle path, or null.
+ * e.g. "spring-voyage/software-engineering/..." → "GitHub"
+ */
+function connectorHintFromBundle(bundle: string): string | null {
+  const lower = bundle.toLowerCase();
+  if (lower.includes("software-engineering") || lower.includes("github")) {
+    return "GitHub";
+  }
+  if (lower.includes("jira") || lower.includes("issue-tracker")) {
+    return "Jira";
+  }
+  if (lower.includes("slack")) {
+    return "Slack";
+  }
+  return null;
+}
+
+/**
+ * #1509: Collapsible warnings panel that groups server notices by category.
+ *
+ * - All-informational (no unknown warnings): info/blue-tinted box,
+ *   title "Created with N notices", default-collapsed.
+ * - Any unknown warning: amber box, title "Created with N warnings",
+ *   default-expanded.
+ * - Raw server text is always accessible in a nested disclosure element.
+ */
+function SubmitWarningsPanel({ warnings }: { warnings: string[] }) {
+  const categorized = useMemo(
+    () => warnings.map(categorizeWarning),
+    [warnings],
+  );
+
+  const hasUnknown = categorized.some((c) => c.kind === "unknown");
+  const allInformational = !hasUnknown;
+
+  // Default-collapsed when all informational; default-expanded when any unknown.
+  const [expanded, setExpanded] = useState<boolean>(!allInformational);
+  const [rawVisible, setRawVisible] = useState(false);
+
+  const sectionNotApplied = categorized.filter(
+    (c): c is Extract<WarningCategory, { kind: "section-not-applied" }> =>
+      c.kind === "section-not-applied",
+  );
+  const toolNotSurfaced = categorized.filter(
+    (c): c is Extract<WarningCategory, { kind: "tool-not-surfaced" }> =>
+      c.kind === "tool-not-surfaced",
+  );
+  const unknown = categorized.filter(
+    (c): c is Extract<WarningCategory, { kind: "unknown" }> =>
+      c.kind === "unknown",
+  );
+
+  const count = warnings.length;
+
+  if (allInformational) {
+    return (
+      <div
+        role="status"
+        data-testid="submit-warnings-panel"
+        className="rounded-md border border-primary/40 bg-primary/10 px-3 py-2 text-sm"
+      >
+        <button
+          type="button"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((v) => !v)}
+          className="flex w-full items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+        >
+          <Info className="h-4 w-4 shrink-0 text-primary" aria-hidden />
+          <span className="flex-1 font-medium text-foreground">
+            Created with {count} {count === 1 ? "notice" : "notices"}
+          </span>
+          {expanded ? (
+            <ChevronDown
+              className="h-4 w-4 shrink-0 text-muted-foreground"
+              aria-hidden
+            />
+          ) : (
+            <ChevronRight
+              className="h-4 w-4 shrink-0 text-muted-foreground"
+              aria-hidden
+            />
+          )}
+        </button>
+
+        {expanded && (
+          <div className="mt-2 space-y-3 text-foreground">
+            {sectionNotApplied.length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-muted-foreground">
+                  Some manifest sections are accepted but not yet applied
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  These sections are parsed and stored but will take effect in a
+                  future release.
+                </p>
+                <ul className="mt-1 list-disc pl-5 text-xs">
+                  {sectionNotApplied.map((c) => (
+                    <li key={c.section}>{c.section}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {toolNotSurfaced.length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-muted-foreground">
+                  Tools that need a connector binding
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Bind the relevant connector from the unit&apos;s Connector tab
+                  after creation.
+                </p>
+                <ul className="mt-1 list-disc pl-5 text-xs">
+                  {toolNotSurfaced.map((c) => {
+                    const hint = connectorHintFromBundle(c.bundle);
+                    return (
+                      <li key={`${c.bundle}/${c.tool}`}>
+                        <span className="font-mono">{c.tool}</span>
+                        {hint
+                          ? ` — bind a ${hint} connector`
+                          : " — bind a connector"}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
+
+            <div className="text-xs">
+              <button
+                type="button"
+                onClick={() => setRawVisible((v) => !v)}
+                className="select-none text-muted-foreground hover:text-foreground"
+              >
+                {rawVisible ? "Hide" : "Show"} raw server messages
+              </button>
+              {rawVisible && (
+                <ul className="mt-1 list-disc pl-5 text-muted-foreground">
+                  {warnings.map((w, i) => (
+                    <li key={i}>{w}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Mixed or fully-unknown warnings: amber, default-expanded.
+  return (
+    <div
+      role="alert"
+      data-testid="submit-warnings-panel"
+      className="rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm"
+    >
+      <button
+        type="button"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((v) => !v)}
+        className="flex w-full items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+      >
+        <AlertTriangle
+          className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400"
+          aria-hidden
+        />
+        <span className="flex-1 font-medium text-amber-900 dark:text-amber-200">
+          Created with {count} {count === 1 ? "warning" : "warnings"}
+        </span>
+        {expanded ? (
+          <ChevronDown
+            className="h-4 w-4 shrink-0 text-amber-600/70 dark:text-amber-400/70"
+            aria-hidden
+          />
+        ) : (
+          <ChevronRight
+            className="h-4 w-4 shrink-0 text-amber-600/70 dark:text-amber-400/70"
+            aria-hidden
+          />
+        )}
+      </button>
+
+      {expanded && (
+        <div className="mt-2 space-y-3 text-amber-900 dark:text-amber-200">
+          {sectionNotApplied.length > 0 && (
+            <div>
+              <p className="text-xs font-medium">
+                Some manifest sections are accepted but not yet applied
+              </p>
+              <p className="mt-0.5 text-xs opacity-80">
+                These sections are parsed and stored but will take effect in a
+                future release.
+              </p>
+              <ul className="mt-1 list-disc pl-5 text-xs">
+                {sectionNotApplied.map((c) => (
+                  <li key={c.section}>{c.section}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {toolNotSurfaced.length > 0 && (
+            <div>
+              <p className="text-xs font-medium">
+                Tools that need a connector binding
+              </p>
+              <p className="mt-0.5 text-xs opacity-80">
+                Bind the relevant connector from the unit&apos;s Connector tab
+                after creation.
+              </p>
+              <ul className="mt-1 list-disc pl-5 text-xs">
+                {toolNotSurfaced.map((c) => {
+                  const hint = connectorHintFromBundle(c.bundle);
+                  return (
+                    <li key={`${c.bundle}/${c.tool}`}>
+                      <span className="font-mono">{c.tool}</span>
+                      {hint
+                        ? ` — bind a ${hint} connector`
+                        : " — bind a connector"}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
+
+          {unknown.length > 0 && (
+            <div>
+              <p className="text-xs font-medium">Other notices</p>
+              <ul className="mt-1 list-disc pl-5 text-xs">
+                {unknown.map((c, i) => (
+                  <li key={i}>{c.raw}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <div className="text-xs">
+            <button
+              type="button"
+              onClick={() => setRawVisible((v) => !v)}
+              className="select-none opacity-70 hover:opacity-100"
+            >
+              {rawVisible ? "Hide" : "Show"} raw server messages
+            </button>
+            {rawVisible && (
+              <ul className="mt-1 list-disc pl-5 opacity-80">
+                {warnings.map((w, i) => (
+                  <li key={i}>{w}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function ModeCard({

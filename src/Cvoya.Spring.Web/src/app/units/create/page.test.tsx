@@ -35,6 +35,7 @@ const deleteUnit = vi.fn();
 const revalidateUnit = vi.fn();
 const getUnit = vi.fn();
 const getUnitExecution = vi.fn();
+const setUnitExecution = vi.fn();
 const getTenantTree = vi.fn();
 
 const listUnitTemplates = vi.fn();
@@ -68,6 +69,8 @@ vi.mock("@/lib/api/client", () => ({
     revalidateUnit: (name: string) => revalidateUnit(name),
     getUnit: (name: string) => getUnit(name),
     getUnitExecution: (name: string) => getUnitExecution(name),
+    setUnitExecution: (name: string, body: unknown) =>
+      setUnitExecution(name, body),
     getTenantTree: () => getTenantTree(),
   },
 }));
@@ -274,6 +277,7 @@ function seedDefaultMocks() {
   listConnectorTypes.mockResolvedValue([]);
   deleteUnit.mockResolvedValue(undefined);
   revalidateUnit.mockResolvedValue(undefined);
+  setUnitExecution.mockResolvedValue(undefined);
   // #814: default to an empty tenant tree so the parent-unit picker
   // renders "No existing units" without failing. Tests that exercise
   // the picker override this.
@@ -2236,6 +2240,241 @@ describe("CreateUnitPage — #968/#622 image-reference suggestions", () => {
       expect(mockRecordImageReference).toHaveBeenCalledWith(
         "ghcr.io/spring-voyage/agent:v1.0",
       );
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #1509: categorizeWarning — pure unit tests
+// ---------------------------------------------------------------------------
+describe("categorizeWarning", () => {
+  it("classifies a section-not-applied warning", async () => {
+    const { categorizeWarning } = await import("./page");
+    const result = categorizeWarning(
+      "section 'ai' is parsed but not yet applied",
+    );
+    expect(result).toEqual({
+      kind: "section-not-applied",
+      section: "ai",
+      raw: "section 'ai' is parsed but not yet applied",
+    });
+  });
+
+  it("classifies a tool-not-surfaced warning", async () => {
+    const { categorizeWarning } = await import("./page");
+    const result = categorizeWarning(
+      "bundle 'spring-voyage/software-engineering/triage-and-assign' requires tool 'assignToAgent', which is not surfaced by any registered connector; the agent may get a 'tool not found' error if it tries to call it.",
+    );
+    expect(result).toEqual({
+      kind: "tool-not-surfaced",
+      bundle: "spring-voyage/software-engineering/triage-and-assign",
+      tool: "assignToAgent",
+      raw: "bundle 'spring-voyage/software-engineering/triage-and-assign' requires tool 'assignToAgent', which is not surfaced by any registered connector; the agent may get a 'tool not found' error if it tries to call it.",
+    });
+  });
+
+  it("classifies an unrecognised warning as unknown", async () => {
+    const { categorizeWarning } = await import("./page");
+    const result = categorizeWarning("something completely unexpected");
+    expect(result).toEqual({
+      kind: "unknown",
+      raw: "something completely unexpected",
+    });
+  });
+
+  it("is case-insensitive for the section pattern", async () => {
+    const { categorizeWarning } = await import("./page");
+    const result = categorizeWarning(
+      "Section 'Connectors' is Parsed But Not Yet Applied",
+    );
+    expect(result.kind).toBe("section-not-applied");
+    if (result.kind === "section-not-applied") {
+      expect(result.section).toBe("Connectors");
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #1509: SubmitWarningsPanel rendering — integration via the wizard
+// (using the template path, which returns warnings from the server response)
+// ---------------------------------------------------------------------------
+describe("CreateUnitPage — #1509 submit warnings panel", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    seedDefaultMocks();
+    // Seed a single template so Mode step can select it.
+    listUnitTemplates.mockResolvedValue([
+      {
+        package: "software-engineering",
+        name: "engineering-team",
+        displayName: "Engineering team",
+        description: "Coordinated software engineering team.",
+        path: "packages/software-engineering/units/engineering-team.yaml",
+      },
+    ]);
+  });
+
+  afterEach(() => {
+    sessionStorage.clear();
+  });
+
+  /**
+   * Drives the wizard through all steps using the template path and clicks
+   * Create. The mock returns the given warnings on the template response.
+   */
+  async function driveWizardToCreate(mockWarnings: string[]): Promise<void> {
+    createUnitFromTemplate.mockResolvedValue({
+      unit: { name: "portal-warn-test", id: "warn-id" },
+      warnings: mockWarnings,
+    });
+
+    renderPage();
+    const nameInput = screen.getByPlaceholderText(
+      /engineering-team/i,
+    ) as HTMLInputElement;
+    await act(async () => {
+      fireEvent.change(nameInput, { target: { value: "portal-warn-test" } });
+    });
+
+    const clickNext = async () => {
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /^next$/i }));
+      });
+    };
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("parent-choice-top-level"));
+    });
+    await clickNext(); // → Execution
+    await waitFor(async () => {
+      const modelSelect = (await screen.findByLabelText(
+        /^Model$/i,
+      )) as HTMLSelectElement;
+      expect(modelSelect.value).not.toBe("");
+    });
+    await clickNext(); // → Mode
+
+    // Select the Template mode card, then pick the template.
+    const templateBtn = screen.getByRole("button", { name: /^template/i });
+    await act(async () => {
+      fireEvent.click(templateBtn);
+    });
+    const templateRadio = await screen.findByRole("button", {
+      name: /software-engineering\/engineering-team/i,
+    });
+    await act(async () => {
+      fireEvent.click(templateRadio);
+    });
+
+    await clickNext(); // → Connector
+    await clickNext(); // → Secrets
+    await clickNext(); // → Finalize
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("create-unit-button"));
+    });
+    await waitFor(() => expect(createUnitFromTemplate).toHaveBeenCalledTimes(1));
+  }
+
+  it("uses info/blue styling and 'notices' label when all warnings are informational", async () => {
+    await driveWizardToCreate([
+      "section 'ai' is parsed but not yet applied",
+      "section 'connectors' is parsed but not yet applied",
+      "bundle 'spring-voyage/software-engineering/triage' requires tool 'assignToAgent', which is not surfaced by any registered connector",
+    ]);
+
+    await waitFor(() => {
+      const panel = screen.getByTestId("submit-warnings-panel");
+      // Info tone: role="status" not role="alert"
+      expect(panel.getAttribute("role")).toBe("status");
+      expect(panel.className).toContain("border-primary/40");
+      // Title contains "notices" not "warnings"
+      expect(panel.textContent).toMatch(/3 notices/i);
+    });
+  });
+
+  it("uses amber styling and 'warnings' label when any warning is unknown", async () => {
+    await driveWizardToCreate([
+      "section 'ai' is parsed but not yet applied",
+      "completely unrecognised warning text from the server",
+    ]);
+
+    await waitFor(() => {
+      const panel = screen.getByTestId("submit-warnings-panel");
+      expect(panel.getAttribute("role")).toBe("alert");
+      expect(panel.className).toContain("amber-500");
+      expect(panel.textContent).toMatch(/2 warnings/i);
+    });
+  });
+
+  it("default-collapses the panel when all warnings are informational", async () => {
+    await driveWizardToCreate([
+      "section 'nodes' is parsed but not yet applied",
+    ]);
+
+    await waitFor(() => {
+      const toggleBtn = screen
+        .getByTestId("submit-warnings-panel")
+        .querySelector("button[aria-expanded]");
+      expect(toggleBtn?.getAttribute("aria-expanded")).toBe("false");
+    });
+  });
+
+  it("default-expands the panel when any warning is unknown", async () => {
+    await driveWizardToCreate(["something completely unexpected from the server"]);
+
+    await waitFor(() => {
+      const toggleBtn = screen
+        .getByTestId("submit-warnings-panel")
+        .querySelector("button[aria-expanded]");
+      expect(toggleBtn?.getAttribute("aria-expanded")).toBe("true");
+    });
+  });
+
+  it("shows section names after expanding an all-informational panel", async () => {
+    await driveWizardToCreate([
+      "section 'ai' is parsed but not yet applied",
+      "section 'humans' is parsed but not yet applied",
+    ]);
+
+    // Panel starts collapsed for all-informational — expand it.
+    await waitFor(async () => {
+      const toggleBtn = screen
+        .getByTestId("submit-warnings-panel")
+        .querySelector("button[aria-expanded]");
+      expect(toggleBtn).toBeTruthy();
+      await act(async () => {
+        fireEvent.click(toggleBtn!);
+      });
+    });
+
+    await waitFor(() => {
+      const panel = screen.getByTestId("submit-warnings-panel");
+      expect(panel.textContent).toContain("ai");
+      expect(panel.textContent).toContain("humans");
+    });
+  });
+
+  it("shows tool names with a GitHub hint for software-engineering bundles", async () => {
+    await driveWizardToCreate([
+      "bundle 'spring-voyage/software-engineering/pr-review' requires tool 'requestReview', which is not surfaced by any registered connector",
+    ]);
+
+    // Panel starts collapsed — expand it.
+    await waitFor(async () => {
+      const toggleBtn = screen
+        .getByTestId("submit-warnings-panel")
+        .querySelector("button[aria-expanded]");
+      expect(toggleBtn).toBeTruthy();
+      await act(async () => {
+        fireEvent.click(toggleBtn!);
+      });
+    });
+
+    await waitFor(() => {
+      const panel = screen.getByTestId("submit-warnings-panel");
+      expect(panel.textContent).toContain("requestReview");
+      expect(panel.textContent).toContain("GitHub");
     });
   });
 });
