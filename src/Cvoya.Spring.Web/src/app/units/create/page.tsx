@@ -1146,49 +1146,50 @@ export default function CreateUnitPage() {
   };
 
   /**
-   * ADR-0035: build an in-memory package.yaml for the scratch branch.
-   * The file follows the Spring Voyage package schema with a single
-   * unit definition keyed by `form.name`. The connector binding (if any)
-   * is included so the install endpoint can wire it atomically.
+   * Builds a CreateUnitRequest body from the wizard form state.
+   * Used by the scratch branch (the catalog branch posts directly to
+   * the package install pipeline). Image/runtime are not part of
+   * CreateUnitRequest — they are persisted in a follow-up
+   * setUnitExecution PUT call after the unit row is created.
+   *
+   * ADR-0035 designates the package install pipeline as the long-term
+   * home for both wizard branches, but the v0.1 PackageManifest schema
+   * (kind: UnitPackage with `unit:` as a string ref) does not support
+   * an inline unit definition. Until the schema and resolver gain
+   * inline-artefact support, the scratch branch falls back to the
+   * direct unit-creation endpoint that the wizard used pre-#1563.
    */
-  const buildScratchPackageYaml = (): string => {
-    const toolField = form.tool !== "custom" ? `\n      tool: ${form.tool}` : "";
+  const buildScratchCreateRequest = () => {
     const wireProvider = getToolWireProvider(form.tool, form.provider.trim() || null);
-    const providerField = wireProvider ?? (form.provider.trim() || null);
-    const providerLine = providerField ? `\n      provider: ${providerField}` : "";
-    const modelLine = form.model.trim() ? `\n      model: ${form.model.trim()}` : "";
-    const imageLine = form.image.trim() ? `\n      image: ${form.image.trim()}` : "";
-    const runtimeLine = form.runtime.trim() ? `\n      runtime: ${form.runtime.trim()}` : "";
-    const hostingField =
-      form.hosting !== DEFAULT_HOSTING_MODE ? `\n      hosting: ${form.hosting}` : "";
-    const displayNameLine = form.displayName.trim()
-      ? `\n    displayName: "${form.displayName.trim()}"` : "";
-    const descriptionLine = form.description.trim()
-      ? `\n    description: "${form.description.trim()}"` : "";
-    const colorLine = form.color.trim()
-      ? `\n    color: "${form.color.trim()}"` : "";
-    const connectorLine =
-      form.connectorSlug && form.connectorConfig
-        ? `\n    connector:\n      typeSlug: ${form.connectorSlug}` : "";
+    const provider = wireProvider ?? (form.provider.trim() || undefined);
+    const tool = form.tool !== "custom" ? form.tool : undefined;
+    const model = form.model.trim() || undefined;
+    const hosting =
+      form.hosting !== DEFAULT_HOSTING_MODE ? form.hosting : undefined;
+    const color = form.color.trim() || undefined;
+    const displayName = form.displayName.trim() || form.name.trim();
+    const description = form.description.trim();
+    const connector = buildConnectorBinding() ?? undefined;
 
-    // Build parent lines — only included when a parent was chosen.
-    let parentLines = "";
-    if (form.parentChoice === "has-parents" && form.parentUnitIds.length > 0) {
-      parentLines = `\n    parentUnitIds:\n${form.parentUnitIds.map((id) => `      - ${id}`).join("\n")}`;
-    } else if (form.parentChoice === "top-level") {
-      parentLines = "\n    isTopLevel: true";
-    }
+    const isTopLevel = form.parentChoice === "top-level" ? true : undefined;
+    const parentUnitIds =
+      form.parentChoice === "has-parents" && form.parentUnitIds.length > 0
+        ? form.parentUnitIds
+        : undefined;
 
-    return (
-      `apiVersion: spring-voyage/v1alpha1\n` +
-      `kind: Package\n` +
-      `metadata:\n` +
-      `  name: ${form.name.trim()}\n` +
-      `spec:\n` +
-      `  units:\n` +
-      `    - name: ${form.name.trim()}${displayNameLine}${descriptionLine}${colorLine}${parentLines}${connectorLine}\n` +
-      `      execution:${toolField}${providerLine}${modelLine}${imageLine}${runtimeLine}${hostingField}\n`
-    );
+    return {
+      name: form.name.trim(),
+      displayName,
+      description,
+      model,
+      color,
+      tool,
+      provider,
+      hosting,
+      connector,
+      parentUnitIds,
+      isTopLevel,
+    };
   };
 
   // Build the connector-binding payload the server expects. Returns `null`
@@ -1210,14 +1211,16 @@ export default function CreateUnitPage() {
     };
   };
 
-  // ADR-0035 install mutation. Routes to the correct endpoint based on
-  // source branch:
-  //   catalog → POST /api/v1/packages/install (JSON body)
-  //   scratch → POST /api/v1/packages/install/file (multipart YAML)
+  // Install mutation. Routes by source branch:
+  //   catalog → POST /api/v1/packages/install (JSON body) — ADR-0035 path
+  //   scratch → POST /api/v1/tenant/units (+ PUT /execution for image/runtime)
   //
-  // Both return InstallStatusResponse with an installId that the
-  // polling query below tracks. The mutation stores the installId so
-  // the status panel knows which install to poll.
+  // The scratch path returns a synthesised InstallStatusResponse with
+  // status="active" so the polling/redirect code below can stay
+  // shared. ADR-0035 anticipates a single install pipeline; the v0.1
+  // PackageManifest schema does not yet support inline unit
+  // definitions, so the wizard's scratch path stays on the direct
+  // unit-create endpoint until the schema catches up.
   const installMutation = useMutation({
     mutationFn: async (): Promise<InstallStatusResponse> => {
       if (form.source === "catalog") {
@@ -1231,10 +1234,44 @@ export default function CreateUnitPage() {
           },
         ]);
       }
-      // Scratch branch: build in-memory package.yaml and POST to file
-      // endpoint.
-      const yaml = buildScratchPackageYaml();
-      return api.installPackageFile(yaml);
+
+      // Scratch branch: create the unit, then write image/runtime via
+      // the dedicated execution endpoint (CreateUnitRequest does not
+      // accept those two fields).
+      const req = buildScratchCreateRequest();
+      const created = await api.createUnit(req);
+      const image = form.image.trim();
+      const runtime = form.runtime.trim();
+      if (image || runtime) {
+        try {
+          await api.setUnitExecution(created.name, {
+            image: image || null,
+            runtime: runtime || null,
+            tool: req.tool ?? null,
+            provider: req.provider ?? null,
+            model: req.model ?? null,
+          });
+        } catch (e) {
+          // Best-effort: surface the error but the unit row already
+          // exists, so the operator can re-edit execution from the
+          // unit page if this fails.
+          throw e instanceof Error
+            ? new Error(`Unit created but execution update failed: ${e.message}`)
+            : e;
+        }
+      }
+
+      const now = new Date().toISOString();
+      return {
+        installId: `scratch:${created.name}`,
+        status: "active",
+        packages: [
+          { packageName: created.name, status: "active", error: null },
+        ],
+        startedAt: now,
+        completedAt: now,
+        error: null,
+      } as unknown as InstallStatusResponse;
     },
     onMutate: () => {
       setSubmitError(null);
@@ -1274,11 +1311,17 @@ export default function CreateUnitPage() {
     },
   });
 
-  // Poll install status every 2 s while an install is in flight.
+  // Poll install status every 2 s while a real (catalog-pipeline)
+  // install is in flight. Scratch-branch ids are synthetic
+  // (`scratch:<unit-name>`) and the install endpoint cannot resolve
+  // them — the synthesised "active" response is the source of truth
+  // for those.
+  const isSyntheticInstallId =
+    installId !== null && installId.startsWith("scratch:");
   const installStatusQuery = useQuery({
     queryKey: queryKeys.installs.detail(installId ?? ""),
     queryFn: () => api.getInstallStatus(installId!),
-    enabled: installId !== null,
+    enabled: installId !== null && !isSyntheticInstallId,
     refetchInterval: (query) => {
       const data = query.state.data as InstallStatusResponse | undefined;
       if (!data) return 2000;
