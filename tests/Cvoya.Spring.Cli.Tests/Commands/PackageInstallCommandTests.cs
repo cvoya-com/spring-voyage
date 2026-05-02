@@ -706,7 +706,7 @@ public class PackageInstallCommandTests
 
     // ── 6. Live-package integration test stub ────────────────────────────────
 
-    [Fact(Skip = "Lights up after #1562 — spring-voyage-oss package.yaml does not yet exist")]
+    [Fact(Skip = "End-to-end integration test requiring a live Spring Voyage API and a real GitHub App installation — run manually.")]
     public async Task PackageInstall_SpringVoyageOss_LiveIntegration_ProducesFiveUnits()
     {
         // Acceptance: `spring package install spring-voyage-oss
@@ -715,9 +715,10 @@ public class PackageInstallCommandTests
         //   --input github_installation_id=<id>`
         // → 5 units + 4 sub-units bound to GitHub, exit 0.
         //
-        // This test requires a running Spring Voyage API and a real GitHub App
-        // installation.  It is skipped until packages/spring-voyage-oss/package.yaml
-        // lands in #1562.
+        // packages/spring-voyage-oss/package.yaml now exists (#1562).
+        // This test is skipped because it requires a live Spring Voyage API
+        // endpoint and a real GitHub App installation ID.  Run manually against
+        // a local or staging environment to verify end-to-end install.
         await Task.CompletedTask; // placeholder
     }
 

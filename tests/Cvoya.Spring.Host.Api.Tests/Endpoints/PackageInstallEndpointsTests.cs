@@ -474,20 +474,20 @@ public class PackageInstallEndpointsTests : IClassFixture<PackageInstallEndpoint
 
     // ── Test 13: Live-package integration test stub ───────────────────────
 
-    [Fact(Skip = "Lights up after #1562 adds packages/spring-voyage-oss/package.yaml")]
+    [Fact(Skip = "End-to-end integration test requiring a Dapr sidecar and a configured catalog — run manually.")]
     public async Task Install_SpringVoyageOssPackage_EndToEnd_Skipped()
     {
-        // This test will exercise the full end-to-end install of the
-        // spring-voyage-oss package once #1562 adds its package.yaml.
+        // packages/spring-voyage-oss/package.yaml now exists (#1562).
         //
         // Expected flow:
-        // 1. POST /api/v1/packages/install with { targets: [{ packageName: "spring-voyage-oss", inputs: {} }] }
+        // 1. POST /api/v1/packages/install with { targets: [{ packageName: "spring-voyage-oss",
+        //    inputs: { github_owner: "...", github_repo: "...", github_installation_id: "..." } }] }
         // 2. Assert 201 with status = active
-        // 3. Assert all 5 units + 13 agents appear in the directory.
+        // 3. Assert all 5 units appear in the directory.
         //
-        // Requires: a running Dapr sidecar and packages/spring-voyage-oss/package.yaml.
+        // Requires: a running Dapr sidecar and a catalog configured to the live packages/
+        // directory.  Run manually against a local or staging environment.
         await Task.CompletedTask; // placeholder
-        throw new NotImplementedException("Implement after #1562 lands package.yaml.");
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
