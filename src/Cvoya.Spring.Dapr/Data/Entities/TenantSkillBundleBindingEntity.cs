@@ -28,4 +28,16 @@ public class TenantSkillBundleBindingEntity : ITenantScopedEntity
 
     /// <summary>Timestamp when the binding was first created.</summary>
     public DateTimeOffset BoundAt { get; set; }
+
+    /// <summary>
+    /// Package install lifecycle state (ADR-0035 decision 11).
+    /// Rows written by the legacy path default to <see cref="PackageInstallState.Active"/>.
+    /// </summary>
+    public PackageInstallState InstallState { get; set; } = PackageInstallState.Active;
+
+    /// <summary>
+    /// FK to <see cref="PackageInstallEntity.InstallId"/>. <c>null</c> for rows
+    /// written by the legacy path.
+    /// </summary>
+    public Guid? InstallId { get; set; }
 }

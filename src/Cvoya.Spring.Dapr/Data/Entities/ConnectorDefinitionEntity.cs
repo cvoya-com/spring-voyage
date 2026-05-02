@@ -37,4 +37,15 @@ public class ConnectorDefinitionEntity : ITenantScopedEntity
     /// <summary>Gets or sets the timestamp when the connector definition was soft-deleted, or null if active.</summary>
     public DateTimeOffset? DeletedAt { get; set; }
 
+    /// <summary>
+    /// Package install lifecycle state (ADR-0035 decision 11).
+    /// Rows written by the legacy path default to <see cref="PackageInstallState.Active"/>.
+    /// </summary>
+    public PackageInstallState InstallState { get; set; } = PackageInstallState.Active;
+
+    /// <summary>
+    /// FK to <see cref="PackageInstallEntity.InstallId"/>. <c>null</c> for rows
+    /// written by the legacy path.
+    /// </summary>
+    public Guid? InstallId { get; set; }
 }

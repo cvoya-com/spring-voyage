@@ -69,4 +69,19 @@ public class UnitDefinitionEntity : ITenantScopedEntity
     /// </summary>
     public string? LastValidationRunId { get; set; }
 
+    /// <summary>
+    /// Package install lifecycle state (ADR-0035 decision 11).
+    /// Rows written by the legacy path default to <see cref="PackageInstallState.Active"/>.
+    /// Rows written by <c>IPackageInstallService</c> start at
+    /// <see cref="PackageInstallState.Staging"/> and flip to
+    /// <see cref="PackageInstallState.Active"/> after successful Phase-2 actor activation.
+    /// </summary>
+    public PackageInstallState InstallState { get; set; } = PackageInstallState.Active;
+
+    /// <summary>
+    /// FK to <see cref="PackageInstallEntity.InstallId"/> for rows created via
+    /// <c>IPackageInstallService</c>. <c>null</c> for rows written by the legacy
+    /// <c>CreateFromManifestAsync</c> path.
+    /// </summary>
+    public Guid? InstallId { get; set; }
 }

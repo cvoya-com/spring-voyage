@@ -39,6 +39,13 @@ internal class UnitDefinitionEntityConfiguration : IEntityTypeConfiguration<Unit
             .HasDefaultValue(false);
         builder.Property(e => e.LastValidationErrorJson).HasColumnName("last_validation_error_json");
         builder.Property(e => e.LastValidationRunId).HasColumnName("last_validation_run_id");
+        builder.Property(e => e.InstallState)
+            .HasColumnName("install_state")
+            .IsRequired()
+            .HasConversion<string>()
+            .HasMaxLength(32)
+            .HasDefaultValue(PackageInstallState.Active);
+        builder.Property(e => e.InstallId).HasColumnName("install_id");
 
         builder.HasIndex(e => new { e.TenantId, e.UnitId }).IsUnique().HasFilter("deleted_at IS NULL");
         builder.HasIndex(e => e.TenantId);

@@ -114,6 +114,13 @@ public class SpringDbContext : DbContext
     /// <summary>Gets the set of stable human identity records (#1491).</summary>
     public DbSet<HumanEntity> Humans => Set<HumanEntity>();
 
+    /// <summary>
+    /// Gets the set of package install tracking rows (#1558 / ADR-0035 decision 11).
+    /// One row per (install_id, package_name); multi-package batches share the
+    /// same <c>install_id</c>.
+    /// </summary>
+    public DbSet<PackageInstallEntity> PackageInstalls => Set<PackageInstallEntity>();
+
     /// <inheritdoc />
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -143,6 +150,7 @@ public class SpringDbContext : DbContext
         modelBuilder.ApplyConfiguration(new TenantSkillBundleBindingEntityConfiguration());
         modelBuilder.ApplyConfiguration(new TenantRecordEntityConfiguration());
         modelBuilder.ApplyConfiguration(new HumanEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new PackageInstallEntityConfiguration());
 
         // Combined tenant + soft-delete query filters. Each filter
         // captures <c>this</c>, so EF Core parameterises the tenant-id
@@ -186,6 +194,10 @@ public class SpringDbContext : DbContext
 
         // Human identity records: tenant-scoped, no soft-delete.
         modelBuilder.Entity<HumanEntity>()
+            .HasQueryFilter(e => e.TenantId == CurrentTenantId);
+
+        // Package install tracking: tenant-scoped, no soft-delete.
+        modelBuilder.Entity<PackageInstallEntity>()
             .HasQueryFilter(e => e.TenantId == CurrentTenantId);
     }
 

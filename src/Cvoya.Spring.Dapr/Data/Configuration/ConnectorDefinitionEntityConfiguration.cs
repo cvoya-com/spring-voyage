@@ -31,6 +31,14 @@ internal class ConnectorDefinitionEntityConfiguration : IEntityTypeConfiguration
         builder.Property(e => e.UpdatedAt).HasColumnName("updated_at").IsRequired();
         builder.Property(e => e.DeletedAt).HasColumnName("deleted_at");
 
+        builder.Property(e => e.InstallState)
+            .HasColumnName("install_state")
+            .IsRequired()
+            .HasConversion<string>()
+            .HasMaxLength(32)
+            .HasDefaultValue(PackageInstallState.Active);
+        builder.Property(e => e.InstallId).HasColumnName("install_id");
+
         builder.HasIndex(e => new { e.TenantId, e.ConnectorId }).IsUnique().HasFilter("deleted_at IS NULL");
         builder.HasIndex(e => e.TenantId);
     }

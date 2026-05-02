@@ -25,6 +25,13 @@ internal class TenantSkillBundleBindingEntityConfiguration : IEntityTypeConfigur
         builder.Property(e => e.BundleId).HasColumnName("bundle_id").IsRequired().HasMaxLength(256);
         builder.Property(e => e.Enabled).HasColumnName("enabled").IsRequired();
         builder.Property(e => e.BoundAt).HasColumnName("bound_at").IsRequired();
+        builder.Property(e => e.InstallState)
+            .HasColumnName("install_state")
+            .IsRequired()
+            .HasConversion<string>()
+            .HasMaxLength(32)
+            .HasDefaultValue(PackageInstallState.Active);
+        builder.Property(e => e.InstallId).HasColumnName("install_id");
 
         builder.HasIndex(e => e.TenantId);
     }
