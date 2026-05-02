@@ -1,18 +1,20 @@
 #!/usr/bin/env bash
 # deployment/build-agent-images.sh — single entry point for building every
 # agent image the Spring Voyage dispatcher launches today (PR 3b of #1087,
-# #1096).
+# #1096; omnibus added in #1514).
 #
-# Builds three images, in dependency order:
-#   1. ghcr.io/cvoya-com/agent-base:<tag>                   (path-1 base)
-#   2. localhost/spring-voyage-agent-claude-code:<tag>  (path-1 reference, FROMs #1)
-#   3. localhost/spring-voyage-agent-dapr:<tag>         (path-3 native A2A)
+# Builds four images, in dependency order:
+#   1. ghcr.io/cvoya-com/spring-voyage-agent-base:<tag>  (path-1 BYOI base)
+#   2. localhost/spring-voyage-agent-claude-code:<tag>   (path-1 reference, FROMs #1)
+#   3. localhost/spring-voyage-agent-dapr:<tag>          (path-3 native A2A)
+#   4. ghcr.io/cvoya-com/spring-voyage-agents:<tag>      (omnibus default, FROMs #1)
 #
 # Conformance paths are documented in
-# `docs/architecture/agent-runtime.md` § 7. The ghcr-namespaced agent-base
-# tag is the same artifact the `release-agent-base.yml` workflow publishes
-# from a tag push (PR 3a, #1095) — building it locally here is the offline
-# fallback for laptops + CI runs without GHCR pull access.
+# `docs/architecture/agent-runtime.md` § 7. The ghcr-namespaced images are
+# the same artifacts the `release-agent-base.yml` and
+# `release-spring-voyage-agents.yml` workflows publish on tag push — building
+# locally here is the offline fallback for laptops + CI runs without GHCR
+# pull access.
 #
 # Usage:
 #   deployment/build-agent-images.sh                # builds :dev tags
@@ -22,8 +24,8 @@
 # Environment overrides (see --help for the full list):
 #   DOCKER         — `docker` (default) or `podman`. Auto-detects if unset.
 #   AGENT_BASE_IMAGE — pin a published agent-base tag for the claude-code
-#                      build instead of the locally-built one. Lets CI
-#                      verify the published image without rebuilding it.
+#                      and omnibus builds instead of the locally-built one.
+#                      Lets CI verify the published image without rebuilding.
 #
 # Mirrors the structure and style of `deployment/build-sidecar.sh` so an
 # operator who knows one knows the other.
@@ -42,17 +44,19 @@ usage() {
 Usage: deployment/build-agent-images.sh [options]
 
 Builds, in order:
-  1. ghcr.io/cvoya-com/agent-base:<tag>
+  1. ghcr.io/cvoya-com/spring-voyage-agent-base:<tag>
   2. localhost/spring-voyage-agent-claude-code:<tag>
   3. localhost/spring-voyage-agent-dapr:<tag>
+  4. ghcr.io/cvoya-com/spring-voyage-agents:<tag>    (omnibus)
 
 Options:
   --tag <value>            Tag suffix for all images (default: dev).
-  --skip-agent-base        Skip building ghcr.io/cvoya-com/agent-base:<tag>.
+  --skip-agent-base        Skip building spring-voyage-agent-base:<tag>.
                            Useful when --agent-base-image points at an
                            already-pulled / already-built reference.
-  --agent-base-image <ref> Override the FROM line of the claude-code
-                           image. Defaults to ghcr.io/cvoya-com/agent-base:<tag>
+  --agent-base-image <ref> Override the FROM line of the claude-code and
+                           omnibus images. Defaults to
+                           ghcr.io/cvoya-com/spring-voyage-agent-base:<tag>
                            (the tag built in step 1). Honors the
                            AGENT_BASE_IMAGE env var.
   -h, --help               Show this help.
@@ -63,12 +67,12 @@ Environment:
                            force one runtime over the other.
 
 Examples:
-  # Local dev, all three images at :dev:
+  # Local dev, all four images at :dev:
   deployment/build-agent-images.sh
 
   # Verify the published agent-base image works:
   deployment/build-agent-images.sh --skip-agent-base \\
-                                   --agent-base-image ghcr.io/cvoya-com/agent-base:1.0.0
+                                   --agent-base-image ghcr.io/cvoya-com/spring-voyage-agent-base:1.0.0
 
   # Cut release artifacts to the registry-shaped tag:
   deployment/build-agent-images.sh --tag 1.2.3
@@ -131,9 +135,10 @@ fi
 
 log() { printf '[build-agent-images] %s\n' "$*" >&2; }
 
-AGENT_BASE_IMAGE="ghcr.io/cvoya-com/agent-base"
+AGENT_BASE_IMAGE="ghcr.io/cvoya-com/spring-voyage-agent-base"
 CLAUDE_IMAGE="localhost/spring-voyage-agent-claude-code"
 DAPR_IMAGE="localhost/spring-voyage-agent-dapr"
+AGENTS_IMAGE="ghcr.io/cvoya-com/spring-voyage-agents"
 
 # ---- 1. agent-base -------------------------------------------------------
 if [[ "${SKIP_AGENT_BASE}" -eq 1 ]]; then
@@ -146,9 +151,9 @@ else
         "${REPO_ROOT}"
 fi
 
-# Default the claude-code FROM to whatever we just built (or to the user's
-# pinned override). This is what makes the script work both online (CI
-# verifying the published image) and offline (laptop without GHCR access).
+# Default the claude-code and omnibus FROM to whatever we just built (or to
+# the user's pinned override). This is what makes the script work both online
+# (CI verifying the published image) and offline (laptop without GHCR access).
 if [[ -z "${AGENT_BASE_OVERRIDE}" ]]; then
     AGENT_BASE_OVERRIDE="${AGENT_BASE_IMAGE}:${TAG}"
 fi
@@ -168,7 +173,16 @@ log "building ${DAPR_IMAGE}:${TAG}"
     --tag "${DAPR_IMAGE}:${TAG}" \
     "${REPO_ROOT}"
 
-log "built three agent images at tag :${TAG}"
+# ---- 4. spring-voyage-agents (omnibus default) ---------------------------
+log "building ${AGENTS_IMAGE}:${TAG} (FROM ${AGENT_BASE_OVERRIDE})"
+"${DOCKER}" build \
+    --file "${SCRIPT_DIR}/Dockerfile.spring-voyage-agents" \
+    --build-arg "AGENT_BASE_IMAGE=${AGENT_BASE_OVERRIDE}" \
+    --tag "${AGENTS_IMAGE}:${TAG}" \
+    "${REPO_ROOT}"
+
+log "built four agent images at tag :${TAG}"
 log "  ${AGENT_BASE_IMAGE}:${TAG}"
 log "  ${CLAUDE_IMAGE}:${TAG}"
 log "  ${DAPR_IMAGE}:${TAG}"
+log "  ${AGENTS_IMAGE}:${TAG}"

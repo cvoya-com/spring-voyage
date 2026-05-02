@@ -1,0 +1,126 @@
+# syntax=docker/dockerfile:1.7
+#
+# Spring Voyage — spring-voyage-agents omnibus image (#1514).
+#
+# This image is the platform default for unit creation: the wizard pre-fills
+# `ghcr.io/cvoya-com/spring-voyage-agents:latest` and any unit without an
+# operator-provided image uses this one. It bundles all OSS CLI runtimes on
+# top of the minimal `spring-voyage-agent-base` BYOI image so an operator can
+# run a unit with any of the four supported runtimes (Claude, OpenAI/Codex,
+# Google/Gemini, Ollama/dapr-agent) out of the box.
+#
+# Image taxonomy:
+#   spring-voyage-agent-base:latest  — BYOI minimal (A2A sidecar + Node 22 +
+#                                      debian:12-slim). Operators who want to
+#                                      bring their own CLI layer FROM this.
+#   spring-voyage-agents:latest      — Omnibus (this file). Layers all four
+#                                      CLI runtimes on top of agent-base; the
+#                                      wizard default.
+#
+# Runtime CLIs bundled:
+#   claude    — @anthropic-ai/claude-code@CLAUDE_CODE_VERSION (npm global)
+#   codex     — @openai/codex@CODEX_VERSION                   (npm global)
+#   gemini    — @google/gemini-cli@GEMINI_CLI_VERSION          (npm global)
+#   dapr-agent stack (Python) — for the OpenAI, Google, and Ollama runtimes
+#                that all use ToolKind="dapr-agent"
+#
+# Versions are pinned as ARGs at the top so bumps are a single-line edit;
+# all three CLI versions are recorded in labels for auditability.
+#
+# The entrypoint is inherited from `spring-voyage-agent-base` unchanged —
+# the A2A bridge sidecar is PID 1 and the dispatcher stamps SPRING_AGENT_ARGV
+# at launch time to select the CLI.
+#
+# Build (from repo root):
+#   docker build \
+#     -f deployment/Dockerfile.spring-voyage-agents \
+#     -t ghcr.io/cvoya-com/spring-voyage-agents:dev \
+#     --build-arg AGENT_BASE_IMAGE=ghcr.io/cvoya-com/spring-voyage-agent-base:latest \
+#     .
+
+# ---- version pins -----------------------------------------------------------
+# Override at build time to roll any CLI forward without editing this file.
+ARG CLAUDE_CODE_VERSION=2.1.98
+ARG CODEX_VERSION=0.128.0
+ARG GEMINI_CLI_VERSION=0.40.1
+
+# ---- base -------------------------------------------------------------------
+# Default to the published GHCR tag the release pipeline produces.  Override
+# with --build-arg AGENT_BASE_IMAGE=... to verify a locally-built base image
+# without GHCR access (mirrors the pattern in Dockerfile.agent.claude-code).
+ARG AGENT_BASE_IMAGE=ghcr.io/cvoya-com/spring-voyage-agent-base:latest
+
+FROM ${AGENT_BASE_IMAGE}
+
+# Re-declare ARGs after FROM so they are in scope for the RUN steps below.
+ARG CLAUDE_CODE_VERSION
+ARG CODEX_VERSION
+ARG GEMINI_CLI_VERSION
+
+# ---- OSS CLI installs -------------------------------------------------------
+# We need root for global npm installs and the Python layer; the base image
+# runs as `agent` so we temporarily elevate and drop back at the end.
+USER root
+
+# 1. Claude Code CLI  (@anthropic-ai/claude-code → `claude` binary)
+#    Recipe verbatim from Dockerfile.agent.claude-code.
+RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
+ && command -v claude >/dev/null \
+ && claude --version
+
+# 2. OpenAI Codex CLI  (@openai/codex → `codex` binary)
+RUN npm install -g "@openai/codex@${CODEX_VERSION}" \
+ && command -v codex >/dev/null
+
+# 3. Google Gemini CLI  (@google/gemini-cli → `gemini` binary)
+RUN npm install -g "@google/gemini-cli@${GEMINI_CLI_VERSION}" \
+ && command -v gemini >/dev/null
+
+# 4. Python + dapr-agent stack
+#    The OpenAI, Google, and Ollama runtimes all use ToolKind="dapr-agent".
+#    The dapr-agent container speaks A2A natively; the omnibus image bundles
+#    the same Python stack so a single image can serve any runtime.
+#    Python 3 and pip are already present from the base image (debian:12-slim
+#    with python3/python3-pip installed in Dockerfile.agent-base).
+COPY agents/dapr-agent/requirements.txt /tmp/dapr-agent-requirements.txt
+RUN pip install --no-cache-dir -r /tmp/dapr-agent-requirements.txt \
+ && rm /tmp/dapr-agent-requirements.txt
+
+# Install the Spring Voyage Agent SDK from source (same pattern as
+# Dockerfile.agent.dapr — the SDK isn't on PyPI yet).
+COPY agents/spring-voyage-agent /tmp/spring-voyage-agent
+RUN pip install --no-cache-dir /tmp/spring-voyage-agent \
+ && rm -rf /tmp/spring-voyage-agent
+
+# Copy the dapr-agent Python source into /opt/spring-voyage/dapr-agent so
+# the dispatcher can exec `python /opt/spring-voyage/dapr-agent/agent.py`
+# for the dapr-agent tool kind (equivalent of SPRING_AGENT_ARGV pointing at
+# the Python agent entrypoint).
+COPY agents/dapr-agent/agent.py        /opt/spring-voyage/dapr-agent/agent.py
+COPY agents/dapr-agent/a2a_server.py   /opt/spring-voyage/dapr-agent/a2a_server.py
+COPY agents/dapr-agent/mcp_bridge.py   /opt/spring-voyage/dapr-agent/mcp_bridge.py
+COPY agents/dapr-agent/pyproject.toml  /opt/spring-voyage/dapr-agent/pyproject.toml
+
+RUN chown -R agent:agent /opt/spring-voyage/dapr-agent
+
+USER agent
+
+# ---- labels -----------------------------------------------------------------
+LABEL org.opencontainers.image.title="spring-voyage-agents" \
+      org.opencontainers.image.description="Spring Voyage omnibus agent image: bundles the Claude Code, OpenAI Codex, and Google Gemini CLIs plus the dapr-agent Python stack on top of spring-voyage-agent-base. Platform default for unit creation." \
+      org.opencontainers.image.source="https://github.com/cvoya-com/spring-voyage" \
+      com.cvoya.spring-voyage.claude-code-version="${CLAUDE_CODE_VERSION}" \
+      com.cvoya.spring-voyage.codex-version="${CODEX_VERSION}" \
+      com.cvoya.spring-voyage.gemini-cli-version="${GEMINI_CLI_VERSION}"
+
+# ---- entrypoint -------------------------------------------------------------
+# Inherited from spring-voyage-agent-base: tini → node sidecar bridge.
+# The dispatcher sets SPRING_AGENT_ARGV to choose the active CLI:
+#
+#   SPRING_AGENT_ARGV='["claude","--dangerously-skip-permissions"]'  # Claude
+#   SPRING_AGENT_ARGV='["codex","--full-auto"]'                      # Codex
+#   SPRING_AGENT_ARGV='["gemini","--yolo"]'                          # Gemini
+#   SPRING_AGENT_ARGV='["python","/opt/spring-voyage/dapr-agent/agent.py"]'  # dapr-agent
+#
+# Do NOT override ENTRYPOINT unless you are implementing BYOI path 3 (native
+# A2A — see docs/architecture/agent-images.md).

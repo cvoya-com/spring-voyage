@@ -93,7 +93,7 @@ const DEFAULT_COLOR = "#6366f1";
 // the runtime's own defaultImage (while the field still holds this value).
 // Once the operator edits the field or a runtime image has been applied,
 // further runtime changes never overwrite the value again.
-const BASE_IMAGE = "ghcr.io/cvoya-com/spring-voyage-agent-base:latest";
+const BASE_IMAGE = "ghcr.io/cvoya-com/spring-voyage-agents:latest";
 
 // #1132: how long to wait between the last form-state change and the
 // sessionStorage write. 300ms is short enough that a refresh-after-fill
@@ -2316,7 +2316,7 @@ export default function CreateUnitPage() {
                       if (imageSource === "base") setImageSource("applied");
                       update("image", e.target.value);
                     }}
-                    placeholder="ghcr.io/cvoya-com/spring-voyage-agent-base:latest"
+                    placeholder="ghcr.io/cvoya-com/spring-voyage-agents:latest"
                     aria-label="Execution image"
                     className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                   />
