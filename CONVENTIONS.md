@@ -395,3 +395,26 @@ Plugins that authenticate via `HttpClient` MUST wire `AddCredentialHealthWatchdo
 2. Implement the contract; wire the credential-health watchdog on any HttpClient that authenticates.
 3. For runtimes, ship a `seed.json`. For connectors, document the typed routes exposed via `MapRoutes` in the project `README.md`.
 4. Register the DI extension from `Program.cs` in the host. No changes to the dispatcher project are required — the install surface, registry, and bootstrap pick up the new plugin automatically.
+
+## 17. Documentation
+
+### Docs describe shipped behaviour
+
+`docs/concepts/`, `docs/guide/`, `docs/architecture/`, top-level `README.md`, and every `packages/*/README.md` describe the system as it exists in the current codebase. Every "this works" / "this exists" / "this returns" claim corresponds to a verifiable surface — a function, an endpoint, a CLI verb, a YAML key — that a reviewer can grep for.
+
+The existing `docs-evergreen-framing` CI gate enforces that `docs/` never references outdated version labels (`V2`, `V2.1`). This convention operates at a higher level: **content accuracy**, not version tagging.
+
+### Aspirational content lives in `docs/plan/` or under a Planned callout
+
+Planned features, deferred work, and "we will eventually" framing belong in `docs/plan/<release>/` (the per-release plan-of-record narrative). When aspirational content must appear in an in-place doc — e.g. a concept doc explaining the long-term shape — it uses a clearly-marked callout:
+
+> **Planned (v0.2):** … or … **Not yet implemented:** …
+
+The callout names the release or links the tracking issue. Bare "we plan to" prose without the callout is the failure mode this rule catches.
+
+### PR review verifies it
+
+When a PR touches `docs/concepts/`, `docs/guide/`, `docs/architecture/`, top-level `README.md`, or `packages/*/README.md`, reviewers must verify:
+
+1. Every behavioural claim still matches an identifiable surface in the current codebase.
+2. Aspirational content uses the **Planned** callout described above — not bare future-tense prose.
