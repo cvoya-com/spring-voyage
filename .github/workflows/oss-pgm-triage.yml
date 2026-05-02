@@ -1,0 +1,151 @@
+name: OSS PgM Triage
+
+# Fires whenever a new issue is opened on the repository.
+# The workflow forwards the issue to the OSS Program Manager sub-unit
+# (spring-voyage-oss/sv-oss-program-management) and posts the triage
+# proposal back as a comment — using the Spring Voyage GitHub App
+# identity, never GITHUB_TOKEN.
+#
+# Required GitHub Actions secrets:
+#   SPRING_VOYAGE_APP_ID          — Spring Voyage GitHub App's numeric app id
+#   SPRING_VOYAGE_APP_PRIVATE_KEY — App's PEM-encoded private key (for minting
+#                                   installation tokens used to post comments)
+#   SPRING_VOYAGE_API_TOKEN       — Bearer token for the deployed Spring Voyage
+#                                   instance (authorises POST /api/v1/tenant/messages)
+#
+# Required GitHub Actions variables:
+#   SPRING_VOYAGE_API_URL         — Base URL of the deployed Spring Voyage instance
+#                                   (e.g. https://api.cvoya.com/spring-voyage).
+#                                   No trailing slash.
+#
+# The workflow does NOT auto-apply the triage proposal. An operator (or a
+# follow-up workflow) must confirm before milestone/type/label changes land.
+# This keeps a human in the loop while trust in the PgM agent's recommendations
+# is being established.
+
+on:
+  issues:
+    types: [opened]
+
+# GITHUB_TOKEN is not used for any write operations in this workflow.
+# All writes (issue comments) go through the App installation token minted
+# in the first step. Read-only scope is declared here to make that explicit.
+permissions:
+  contents: read
+
+jobs:
+  triage:
+    name: Triage issue via OSS PgM unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      # Mint a short-lived installation token for the Spring Voyage GitHub App.
+      # This token is used exclusively to post the triage comment on the issue —
+      # it is the App identity, not the workflow's actor identity.
+      - name: Mint Spring Voyage App installation token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.SPRING_VOYAGE_APP_ID }}
+          private-key: ${{ secrets.SPRING_VOYAGE_APP_PRIVATE_KEY }}
+
+      # Send the issue to the OSS Program Manager sub-unit via the Spring Voyage
+      # HTTP API. The POST /api/v1/tenant/messages endpoint is synchronous: it
+      # routes the message, waits for the unit to respond, and returns the unit's
+      # reply in ResponsePayload. No polling is required.
+      #
+      # Address scheme: "unit" / path: "<package-name>/<unit-name>"
+      # The unit name comes from packages/spring-voyage-oss/units/sv-oss-program-management.yaml.
+      - name: Send issue to OSS PgM unit
+        id: triage
+        env:
+          SPRING_VOYAGE_API_URL: ${{ vars.SPRING_VOYAGE_API_URL }}
+          SPRING_VOYAGE_API_TOKEN: ${{ secrets.SPRING_VOYAGE_API_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          set -euo pipefail
+
+          # Build the triage prompt. The PM agent's system prompt already
+          # describes its triage responsibilities; the user message only needs
+          # to present the issue and name the expected output fields.
+          PROMPT="A new issue was opened: #${ISSUE_NUMBER}
+
+          Title: ${ISSUE_TITLE}
+
+          Body:
+          ${ISSUE_BODY}
+
+          Triage this issue according to your standard responsibilities. Output a proposal with:
+          - Recommended milestone (v0.1 / v0.2 / unmilestoned)
+          - Recommended type (Bug | Feature | Task)
+          - Recommended labels (area:*, etc.)
+          - Sub-issue or blocked-by relationships if applicable"
+
+          # Encode the prompt as a JSON string for the Payload field.
+          PAYLOAD_JSON=$(jq -n --arg text "$PROMPT" '{"text": $text}')
+
+          # Build the full request body.
+          REQUEST_BODY=$(jq -n \
+            --argjson payload "$PAYLOAD_JSON" \
+            '{
+              "to": {"scheme": "unit", "path": "spring-voyage-oss/sv-oss-program-management"},
+              "type": "Domain",
+              "payload": $payload
+            }')
+
+          # POST to the Spring Voyage API. The response carries the unit's reply
+          # synchronously in ResponsePayload (no polling required).
+          RESPONSE=$(curl --silent --show-error --fail \
+            --max-time 300 \
+            --request POST \
+            --header "Content-Type: application/json" \
+            --header "Authorization: Bearer ${SPRING_VOYAGE_API_TOKEN}" \
+            --data "$REQUEST_BODY" \
+            "${SPRING_VOYAGE_API_URL}/api/v1/tenant/messages")
+
+          # Extract the unit's reply from the response payload.
+          # ResponsePayload is a JsonElement — if the unit returns {"text": "..."},
+          # extract .text; fall back to the whole payload rendered as a string.
+          PROPOSAL=$(echo "$RESPONSE" | jq -r '
+            if .responsePayload.text? then
+              .responsePayload.text
+            elif .responsePayload? then
+              .responsePayload | tojson
+            else
+              "No proposal returned by the OSS PgM unit."
+            end
+          ')
+
+          # Surface the proposal to subsequent steps via GITHUB_OUTPUT.
+          # Use a delimiter to handle multi-line content safely.
+          {
+            echo "proposal<<EOF_PROPOSAL"
+            echo "$PROPOSAL"
+            echo "EOF_PROPOSAL"
+          } >> "$GITHUB_OUTPUT"
+
+      # Post the triage proposal as a comment on the originating issue.
+      # GH_TOKEN is set to the App installation token minted above — this ensures
+      # the comment appears as the Spring Voyage GitHub App, not as the workflow actor.
+      - name: Post triage proposal as App comment
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+          PROPOSAL: ${{ steps.triage.outputs.proposal }}
+        run: |
+          set -euo pipefail
+
+          COMMENT_BODY="**OSS Program Manager triage proposal**
+
+          ${PROPOSAL}
+
+          ---
+          *This is a proposal only — no milestone, type, or label changes have been applied. An operator must confirm before any changes land.*"
+
+          gh issue comment "${ISSUE_NUMBER}" \
+            --repo "${REPO}" \
+            --body "${COMMENT_BODY}"
