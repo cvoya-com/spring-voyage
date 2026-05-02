@@ -610,6 +610,37 @@ describe("InboxPage — unread badge and mark-read (#1477)", () => {
     });
   });
 
+  it("renders the inline reply composer next to the timeline (#1574)", async () => {
+    const agentAddr = `agent:id:${ADA_ID}`;
+    setupInbox(rows);
+    setupThread({
+      summary: {
+        id: "conv-1",
+        status: "active",
+        participants: [
+          { address: "human://savas", displayName: "savas" },
+          { address: agentAddr, displayName: "ada" },
+        ],
+      },
+      events: [],
+    });
+    render(
+      <Wrapper>
+        <InboxPage />
+      </Wrapper>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("inbox-composer")).toBeInTheDocument();
+      expect(screen.getByTestId("inbox-composer-input")).toBeInTheDocument();
+      expect(screen.getByTestId("inbox-composer-send")).toBeInTheDocument();
+      // Send button carries the keyboard-shortcut tooltip (#1553).
+      expect(screen.getByTestId("inbox-composer-send")).toHaveAttribute(
+        "title",
+        "⌘/Ctrl+Enter to send",
+      );
+    });
+  });
+
   it("sorts unread threads before read threads", async () => {
     const aliceId = "b1b2b3b4-0000-0000-0000-000000000010";
     const bobId = "b1b2b3b4-0000-0000-0000-000000000011";
