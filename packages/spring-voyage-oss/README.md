@@ -2,6 +2,10 @@
 
 The built-in package for standing up the multi-role unit that develops the Spring Voyage platform on itself. Install it once and you get a working organisation that can triage issues, ship PRs, review designs, and keep the program plan honest — all backed by the **Spring Voyage** GitHub App.
 
+## Catalog visibility
+
+This package ships as part of the platform and is **automatically visible in the tenant catalog** on first boot — no registration or binding step required. The catalog is backed by the on-disk `packages/` tree, so `spring-voyage-oss` appears in `spring package list` and in the portal's **New Unit** wizard under **Catalog** immediately after the platform comes up.
+
 ## What this package ships
 
 - **Root unit** (`units/spring-voyage-oss.yaml`) — the org unit. Its four sub-units are:

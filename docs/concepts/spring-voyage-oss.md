@@ -1,6 +1,6 @@
 # Spring Voyage OSS
 
-The **Spring Voyage OSS** unit is a built-in, hierarchical unit that uses Spring Voyage to develop Spring Voyage itself. It ships as a template package (`packages/spring-voyage-oss/`) and, when instantiated, creates a five-unit hierarchy: a top-level coordination unit plus four role-flavored sub-units covering software engineering, design, product management, and program management.
+The **Spring Voyage OSS** unit is a built-in, hierarchical unit that uses Spring Voyage to develop Spring Voyage itself. It ships as a package (`packages/spring-voyage-oss/`) that is automatically visible in the platform catalog. When installed via `spring package install spring-voyage-oss`, it creates a five-unit hierarchy in a single atomic operation: a top-level coordination unit plus four role-flavored sub-units covering software engineering, design, product management, and program management.
 
 The unit is the concrete realisation of the v0.1 stretch criterion: "SV is usable for further development of SV" (`docs/plan/v0.1/README.md`, exit criteria). It turns that criterion into something observable — a running team that plans, triages, implements, reviews, and ships the platform on itself.
 
@@ -77,7 +77,7 @@ connectors:
       events: ["issues", "issue_comment", "pull_request", "pull_request_review"]
 ```
 
-The `owner`, `repo`, and `installation_id` fields are intentionally absent from the checked-in template — they require per-deployment identity that does not belong in source. The operator supplies them at apply time through either the CLI or the New Unit wizard, and the platform creates the unit hierarchy and connector bindings atomically in a single request. See [Connectors](connectors.md) for the binding model and the GitHub connector's repository and reviewer discovery behaviour.
+The `owner`, `repo`, and `installation_id` fields are intentionally absent from the checked-in package YAML — they require per-deployment identity that does not belong in source. The operator supplies them as inputs when running `spring package install spring-voyage-oss` (or through the **Catalog** path in the New Unit wizard), and the platform creates the unit hierarchy and connector bindings atomically as part of the install. See [Connectors](connectors.md) for the binding model and the GitHub connector's repository and reviewer discovery behaviour.
 
 ## How the unit dogfoods the platform
 
@@ -101,4 +101,4 @@ Bugs the team encounters are bugs in Spring Voyage. Friction they hit — in the
 
 - `docs/guide/operator/dogfooding-oss-unit.md` — step-by-step bring-up: prerequisites, CLI and wizard paths, post-create verification, and troubleshooting.
 - `docs/decisions/0034-oss-dogfooding-unit.md` — design rationale: why these four roles, the FROM-omnibus image strategy, `hosting: permanent`, and the connector-binding-at-apply-time pattern.
-- `packages/spring-voyage-oss/README.md` — template internals: unit and agent YAML layout, connector declaration, and post-apply steps.
+- `packages/spring-voyage-oss/README.md` — package internals: unit and agent YAML layout, connector declaration, and post-install steps.
