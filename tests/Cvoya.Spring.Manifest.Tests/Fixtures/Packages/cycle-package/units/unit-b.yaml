@@ -1,0 +1,4 @@
+unit:
+  name: unit-b
+  members:
+    - unit: unit-c

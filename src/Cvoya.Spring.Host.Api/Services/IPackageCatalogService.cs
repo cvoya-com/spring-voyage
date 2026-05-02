@@ -55,4 +55,26 @@ public interface IPackageCatalogService
         string package,
         string name,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Loads the raw <c>package.yaml</c> text for the named package, or
+    /// returns <c>null</c> when the package does not exist in the catalog.
+    /// Used by the cross-package resolver during manifest parsing to locate
+    /// artefacts declared in other packages (ADR-0035 decision 14).
+    /// </summary>
+    Task<string?> LoadPackageManifestYamlAsync(
+        string packageName,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Loads the raw YAML for a single within-package artefact by its kind
+    /// and name. Returns <c>null</c> when the file is not found. Used by
+    /// the cross-package resolver to resolve bare artefact names from
+    /// another package's directory layout.
+    /// </summary>
+    Task<string?> LoadArtefactYamlAsync(
+        string packageName,
+        Cvoya.Spring.Manifest.ArtefactKind kind,
+        string artefactName,
+        CancellationToken cancellationToken);
 }

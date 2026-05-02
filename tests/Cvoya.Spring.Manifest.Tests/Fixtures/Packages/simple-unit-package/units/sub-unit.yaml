@@ -1,0 +1,5 @@
+unit:
+  name: sub-unit
+  description: A sub-unit.
+  members:
+    - agent: helper

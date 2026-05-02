@@ -1,0 +1,5 @@
+unit:
+  name: root-unit
+  description: The root unit.
+  members:
+    - agent: worker

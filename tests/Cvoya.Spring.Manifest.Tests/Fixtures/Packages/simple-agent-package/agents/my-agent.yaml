@@ -1,0 +1,6 @@
+agent:
+  id: my-agent
+  name: My Agent
+  role: worker
+  instructions: |
+    You are a test agent.

@@ -1,0 +1,29 @@
+apiVersion: spring.voyage/v1
+kind: UnitPackage
+metadata:
+  name: ${{ inputs.package_name }}
+  description: A package for ${{ inputs.team_name }}.
+inputs:
+  - name: package_name
+    type: string
+    required: true
+    description: The package name.
+  - name: team_name
+    type: string
+    required: true
+    description: The team name.
+  - name: replica_count
+    type: int
+    required: false
+    default: "1"
+    description: Number of replicas.
+  - name: enabled
+    type: bool
+    required: false
+    default: "true"
+  - name: api_key
+    type: string
+    secret: true
+    required: false
+    description: API key stored as a secret.
+unit: root-unit

@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Host.Api.Services;
 
 using Cvoya.Spring.Dapr.Skills;
 using Cvoya.Spring.Host.Api.Auth;
+using Cvoya.Spring.Manifest;
 
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -50,7 +51,11 @@ public static class ServiceCollectionExtensions
             Root = configuredRoot ?? DiscoverPackagesRoot(),
         };
         services.TryAddSingleton(options);
-        services.TryAddSingleton<IPackageCatalogService, FileSystemPackageCatalogService>();
+        services.TryAddSingleton<FileSystemPackageCatalogService>();
+        services.TryAddSingleton<IPackageCatalogService>(
+            sp => sp.GetRequiredService<FileSystemPackageCatalogService>());
+        services.TryAddSingleton<IPackageCatalogProvider>(
+            sp => sp.GetRequiredService<FileSystemPackageCatalogService>());
 
         // Share the same packages root with the skill-bundle resolver when
         // the operator has not set 'Skills:PackagesRoot' explicitly. Lets a

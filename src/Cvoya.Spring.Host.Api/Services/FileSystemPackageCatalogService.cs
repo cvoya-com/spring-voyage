@@ -17,6 +17,8 @@ using Microsoft.Extensions.Logging;
 
 using YamlDotNet.RepresentationModel;
 
+using ArtefactKind = Cvoya.Spring.Manifest.ArtefactKind;
+
 /// <summary>
 /// File-system backed <see cref="IPackageCatalogService"/>. Scans a
 /// <c>packages/</c> root on disk and materialises summary + detail
@@ -40,7 +42,7 @@ using YamlDotNet.RepresentationModel;
 public class FileSystemPackageCatalogService(
     PackageCatalogOptions options,
     ILogger<FileSystemPackageCatalogService> logger)
-    : IPackageCatalogService
+    : IPackageCatalogService, IPackageCatalogProvider
 {
     /// <inheritdoc />
     public Task<IReadOnlyList<PackageSummary>> ListPackagesAsync(
@@ -190,6 +192,125 @@ public class FileSystemPackageCatalogService(
         }
 
         return await File.ReadAllTextAsync(fullCandidate, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public Task<bool> PackageExistsAsync(string packageName, CancellationToken cancellationToken = default)
+    {
+        var root = options.Root;
+        if (string.IsNullOrWhiteSpace(root) || ContainsTraversal(packageName))
+        {
+            return Task.FromResult(false);
+        }
+
+        var packageDir = Path.Combine(root, packageName);
+        if (!Directory.Exists(packageDir))
+        {
+            return Task.FromResult(false);
+        }
+
+        var fullRoot = Path.GetFullPath(root);
+        var fullPackageDir = Path.GetFullPath(packageDir);
+        return Task.FromResult(fullPackageDir.StartsWith(fullRoot, StringComparison.Ordinal));
+    }
+
+    /// <inheritdoc />
+    public async Task<string?> LoadPackageManifestYamlAsync(
+        string packageName,
+        CancellationToken cancellationToken)
+    {
+        var root = options.Root;
+        if (string.IsNullOrWhiteSpace(root))
+        {
+            return null;
+        }
+
+        if (ContainsTraversal(packageName))
+        {
+            return null;
+        }
+
+        var packageDir = Path.Combine(root, packageName);
+        if (!Directory.Exists(packageDir))
+        {
+            return null;
+        }
+
+        // Re-check resolved path is inside the packages root.
+        var fullRoot = Path.GetFullPath(root);
+        var fullPackageDir = Path.GetFullPath(packageDir);
+        if (!fullPackageDir.StartsWith(fullRoot, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        foreach (var ext in new[] { "package.yaml", "package.yml" })
+        {
+            var candidate = Path.Combine(fullPackageDir, ext);
+            if (File.Exists(candidate))
+            {
+                return await File.ReadAllTextAsync(candidate, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        return null;
+    }
+
+    /// <inheritdoc />
+    public async Task<string?> LoadArtefactYamlAsync(
+        string packageName,
+        ArtefactKind kind,
+        string artefactName,
+        CancellationToken cancellationToken)
+    {
+        var root = options.Root;
+        if (string.IsNullOrWhiteSpace(root))
+        {
+            return null;
+        }
+
+        if (ContainsTraversal(packageName) || ContainsTraversal(artefactName))
+        {
+            return null;
+        }
+
+        var subDir = kind switch
+        {
+            ArtefactKind.Unit => "units",
+            ArtefactKind.Agent => "agents",
+            ArtefactKind.Skill => "skills",
+            ArtefactKind.Workflow => "workflows",
+            _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null)
+        };
+
+        var extension = kind == ArtefactKind.Skill ? ".md" : ".yaml";
+        var packageDir = Path.Combine(root, packageName);
+        var candidate = Path.Combine(packageDir, subDir, artefactName + extension);
+
+        // Re-check resolved path is inside the packages root.
+        var fullRoot = Path.GetFullPath(root);
+        var fullCandidate = Path.GetFullPath(candidate);
+        if (!fullCandidate.StartsWith(fullRoot, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        if (!File.Exists(fullCandidate))
+        {
+            // Try .yml variant for unit/agent files.
+            if (kind is ArtefactKind.Unit or ArtefactKind.Agent)
+            {
+                var ymlCandidate = Path.Combine(packageDir, subDir, artefactName + ".yml");
+                var fullYml = Path.GetFullPath(ymlCandidate);
+                if (fullYml.StartsWith(fullRoot, StringComparison.Ordinal) && File.Exists(fullYml))
+                {
+                    return await File.ReadAllTextAsync(fullYml, cancellationToken).ConfigureAwait(false);
+                }
+            }
+            return null;
+        }
+
+        return await File.ReadAllTextAsync(fullCandidate, cancellationToken).ConfigureAwait(false);
     }
 
     private List<UnitTemplateSummary> ReadUnitTemplates(

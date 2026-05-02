@@ -1,0 +1,12 @@
+apiVersion: spring.voyage/v1
+kind: UnitPackage
+metadata:
+  name: simple-unit-package
+  description: A test package with one root unit and all four artefact types.
+unit: root-unit
+subUnits:
+  - sub-unit
+skills:
+  - my-skill
+workflows:
+  - my-workflow

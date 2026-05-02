@@ -32,5 +32,6 @@
     <Project Path="tests/Cvoya.Spring.Host.Api.Tests/Cvoya.Spring.Host.Api.Tests.csproj" />
     <Project Path="tests/Cvoya.Spring.Host.Worker.Tests/Cvoya.Spring.Host.Worker.Tests.csproj" />
     <Project Path="tests/Cvoya.Spring.Integration.Tests/Cvoya.Spring.Integration.Tests.csproj" />
+    <Project Path="tests/Cvoya.Spring.Manifest.Tests/Cvoya.Spring.Manifest.Tests.csproj" />
   </Folder>
 </Solution>
