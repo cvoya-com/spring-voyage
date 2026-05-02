@@ -39,11 +39,16 @@ const RUN_ID_KEY = `${SESSION_KEY_PREFIX}run-id`;
  * v1 → v2: added `parentChoice` and `parentUnitIds` for the explicit
  * parent-unit picker (#814). Older blobs are silently discarded and the
  * wizard starts fresh at step 1.
+ *
+ * v2 → v3: replaced `mode` (template/scratch/yaml) with `source`
+ * (catalog/browse/scratch) per ADR-0035 decision 5 (#1563). The YAML
+ * mode is removed; the template mode is superseded by catalog. Older
+ * blobs are silently discarded and the wizard starts fresh at step 1.
  */
-export const WIZARD_STATE_SCHEMA_VERSION = 2;
+export const WIZARD_STATE_SCHEMA_VERSION = 3;
 
-export type WizardStep = 1 | 2 | 3 | 4 | 5 | 6;
-export type WizardMode = "template" | "scratch" | "yaml";
+export type WizardStep = 1 | 2 | 3 | 4 | 5;
+export type WizardSource = "catalog" | "browse" | "scratch";
 
 /**
  * Stable, secrets-free subset of the wizard's form state. New fields
@@ -74,6 +79,8 @@ export interface WizardSnapshot {
  * own server-side validation runs at create time).
  */
 export interface WizardFormSnapshot {
+  /** ADR-0035 decision 5: catalog | browse | scratch. */
+  source: WizardSource | null;
   name: string;
   displayName: string;
   description: string;
@@ -84,10 +91,10 @@ export interface WizardFormSnapshot {
   hosting: string;
   image: string;
   runtime: string;
-  mode: WizardMode | null;
-  templateId: string | null;
-  yamlText: string;
-  yamlFileName: string | null;
+  /** Catalog branch: the selected package name. */
+  catalogPackageName: string | null;
+  /** Catalog branch: input key/value pairs filled in by the operator. */
+  catalogInputs: Record<string, string>;
   connectorSlug: string | null;
   connectorTypeId: string | null;
   connectorConfig: Record<string, unknown> | null;
@@ -155,7 +162,7 @@ export function validateSnapshot(blob: unknown): WizardSnapshot | null {
     typeof step !== "number" ||
     !Number.isInteger(step) ||
     step < 1 ||
-    step > 6
+    step > 5
   ) {
     return null;
   }
@@ -177,30 +184,29 @@ export function validateSnapshot(blob: unknown): WizardSnapshot | null {
     "hosting",
     "image",
     "runtime",
-    "yamlText",
   ];
   for (const key of requiredStrings) {
     if (typeof f[key] !== "string") return null;
   }
 
   const nullableStrings: ReadonlyArray<keyof WizardFormSnapshot> = [
-    "templateId",
-    "yamlFileName",
+    "catalogPackageName",
     "connectorSlug",
     "connectorTypeId",
     "parentUnitId",
   ];
   for (const key of nullableStrings) {
     const v = f[key];
-    // `parentUnitId` is a #1150 addition; older blobs don't carry it.
-    // Treat the missing key as `null` (top-level) so we don't discard
-    // an otherwise-valid snapshot just because the operator started the
-    // wizard before #1150 shipped.
     if (key === "parentUnitId" && v === undefined) continue;
     if (v !== null && typeof v !== "string") return null;
   }
 
-  if (f.mode !== null && f.mode !== "template" && f.mode !== "scratch" && f.mode !== "yaml") {
+  if (
+    f.source !== null &&
+    f.source !== "catalog" &&
+    f.source !== "browse" &&
+    f.source !== "scratch"
+  ) {
     return null;
   }
 
@@ -211,10 +217,22 @@ export function validateSnapshot(blob: unknown): WizardSnapshot | null {
     return null;
   }
 
+  const catalogInputs: Record<string, string> = (() => {
+    const v = f.catalogInputs;
+    if (v !== null && typeof v === "object" && !Array.isArray(v)) {
+      const obj = v as Record<string, unknown>;
+      if (Object.values(obj).every((val) => typeof val === "string")) {
+        return obj as Record<string, string>;
+      }
+    }
+    return {};
+  })();
+
   return {
     schemaVersion: WIZARD_STATE_SCHEMA_VERSION,
     currentStep: step as WizardStep,
     form: {
+      source: f.source as WizardSource | null,
       name: f.name as string,
       displayName: f.displayName as string,
       description: f.description as string,
@@ -225,10 +243,8 @@ export function validateSnapshot(blob: unknown): WizardSnapshot | null {
       hosting: f.hosting as string,
       image: f.image as string,
       runtime: f.runtime as string,
-      mode: f.mode as WizardMode | null,
-      templateId: f.templateId as string | null,
-      yamlText: f.yamlText as string,
-      yamlFileName: f.yamlFileName as string | null,
+      catalogPackageName: f.catalogPackageName as string | null,
+      catalogInputs,
       connectorSlug: f.connectorSlug as string | null,
       connectorTypeId: f.connectorTypeId as string | null,
       connectorConfig: f.connectorConfig as Record<string, unknown> | null,
@@ -236,9 +252,6 @@ export function validateSnapshot(blob: unknown): WizardSnapshot | null {
         f.parentUnitId === undefined
           ? null
           : (f.parentUnitId as string | null),
-      // #814: parentChoice and parentUnitIds were added in schema v2.
-      // Since we bump the schema version, these fields are always present
-      // in valid v2 blobs; provide safe defaults for defensive coding.
       parentChoice: (() => {
         const v = f.parentChoice;
         if (v === "top-level" || v === "has-parents") return v;

@@ -72,7 +72,6 @@ import type {
   UnitReadinessResponse,
   UnitResponse,
   UnitTemplateDetail,
-  UnitTemplateSummary,
   UserProfileResponse,
   WaitTimeRollupResponse,
 } from "./types";
@@ -915,20 +914,6 @@ export function useTenantBudget(
         return null;
       }
     },
-    ...opts,
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Templates & connectors (create-unit wizard)
-// ---------------------------------------------------------------------------
-
-export function useUnitTemplates(
-  opts?: SliceOptions<UnitTemplateSummary[]>,
-): UseQueryResult<UnitTemplateSummary[], Error> {
-  return useQuery({
-    queryKey: queryKeys.templates.list(),
-    queryFn: () => api.listUnitTemplates(),
     ...opts,
   });
 }
