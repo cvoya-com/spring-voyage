@@ -16,6 +16,11 @@ import {
 
 function makeForm(overrides: Partial<WizardFormSnapshot> = {}): WizardFormSnapshot {
   return {
+    // ADR-0035 decision 5: replaced mode/templateId/yamlText/yamlFileName
+    // with source/catalogPackageName/catalogInputs (#1563, schema v3).
+    source: null,
+    catalogPackageName: null,
+    catalogInputs: {},
     name: "acme",
     displayName: "Acme",
     description: "",
@@ -26,10 +31,6 @@ function makeForm(overrides: Partial<WizardFormSnapshot> = {}): WizardFormSnapsh
     hosting: "default",
     image: "",
     runtime: "",
-    mode: "scratch",
-    templateId: null,
-    yamlText: "",
-    yamlFileName: null,
     connectorSlug: null,
     connectorTypeId: null,
     connectorConfig: null,
@@ -75,7 +76,7 @@ describe("wizard-persistence", () => {
   it("returns null for a snapshot whose schema version doesn't match", () => {
     const runId = "run-2";
     const stale: WizardSnapshot = {
-      schemaVersion: (WIZARD_STATE_SCHEMA_VERSION + 99) as 2,
+      schemaVersion: (WIZARD_STATE_SCHEMA_VERSION + 99) as 3,
       currentStep: 4,
       form: makeForm(),
     };
@@ -115,12 +116,14 @@ describe("wizard-persistence", () => {
     expect(loadWizardSnapshot(runId)).toBeNull();
   });
 
-  it("validateSnapshot rejects mode values outside the canonical set", () => {
+  it("validateSnapshot rejects source values outside the canonical set", () => {
+    // ADR-0035 / #1563: `mode` was replaced by `source`. A persisted blob
+    // whose `source` is not one of the canonical values must be discarded.
     expect(
       validateSnapshot({
         schemaVersion: WIZARD_STATE_SCHEMA_VERSION,
         currentStep: 3,
-        form: makeForm({ mode: "rogue-mode" as never }),
+        form: makeForm({ source: "rogue-source" as never }),
       }),
     ).toBeNull();
   });
@@ -197,14 +200,18 @@ describe("wizard-persistence", () => {
     expect(loaded?.form.parentUnitIds).toEqual(["engineering"]);
   });
 
-  it("accepts v2 blobs that omit parentUnitId, defaulting to null", () => {
+  it("accepts v3 blobs that omit parentUnitId, defaulting to null", () => {
     const runId = "run-parent-2";
-    // Hand-craft a v2 snapshot that omits `parentUnitId` (it's a nullable
+    // Hand-craft a v3 snapshot that omits `parentUnitId` (it's a nullable
     // string — the loader treats the missing key as `null`).
     const blob = {
       schemaVersion: WIZARD_STATE_SCHEMA_VERSION,
       currentStep: 3,
       form: {
+        // ADR-0035 / #1563: v3 uses source/catalogPackageName/catalogInputs.
+        source: "scratch",
+        catalogPackageName: null,
+        catalogInputs: {},
         name: "acme",
         displayName: "Acme",
         description: "",
@@ -215,10 +222,6 @@ describe("wizard-persistence", () => {
         hosting: "default",
         image: "",
         runtime: "",
-        mode: "scratch",
-        templateId: null,
-        yamlText: "",
-        yamlFileName: null,
         connectorSlug: null,
         connectorTypeId: null,
         connectorConfig: null,

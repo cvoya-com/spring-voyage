@@ -311,13 +311,14 @@ describe("portal a11y smoke tests", () => {
   });
 
   it("/units/create (wizard step 1)", async () => {
+    // ADR-0035 / #1563: heading is now "Install a unit".
     const { default: CreateUnitPage } = await import(
       "@/app/units/create/page"
     );
     const { container } = render(<CreateUnitPage />, {
       wrapper: createWrapper(),
     });
-    await screen.findByRole("heading", { name: /create a unit/i });
+    await screen.findByRole("heading", { name: /install a unit/i });
     await expectNoAxeViolations(container);
   });
 

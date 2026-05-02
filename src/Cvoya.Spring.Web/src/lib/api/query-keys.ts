@@ -230,6 +230,16 @@ export const queryKeys = {
     me: () => ["auth", "me"] as const,
     tokens: () => ["auth", "tokens"] as const,
   },
+
+  /**
+   * Package installs (ADR-0035 decision 11, #1582). Keyed by install id so
+   * the polling loop inside the install-status panel can target a specific
+   * install without invalidating unrelated slices.
+   */
+  installs: {
+    all: ["installs"] as const,
+    status: (id: string) => ["installs", "status", id] as const,
+  },
 } as const;
 
 /**

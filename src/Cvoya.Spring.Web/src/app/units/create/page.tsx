@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   ArrowLeft,
+  Book,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -13,22 +14,21 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
-  FileCode,
-  FileText,
   Info,
   KeyRound,
+  Package,
   Plug,
   RefreshCw,
   Rocket,
+  Search,
   Sparkles,
+  Terminal,
   X,
 } from "lucide-react";
-// Note: unit validation is now backend-side (T-02/T-04). The wizard no
-// longer tries to reach an LLM from the browser to check the key —
-// POST /api/v1/units returns 201 immediately and the backend workflow
-// drives `Draft → Validating → {Stopped | Error}`. The detail page's
-// Validation panel (T-07) surfaces progress + structured errors via
-// SSE. See GitHub issue #949.
+// Note: unit creation is now driven by the package install API (ADR-0035).
+// POST /api/v1/packages/install (catalog) or POST /api/v1/packages/install/file
+// (scratch) both return an InstallStatusResponse; the wizard polls
+// GET /api/v1/installs/{id} until status reaches "active" or "failed".
 
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { Button } from "@/components/ui/button";
@@ -47,11 +47,11 @@ import {
   useAgentRuntimes,
   useConnectorTypes,
   useOllamaModels,
+  usePackages,
   useProviderCredentialStatus,
   useTenantTree,
   useUnit,
   useUnitExecution,
-  useUnitTemplates,
 } from "@/lib/api/queries";
 import {
   loadImageHistory,
@@ -61,6 +61,7 @@ import { queryKeys } from "@/lib/api/query-keys";
 import type { ValidatedTenantTreeNode } from "@/lib/api/validate-tenant-tree";
 import type {
   InstalledAgentRuntimeResponse,
+  InstallStatusResponse,
   UnitConnectorBindingRequest,
   UnitStatus,
 } from "@/lib/api/types";
@@ -86,6 +87,7 @@ import {
   saveWizardSnapshot,
   type WizardFormSnapshot,
   type WizardSnapshot,
+  type WizardSource,
   type WizardStep as PersistedWizardStep,
 } from "./wizard-persistence";
 
@@ -140,22 +142,64 @@ function readParentUnitFromUrl(): string | null {
 // pull on a slow connection won't trip it spuriously.
 const VALIDATION_SOFT_TIMEOUT_MS = 60_000;
 
-// Issue #661: the wizard splits into Identity (step 1) and Execution
-// (step 2) — see the issue body for the field-level acceptance
-// criteria. Subsequent screens (Mode, Connector, Secrets, Finalize)
-// are unchanged.
+// ADR-0035 decision 5: wizard now has a Source step (catalog/browse/scratch)
+// followed by branch-specific steps. Step count per branch:
+//   catalog: Source → Package → Connector → Install (4 steps)
+//   browse:  Source → Browse (2 steps, submit disabled)
+//   scratch: Source → Identity → Execution → Connector → Install (5 steps)
+//
+// #1563: the YAML mode is removed entirely; the template mode is
+// superseded by catalog.
 
-type Step = 1 | 2 | 3 | 4 | 5 | 6;
-type Mode = "template" | "scratch" | "yaml";
+type Step = 1 | 2 | 3 | 4 | 5;
+type Source = WizardSource;
 
-const STEP_LABELS: Record<Step, string> = {
-  1: "Identity",
-  2: "Execution",
-  3: "Mode",
-  4: "Connector",
-  5: "Secrets",
-  6: "Finalize",
-};
+/**
+ * Return the max step for the given source branch.
+ * - browse: 2 (stub only, submit disabled)
+ * - catalog: 4
+ * - scratch: 5
+ * - null (before source chosen): treated as max 5
+ */
+function maxStepForSource(source: Source | null): number {
+  switch (source) {
+    case "browse":
+      return 2;
+    case "catalog":
+      return 4;
+    case "scratch":
+    default:
+      return 5;
+  }
+}
+
+/**
+ * Step label for the current branch. Step 1 is always "Source".
+ * The remaining labels are branch-specific.
+ */
+function stepLabel(source: Source | null, step: Step): string {
+  if (step === 1) return "Source";
+  switch (source) {
+    case "catalog":
+      switch (step) {
+        case 2: return "Package";
+        case 3: return "Connector";
+        case 4: return "Install";
+        default: return "";
+      }
+    case "browse":
+      return step === 2 ? "Browse" : "";
+    case "scratch":
+    default:
+      switch (step) {
+        case 2: return "Identity";
+        case 3: return "Execution";
+        case 4: return "Connector";
+        case 5: return "Install";
+        default: return "";
+      }
+  }
+}
 
 // #690: "where do I get an API key?" deep links live on the wizard
 // because the agent-runtime descriptor's `credentialDisplayHint` is a
@@ -180,17 +224,17 @@ const PROVIDER_KEY_HELP: Readonly<
   },
 };
 
-interface PendingSecret {
-  // `id` is only used for React list keys while the user edits the
-  // form — it is never sent to the server and never persisted.
-  id: string;
-  name: string;
-  mode: "value" | "externalStoreKey";
-  value: string;
-  externalStoreKey: string;
-}
+// PendingSecret was used by the old Secrets step (removed in ADR-0035).
+// Kept as a type for any future re-introduction but not used currently.
 
 interface FormState {
+  // ADR-0035 decision 5: source branch chosen on step 1.
+  source: Source | null;
+  // Catalog branch: selected package name.
+  catalogPackageName: string | null;
+  // Catalog branch: operator-supplied input values keyed by input name.
+  catalogInputs: Record<string, string>;
+  // Scratch branch: identity fields.
   name: string;
   displayName: string;
   description: string;
@@ -208,14 +252,6 @@ interface FormState {
   // through the execution endpoint when at least one is filled.
   image: string;
   runtime: string;
-  mode: Mode | null;
-  // Template mode
-  templateId: string | null; // "{package}/{name}"
-  // YAML mode
-  yamlText: string;
-  yamlFileName: string | null;
-  // Secrets (#122) — optional, applied after unit creation succeeds.
-  secrets: PendingSecret[];
   // Connector binding (#199) — optional, bundled into the create-unit call
   // so the unit and its connector binding are created atomically. `null`
   // connectorSlug means "skip this step". `connectorConfig` is the payload
@@ -375,6 +411,9 @@ function mergeSnapshotIntoForm(snap: WizardFormSnapshot): FormState {
     : DEFAULT_HOSTING_MODE;
   return {
     ...INITIAL_FORM,
+    source: snap.source,
+    catalogPackageName: snap.catalogPackageName,
+    catalogInputs: snap.catalogInputs,
     name: snap.name,
     displayName: snap.displayName,
     description: snap.description,
@@ -385,10 +424,6 @@ function mergeSnapshotIntoForm(snap: WizardFormSnapshot): FormState {
     hosting,
     image: snap.image,
     runtime: snap.runtime,
-    mode: snap.mode,
-    templateId: snap.templateId,
-    yamlText: snap.yamlText,
-    yamlFileName: snap.yamlFileName,
     connectorSlug: snap.connectorSlug,
     connectorTypeId: snap.connectorTypeId,
     connectorConfig: snap.connectorConfig,
@@ -410,6 +445,9 @@ function mergeSnapshotIntoForm(snap: WizardFormSnapshot): FormState {
  */
 function extractWizardFormSnapshot(form: FormState): WizardFormSnapshot {
   return {
+    source: form.source,
+    catalogPackageName: form.catalogPackageName,
+    catalogInputs: form.catalogInputs,
     name: form.name,
     displayName: form.displayName,
     description: form.description,
@@ -420,10 +458,6 @@ function extractWizardFormSnapshot(form: FormState): WizardFormSnapshot {
     hosting: form.hosting,
     image: form.image,
     runtime: form.runtime,
-    mode: form.mode,
-    templateId: form.templateId,
-    yamlText: form.yamlText,
-    yamlFileName: form.yamlFileName,
     connectorSlug: form.connectorSlug,
     connectorTypeId: form.connectorTypeId,
     connectorConfig: form.connectorConfig,
@@ -434,6 +468,10 @@ function extractWizardFormSnapshot(form: FormState): WizardFormSnapshot {
 }
 
 const INITIAL_FORM: FormState = {
+  // ADR-0035 decision 5: source not yet chosen.
+  source: null,
+  catalogPackageName: null,
+  catalogInputs: {},
   name: "",
   displayName: "",
   description: "",
@@ -448,11 +486,6 @@ const INITIAL_FORM: FormState = {
   // #1508: pre-fill the base image so the field is never blank.
   image: BASE_IMAGE,
   runtime: "",
-  mode: null,
-  templateId: null,
-  yamlText: "",
-  yamlFileName: null,
-  secrets: [],
   connectorSlug: null,
   connectorTypeId: null,
   connectorConfig: null,
@@ -472,9 +505,19 @@ const INITIAL_FORM: FormState = {
  * on the remaining ones. Each step advertises its state via
  * `data-step-state` so tests can key off the new markup without
  * snapshotting the exact class string.
+ *
+ * ADR-0035 decision 5: step labels are branch-specific; `source` drives
+ * which labels render and how many steps appear in the rail.
  */
-function StepIndicator({ current }: { current: Step }) {
-  const steps: Step[] = [1, 2, 3, 4, 5, 6];
+function StepIndicator({
+  current,
+  source,
+}: {
+  current: Step;
+  source: Source | null;
+}) {
+  const max = maxStepForSource(source);
+  const steps = Array.from({ length: max }, (_, i) => (i + 1) as Step);
   return (
     <nav
       aria-label="Create unit progress"
@@ -485,6 +528,7 @@ function StepIndicator({ current }: { current: Step }) {
           const done = n < current;
           const active = n === current;
           const state = done ? "done" : active ? "active" : "upcoming";
+          const label = stepLabel(source, n);
           return (
             <li
               key={n}
@@ -504,18 +548,20 @@ function StepIndicator({ current }: { current: Step }) {
               >
                 {done ? <Check className="h-3.5 w-3.5" aria-hidden /> : n}
               </span>
-              <span
-                className={cn(
-                  "text-sm",
-                  active
-                    ? "font-medium text-foreground"
-                    : done
-                      ? "text-foreground/80"
-                      : "text-muted-foreground",
-                )}
-              >
-                {STEP_LABELS[n]}
-              </span>
+              {label && (
+                <span
+                  className={cn(
+                    "text-sm",
+                    active
+                      ? "font-medium text-foreground"
+                      : done
+                        ? "text-foreground/80"
+                        : "text-muted-foreground",
+                  )}
+                >
+                  {label}
+                </span>
+              )}
               {idx < steps.length - 1 && (
                 <span className="mx-1 h-px w-6 bg-border" aria-hidden />
               )}
@@ -590,6 +636,13 @@ export default function CreateUnitPage() {
   const [stepError, setStepError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitWarnings, setSubmitWarnings] = useState<string[]>([]);
+  // ADR-0035 install flow. After the install POST returns we store the
+  // installId and poll GET /api/v1/installs/{id} every 2 s until
+  // status reaches "active" (success) or "failed". On success we
+  // redirect to the Explorer; on failure we show retry/abort.
+  const [installId, setInstallId] = useState<string | null>(null);
+  // Snapshot of the last polled status for rendering the Install step.
+  const [installStatus, setInstallStatus] = useState<InstallStatusResponse | null>(null);
   // Post-create validation phase. When a unit is created successfully
   // we transition the Finalize step into a Validating view that
   // POST /start's the unit, polls until terminal, then either
@@ -623,6 +676,10 @@ export default function CreateUnitPage() {
   );
   useEffect(() => {
     if (runId === "") return;
+    // Don't persist during or after install — the snapshot is about to
+    // be cleared on success, and persisting mid-install would resurrect
+    // a stale blob if the user refreshes during polling.
+    if (installId !== null) return;
     if (createdUnitName !== null) return;
     if (persistDebounceRef.current !== null) {
       clearTimeout(persistDebounceRef.current);
@@ -641,7 +698,7 @@ export default function CreateUnitPage() {
         persistDebounceRef.current = null;
       }
     };
-  }, [runId, step, form, createdUnitName]);
+  }, [runId, step, form, createdUnitName, installId]);
 
   // #1150: when the wizard is creating a sub-unit we fetch the parent
   // unit envelope so the Identity step can show the operator which
@@ -705,15 +762,18 @@ export default function CreateUnitPage() {
     loadImageHistory(),
   );
 
-  // Template catalog (#119): cached once per session so revisiting the
-  // wizard doesn't round-trip. The key comes from `queryKeys.templates`.
-  const templatesQuery = useUnitTemplates();
-  const templates = templatesQuery.data ?? null;
-  const templatesLoading = templatesQuery.isPending;
-  const templatesError = templatesQuery.isError
-    ? templatesQuery.error instanceof Error
-      ? templatesQuery.error.message
-      : String(templatesQuery.error)
+  // ADR-0035 decision 5: catalog source — list of installed packages.
+  // Fetched once per session (cached). The catalog step renders a
+  // package picker from this list. `usePackages` queries
+  // GET /api/v1/packages which is always available regardless of
+  // whether any packages are installed.
+  const packagesQuery = usePackages();
+  const packages = packagesQuery.data ?? null;
+  const packagesLoading = packagesQuery.isPending;
+  const packagesError = packagesQuery.isError
+    ? packagesQuery.error instanceof Error
+      ? packagesQuery.error.message
+      : String(packagesQuery.error)
     : null;
 
   // Connector catalog (#199): fetched once so the Connector screen can
@@ -942,12 +1002,26 @@ export default function CreateUnitPage() {
   };
 
   const validateStep1 = (): string | null => {
-    if (form.mode !== "yaml" && form.mode !== "template") {
-      // Scratch / pre-mode-selection — name is required and URL-safe.
-      if (!form.name.trim()) return "Name is required.";
-      if (!NAME_PATTERN.test(form.name))
-        return "Name must be URL-safe (lowercase letters, digits, and hyphens).";
+    // Step 1 is always Source selection.
+    if (form.source === null) return "Choose a source to continue.";
+    return null;
+  };
+
+  // Step 2 validation depends on source branch.
+  const validateStep2 = (): string | null => {
+    if (form.source === "browse") {
+      // Browse is a stub — no validation, submit is always disabled.
+      return null;
     }
+    if (form.source === "catalog") {
+      // Catalog: require a package selection.
+      if (!form.catalogPackageName) return "Select a package to continue.";
+      return null;
+    }
+    // Scratch branch: step 2 is Identity.
+    if (!form.name.trim()) return "Name is required.";
+    if (!NAME_PATTERN.test(form.name))
+      return "Name must be URL-safe (lowercase letters, digits, and hyphens).";
     // #814: require an explicit parent-unit choice. The silent
     // `isTopLevel=true` default is gone — the operator must decide.
     if (form.parentChoice === null) {
@@ -962,7 +1036,16 @@ export default function CreateUnitPage() {
     return null;
   };
 
-  const validateStep2 = (): string | null => {
+  // Step 3 validation depends on source branch.
+  const validateStep3 = (): string | null => {
+    if (form.source === "catalog") {
+      // Catalog step 3 is Connector — skip is always valid.
+      if (form.connectorSlug !== null && form.connectorConfig === null) {
+        return "Finish filling the connector configuration, or choose Skip.";
+      }
+      return null;
+    }
+    // Scratch branch: step 3 is Execution.
     // #1508: image is required — the pre-fill ensures this is never blank
     // in normal flow, but enforce defensively so a stale snapshot cannot
     // produce a unit that immediately fails PullingImage validation.
@@ -984,16 +1067,13 @@ export default function CreateUnitPage() {
     return null;
   };
 
-  const validateStep3 = (): string | null => {
-    if (form.mode === null) return "Select a mode to continue.";
-    if (form.mode === "template" && !form.templateId)
-      return "Pick a template to continue.";
-    if (form.mode === "yaml" && !form.yamlText.trim())
-      return "Paste or upload a unit manifest to continue.";
-    return null;
-  };
-
+  // Step 4 validation depends on source branch.
   const validateStep4 = (): string | null => {
+    if (form.source === "catalog") {
+      // Catalog step 4 is Install — no pre-submit validation here.
+      return null;
+    }
+    // Scratch branch: step 4 is Connector.
     // Skip is always allowed. If the user picked a connector, the wizard
     // step component must have produced a non-null config (it pushes null
     // while the form is incomplete, so this gate catches the "selected
@@ -1037,7 +1117,8 @@ export default function CreateUnitPage() {
         return;
       }
     }
-    if (step < 6) setStep((s) => (s + 1) as Step);
+    const max = maxStepForSource(form.source);
+    if (step < max) setStep((s) => (s + 1) as Step);
   };
 
   const handleBack = () => {
@@ -1064,33 +1145,50 @@ export default function CreateUnitPage() {
     router.push("/units");
   };
 
-  const handleYamlFile = async (file: File) => {
-    const text = await file.text();
-    setForm((prev) => ({ ...prev, yamlText: text, yamlFileName: file.name }));
-  };
+  /**
+   * ADR-0035: build an in-memory package.yaml for the scratch branch.
+   * The file follows the Spring Voyage package schema with a single
+   * unit definition keyed by `form.name`. The connector binding (if any)
+   * is included so the install endpoint can wire it atomically.
+   */
+  const buildScratchPackageYaml = (): string => {
+    const toolField = form.tool !== "custom" ? `\n      tool: ${form.tool}` : "";
+    const wireProvider = getToolWireProvider(form.tool, form.provider.trim() || null);
+    const providerField = wireProvider ?? (form.provider.trim() || null);
+    const providerLine = providerField ? `\n      provider: ${providerField}` : "";
+    const modelLine = form.model.trim() ? `\n      model: ${form.model.trim()}` : "";
+    const imageLine = form.image.trim() ? `\n      image: ${form.image.trim()}` : "";
+    const runtimeLine = form.runtime.trim() ? `\n      runtime: ${form.runtime.trim()}` : "";
+    const hostingField =
+      form.hosting !== DEFAULT_HOSTING_MODE ? `\n      hosting: ${form.hosting}` : "";
+    const displayNameLine = form.displayName.trim()
+      ? `\n    displayName: "${form.displayName.trim()}"` : "";
+    const descriptionLine = form.description.trim()
+      ? `\n    description: "${form.description.trim()}"` : "";
+    const colorLine = form.color.trim()
+      ? `\n    color: "${form.color.trim()}"` : "";
+    const connectorLine =
+      form.connectorSlug && form.connectorConfig
+        ? `\n    connector:\n      typeSlug: ${form.connectorSlug}` : "";
 
-  const applyPendingSecrets = async (unitName: string): Promise<string[]> => {
-    // Apply the queued secrets after the unit exists. Each failure is
-    // collected as a warning so a single bad secret doesn't block the
-    // rest — the user gets a clear list back and can retry from the
-    // unit's Secrets tab.
-    const warnings: string[] = [];
-    for (const s of form.secrets) {
-      const name = s.name.trim();
-      if (!name) continue;
-      try {
-        await api.createUnitSecret(unitName, {
-          name,
-          value: s.mode === "value" ? s.value : undefined,
-          externalStoreKey:
-            s.mode === "externalStoreKey" ? s.externalStoreKey.trim() : undefined,
-        });
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        warnings.push(`Secret '${name}': ${message}`);
-      }
+    // Build parent lines — only included when a parent was chosen.
+    let parentLines = "";
+    if (form.parentChoice === "has-parents" && form.parentUnitIds.length > 0) {
+      parentLines = `\n    parentUnitIds:\n${form.parentUnitIds.map((id) => `      - ${id}`).join("\n")}`;
+    } else if (form.parentChoice === "top-level") {
+      parentLines = "\n    isTopLevel: true";
     }
-    return warnings;
+
+    return (
+      `apiVersion: spring-voyage/v1alpha1\n` +
+      `kind: Package\n` +
+      `metadata:\n` +
+      `  name: ${form.name.trim()}\n` +
+      `spec:\n` +
+      `  units:\n` +
+      `    - name: ${form.name.trim()}${displayNameLine}${descriptionLine}${colorLine}${parentLines}${connectorLine}\n` +
+      `      execution:${toolField}${providerLine}${modelLine}${imageLine}${runtimeLine}${hostingField}\n`
+    );
   };
 
   // Build the connector-binding payload the server expects. Returns `null`
@@ -1112,297 +1210,141 @@ export default function CreateUnitPage() {
     };
   };
 
-  const createUnit = useMutation({
-    mutationFn: async (): Promise<{
-      createdName: string | null;
-      warnings: string[];
-    }> => {
-      const warnings: string[] = [];
-      const connector = buildConnectorBinding();
-      let createdName: string | null = null;
-
-      // Route through the correct endpoint based on the chosen mode. All three
-      // paths ultimately go through the server-side unit-creation service, so
-      // the actor-create + directory-register logic is identical. When a
-      // connector binding is present it goes on the same request so the
-      // server can create + bind atomically (#199).
-      // #350 + #1033: always propagate the tool/provider the wizard resolved
-      // to. The previous "only send if non-default" shortcut silently dropped
-      // `tool=claude-code` — the wizard's default — so the created unit
-      // landed with `tool: (unset)` and every template-instantiated agent
-      // failed dispatch with "no execution configuration." The wire is cheap
-      // and the server mirrors both fields onto the unit's execution block
-      // (see UnitCreationService.CreateCoreAsync), so unconditional
-      // propagation is correct. We still omit `custom` because the server
-      // treats it as "no canonical tool"; passing the literal would persist
-      // a string no dispatcher knows how to resolve.
-      const toolField =
-        form.tool !== "custom" ? form.tool : undefined;
-      // Derive the wire provider from the tool (claude/openai/google hard-
-      // code it; dapr-agent follows the provider dropdown, including the
-      // Ollama branch). `getToolWireProvider` returns `undefined` for
-      // `custom` — we fall through to whatever the operator typed in that
-      // case, matching the freeform intent of custom tools.
-      const wireProvider = getToolWireProvider(
-        form.tool,
-        form.provider.trim() || null,
-      );
-      const providerField =
-        wireProvider ?? (form.provider.trim() || undefined);
-      const hostingField =
-        form.hosting !== DEFAULT_HOSTING_MODE ? form.hosting : undefined;
-
-      // #814: explicit parent-choice picker drives the wire format.
-      // "has-parents" → parentUnitIds from the picker + isTopLevel:false.
-      // "top-level"   → explicit isTopLevel:true so the server contract
-      //                 is satisfied without relying on the client helper.
-      // Legacy fallback (parentChoice null, shouldn't reach here after
-      // validation, kept for defensive coding) → parentUnitId path.
-      const parentField: {
-        parentUnitIds?: string[];
-        isTopLevel?: boolean;
-      } =
-        form.parentChoice === "has-parents"
-          ? {
-              parentUnitIds: form.parentUnitIds,
-              isTopLevel: false,
-            }
-          : form.parentChoice === "top-level"
-            ? { isTopLevel: true }
-            : // Legacy: URL-param seeded without picker (#1150 compat)
-              form.parentUnitId
-              ? {
-                  parentUnitIds: [form.parentUnitId],
-                  isTopLevel: false,
-                }
-              : {};
-
-      // #626: if the operator supplied an API key AND chose "save as
-      // tenant default", write the tenant secret BEFORE the unit is
-      // created. A tenant-scope write can fail (permissions, backing
-      // store) — we want to know about it before we persist an actor.
-      // When the toggle is off the write happens after the unit exists
-      // (further down), because the unit id is part of the secret path.
-      const runtimeForKey = requiredCredentialRuntime;
-      const trimmedKey = form.credentialKey.trim();
-      const secretNameForRuntime = runtimeForKey
-        ? getRuntimeSecretName(runtimeForKey.id)
-        : null;
-      const tenantWritePlanned =
-        runtimeForKey !== null &&
-        secretNameForRuntime !== null &&
-        trimmedKey.length > 0 &&
-        form.saveAsTenantDefault;
-      if (tenantWritePlanned && secretNameForRuntime) {
-        const secretName = secretNameForRuntime;
-        const tenantSecretExists =
-          credentialStatus?.resolvable === true &&
-          credentialStatus.source === "tenant";
-        try {
-          if (tenantSecretExists) {
-            // Override flow (§3 of #626): the tenant default already
-            // holds a value — rotate the slot to the new key. This is
-            // the only "update a tenant default from the wizard" path.
-            await api.rotateTenantSecret(secretName, {
-              name: secretName,
-              value: trimmedKey,
-            });
-          } else {
-            await api.createTenantSecret({
-              name: secretName,
-              value: trimmedKey,
-            });
-          }
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          throw new Error(
-            `Saving tenant default '${secretName}' failed: ${message}`,
-          );
+  // ADR-0035 install mutation. Routes to the correct endpoint based on
+  // source branch:
+  //   catalog → POST /api/v1/packages/install (JSON body)
+  //   scratch → POST /api/v1/packages/install/file (multipart YAML)
+  //
+  // Both return InstallStatusResponse with an installId that the
+  // polling query below tracks. The mutation stores the installId so
+  // the status panel knows which install to poll.
+  const installMutation = useMutation({
+    mutationFn: async (): Promise<InstallStatusResponse> => {
+      if (form.source === "catalog") {
+        if (!form.catalogPackageName) {
+          throw new Error("No package selected.");
         }
+        return api.installPackages([
+          {
+            packageName: form.catalogPackageName,
+            inputs: form.catalogInputs,
+          },
+        ]);
       }
-
-      if (form.mode === "yaml") {
-        const resp = await api.createUnitFromYaml({
-          yaml: form.yamlText,
-          displayName: form.displayName.trim() || undefined,
-          color: form.color.trim() || undefined,
-          model: form.model.trim() || undefined,
-          connector: connector ?? undefined,
-          tool: toolField,
-          provider: providerField,
-          hosting: hostingField,
-          ...parentField,
-        } as Parameters<typeof api.createUnitFromYaml>[0]);
-        warnings.push(...(resp.warnings ?? []));
-        createdName = resp.unit.name;
-      } else if (form.mode === "template") {
-        const template = templates?.find(
-          (t) => `${t.package}/${t.name}` === form.templateId,
-        );
-        if (!template) {
-          throw new Error("Selected template is no longer available.");
-        }
-        // #325: when the user has filled in a name on Screen 1, pass it
-        // through as `unitName` so the created unit uses the caller-
-        // supplied address path instead of the manifest's fixed `name`.
-        // Without this, two invocations of the same template would
-        // collide on the server's unique-name constraint.
-        const unitNameOverride = form.name.trim() || undefined;
-        const resp = await api.createUnitFromTemplate({
-          package: template.package,
-          name: template.name,
-          unitName: unitNameOverride,
-          displayName: form.displayName.trim() || undefined,
-          color: form.color.trim() || undefined,
-          model: form.model.trim() || undefined,
-          connector: connector ?? undefined,
-          tool: toolField,
-          provider: providerField,
-          hosting: hostingField,
-          ...parentField,
-        } as Parameters<typeof api.createUnitFromTemplate>[0]);
-        warnings.push(...(resp.warnings ?? []));
-        createdName = resp.unit.name;
-      } else {
-        // Scratch — legacy path.
-        const created = await api.createUnit({
-          name: form.name.trim(),
-          displayName: form.displayName.trim() || form.name.trim(),
-          description: form.description.trim(),
-          model: form.model.trim() || undefined,
-          color: form.color.trim() || undefined,
-          connector: connector ?? undefined,
-          tool: toolField,
-          provider: providerField,
-          hosting: hostingField,
-          ...parentField,
-        });
-        createdName = created.name;
-      }
-
-      if (createdName && form.secrets.length > 0) {
-        const secretWarnings = await applyPendingSecrets(createdName);
-        warnings.push(...secretWarnings);
-      }
-
-      // #601 B-wide: persist the unit-level execution defaults
-      // (image / runtime) through the dedicated
-      // /api/v1/units/{id}/execution endpoint after creation. We only
-      // PUT when at least one field is filled so units that don't
-      // customise the launcher look identical on the wire to pre-#601
-      // units. A single failure here is collected as a warning rather
-      // than rolling the unit back — the operator can retry from the
-      // unit's Execution tab.
-      if (createdName) {
-        const image = form.image.trim();
-        const runtime = form.runtime.trim();
-        if (image || runtime) {
-          try {
-            await api.setUnitExecution(createdName, {
-              image: image || null,
-              runtime: runtime || null,
-            });
-          } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            warnings.push(
-              `Execution defaults (image / runtime): ${message}. Retry from the unit's Execution tab.`,
-            );
-          }
-        }
-      }
-
-      // #626: when the operator supplied a key with "save as tenant
-      // default" off, write the unit-scoped override after the unit
-      // exists (the secret path requires the unit id). Failure is
-      // surfaced as a warning so the caller can retry from the Secrets
-      // tab rather than losing the freshly-created unit.
-      if (
-        createdName &&
-        runtimeForKey !== null &&
-        secretNameForRuntime !== null &&
-        trimmedKey.length > 0 &&
-        !form.saveAsTenantDefault
-      ) {
-        const secretName = secretNameForRuntime;
-        try {
-          await api.createUnitSecret(createdName, {
-            name: secretName,
-            value: trimmedKey,
-          });
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          warnings.push(
-            `Unit secret '${secretName}' not written: ${message}`,
-          );
-        }
-      }
-
-      return { createdName, warnings };
+      // Scratch branch: build in-memory package.yaml and POST to file
+      // endpoint.
+      const yaml = buildScratchPackageYaml();
+      return api.installPackageFile(yaml);
     },
     onMutate: () => {
       setSubmitError(null);
       setSubmitWarnings([]);
-      setStartError(null);
-      setStartRequested(false);
-      setCreatedUnitName(null);
+      setInstallId(null);
+      setInstallStatus(null);
     },
-    onSuccess: ({ createdName, warnings }) => {
-      if (warnings.length > 0) setSubmitWarnings(warnings);
-      if (createdName) {
-        // #622 / #968: record the image reference so the next wizard run
-        // surfaces it as an autocomplete suggestion.
+    onSuccess: (resp) => {
+      setInstallId(resp.installId);
+      setInstallStatus(resp);
+      // Clear the wizard snapshot — the install exists; rehydrating
+      // it would put the operator in "install the same package again".
+      if (persistDebounceRef.current !== null) {
+        clearTimeout(persistDebounceRef.current);
+        persistDebounceRef.current = null;
+      }
+      if (runId !== "") {
+        clearWizardRun(runId);
+      }
+      // Record image history for scratch path.
+      if (form.source === "scratch") {
         const submittedImage = form.image.trim();
         if (submittedImage) {
           recordImageReference(submittedImage);
           setImageHistory(loadImageHistory());
         }
-        // Invalidate the lists that render the new unit so the detail
-        // page and dashboards pick it up on navigation. The tenant
-        // tree (consumed by `/units` Explorer) is cached client-side
-        // with a 15 s window — without explicit invalidation the
-        // wizard's post-create redirect lands on the explorer before
-        // the tree refreshes, and the unit isn't yet visible.
-        queryClient.invalidateQueries({ queryKey: queryKeys.units.all });
-        queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
-        queryClient.invalidateQueries({ queryKey: queryKeys.tenant.tree() });
-        toast({ title: "Unit created", description: createdName });
-        // Transition into the Validating view on the Finalize step.
-        // The unit is in `Draft` right now; the effect below POSTs to
-        // `/start` to kick off UnitValidationWorkflow, then polls until
-        // terminal. Redirect happens only on success. See #983 / #980.
-        setCreatedUnitName(createdName);
       }
     },
     onError: (err) => {
       const message = err instanceof Error ? err.message : String(err);
       setSubmitError(message);
       toast({
-        title: "Failed to create unit",
+        title: "Install failed",
         description: message,
         variant: "destructive",
       });
     },
   });
 
-  // Post-create validation flow. Once `createdUnitName` is set, we
-  // poll the unit envelope until it reaches a terminal status. The
-  // SSE stream inside ValidationPanel also invalidates the detail
-  // cache, so the polling interval is a fallback — short enough to
-  // feel responsive when SSE is unavailable but not so short that it
-  // hammers the API while a long image-pull is in flight.
-  //
-  // #1450: when the create endpoint leaves the unit in Draft (the
-  // credential-free runtime path — Ollama's `IsFullyConfigured…` falls
-  // through because the secret resolver short-circuits), we kick off
-  // validation by POSTing `/revalidate`, not `/start`. The actor's
-  // transition table forbids `Draft → Starting` (#939) so the old
-  // `/start`-from-Draft path landed every Ollama unit in a stuck
-  // "Couldn't start validation: 409" pre-final screen.
-  const revalidateOnDraftMutation = useMutation({
-    mutationFn: (name: string) => api.revalidateUnit(name),
+  // Poll install status every 2 s while an install is in flight.
+  const installStatusQuery = useQuery({
+    queryKey: queryKeys.installs.status(installId ?? ""),
+    queryFn: () => api.getInstallStatus(installId!),
+    enabled: installId !== null,
+    refetchInterval: (query) => {
+      const data = query.state.data as InstallStatusResponse | undefined;
+      if (!data) return 2000;
+      // Stop polling once the install reaches a terminal state.
+      if (data.status === "active" || data.status === "failed") return false;
+      return 2000;
+    },
+  });
+  // Keep installStatus in sync with the latest poll result.
+  const latestInstallStatus = installStatusQuery.data ?? installStatus;
+  const installActive = latestInstallStatus?.status === "active";
+  const installFailed = latestInstallStatus?.status === "failed";
+  const installPending = installId !== null && !installActive && !installFailed;
+
+  // On install success, invalidate unit/dashboard caches and redirect.
+  useEffect(() => {
+    if (!installActive) return;
+    queryClient.invalidateQueries({ queryKey: queryKeys.units.all });
+    queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
+    queryClient.invalidateQueries({ queryKey: queryKeys.tenant.tree() });
+    toast({ title: "Install complete" });
+    router.push("/units");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [installActive]);
+
+  // Retry install: POST /api/v1/installs/{id}/retry.
+  const retryInstallMutation = useMutation({
+    mutationFn: () => api.retryInstall(installId!),
+    onSuccess: (resp) => {
+      setInstallId(resp.installId);
+      setInstallStatus(resp);
+    },
+    onError: (err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      toast({
+        title: "Retry failed",
+        description: message,
+        variant: "destructive",
+      });
+    },
   });
 
-  // Poll the newly-created unit until it reaches a terminal status.
+  // Abort install: POST /api/v1/installs/{id}/abort.
+  const abortInstallMutation = useMutation({
+    mutationFn: () => api.abortInstall(installId!),
+    onSuccess: () => {
+      setInstallId(null);
+      setInstallStatus(null);
+      queryClient.invalidateQueries({ queryKey: queryKeys.units.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
+      toast({ title: "Install aborted" });
+      router.push("/units");
+    },
+    onError: (err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      toast({
+        title: "Abort failed",
+        description: message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Keep the old unit-polling infrastructure for the scratch path's
+  // post-install unit state (scratch installs create a named unit that
+  // we can navigate to). The validation panel still uses it.
   const createdUnitQuery = useUnit(createdUnitName ?? "", {
     enabled: createdUnitName !== null,
     refetchInterval: 1000,
@@ -1411,53 +1353,12 @@ export default function CreateUnitPage() {
   const createdUnitExecution = useUnitExecution(createdUnitName ?? "", {
     enabled: createdUnitName !== null,
   });
-
-  // Auto-validation gate. The create endpoint may already have moved
-  // the unit out of `Draft` (it transitions to `Validating` directly
-  // when the persisted execution defaults are sufficient AND a
-  // credential resolves). For the no-credential / Ollama path the
-  // unit stays in Draft and the wizard kicks off validation via
-  // `/revalidate`. Any non-Draft status means the create path has
-  // already handed the unit off to the validation workflow (or its
-  // terminal state) — just observe.
-  useEffect(() => {
-    if (!createdUnitName || startRequested) return;
-    if (!createdUnit) return; // Wait for the first poll result.
-    if (createdUnit.status !== "Draft") {
-      // Already past Draft — nothing to do. Mark requested so we
-      // don't reconsider on every poll.
-      setStartRequested(true);
-      return;
-    }
-    setStartRequested(true);
-    revalidateOnDraftMutation.mutate(createdUnitName, {
-      onError: (err) => {
-        const message = err instanceof Error ? err.message : String(err);
-        setStartError(message);
-      },
-    });
-    // We only want to fire validation once per created unit. The
-    // mutation identity is stable within a render cycle for our
-    // purposes; the guard is `startRequested`.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [createdUnitName, createdUnit, startRequested]);
-
-  // Terminal statuses from the validation workflow's perspective.
-  // `Running` = start-after-validate succeeded; `Stopped` = validated,
-  // awaiting a subsequent start; `Error` = validation failed. `Draft`
-  // and `Validating` are in-flight and keep the panel mounted.
   const createdStatus: UnitStatus | null = createdUnit?.status ?? null;
   const isTerminalSuccess =
     createdStatus === "Running" || createdStatus === "Stopped";
   const isTerminalError = createdStatus === "Error";
   const isValidating = createdUnitName !== null && !isTerminalSuccess && !isTerminalError;
 
-  // On terminal success, redirect to the Explorer's Overview tab
-  // (#983). The tab query string matches the rest of the app
-  // (UnitCard, InboxCard); `node` is the unit name. #1132: also tear
-  // down the persisted wizard snapshot — the unit exists; rehydrating
-  // it would put the operator into a "create the same unit again"
-  // state on the next /units/create visit in this tab.
   useEffect(() => {
     if (createdUnitName && isTerminalSuccess) {
       if (persistDebounceRef.current !== null) {
@@ -1473,11 +1374,6 @@ export default function CreateUnitPage() {
     }
   }, [createdUnitName, isTerminalSuccess, router, runId]);
 
-  // Soft-timeout machinery. Tracks the wall-clock instant the unit
-  // first appeared in a non-terminal post-create state, then sets
-  // `validationSoftTimedOut` once the threshold elapses. The clock
-  // resets whenever the unit returns to a terminal state (e.g. on
-  // Retry) so the operator gets a fresh window after each attempt.
   useEffect(() => {
     if (!isValidating) {
       setValidationStartedAt(null);
@@ -1502,11 +1398,6 @@ export default function CreateUnitPage() {
     return () => window.clearTimeout(handle);
   }, [isValidating, validationStartedAt, validationSoftTimedOut]);
 
-  // Cancel-creation mutation. Deletes the partially-created unit and
-  // navigates back to the units list. Used by the Cancel affordance
-  // surfaced during Validating, the soft-timeout notice, and the
-  // terminal-Error surface — so the operator always has an escape
-  // hatch from a stuck or failed validation.
   const cancelMutation = useMutation({
     mutationFn: async (name: string) => {
       await api.deleteUnit(name);
@@ -1532,12 +1423,6 @@ export default function CreateUnitPage() {
     cancelMutation.mutate(createdUnitName);
   };
 
-  // #1507: "Back to Execution" after a terminal validation error.
-  // Deletes the failed unit, then rewinds wizard state back to step 2
-  // so the operator can fix execution settings (e.g. add a container
-  // image) and create a fresh unit. Without the delete the next
-  // "Create unit" click would POST the same name and receive a 400
-  // "Duplicate unit name" error.
   const deleteAndGoBackMutation = useMutation({
     mutationFn: async (name: string) => {
       await api.deleteUnit(name);
@@ -1546,10 +1431,6 @@ export default function CreateUnitPage() {
       queryClient.invalidateQueries({ queryKey: queryKeys.units.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.tenant.tree() });
-      // Rewind create-phase state so the wizard returns to a
-      // pristine editable state. The form itself is preserved so the
-      // operator can fix the offending field without re-entering
-      // everything.
       setCreatedUnitName(null);
       setStartRequested(false);
       setStartError(null);
@@ -1569,8 +1450,6 @@ export default function CreateUnitPage() {
     },
   });
 
-  // Retry: re-trigger validation against the existing unit. Clears
-  // the soft-timeout window so the operator gets a fresh deadline.
   const revalidateMutation = useMutation({
     mutationFn: (name: string) => api.revalidateUnit(name),
     onSuccess: () => {
@@ -1597,7 +1476,7 @@ export default function CreateUnitPage() {
     revalidateMutation.mutate(createdUnitName);
   };
 
-  const submitting = createUnit.isPending;
+  const submitting = installMutation.isPending;
 
   // #626: gate the Create button when the selected tool requires an
   // LLM credential AND no key has been typed AND the probe says
@@ -1629,9 +1508,8 @@ export default function CreateUnitPage() {
       ? `Set the ${providerLabel(requiredCredentialProvider)} API key to continue.`
       : null;
 
-  const handleCreate = () => {
-    createUnit.mutate();
-  };
+  // handleCreate is no longer used — install is triggered by the
+  // Install button's onClick which calls installMutation.mutate() directly.
 
   // Stable handler passed to each connector wizard-step component. The
   // component fires it whenever its local form produces a valid payload
@@ -1648,40 +1526,54 @@ export default function CreateUnitPage() {
 
   const canGoNext = useMemo(() => {
     if (step === 1) {
-      // Identity step. For YAML/template modes the manifest itself
-      // supplies the name, so we don't gate advancement on form.name.
-      // Name entry is optional on Screen 1 because Mode is still
-      // chosen on Screen 3 — the real validation happens in
-      // `validateStep1` once Mode is known.
-      return true;
+      // Source step — require a selection.
+      return form.source !== null;
     }
     if (step === 2) {
-      // Execution step. T-07 (#949): no wizard-time credential
-      // validation — the backend validates asynchronously after create
-      // and the detail page's Validation panel reports the result.
-      // #1508: image is required; the pre-fill ensures this is almost
-      // never blank, but gate defensively.
+      if (form.source === "browse") {
+        // Browse stub: Next advances to the only sub-step but submit is
+        // always disabled on that sub-step. Allow advancement here
+        // (there is nothing to validate on step 2 for browse).
+        return true;
+      }
+      if (form.source === "catalog") {
+        return form.catalogPackageName !== null;
+      }
+      // Scratch step 2 = Identity. Require name + parentChoice.
+      if (!form.name.trim()) return false;
+      if (!NAME_PATTERN.test(form.name)) return false;
+      if (form.parentChoice === null) return false;
+      if (
+        form.parentChoice === "has-parents" &&
+        form.parentUnitIds.length === 0
+      )
+        return false;
+      return true;
+    }
+    if (step === 3) {
+      if (form.source === "catalog") {
+        // Catalog step 3 = Connector — skip always allowed.
+        if (form.connectorSlug === null) return true;
+        return form.connectorConfig !== null;
+      }
+      // Scratch step 3 = Execution.
       if (!form.image.trim()) return false;
-      // Issue #661: require a selected model before advancing (for
-      // tools with a known catalog). Custom tools skip the check —
-      // they have no declared model list.
       if (form.tool === "custom") return true;
       if (isOllamaDapr && ollamaModelsLoading) return false;
       return modelIsSelected;
     }
-    if (step === 3) {
-      if (form.mode === null) return false;
-      if (form.mode === "template") return form.templateId !== null;
-      if (form.mode === "yaml") return form.yamlText.trim().length > 0;
-      return true;
-    }
     if (step === 4) {
-      // "Skip" is always allowed. If a connector is selected, require a
-      // valid config payload from the connector's wizard step.
+      if (form.source === "catalog") {
+        // Catalog step 4 = Install — no advance (it's the last step,
+        // canGoNext here is used for the Next button visibility).
+        return false;
+      }
+      // Scratch step 4 = Connector — skip always allowed.
       if (form.connectorSlug === null) return true;
       return form.connectorConfig !== null;
     }
-    return true;
+    // Step 5 is Install (scratch) — no advance.
+    return false;
   }, [step, form, isOllamaDapr, ollamaModelsLoading, modelIsSelected]);
 
   // Issue #927-followup (post-T-07): explain *why* Next is disabled on
@@ -1692,8 +1584,11 @@ export default function CreateUnitPage() {
   // operator staring at a disabled button with no way to diagnose. We
   // surface the most specific actionable reason, in priority order,
   // mirroring the gates `canGoNext` / `validateStep2` consult.
+  // nextDisabledReason is only relevant for the Execution step in the
+  // scratch branch (step 3 when source === "scratch"). For all other
+  // steps the disabled state is self-evident from the form fields.
   const nextDisabledReason = useMemo<string | null>(() => {
-    if (step !== 2) return null;
+    if (form.source !== "scratch" || step !== 3) return null;
     if (canGoNext) return null;
     if (form.tool === "custom") return null;
     if (agentRuntimesQuery.isPending) {
@@ -1724,6 +1619,7 @@ export default function CreateUnitPage() {
     }
     return null;
   }, [
+    form.source,
     step,
     canGoNext,
     form.tool,
@@ -1749,6 +1645,8 @@ export default function CreateUnitPage() {
   // problem the operator needs to debug from logs, not from a banner
   // dump of the response body.
   const agentRuntimeCatalogIssue = useMemo<string | null>(() => {
+    // Only relevant for the Execution step in the scratch branch.
+    if (form.source !== "scratch") return null;
     if (form.tool === "custom") return null;
     if (agentRuntimesQuery.isPending) return null;
     if (agentRuntimesQuery.isError) {
@@ -1759,6 +1657,7 @@ export default function CreateUnitPage() {
     }
     return null;
   }, [
+    form.source,
     form.tool,
     agentRuntimesQuery.isPending,
     agentRuntimesQuery.isError,
@@ -1777,14 +1676,10 @@ export default function CreateUnitPage() {
       <div className="flex flex-col gap-1">
         <div className="flex items-center gap-2">
           <Rocket className="h-5 w-5 text-primary" aria-hidden="true" />
-          <h1 className="text-2xl font-bold">
-            {form.parentChoice === "has-parents" || form.parentUnitId !== null
-              ? "Create a sub-unit"
-              : "Create a unit"}
-          </h1>
+          <h1 className="text-2xl font-bold">Install a unit</h1>
         </div>
         <p className="text-sm text-muted-foreground">
-          {form.parentChoice === "has-parents" || form.parentUnitId !== null ? (
+          {false ? (
             <>
               Register a new unit nested under an existing parent. Mirrors{" "}
               <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">
@@ -1794,9 +1689,9 @@ export default function CreateUnitPage() {
             </>
           ) : (
             <>
-              Register a new unit and wire up its runtime. Mirrors{" "}
+              Install a unit from a catalog package or build one from scratch. Mirrors{" "}
               <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">
-                spring unit create
+                spring package install
               </code>
               .
             </>
@@ -1804,9 +1699,196 @@ export default function CreateUnitPage() {
         </p>
       </div>
 
-      <StepIndicator current={step} />
+      <StepIndicator current={step} source={form.source} />
 
+      {/* Step 1: Source selection (ADR-0035 decision 5) */}
       {step === 1 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Choose a source</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <SourceCard
+              icon={<Book className="h-5 w-5" />}
+              title="Catalog"
+              description="Install a pre-built unit from a package in the catalog. The package supplies the full definition; you only need to provide any required inputs."
+              selected={form.source === "catalog"}
+              onSelect={() => update("source", "catalog")}
+              testId="source-card-catalog"
+            />
+
+            <SourceCard
+              icon={<Search className="h-5 w-5" />}
+              title="Browse"
+              description="Search the Spring Voyage package registry for community packages. (Coming soon — use the CLI for now.)"
+              selected={form.source === "browse"}
+              onSelect={() => update("source", "browse")}
+              testId="source-card-browse"
+            />
+
+            <SourceCard
+              icon={<Sparkles className="h-5 w-5" />}
+              title="Scratch"
+              description="Define a new unit from scratch. You supply the name, execution tool, model, and optional connector binding."
+              selected={form.source === "scratch"}
+              onSelect={() => update("source", "scratch")}
+              testId="source-card-scratch"
+            />
+
+            {stepError && (
+              <p className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {stepError}
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Step 2: branch-specific */}
+      {/* Step 2 browse: Coming Soon stub */}
+      {step === 2 && form.source === "browse" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Search className="h-5 w-5" /> Browse packages
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div
+              data-testid="browse-coming-soon"
+              className="rounded-md border border-border bg-muted/30 px-4 py-6 text-center space-y-3"
+            >
+              <Package
+                className="mx-auto h-8 w-8 text-muted-foreground"
+                aria-hidden
+              />
+              <p className="text-sm font-medium">Coming soon</p>
+              <p className="text-xs text-muted-foreground">
+                The package registry browser is not yet available in the
+                portal. Use the CLI to search and install packages:
+              </p>
+              <code className="block rounded bg-muted px-3 py-2 font-mono text-xs text-muted-foreground">
+                spring package install &lt;package-name&gt;
+              </code>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Step 2 catalog: Package picker */}
+      {step === 2 && form.source === "catalog" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Book className="h-5 w-5" /> Select a package
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {packagesLoading && (
+              <p className="text-xs text-muted-foreground">
+                Loading catalog…
+              </p>
+            )}
+            {packagesError && (
+              <p className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                Failed to load catalog: {packagesError}
+              </p>
+            )}
+            {!packagesLoading && packages && packages.length === 0 && (
+              <p className="text-xs text-muted-foreground">
+                No packages are installed on this tenant. Install a package
+                first using the CLI:
+                <code className="ml-1 rounded bg-muted px-1 py-0.5 font-mono">
+                  spring package install &lt;name&gt;
+                </code>
+              </p>
+            )}
+            {packages && packages.length > 0 && (
+              <ul className="space-y-2">
+                {packages.map((pkg) => {
+                  const isSelected = form.catalogPackageName === pkg.name;
+                  return (
+                    <li key={pkg.name}>
+                      <button
+                        type="button"
+                        data-testid={`package-option-${pkg.name}`}
+                        aria-pressed={isSelected}
+                        onClick={() =>
+                          setForm((prev) => ({
+                            ...prev,
+                            catalogPackageName: pkg.name,
+                            catalogInputs: {},
+                          }))
+                        }
+                        className={cn(
+                          "flex w-full items-start gap-3 rounded-md border p-3 text-left text-sm transition-colors",
+                          isSelected
+                            ? "border-primary bg-primary/5"
+                            : "border-border hover:bg-accent/50",
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border",
+                            isSelected
+                              ? "border-primary bg-primary"
+                              : "border-border",
+                          )}
+                        >
+                          {isSelected && (
+                            <span className="block h-2 w-2 rounded-full bg-white" />
+                          )}
+                        </span>
+                        <span className="flex-1">
+                          <span className="font-medium font-mono">
+                            {pkg.name}
+                          </span>
+                          {pkg.description && (
+                            <span className="block text-xs text-muted-foreground">
+                              {pkg.description}
+                            </span>
+                          )}
+                          <span className="block text-[11px] text-muted-foreground mt-0.5">
+                            {pkg.unitTemplateCount} unit{pkg.unitTemplateCount !== 1 ? "s" : ""}
+                            {pkg.agentTemplateCount > 0 && `, ${pkg.agentTemplateCount} agent${pkg.agentTemplateCount !== 1 ? "s" : ""}`}
+                            {pkg.skillCount > 0 && `, ${pkg.skillCount} skill${pkg.skillCount !== 1 ? "s" : ""}`}
+                          </span>
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+
+            {/* v0.1: PackageDetail does not yet expose inputs schema.
+                When a package is selected we show a placeholder noting
+                that no inputs are required. A follow-up issue will add
+                per-input fields once the DTO exposes them. */}
+            {form.catalogPackageName && (
+              <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                <p className="font-medium text-foreground">
+                  Package inputs
+                </p>
+                <p className="mt-0.5">
+                  No required inputs for{" "}
+                  <code className="font-mono">{form.catalogPackageName}</code>{" "}
+                  in v0.1. Proceed to install.
+                </p>
+              </div>
+            )}
+
+            {stepError && (
+              <p className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {stepError}
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Step 2 scratch: Identity */}
+      {step === 2 && form.source === "scratch" && (
         <Card>
           <CardHeader>
             <CardTitle>Identity</CardTitle>
@@ -1824,11 +1906,7 @@ export default function CreateUnitPage() {
               />
               <span className="block text-xs text-muted-foreground">
                 Lowercase letters, digits, and hyphens only. This becomes
-                the unit&apos;s address (e.g. <code>my-unit</code>). When
-                creating from a template, you can leave it blank to use the
-                template&apos;s built-in name, or enter a value to override
-                it. When importing a YAML manifest, the name in the
-                manifest always takes precedence.
+                the unit&apos;s address (e.g. <code>my-unit</code>).
               </span>
             </label>
 
@@ -1872,10 +1950,7 @@ export default function CreateUnitPage() {
               </label>
             </div>
 
-            {/* #814: parent-unit picker — explicit top-level vs has-parents
-                choice. The silent isTopLevel=true default is replaced by a
-                required radio toggle so operators can't accidentally create
-                top-level units when they meant to nest under an existing one. */}
+            {/* #814: parent-unit picker */}
             <div className="space-y-3 border-t border-border pt-4">
               <div>
                 <h3 className="text-sm font-semibold">
@@ -1944,8 +2019,7 @@ export default function CreateUnitPage() {
                   )}
                   {tenantTreeQuery.isError && (
                     <p className="text-xs text-destructive">
-                      Could not load the unit list. Type a unit id below or
-                      retry.
+                      Could not load the unit list.
                     </p>
                   )}
                   {!tenantTreeQuery.isPending &&
@@ -1967,17 +2041,13 @@ export default function CreateUnitPage() {
                             aria-pressed={isSelected}
                             onClick={() => {
                               setForm((prev) => {
-                                const already = prev.parentUnitIds.includes(
-                                  u.id,
-                                );
+                                const already = prev.parentUnitIds.includes(u.id);
                                 const next = already
                                   ? prev.parentUnitIds.filter((id) => id !== u.id)
                                   : [...prev.parentUnitIds, u.id];
                                 return {
                                   ...prev,
                                   parentUnitIds: next,
-                                  // Keep parentUnitId in sync for backward
-                                  // compat with the banner / query above.
                                   parentUnitId: next[0] ?? null,
                                 };
                               });
@@ -2010,10 +2080,6 @@ export default function CreateUnitPage() {
                       })}
                     </div>
                   )}
-
-                  {/* Backward compat: if a URL param seeded a parent not
-                      visible in the tree (e.g. it was deleted), show a
-                      warning banner so the operator can clear or proceed. */}
                   {parentUnitMissing && firstParentId && (
                     <div
                       role="status"
@@ -2030,9 +2096,7 @@ export default function CreateUnitPage() {
                         <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">
                           {firstParentId}
                         </code>
-                        . The new unit will still be created as a sub-unit
-                        of that id; clear the parent to create a top-level
-                        unit instead.
+                        .
                       </p>
                       <button
                         type="button"
@@ -2047,28 +2111,25 @@ export default function CreateUnitPage() {
                         }
                         className="text-xs font-medium underline underline-offset-2 text-foreground/80 hover:text-foreground"
                       >
-                        Clear (create top-level unit)
+                        Clear
                       </button>
                     </div>
                   )}
-
-                  {/* Happy-path summary when at least one parent is chosen. */}
-                  {!parentUnitMissing &&
-                    form.parentUnitIds.length > 0 && (
-                      <p className="text-xs text-muted-foreground">
-                        <Sparkles
-                          className="mr-1 inline h-3 w-3 text-primary"
-                          aria-hidden
-                        />
-                        Sub-unit of{" "}
-                        <strong className="font-semibold">
-                          {form.parentUnitIds.length === 1
-                            ? (parentUnitName ?? form.parentUnitIds[0])
-                            : `${form.parentUnitIds.length} units`}
-                        </strong>
-                        .
-                      </p>
-                    )}
+                  {!parentUnitMissing && form.parentUnitIds.length > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      <Sparkles
+                        className="mr-1 inline h-3 w-3 text-primary"
+                        aria-hidden
+                      />
+                      Sub-unit of{" "}
+                      <strong className="font-semibold">
+                        {form.parentUnitIds.length === 1
+                          ? (parentUnitName ?? form.parentUnitIds[0])
+                          : `${form.parentUnitIds.length} units`}
+                      </strong>
+                      .
+                    </p>
+                  )}
                 </div>
               )}
             </div>
@@ -2082,448 +2143,8 @@ export default function CreateUnitPage() {
         </Card>
       )}
 
-      {step === 2 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Execution tool &amp; model</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {agentRuntimeCatalogIssue && (
-              <div
-                role="alert"
-                data-testid="agent-runtime-catalog-issue"
-                className="flex items-start gap-2 rounded-md border border-warning/50 bg-warning/15 px-3 py-2 text-sm text-foreground"
-              >
-                <AlertTriangle
-                  className="mt-0.5 h-4 w-4 shrink-0"
-                  aria-hidden
-                />
-                <p className="flex-1">{agentRuntimeCatalogIssue}</p>
-              </div>
-            )}
-
-            {/* Issue #661 order: Tool → credential input → Model. */}
-            <label className="block space-y-1">
-              <span className="text-sm text-muted-foreground">
-                Execution tool
-              </span>
-              <select
-                value={form.tool}
-                onChange={(e) => {
-                  // #690: model selection is seeded by the
-                  // `useAgentRuntimeModels` effect once the catalog
-                  // arrives, so the tool-change handler just clears
-                  // the current model and lets the effect snap to
-                  // the new runtime's default.
-                  // #1508: if the image field is still at the base
-                  // placeholder, apply the new runtime's default image
-                  // and flip imageSource to "applied".
-                  const nextTool = e.target.value as ExecutionTool;
-                  const runtimeImage = deriveRuntimeDefaultImage(
-                    nextTool,
-                    form.provider,
-                    agentRuntimes.length > 0 ? agentRuntimes : null,
-                  );
-                  if (imageSource === "base" && runtimeImage) {
-                    setImageSource("applied");
-                    setForm((prev) => ({
-                      ...prev,
-                      tool: nextTool,
-                      model: "",
-                      image: runtimeImage,
-                    }));
-                  } else {
-                    setForm((prev) => ({ ...prev, tool: nextTool, model: "" }));
-                  }
-                }}
-                aria-label="Execution tool"
-                className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {EXECUTION_TOOLS.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            {/*
-              #598 + #690: Provider renders only when the execution tool
-              is `dapr-agent`. The list is sourced from the installed
-              agent runtimes whose tool-kind is `dapr-agent` — Claude
-              Code, Codex, and Gemini hard-code their own provider
-              inside the tool CLI, so exposing a Provider dropdown for
-              them would be misleading.
-            */}
-            {form.tool === "dapr-agent" && (
-              <label className="block space-y-1">
-                <span className="text-sm text-muted-foreground">
-                  LLM Provider
-                </span>
-                <select
-                  value={form.provider}
-                  onChange={(e) => {
-                    const nextProvider = e.target.value;
-                    // #1508: apply the new runtime's default image when
-                    // the image field is still at the base placeholder.
-                    const runtimeImage = deriveRuntimeDefaultImage(
-                      "dapr-agent",
-                      nextProvider,
-                      agentRuntimes.length > 0 ? agentRuntimes : null,
-                    );
-                    if (imageSource === "base" && runtimeImage) {
-                      setImageSource("applied");
-                      setForm((prev) => ({
-                        ...prev,
-                        provider: nextProvider,
-                        model: "",
-                        image: runtimeImage,
-                      }));
-                    } else {
-                      setForm((prev) => ({
-                        ...prev,
-                        provider: nextProvider,
-                        model: "",
-                      }));
-                    }
-                  }}
-                  aria-label="LLM provider"
-                  disabled={daprAgentRuntimes.length === 0}
-                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {daprAgentRuntimes.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.displayName}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-
-            {/*
-              #626 + #659: credential input with the per-provider
-              "Get an API key" deep link attached.
-            */}
-            {requiredCredentialProvider !== null && (
-              <CredentialSection
-                requiredProvider={requiredCredentialProvider}
-                status={credentialStatus}
-                statusPending={credentialStatusQuery.isPending}
-                statusError={credentialStatusQuery.isError}
-                credentialKey={form.credentialKey}
-                saveAsTenantDefault={form.saveAsTenantDefault}
-                overrideOpen={form.credentialOverrideOpen}
-                ollamaProbe={null}
-                onKeyChange={(v) => update("credentialKey", v)}
-                onToggleSaveAsTenantDefault={(v) =>
-                  update("saveAsTenantDefault", v)
-                }
-                onToggleOverride={(v) => {
-                  setForm((prev) => ({
-                    ...prev,
-                    credentialOverrideOpen: v,
-                    // Toggling the override off clears any typed value so
-                    // it doesn't silently apply after the operator thinks
-                    // they cancelled.
-                    credentialKey: v ? prev.credentialKey : "",
-                    saveAsTenantDefault: v ? prev.saveAsTenantDefault : false,
-                  }));
-                }}
-              />
-            )}
-
-            {/* Ollama reachability banner (stand-alone when no API key
-                is required). */}
-            {form.tool === "dapr-agent" &&
-              form.provider === "ollama" &&
-              credentialStatus && (
-                <OllamaReachabilityBanner data={credentialStatus} />
-              )}
-
-            {/*
-              #655 + issue #661: the Model dropdown is revealed only
-              when a live model source is available — either the
-              tenant/unit credential resolved, the operator just
-              validated a key, or the Ollama provider is in use.
-              Otherwise we hide the dropdown entirely so operators
-              aren't asked to pick from a stale static fallback before
-              the wizard knows their account works. Next stays disabled
-              until a model is picked.
-            */}
-            {showModelDropdown && (
-              <label className="block space-y-1">
-                <span className="text-sm text-muted-foreground">Model</span>
-                <select
-                  value={form.model}
-                  onChange={(e) => update("model", e.target.value)}
-                  aria-label="Model"
-                  disabled={isOllamaDapr && ollamaModelsLoading}
-                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {(activeModelList ?? []).map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </select>
-                {isOllamaDapr && ollamaModelsLoading && (
-                  <span className="block text-xs text-muted-foreground">
-                    Loading models from Ollama server...
-                  </span>
-                )}
-              </label>
-            )}
-
-            {/* Issue #661: execution-environment section. Visually
-                separated from the tool/model block with a heading +
-                border. */}
-            <div className="space-y-3 border-t border-border pt-4">
-              <div>
-                <h3 className="text-sm font-semibold">
-                  Execution environment
-                </h3>
-                <p className="text-xs text-muted-foreground">
-                  Defaults inherited by member agents. Individual agents can
-                  override each field on their Execution panel.
-                </p>
-              </div>
-
-              {/* #622 / #968: datalist provides recently-used image references
-                  as browser-native autocomplete suggestions. The operator can
-                  still type any arbitrary value — the datalist is hints only.
-                  History is persisted to localStorage and grows on each
-                  successful unit creation (see recordImageReference). */}
-              {imageHistory.length > 0 && (
-                <datalist id="image-history-suggestions">
-                  {imageHistory.map((ref) => (
-                    <option key={ref} value={ref} />
-                  ))}
-                </datalist>
-              )}
-
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <label className="block space-y-1">
-                  <span className="text-sm text-muted-foreground">
-                    Image (default)
-                  </span>
-                  <input
-                    list={
-                      imageHistory.length > 0
-                        ? "image-history-suggestions"
-                        : undefined
-                    }
-                    value={form.image}
-                    onChange={(e) => {
-                      // #1508: any manual edit locks the image field —
-                      // subsequent runtime changes will never overwrite it.
-                      if (imageSource === "base") setImageSource("applied");
-                      update("image", e.target.value);
-                    }}
-                    placeholder="ghcr.io/cvoya-com/spring-voyage-agents:latest"
-                    aria-label="Execution image"
-                    className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                  />
-                  <span className="block text-xs text-muted-foreground">
-                    Default container image used to launch member agents.
-                    {imageHistory.length > 0 && (
-                      <> Previously-used images appear as suggestions.</>
-                    )}
-                  </span>
-                </label>
-
-                <label className="block space-y-1">
-                  <span className="text-sm text-muted-foreground">
-                    Hosting mode
-                  </span>
-                  <select
-                    value={form.hosting}
-                    onChange={(e) =>
-                      update("hosting", e.target.value as HostingMode)
-                    }
-                    aria-label="Hosting mode"
-                    className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {HOSTING_MODES.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.label}
-                      </option>
-                    ))}
-                  </select>
-                  <span className="block text-xs text-muted-foreground">
-                    How long the agent process lives between work items.
-                  </span>
-                </label>
-
-                <label className="block space-y-1">
-                  <span className="text-sm text-muted-foreground">
-                    Runtime (default)
-                  </span>
-                  <select
-                    value={form.runtime}
-                    onChange={(e) => update("runtime", e.target.value)}
-                    aria-label="Execution runtime"
-                    className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <option value="">(leave to default)</option>
-                    {EXECUTION_RUNTIMES.map((r) => (
-                      <option key={r} value={r}>
-                        {r}
-                      </option>
-                    ))}
-                  </select>
-                  <span className="block text-xs text-muted-foreground">
-                    Container runtime the launcher drives.
-                  </span>
-                </label>
-              </div>
-            </div>
-
-            {stepError && (
-              <p className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                {stepError}
-              </p>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {step === 3 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Choose a mode</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <ModeCard
-              icon={<FileText className="h-5 w-5" />}
-              title="Template"
-              description="Start from a pre-built team template shipped with a package."
-              selected={form.mode === "template"}
-              onSelect={() => update("mode", "template")}
-            />
-
-            {form.mode === "template" && (
-              <div className="ml-11 space-y-2 rounded-md border border-border bg-muted/30 p-3">
-                {templatesLoading && (
-                  <p className="text-xs text-muted-foreground">
-                    Loading templates…
-                  </p>
-                )}
-                {templatesError && (
-                  <p className="text-xs text-destructive">
-                    Failed to load templates: {templatesError}
-                  </p>
-                )}
-                {!templatesLoading && templates && templates.length === 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    No templates discovered. Make sure the API is running from a
-                    repo checkout that includes <code>packages/</code>.
-                  </p>
-                )}
-                {templates && templates.length > 0 && (
-                  <ul className="space-y-1.5">
-                    {templates.map((t) => {
-                      const id = `${t.package}/${t.name}`;
-                      const isSelected = form.templateId === id;
-                      return (
-                        <li key={id}>
-                          <button
-                            type="button"
-                            onClick={() => update("templateId", id)}
-                            className={cn(
-                              "flex w-full items-start gap-2 rounded-md border p-2 text-left text-sm transition-colors",
-                              isSelected
-                                ? "border-primary bg-primary/5"
-                                : "border-border hover:bg-accent/50",
-                            )}
-                          >
-                            <span className="mt-0.5 h-4 w-4 shrink-0 rounded-full border border-border bg-background">
-                              {isSelected && (
-                                <span className="block h-full w-full rounded-full bg-primary" />
-                              )}
-                            </span>
-                            <span className="flex-1">
-                              <span className="font-medium">
-                                {t.package}/{t.name}
-                              </span>
-                              {t.description && (
-                                <span className="block text-xs text-muted-foreground">
-                                  {t.description}
-                                </span>
-                              )}
-                              <span className="block text-[11px] text-muted-foreground">
-                                {t.path}
-                              </span>
-                            </span>
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </div>
-            )}
-
-            <ModeCard
-              icon={<Sparkles className="h-5 w-5" />}
-              title="Scratch"
-              description="Create an empty unit you can configure manually."
-              selected={form.mode === "scratch"}
-              onSelect={() => update("mode", "scratch")}
-            />
-
-            <ModeCard
-              icon={<FileCode className="h-5 w-5" />}
-              title="YAML"
-              description="Import an existing unit manifest (same grammar as the CLI's spring apply)."
-              selected={form.mode === "yaml"}
-              onSelect={() => update("mode", "yaml")}
-            />
-
-            {form.mode === "yaml" && (
-              <div className="ml-11 space-y-2 rounded-md border border-border bg-muted/30 p-3">
-                <label className="block space-y-1 text-xs text-muted-foreground">
-                  <span>Upload a .yaml file</span>
-                  <input
-                    type="file"
-                    accept=".yaml,.yml,text/yaml"
-                    onChange={async (e) => {
-                      const file = e.target.files?.[0];
-                      if (file) await handleYamlFile(file);
-                    }}
-                    className="block text-sm"
-                  />
-                </label>
-                <label className="block space-y-1 text-xs text-muted-foreground">
-                  <span>
-                    Manifest contents
-                    {form.yamlFileName && (
-                      <span className="ml-2 text-[11px] text-muted-foreground">
-                        ({form.yamlFileName})
-                      </span>
-                    )}
-                  </span>
-                  <textarea
-                    value={form.yamlText}
-                    onChange={(e) => update("yamlText", e.target.value)}
-                    placeholder={"unit:\n  name: engineering-team\n  description: ..."}
-                    rows={10}
-                    className="w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs"
-                    spellCheck={false}
-                  />
-                </label>
-              </div>
-            )}
-
-            {stepError && (
-              <p className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                {stepError}
-              </p>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {step === 4 && (
+      {/* Step 3: Connector for catalog, Execution for scratch */}
+      {step === 3 && form.source === "catalog" && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -2532,19 +2153,14 @@ export default function CreateUnitPage() {
           </CardHeader>
           <CardContent className="space-y-4 text-sm">
             <p className="text-muted-foreground">
-              Optionally bind this unit to a connector during creation. The
-              binding is applied atomically with the unit — if it fails, the
-              unit is rolled back and nothing is persisted. Leave on{" "}
-              <strong>Skip</strong> to configure a connector later from the
-              unit&apos;s Connector tab.
+              Optionally bind this package install to a connector. Skip to
+              configure a connector later from the unit&apos;s Connector tab.
             </p>
-
             {connectorTypesError && (
               <p className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
                 Failed to load connectors: {connectorTypesError}
               </p>
             )}
-
             <div className="space-y-2">
               <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border p-3">
                 <input
@@ -2564,12 +2180,10 @@ export default function CreateUnitPage() {
                 <span>
                   <span className="font-medium">Skip</span>
                   <span className="block text-xs text-muted-foreground">
-                    Create the unit without a connector binding. You can add
-                    one later.
+                    Install without a connector binding.
                   </span>
                 </span>
               </label>
-
               {connectorTypes?.map((c) => {
                 const isSelected = form.connectorSlug === c.typeSlug;
                 const WizardStep = getConnectorWizardStep(c.typeSlug);
@@ -2578,9 +2192,7 @@ export default function CreateUnitPage() {
                     key={c.typeId}
                     className={cn(
                       "block space-y-2 rounded-md border p-3 transition-colors",
-                      isSelected
-                        ? "border-primary bg-primary/5"
-                        : "border-border",
+                      isSelected ? "border-primary bg-primary/5" : "border-border",
                     )}
                   >
                     <span className="flex cursor-pointer items-start gap-3">
@@ -2593,8 +2205,6 @@ export default function CreateUnitPage() {
                             ...prev,
                             connectorSlug: c.typeSlug,
                             connectorTypeId: c.typeId,
-                            // Clearing here forces the connector's step
-                            // component to rebuild its initial state.
                             connectorConfig: null,
                           }))
                         }
@@ -2607,14 +2217,9 @@ export default function CreateUnitPage() {
                         </span>
                       </span>
                     </span>
-
                     {isSelected && WizardStep && (
                       <WizardStep
                         onChange={handleConnectorConfigChange}
-                        // #1132: rehydrate from the persisted snapshot
-                        // so a refresh-after-fill on Step 4 brings back
-                        // the operator's owner/repo/installation/events
-                        // instead of an empty form.
                         initialValue={form.connectorConfig}
                       />
                     )}
@@ -2628,14 +2233,12 @@ export default function CreateUnitPage() {
                   </label>
                 );
               })}
-
               {connectorTypes && connectorTypes.length === 0 && (
                 <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
                   No connectors are registered on this server.
                 </p>
               )}
             </div>
-
             {stepError && (
               <p className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
                 {stepError}
@@ -2645,424 +2248,478 @@ export default function CreateUnitPage() {
         </Card>
       )}
 
-      {step === 5 && (
+      {/* Step 3 scratch: Execution */}
+      {step === 3 && form.source === "scratch" && (
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <KeyRound className="h-5 w-5" /> Secrets
-            </CardTitle>
+            <CardTitle>Execution tool &amp; model</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            <p className="text-muted-foreground">
-              Optionally register one or more unit-scoped secrets. Each entry
-              is applied after the unit is created — a single failing secret
-              surfaces as a warning on the final step and can be retried from
-              the unit&apos;s Secrets tab.
-            </p>
-
-            {requiredCredentialProvider !== null &&
-              requiredCredentialRuntime !== null &&
-              credentialStatus?.resolvable === true &&
-              credentialStatus?.source === "tenant" && (
-                <TenantDefaultSecretRow
-                  provider={requiredCredentialProvider}
-                  secretName={
-                    getRuntimeSecretName(requiredCredentialRuntime.id) ?? ""
-                  }
-                  overrideOpen={form.credentialOverrideOpen}
-                  credentialKey={form.credentialKey}
-                  saveAsTenantDefault={form.saveAsTenantDefault}
-                  onToggleOverride={(v) => {
-                    setForm((prev) => ({
-                      ...prev,
-                      credentialOverrideOpen: v,
-                      credentialKey: v ? prev.credentialKey : "",
-                      saveAsTenantDefault: v
-                        ? prev.saveAsTenantDefault
-                        : false,
-                    }));
-                  }}
-                  onKeyChange={(v) => update("credentialKey", v)}
-                  onToggleSaveAsTenantDefault={(v) =>
-                    update("saveAsTenantDefault", v)
-                  }
-                />
-              )}
-
-            {form.secrets.length === 0 && (
-              <p className="text-muted-foreground">No secrets queued.</p>
-            )}
-
-            {form.secrets.map((s, idx) => (
+          <CardContent className="space-y-4">
+            {agentRuntimeCatalogIssue && (
               <div
-                key={s.id}
-                className="space-y-2 rounded-md border border-border p-3"
+                role="alert"
+                data-testid="agent-runtime-catalog-issue"
+                className="flex items-start gap-2 rounded-md border border-warning/50 bg-warning/15 px-3 py-2 text-sm text-foreground"
               >
-                <div className="flex items-center gap-2">
-                  <Input
-                    value={s.name}
-                    onChange={(e) =>
-                      setForm((prev) => ({
-                        ...prev,
-                        secrets: prev.secrets.map((it, i) =>
-                          i === idx ? { ...it, name: e.target.value } : it,
-                        ),
-                      }))
-                    }
-                    placeholder="secret name"
-                    autoComplete="off"
-                  />
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() =>
-                      setForm((prev) => ({
-                        ...prev,
-                        secrets: prev.secrets.filter((_, i) => i !== idx),
-                      }))
-                    }
-                    aria-label="Remove secret"
-                  >
-                    Remove
-                  </Button>
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    variant={s.mode === "value" ? "default" : "outline"}
-                    onClick={() =>
-                      setForm((prev) => ({
-                        ...prev,
-                        secrets: prev.secrets.map((it, i) =>
-                          i === idx ? { ...it, mode: "value" } : it,
-                        ),
-                      }))
-                    }
-                  >
-                    Pass-through value
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant={
-                      s.mode === "externalStoreKey" ? "default" : "outline"
-                    }
-                    onClick={() =>
-                      setForm((prev) => ({
-                        ...prev,
-                        secrets: prev.secrets.map((it, i) =>
-                          i === idx
-                            ? { ...it, mode: "externalStoreKey" }
-                            : it,
-                        ),
-                      }))
-                    }
-                  >
-                    External reference
-                  </Button>
-                </div>
-                {s.mode === "value" ? (
-                  <Input
-                    type="password"
-                    value={s.value}
-                    onChange={(e) =>
-                      setForm((prev) => ({
-                        ...prev,
-                        secrets: prev.secrets.map((it, i) =>
-                          i === idx ? { ...it, value: e.target.value } : it,
-                        ),
-                      }))
-                    }
-                    placeholder="Value (stored server-side; never returned)"
-                    autoComplete="off"
-                    spellCheck={false}
-                  />
-                ) : (
-                  <Input
-                    value={s.externalStoreKey}
-                    onChange={(e) =>
-                      setForm((prev) => ({
-                        ...prev,
-                        secrets: prev.secrets.map((it, i) =>
-                          i === idx
-                            ? { ...it, externalStoreKey: e.target.value }
-                            : it,
-                        ),
-                      }))
-                    }
-                    placeholder="kv://vault/secret-id"
-                    autoComplete="off"
-                  />
-                )}
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+                <p className="flex-1">{agentRuntimeCatalogIssue}</p>
               </div>
-            ))}
-
-            <Button
-              variant="outline"
-              onClick={() =>
-                setForm((prev) => ({
-                  ...prev,
-                  secrets: [
-                    ...prev.secrets,
-                    {
-                      id: `s-${Date.now()}-${prev.secrets.length}`,
-                      name: "",
-                      mode: "value",
-                      value: "",
-                      externalStoreKey: "",
-                    },
-                  ],
-                }))
-              }
-            >
-              Add secret
-            </Button>
+            )}
+            <label className="block space-y-1">
+              <span className="text-sm text-muted-foreground">Execution tool</span>
+              <select
+                value={form.tool}
+                onChange={(e) => {
+                  const nextTool = e.target.value as ExecutionTool;
+                  const runtimeImage = deriveRuntimeDefaultImage(
+                    nextTool,
+                    form.provider,
+                    agentRuntimes.length > 0 ? agentRuntimes : null,
+                  );
+                  if (imageSource === "base" && runtimeImage) {
+                    setImageSource("applied");
+                    setForm((prev) => ({ ...prev, tool: nextTool, model: "", image: runtimeImage }));
+                  } else {
+                    setForm((prev) => ({ ...prev, tool: nextTool, model: "" }));
+                  }
+                }}
+                aria-label="Execution tool"
+                className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {EXECUTION_TOOLS.map((t) => (
+                  <option key={t.id} value={t.id}>{t.label}</option>
+                ))}
+              </select>
+            </label>
+            {form.tool === "dapr-agent" && (
+              <label className="block space-y-1">
+                <span className="text-sm text-muted-foreground">LLM Provider</span>
+                <select
+                  value={form.provider}
+                  onChange={(e) => {
+                    const nextProvider = e.target.value;
+                    const runtimeImage = deriveRuntimeDefaultImage(
+                      "dapr-agent",
+                      nextProvider,
+                      agentRuntimes.length > 0 ? agentRuntimes : null,
+                    );
+                    if (imageSource === "base" && runtimeImage) {
+                      setImageSource("applied");
+                      setForm((prev) => ({ ...prev, provider: nextProvider, model: "", image: runtimeImage }));
+                    } else {
+                      setForm((prev) => ({ ...prev, provider: nextProvider, model: "" }));
+                    }
+                  }}
+                  aria-label="LLM provider"
+                  disabled={daprAgentRuntimes.length === 0}
+                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {daprAgentRuntimes.map((r) => (
+                    <option key={r.id} value={r.id}>{r.displayName}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {requiredCredentialProvider !== null && (
+              <CredentialSection
+                requiredProvider={requiredCredentialProvider}
+                status={credentialStatus}
+                statusPending={credentialStatusQuery.isPending}
+                statusError={credentialStatusQuery.isError}
+                credentialKey={form.credentialKey}
+                saveAsTenantDefault={form.saveAsTenantDefault}
+                overrideOpen={form.credentialOverrideOpen}
+                ollamaProbe={null}
+                onKeyChange={(v) => update("credentialKey", v)}
+                onToggleSaveAsTenantDefault={(v) => update("saveAsTenantDefault", v)}
+                onToggleOverride={(v) => {
+                  setForm((prev) => ({
+                    ...prev,
+                    credentialOverrideOpen: v,
+                    credentialKey: v ? prev.credentialKey : "",
+                    saveAsTenantDefault: v ? prev.saveAsTenantDefault : false,
+                  }));
+                }}
+              />
+            )}
+            {form.tool === "dapr-agent" &&
+              form.provider === "ollama" &&
+              credentialStatus && (
+                <OllamaReachabilityBanner data={credentialStatus} />
+              )}
+            {showModelDropdown && (
+              <label className="block space-y-1">
+                <span className="text-sm text-muted-foreground">Model</span>
+                <select
+                  value={form.model}
+                  onChange={(e) => update("model", e.target.value)}
+                  aria-label="Model"
+                  disabled={isOllamaDapr && ollamaModelsLoading}
+                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {(activeModelList ?? []).map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+                {isOllamaDapr && ollamaModelsLoading && (
+                  <span className="block text-xs text-muted-foreground">
+                    Loading models from Ollama server...
+                  </span>
+                )}
+              </label>
+            )}
+            <div className="space-y-3 border-t border-border pt-4">
+              <div>
+                <h3 className="text-sm font-semibold">Execution environment</h3>
+                <p className="text-xs text-muted-foreground">
+                  Defaults inherited by member agents.
+                </p>
+              </div>
+              {imageHistory.length > 0 && (
+                <datalist id="image-history-suggestions">
+                  {imageHistory.map((ref) => (
+                    <option key={ref} value={ref} />
+                  ))}
+                </datalist>
+              )}
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <label className="block space-y-1">
+                  <span className="text-sm text-muted-foreground">Image (default)</span>
+                  <input
+                    list={imageHistory.length > 0 ? "image-history-suggestions" : undefined}
+                    value={form.image}
+                    onChange={(e) => {
+                      if (imageSource === "base") setImageSource("applied");
+                      update("image", e.target.value);
+                    }}
+                    placeholder="ghcr.io/cvoya-com/spring-voyage-agents:latest"
+                    aria-label="Execution image"
+                    className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                  />
+                </label>
+                <label className="block space-y-1">
+                  <span className="text-sm text-muted-foreground">Hosting mode</span>
+                  <select
+                    value={form.hosting}
+                    onChange={(e) => update("hosting", e.target.value as HostingMode)}
+                    aria-label="Hosting mode"
+                    className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {HOSTING_MODES.map((m) => (
+                      <option key={m.id} value={m.id}>{m.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block space-y-1">
+                  <span className="text-sm text-muted-foreground">Runtime (default)</span>
+                  <select
+                    value={form.runtime}
+                    onChange={(e) => update("runtime", e.target.value)}
+                    aria-label="Execution runtime"
+                    className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <option value="">(leave to default)</option>
+                    {EXECUTION_RUNTIMES.map((r) => (
+                      <option key={r} value={r}>{r}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            </div>
+            {stepError && (
+              <p className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {stepError}
+              </p>
+            )}
           </CardContent>
         </Card>
       )}
 
-      {step === 6 && (
+      {/* Step 4: Install for catalog, Connector for scratch */}
+      {step === 4 && form.source === "catalog" && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Rocket className="h-5 w-5" /> Finalize
+              <Package className="h-5 w-5" /> Install
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4 text-sm">
+          <CardContent className="space-y-4 text-sm" data-testid="install-status-panel">
             <div className="rounded-md border border-border p-3 space-y-1">
-              <SummaryRow label="Name" value={renderNameSummary(form)} />
-              <SummaryRow
-                label="Display name"
-                value={form.displayName || "—"}
-              />
-              {form.mode === "scratch" && (
-                <SummaryRow
-                  label="Description"
-                  value={form.description || "—"}
-                />
-              )}
-              <SummaryRow label="Model" value={form.model || "(not selected)"} />
-              <SummaryRow label="Color" value={form.color || DEFAULT_COLOR} />
-              <SummaryRow label="Image" value={form.image || "(leave to default)"} />
-              <SummaryRow label="Runtime" value={form.runtime || "(leave to default)"} />
-              <SummaryRow
-                label="Mode"
-                value={form.mode ? form.mode : "—"}
-              />
-              {form.mode === "template" && form.templateId && (
-                <SummaryRow label="Template" value={form.templateId} />
-              )}
-              {form.mode === "yaml" && (
-                <SummaryRow
-                  label="YAML"
-                  value={
-                    form.yamlFileName
-                      ? form.yamlFileName
-                      : `${form.yamlText.split("\n").length} lines pasted`
-                  }
-                />
-              )}
+              <SummaryRow label="Package" value={form.catalogPackageName ?? "—"} />
               <SummaryRow
                 label="Connector"
                 value={
                   form.connectorSlug === null
                     ? "(skipped)"
                     : form.connectorConfig === null
-                      ? `${form.connectorSlug} (incomplete — will not bind)`
+                      ? `${form.connectorSlug} (incomplete)`
                       : form.connectorSlug
                 }
               />
             </div>
-
             {submitError && (
               <p className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
                 {submitError}
               </p>
             )}
-
-            {submitWarnings.length > 0 && (
-              <SubmitWarningsPanel warnings={submitWarnings} />
-            )}
-
-            {missingCredential && missingCredentialMessage && !createdUnitName && (
-              <p
-                role="alert"
-                data-testid="missing-credential-message"
-                className="rounded-md border border-warning/50 bg-warning/15 px-3 py-2 text-sm text-foreground"
-              >
-                {missingCredentialMessage}
-              </p>
-            )}
-
-            {createdUnitName && !createdUnit && !createdUnitQuery.error && (
-              <p
+            {installId && installPending && (
+              <div
                 role="status"
-                data-testid="wizard-validation-loading"
+                data-testid="install-status-progress"
                 className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground"
               >
-                Starting validation for {createdUnitName}…
-              </p>
-            )}
-
-            {createdUnit && (
-              <div data-testid="wizard-validation-view" className="space-y-3">
-                <ValidationPanel
-                  unit={createdUnit}
-                  image={createdUnitExecution.data?.image ?? null}
-                  runtime={createdUnitExecution.data?.runtime ?? null}
-                />
-
-                {/*
-                 * `/start` failures are surfaced inside the validation
-                 * surface — not as a separate banner above — so the
-                 * operator reads the failed step and the API error in
-                 * the same visual unit. Only relevant if the wizard
-                 * actually attempted /start (i.e. the unit was still
-                 * Draft when we observed it after creation).
-                 */}
-                {startError && (
-                  <p
-                    role="alert"
-                    data-testid="wizard-start-error"
-                    className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-                  >
-                    Couldn&apos;t start validation: {startError}
-                  </p>
-                )}
-
-                {/*
-                 * Soft timeout. The validation workflow may genuinely
-                 * still be running (a slow image pull, for example),
-                 * but the operator deserves an explicit escape hatch
-                 * after a minute of waiting. We render Cancel + Retry
-                 * actions; Cancel deletes the partial unit, Retry
-                 * triggers /revalidate against the existing unit.
-                 */}
-                {isValidating && validationSoftTimedOut && (
-                  <div
-                    data-testid="wizard-validation-stuck"
-                    className="flex flex-wrap items-start gap-3 rounded-md border border-warning/50 bg-warning/10 px-3 py-2 text-sm text-foreground"
-                  >
-                    <div className="flex-1 space-y-1">
-                      <p className="font-medium">
-                        Validation is taking longer than expected.
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        The backend may still be working — image pulls can take
-                        several minutes on a cold cache. You can keep waiting,
-                        retry, or cancel and remove the partial unit.
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        data-testid="wizard-validation-stuck-retry"
-                        onClick={handleRetry}
-                        disabled={revalidateMutation.isPending}
-                      >
-                        <RefreshCw className="mr-1.5 h-3.5 w-3.5" aria-hidden />
-                        {revalidateMutation.isPending
-                          ? "Retrying…"
-                          : "Retry validation"}
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        data-testid="wizard-validation-stuck-cancel"
-                        onClick={handleCancelCreatedUnit}
-                        disabled={cancelMutation.isPending}
-                      >
-                        <X className="mr-1.5 h-3.5 w-3.5" aria-hidden />
-                        {cancelMutation.isPending
-                          ? "Cancelling…"
-                          : "Cancel and delete"}
-                      </Button>
-                    </div>
-                  </div>
-                )}
+                Installing {form.catalogPackageName}…
               </div>
             )}
-
-            {!createdUnitName && (
-              <Button
-                onClick={handleCreate}
-                disabled={submitting || missingCredential}
-                data-testid="create-unit-button"
-              >
-                {submitting ? "Creating…" : "Create unit"}
-              </Button>
-            )}
-
-            {isValidating && (
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p
-                  role="status"
-                  data-testid="wizard-validation-status"
-                  className="text-xs text-muted-foreground"
-                >
-                  Waiting for validation to finish. You&apos;ll be redirected to
-                  the Explorer once the unit is ready.
-                </p>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  data-testid="wizard-validation-cancel"
-                  onClick={handleCancelCreatedUnit}
-                  disabled={cancelMutation.isPending}
-                >
-                  <X className="mr-1.5 h-3.5 w-3.5" aria-hidden />
-                  {cancelMutation.isPending ? "Cancelling…" : "Cancel"}
-                </Button>
-              </div>
-            )}
-
-            {isTerminalError && (
+            {installFailed && (
               <div
-                data-testid="wizard-validation-error-actions"
-                className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2"
+                role="alert"
+                data-testid="install-status-failed"
+                className="space-y-3 rounded-md border border-destructive/50 bg-destructive/5 px-3 py-2"
               >
-                <p className="flex-1 text-sm text-foreground">
-                  Validation failed. Step back to adjust your inputs (for
-                  example, set a container image or paste a new credential)
-                  and retry — or cancel and remove the partial unit.
+                <p className="text-sm text-foreground">
+                  Install failed.{" "}
+                  {latestInstallStatus?.error && (
+                    <span className="text-destructive">
+                      {latestInstallStatus.error}
+                    </span>
+                  )}
                 </p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  data-testid="wizard-validation-back"
-                  disabled={deleteAndGoBackMutation.isPending}
-                  onClick={() => {
-                    // #1507: delete the failed unit before going back.
-                    // Without the delete, the next "Create unit" click
-                    // on step 6 would attempt to create a unit with the
-                    // same name and receive a 400 "Duplicate unit name"
-                    // error. The mutation's onSuccess handler rewinds
-                    // the wizard state to step 2.
-                    if (createdUnitName) {
-                      deleteAndGoBackMutation.mutate(createdUnitName);
-                    }
-                  }}
-                >
-                  <ArrowLeft className="mr-1.5 h-3.5 w-3.5" aria-hidden />
-                  {deleteAndGoBackMutation.isPending
-                    ? "Removing…"
-                    : "Back to Execution"}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  data-testid="wizard-validation-error-cancel"
-                  onClick={handleCancelCreatedUnit}
-                  disabled={cancelMutation.isPending}
-                >
-                  <X className="mr-1.5 h-3.5 w-3.5" aria-hidden />
-                  {cancelMutation.isPending ? "Cancelling…" : "Cancel and delete"}
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    data-testid="install-retry-button"
+                    onClick={() => retryInstallMutation.mutate()}
+                    disabled={retryInstallMutation.isPending}
+                  >
+                    <RefreshCw className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                    {retryInstallMutation.isPending ? "Retrying…" : "Retry"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    data-testid="install-abort-button"
+                    onClick={() => abortInstallMutation.mutate()}
+                    disabled={abortInstallMutation.isPending}
+                  >
+                    <X className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                    {abortInstallMutation.isPending ? "Aborting…" : "Abort"}
+                  </Button>
+                </div>
               </div>
+            )}
+            {!installId && (
+              <Button
+                onClick={() => installMutation.mutate()}
+                disabled={submitting}
+                data-testid="install-unit-button"
+              >
+                {submitting ? "Installing…" : "Install"}
+              </Button>
             )}
           </CardContent>
         </Card>
       )}
+
+      {step === 4 && form.source === "scratch" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Plug className="h-5 w-5" /> Connector
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4 text-sm">
+            <p className="text-muted-foreground">
+              Optionally bind this unit to a connector during creation. Leave
+              on <strong>Skip</strong> to configure it later.
+            </p>
+            {connectorTypesError && (
+              <p className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                Failed to load connectors: {connectorTypesError}
+              </p>
+            )}
+            <div className="space-y-2">
+              <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border p-3">
+                <input
+                  type="radio"
+                  name="connector-choice"
+                  checked={form.connectorSlug === null}
+                  onChange={() =>
+                    setForm((prev) => ({
+                      ...prev,
+                      connectorSlug: null,
+                      connectorTypeId: null,
+                      connectorConfig: null,
+                    }))
+                  }
+                  className="mt-1"
+                />
+                <span>
+                  <span className="font-medium">Skip</span>
+                  <span className="block text-xs text-muted-foreground">
+                    Create the unit without a connector binding.
+                  </span>
+                </span>
+              </label>
+              {connectorTypes?.map((c) => {
+                const isSelected = form.connectorSlug === c.typeSlug;
+                const WizardStep = getConnectorWizardStep(c.typeSlug);
+                return (
+                  <label
+                    key={c.typeId}
+                    className={cn(
+                      "block space-y-2 rounded-md border p-3 transition-colors",
+                      isSelected ? "border-primary bg-primary/5" : "border-border",
+                    )}
+                  >
+                    <span className="flex cursor-pointer items-start gap-3">
+                      <input
+                        type="radio"
+                        name="connector-choice"
+                        checked={isSelected}
+                        onChange={() =>
+                          setForm((prev) => ({
+                            ...prev,
+                            connectorSlug: c.typeSlug,
+                            connectorTypeId: c.typeId,
+                            connectorConfig: null,
+                          }))
+                        }
+                        className="mt-1"
+                      />
+                      <span className="flex-1">
+                        <span className="font-medium">{c.displayName}</span>
+                        <span className="block text-xs text-muted-foreground">
+                          {c.description}
+                        </span>
+                      </span>
+                    </span>
+                    {isSelected && WizardStep && (
+                      <WizardStep
+                        onChange={handleConnectorConfigChange}
+                        initialValue={form.connectorConfig}
+                      />
+                    )}
+                    {isSelected && !WizardStep && (
+                      <div className="rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
+                        This connector doesn&apos;t ship a wizard UI. Select{" "}
+                        <strong>Skip</strong> and configure it from the
+                        unit&apos;s Connector tab after creation.
+                      </div>
+                    )}
+                  </label>
+                );
+              })}
+              {connectorTypes && connectorTypes.length === 0 && (
+                <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                  No connectors are registered on this server.
+                </p>
+              )}
+            </div>
+            {stepError && (
+              <p className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {stepError}
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Step 5 scratch: Install */}
+      {step === 5 && form.source === "scratch" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Terminal className="h-5 w-5" /> Install
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4 text-sm" data-testid="install-status-panel">
+            <div className="rounded-md border border-border p-3 space-y-1">
+              <SummaryRow label="Name" value={renderNameSummary(form)} />
+              <SummaryRow label="Display name" value={form.displayName || "—"} />
+              <SummaryRow label="Description" value={form.description || "—"} />
+              <SummaryRow label="Model" value={form.model || "(not selected)"} />
+              <SummaryRow label="Image" value={form.image || "(leave to default)"} />
+              <SummaryRow
+                label="Connector"
+                value={
+                  form.connectorSlug === null
+                    ? "(skipped)"
+                    : form.connectorConfig === null
+                      ? `${form.connectorSlug} (incomplete)`
+                      : form.connectorSlug
+                }
+              />
+            </div>
+            {submitWarnings.length > 0 && (
+              <SubmitWarningsPanel warnings={submitWarnings} />
+            )}
+            {submitError && (
+              <p className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {submitError}
+              </p>
+            )}
+            {installId && installPending && (
+              <div
+                role="status"
+                data-testid="install-status-progress"
+                className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground"
+              >
+                Installing {form.name}…
+              </div>
+            )}
+            {installFailed && (
+              <div
+                role="alert"
+                data-testid="install-status-failed"
+                className="space-y-3 rounded-md border border-destructive/50 bg-destructive/5 px-3 py-2"
+              >
+                <p className="text-sm text-foreground">
+                  Install failed.{" "}
+                  {latestInstallStatus?.error && (
+                    <span className="text-destructive">
+                      {latestInstallStatus.error}
+                    </span>
+                  )}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    data-testid="install-retry-button"
+                    onClick={() => retryInstallMutation.mutate()}
+                    disabled={retryInstallMutation.isPending}
+                  >
+                    <RefreshCw className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                    {retryInstallMutation.isPending ? "Retrying…" : "Retry"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    data-testid="install-abort-button"
+                    onClick={() => abortInstallMutation.mutate()}
+                    disabled={abortInstallMutation.isPending}
+                  >
+                    <X className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                    {abortInstallMutation.isPending ? "Aborting…" : "Abort"}
+                  </Button>
+                </div>
+              </div>
+            )}
+            {!installId && (
+              <Button
+                onClick={() => installMutation.mutate()}
+                disabled={submitting}
+                data-testid="install-unit-button"
+              >
+                {submitting ? "Installing…" : "Install"}
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
 
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-3">
@@ -3070,39 +2727,26 @@ export default function CreateUnitPage() {
             <Button
               variant="outline"
               onClick={handleBack}
-              // Disable Back while the initial create mutation is in flight
-              // or while we're actively waiting for validation to finish —
-              // the unit exists at that point and the wizard form controls
-              // are decoupled from the backend state. Terminal-error state
-              // re-enables Back so the operator can fix a field and retry.
               disabled={
                 step === 1 ||
                 submitting ||
-                isValidating ||
-                deleteAndGoBackMutation.isPending
+                installId !== null
               }
             >
               Back
             </Button>
-            {/* #1132: explicit cancel that tears down the persisted
-                snapshot before navigating away. Without this the
-                operator's only escape route was the Breadcrumbs link,
-                which leaves the snapshot dangling for the next visit
-                in this tab. We hide it once the unit is created — at
-                that point the Finalize step owns the flow and Cancel
-                would be ambiguous. */}
-            {createdUnitName === null && (
+            {installId === null && (
               <Button
                 variant="ghost"
                 onClick={handleCancel}
-                disabled={submitting || isValidating}
+                disabled={submitting}
                 data-testid="wizard-cancel"
               >
                 Cancel
               </Button>
             )}
           </div>
-          {step < 6 && (
+          {step < maxStepForSource(form.source) && (
             <div className="flex flex-1 items-center justify-end gap-3">
               {nextDisabledReason && (
                 <p
@@ -3126,25 +2770,16 @@ export default function CreateUnitPage() {
 }
 
 // Exported for unit tests — `renderNameSummary` is pure, depending
-// only on the form's `name` / `mode` / `templateId` slots, so a direct
-// helper test is cheaper than driving the wizard through every screen
-// just to reach the Finalize summary.
+// only on the form's `name` / `source` / `catalogPackageName` slots,
+// so a direct helper test is cheaper than driving the wizard through
+// every screen just to reach the Install summary.
 export function renderNameSummary(
-  form: Pick<FormState, "name" | "mode" | "templateId">,
+  form: Pick<FormState, "name" | "source" | "catalogPackageName">,
 ): string {
-  // #1034: the user's own name always takes precedence on the summary —
-  // when they typed one on the Identity step, that is the name the
-  // server receives (template mode passes it as `unitName`, scratch mode
-  // as `name`). Only fall back to the "(from template …)" / "(from YAML
-  // manifest)" hints when the name was left blank, so the Finalize
-  // summary does not lie to the operator who just entered one.
   const typedName = form.name.trim();
   if (typedName) return typedName;
-  if (form.mode === "template" && form.templateId) {
-    return `(from template ${form.templateId})`;
-  }
-  if (form.mode === "yaml") {
-    return "(from YAML manifest)";
+  if (form.source === "catalog" && form.catalogPackageName) {
+    return `(from package ${form.catalogPackageName})`;
   }
   return "—";
 }
@@ -3458,24 +3093,27 @@ function SubmitWarningsPanel({ warnings }: { warnings: string[] }) {
   );
 }
 
-function ModeCard({
+function SourceCard({
   icon,
   title,
   description,
   selected,
   onSelect,
+  testId,
 }: {
   icon: React.ReactNode;
   title: string;
   description: string;
   selected: boolean;
   onSelect: () => void;
+  testId?: string;
 }) {
   return (
     <button
       type="button"
       onClick={onSelect}
       aria-pressed={selected}
+      data-testid={testId}
       className={cn(
         "flex w-full items-start gap-3 rounded-md border p-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
         selected

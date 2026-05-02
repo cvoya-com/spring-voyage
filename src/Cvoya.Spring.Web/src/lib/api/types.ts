@@ -138,9 +138,6 @@ export type CreateUnitFromYamlRequest = Schemas["CreateUnitFromYamlRequest"];
 export type CreateUnitFromTemplateRequest =
   Schemas["CreateUnitFromTemplateRequest"];
 
-/** Entry returned by GET /api/v1/packages/templates. */
-export type UnitTemplateSummary = Schemas["UnitTemplateSummary"];
-
 /** Response body for GET /api/v1/packages/{package}/templates/{name}. */
 export type UnitTemplateDetail = Schemas["UnitTemplateDetail"];
 
