@@ -445,10 +445,37 @@ public class PackageInstallEndpointsTests : IClassFixture<PackageInstallEndpoint
         getResp.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
-    // ── Test 12: Live-package integration test stub ───────────────────────
+    // ── Test 12: POST /packages/install/file with local ref → 400 ────────
+
+    [Fact]
+    public async Task InstallFile_PackageWithLocalUnitRef_ReturnsBadRequest()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        // A UnitPackage with a bare unit reference — requires an on-disk
+        // package directory to resolve, which is not present in the upload path.
+        // The parser must raise PackageUploadHasLocalRefException (inherits from
+        // PackageParseException) → endpoint maps it to 400.
+        const string YamlWithLocalRef = """
+            apiVersion: spring.voyage/v1
+            kind: UnitPackage
+            metadata:
+              name: multi-file-upload-pkg
+            unit: my-local-unit
+            """;
+
+        var response = await PostFileInstallAsync(YamlWithLocalRef, ct);
+
+        ((int)response.StatusCode).ShouldBe(400);
+
+        var body = await response.Content.ReadAsStringAsync(ct);
+        body.ShouldContain("local references");
+    }
+
+    // ── Test 13: Live-package integration test stub ───────────────────────
 
     [Fact(Skip = "Lights up after #1562 adds packages/spring-voyage-oss/package.yaml")]
-    public async Task Install_SpringVoyageOssPackage_EndToEnd()
+    public async Task Install_SpringVoyageOssPackage_EndToEnd_Skipped()
     {
         // This test will exercise the full end-to-end install of the
         // spring-voyage-oss package once #1562 adds its package.yaml.

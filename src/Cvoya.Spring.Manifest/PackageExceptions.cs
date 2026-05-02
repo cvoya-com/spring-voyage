@@ -98,3 +98,36 @@ public class PackageInputValidationException : Exception
     /// <summary>The name of the input that caused the validation failure.</summary>
     public string InputName { get; }
 }
+
+/// <summary>
+/// Thrown when an uploaded package YAML contains local (within-package) artefact
+/// references that cannot be resolved without an on-disk package directory.
+/// Uploaded packages must be self-contained in v0.1; multi-file tarball upload
+/// is deferred to v0.2.
+/// </summary>
+public sealed class PackageUploadHasLocalRefException : PackageParseException
+{
+    /// <summary>Creates a new <see cref="PackageUploadHasLocalRefException"/>.</summary>
+    /// <param name="localReferences">
+    /// The bare artefact reference strings (e.g. <c>"unit: my-unit"</c>,
+    /// <c>"agent: my-agent"</c>) that require an on-disk package directory.
+    /// </param>
+    public PackageUploadHasLocalRefException(IReadOnlyList<string> localReferences)
+        : base(BuildMessage(localReferences))
+    {
+        LocalReferences = localReferences;
+    }
+
+    /// <summary>
+    /// The local artefact references that cannot be resolved without a package
+    /// directory. Each entry is formatted as <c>"&lt;kind&gt;: &lt;name&gt;"</c>.
+    /// </summary>
+    public IReadOnlyList<string> LocalReferences { get; }
+
+    private static string BuildMessage(IReadOnlyList<string> refs) =>
+        $"Uploaded package contains local references that cannot be resolved " +
+        $"without a package directory: {string.Join(", ", refs)}. " +
+        $"Multi-file packages are not yet supported via upload — install from " +
+        $"the catalog instead, or supply a self-contained package YAML with no " +
+        $"local references.";
+}

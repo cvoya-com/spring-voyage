@@ -76,7 +76,12 @@ public static class PackageManifestParser
     /// <param name="yamlText">The raw <c>package.yaml</c> content.</param>
     /// <param name="packageRoot">
     /// The directory that is the root of the package being parsed.
-    /// Used to resolve within-package bare references.
+    /// Used to resolve within-package bare references. Pass <c>null</c> (or
+    /// an empty string) when the manifest was received as an uploaded file
+    /// with no accompanying on-disk directory — upload semantics. In that
+    /// mode, any bare (local) artefact reference raises
+    /// <see cref="PackageUploadHasLocalRefException"/>; cross-package
+    /// references still resolve via <paramref name="catalogProvider"/>.
     /// </param>
     /// <param name="inputValues">
     /// Caller-supplied input values, keyed by input name. Secret inputs
@@ -89,15 +94,18 @@ public static class PackageManifestParser
     /// </param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     /// <returns>The fully resolved package.</returns>
+    /// <exception cref="PackageUploadHasLocalRefException">
+    /// Thrown when <paramref name="packageRoot"/> is <c>null</c> or empty and
+    /// the manifest contains one or more bare (within-package) artefact references.
+    /// </exception>
     public static async Task<ResolvedPackage> ParseAndResolveAsync(
         string yamlText,
-        string packageRoot,
+        string? packageRoot,
         IReadOnlyDictionary<string, string>? inputValues = null,
         IPackageCatalogProvider? catalogProvider = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(yamlText);
-        ArgumentNullException.ThrowIfNull(packageRoot);
 
         inputValues ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
@@ -381,15 +389,27 @@ public static class PackageManifestParser
 
     private static async Task<List<RefResolution>> ResolveReferencesAsync(
         List<ArtefactReference> refs,
-        string packageRoot,
+        string? packageRoot,
         IPackageCatalogProvider? catalogProvider,
         CancellationToken cancellationToken)
     {
         var result = new List<RefResolution>();
 
+        // When packageRoot is null/empty we are in upload mode. Collect ALL
+        // local refs before throwing so the operator sees the full list at once.
+        List<string>? uploadModeLocalRefErrors = null;
+
         foreach (var r in refs)
         {
             cancellationToken.ThrowIfCancellationRequested();
+
+            if (!r.IsCrossPackage && string.IsNullOrEmpty(packageRoot))
+            {
+                // Upload mode: accumulate local ref errors; do not attempt resolution.
+                uploadModeLocalRefErrors ??= [];
+                uploadModeLocalRefErrors.Add($"{r.Kind.ToString().ToLowerInvariant()}: {r.ArtefactName}");
+                continue;
+            }
 
             ResolvedArtefact artefact;
             if (r.IsCrossPackage)
@@ -399,10 +419,15 @@ public static class PackageManifestParser
             }
             else
             {
-                artefact = ResolveLocal(r, packageRoot);
+                artefact = ResolveLocal(r, packageRoot!);
             }
 
             result.Add(new RefResolution(r, artefact));
+        }
+
+        if (uploadModeLocalRefErrors is { Count: > 0 })
+        {
+            throw new PackageUploadHasLocalRefException(uploadModeLocalRefErrors);
         }
 
         return result;

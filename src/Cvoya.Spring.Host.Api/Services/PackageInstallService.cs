@@ -253,7 +253,7 @@ public class PackageInstallService : IPackageInstallService
             {
                 pkg = await PackageManifestParser.ParseAndResolveAsync(
                     row.OriginalManifestYaml,
-                    packageRoot: row.PackageRoot ?? string.Empty,
+                    packageRoot: row.PackageRoot,
                     inputValues: inputs,
                     catalogProvider: _catalogProvider,
                     cancellationToken: cancellationToken);
@@ -354,7 +354,7 @@ public class PackageInstallService : IPackageInstallService
         {
             var pkg = await PackageManifestParser.ParseAndResolveAsync(
                 target.OriginalYaml,
-                packageRoot: target.PackageRoot ?? string.Empty,
+                packageRoot: target.PackageRoot,
                 inputValues: target.Inputs,
                 catalogProvider: overlayCatalog,
                 cancellationToken: cancellationToken);
