@@ -337,7 +337,7 @@ Every user-facing feature ships through BOTH the web portal UI and the `spring` 
 - When planning a feature PR, enumerate the affected surfaces (API endpoints, UI screens, CLI commands). If a surface is missing, either include it in the same PR or file a sibling issue before the PR lands so the gap is tracked.
 - "The UI can do X but the CLI can't" (or vice versa) is a real bug, not a speculative nice-to-have.
 - Link CLI-side and UI-side issues as siblings when a feature is split across PRs.
-- An E2E scenario under `tests/e2e/` is a good parity proxy: if the scenario has to fall back to `curl` because the CLI lacks the command, the CLI is behind.
+- A CLI scenario under `tests/cli-scenarios/` is a good parity proxy: if the scenario has to fall back to `curl` because the CLI lacks the command, the CLI is behind.
 
 **Exceptions:** admin/ops operations that are genuinely dev-only (e.g., `dotnet ef migrations add`) don't need a UI counterpart. Internal test affordances are also out of scope.
 

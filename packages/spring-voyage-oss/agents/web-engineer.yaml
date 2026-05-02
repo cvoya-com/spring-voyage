@@ -35,8 +35,8 @@ agent:
       PR (colour tokens, typography, spacing, radii, shadows, component
       patterns, voice & tone, dark-mode behaviour).
     - The portal consumes the public Web API only; no portal-private API.
-    - E2E coverage in `tests/e2e/` (Playwright). Component tests sit
-      beside the components they cover.
+    - E2E coverage in `tests/e2e-portal/` (Playwright). Component tests
+      sit beside the components they cover.
     - For OpenAPI changes: run the OpenAPI contract drift check and
       refresh the typed client before component / E2E work.
     - Use the project's web dev-server task to start the portal.

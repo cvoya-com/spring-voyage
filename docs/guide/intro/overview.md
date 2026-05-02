@@ -49,7 +49,7 @@ spring activity list --source unit:my-team --limit 20
 
 ## See it in action
 
-Every workflow in this guide is exercised by a runnable end-to-end scenario under [`tests/e2e/scenarios/`](../../../tests/e2e/scenarios). Each scenario is a self-contained bash script that drives the real `spring` CLI against a running stack, so you can read them as concrete usage examples — or execute them yourself to sanity-check an environment.
+Every workflow in this guide is exercised by a runnable end-to-end scenario under [`tests/cli-scenarios/scenarios/`](../../../tests/cli-scenarios/scenarios). Each scenario is a self-contained bash script that drives the real `spring` CLI against a running stack, so you can read them as concrete usage examples — or execute them yourself to sanity-check an environment.
 
-- [`tests/e2e/README.md`](../../../tests/e2e/README.md) — prerequisites, runner usage, and conventions for the scenarios directory.
+- [`tests/cli-scenarios/README.md`](../../../tests/cli-scenarios/README.md) — prerequisites, runner usage, and conventions for the scenarios directory.
 - See [Runnable Examples](../user/examples.md) for a curated catalog of individual scenarios grouped by what they demonstrate.

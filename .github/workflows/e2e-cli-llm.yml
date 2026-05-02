@@ -1,8 +1,9 @@
 name: E2E CLI LLM (on-demand)
 
-# LLM-gated companion to e2e-cli.yml. Runs the tests/e2e/scenarios/llm/
-# pool against a real Ollama backend so the dispatcher → agent JSON-RPC
-# round-trip is exercised against the actual `dapr-agent` image.
+# LLM-gated companion to e2e-cli.yml. Runs every scenario tagged
+# `# pool: llm` under tests/cli-scenarios/scenarios/ against a real
+# Ollama backend so the dispatcher → agent JSON-RPC round-trip is
+# exercised against the actual `dapr-agent` image.
 #
 # Gating rationale: LLM scenarios pull a model (~2 GB), launch agent
 # containers, and take noticeably longer than the fast pool. They are not
@@ -33,7 +34,7 @@ on:
         required: false
         default: "e2e-ci-llm"
       scenario_glob:
-        description: "Scenario glob to run (e.g. 40-*). Default runs every llm/*.sh."
+        description: "Scenario glob to run (e.g. dapr-* or message-*). Default runs every `# pool: llm` scenario."
         required: false
         default: ""
       ollama_model:
@@ -200,7 +201,7 @@ jobs:
             dotnet run --project src/Cvoya.Spring.Cli/Cvoya.Spring.Cli.csproj
             --no-build --configuration Release --
         run: |
-          cd tests/e2e
+          cd tests/cli-scenarios
           if [[ -n "${SCENARIO_GLOB}" ]]; then
             bash run.sh --llm "${SCENARIO_GLOB}"
           else
@@ -218,7 +219,7 @@ jobs:
             dotnet run --project src/Cvoya.Spring.Cli/Cvoya.Spring.Cli.csproj
             --no-build --configuration Release --
         run: |
-          cd tests/e2e
+          cd tests/cli-scenarios
           bash run.sh --sweep || true
 
       - name: Stop API host

@@ -24,6 +24,6 @@ The Next.js portal at `src/Cvoya.Spring.Web/`, including the new unit/agent-inte
 - Stack: Next.js + TypeScript. The portal runs in `standalone` output mode; do not break that.
 - DESIGN.md is a contract — any visual change updates it in the same PR (colour tokens, typography, spacing, radii, shadows, component patterns, voice & tone, dark-mode behaviour).
 - The portal consumes the public Web API only; no portal-private API.
-- E2E coverage in `tests/e2e/` (Playwright). Component tests sit beside the components they cover.
+- E2E coverage in `tests/e2e-portal/` (Playwright). Component tests sit beside the components they cover.
 - For OpenAPI changes: run `/openapi-diff` and refresh the typed client before component / E2E work.
 - Use `/web` to start the dev server.

@@ -2,7 +2,7 @@
   "name": "spring-voyage-e2e-portal",
   "private": true,
   "version": "0.0.0",
-  "description": "Browser-driven end-to-end tests for the Spring Voyage portal — runs against a live local stack. Sibling to tests/e2e/ (shell-based CLI/API scenarios). NOT part of the npm workspace at the repo root: this package owns its own Playwright dependency so it can be installed and run independently of src/Cvoya.Spring.Web.",
+  "description": "Browser-driven end-to-end tests for the Spring Voyage portal — runs against a live local stack. Sibling to tests/cli-scenarios/ (shell-based CLI/API scenarios). NOT part of the npm workspace at the repo root: this package owns its own Playwright dependency so it can be installed and run independently of src/Cvoya.Spring.Web.",
   "engines": {
     "node": ">=20"
   },
