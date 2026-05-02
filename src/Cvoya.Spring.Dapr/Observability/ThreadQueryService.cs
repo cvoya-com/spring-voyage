@@ -120,6 +120,14 @@ public class ThreadQueryService(
     /// <see cref="MessageReceivedDetails.Build"/>. Best-effort — a missing
     /// or malformed <c>Details</c> blob just leaves the projection fields
     /// null so older events (pre-#1209) still render correctly.
+    /// <para>
+    /// When the <c>body</c> field is absent (events persisted before #1551
+    /// extended <see cref="MessageReceivedDetails.TryExtractText"/> to
+    /// recognise the dispatcher's <c>{ Output, ExitCode }</c> reply shape),
+    /// fall back to extracting the body directly from the persisted
+    /// <c>payload</c> element so the surfaces render the agent's reply text
+    /// rather than the envelope summary line for already-stored events.
+    /// </para>
     /// </summary>
     private static (Guid? MessageId, string? From, string? To, string? Body) ExtractMessageEnvelope(JsonElement? details)
     {
@@ -139,6 +147,13 @@ public class ThreadQueryService(
         var from = TryReadString(element, MessageReceivedDetails.FromProperty);
         var to = TryReadString(element, MessageReceivedDetails.ToProperty);
         var body = TryReadString(element, MessageReceivedDetails.BodyProperty);
+
+        if (string.IsNullOrEmpty(body)
+            && element.TryGetProperty(MessageReceivedDetails.PayloadProperty, out var payload))
+        {
+            body = MessageReceivedDetails.TryExtractText(payload);
+        }
+
         return (messageId, from, to, body);
     }
 

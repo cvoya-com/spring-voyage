@@ -1,7 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle, ChevronDown, ChevronRight, Wrench } from "lucide-react";
+import {
+  AlertTriangle,
+  ChevronDown,
+  ChevronRight,
+  Info,
+  Wrench,
+} from "lucide-react";
 import Link from "next/link";
 
 import { Badge } from "@/components/ui/badge";
@@ -42,8 +48,26 @@ function isErrorEvent(eventType: string, severity: string): boolean {
   return eventType === "ErrorOccurred" || severity === "Error";
 }
 
+/**
+ * Footer affordance for a row.
+ *  - `activity-link` (default): a subtle "View in activity →" link below
+ *    the bubble. Used by the engagement portal and the unit/agent
+ *    Messages tab where the activity log is the right escalation surface.
+ *  - `metadata`: an (i) toggle in the header that reveals a compact
+ *    metadata panel (event id / type / source / severity / summary)
+ *    below the bubble. Used by the inbox where the user is already in
+ *    the conversation surface and the activity log is one click away
+ *    via the global nav.
+ *  - `none`: no footer affordance.
+ */
+export type ThreadEventRowActions = "activity-link" | "metadata" | "none";
+
 interface ThreadEventRowProps {
   event: ThreadEvent;
+  /** Footer affordance (see {@link ThreadEventRowActions}). */
+  actions?: ThreadEventRowActions;
+  /** Override for the row's `data-testid` prefix. */
+  testIdPrefix?: string;
 }
 
 /**
@@ -70,7 +94,11 @@ interface ThreadEventRowProps {
  *  - Agent / unit / system bubbles: keep the role badge; show displayName
  *    (or the address path as a readable fallback).
  */
-export function ThreadEventRow({ event }: ThreadEventRowProps) {
+export function ThreadEventRow({
+  event,
+  actions = "activity-link",
+  testIdPrefix = "conversation-event",
+}: ThreadEventRowProps) {
   // Attribute MessageReceived bubbles to the sender (event.from) rather
   // than the receiver-projected event.source.
   const isMessageReceived = event.eventType === "MessageReceived";
@@ -79,7 +107,7 @@ export function ThreadEventRow({ event }: ThreadEventRowProps) {
 
   // `attributed` may be a ParticipantRef object (address + displayName)
   // or a plain address string when served by an older API version.
-   
+
   const attributedAny = attributed as any;
   const attributedAddress: string =
     typeof attributed === "string"
@@ -91,6 +119,7 @@ export function ThreadEventRow({ event }: ThreadEventRowProps) {
   const source = parseThreadSource(attributedAddress);
   const collapsible = isCollapsibleByDefault(event.eventType, role);
   const [expanded, setExpanded] = useState(!collapsible);
+  const [showMeta, setShowMeta] = useState(false);
 
   const timestamp = new Date(event.timestamp);
   // Show the message body for all MessageReceived events so the thread
@@ -120,23 +149,88 @@ export function ThreadEventRow({ event }: ThreadEventRowProps) {
   // without relying solely on colour (WCAG 1.4.1).
   const isError = isErrorEvent(event.eventType, event.severity ?? "");
 
+  const metaToggleButton =
+    actions === "metadata" ? (
+      <button
+        type="button"
+        onClick={() => setShowMeta((v) => !v)}
+        aria-label={showMeta ? "Hide metadata" : "Show metadata"}
+        aria-pressed={showMeta}
+        data-testid={`${testIdPrefix}-meta-toggle`}
+        className={cn(
+          "rounded p-0.5 transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+          showMeta
+            ? "text-primary"
+            : "text-muted-foreground/50 hover:text-muted-foreground",
+        )}
+      >
+        <Info className="h-3 w-3" aria-hidden="true" />
+      </button>
+    ) : null;
+
+  const metaPanel =
+    actions === "metadata" && showMeta ? (
+      <div
+        className="rounded border border-border bg-muted/40 p-2 text-[10px] font-mono text-muted-foreground space-y-0.5"
+        data-testid={`${testIdPrefix}-meta-${event.id}`}
+      >
+        <p>
+          <span className="text-foreground">id</span> {event.id}
+        </p>
+        <p>
+          <span className="text-foreground">type</span> {event.eventType}
+        </p>
+        <p>
+          <span className="text-foreground">source</span> {source.raw}
+        </p>
+        <p>
+          <span className="text-foreground">severity</span> {event.severity}
+        </p>
+        {event.summary && (
+          <p>
+            <span className="text-foreground">summary</span> {event.summary}
+          </p>
+        )}
+      </div>
+    ) : null;
+
+  const activityLinkFooter =
+    actions === "activity-link" ? (
+      <div
+        className={cn(
+          "flex items-center gap-2 text-[11px] text-muted-foreground",
+          style.align === "end" ? "justify-end" : "justify-start",
+        )}
+      >
+        <Link
+          href={`/activity?source=${encodeURIComponent(source.raw)}`}
+          className="hover:underline"
+          aria-label="Open in activity log"
+        >
+          View in activity →
+        </Link>
+      </div>
+    ) : null;
+
   if (isError) {
     return (
       <div
         className="flex w-full justify-start"
-        data-testid={`conversation-event-${event.id}`}
+        data-testid={`${testIdPrefix}-${event.id}`}
         data-role="error"
       >
         <div className="flex max-w-[80%] min-w-0 flex-col gap-1">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Badge
-              variant="destructive"
-              className="h-5 px-1.5 text-[10px]"
-            >
+            <Badge variant="destructive" className="h-5 px-1.5 text-[10px]">
               Error
             </Badge>
             {resolvedDisplayName && (
-              <span className="truncate font-medium text-foreground/80" data-testid="conversation-event-source-name">{resolvedDisplayName}</span>
+              <span
+                className="truncate font-medium text-foreground/80"
+                data-testid={`${testIdPrefix}-source-name`}
+              >
+                {resolvedDisplayName}
+              </span>
             )}
             <span aria-hidden="true">·</span>
             <time
@@ -148,6 +242,7 @@ export function ThreadEventRow({ event }: ThreadEventRowProps) {
                 minute: "2-digit",
               })}
             </time>
+            {metaToggleButton}
           </div>
           <div
             role="alert"
@@ -159,15 +254,8 @@ export function ThreadEventRow({ event }: ThreadEventRowProps) {
             />
             <p className="whitespace-pre-wrap break-words">{event.summary}</p>
           </div>
-          <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-            <Link
-              href={`/activity?source=${encodeURIComponent(source.raw)}`}
-              className="hover:underline"
-              aria-label="Open in activity log"
-            >
-              View in activity →
-            </Link>
-          </div>
+          {metaPanel}
+          {activityLinkFooter}
         </div>
       </div>
     );
@@ -179,7 +267,7 @@ export function ThreadEventRow({ event }: ThreadEventRowProps) {
         "flex w-full",
         style.align === "end" ? "justify-end" : "justify-start",
       )}
-      data-testid={`conversation-event-${event.id}`}
+      data-testid={`${testIdPrefix}-${event.id}`}
       data-role={role}
     >
       <div className={cn("flex max-w-[80%] min-w-0 flex-col gap-1")}>
@@ -197,7 +285,12 @@ export function ThreadEventRow({ event }: ThreadEventRowProps) {
             </Badge>
           )}
           {resolvedDisplayName && (
-            <span className="truncate font-medium text-foreground/80" data-testid="conversation-event-source-name">{resolvedDisplayName}</span>
+            <span
+              className="truncate font-medium text-foreground/80"
+              data-testid={`${testIdPrefix}-source-name`}
+            >
+              {resolvedDisplayName}
+            </span>
           )}
           <span aria-hidden="true">·</span>
           <time
@@ -209,6 +302,7 @@ export function ThreadEventRow({ event }: ThreadEventRowProps) {
               minute: "2-digit",
             })}
           </time>
+          {metaToggleButton}
         </div>
 
         <div
@@ -255,20 +349,8 @@ export function ThreadEventRow({ event }: ThreadEventRowProps) {
           )}
         </div>
 
-        <div
-          className={cn(
-            "flex items-center gap-2 text-[11px] text-muted-foreground",
-            style.align === "end" ? "justify-end" : "justify-start",
-          )}
-        >
-          <Link
-            href={`/activity?source=${encodeURIComponent(source.raw)}`}
-            className="hover:underline"
-            aria-label="Open in activity log"
-          >
-            View in activity →
-          </Link>
-        </div>
+        {metaPanel}
+        {activityLinkFooter}
       </div>
     </div>
   );

@@ -11,22 +11,28 @@ const mockInvalidateQueries = vi.fn();
 
 vi.mock("@tanstack/react-query", () => ({
   useMutation: (opts: {
-    mutationFn: () => Promise<unknown>;
-    onSuccess?: () => void;
+    mutationFn: (vars: unknown) => Promise<unknown>;
+    onSuccess?: (data: unknown, vars: unknown) => void;
     onError?: (err: Error) => void;
   }) => ({
-    mutate: () => {
-      // Invoke mutationFn and handle result.
+    mutate: (vars: unknown) => {
+      // Invoke mutationFn with the caller's variables and handle result.
+      // The shared MessageComposer passes `{ trimmed }`; older callers pass
+      // nothing — the mock supports both shapes.
       mockMutate(opts);
-      const result = opts.mutationFn();
+      const result = opts.mutationFn(vars);
       if (result && typeof result.then === "function") {
-        result.then(() => opts.onSuccess?.()).catch((err: Error) => opts.onError?.(err));
+        result
+          .then((data) => opts.onSuccess?.(data, vars))
+          .catch((err: Error) => opts.onError?.(err));
       }
     },
     isPending: false,
   }),
   useQueryClient: () => ({
     invalidateQueries: mockInvalidateQueries,
+    getQueryData: () => null,
+    setQueryData: () => undefined,
   }),
 }));
 

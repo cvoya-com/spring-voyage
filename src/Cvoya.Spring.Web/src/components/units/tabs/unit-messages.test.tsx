@@ -41,6 +41,13 @@ vi.mock("@/lib/api/queries", () => ({
   useThread: (id: string, opts?: unknown) => useThreadMock(id, opts),
 }));
 
+// The shared ConversationView opens a thread-scoped SSE stream for live
+// updates. EventSource is not available in jsdom, so stub the hook so
+// the timeline renders without firing the SSE side-effect.
+vi.mock("@/lib/stream/use-thread-stream", () => ({
+  useThreadStream: () => ({ connected: false, events: [] }),
+}));
+
 const sendThreadMessageMock = vi.fn();
 const sendMessageMock = vi.fn();
 vi.mock("@/lib/api/client", async () => {

@@ -451,6 +451,50 @@ public class ThreadQueryServiceTests : IDisposable
         evt.Body.ShouldBe("Merge approved — looks good to ship.");
     }
 
+    [Fact]
+    public async Task GetAsync_LegacyDetailsWithoutBody_FallsBackToPayloadExtraction()
+    {
+        // Older events (persisted before #1551 extended TryExtractText) have a
+        // Details blob with `payload` but no `body`. The projection must
+        // re-extract from `payload` so already-stored agent replies surface as
+        // bubble bodies rather than the "Received Domain message …" envelope
+        // summary fallback.
+        var messageId = Guid.NewGuid();
+        var details = JsonDocument.Parse(
+            $$"""
+            {
+                "messageId": "{{messageId}}",
+                "from": "agent://ada",
+                "to": "human://savasp",
+                "messageType": "Domain",
+                "payload": {
+                    "Output": "Reply text from before the fix.",
+                    "ExitCode": 0
+                }
+            }
+            """).RootElement.Clone();
+
+        _db.ActivityEvents.Add(new ActivityEventRecord
+        {
+            Id = Guid.NewGuid(),
+            Source = "human:savasp",
+            EventType = nameof(ActivityEventType.MessageReceived),
+            Severity = "Info",
+            Summary = $"Received Domain message {messageId} from agent://ada",
+            Details = details,
+            CorrelationId = "c-legacy",
+            Timestamp = DateTimeOffset.UtcNow,
+        });
+        await _db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var svc = new ThreadQueryService(_db);
+        var detail = await svc.GetAsync("c-legacy", TestContext.Current.CancellationToken);
+
+        detail.ShouldNotBeNull();
+        var evt = detail!.Events.Single();
+        evt.Body.ShouldBe("Reply text from before the fix.");
+    }
+
     // --- UnreadCount tests (#1477) ---
 
     [Fact]
