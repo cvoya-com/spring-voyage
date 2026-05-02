@@ -152,7 +152,7 @@ public class UnitCreationService : IUnitCreationService
             // The direct-create path has always been last-writer-wins on
             // duplicate names; keep that behaviour so existing callers do
             // not observe a new 400. #325 introduces the duplicate check
-            // specifically for the from-template override path.
+            // for the manifest-backed path (rejectDuplicates: true there).
             rejectDuplicates: false,
             parentInfo: parentInfo,
             cancellationToken);
@@ -189,8 +189,7 @@ public class UnitCreationService : IUnitCreationService
 
         // #325: when the caller explicitly supplies a unit-name override we
         // reject duplicates up front with a 400. Manifest-name-only paths
-        // keep the historical last-writer-wins behaviour to avoid changing
-        // the /from-yaml and /from-template defaults unannounced.
+        // keep the historical last-writer-wins behaviour.
         var rejectDuplicates = !string.IsNullOrWhiteSpace(overrides.Name);
 
         // Review feedback on #744: every unit must have a parent. Either
@@ -615,8 +614,7 @@ public class UnitCreationService : IUnitCreationService
         // the request body we reject duplicates up front with a typed
         // exception the endpoint layer maps to 400. Paths that keep using
         // the manifest-derived name stay on the historical last-writer-wins
-        // behaviour so #325 does not silently turn into a breaking change
-        // for existing /from-yaml and /from-template callers.
+        // behaviour so #325 does not silently turn into a breaking change.
         if (rejectDuplicates)
         {
             var existing = await _directoryService.ResolveAsync(address, cancellationToken);

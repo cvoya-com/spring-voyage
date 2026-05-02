@@ -10,11 +10,11 @@ using System.Threading.Tasks;
 using Cvoya.Spring.Host.Api.Models;
 
 /// <summary>
-/// Centralised unit-creation pipeline shared by <c>POST /api/v1/units</c>,
-/// <c>POST /api/v1/units/from-yaml</c>, and <c>POST /api/v1/units/from-template</c>.
+/// Centralised unit-creation pipeline used by <c>POST /api/v1/units</c> (direct
+/// creation) and the package-install Phase-2 activator (<see cref="DefaultPackageArtefactActivator"/>).
 /// Keeping the actor-create + directory-register + member-wiring logic in a single
-/// place avoids duplicating it across three endpoints and gives downstream consumers
-/// (e.g. the private cloud repo) a single extension point to wrap.
+/// place avoids duplication and gives downstream consumers (e.g. the private cloud
+/// repo) a single extension point to wrap.
 /// </summary>
 public interface IUnitCreationService
 {
@@ -164,9 +164,8 @@ public class InvalidUnitParentRequestException : System.Exception
 /// <summary>
 /// Thrown when the requested unit name is already registered in the directory.
 /// Surfaces as a ProblemDetails 400 from the creation endpoints. Introduced by
-/// #325 so the <c>/from-template</c> endpoint can reject override-driven
-/// collisions with a clear 400 response rather than silently overwriting the
-/// existing directory entry (the in-memory directory service is a
+/// #325 to reject name collisions with a clear 400 response rather than silently
+/// overwriting the existing directory entry (the in-memory directory service is a
 /// last-writer-wins map; this check makes the collision an explicit error).
 /// </summary>
 public class DuplicateUnitNameException : System.Exception

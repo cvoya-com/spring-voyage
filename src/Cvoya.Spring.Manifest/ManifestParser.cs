@@ -12,9 +12,8 @@ using YamlDotNet.Serialization.NamingConventions;
 /// <summary>
 /// Parses unit manifest YAML into <see cref="UnitManifest"/> instances and
 /// reports which tolerated-but-unapplied sections are present. Shared by the
-/// <c>spring apply</c> CLI and the <c>/api/v1/units/from-yaml</c> +
-/// <c>/api/v1/units/from-template</c> endpoints so both code paths use the
-/// same grammar and warning text.
+/// <c>spring apply</c> CLI and the package-install activator so both code
+/// paths use the same grammar and warning text.
 /// </summary>
 public static class ManifestParser
 {

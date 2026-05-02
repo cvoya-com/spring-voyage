@@ -131,13 +131,6 @@ export type UnitResponse = Schemas["UnitResponse"];
 /** GET /api/v1/units/{id} full response with details. */
 export type UnitDetailResponse = Schemas["UnitDetailResponse"];
 
-/** POST /api/v1/units/from-yaml request body. */
-export type CreateUnitFromYamlRequest = Schemas["CreateUnitFromYamlRequest"];
-
-/** POST /api/v1/units/from-template request body. */
-export type CreateUnitFromTemplateRequest =
-  Schemas["CreateUnitFromTemplateRequest"];
-
 /** Response body for GET /api/v1/packages/{package}/templates/{name}. */
 export type UnitTemplateDetail = Schemas["UnitTemplateDetail"];
 

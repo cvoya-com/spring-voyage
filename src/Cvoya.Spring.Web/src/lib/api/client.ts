@@ -13,8 +13,6 @@ import type {
   CreateSecretRequest,
   CreateTokenRequest,
   CreateTokenResponse,
-  CreateUnitFromTemplateRequest,
-  CreateUnitFromYamlRequest,
   DashboardSummary,
   DeployPersistentAgentRequest,
   DirectorySearchRequest,
@@ -315,18 +313,6 @@ export const api = {
   }) =>
     unwrap(
       await fetchClient.POST("/api/v1/tenant/units", {
-        body: withDefaultParentParent(body),
-      }),
-    ),
-  createUnitFromYaml: async (body: CreateUnitFromYamlRequest) =>
-    unwrap(
-      await fetchClient.POST("/api/v1/tenant/units/from-yaml", {
-        body: withDefaultParentParent(body),
-      }),
-    ),
-  createUnitFromTemplate: async (body: CreateUnitFromTemplateRequest) =>
-    unwrap(
-      await fetchClient.POST("/api/v1/tenant/units/from-template", {
         body: withDefaultParentParent(body),
       }),
     ),

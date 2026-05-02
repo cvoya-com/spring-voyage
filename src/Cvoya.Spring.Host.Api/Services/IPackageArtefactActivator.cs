@@ -11,8 +11,7 @@ using Cvoya.Spring.Manifest;
 /// <summary>
 /// Activates a single resolved artefact in Phase 2 of the two-phase
 /// package install (ADR-0035 decision 11). The default implementation
-/// delegates to the same actor-activation path that
-/// <see cref="UnitCreationService.CreateFromManifestAsync"/> uses.
+/// delegates to <see cref="IUnitCreationService"/> for unit artefacts.
 /// Test harnesses substitute a recording or failing implementation.
 /// </summary>
 public interface IPackageArtefactActivator

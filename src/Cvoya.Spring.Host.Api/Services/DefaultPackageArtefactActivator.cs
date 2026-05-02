@@ -14,9 +14,9 @@ using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// Default <see cref="IPackageArtefactActivator"/> implementation.
-/// Delegates to <see cref="IUnitCreationService.CreateFromManifestAsync"/>
-/// for unit and agent artefacts, reusing the existing actor-activation path
-/// (directory registration, actor metadata writes, member wiring).
+/// Delegates to <see cref="IUnitCreationService"/> for unit artefacts,
+/// reusing the actor-activation path (directory registration, actor metadata
+/// writes, member wiring).
 /// </summary>
 public class DefaultPackageArtefactActivator : IPackageArtefactActivator
 {

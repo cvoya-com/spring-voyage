@@ -151,7 +151,7 @@ The projection is best-effort by design: a write-through failure logs and contin
 1. The unit-delete cascade in `DirectoryService.CascadeDeleteUnitAsync` deletes every projection row that mentions the deleted unit on either side, in the same EF transaction that flips its `deleted_at`. A surviving ghost would otherwise render a deleted unit as a child node on the next `GET /api/v1/tenant/tree`.
 2. A startup hosted service (`UnitSubunitMembershipReconciliationService`, registered by the Worker host) iterates the directory, asks each unit actor for its current member list, upserts every missing `unit://` edge, and retires every projection row whose edge is no longer present in actor state. The reconciliation runs once per host start, is idempotent, and is the only path that backfills the projection on existing deployments where the column did not exist before this migration.
 
-**Sub-unit creation surfaces.** All three create-unit endpoints (`POST /api/v1/units`, `POST /api/v1/units/from-yaml`, `POST /api/v1/units/from-template`) accept an optional `parentUnitIds: [<parent-id>]` plus `isTopLevel: false` pair. When supplied, `UnitCreationService.ValidateParentRequest` resolves the parent ids through `IDirectoryService`, registers the new unit, and persists the `unit://` membership edge in one server-side transaction (so a partial failure rolls the unit back). Omitting both fields keeps the legacy top-level behaviour. The CLI exposes this via `spring unit create <name> --parent-unit <parent-id>` (`--parent-unit` and `--top-level` are mutually exclusive). The portal exposes it via the **Create sub-unit** action on the parent's detail pane (#1150) — see [docs/guide/portal.md § Top-level vs sub-unit creation](../guide/user/portal.md#top-level-vs-sub-unit-creation-1150). Cycle detection runs on the resulting `AddMemberAsync` call, so a sub-unit creation that would close a cycle is rejected with the same `CyclicMembershipException` projection as an after-the-fact `members add`. The membership edge is recorded through the same `AddMemberAsync` path, so the persistent projection (#1154) sees sub-units created via this surface immediately — `GET /api/v1/tenant/tree` returns the new unit nested under its parent on the next call.
+**Sub-unit creation surfaces.** The `POST /api/v1/units` endpoint and the package-install path accept an optional `parentUnitIds: [<parent-id>]` plus `isTopLevel: false` pair. When supplied, `UnitCreationService.ValidateParentRequest` resolves the parent ids through `IDirectoryService`, registers the new unit, and persists the `unit://` membership edge in one server-side transaction (so a partial failure rolls the unit back). Omitting both fields keeps the legacy top-level behaviour. The CLI exposes this via `spring unit create <name> --parent-unit <parent-id>` (`--parent-unit` and `--top-level` are mutually exclusive). The portal exposes it via the **Create sub-unit** action on the parent's detail pane (#1150) — see [docs/guide/portal.md § Top-level vs sub-unit creation](../guide/user/portal.md#top-level-vs-sub-unit-creation-1150). Cycle detection runs on the resulting `AddMemberAsync` call, so a sub-unit creation that would close a cycle is rejected with the same `CyclicMembershipException` projection as an after-the-fact `members add`. The membership edge is recorded through the same `AddMemberAsync` path, so the persistent projection (#1154) sees sub-units created via this surface immediately — `GET /api/v1/tenant/tree` returns the new unit nested under its parent on the next call.
 
 ---
 
@@ -359,55 +359,12 @@ Both templates declare a `connectors[type: github]` block so the GitHub connecto
 at instantiation time. The user supplies the specific repository at creation time — the
 `config` block in the manifest does not hard-code an owner/repo.
 
-### Wizard step ↔ CLI flag mapping
+### Creating units from templates
 
-| Wizard step | Wizard input | CLI verb | CLI flag(s) |
-|---|---|---|---|
-| Step 1 — Identity | Unit name (address path) | `spring unit create-from-template` | positional `target` (package/template) |
-| Step 1 — Identity | Display name | `spring unit create-from-template` | `--display-name` / `--display` |
-| Step 1 — Identity | Color | `spring unit create-from-template` | `--color` |
-| Step 1 — Identity | Parent unit | `spring unit create-from-template` | `--parent-unit` |
-| Step 1 — Identity | Top-level | `spring unit create-from-template` | `--top-level` |
-| Step 2 — Execution | Model | `spring unit create-from-template` | `--model` |
-| Step 2 — Execution | Tool | `spring unit create-from-template` | `--tool` |
-| Step 2 — Execution | Provider | `spring unit create-from-template` | `--provider` |
-| Step 2 — Execution | Hosting mode | `spring unit create-from-template` | `--hosting` |
-| Step 3 — Mode | Template selection | `spring unit create-from-template` | positional `target` |
-| Step 4 — Connector | GitHub repository (owner/repo) | `spring unit create-from-template` | `--github-owner` + `--github-repo` |
-| Step 4 — Connector | GitHub App installation id | `spring unit create-from-template` | `--github-installation-id` |
-| Step 4 — Connector | Default reviewer | `spring unit create-from-template` | `--github-reviewer` |
-| Step 4 — Connector | Webhook events | `spring unit create-from-template` | `--github-events` (repeatable) |
-| Step 5 — Secrets | LLM API key | `spring unit create-from-template` | `--api-key` / `--api-key-from-file` |
-| Step 5 — Secrets | Save as tenant default | `spring unit create-from-template` | `--save-as-tenant-default` |
-
-### Example: create a software-engineering unit with GitHub connector
-
-```bash
-spring unit create-from-template software-engineering/engineering-team \
-  --name my-eng-team \
-  --github-owner acme \
-  --github-repo platform \
-  --top-level
-```
-
-This is equivalent to the wizard flow:
-1. Identity step — fill in name
-2. Execution step — leave defaults
-3. Mode step — select "Template", pick `software-engineering/engineering-team`
-4. Connector step — select GitHub, pick `acme/platform` from the repository dropdown
-5. Secrets step — leave defaults (if API key already stored as a tenant default)
-6. Finalize step — click Create
-
-### Example: create a product-management unit with GitHub connector
-
-```bash
-spring unit create-from-template product-management/product-squad \
-  --name my-product-squad \
-  --github-owner acme \
-  --github-repo product-backlog \
-  --github-events issues --github-events issue_comment --github-events pull_request \
-  --top-level
-```
+The `spring unit create-from-template` verb and the `/api/v1/units/from-template` endpoint
+were removed in ADR-0035. The current path is to use `spring package install <package>` (CLI)
+or the new-unit wizard's **From catalog** mode (portal), both of which route through
+`POST /api/v1/packages/install` and activate all artefacts in the package atomically.
 
 ---
 

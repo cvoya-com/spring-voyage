@@ -114,7 +114,7 @@ Each bundle lives in `packages/{package}/skills/` as a pair of sibling files:
 1. `{skill-name}.md` — markdown prompt fragment. Required. Keep the guidance focused; the bundle will be concatenated into the unit's Layer 2 context in declaration order.
 2. `{skill-name}.tools.json` — optional JSON array of tool requirements. Each entry must have `name` and `description` and should include a JSON-schema `parameters` object. Add `"optional": true` for tools that may be absent without failing validation.
 
-At unit creation (`/api/v1/units/from-yaml` or `/api/v1/units/from-template`), the platform:
+At unit creation (via the package-install activator or `POST /api/v1/units`), the platform:
 
 1. Resolves each `{package, skill}` pair via `ISkillBundleResolver`. Missing packages or missing `.md` files produce a `400 Bad Request` with a diagnostic search path.
 2. Validates the bundle's declared tools against two checks:

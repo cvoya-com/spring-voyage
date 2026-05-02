@@ -11,7 +11,6 @@ using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Security;
-using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
 using Cvoya.Spring.Dapr.Auth;
@@ -19,7 +18,6 @@ using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Host.Api.Auth;
 using Cvoya.Spring.Host.Api.Models;
 using Cvoya.Spring.Host.Api.Services;
-using Cvoya.Spring.Manifest;
 
 using global::Dapr.Actors;
 using global::Dapr.Actors.Client;
@@ -60,19 +58,6 @@ public static class UnitEndpoints
             .WithSummary("Create a new unit")
             .Produces<UnitResponse>(StatusCodes.Status201Created)
             .ProducesProblem(StatusCodes.Status400BadRequest);
-
-        group.MapPost("/from-yaml", CreateUnitFromYamlAsync)
-            .WithName("CreateUnitFromYaml")
-            .WithSummary("Create a unit by applying a raw unit manifest YAML document")
-            .Produces<UnitCreationResponse>(StatusCodes.Status201Created)
-            .ProducesProblem(StatusCodes.Status400BadRequest);
-
-        group.MapPost("/from-template", CreateUnitFromTemplateAsync)
-            .WithName("CreateUnitFromTemplate")
-            .WithSummary("Create a unit from one of the templates listed by /api/v1/packages/templates")
-            .Produces<UnitCreationResponse>(StatusCodes.Status201Created)
-            .ProducesProblem(StatusCodes.Status400BadRequest)
-            .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapPatch("/{id}", UpdateUnitAsync)
             .WithName("UpdateUnit")
@@ -381,165 +366,6 @@ public static class UnitEndpoints
         catch (DuplicateUnitNameException ex)
         {
             return Results.Problem(title: "Duplicate unit name", detail: ex.Message, statusCode: StatusCodes.Status400BadRequest);
-        }
-    }
-
-    private static async Task<IResult> CreateUnitFromYamlAsync(
-        CreateUnitFromYamlRequest request,
-        [FromServices] IUnitCreationService creationService,
-        CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(request.Yaml))
-        {
-            return Results.Problem(detail: "Request body must include non-empty 'yaml'.", statusCode: StatusCodes.Status400BadRequest);
-        }
-
-        UnitManifest manifest;
-        try
-        {
-            manifest = ManifestParser.Parse(request.Yaml);
-        }
-        catch (ManifestParseException ex)
-        {
-            return Results.Problem(detail: ex.Message, statusCode: StatusCodes.Status400BadRequest);
-        }
-
-        var overrides = new UnitCreationOverrides(request.DisplayName, request.Color, request.Model,
-            Tool: request.Tool, Provider: request.Provider, Hosting: request.Hosting,
-            ParentUnitIds: request.ParentUnitIds, IsTopLevel: request.IsTopLevel);
-        try
-        {
-            var result = await creationService.CreateFromManifestAsync(
-                manifest, overrides, cancellationToken, request.Connector);
-
-            return Results.Created(
-                $"/api/v1/units/{result.Unit.Name}",
-                new UnitCreationResponse(result.Unit, result.Warnings, result.MembersAdded));
-        }
-        catch (InvalidUnitParentRequestException ex)
-        {
-            return Results.Problem(
-                title: "Unit parent required",
-                detail: ex.Message,
-                statusCode: StatusCodes.Status400BadRequest);
-        }
-        catch (UnknownParentUnitException ex)
-        {
-            return Results.Problem(
-                title: "Unknown parent unit",
-                detail: ex.Message,
-                statusCode: StatusCodes.Status404NotFound);
-        }
-        catch (UnitCreationBindingException ex)
-        {
-            return ProblemFromBindingFailure(ex);
-        }
-        catch (DuplicateUnitNameException ex)
-        {
-            return Results.Problem(title: "Duplicate unit name", detail: ex.Message, statusCode: StatusCodes.Status400BadRequest);
-        }
-        catch (SkillBundlePackageNotFoundException ex)
-        {
-            return Results.Problem(title: "Unknown skill package", detail: ex.Message, statusCode: StatusCodes.Status400BadRequest);
-        }
-        catch (SkillBundleNotFoundException ex)
-        {
-            return Results.Problem(title: "Unknown skill", detail: ex.Message, statusCode: StatusCodes.Status400BadRequest);
-        }
-        catch (SkillBundleValidationException ex)
-        {
-            return Results.Problem(title: "Skill bundle validation failed", detail: ex.Message, statusCode: StatusCodes.Status400BadRequest);
-        }
-    }
-
-    private static async Task<IResult> CreateUnitFromTemplateAsync(
-        CreateUnitFromTemplateRequest request,
-        [FromServices] IPackageCatalogService catalog,
-        [FromServices] IUnitCreationService creationService,
-        CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(request.Package) || string.IsNullOrWhiteSpace(request.Name))
-        {
-            return Results.Problem(detail: "Request body must include both 'package' and 'name'.", statusCode: StatusCodes.Status400BadRequest);
-        }
-
-        var yaml = await catalog.LoadUnitTemplateYamlAsync(request.Package, request.Name, cancellationToken);
-        if (yaml is null)
-        {
-            return Results.NotFound(new
-            {
-                Error = $"Template '{request.Package}/{request.Name}' was not found.",
-            });
-        }
-
-        UnitManifest manifest;
-        try
-        {
-            manifest = ManifestParser.Parse(yaml);
-        }
-        catch (ManifestParseException ex)
-        {
-            return Results.Problem(
-                title: "Template YAML is invalid",
-                detail: ex.Message,
-                statusCode: StatusCodes.Status500InternalServerError);
-        }
-
-        // #325: forward the optional unit-name override so the caller can
-        // instantiate the same template more than once without colliding
-        // on the unique-name constraint.
-        var overrides = new UnitCreationOverrides(
-            request.DisplayName,
-            request.Color,
-            request.Model,
-            request.UnitName,
-            request.Tool,
-            request.Provider,
-            request.Hosting,
-            request.ParentUnitIds,
-            request.IsTopLevel);
-        try
-        {
-            var result = await creationService.CreateFromManifestAsync(
-                manifest, overrides, cancellationToken, request.Connector);
-
-            return Results.Created(
-                $"/api/v1/units/{result.Unit.Name}",
-                new UnitCreationResponse(result.Unit, result.Warnings, result.MembersAdded));
-        }
-        catch (InvalidUnitParentRequestException ex)
-        {
-            return Results.Problem(
-                title: "Unit parent required",
-                detail: ex.Message,
-                statusCode: StatusCodes.Status400BadRequest);
-        }
-        catch (UnknownParentUnitException ex)
-        {
-            return Results.Problem(
-                title: "Unknown parent unit",
-                detail: ex.Message,
-                statusCode: StatusCodes.Status404NotFound);
-        }
-        catch (UnitCreationBindingException ex)
-        {
-            return ProblemFromBindingFailure(ex);
-        }
-        catch (DuplicateUnitNameException ex)
-        {
-            return Results.Problem(title: "Duplicate unit name", detail: ex.Message, statusCode: StatusCodes.Status400BadRequest);
-        }
-        catch (SkillBundlePackageNotFoundException ex)
-        {
-            return Results.Problem(title: "Unknown skill package", detail: ex.Message, statusCode: StatusCodes.Status400BadRequest);
-        }
-        catch (SkillBundleNotFoundException ex)
-        {
-            return Results.Problem(title: "Unknown skill", detail: ex.Message, statusCode: StatusCodes.Status400BadRequest);
-        }
-        catch (SkillBundleValidationException ex)
-        {
-            return Results.Problem(title: "Skill bundle validation failed", detail: ex.Message, statusCode: StatusCodes.Status400BadRequest);
         }
     }
 

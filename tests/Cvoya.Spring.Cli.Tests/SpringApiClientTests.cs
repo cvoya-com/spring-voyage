@@ -513,49 +513,6 @@ public class SpringApiClientTests
         ex.ResponseStatusCode.ShouldBe(409);
     }
 
-    // --- #316 + #325: CreateUnitFromTemplateAsync -------------------------
-
-    [Fact]
-    public async Task CreateUnitFromTemplateAsync_SendsUnitNameOverrideAndMetadata()
-    {
-        var handler = new MockHttpMessageHandler(
-            expectedPath: "/api/v1/tenant/units/from-template",
-            expectedMethod: HttpMethod.Post,
-            responseBody: """{"unit":{"id":"actor-eng","name":"run42-eng","displayName":"Engineering (run 42)","description":"","registeredAt":"2026-04-01T00:00:00Z","status":"Draft","model":"claude-sonnet-4","color":"#336699"},"warnings":["skill 'demo' declares tool 'missing'"],"membersAdded":0}""",
-            returnStatusCode: HttpStatusCode.Created,
-            validateRequestBody: body =>
-            {
-                // Kiota serialises optional nullable-string properties even
-                // when set. The wire contract for #325 carries `unitName`
-                // alongside the existing `name` (template basename). #315
-                // rides `model` / `color` on the same body.
-                var json = JsonSerializer.Deserialize<JsonElement>(body);
-                json.GetProperty("package").GetString().ShouldBe("software-engineering");
-                json.GetProperty("name").GetString().ShouldBe("engineering-team");
-                json.GetProperty("unitName").GetString().ShouldBe("run42-eng");
-                json.GetProperty("displayName").GetString().ShouldBe("Engineering (run 42)");
-                json.GetProperty("model").GetString().ShouldBe("claude-sonnet-4");
-                json.GetProperty("color").GetString().ShouldBe("#336699");
-            });
-
-        var httpClient = new HttpClient(handler);
-        var client = new SpringApiClient(httpClient, BaseUrl);
-
-        var response = await client.CreateUnitFromTemplateAsync(
-            "software-engineering",
-            "engineering-team",
-            unitName: "run42-eng",
-            displayName: "Engineering (run 42)",
-            model: "claude-sonnet-4",
-            color: "#336699",
-            ct: TestContext.Current.CancellationToken);
-
-        response.ShouldNotBeNull();
-        response.Unit!.Name.ShouldBe("run42-eng");
-        response.Warnings!.Count.ShouldBe(1);
-        handler.WasCalled.ShouldBeTrue();
-    }
-
     // --- Unit policy endpoints ---------------------------------------------
 
     [Fact]
