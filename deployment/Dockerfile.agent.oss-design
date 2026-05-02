@@ -26,7 +26,12 @@
 #     .
 
 ARG AGENT_BASE_IMAGE=ghcr.io/cvoya-com/spring-voyage-agents:latest
-ARG PLAYWRIGHT_VERSION=1.49.1
+# Playwright 1.55.0 added official Debian 13 "Trixie" support. Bump from
+# 1.49.1 so the build uses trixie-native browser binaries instead of the
+# ubuntu20.04-arm64 fallback that emitted a warning at `playwright install`.
+# See: https://playwright.dev/docs/release-notes#version-155
+# Tracked: #1550.
+ARG PLAYWRIGHT_VERSION=1.55.0
 ARG MERMAID_CLI_VERSION=11.14.0
 
 FROM ${AGENT_BASE_IMAGE}
@@ -66,6 +71,18 @@ RUN apt-get update \
 # Playwright downloads.
 RUN npm install -g "playwright@${PLAYWRIGHT_VERSION}" \
  && npx playwright install chromium
+
+# Build-time smoke test: verify that the downloaded Chromium binary actually
+# launches inside this container. If a future Playwright release breaks the
+# trixie fallback path (or the explicit apt deps above become stale), this
+# step will fail the build immediately rather than silently shipping a broken
+# image. See #1550.
+RUN node -e "\
+const { chromium } = require('playwright'); \
+chromium.launch({ headless: true }).then(b => { \
+  console.log('chromium launches OK'); \
+  return b.close(); \
+}).catch(e => { console.error('chromium launch failed:', e); process.exit(1); });"
 
 # ---- @mermaid-js/mermaid-cli ---------------------------------------------------
 RUN npm install -g "@mermaid-js/mermaid-cli@${MERMAID_CLI_VERSION}" \

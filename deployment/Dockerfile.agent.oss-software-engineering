@@ -35,7 +35,12 @@ ARG AGENT_BASE_IMAGE=ghcr.io/cvoya-com/spring-voyage-agents:latest
 ARG DOTNET_SDK_CHANNEL=10.0
 ARG GH_CLI_VERSION=2.92.0
 ARG RUFF_VERSION=0.15.12
-ARG PLAYWRIGHT_VERSION=1.49.1
+# Playwright 1.55.0 added official Debian 13 "Trixie" support. Pin to the
+# latest stable (1.55.0) so the build uses trixie-native browser binaries
+# instead of the ubuntu20.04-arm64 fallback that 1.49.1 emitted a warning
+# about. See: https://playwright.dev/docs/release-notes#version-155
+# Tracked: #1550.
+ARG PLAYWRIGHT_VERSION=1.55.0
 
 FROM ${AGENT_BASE_IMAGE}
 
@@ -106,6 +111,19 @@ RUN apt-get update \
 # binaries that Playwright downloads.
 RUN npm install -g "playwright@${PLAYWRIGHT_VERSION}" \
  && npx playwright install chromium firefox webkit
+
+# Build-time smoke test: verify that the downloaded Chromium binary actually
+# launches inside this container. If a future Playwright release breaks the
+# trixie fallback path (or the explicit apt deps above become stale), this
+# step will fail the build immediately rather than silently shipping a broken
+# image. Firefox and WebKit are not smoke-tested here (Chromium covers the
+# binary/glibc compat signal). See #1550.
+RUN node -e "\
+const { chromium } = require('playwright'); \
+chromium.launch({ headless: true }).then(b => { \
+  console.log('chromium launches OK'); \
+  return b.close(); \
+}).catch(e => { console.error('chromium launch failed:', e); process.exit(1); });"
 
 USER agent
 
