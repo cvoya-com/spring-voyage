@@ -1276,7 +1276,7 @@ export default function CreateUnitPage() {
 
   // Poll install status every 2 s while an install is in flight.
   const installStatusQuery = useQuery({
-    queryKey: queryKeys.installs.status(installId ?? ""),
+    queryKey: queryKeys.installs.detail(installId ?? ""),
     queryFn: () => api.getInstallStatus(installId!),
     enabled: installId !== null,
     refetchInterval: (query) => {
