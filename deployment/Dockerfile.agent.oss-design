@@ -59,8 +59,13 @@ RUN apt-get update \
       libasound2 \
  && rm -rf /var/lib/apt/lists/*
 
+# `--with-deps` is intentionally omitted: it tries to apt-install Debian-12-
+# era package names (e.g. `libvpx6`, `libwebp6`) that no longer exist on
+# Debian trixie (which ships `libvpx9` / `libwebp7`). The required runtime
+# libs are pinned explicitly above; the browser is a bundled binary that
+# Playwright downloads.
 RUN npm install -g "playwright@${PLAYWRIGHT_VERSION}" \
- && npx playwright install --with-deps chromium
+ && npx playwright install chromium
 
 # ---- @mermaid-js/mermaid-cli ---------------------------------------------------
 RUN npm install -g "@mermaid-js/mermaid-cli@${MERMAID_CLI_VERSION}" \
