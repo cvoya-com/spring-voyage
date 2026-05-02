@@ -2358,4 +2358,239 @@ public class SpringApiClient
             return null;
         }
     }
+
+    // Package install / status / retry / abort / export (ADR-0035 decision 4).
+    // These back the `spring package install|status|retry|abort|export` verb cluster.
+    // We use _httpClient directly rather than Kiota-generated paths because the
+    // install endpoints sit outside the /api/v1/tenant/ prefix and the file-upload
+    // endpoint uses multipart/form-data which Kiota's generated adapters do not
+    // handle cleanly. The JSON de/serialisation uses System.Text.Json with
+    // camelCase policy so it matches the OpenAPI wire format.
+
+    private static readonly System.Text.Json.JsonSerializerOptions PackageJsonOptions = new()
+    {
+        PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase,
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+    };
+
+    /// <summary>
+    /// Installs one or more packages from the catalog as a single atomic batch.
+    /// POST /api/v1/packages/install.
+    /// </summary>
+    public async Task<PackageInstallResponse> InstallPackagesAsync(
+        IReadOnlyList<PackageInstallTargetRequest> targets,
+        CancellationToken ct = default)
+    {
+        var body = new { targets };
+        var json = System.Text.Json.JsonSerializer.Serialize(body, PackageJsonOptions);
+        var content = new System.Net.Http.StringContent(
+            json, System.Text.Encoding.UTF8, "application/json");
+
+        var response = await _httpClient.PostAsync($"{_baseUrl}/api/v1/packages/install", content, ct);
+        var responseJson = await response.Content.ReadAsStringAsync(ct);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            ThrowForStatus(response.StatusCode, responseJson);
+        }
+
+        return System.Text.Json.JsonSerializer.Deserialize<PackageInstallResponse>(
+            responseJson, PackageJsonOptions)
+            ?? throw new InvalidOperationException("Server returned an empty install response.");
+    }
+
+    /// <summary>
+    /// Installs a package from an uploaded local YAML file.
+    /// POST /api/v1/packages/install/file (multipart/form-data).
+    /// </summary>
+    public async Task<PackageInstallResponse> InstallPackageFromFileAsync(
+        string filePath,
+        CancellationToken ct = default)
+    {
+        using var fileStream = System.IO.File.OpenRead(filePath);
+        using var multipart = new System.Net.Http.MultipartFormDataContent();
+        var fileContent = new System.Net.Http.StreamContent(fileStream);
+        fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/x-yaml");
+        multipart.Add(fileContent, "file", System.IO.Path.GetFileName(filePath));
+
+        var response = await _httpClient.PostAsync(
+            $"{_baseUrl}/api/v1/packages/install/file", multipart, ct);
+        var responseJson = await response.Content.ReadAsStringAsync(ct);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            ThrowForStatus(response.StatusCode, responseJson);
+        }
+
+        return System.Text.Json.JsonSerializer.Deserialize<PackageInstallResponse>(
+            responseJson, PackageJsonOptions)
+            ?? throw new InvalidOperationException("Server returned an empty install-from-file response.");
+    }
+
+    /// <summary>
+    /// Gets install status including per-package detail.
+    /// GET /api/v1/installs/{id}.
+    /// Returns null when the install id is not found (404).
+    /// </summary>
+    public async Task<PackageInstallResponse?> GetInstallStatusAsync(
+        string installId,
+        CancellationToken ct = default)
+    {
+        var response = await _httpClient.GetAsync(
+            $"{_baseUrl}/api/v1/installs/{installId}", ct);
+
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        var responseJson = await response.Content.ReadAsStringAsync(ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            ThrowForStatus(response.StatusCode, responseJson);
+        }
+
+        return System.Text.Json.JsonSerializer.Deserialize<PackageInstallResponse>(
+            responseJson, PackageJsonOptions)
+            ?? throw new InvalidOperationException("Server returned an empty install-status response.");
+    }
+
+    /// <summary>
+    /// Re-runs Phase 2 for a failed install.
+    /// POST /api/v1/installs/{id}/retry.
+    /// Returns null when the install id is not found (404).
+    /// </summary>
+    public async Task<PackageInstallResponse?> RetryInstallAsync(
+        string installId,
+        CancellationToken ct = default)
+    {
+        var response = await _httpClient.PostAsync(
+            $"{_baseUrl}/api/v1/installs/{installId}/retry",
+            new System.Net.Http.StringContent(string.Empty, System.Text.Encoding.UTF8, "application/json"),
+            ct);
+
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        var responseJson = await response.Content.ReadAsStringAsync(ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            ThrowForStatus(response.StatusCode, responseJson);
+        }
+
+        return System.Text.Json.JsonSerializer.Deserialize<PackageInstallResponse>(
+            responseJson, PackageJsonOptions)
+            ?? throw new InvalidOperationException("Server returned an empty retry response.");
+    }
+
+    /// <summary>
+    /// Discards staging rows for a failed install.
+    /// POST /api/v1/installs/{id}/abort.
+    /// Returns false when the install id is not found (404).
+    /// </summary>
+    public async Task<bool> AbortInstallAsync(string installId, CancellationToken ct = default)
+    {
+        var response = await _httpClient.PostAsync(
+            $"{_baseUrl}/api/v1/installs/{installId}/abort",
+            new System.Net.Http.StringContent(string.Empty, System.Text.Encoding.UTF8, "application/json"),
+            ct);
+
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return false;
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var responseJson = await response.Content.ReadAsStringAsync(ct);
+            ThrowForStatus(response.StatusCode, responseJson);
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Exports an installed package back to its original package.yaml.
+    /// POST /api/v1/tenant/packages/export.
+    /// Returns null when no package is found for the given unit name.
+    /// </summary>
+    public async Task<PackageExportResult?> ExportPackageAsync(
+        string unitName,
+        bool withValues = false,
+        CancellationToken ct = default)
+    {
+        var body = new { unitName, withValues };
+        var json = System.Text.Json.JsonSerializer.Serialize(body, PackageJsonOptions);
+        var content = new System.Net.Http.StringContent(
+            json, System.Text.Encoding.UTF8, "application/json");
+
+        var response = await _httpClient.PostAsync(
+            $"{_baseUrl}/api/v1/tenant/packages/export", content, ct);
+
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var responseJson = await response.Content.ReadAsStringAsync(ct);
+            ThrowForStatus(response.StatusCode, responseJson);
+        }
+
+        var responseBytes = await response.Content.ReadAsByteArrayAsync(ct);
+        var contentType = response.Content.Headers.ContentType?.MediaType ?? "application/x-yaml";
+        var fileName = response.Content.Headers.ContentDisposition?.FileName ?? "package.yaml";
+        return new PackageExportResult(responseBytes, contentType, fileName);
+    }
+
+    private static void ThrowForStatus(System.Net.HttpStatusCode statusCode, string responseJson)
+    {
+        // Extract the problem-details message if present; fall back to status code.
+        string detail;
+        try
+        {
+            var doc = System.Text.Json.JsonDocument.Parse(responseJson);
+            detail = doc.RootElement.TryGetProperty("detail", out var d) ? d.GetString() ?? responseJson
+                   : doc.RootElement.TryGetProperty("title", out var t) ? t.GetString() ?? responseJson
+                   : responseJson;
+        }
+        catch
+        {
+            detail = responseJson;
+        }
+
+        throw new InvalidOperationException(
+            $"Request failed with status {(int)statusCode}: {detail}");
+    }
+
+    /// <summary>
+    /// A single package target in an install request.
+    /// </summary>
+    public sealed record PackageInstallTargetRequest(
+        string PackageName,
+        IReadOnlyDictionary<string, string>? Inputs);
+
+    /// <summary>
+    /// Response from the install/status/retry endpoints — maps the server's
+    /// <c>InstallStatusResponse</c> shape.
+    /// </summary>
+    public sealed record PackageInstallResponse(
+        Guid InstallId,
+        string Status,
+        IReadOnlyList<PackageInstallPackageDetail> Packages,
+        DateTimeOffset? StartedAt,
+        DateTimeOffset? CompletedAt,
+        string? Error);
+
+    /// <summary>Per-package detail within a <see cref="PackageInstallResponse"/>.</summary>
+    public sealed record PackageInstallPackageDetail(
+        string PackageName,
+        string State,
+        string? ErrorMessage);
+
+    /// <summary>The bytes returned by the export endpoint, with content-type and suggested filename.</summary>
+    public sealed record PackageExportResult(byte[] Content, string ContentType, string FileName);
 }

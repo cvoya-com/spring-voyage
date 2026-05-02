@@ -68,7 +68,7 @@ public class Program
                 SystemCommand.Create(outputOption),
                 TemplateCommand.Create(outputOption),
                 GitHubAppCommand.Create(outputOption),
-                ApplyCommand.Create()
+                // ADR-0035 decision 4: `spring apply` is removed; `spring package install` is the replacement.
             }
         };
 

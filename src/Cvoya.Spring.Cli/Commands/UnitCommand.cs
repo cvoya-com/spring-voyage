@@ -97,10 +97,8 @@ public static class UnitCommand
 
         unitCommand.Subcommands.Add(CreateListCommand(outputOption));
         unitCommand.Subcommands.Add(CreateCreateCommand(outputOption));
-        // #460 — `create-from-template` promoted to a first-class verb; the
-        // `--from-template` flag on `create` keeps working but now prints a
-        // deprecation notice.
-        unitCommand.Subcommands.Add(CreateCreateFromTemplateCommand(outputOption));
+        // ADR-0035 decision 4: `create-from-template` is deleted outright;
+        // `spring package install` is the replacement.
         unitCommand.Subcommands.Add(CreateDeleteCommand());
         unitCommand.Subcommands.Add(CreatePurgeCommand());
         unitCommand.Subcommands.Add(CreateStartCommand());
@@ -154,15 +152,10 @@ public static class UnitCommand
     private static Command CreateCreateCommand(Option<string> outputOption)
     {
         // "name" is the unit's address path and unique identifier; the server
-        // generates the actor id. ZeroOrOne so `--from-template <package>/<name>`
-        // (#316) can supply the unit name via `--name` instead of the positional —
-        // the template-derived path otherwise inherits the manifest name, which
-        // collides across repeated instantiations (#325). Note the positional
-        // stays supported for the direct-create path so existing callers
-        // (`spring unit create eng-team`) keep working verbatim.
+        // generates the actor id.
         var nameArg = new Argument<string?>("name")
         {
-            Description = "The unit name (address path; also used as the identifier). Optional when --from-template and --name are supplied.",
+            Description = "The unit name (address path; also used as the identifier).",
             Arity = System.CommandLine.ArgumentArity.ZeroOrOne,
         };
         var displayNameOption = new Option<string?>("--display-name") { Description = "Human-readable display name (defaults to name)" };
@@ -180,24 +173,6 @@ public static class UnitCommand
         var colorOption = new Option<string?>("--color")
         {
             Description = "Optional UI accent colour hint (e.g. #6366f1).",
-        };
-        // #316: alternative "instantiate this template" path. Format is
-        // <package>/<template-name>; the server resolves both halves from the
-        // packages catalog. Present only on this command — `apply -f` stays
-        // on the direct manifest-parsing path so the two subcommands map
-        // 1:1 onto the two server endpoints.
-        var fromTemplateOption = new Option<string?>("--from-template")
-        {
-            Description = "Instantiate from a packaged template. Format: <package>/<template-name>.",
-        };
-        // #316 + #325: explicit unit name override for the template path.
-        // The positional 'name' stays the preferred entry on the direct-create
-        // path; --name is the spelling when --from-template is present (the
-        // positional would otherwise read ambiguously against the template
-        // basename). Either surfaces the same override on the request body.
-        var unitNameOption = new Option<string?>("--name")
-        {
-            Description = "Override the unit name when using --from-template. Required when no positional name is supplied.",
         };
         // #350: execution tool, provider, and hosting mode.
         var toolOption = new Option<string?>("--tool")
@@ -277,8 +252,6 @@ public static class UnitCommand
         command.Options.Add(descriptionOption);
         command.Options.Add(modelOption);
         command.Options.Add(colorOption);
-        command.Options.Add(fromTemplateOption);
-        command.Options.Add(unitNameOption);
         command.Options.Add(toolOption);
         command.Options.Add(providerOption);
         command.Options.Add(hostingOption);
@@ -296,8 +269,6 @@ public static class UnitCommand
             var description = parseResult.GetValue(descriptionOption);
             var model = parseResult.GetValue(modelOption);
             var color = parseResult.GetValue(colorOption);
-            var fromTemplate = parseResult.GetValue(fromTemplateOption);
-            var unitNameOverride = parseResult.GetValue(unitNameOption);
             var tool = parseResult.GetValue(toolOption);
             var provider = parseResult.GetValue(providerOption);
             var hosting = parseResult.GetValue(hostingOption);
@@ -366,53 +337,14 @@ public static class UnitCommand
                 return;
             }
 
-            if (!string.IsNullOrWhiteSpace(fromTemplate))
-            {
-                // --from-template path: positional 'name' is reinterpreted as
-                // the override when --name is absent. This keeps the shell
-                // ergonomics close to the direct-create form while the flag
-                // spelling stays explicit for scripts.
-                //
-                // #460: this flag is deprecated in favour of the first-class
-                // `spring unit create-from-template` verb. The flag keeps
-                // working verbatim so existing scripts are not broken; we
-                // just nudge operators towards the new spelling in stderr
-                // so docs / onboarding mat
-                // erial can move off the flag.
-                await Console.Error.WriteLineAsync(
-                    "warning: `spring unit create --from-template` is deprecated. " +
-                    "Use `spring unit create-from-template <package>/<template> [--name ...]` instead.");
-
-                var effectiveUnitName = !string.IsNullOrWhiteSpace(unitNameOverride)
-                    ? unitNameOverride
-                    : positionalName;
-
-                var exitCode = await ExecuteCreateFromTemplateAsync(
-                    fromTemplate!,
-                    effectiveUnitName,
-                    displayName,
-                    model,
-                    color,
-                    tool,
-                    provider,
-                    hosting,
-                    output,
-                    credentialResolution,
-                    ct,
-                    parentUnitIds: parentUnits.Length > 0 ? parentUnits : null,
-                    isTopLevel: topLevel);
-                if (exitCode != 0)
-                {
-                    Environment.Exit(exitCode);
-                }
-                return;
-            }
-
-            // Direct-create path: positional 'name' is required.
+            // ADR-0035 decision 4: `--from-template` is removed. To install a
+            // package, use `spring package install`. To create a unit from scratch,
+            // supply the unit name as the positional argument.
             if (string.IsNullOrWhiteSpace(positionalName))
             {
                 await Console.Error.WriteLineAsync(
-                    "Missing unit name. Supply it as the first argument, or use --from-template <package>/<name> to instantiate a template.");
+                    "Missing unit name. Supply it as the first argument. "
+                    + "To install a package, use 'spring package install <package-name>'.");
                 Environment.Exit(1);
                 return;
             }
@@ -755,400 +687,6 @@ public static class UnitCommand
             && string.Equals(problem.Title, LastMembershipConflictTitle, StringComparison.Ordinal);
     }
 
-    /// <summary>
-    /// First-class <c>spring unit create-from-template &lt;package&gt;/&lt;template-name&gt;</c>
-    /// verb (#460). Mirrors the legacy <c>--from-template</c> flag on
-    /// <c>create</c> but surfaces template instantiation as a distinct verb
-    /// so <c>create</c>'s argument tree stays about "direct create" shape and
-    /// help output is easier to read. Shares the same HTTP surface
-    /// (<c>POST /api/v1/units/from-template</c>) via a common executor so the
-    /// two entry points never drift.
-    /// </summary>
-    private static Command CreateCreateFromTemplateCommand(Option<string> outputOption)
-    {
-        var targetArg = new Argument<string>("target")
-        {
-            Description = "Template reference in the form <package>/<template-name>.",
-        };
-        var unitNameOption = new Option<string?>("--name")
-        {
-            Description =
-                "Override the unit name. Defaults to the manifest-derived name; pass this " +
-                "when instantiating the same template multiple times so the address paths don't collide.",
-        };
-        var displayNameOption = new Option<string?>("--display-name")
-        {
-            Description = "Human-readable display name (falls back to the template's default).",
-        };
-        // Alias --display alongside --display-name for shell ergonomics. The
-        // tracking issue spells the flag as --display; --display-name is the
-        // existing convention on `spring unit create`, so we accept both.
-        displayNameOption.Aliases.Add("--display");
-        var modelOption = new Option<string?>("--model")
-        {
-            Description =
-                "Optional LLM model identifier override (e.g. claude-sonnet-4-6). " +
-                "Accepted as opaque for every tool that carries a known provider " +
-                "(claude-code / codex / gemini / dapr-agent); validation happens at unit activation.",
-        };
-        var colorOption = new Option<string?>("--color")
-        {
-            Description = "Optional UI accent colour hint (e.g. #6366f1).",
-        };
-        var toolOption = new Option<string?>("--tool")
-        {
-            Description = "Execution tool (claude-code, codex, gemini, dapr-agent, custom).",
-        };
-        toolOption.AcceptOnlyFromAmong("claude-code", "codex", "gemini", "dapr-agent", "custom");
-        var providerOption = new Option<string?>("--provider")
-        {
-            Description = "LLM provider (ollama, openai, google, anthropic, claude).",
-        };
-        providerOption.AcceptOnlyFromAmong("ollama", "openai", "google", "anthropic", "claude");
-        var hostingOption = new Option<string?>("--hosting")
-        {
-            Description = "Agent hosting mode (ephemeral, persistent).",
-        };
-        hostingOption.AcceptOnlyFromAmong("ephemeral", "persistent");
-
-        // #626: inline credential entry (same semantics as `unit create`).
-        var apiKeyOption = new Option<string?>("--api-key")
-        {
-            Description =
-                "LLM API key for the derived provider (set inline). Rejected when the tool / provider has no key (ollama, custom). Mutually exclusive with --api-key-from-file.",
-        };
-        var apiKeyFromFileOption = new Option<string?>("--api-key-from-file")
-        {
-            Description =
-                "Path to a file containing the LLM API key. Trailing newlines are stripped. Mutually exclusive with --api-key.",
-        };
-        var saveAsTenantDefaultOption = new Option<bool>("--save-as-tenant-default")
-        {
-            Description =
-                "Pair with --api-key / --api-key-from-file to write the key as a tenant-default secret instead of a unit-scoped secret.",
-        };
-
-        // Review feedback on #744: parent-required flags (repeated on the
-        // template path so the two entry points stay in lock-step).
-        var parentUnitOption = new Option<string[]>("--parent-unit")
-        {
-            Description = "Parent unit to attach the new unit to. Repeat for multiple parents. "
-                + "Mutually exclusive with --top-level; exactly one of the two forms is required.",
-            AllowMultipleArgumentsPerToken = true,
-        };
-        var topLevelOption = new Option<bool>("--top-level")
-        {
-            Description = "Mark the new unit as a top-level unit (parent = tenant). "
-                + "Mutually exclusive with --parent-unit.",
-        };
-
-        // #1419: GitHub connector binding at template-instantiation time.
-        // These flags correspond exactly to the wizard's Connector step (Step 4)
-        // for the GitHub connector, so wizard ↔ CLI parity is maintained for the
-        // software-engineering and product-management templates.
-        // Both --github-owner and --github-repo must be supplied together, or
-        // both omitted (no partial binding). The CLI validates this at action time
-        // so the error message is actionable rather than a Kiota HTTP 400.
-        var githubOwnerOption = new Option<string?>("--github-owner")
-        {
-            Description =
-                "GitHub repository owner (org or user) for the GitHub connector binding. " +
-                "Requires --github-repo. When supplied, the unit is created with the GitHub " +
-                "connector bound atomically — equivalent to the wizard's Connector step.",
-        };
-        var githubRepoOption = new Option<string?>("--github-repo")
-        {
-            Description =
-                "GitHub repository name for the GitHub connector binding. " +
-                "Requires --github-owner.",
-        };
-        var githubInstallationIdOption = new Option<string?>("--github-installation-id")
-        {
-            Description =
-                "Optional GitHub App installation id. When omitted the server uses the App-level default.",
-        };
-        var githubEventsOption = new Option<string[]?>("--github-events")
-        {
-            Description =
-                "Optional webhook events to subscribe to (repeatable). " +
-                "When omitted the connector's default event set applies. " +
-                "Example: --github-events issues --github-events pull_request",
-            AllowMultipleArgumentsPerToken = true,
-        };
-        var githubReviewerOption = new Option<string?>("--github-reviewer")
-        {
-            Description =
-                "Optional default reviewer (GitHub login) used for human-review handoffs. " +
-                "When omitted the connector falls back to its installation default.",
-        };
-
-        var command = new Command(
-            "create-from-template",
-            "Instantiate a unit from a packaged template. First-class verb equivalent to the " +
-            "deprecated `spring unit create --from-template <package>/<template>` flag.\n\n" +
-            "GitHub connector: to bind the GitHub connector at creation time " +
-            "(equivalent to the wizard's Connector step) supply --github-owner and --github-repo. " +
-            "The binding is applied atomically — if it fails the unit is rolled back and nothing is persisted.");
-        command.Arguments.Add(targetArg);
-        command.Options.Add(unitNameOption);
-        command.Options.Add(displayNameOption);
-        command.Options.Add(modelOption);
-        command.Options.Add(colorOption);
-        command.Options.Add(toolOption);
-        command.Options.Add(providerOption);
-        command.Options.Add(hostingOption);
-        command.Options.Add(apiKeyOption);
-        command.Options.Add(apiKeyFromFileOption);
-        command.Options.Add(saveAsTenantDefaultOption);
-        command.Options.Add(parentUnitOption);
-        command.Options.Add(topLevelOption);
-        command.Options.Add(githubOwnerOption);
-        command.Options.Add(githubRepoOption);
-        command.Options.Add(githubInstallationIdOption);
-        command.Options.Add(githubEventsOption);
-        command.Options.Add(githubReviewerOption);
-
-        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
-        {
-            var target = parseResult.GetValue(targetArg)!;
-            var unitName = parseResult.GetValue(unitNameOption);
-            var displayName = parseResult.GetValue(displayNameOption);
-            var model = parseResult.GetValue(modelOption);
-            var color = parseResult.GetValue(colorOption);
-            var tool = parseResult.GetValue(toolOption);
-            var provider = parseResult.GetValue(providerOption);
-            var hosting = parseResult.GetValue(hostingOption);
-            var apiKey = parseResult.GetValue(apiKeyOption);
-            var apiKeyFromFile = parseResult.GetValue(apiKeyFromFileOption);
-            var saveAsTenantDefault = parseResult.GetValue(saveAsTenantDefaultOption);
-            var parentUnits = (parseResult.GetValue(parentUnitOption) ?? Array.Empty<string>())
-                .Where(p => !string.IsNullOrWhiteSpace(p))
-                .Select(p => p.Trim())
-                .ToArray();
-            var topLevel = parseResult.GetValue(topLevelOption);
-            var githubOwner = parseResult.GetValue(githubOwnerOption);
-            var githubRepo = parseResult.GetValue(githubRepoOption);
-            var githubInstallationId = parseResult.GetValue(githubInstallationIdOption);
-            var githubEvents = parseResult.GetValue(githubEventsOption);
-            var githubReviewer = parseResult.GetValue(githubReviewerOption);
-            var output = parseResult.GetValue(outputOption) ?? "table";
-
-            // Review feedback on #744: reject neither / both at parse time
-            // so callers see a local error instead of the server's 400.
-            if (topLevel && parentUnits.Length > 0)
-            {
-                await Console.Error.WriteLineAsync(
-                    "--top-level and --parent-unit are mutually exclusive. Supply exactly one.");
-                Environment.Exit(1);
-                return;
-            }
-            if (!topLevel && parentUnits.Length == 0)
-            {
-                await Console.Error.WriteLineAsync(
-                    "Every unit must have a parent. Supply one or more --parent-unit <id> flags, "
-                    + "or pass --top-level to attach the unit directly to the tenant.");
-                Environment.Exit(1);
-                return;
-            }
-
-            // #1419: validate GitHub connector flag pairing. Both owner + repo must
-            // be supplied together; a partial binding would leave the unit in an
-            // ambiguous state the server would reject with a 400 anyway.
-            var githubOwnerSupplied = !string.IsNullOrWhiteSpace(githubOwner);
-            var githubRepoSupplied = !string.IsNullOrWhiteSpace(githubRepo);
-            if (githubOwnerSupplied != githubRepoSupplied)
-            {
-                await Console.Error.WriteLineAsync(
-                    "--github-owner and --github-repo must be supplied together. " +
-                    "Example: spring unit create-from-template software-engineering/engineering-team " +
-                    "--github-owner acme --github-repo platform --top-level");
-                Environment.Exit(1);
-                return;
-            }
-
-            // #598 + #644: same gate applies to the template path —
-            // --provider rejected for non-dapr-agent, both rejected for
-            // custom, --model accepted for every known-provider tool.
-            var providerModelError = ValidateProviderModelAgainstTool(tool, provider, model);
-            if (providerModelError is not null)
-            {
-                await Console.Error.WriteLineAsync(providerModelError);
-                Environment.Exit(1);
-                return;
-            }
-
-            // #742: secret name comes from the agent-runtime payload —
-            // see RuntimeSecretNameResolver below.
-            var credentialClient = ClientFactory.Create();
-            var credentialResolution = await ResolveCredentialOptionsAsync(
-                tool,
-                provider,
-                apiKey,
-                apiKeyFromFile,
-                saveAsTenantDefault,
-                RuntimeSecretNameResolver(credentialClient),
-                ct);
-            if (credentialResolution.ErrorMessage is not null)
-            {
-                await Console.Error.WriteLineAsync(credentialResolution.ErrorMessage);
-                Environment.Exit(1);
-                return;
-            }
-
-            // #1419: build the GitHub connector binding when owner + repo were supplied.
-            UnitConnectorBindingRequest? connectorBinding = null;
-            if (githubOwnerSupplied && githubRepoSupplied)
-            {
-                connectorBinding = SpringApiClient.BuildGitHubConnectorBinding(
-                    githubOwner!.Trim(),
-                    githubRepo!.Trim(),
-                    githubInstallationId,
-                    githubEvents,
-                    githubReviewer);
-            }
-
-            var exitCode = await ExecuteCreateFromTemplateAsync(
-                target,
-                unitName,
-                displayName,
-                model,
-                color,
-                tool,
-                provider,
-                hosting,
-                output,
-                credentialResolution,
-                ct,
-                parentUnitIds: parentUnits.Length > 0 ? parentUnits : null,
-                isTopLevel: topLevel,
-                connector: connectorBinding);
-            if (exitCode != 0)
-            {
-                Environment.Exit(exitCode);
-            }
-        });
-
-        return command;
-    }
-
-    /// <summary>
-    /// Executes <c>POST /api/v1/units/from-template</c> with the supplied
-    /// inputs and renders the response in the requested output format.
-    /// Shared by both the legacy <c>--from-template</c> flag on
-    /// <c>create</c> and the new first-class <c>create-from-template</c>
-    /// verb so the two paths cannot drift on warnings / rendering / error
-    /// handling.
-    /// </summary>
-    private static async Task<int> ExecuteCreateFromTemplateAsync(
-        string target,
-        string? unitName,
-        string? displayName,
-        string? model,
-        string? color,
-        string? tool,
-        string? provider,
-        string? hosting,
-        string output,
-        UnitCredentialOptions credential,
-        CancellationToken ct,
-        IReadOnlyList<string>? parentUnitIds = null,
-        bool isTopLevel = false,
-        UnitConnectorBindingRequest? connector = null)
-    {
-        var slash = target.IndexOf('/');
-        if (slash <= 0 || slash == target.Length - 1)
-        {
-            await Console.Error.WriteLineAsync(
-                "Template reference must be in the form <package>/<template-name>.");
-            return 1;
-        }
-
-        var package = target[..slash];
-        var templateName = target[(slash + 1)..];
-
-        var client = ClientFactory.Create();
-
-        // #626: tenant-default secret is written BEFORE the unit exists.
-        // Fails the whole command if the tenant write fails.
-        if (credential is { Key.Length: > 0, SaveAsTenantDefault: true, SecretName: not null })
-        {
-            try
-            {
-                await client.CreateTenantSecretAsync(
-                    credential.SecretName,
-                    credential.Key,
-                    externalStoreKey: null,
-                    ct);
-            }
-            catch (Exception ex)
-            {
-                await Console.Error.WriteLineAsync(
-                    $"Failed to write tenant default '{credential.SecretName}': {Utilities.ProblemDetailsFormatter.Format(ex)}");
-                return 1;
-            }
-        }
-
-        var response = await client.CreateUnitFromTemplateAsync(
-            package,
-            templateName,
-            unitName: unitName,
-            displayName: displayName,
-            model: model,
-            color: color,
-            tool: tool,
-            provider: provider,
-            hosting: hosting,
-            parentUnitIds: parentUnitIds,
-            isTopLevel: isTopLevel ? true : null,
-            connector: connector,
-            ct: ct);
-
-        // #626: unit-scoped secret is written AFTER the unit exists.
-        // Failure here surfaces as a warning — the unit is already live
-        // and the operator can retry from the Secrets tab / CLI.
-        var createdUnitName = response.Unit?.Name;
-        if (credential is { Key.Length: > 0, SaveAsTenantDefault: false, SecretName: not null }
-            && !string.IsNullOrWhiteSpace(createdUnitName))
-        {
-            try
-            {
-                await client.CreateUnitSecretAsync(
-                    createdUnitName!,
-                    credential.SecretName,
-                    credential.Key,
-                    externalStoreKey: null,
-                    ct);
-            }
-            catch (Exception ex)
-            {
-                await Console.Error.WriteLineAsync(
-                    $"warning: unit secret '{credential.SecretName}' not written: {Utilities.ProblemDetailsFormatter.Format(ex)}");
-            }
-        }
-
-        // Surface server-side warnings (unresolved bundle tools, binding
-        // previews) on both output paths so callers never miss them.
-        if (response.Warnings is { Count: > 0 } warnings)
-        {
-            foreach (var warning in warnings)
-            {
-                await Console.Error.WriteLineAsync($"warning: {warning}");
-            }
-        }
-
-        if (output == "json")
-        {
-            Console.WriteLine(OutputFormatter.FormatJson(response));
-        }
-        else
-        {
-            var unit = response.Unit
-                ?? throw new InvalidOperationException(
-                    "Server returned a from-template response with no unit envelope.");
-            Console.WriteLine(OutputFormatter.FormatTable(unit, UnitColumns));
-        }
-        return 0;
-    }
 
     private static Command CreateDeleteCommand()
     {
