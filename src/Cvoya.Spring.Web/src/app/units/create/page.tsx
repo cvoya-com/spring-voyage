@@ -1262,16 +1262,17 @@ export default function CreateUnitPage() {
       }
 
       const now = new Date().toISOString();
-      return {
+      const synthesised: InstallStatusResponse = {
         installId: `scratch:${created.name}`,
         status: "active",
         packages: [
-          { packageName: created.name, status: "active", error: null },
+          { packageName: created.name, state: "active", errorMessage: null },
         ],
         startedAt: now,
         completedAt: now,
         error: null,
-      } as unknown as InstallStatusResponse;
+      };
+      return synthesised;
     },
     onMutate: () => {
       setSubmitError(null);
