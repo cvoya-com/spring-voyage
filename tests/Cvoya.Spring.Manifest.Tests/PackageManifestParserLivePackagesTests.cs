@@ -6,6 +6,7 @@ namespace Cvoya.Spring.Manifest.Tests;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 
 using Shouldly;
@@ -117,6 +118,18 @@ public class PackageManifestParserLivePackagesTests
         result.Units.ShouldContain(u => u.Name == "sv-oss-program-management");
         result.Units.ShouldAllBe(u => !u.IsCrossPackage);
         result.Units.ShouldAllBe(u => u.Content != null);
+
+        // Sub-unit connector configs must carry substituted values — no literal
+        // ${{ expressions should survive into the resolved artefact content.
+        result.Units.ShouldAllBe(u => !u.Content!.Contains("${{"));
+
+        // The three connector-bearing sub-units must have concrete values.
+        var connectorUnits = result.Units
+            .Where(u => u.Name != "spring-voyage-oss")  // root unit has no connectors
+            .ToList();
+        connectorUnits.ShouldAllBe(u => u.Content!.Contains("cvoya-com"));
+        connectorUnits.ShouldAllBe(u => u.Content!.Contains("spring-voyage"));
+        connectorUnits.ShouldAllBe(u => u.Content!.Contains("12345678"));
 
         // Three required inputs resolved.
         result.InputValues.Count.ShouldBe(3);

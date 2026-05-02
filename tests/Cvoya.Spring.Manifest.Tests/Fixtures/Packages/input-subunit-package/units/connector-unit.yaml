@@ -1,0 +1,8 @@
+unit:
+  name: connector-unit
+  description: Sub-unit whose connector config uses input expressions.
+  connectors:
+    - type: github
+      config:
+        owner: ${{ inputs.github_owner }}
+        repo: ${{ inputs.github_repo }}

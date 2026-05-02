@@ -1,0 +1,5 @@
+unit:
+  name: root-unit
+  description: Root unit for input-subunit-package.
+  members:
+    - unit: connector-unit

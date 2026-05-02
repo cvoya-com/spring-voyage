@@ -136,9 +136,11 @@ public static class PackageManifestParser
         // Step 6: Validate name uniqueness.
         ValidateNameUniqueness(allRefs);
 
-        // Step 7: Resolve all references.
+        // Step 7: Resolve all references (passing input schema + values so
+        // within-package local artefact bodies get the same substitution pass).
         var resolved = await ResolveReferencesAsync(
-            allRefs, packageRoot, catalogProvider, cancellationToken).ConfigureAwait(false);
+            allRefs, packageRoot, manifest.Inputs ?? [], inputValues,
+            catalogProvider, cancellationToken).ConfigureAwait(false);
 
         // Step 8: Detect cycles.
         DetectCycles(resolved);
@@ -390,6 +392,8 @@ public static class PackageManifestParser
     private static async Task<List<RefResolution>> ResolveReferencesAsync(
         List<ArtefactReference> refs,
         string? packageRoot,
+        IReadOnlyList<PackageInputDefinition> inputSchema,
+        IReadOnlyDictionary<string, string> inputValues,
         IPackageCatalogProvider? catalogProvider,
         CancellationToken cancellationToken)
     {
@@ -414,12 +418,15 @@ public static class PackageManifestParser
             ResolvedArtefact artefact;
             if (r.IsCrossPackage)
             {
+                // Cross-package artefacts are resolved via the catalog provider;
+                // their bodies are NOT substituted with this package's inputs —
+                // substitution happens at that package's own install time.
                 artefact = await ResolveCrossPackageAsync(r, catalogProvider, cancellationToken)
                     .ConfigureAwait(false);
             }
             else
             {
-                artefact = ResolveLocal(r, packageRoot!);
+                artefact = ResolveLocal(r, packageRoot!, inputSchema, inputValues);
             }
 
             result.Add(new RefResolution(r, artefact));
@@ -433,7 +440,11 @@ public static class PackageManifestParser
         return result;
     }
 
-    private static ResolvedArtefact ResolveLocal(ArtefactReference r, string packageRoot)
+    private static ResolvedArtefact ResolveLocal(
+        ArtefactReference r,
+        string packageRoot,
+        IReadOnlyList<PackageInputDefinition> inputSchema,
+        IReadOnlyDictionary<string, string> inputValues)
     {
         var (subDir, extension) = r.Kind switch
         {
@@ -485,7 +496,14 @@ public static class PackageManifestParser
                 }
             }
 
-            content = File.ReadAllText(resolvedPath);
+            var rawContent = File.ReadAllText(resolvedPath);
+
+            // Apply ${{ inputs.* }} substitution to within-package artefact
+            // bodies using the same schema and values as the root package.yaml.
+            // This ensures connector configs and other fields in sub-unit YAMLs
+            // carry concrete values, not literal expression strings, when the
+            // resolved artefact reaches the activator.
+            content = SubstituteInputs(rawContent, inputSchema, inputValues);
         }
 
         return new ResolvedArtefact
