@@ -259,8 +259,12 @@ export function EngagementDetail({ threadId }: EngagementDetailProps) {
         />
       )}
 
-      {/* Timeline — always visible (read-only for observers) */}
-      <div className="flex-1 min-h-0 overflow-hidden">
+      {/* Timeline — always visible (read-only for observers).
+          The wrapper is a flex column so ConversationView's `flex-1`
+          outer div grows to fill the available height. Without that,
+          the inner `overflow-y-auto` events list has no constrained
+          height and the timeline does not scroll (#1574 follow-up). */}
+      <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
         <EngagementTimeline threadId={threadId} />
       </div>
 

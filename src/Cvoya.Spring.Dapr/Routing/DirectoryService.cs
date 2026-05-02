@@ -547,6 +547,15 @@ public class DirectoryService(
     private async Task<DirectoryEntry?> LoadFromDatabaseAsync(Address address, CancellationToken cancellationToken)
     {
         var scheme = address.Scheme;
+        // When the navigation-form path is a UUID (e.g. participant lists
+        // produced from activity-event sources where the actor is keyed by
+        // its stable UUID, post-#1491), look it up by ActorId in addition
+        // to AgentId/UnitId. Without this fallback the engagement portal
+        // and inbox composer fail with 404 — they derive recipients from
+        // the thread's participants, which can carry UUID-pathed addresses,
+        // while the unit/agent Messages tab works because it sources the
+        // path from the slug-keyed URL (#1574 follow-up).
+        var pathIsUuid = Guid.TryParse(address.Path, out _);
 
         if (string.Equals(scheme, "unit", StringComparison.OrdinalIgnoreCase))
         {
@@ -555,6 +564,13 @@ public class DirectoryService(
             var entity = await db.UnitDefinitions
                 .AsNoTracking()
                 .FirstOrDefaultAsync(u => u.UnitId == address.Path, cancellationToken);
+
+            if (entity is null && pathIsUuid)
+            {
+                entity = await db.UnitDefinitions
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(u => u.ActorId == address.Path, cancellationToken);
+            }
 
             if (entity is not null)
             {
@@ -574,6 +590,13 @@ public class DirectoryService(
             var entity = await db.AgentDefinitions
                 .AsNoTracking()
                 .FirstOrDefaultAsync(a => a.AgentId == address.Path, cancellationToken);
+
+            if (entity is null && pathIsUuid)
+            {
+                entity = await db.AgentDefinitions
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(a => a.ActorId == address.Path, cancellationToken);
+            }
 
             if (entity is not null)
             {
