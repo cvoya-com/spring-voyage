@@ -83,13 +83,16 @@ RUN npm install -g "@google/gemini-cli@${GEMINI_CLI_VERSION}" \
 #    Python 3 and pip are already present from the base image (debian:12-slim
 #    with python3/python3-pip installed in Dockerfile.agent-base).
 COPY agents/dapr-agent/requirements.txt /tmp/dapr-agent-requirements.txt
-RUN pip install --no-cache-dir -r /tmp/dapr-agent-requirements.txt \
+# --break-system-packages: the base image installs python3/python3-pip via apt
+# (debian:12-slim), which marks the environment externally-managed (PEP 668).
+# Aligns with Dockerfile.agent.dapr's approach; safe in a container layer.
+RUN pip install --no-cache-dir --break-system-packages -r /tmp/dapr-agent-requirements.txt \
  && rm /tmp/dapr-agent-requirements.txt
 
 # Install the Spring Voyage Agent SDK from source (same pattern as
 # Dockerfile.agent.dapr — the SDK isn't on PyPI yet).
 COPY agents/spring-voyage-agent /tmp/spring-voyage-agent
-RUN pip install --no-cache-dir /tmp/spring-voyage-agent \
+RUN pip install --no-cache-dir --break-system-packages /tmp/spring-voyage-agent \
  && rm -rf /tmp/spring-voyage-agent
 
 # Copy the dapr-agent Python source into /opt/spring-voyage/dapr-agent so
