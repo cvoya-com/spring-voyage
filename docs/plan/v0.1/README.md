@@ -74,6 +74,13 @@ Pre-work ✅  (rename V2 → v0.1; drop V2.1; retire stale umbrellas)
 
 C and B each had two phases — audit/decision early (parallelisable), freeze/rewrite after architectural settling. Both are now complete.
 
+## Cross-cutting umbrellas (post-kickoff)
+
+Two v0.1 blockers surfaced mid-flight and do not map onto a single A–J area; both are tracked under their own umbrellas:
+
+- **[#1554](https://github.com/cvoya-com/spring-voyage/issues/1554) — Package as the unit of bundling, installation, and export.** Collapses the *template* / *package* split, lands atomic multi-unit install, and rewires the new-unit / new-agent wizards onto one install pipeline. Forcing function: [#1530](https://github.com/cvoya-com/spring-voyage/issues/1530) (the OSS dogfooding package's README promises capabilities the v0.1 install path does not yet have). Locked in [ADR-0035](../../decisions/0035-package-as-bundling-unit.md).
+- **[#1556](https://github.com/cvoya-com/spring-voyage/issues/1556) — v0.1 documentation reality audit.** Concept / guide / architecture / package READMEs swept for "describes-current-implementation vs aspirational" drift; convention added that aspirational content lives in `docs/plan/` or carries an explicit "Planned" callout.
+
 ## Workflow
 
 - **Per-area planning session** produces or updates `areas/<x>.md` via PR.

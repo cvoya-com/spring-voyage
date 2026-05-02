@@ -45,6 +45,8 @@ For open design questions that have **not** yet been decided, see [`../architect
 | [0030](0030-thread-model.md) | Thread model: participant-set identity, single AgentMemory, per-thread visibility policy | Accepted — supersedes [0018](0018-partitioned-mailbox.md) |
 | [0032](0032-drawer-panel-extension-slot.md) | Drawer-panel extension slot pattern (contract, ordering, CLI parity) | Accepted — `DrawerPanel` contract + ordering + CLI parity rule |
 | [0033](0033-two-portal-architecture.md) | Two-portal architecture (Management Portal + Engagement Portal over the same Web API) | Accepted — separate parent routes, shared session + API client, no portal-private API, CLI parity mandatory |
+| [0034](0034-oss-dogfooding-unit.md) | Spring Voyage OSS dogfooding unit (role decomposition, image strategy, hosting, identity) | Accepted — four role sub-units, omnibus-derivative images, `permanent` hosting, atomic GitHub-App binding |
+| [0035](0035-package-as-bundling-unit.md) | Package as the unit of bundling, installation, and export | Accepted — one concept, two-phase atomic install, uniform cross-package composition, global catalog / tenant-scoped installs, multi-package batch |
 
 ## Format
 
