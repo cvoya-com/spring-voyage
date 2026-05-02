@@ -2622,6 +2622,50 @@
         }
       }
     },
+    "/api/v1/tenant/packages/export": {
+      "post": {
+        "tags": [
+          "Packages"
+        ],
+        "summary": "Export an installed package back to its original package.yaml manifest. Supply either unitName or installId (not both). Use withValues=true to materialise resolved input values; secret inputs are emitted as placeholder references, never as cleartext.",
+        "operationId": "ExportPackage",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PackageExportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tenant/messages": {
       "post": {
         "tags": [
@@ -10818,6 +10862,27 @@
             "items": {
               "$ref": "#/components/schemas/WorkflowSummary"
             }
+          }
+        }
+      },
+      "PackageExportRequest": {
+        "type": "object",
+        "properties": {
+          "unitName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "installId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "withValues": {
+            "type": "boolean"
           }
         }
       },

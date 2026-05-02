@@ -31,6 +31,7 @@ public static class ServiceCollectionExtensions
         services.TryAddScoped<IUnitCreationService, UnitCreationService>();
         services.TryAddScoped<IPackageArtefactActivator, DefaultPackageArtefactActivator>();
         services.TryAddScoped<IPackageInstallService, PackageInstallService>();
+        services.TryAddScoped<IPackageExportService, PackageExportService>();
         services.TryAddScoped<IAuthenticatedCallerAccessor, AuthenticatedCallerAccessor>();
 
         // Participant display-name resolution (#1485). Registered as scoped so the

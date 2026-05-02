@@ -306,6 +306,7 @@ try
     app.MapUnitPolicyEndpoints().RequireAuthorization(RolePolicies.TenantUser);
     app.MapMembershipEndpoints().RequireAuthorization(RolePolicies.TenantUser);
     app.MapPackageEndpoints().RequireAuthorization(RolePolicies.TenantUser);
+    app.MapPackageExportEndpoints().RequireAuthorization(RolePolicies.TenantUser);
     app.MapMessageEndpoints().RequireAuthorization(RolePolicies.TenantUser);
     app.MapDirectoryEndpoints().RequireAuthorization(RolePolicies.TenantUser);
     app.MapExpertiseEndpoints();
