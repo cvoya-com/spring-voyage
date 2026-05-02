@@ -1,0 +1,6 @@
+apiVersion: spring.voyage/v1
+kind: UnitPackage
+metadata:
+  name: product-management
+  description: Product squad — product management and design shaping and prioritising work.
+unit: product-squad

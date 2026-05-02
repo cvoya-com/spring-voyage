@@ -1,0 +1,17 @@
+apiVersion: spring.voyage/v1
+kind: UnitPackage
+metadata:
+  name: input-subunit-package
+  description: A package whose sub-unit YAMLs reference inputs in connector config.
+inputs:
+  - name: github_owner
+    type: string
+    required: true
+    description: GitHub organisation or user name.
+  - name: github_repo
+    type: string
+    required: true
+    description: GitHub repository name.
+unit: root-unit
+subUnits:
+  - connector-unit

@@ -457,6 +457,166 @@ public class PackageManifestParserResolveTests
     // ---- Test 11: Backward compat — old unit YAML parsed via ManifestParser ----
     // (Covered in PackageManifestParserRawTests.ManifestParser_OldSingleUnitYaml_StillParses)
 
+    // ---- Tests 12–14: Sub-unit input substitution ----------------------
+
+    /// <summary>
+    /// Within-package sub-unit YAML bodies get the same <c>${{ inputs.* }}</c>
+    /// substitution pass as the root package.yaml (ADR-0035 decision 8).
+    /// </summary>
+    [Fact]
+    public async Task ParseAndResolveAsync_SubUnitWithInputExpressions_SubstitutesCorrectly()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var root = FixturePackageRoot("input-subunit-package");
+        var yaml = await File.ReadAllTextAsync(Path.Combine(root, "package.yaml"), ct);
+
+        var inputValues = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["github_owner"] = "acme",
+            ["github_repo"] = "my-repo",
+        };
+
+        var result = await PackageManifestParser.ParseAndResolveAsync(
+            yaml, root, inputValues, cancellationToken: ct);
+
+        result.Units.Count.ShouldBe(2);
+        result.Units.ShouldContain(u => u.Name == "connector-unit");
+        var connectorUnit = result.Units.Single(u => u.Name == "connector-unit");
+        connectorUnit.Content.ShouldNotBeNull();
+
+        // Concrete values must appear; literal expression strings must not.
+        connectorUnit.Content!.ShouldContain("acme");
+        connectorUnit.Content.ShouldContain("my-repo");
+        connectorUnit.Content.ShouldNotContain("${{");
+    }
+
+    /// <summary>
+    /// A sub-unit YAML referencing an input not declared on the package fails
+    /// with the same actionable error as an undeclared input in the root manifest.
+    /// </summary>
+    [Fact]
+    public async Task ParseAndResolveAsync_SubUnitUndeclaredInput_ThrowsActionableError()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var tmpDir = new TempDirectory();
+        Directory.CreateDirectory(Path.Combine(tmpDir.Path, "units"));
+
+        // Sub-unit references ${{ inputs.unknown_input }} which is not in the package schema.
+        await File.WriteAllTextAsync(
+            Path.Combine(tmpDir.Path, "units", "root-unit.yaml"),
+            "unit:\n  name: root-unit\n  config:\n    key: ${{ inputs.unknown_input }}\n",
+            ct);
+
+        var yaml = """
+            apiVersion: spring.voyage/v1
+            kind: UnitPackage
+            metadata:
+              name: bad-pkg
+            inputs:
+              - name: my_input
+                type: string
+                required: true
+            unit: root-unit
+            """;
+
+        var inputValues = new Dictionary<string, string> { ["my_input"] = "value" };
+
+        var ex = await Should.ThrowAsync<PackageInputValidationException>(
+            () => PackageManifestParser.ParseAndResolveAsync(
+                yaml, tmpDir.Path, inputValues, cancellationToken: ct));
+
+        ex.InputName.ShouldBe("unknown_input");
+        ex.Message.ShouldContain("unknown_input");
+        ex.Message.ShouldContain("undeclared");
+    }
+
+    /// <summary>
+    /// Cross-package artefact bodies that contain <c>${{ inputs.* }}</c>
+    /// expressions must be rejected with an actionable error. Each install is
+    /// independent — the consuming package does not share its input scope with
+    /// the referenced package, and prior installs of the referenced package are
+    /// not reused. A cross-package artefact that relies on input expressions is
+    /// therefore unresolvable and indicates a broken artefact definition.
+    /// </summary>
+    [Fact]
+    public async Task ParseAndResolveAsync_CrossPackageSubUnitWithInputExpressions_ThrowsSelfContainedError()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        const string crossPkgBody =
+            "unit:\n  name: shared-unit\n  config:\n    key: ${{ inputs.foo }}\n";
+
+        var catalogProvider = new StubCatalogProvider()
+            .AddArtefact("pkg-b", ArtefactKind.Unit, "shared-unit", crossPkgBody);
+
+        var yaml = """
+            apiVersion: spring.voyage/v1
+            kind: UnitPackage
+            metadata:
+              name: pkg-a
+            inputs:
+              - name: bar
+                type: string
+                required: true
+            unit: pkg-b/shared-unit
+            """;
+
+        var inputValues = new Dictionary<string, string> { ["bar"] = "baz" };
+
+        var ex = await Should.ThrowAsync<CrossPackageArtefactNotSelfContainedException>(
+            () => PackageManifestParser.ParseAndResolveAsync(
+                yaml, "/tmp/fake-root", inputValues, catalogProvider: catalogProvider,
+                cancellationToken: ct));
+
+        ex.Reference.ShouldBe("pkg-b/shared-unit");
+        ex.Message.ShouldContain("pkg-b/shared-unit");
+        ex.Message.ShouldContain("self-contained");
+    }
+
+    /// <summary>
+    /// Cross-package artefact bodies that contain no <c>${{ inputs.* }}</c>
+    /// expressions resolve to the catalog's exact content unchanged.
+    /// </summary>
+    [Fact]
+    public async Task ParseAndResolveAsync_CrossPackageSubUnitSelfContained_ResolvesUnchanged()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        // Body is self-contained — no input expressions.
+        const string crossPkgBody =
+            "unit:\n  name: shared-unit\n  description: A cross-package unit.\n";
+
+        var catalogProvider = new StubCatalogProvider()
+            .AddArtefact("pkg-b", ArtefactKind.Unit, "shared-unit", crossPkgBody);
+
+        var yaml = """
+            apiVersion: spring.voyage/v1
+            kind: UnitPackage
+            metadata:
+              name: pkg-a
+            inputs:
+              - name: bar
+                type: string
+                required: true
+            unit: pkg-b/shared-unit
+            """;
+
+        var inputValues = new Dictionary<string, string> { ["bar"] = "baz" };
+
+        var result = await PackageManifestParser.ParseAndResolveAsync(
+            yaml, "/tmp/fake-root", inputValues, catalogProvider: catalogProvider,
+            cancellationToken: ct);
+
+        result.Units.Count.ShouldBe(1);
+        var unit = result.Units[0];
+        unit.IsCrossPackage.ShouldBeTrue();
+        unit.Name.ShouldBe("shared-unit");
+        unit.SourcePackage.ShouldBe("pkg-b");
+        unit.Content.ShouldNotBeNull();
+        // Byte-stable: catalog body must be returned unchanged.
+        unit.Content!.ShouldBe(crossPkgBody);
+    }
+
     // ---- Stub catalog provider ------------------------------------------
 
     private sealed class StubCatalogProvider : IPackageCatalogProvider

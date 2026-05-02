@@ -25,6 +25,9 @@ unit:
   connectors:
     - type: github
       config:
+        owner: ${{ inputs.github_owner }}
+        repo: ${{ inputs.github_repo }}
+        installation_id: ${{ inputs.github_installation_id }}
         events: ["issues", "issue_comment", "pull_request", "pull_request_review"]
   policies:
     communication: through-unit
