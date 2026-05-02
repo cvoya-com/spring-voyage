@@ -531,21 +531,18 @@ public class PackageManifestParserResolveTests
     }
 
     /// <summary>
-    /// Cross-package artefact bodies loaded via the catalog provider are NOT
-    /// substituted with this package's inputs. Substitution is scoped to
-    /// within-package local refs only; cross-package bodies resolve at the
-    /// other package's install time.
+    /// Cross-package artefact bodies that contain <c>${{ inputs.* }}</c>
+    /// expressions must be rejected with an actionable error. Each install is
+    /// independent — the consuming package does not share its input scope with
+    /// the referenced package, and prior installs of the referenced package are
+    /// not reused. A cross-package artefact that relies on input expressions is
+    /// therefore unresolvable and indicates a broken artefact definition.
     /// </summary>
     [Fact]
-    public async Task ParseAndResolveAsync_CrossPackageSubUnitBody_NotSubstituted()
+    public async Task ParseAndResolveAsync_CrossPackageSubUnitWithInputExpressions_ThrowsSelfContainedError()
     {
         var ct = TestContext.Current.CancellationToken;
 
-        // The cross-package body contains a ${{ inputs.foo }} expression that
-        // intentionally does NOT appear in package-a's input schema. If the
-        // parser incorrectly tried to substitute it using package-a's inputs it
-        // would throw PackageInputValidationException. The test asserts it does
-        // NOT throw — the literal expression is preserved in the resolved content.
         const string crossPkgBody =
             "unit:\n  name: shared-unit\n  config:\n    key: ${{ inputs.foo }}\n";
 
@@ -566,7 +563,46 @@ public class PackageManifestParserResolveTests
 
         var inputValues = new Dictionary<string, string> { ["bar"] = "baz" };
 
-        // Must NOT throw even though ${{ inputs.foo }} is undeclared in pkg-a.
+        var ex = await Should.ThrowAsync<CrossPackageArtefactNotSelfContainedException>(
+            () => PackageManifestParser.ParseAndResolveAsync(
+                yaml, "/tmp/fake-root", inputValues, catalogProvider: catalogProvider,
+                cancellationToken: ct));
+
+        ex.Reference.ShouldBe("pkg-b/shared-unit");
+        ex.Message.ShouldContain("pkg-b/shared-unit");
+        ex.Message.ShouldContain("self-contained");
+    }
+
+    /// <summary>
+    /// Cross-package artefact bodies that contain no <c>${{ inputs.* }}</c>
+    /// expressions resolve to the catalog's exact content unchanged.
+    /// </summary>
+    [Fact]
+    public async Task ParseAndResolveAsync_CrossPackageSubUnitSelfContained_ResolvesUnchanged()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        // Body is self-contained — no input expressions.
+        const string crossPkgBody =
+            "unit:\n  name: shared-unit\n  description: A cross-package unit.\n";
+
+        var catalogProvider = new StubCatalogProvider()
+            .AddArtefact("pkg-b", ArtefactKind.Unit, "shared-unit", crossPkgBody);
+
+        var yaml = """
+            apiVersion: spring.voyage/v1
+            kind: UnitPackage
+            metadata:
+              name: pkg-a
+            inputs:
+              - name: bar
+                type: string
+                required: true
+            unit: pkg-b/shared-unit
+            """;
+
+        var inputValues = new Dictionary<string, string> { ["bar"] = "baz" };
+
         var result = await PackageManifestParser.ParseAndResolveAsync(
             yaml, "/tmp/fake-root", inputValues, catalogProvider: catalogProvider,
             cancellationToken: ct);
@@ -574,9 +610,11 @@ public class PackageManifestParserResolveTests
         result.Units.Count.ShouldBe(1);
         var unit = result.Units[0];
         unit.IsCrossPackage.ShouldBeTrue();
+        unit.Name.ShouldBe("shared-unit");
+        unit.SourcePackage.ShouldBe("pkg-b");
         unit.Content.ShouldNotBeNull();
-        // The literal expression must be preserved — pkg-b substitutes it at its own install time.
-        unit.Content!.ShouldContain("${{ inputs.foo }}");
+        // Byte-stable: catalog body must be returned unchanged.
+        unit.Content!.ShouldBe(crossPkgBody);
     }
 
     // ---- Stub catalog provider ------------------------------------------

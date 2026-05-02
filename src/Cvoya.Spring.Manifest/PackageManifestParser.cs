@@ -72,6 +72,10 @@ public static class PackageManifestParser
     ///   <item><description>Detect cycles in the reference graph.</description></item>
     ///   <item><description>Validate name uniqueness within the package.</description></item>
     /// </list>
+    /// Cross-package artefacts must be self-contained — input expressions in
+    /// cross-package bodies raise <see cref="CrossPackageArtefactNotSelfContainedException"/>.
+    /// Each install is independent; the consuming package does not share its
+    /// input scope with referenced packages.
     /// </summary>
     /// <param name="yamlText">The raw <c>package.yaml</c> content.</param>
     /// <param name="packageRoot">
@@ -547,6 +551,16 @@ public static class PackageManifestParser
             throw new PackageReferenceNotFoundException(
                 r.RawValue,
                 $"Artefact '{r.ArtefactName}' ({r.Kind}) was not found in package '{r.PackageName}'.");
+        }
+
+        // Cross-package artefacts must be self-contained: each install is
+        // independent — the consuming package doesn't know the referenced
+        // package's input schema, and prior installs are not reused. Any
+        // ${{ inputs.* }} expression in the catalog body is therefore
+        // unresolvable and indicates a broken artefact definition.
+        if (InputInterpolationPattern.IsMatch(content))
+        {
+            throw new CrossPackageArtefactNotSelfContainedException(r.RawValue);
         }
 
         return new ResolvedArtefact
