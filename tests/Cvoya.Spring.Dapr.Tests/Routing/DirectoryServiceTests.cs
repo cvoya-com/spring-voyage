@@ -232,6 +232,82 @@ public class DirectoryServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ResolveAsync_uuid_path_falls_back_to_actor_id_lookup()
+    {
+        // #1574 follow-up: agent participants surfaced from activity events
+        // can carry the actor's stable UUID in the navigation-form path
+        // (e.g. agent://3f386ad0-...). The directory must resolve those by
+        // ActorId in addition to AgentId so the engagement portal and the
+        // inbox composer can route their reply messages without 404ing.
+        var ct = TestContext.Current.CancellationToken;
+        var actorUuid = Guid.Parse("3f386ad0-4251-441f-8660-bb26cd74a8b1");
+
+        using (var scope = _serviceProvider.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+            db.AgentDefinitions.Add(new AgentDefinitionEntity
+            {
+                Id = Guid.NewGuid(),
+                AgentId = "qa-engineer",
+                ActorId = actorUuid.ToString(),
+                Name = "QA Engineer",
+                Description = "Slug-keyed agent reachable by UUID too",
+                Role = "qa-engineer",
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow,
+            });
+            await db.SaveChangesAsync(ct);
+        }
+
+        var freshService = new DirectoryService(
+            new DirectoryCache(),
+            _serviceProvider.GetRequiredService<IServiceScopeFactory>(),
+            _loggerFactory);
+
+        var resolved = await freshService.ResolveAsync(
+            new Address("agent", actorUuid.ToString()), ct);
+
+        resolved.ShouldNotBeNull();
+        resolved!.DisplayName.ShouldBe("QA Engineer");
+        resolved.ActorId.ShouldBe(actorUuid.ToString());
+    }
+
+    [Fact]
+    public async Task ResolveAsync_uuid_path_falls_back_to_actor_id_lookup_for_units()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var actorUuid = Guid.Parse("a1b2c3d4-0000-0000-0000-000000000099");
+
+        using (var scope = _serviceProvider.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+            db.UnitDefinitions.Add(new UnitDefinitionEntity
+            {
+                Id = Guid.NewGuid(),
+                UnitId = "engineering",
+                ActorId = actorUuid.ToString(),
+                Name = "Engineering",
+                Description = "UUID-reachable unit",
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow,
+            });
+            await db.SaveChangesAsync(ct);
+        }
+
+        var freshService = new DirectoryService(
+            new DirectoryCache(),
+            _serviceProvider.GetRequiredService<IServiceScopeFactory>(),
+            _loggerFactory);
+
+        var resolved = await freshService.ResolveAsync(
+            new Address("unit", actorUuid.ToString()), ct);
+
+        resolved.ShouldNotBeNull();
+        resolved!.DisplayName.ShouldBe("Engineering");
+        resolved.ActorId.ShouldBe(actorUuid.ToString());
+    }
+
+    [Fact]
     public async Task UnregisterAsync_soft_deletes_from_database()
     {
         var ct = TestContext.Current.CancellationToken;
