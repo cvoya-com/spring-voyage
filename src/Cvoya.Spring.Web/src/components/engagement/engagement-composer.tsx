@@ -13,6 +13,13 @@
 // in the engagement. The parent page enforces this via the `isParticipant`
 // prop — when false, the composer is not rendered.
 //
+// Layout (#1552): a compact two-line textarea with the Send button pinned
+// to its right, both sharing the same row. The recipient is implicit —
+// the user is already inside the engagement — so the composer derives the
+// default recipient from the participant list (first non-human) and does
+// not surface a recipient picker. The keyboard shortcut hint lives on the
+// Send button's tooltip rather than as inline body text.
+//
 // CLI parity:
 //   - Information: spring engagement send <id> <address> <message>
 //   - Answer:      spring engagement answer <id> <address> <message>
@@ -70,15 +77,19 @@ export function EngagementComposer({
   const queryClient = useQueryClient();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Determine the default recipient: the first non-human participant.
-  const defaultRecipient = (() => {
+  // The recipient is implicit — the user is already inside the engagement
+  // — so we derive it from the participant list (#1552). Default to the
+  // first non-human participant; fall back to the first participant when
+  // every party is human (rare). The recipient is recomputed when the
+  // participants prop changes so an engagement that is loaded after mount
+  // does not get stuck with an empty recipient.
+  const recipient = (() => {
     for (const p of participants) {
       if (!p.startsWith("human://")) return p;
     }
     return participants[0] ?? "";
   })();
 
-  const [recipient, setRecipient] = useState(defaultRecipient);
   const [text, setText] = useState("");
 
   // `kind` is fully controlled by the parent. Toggling the inline
@@ -99,7 +110,11 @@ export function EngagementComposer({
       const trimmed = text.trim();
       const target = recipient.trim();
       if (!trimmed) throw new Error("Message text is required.");
-      if (!target) throw new Error("Recipient address is required.");
+      if (!target) {
+        throw new Error(
+          "No recipient available — the engagement has no non-human participant.",
+        );
+      }
 
       const { scheme, path } = parseThreadSource(target);
       if (!scheme || !path) {
@@ -154,11 +169,17 @@ export function EngagementComposer({
 
   const isAnswerMode = kind === "answer";
 
+  const sendTooltip = send.isPending ? "Sending…" : "⌘/Ctrl+Enter to send";
+
   return (
+    // shrink-0 keeps the composer at its intrinsic height inside the
+    // engagement-detail flex column so the timeline above it owns the only
+    // scrollbar (#1552). Without it, an unusually tall textarea or banner
+    // could compete with the timeline and break scroll.
     <form
       onSubmit={handleSubmit}
       className={[
-        "space-y-2 border-t bg-muted/20 p-4",
+        "shrink-0 space-y-2 border-t bg-muted/20 p-3",
         isAnswerMode
           ? "border-warning/40 bg-warning/5"
           : "border-border",
@@ -167,7 +188,8 @@ export function EngagementComposer({
       data-testid="engagement-composer"
       data-kind={kind}
     >
-      {/* Answer-mode banner */}
+      {/* Answer-mode banner — kept because it is the only signal that the
+          composer is now in answer mode and provides the escape hatch. */}
       {isAnswerMode && (
         <div className="flex items-center gap-2 text-sm">
           <MessageCircleQuestion
@@ -189,67 +211,35 @@ export function EngagementComposer({
         </div>
       )}
 
-      {/* Recipient quick-pick pills */}
-      {participants.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1 text-xs">
-          <span className="text-muted-foreground">To:</span>
-          {participants
-            .filter((p) => !p.startsWith("human://"))
-            .map((p) => (
-              <button
-                key={p}
-                type="button"
-                onClick={() => setRecipient(p)}
-                className={
-                  recipient === p
-                    ? "rounded border border-primary bg-primary/10 px-2 py-0.5 font-mono text-[11px]"
-                    : "rounded border border-input bg-background px-2 py-0.5 font-mono text-[11px] hover:bg-muted"
-                }
-                aria-pressed={recipient === p}
-              >
-                {p}
-              </button>
-            ))}
-        </div>
-      )}
-
-      {/* Recipient address input */}
-      <input
-        type="text"
-        value={recipient}
-        onChange={(e) => setRecipient(e.target.value)}
-        placeholder="Recipient (scheme://path, e.g. agent://ada)"
-        className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 font-mono text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-        aria-label="Recipient address"
-      />
-
-      {/* Message textarea */}
-      <textarea
-        ref={textareaRef}
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={handleKeyDown}
-        placeholder={
-          isAnswerMode
-            ? "Type your answer… (⌘/Ctrl+Enter to send)"
-            : "Type a message… (⌘/Ctrl+Enter to send)"
-        }
-        rows={3}
-        className="flex min-h-[60px] w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-        aria-label={isAnswerMode ? "Your answer" : "Message text"}
-      />
-
-      <div className="flex items-center justify-end gap-2">
-        <span className="text-xs text-muted-foreground">
-          {send.isPending ? "Sending…" : "⌘/Ctrl+Enter to send"}
-        </span>
+      {/* Single-row composer: 2-line textarea on the left, full-height
+          Send button on the right. items-stretch makes the button span
+          the textarea's height so the row reads as one unit (#1552). */}
+      <div className="flex items-stretch gap-2">
+        <textarea
+          ref={textareaRef}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder={isAnswerMode ? "Type your answer…" : "Type a message…"}
+          rows={2}
+          className="min-w-0 flex-1 resize-none rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          aria-label={isAnswerMode ? "Your answer" : "Message text"}
+        />
         <Button
           type="submit"
-          size="sm"
           disabled={send.isPending || !text.trim() || !recipient.trim()}
-          className={
-            isAnswerMode ? "bg-warning hover:bg-warning/90 text-warning-foreground" : ""
+          title={sendTooltip}
+          aria-label={
+            isAnswerMode
+              ? "Send answer (⌘/Ctrl+Enter)"
+              : "Send message (⌘/Ctrl+Enter)"
           }
+          className={[
+            "h-auto shrink-0 self-stretch px-4",
+            isAnswerMode
+              ? "bg-warning hover:bg-warning/90 text-warning-foreground"
+              : "",
+          ].join(" ")}
         >
           <Send className="mr-1 h-4 w-4" aria-hidden="true" />
           {isAnswerMode ? "Send answer" : "Send"}

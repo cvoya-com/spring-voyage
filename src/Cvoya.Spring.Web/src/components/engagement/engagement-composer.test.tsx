@@ -136,8 +136,11 @@ describe("EngagementComposer", () => {
     });
   });
 
-  describe("recipient pills", () => {
-    it("shows non-human participant pills", () => {
+  // #1552: the recipient is now implicit — no `To:` row, no recipient
+  // input. The composer derives the default recipient from the participant
+  // list and submits to it directly.
+  describe("recipient (implicit)", () => {
+    it("does not render a To: row or a recipient input", () => {
       render(
         <EngagementComposer
           threadId="thread-abc"
@@ -145,13 +148,13 @@ describe("EngagementComposer", () => {
         />,
       );
 
-      // Human participants are excluded from pills.
-      expect(screen.queryByText("human://savas")).not.toBeInTheDocument();
-      expect(screen.getByText("agent://ada")).toBeInTheDocument();
-      expect(screen.getByText("agent://bob")).toBeInTheDocument();
+      expect(screen.queryByText(/^To:$/)).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("textbox", { name: /recipient address/i }),
+      ).not.toBeInTheDocument();
     });
 
-    it("clicking a participant pill updates the recipient input", () => {
+    it("submits to the first non-human participant", async () => {
       render(
         <EngagementComposer
           threadId="thread-abc"
@@ -159,13 +162,21 @@ describe("EngagementComposer", () => {
         />,
       );
 
-      const bobPill = screen.getByText("agent://bob");
-      fireEvent.click(bobPill);
+      fireEvent.change(
+        screen.getByRole("textbox", { name: /message text/i }),
+        { target: { value: "Hello" } },
+      );
+      fireEvent.click(screen.getByRole("button", { name: /^send/i }));
 
-      const recipientInput = screen.getByRole("textbox", {
-        name: /recipient address/i,
+      await waitFor(() => {
+        expect(mockSendThreadMessage).toHaveBeenCalledWith(
+          "thread-abc",
+          expect.objectContaining({
+            to: { scheme: "agent", path: "ada" },
+            text: "Hello",
+          }),
+        );
       });
-      expect(recipientInput).toHaveValue("agent://bob");
     });
   });
 
@@ -240,7 +251,7 @@ describe("EngagementComposer", () => {
         />,
       );
 
-      expect(screen.getByRole("button", { name: /^send$/i })).toBeDisabled();
+      expect(screen.getByRole("button", { name: /send message/i })).toBeDisabled();
     });
 
     it("is enabled when text is entered", () => {
@@ -256,7 +267,9 @@ describe("EngagementComposer", () => {
         { target: { value: "Hello" } },
       );
 
-      expect(screen.getByRole("button", { name: /^send$/i })).not.toBeDisabled();
+      expect(
+        screen.getByRole("button", { name: /send message/i }),
+      ).not.toBeDisabled();
     });
 
     it("shows 'Send answer' label in answer mode", () => {
@@ -271,6 +284,30 @@ describe("EngagementComposer", () => {
       expect(
         screen.getByRole("button", { name: /send answer/i }),
       ).toBeInTheDocument();
+    });
+
+    // #1552: the keyboard-shortcut hint moved off the inline body text
+    // onto the Send button — exposed via title attr (hover tooltip) and
+    // baked into the aria-label so screen-reader users still discover it.
+    it("exposes the ⌘/Ctrl+Enter shortcut on the Send button (tooltip + aria-label)", () => {
+      render(
+        <EngagementComposer
+          threadId="thread-abc"
+          participants={["human://savas", "agent://ada"]}
+        />,
+      );
+
+      const button = screen.getByRole("button", { name: /send message/i });
+      expect(button).toHaveAttribute("title", "⌘/Ctrl+Enter to send");
+      expect(button).toHaveAttribute(
+        "aria-label",
+        "Send message (⌘/Ctrl+Enter)",
+      );
+
+      // The hint is no longer rendered as inline body text.
+      expect(
+        screen.queryByText("⌘/Ctrl+Enter to send"),
+      ).not.toBeInTheDocument();
     });
   });
 
@@ -289,7 +326,7 @@ describe("EngagementComposer", () => {
         screen.getByRole("textbox", { name: /message text/i }),
         { target: { value: "Hello" } },
       );
-      fireEvent.click(screen.getByRole("button", { name: /^send$/i }));
+      fireEvent.click(screen.getByRole("button", { name: /send message/i }));
 
       await waitFor(() => {
         expect(onSendSuccess).toHaveBeenCalled();
