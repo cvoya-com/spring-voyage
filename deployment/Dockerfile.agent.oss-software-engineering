@@ -26,10 +26,13 @@
 #     .
 
 ARG AGENT_BASE_IMAGE=ghcr.io/cvoya-com/spring-voyage-agents:latest
-# .NET 10 SDK — Microsoft packages for Debian bookworm (forward-compatible with
-# trixie; MS does not yet ship a separate trixie feed as of 2026-05). Bookworm
-# packages install cleanly on the python:3.13-slim (Debian trixie) base.
-ARG DOTNET_SDK_VERSION=10.0
+# .NET 10 SDK — installed via the official `dotnet-install.sh` script rather
+# than the apt feed. Microsoft has not published a Debian trixie (13) feed,
+# and the bookworm (12) feed's GPG signature uses SHA1, which trixie's `sqv`
+# rejects after 2026-02-01 (Debian's SHA1 retirement). The script-based
+# install is the upstream-blessed path for Linux distros without a feed and
+# pins exact channels (e.g. `--channel 10.0`) without trusting a SHA1 key.
+ARG DOTNET_SDK_CHANNEL=10.0
 ARG GH_CLI_VERSION=2.92.0
 ARG RUFF_VERSION=0.15.12
 ARG PLAYWRIGHT_VERSION=1.49.1
@@ -37,7 +40,7 @@ ARG PLAYWRIGHT_VERSION=1.49.1
 FROM ${AGENT_BASE_IMAGE}
 
 # Re-declare ARGs after FROM so they are in scope for RUN steps below.
-ARG DOTNET_SDK_VERSION
+ARG DOTNET_SDK_CHANNEL
 ARG GH_CLI_VERSION
 ARG RUFF_VERSION
 ARG PLAYWRIGHT_VERSION
@@ -45,19 +48,20 @@ ARG PLAYWRIGHT_VERSION
 USER root
 
 # ---- .NET 10 SDK ---------------------------------------------------------------
-# Using bookworm (Debian 12) packages-microsoft-prod feed. The omnibus base is
-# python:3.13-slim (Debian trixie / 13). Microsoft has not yet published a
-# dedicated trixie feed; the bookworm packages are forward-compatible.
+# Install via the official dot.net script. Installs the latest patch on the
+# pinned channel into /usr/share/dotnet and links the binary onto PATH.
+# `libicu` is required by .NET on Debian-family images (globalisation).
 RUN apt-get update \
- && apt-get install -y --no-install-recommends curl ca-certificates \
+ && apt-get install -y --no-install-recommends curl ca-certificates libicu76 \
  && rm -rf /var/lib/apt/lists/* \
- && curl -fsSL https://packages.microsoft.com/config/debian/12/packages-microsoft-prod.deb \
-      -o /tmp/pmp.deb \
- && dpkg -i /tmp/pmp.deb \
- && rm /tmp/pmp.deb \
- && apt-get update \
- && apt-get install -y --no-install-recommends dotnet-sdk-${DOTNET_SDK_VERSION} \
- && rm -rf /var/lib/apt/lists/*
+ && curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh \
+ && chmod +x /tmp/dotnet-install.sh \
+ && /tmp/dotnet-install.sh --channel "${DOTNET_SDK_CHANNEL}" \
+                           --install-dir /usr/share/dotnet \
+                           --no-path \
+ && ln -s /usr/share/dotnet/dotnet /usr/local/bin/dotnet \
+ && rm /tmp/dotnet-install.sh \
+ && dotnet --info
 
 # ---- gh CLI --------------------------------------------------------------------
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
@@ -104,7 +108,7 @@ USER agent
 LABEL org.opencontainers.image.title="spring-voyage-agent-oss-software-engineering" \
       org.opencontainers.image.description="Software engineering role image for the Spring Voyage OSS dogfooding unit. Bundles .NET 10 SDK, gh CLI, ruff, and Playwright + Chromium/Firefox/WebKit on top of the spring-voyage-agents omnibus base." \
       org.opencontainers.image.source="https://github.com/cvoya-com/spring-voyage" \
-      com.cvoya.spring-voyage.dotnet-sdk-version="${DOTNET_SDK_VERSION}" \
+      com.cvoya.spring-voyage.dotnet-sdk-channel="${DOTNET_SDK_CHANNEL}" \
       com.cvoya.spring-voyage.gh-cli-version="${GH_CLI_VERSION}" \
       com.cvoya.spring-voyage.ruff-version="${RUFF_VERSION}" \
       com.cvoya.spring-voyage.playwright-version="${PLAYWRIGHT_VERSION}"
