@@ -115,7 +115,7 @@ The `spring directory` family mirrors the portal's `/directory` surface over the
 
 ### Provider + Model flag validation (#598, relaxed by #644)
 
-`spring unit create` and `spring unit create-from-template` apply a tool-aware gate to `--provider` and `--model`:
+`spring unit create` applies a tool-aware gate to `--provider` and `--model`:
 
 | `--tool`                                  | `--provider` | `--model` |
 | ----------------------------------------- | ------------ | --------- |
@@ -134,7 +134,7 @@ This mirrors the portal wizard (#641 / PR #645), which hides the Provider dropdo
 
 ### Inline credential flags (#626)
 
-`spring unit create` and `spring unit create-from-template` accept three paired flags for supplying the LLM API key at unit-create time:
+`spring unit create` accepts three paired flags for supplying the LLM API key at unit-create time:
 
 | Flag | Purpose |
 |------|---------|

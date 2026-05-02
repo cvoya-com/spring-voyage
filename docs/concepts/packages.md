@@ -4,30 +4,27 @@ Spring Voyage is domain-agnostic by design. The platform provides primitives (ag
 
 ## What is a Package?
 
-A **package** is an installable bundle of domain-specific content:
+A **package** is an installable bundle of domain-specific content, described by a `package.yaml` manifest at the package root:
 
-- **Agent templates** -- pre-configured agent definitions (e.g., backend-engineer, qa-engineer)
-- **Unit templates** -- pre-configured unit definitions (e.g., engineering-team)
+- **Agents** -- pre-configured agent definitions (e.g., backend-engineer, qa-engineer)
+- **Units** -- pre-configured unit definitions (e.g., engineering-team)
 - **Skills** -- prompt fragments and tool definitions (see below)
 - **Workflows** -- container images for structured orchestration
 - **Connectors** -- bridges to domain-specific external systems
 - **Execution environments** -- container images for agent work
 
+Three packages ship in-tree: `software-engineering`, `product-management`, and `research`. All three are discoverable via `spring package list` and `/packages`.
+
 ### Example: The Software Engineering Package
 
-The `software-engineering` package (shipped with Phase 1) includes:
+The `software-engineering` package includes:
 
-- Agent templates: backend engineer, QA engineer, tech lead
-- Unit template: engineering team with AI+Workflow hybrid orchestration
+- Agents: backend engineer, QA engineer, tech lead
+- Unit: engineering team
 - Skills: triage-and-assign, PR review cycle
 - Workflow: software development cycle (triage, assign, implement, review, merge)
 - Connector: GitHub
 - Execution environment: pre-configured container with Claude Code
-
-Other packages (shipped in later phases):
-
-- `product-management` -- PM agent, design agent, Linear/Jira connector
-- `research` -- research agent, arxiv connector, web search connector
 
 ## What is a Skill?
 
@@ -66,14 +63,9 @@ A skill tool definition specifies:
 
 ## Package Lifecycle
 
-In Phase 1, packages are simply directories with a conventional structure, applied with `spring apply`. Connectors are compiled into the host. Workflows and execution environments are deployed as containers.
+Packages are installed via `spring package install <name>` (CLI) or the portal wizard's **From catalog** source at `/units/create`. Both paths route through `POST /api/v1/packages/install` and activate all artefacts in the package atomically. If any step fails, the whole install rolls back. Recovery uses `GET /api/v1/installs/{id}` to inspect status and `POST /api/v1/installs/{id}/retry` or `/abort` to recover.
 
-In Phase 6, the formal package system adds:
-
-- A package registry for discovery and distribution
-- Versioning and dependency resolution
-- `spring package install` and `spring package update` commands
-- NuGet distribution for .NET code, with a companion manifest for declarative content
+Connectors within a domain package are compiled into the host. Workflows and execution environments are deployed as containers.
 
 ## Building Package Images
 
@@ -85,4 +77,4 @@ spring build packages/software-engineering/workflows  # build workflow images on
 spring images list                                    # list built images
 ```
 
-For local development, `spring apply` auto-builds if a referenced image doesn't exist locally. Production deployments use pre-built images from a container registry.
+Production deployments use pre-built images from a container registry.

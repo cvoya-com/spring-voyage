@@ -12,13 +12,13 @@ spring unit create <name> [--description "..."]
 
 A unit is usable immediately after creation. You can add agents, connectors, and policies incrementally.
 
-#### From a template
+#### From a package (catalog install)
 
-```
-spring unit create-from-template <package>/<template-name> [--name <override>] [--display <display-name>]
+```bash
+spring package install <package-name> [--input key=value ...]
 ```
 
-`--name` overrides the manifest-derived unit name so repeated instantiations don't collide. The legacy `spring unit create --from-template <package>/<template>` flag still works but prints a deprecation notice.
+This installs all artefacts in the package atomically via `POST /api/v1/packages/install`. If any step fails, the whole install rolls back. The portal equivalent is the **From catalog** source on the `/units/create` wizard. The removed `spring unit create-from-template` and `spring unit create --from-template` verbs were superseded by this path (see [ADR-0035](../../decisions/0035-cross-package-self-contained.md)).
 
 ### Listing Units
 
@@ -308,7 +308,6 @@ Key scenarios for this guide:
 | Scenario | What it covers |
 |----------|----------------|
 | `fast/02-create-unit-scratch.sh` | `spring unit create` + `spring unit list` |
-| `fast/04-create-unit-from-template.sh` | Template-based creation with CLI / API cross-verification |
 | `fast/06-unit-membership-roundtrip.sh` | Full membership CRUD with overrides |
 | `fast/07-create-start-unit.sh` | `spring unit start` + status polling |
 | `fast/12-nested-units.sh` | Nested units via `spring unit members add --unit` |

@@ -114,13 +114,13 @@ spring unit create my-unit \
   --model claude-sonnet-4-6
 ```
 
-### Step 2 — Mode
+### Step 2 — Source
 
-| Mode | Portal | CLI |
-|------|--------|-----|
-| Template | select from catalog | `spring unit create --from-template <pkg>/<template> --name <name>` |
+| Source | Portal | CLI |
+|--------|--------|-----|
+| Catalog (from package) | select from catalog | `spring package install <pkg> [--input key=value ...]` |
 | Scratch | create empty unit | `spring unit create <name>` |
-| YAML | paste or upload manifest | `spring apply -f unit.yaml` |
+| Browse | browse (coming soon) | — |
 
 ### Step 3 — Connector
 
@@ -475,8 +475,7 @@ Costs also shows the tenant daily budget editor and per-agent budget links.
 #### Via CLI
 
 ```bash
-spring unit create engineering-team \
-  --from-template software-engineering/engineering-team
+spring package install software-engineering
 spring unit members list engineering-team
 spring unit start engineering-team
 spring activity list --source unit:engineering-team

@@ -4,22 +4,22 @@
 
 ---
 
-## Domain Packages (Phase 1 Concept)
+## Domain Packages
 
-A **domain package** is a logical grouping of domain-specific content — agent templates, unit templates, skills, workflows, and connector implementations — organized by directory convention. Domain packages are how v2 remains domain-agnostic at the platform level while providing ready-to-use configurations for specific domains.
+A **domain package** is an installable bundle of domain-specific content — agent definitions, unit definitions, skills, workflows, and connector implementations — described by a `package.yaml` manifest at the package root and organized by directory convention.
 
 Each domain package follows a standard directory convention:
 
-- **`agents/`** — Agent definition YAML files (templates for agent personas)
-- **`units/`** — Unit definition YAML files (team compositions)
+- **`agents/`** — Agent definition YAML files
+- **`units/`** — Unit definition YAML files
 - **`skills/`** — Prompt fragments (`.md`) + optional tool definitions (`.tools.json`)
 - **`workflows/`** — Workflow container sources (Dockerfile + project code)
 - **`execution/`** — Agent execution environment sources (Dockerfile)
 - **`connectors/`** — Connector implementations (compiled into host)
 
-The `software-engineering` package ships with Phase 1. The `product-management` and `research` packages ship as additional in-tree domain packages — the browse surface (`spring package list` / `/packages`) picks them up automatically because the file-system catalog walks every directory under `packages/`.
+Three packages ship in-tree: `software-engineering`, `product-management`, and `research`. The file-system catalog (`GET /api/v1/packages`) picks them up automatically because `FileSystemPackageCatalogService` walks every directory under `packages/`.
 
-**Dockerfiles are source; images are runtime.** Packages include Dockerfiles for workflows and agent execution environments — they are the source of truth for how images are built. Agent and unit definitions reference pre-built images at runtime (e.g., `image: spring-workflows/software-dev-cycle:latest`). The `spring build` command bridges the gap:
+**Dockerfiles are source; images are runtime.** Packages include Dockerfiles for workflows and agent execution environments — they are the source of truth for how images are built. Agent and unit definitions reference pre-built images at runtime. The `spring build` command bridges the gap:
 
 ```bash
 # Build all images from a package's Dockerfiles
@@ -32,9 +32,9 @@ spring build packages/software-engineering/workflows/software-dev-cycle
 spring images list
 ```
 
-For local development, `spring apply` auto-builds if a referenced image doesn't exist locally — it locates the Dockerfile in the package, builds the image, then runs it. Production deployments always use pre-built images from a registry.
+Production deployments always use pre-built images from a registry.
 
-In Phase 1, domain packages are simply directories applied with `spring apply -f packages/software-engineering/units/engineering-team.yaml`. Connectors within a domain package are compiled into the host. Workflows and execution environments are deployed as containers (see [Workflows](workflows.md)).
+Connectors within a domain package are compiled into the host. Workflows and execution environments are deployed as containers (see [Workflows](workflows.md)).
 
 ## Browsing Packages (CLI + Portal)
 
@@ -44,12 +44,10 @@ Discovery runs through a shared endpoint family so the CLI and portal stay in pa
 |---------|-----|--------|----------|
 | List packages with content counts | `spring package list` | `/packages` | `GET /api/v1/packages` |
 | Show contents of a single package | `spring package show <name>` | `/packages/<name>` | `GET /api/v1/packages/{name}` |
-| Render a template's raw YAML | `spring template show <pkg>/<name>` | `/packages/<pkg>/templates/<name>` | `GET /api/v1/packages/{package}/templates/{name}` |
-| Flat template list consumed by the create-unit wizard | — | wizard Step 2 | `GET /api/v1/packages/templates` |
 
 The resolver is the `IPackageCatalogService`, with `FileSystemPackageCatalogService` as the OSS implementation. The packages root is configured via `Packages:Root` (falling back to the `SPRING_PACKAGES_ROOT` environment variable). The hosted cloud repo swaps in a tenant-scoped implementation via DI — consumers never reference the file-system layout directly.
 
-Summary payloads carry only stable fields (name, description, per-content counts). Detail payloads carry the full content lists (unit templates, agent templates, skills, connectors, workflows). Phase-6 `spring package install` (see [Package System](#package-system-phase-6) below) layers versioning and a POST endpoint on top of this surface without altering the browse contract.
+Summary payloads carry only stable fields (name, description, per-content counts). Detail payloads carry the full content lists (agent definitions, unit definitions, skills, connectors, workflows).
 
 ## Skill Format & Composition
 
@@ -126,31 +124,32 @@ At prompt-assembly time, bundle prompts render as a sub-section of Layer 2 (unit
 
 A bundle's tools still pass through the unit `SkillPolicy` enforcement at invocation time — the validation step only protects against misconfiguration at create-time. Blocking a tool on an existing unit will not retroactively delete its bundle; it will only refuse the tool at invocation.
 
-## Package System (Phase 6)
+## Package Install & Recovery
 
-The formal package system adds distribution and lifecycle management on top of domain packages:
+Packages are installed through a two-phase atomic flow:
 
-```yaml
-package:
-  name: spring-voyage/software-engineering
-  version: 1.0.0
-  
-  contents:
-    skills:
-      - triage-and-assign.md
-      - pr-review-cycle.md
-    workflows:
-      - software-dev-cycle:latest       # container image reference
-    agent_templates:
-      - backend-engineer.yaml
-    unit_templates:
-      - engineering-team.yaml
-    connectors:
-      - github-connector.dll
-    topics:
-      - github-events.schema.json
+- **`POST /api/v1/packages/install`** — starts an install from the catalog.
+- **`POST /api/v1/packages/install/file`** — starts an install from an uploaded `package.yaml`.
+- **`GET /api/v1/installs/{id}`** — poll install status; returns per-artefact staging/active counts.
+- **`POST /api/v1/installs/{id}/retry`** — retry a failed install.
+- **`POST /api/v1/installs/{id}/abort`** — abort and roll back a failed install.
+
+Export is via **`POST /api/v1/tenant/packages/export`**.
+
+**CLI surface:**
+
+```bash
+spring package install <name> [--input key=value ...]
+spring package status  <install-id>
+spring package retry   <install-id>
+spring package abort   <install-id>
+spring package export  <name>
+spring package list
+spring package show    <name>
 ```
 
-**Installation:** `spring package install spring-voyage/software-engineering`
+**Portal:** the portal's `/units/create` wizard exposes a **From catalog** source that routes through the same install endpoint. `/installs/{id}` shows install status. The unit detail page shows an **Install** button and an inputs form for packages with declared inputs.
 
-**Distribution:** NuGet for .NET code, companion manifest for declarative content. Includes versioning, dependency resolution, and a package registry.
+### Inputs
+
+Packages declare typed scalar inputs (`string`, `int`, `bool`, `secret`) in `package.yaml`. The install endpoint validates supplied values against declared inputs. Cross-package references must be self-contained — no `${{ inputs.* }}` substitution across package boundaries (see [ADR-0035](../decisions/0035-cross-package-self-contained.md)).

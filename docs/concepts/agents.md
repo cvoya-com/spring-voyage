@@ -107,9 +107,8 @@ Agents interact with the platform through **tools** -- callable functions expose
 | **checkMessages** | Retrieve pending messages on the active conversation |
 | **discoverPeers** | Query the unit directory for agents with specific expertise |
 | **requestHelp** | Ask another agent for assistance |
-| **storeLearning** | Persist a learning that survives across conversations |
-| **storeContext** | Persist domain knowledge for future activations |
-| **recallMemory** | Retrieve past learnings and work history |
+| **store** | Persist a memory artifact (a fact, a lesson, an observation) to the agent's `AgentMemory` |
+| **recall** | Read from the agent's `AgentMemory` (filtered to entries visible in the current thread) |
 | **checkpoint** | Save progress (enables message retrieval and recovery) |
 | **reportStatus** | Update the activity stream with current status |
 | **escalate** | Raise an issue to a human or to the unit |

@@ -11,13 +11,13 @@ A domain package that ships agents, unit templates, and skills for research work
 
 ## Using the package
 
-Apply the unit manifest through the same CLI that ships the other domain packages:
+Install via the CLI:
 
 ```bash
-spring apply -f packages/research/units/research-team.yaml
+spring package install research
 ```
 
-Or install through the Phase-6 package browser (`spring package install spring-voyage/research`) once the installer lands on top of the browse surface.
+Or use the portal wizard's **From catalog** source at `/units/create` and select **Research**. Both paths route through `POST /api/v1/packages/install` and activate all artefacts atomically.
 
 ## Shape
 

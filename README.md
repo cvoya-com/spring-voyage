@@ -19,7 +19,7 @@ For the full mental model, see the [Concepts overview](docs/concepts/overview.md
 
 ## Documentation
 
-- [User Guide](docs/guide/overview.md) — using the `spring` CLI and web portal ([Getting Started](docs/guide/getting-started.md))
+- [User Guide](docs/guide/overview.md) — using the `spring` CLI and web portal ([Getting Started](docs/guide/intro/getting-started.md))
 - [Developer Guide](docs/developer/overview.md) — building, running, and contributing to the platform ([Setup](docs/developer/setup.md), [Operations](docs/developer/operations.md))
 - [Deployment Guide](docs/guide/deployment.md) — self-hosting on Docker Compose or Podman (zero-to-running, TLS, secrets, updates)
 - [Architecture](docs/architecture/README.md) — how the concepts are realized as a running system
@@ -201,7 +201,7 @@ dotnet publish src/Cvoya.Spring.Cli -c Release -o ./out
 ./out/spring <command>
 ```
 
-See the [Getting Started guide](docs/guide/getting-started.md) for a full walkthrough — creating a unit, adding agents, wiring connectors, and sending the first message.
+See the [Getting Started guide](docs/guide/intro/getting-started.md) for a full walkthrough — creating a unit, adding agents, wiring connectors, and sending the first message.
 
 ### Custom agent images
 
@@ -242,12 +242,16 @@ NEXT_PUBLIC_API_URL=http://localhost:5000 npm run dev
 
 **Stack:** Next.js 16, React 19, TypeScript 5.8, Tailwind CSS 4.1
 
-**Pages:**
+Key routes (see [Web Portal Walkthrough](docs/guide/user/portal.md) for the full list):
 
-- **Dashboard** (`/`) — agent list, unit list, cost overview, real-time activity feed
-- **Activity Feed** (`/activity`) — real-time event stream via SSE
-- **Agent Detail** (`/agents?id=name`) — status, cost breakdown, clones
-- **Unit Detail** (`/units?id=name`) — members, cost, orchestration status
+- **Dashboard** (`/`) — unit/agent cards, cost overview, real-time activity feed
+- **Units** (`/units`, `/units/{id}`) — list, create, and configure units
+- **Agents** (`/agents`, `/agents/{id}`) — roster and per-agent detail
+- **Activity Feed** (`/activity`) — paginated, filterable event log
+- **Engagements** (`/conversations`, `/conversations/{id}`) — thread list and per-thread view
+- **Analytics** (`/analytics`) — costs, throughput, and wait-time rollups
+- **Packages** (`/packages`) — installed packages and catalog
+- **Directory** (`/directory`) — tenant-wide expertise index
 
 The dashboard consumes the API host endpoints. For local development, start the API host on port 5000 and the dashboard dev server on port 3000.
 

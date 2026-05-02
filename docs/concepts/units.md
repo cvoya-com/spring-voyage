@@ -25,17 +25,15 @@ Once a unit exists and has members, it needs an answer to a narrow question: whe
 
 Orchestration is one mechanism inside the unit's collaboration model -- it sits alongside membership, the boundary, policies, and the activity stream. It is not the whole of what a unit is; it is how the unit decides to route the next piece of work.
 
-Five orchestration strategies are available:
+Three orchestration strategies ship today:
 
 | Strategy | Description | AI Involvement |
 |----------|-------------|----------------|
-| **Rule-based** | Deterministic routing by policy (round-robin, role-matching, capability-based). | None |
-| **Workflow** | A durable workflow drives the sequence. Steps invoke agents as activities. | None or minimal |
-| **AI-orchestrated** | An LLM receives the message plus unit context and decides routing. | Full |
-| **AI+Workflow hybrid** | A workflow provides the skeleton (phases); an LLM fills in decisions within each phase. | Partial |
-| **Peer** | Broadcast to all members. Members decide for themselves whether to act. | None at unit level |
+| **AI-orchestrated** | A single LLM call receives the message plus the member list and returns the target member address. Default strategy. | Full |
+| **Workflow** | A durable workflow container drives the sequence. The container invokes agents as activities. | None or minimal |
+| **Label-routed** | Payload labels are matched against a trigger map; the message is forwarded to the mapped member. | None |
 
-The strategy can be swapped independently of the unit's identity -- for example, upgrading from rule-based to AI-orchestrated as a team matures.
+The strategy can be swapped independently of the unit's identity — for example, upgrading from label-routed to AI-orchestrated as a team matures. See [Architecture: Orchestration](../architecture/orchestration.md) for the full strategy catalogue and the resolver protocol.
 
 ### AI-Orchestrated Routing
 
