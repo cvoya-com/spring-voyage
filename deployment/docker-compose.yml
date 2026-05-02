@@ -264,6 +264,20 @@ services:
     build:
       context: ..
       dockerfile: deployment/Dockerfile
+    # The worker owns EF Core migrations and runs them in DatabaseMigrator's
+    # IHostedService.StartAsync (registered before Kestrel's GenericWebHostService),
+    # so /health does not respond until migrations have completed. The API host
+    # gates on this healthcheck via depends_on.condition: service_healthy below
+    # — without it, the API would race the worker on a fresh Postgres volume,
+    # query unit_definitions before AddPackageInstalls (#1577) had a chance to
+    # add install_id, and log a flurry of `42703: column u.install_id does not
+    # exist` errors during the brief migration window (#1600).
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
 
   spring-api:
     image: ${SPRING_PLATFORM_IMAGE:-localhost/spring-voyage:latest}
@@ -282,8 +296,12 @@ services:
       spring-api-dapr:
         condition: service_started
       spring-worker:
-        # Worker owns EF migrations; wait for it before the API starts (#305).
-        condition: service_started
+        # Worker owns EF migrations; wait for them to finish before the API
+        # starts so the directory cache + ExpertiseSkillCatalog don't query
+        # against a half-migrated schema (#305 / #1600). service_healthy gates
+        # on the worker's /health endpoint, which only responds after
+        # DatabaseMigrator finishes its IHostedService.StartAsync.
+        condition: service_healthy
 
   spring-web:
     image: ${SPRING_PLATFORM_IMAGE:-localhost/spring-voyage:latest}

@@ -346,6 +346,13 @@ start_worker() {
     # `-p ${mcp_port}:${mcp_port}` (so the host port-maps to it). Override
     # with `Mcp__Port` in spring.env if 5050 conflicts on the host.
     local mcp_port="${Mcp__Port:-5050}"
+    # Healthcheck rationale (#1600): the worker owns EF Core migrations via
+    # DatabaseMigrator, an IHostedService whose StartAsync runs sequentially
+    # before Kestrel's GenericWebHostService — so /health does not respond
+    # until migrations have completed. cmd_up() waits on this signal before
+    # starting spring-api; without it the API races the worker on a fresh
+    # Postgres volume and logs `42703: column u.install_id does not exist`
+    # for every directory query during the brief migration window.
     run_container spring-worker \
         --env-file "${RESOLVED_ENV_FILE}" \
         -p "${mcp_port}:${mcp_port}" \
@@ -356,6 +363,11 @@ start_worker() {
         -e "Dispatcher__BearerToken=${SPRING_DISPATCHER_WORKER_TOKEN}" \
         -e "Mcp__Port=${mcp_port}" \
         -v spring-dataprotection-keys:/home/app/.aspnet/DataProtection-Keys \
+        --health-cmd 'curl -fsS http://localhost:8080/health || exit 1' \
+        --health-interval 5s \
+        --health-timeout 3s \
+        --health-retries 30 \
+        --health-start-period 5s \
         "${SPRING_PLATFORM_IMAGE:-localhost/spring-voyage:latest}" \
         dotnet /app/Cvoya.Spring.Host.Worker.dll
 }
@@ -606,6 +618,12 @@ cmd_up() {
     start_dispatcher
 
     start_worker
+    # The worker's /health endpoint reports ready only after DatabaseMigrator's
+    # IHostedService.StartAsync completes, so this gate keeps spring-api off
+    # the database until every pending EF Core migration has been applied.
+    # See #1600 — without this wait, a fresh Postgres volume races the API
+    # against migrations and logs `42703: column u.install_id does not exist`.
+    wait_healthy spring-worker 180
     start_api
     start_web
     start_caddy
