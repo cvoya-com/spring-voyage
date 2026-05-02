@@ -138,7 +138,7 @@ public static class PackageManifestParser
         var allRefs = CollectReferences(manifest);
 
         // Step 6: Validate name uniqueness.
-        ValidateNameUniqueness(allRefs);
+        ValidateNameUniqueness(allRefs.Select(e => e.Reference).ToList());
 
         // Step 7: Resolve all references (passing input schema + values so
         // within-package local artefact bodies get the same substitution pass).
@@ -320,33 +320,36 @@ public static class PackageManifestParser
 
     // ---- Reference collection -------------------------------------------
 
-    private static List<ArtefactReference> CollectReferences(PackageManifest manifest)
-    {
-        var refs = new List<ArtefactReference>();
+    /// <summary>
+    /// One entry produced by <see cref="CollectReferences"/>. Carries the
+    /// parsed <see cref="ArtefactReference"/> alongside an optional inline
+    /// body when the operator declared the artefact directly in
+    /// <c>package.yaml</c> instead of as a bare/qualified ref.
+    /// </summary>
+    private sealed record ArtefactCollectEntry(ArtefactReference Reference, string? InlineBody);
 
-        if (!string.IsNullOrWhiteSpace(manifest.Unit))
-        {
-            refs.Add(ArtefactReference.Parse(manifest.Unit, ArtefactKind.Unit));
-        }
+    private static List<ArtefactCollectEntry> CollectReferences(PackageManifest manifest)
+    {
+        var refs = new List<ArtefactCollectEntry>();
+
+        AddSlot(refs, manifest.Unit, ArtefactKind.Unit);
+        AddSlot(refs, manifest.Agent, ArtefactKind.Agent);
 
         if (manifest.SubUnits is { Count: > 0 })
         {
             foreach (var s in manifest.SubUnits.Where(x => !string.IsNullOrWhiteSpace(x)))
             {
-                refs.Add(ArtefactReference.Parse(s, ArtefactKind.Unit));
+                refs.Add(new ArtefactCollectEntry(
+                    ArtefactReference.Parse(s, ArtefactKind.Unit), InlineBody: null));
             }
-        }
-
-        if (!string.IsNullOrWhiteSpace(manifest.Agent))
-        {
-            refs.Add(ArtefactReference.Parse(manifest.Agent, ArtefactKind.Agent));
         }
 
         if (manifest.Skills is { Count: > 0 })
         {
             foreach (var s in manifest.Skills.Where(x => !string.IsNullOrWhiteSpace(x)))
             {
-                refs.Add(ArtefactReference.Parse(s, ArtefactKind.Skill));
+                refs.Add(new ArtefactCollectEntry(
+                    ArtefactReference.Parse(s, ArtefactKind.Skill), InlineBody: null));
             }
         }
 
@@ -354,11 +357,67 @@ public static class PackageManifestParser
         {
             foreach (var w in manifest.Workflows.Where(x => !string.IsNullOrWhiteSpace(x)))
             {
-                refs.Add(ArtefactReference.Parse(w, ArtefactKind.Workflow));
+                refs.Add(new ArtefactCollectEntry(
+                    ArtefactReference.Parse(w, ArtefactKind.Workflow), InlineBody: null));
             }
         }
 
         return refs;
+    }
+
+    private static void AddSlot(
+        List<ArtefactCollectEntry> refs,
+        InlineArtefactDefinition? slot,
+        ArtefactKind kind)
+    {
+        if (slot is null)
+        {
+            return;
+        }
+
+        if (slot.IsInline)
+        {
+            // Inline body: synthesise a within-package ArtefactReference so
+            // name-uniqueness + cycle checks still operate on a stable name.
+            // The body is captured verbatim and re-wrapped under the kind
+            // root key so the install activator can consume it through the
+            // same `ManifestParser.Parse` path as a disk-resolved reference.
+            var inlineName = slot.InlineName ?? "<inline>";
+            var rootKey = kind == ArtefactKind.Agent ? "agent" : "unit";
+            var wrapped = WrapInlineBody(rootKey, slot.InlineBody!);
+            refs.Add(new ArtefactCollectEntry(
+                new ArtefactReference(inlineName, PackageName: null, inlineName, kind),
+                InlineBody: wrapped));
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(slot.Reference))
+        {
+            refs.Add(new ArtefactCollectEntry(
+                ArtefactReference.Parse(slot.Reference, kind), InlineBody: null));
+        }
+    }
+
+    private static string WrapInlineBody(string rootKey, string body)
+    {
+        // The captured body is already YAML emitted by YamlDotNet (block
+        // mapping, indented at column 0). Re-indent each line by two spaces
+        // and prepend the kind root key so the result is a fully-formed
+        // YAML document that ManifestParser.Parse / agent activation can
+        // consume.
+        var lines = body.Split('\n');
+        var indented = new System.Text.StringBuilder();
+        indented.Append(rootKey).Append(":\n");
+        foreach (var line in lines)
+        {
+            if (line.Length == 0)
+            {
+                indented.Append('\n');
+                continue;
+            }
+            indented.Append("  ").Append(line).Append('\n');
+        }
+        return indented.ToString();
     }
 
     // ---- Name uniqueness ------------------------------------------------
@@ -394,7 +453,7 @@ public static class PackageManifestParser
     private record RefResolution(ArtefactReference Reference, ResolvedArtefact Artefact);
 
     private static async Task<List<RefResolution>> ResolveReferencesAsync(
-        List<ArtefactReference> refs,
+        List<ArtefactCollectEntry> refs,
         string? packageRoot,
         IReadOnlyList<PackageInputDefinition> inputSchema,
         IReadOnlyDictionary<string, string> inputValues,
@@ -405,11 +464,33 @@ public static class PackageManifestParser
 
         // When packageRoot is null/empty we are in upload mode. Collect ALL
         // local refs before throwing so the operator sees the full list at once.
+        // Inline definitions are by construction self-contained — they live
+        // entirely in the uploaded package.yaml — so they do NOT trigger the
+        // upload-mode local-ref rejection.
         List<string>? uploadModeLocalRefErrors = null;
 
-        foreach (var r in refs)
+        foreach (var entry in refs)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            var r = entry.Reference;
+
+            if (entry.InlineBody is not null)
+            {
+                // Inline definition: resolved without filesystem or catalog.
+                // Apply the same input substitution as a within-package body
+                // so connector configs / other interpolated fields land
+                // concrete values for the activator.
+                var content = SubstituteInputs(entry.InlineBody, inputSchema, inputValues);
+                result.Add(new RefResolution(r, new ResolvedArtefact
+                {
+                    Name = r.ArtefactName,
+                    SourcePackage = null,
+                    Kind = r.Kind,
+                    ResolvedPath = null,
+                    Content = content,
+                }));
+                continue;
+            }
 
             if (!r.IsCrossPackage && string.IsNullOrEmpty(packageRoot))
             {
@@ -747,6 +828,7 @@ public static class PackageManifestParser
     private static IDeserializer BuildDeserializer()
         => new DeserializerBuilder()
             .WithNamingConvention(CamelCaseNamingConvention.Instance)
+            .WithTypeConverter(new InlineArtefactDefinitionYamlConverter())
             .IgnoreUnmatchedProperties()
             .Build();
 }

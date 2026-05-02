@@ -231,6 +231,144 @@ public class PackageManifestParserUploadModeTests
         ex.ShouldBeAssignableTo<PackageParseException>();
     }
 
+    // ---- Test 9: inline unit definition succeeds in upload mode -----------
+
+    [Fact]
+    public async Task ParseAndResolve_NullPackageRoot_InlineUnit_Succeeds()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        // The wizard's "scratch" branch builds an inline unit body in
+        // package.yaml (ADR-0035 decision 6). The body is by construction
+        // self-contained, so upload-mode rejection must NOT fire.
+        const string Yaml = """
+            apiVersion: spring.voyage/v1
+            kind: UnitPackage
+            metadata:
+              name: my-inline-unit-pkg
+            unit:
+              name: my-inline-unit
+              description: Inline unit body authored by the wizard.
+            """;
+
+        var result = await PackageManifestParser.ParseAndResolveAsync(
+            Yaml, packageRoot: null, cancellationToken: ct);
+
+        result.Name.ShouldBe("my-inline-unit-pkg");
+        result.Kind.ShouldBe(PackageKind.UnitPackage);
+        result.Units.Count.ShouldBe(1);
+
+        var unit = result.Units[0];
+        unit.Name.ShouldBe("my-inline-unit");
+        unit.IsCrossPackage.ShouldBeFalse();
+        unit.SourcePackage.ShouldBeNull();
+        unit.ResolvedPath.ShouldBeNull();
+        unit.Content.ShouldNotBeNull();
+
+        // The content is wrapped under a `unit:` root key so the install
+        // activator can consume it via ManifestParser.Parse.
+        unit.Content!.ShouldContain("unit:");
+        unit.Content.ShouldContain("name: my-inline-unit");
+        unit.Content.ShouldContain("description: Inline unit body authored by the wizard.");
+    }
+
+    // ---- Test 10: inline unit + bare local subUnit ref still rejects -------
+
+    [Fact]
+    public async Task ParseAndResolve_NullPackageRoot_InlineUnitWithBareLocalSubUnit_RejectsBareRef()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        // Inline unit is self-contained, but the bare local subUnit ref
+        // requires a package directory — must still raise.
+        const string Yaml = """
+            apiVersion: spring.voyage/v1
+            kind: UnitPackage
+            metadata:
+              name: mixed-pkg
+            unit:
+              name: my-inline-unit
+              description: Inline parent.
+            subUnits:
+              - bare-local-child
+            """;
+
+        var ex = await Should.ThrowAsync<PackageUploadHasLocalRefException>(
+            () => PackageManifestParser.ParseAndResolveAsync(
+                Yaml, packageRoot: null, cancellationToken: ct));
+
+        // Only the bare ref appears in the rejection list — the inline body
+        // does not.
+        ex.LocalReferences.Count.ShouldBe(1);
+        ex.LocalReferences[0].ShouldContain("bare-local-child");
+        ex.LocalReferences[0].ShouldNotContain("my-inline-unit");
+    }
+
+    // ---- Test 11: inline agent definition succeeds in upload mode ----------
+
+    [Fact]
+    public async Task ParseAndResolve_NullPackageRoot_InlineAgent_Succeeds()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        // Mirrors the new-agent wizard's package.yaml (ADR-0035 decision 6).
+        const string Yaml = """
+            apiVersion: spring.voyage/v1
+            kind: AgentPackage
+            metadata:
+              name: my-inline-agent-pkg
+            agent:
+              id: my-agent
+              name: My Agent
+              role: architect
+              execution:
+                runtime: podman
+            """;
+
+        var result = await PackageManifestParser.ParseAndResolveAsync(
+            Yaml, packageRoot: null, cancellationToken: ct);
+
+        result.Name.ShouldBe("my-inline-agent-pkg");
+        result.Kind.ShouldBe(PackageKind.AgentPackage);
+        result.Agents.Count.ShouldBe(1);
+
+        var agent = result.Agents[0];
+        agent.Name.ShouldBe("my-agent");
+        agent.IsCrossPackage.ShouldBeFalse();
+        agent.Content.ShouldNotBeNull();
+        agent.Content!.ShouldContain("agent:");
+        agent.Content.ShouldContain("id: my-agent");
+        agent.Content.ShouldContain("role: architect");
+        agent.Content.ShouldContain("runtime: podman");
+    }
+
+    // ---- Test 12: inline agent + bare local subUnit ref still rejects -------
+
+    [Fact]
+    public async Task ParseAndResolve_NullPackageRoot_InlineAgentWithBareLocalSubUnit_RejectsBareRef()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        const string Yaml = """
+            apiVersion: spring.voyage/v1
+            kind: AgentPackage
+            metadata:
+              name: mixed-agent-pkg
+            agent:
+              id: my-agent
+              name: My Agent
+            subUnits:
+              - bare-local-unit
+            """;
+
+        var ex = await Should.ThrowAsync<PackageUploadHasLocalRefException>(
+            () => PackageManifestParser.ParseAndResolveAsync(
+                Yaml, packageRoot: null, cancellationToken: ct));
+
+        ex.LocalReferences.Count.ShouldBe(1);
+        ex.LocalReferences[0].ShouldContain("bare-local-unit");
+    }
+
     // ---- Stub catalog provider ------------------------------------------
 
     private sealed class StubCatalogProvider : IPackageCatalogProvider

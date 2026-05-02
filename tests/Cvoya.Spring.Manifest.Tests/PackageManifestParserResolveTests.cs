@@ -402,9 +402,12 @@ public class PackageManifestParserResolveTests
 
         var firstParse = PackageManifestParser.ParseRaw(original);
 
-        // Re-emit as YAML using YamlDotNet's serializer.
+        // Re-emit as YAML using YamlDotNet's serializer. Register the same
+        // type converter the parser uses so InlineArtefactDefinition slots
+        // (unit / agent) round-trip as scalars (bare refs) or inline mappings.
         var serializer = new YamlDotNet.Serialization.SerializerBuilder()
             .WithNamingConvention(YamlDotNet.Serialization.NamingConventions.CamelCaseNamingConvention.Instance)
+            .WithTypeConverter(new Cvoya.Spring.Manifest.InlineArtefactDefinitionYamlConverter())
             .Build();
         var emitted = serializer.Serialize(firstParse);
 
@@ -413,7 +416,10 @@ public class PackageManifestParserResolveTests
         secondParse.Kind.ShouldBe(firstParse.Kind);
         secondParse.Metadata!.Name.ShouldBe(firstParse.Metadata!.Name);
         secondParse.Metadata.Description.ShouldBe(firstParse.Metadata.Description);
-        secondParse.Unit.ShouldBe(firstParse.Unit);
+        secondParse.Unit.ShouldNotBeNull();
+        firstParse.Unit.ShouldNotBeNull();
+        secondParse.Unit!.Reference.ShouldBe(firstParse.Unit!.Reference);
+        secondParse.Unit.IsInline.ShouldBe(firstParse.Unit.IsInline);
         secondParse.SubUnits.ShouldNotBeNull();
         secondParse.SubUnits!.Count.ShouldBe(firstParse.SubUnits!.Count);
         secondParse.Skills!.Count.ShouldBe(firstParse.Skills!.Count);

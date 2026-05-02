@@ -64,22 +64,26 @@ public class PackageManifest
     public List<PackageInputDefinition>? Inputs { get; set; }
 
     /// <summary>
-    /// The root unit reference (used when <see cref="Kind"/> is
-    /// <c>UnitPackage</c>). Bare name resolves to
-    /// <c>./units/&lt;name&gt;.yaml</c>; qualified name (<c>pkg/name</c>)
-    /// resolves via the catalog.
+    /// The root unit slot (used when <see cref="Kind"/> is
+    /// <c>UnitPackage</c>). Accepts either a bare/qualified reference string
+    /// (bare resolves to <c>./units/&lt;name&gt;.yaml</c>; <c>pkg/name</c>
+    /// resolves via the catalog) or an inline unit body — see
+    /// <see cref="InlineArtefactDefinition"/>. Inline bodies enable the
+    /// wizard's single-artefact "scratch" path (ADR-0035 decision 6) without
+    /// reintroducing the dual-pipeline divergence ADR-0035 explicitly rejected.
     /// </summary>
     [YamlMember(Alias = "unit")]
-    public string? Unit { get; set; }
+    public InlineArtefactDefinition? Unit { get; set; }
 
     /// <summary>
-    /// The root agent reference (used when <see cref="Kind"/> is
-    /// <c>AgentPackage</c>). Bare name resolves to
-    /// <c>./agents/&lt;name&gt;.yaml</c>; qualified name (<c>pkg/name</c>)
-    /// resolves via the catalog.
+    /// The root agent slot (used when <see cref="Kind"/> is
+    /// <c>AgentPackage</c>). Accepts either a bare/qualified reference string
+    /// (bare resolves to <c>./agents/&lt;name&gt;.yaml</c>; <c>pkg/name</c>
+    /// resolves via the catalog) or an inline agent body — see
+    /// <see cref="InlineArtefactDefinition"/>.
     /// </summary>
     [YamlMember(Alias = "agent")]
-    public string? Agent { get; set; }
+    public InlineArtefactDefinition? Agent { get; set; }
 
     /// <summary>
     /// Additional sub-unit references. Each entry resolves the same way as

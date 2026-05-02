@@ -31,7 +31,9 @@ public class PackageManifestParserRawTests
         manifest.Kind.ShouldBe("UnitPackage");
         manifest.Metadata.ShouldNotBeNull();
         manifest.Metadata!.Name.ShouldBe("my-package");
-        manifest.Unit.ShouldBe("root-unit");
+        manifest.Unit.ShouldNotBeNull();
+        manifest.Unit!.IsInline.ShouldBeFalse();
+        manifest.Unit.Reference.ShouldBe("root-unit");
         manifest.Inputs.ShouldBeNull();
     }
 
@@ -52,7 +54,9 @@ public class PackageManifestParserRawTests
         manifest.Kind.ShouldBe("AgentPackage");
         manifest.Metadata!.Name.ShouldBe("agent-pkg");
         manifest.Metadata.Description.ShouldBe("An agent package.");
-        manifest.Agent.ShouldBe("my-agent");
+        manifest.Agent.ShouldNotBeNull();
+        manifest.Agent!.IsInline.ShouldBeFalse();
+        manifest.Agent.Reference.ShouldBe("my-agent");
     }
 
     [Fact]
@@ -109,7 +113,8 @@ public class PackageManifestParserRawTests
         manifest.Inputs[2].Name.ShouldBe("api_key");
         manifest.Inputs[2].Secret.ShouldBeTrue();
 
-        manifest.Unit.ShouldBe("root-unit");
+        manifest.Unit.ShouldNotBeNull();
+        manifest.Unit!.Reference.ShouldBe("root-unit");
         manifest.SubUnits.ShouldNotBeNull();
         manifest.SubUnits!.Count.ShouldBe(2);
         manifest.SubUnits[0].ShouldBe("sub-unit-a");
