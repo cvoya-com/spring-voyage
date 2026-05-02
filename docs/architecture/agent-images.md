@@ -16,7 +16,7 @@ Per-runtime images (`spring-voyage-agent-claude-code`, `spring-voyage-agent-dapr
 
 The minimal layer an operator needs to plug any CLI into the Spring Voyage dispatcher:
 
-- `debian:12-slim` base OS.
+- `python:3.13-slim` base (Debian trixie + Python 3.13).
 - Node.js 22 + the compiled TypeScript A2A bridge sidecar on `:8999`.
 - `tini` as PID 1 for clean signal forwarding.
 - Non-root `agent` user (uid/gid 1000).
@@ -57,7 +57,7 @@ The dispatcher stamps `SPRING_AGENT_ARGV` at launch time. The A2A bridge (inheri
 SPRING_AGENT_ARGV='["claude","--dangerously-skip-permissions"]'
 SPRING_AGENT_ARGV='["codex","--full-auto"]'
 SPRING_AGENT_ARGV='["gemini","--yolo"]'
-SPRING_AGENT_ARGV='["python","/opt/spring-voyage/dapr-agent/agent.py"]'
+SPRING_AGENT_ARGV='["/opt/dapr-agent-venv/bin/python","/opt/spring-voyage/dapr-agent/agent.py"]'
 ```
 
 The entrypoint is **not** overridden — it is inherited from `agent-base` (`tini → node sidecar`).

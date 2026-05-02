@@ -2,7 +2,7 @@
 #
 # Spring Voyage — spring-voyage-agents omnibus image (#1514).
 #
-# This image is the platform default for unit creation: the wizard pre-fills
+# Platform default for unit creation: the wizard pre-fills
 # `ghcr.io/cvoya-com/spring-voyage-agents:latest` and any unit without an
 # operator-provided image uses this one. It bundles all OSS CLI runtimes on
 # top of the minimal `spring-voyage-agent-base` BYOI image so an operator can
@@ -11,35 +11,22 @@
 #
 # Image taxonomy:
 #   spring-voyage-agent-base:latest  — BYOI minimal (A2A sidecar + Node 22 +
-#                                      debian:12-slim). Operators who want to
-#                                      bring their own CLI layer FROM this.
-#   spring-voyage-agents:latest      — Omnibus (this file). Layers all four
-#                                      CLI runtimes on top of agent-base; the
-#                                      wizard default.
+#                                      Python 3.13 on Debian trixie). Operators
+#                                      who want to bring their own CLI layer
+#                                      FROM this.
+#   spring-voyage-agents:latest      — Omnibus (this file). Strict superset of
+#                                      agent-base: layers all four CLI runtimes
+#                                      on top. The wizard default.
 #
 # Runtime CLIs bundled:
 #   claude    — @anthropic-ai/claude-code@CLAUDE_CODE_VERSION (npm global)
 #   codex     — @openai/codex@CODEX_VERSION                   (npm global)
 #   gemini    — @google/gemini-cli@GEMINI_CLI_VERSION          (npm global)
-#   dapr-agent stack (Python) — for the OpenAI, Google, and Ollama runtimes
-#                that all use ToolKind="dapr-agent"
+#   dapr-agent stack (Python venv) — for the OpenAI, Google, and Ollama
+#                runtimes that all use ToolKind="dapr-agent"
 #
 # Versions are pinned as ARGs at the top so bumps are a single-line edit;
 # all three CLI versions are recorded in labels for auditability.
-#
-# Why this image does not FROM spring-voyage-agent-base:
-#   spring-voyage-agent is a Python package with requires-python = ">=3.12".
-#   spring-voyage-agent-base ships Python 3.11 from apt on debian:12-slim
-#   (GLIBC 2.36).  python:3.12-slim is based on debian:13-slim (GLIBC 2.41).
-#   Copying a Python 3.12 binary across GLIBC versions fails at runtime with
-#   "version GLIBC_2.38 not found".  The omnibus therefore builds its own
-#   final layer FROM python:3.12-slim and installs Node.js + the A2A sidecar
-#   itself, mirroring the recipe in Dockerfile.agent-base exactly so the
-#   runtime behaviour (tini → sidecar → CLI) is identical.
-#
-# The entrypoint matches spring-voyage-agent-base: tini → node sidecar bridge.
-# The A2A bridge sidecar is PID 1 and the dispatcher stamps SPRING_AGENT_ARGV
-# at launch time to select the CLI.
 #
 # Build (from repo root):
 #   docker build \
@@ -47,126 +34,48 @@
 #     -t ghcr.io/cvoya-com/spring-voyage-agents:dev \
 #     .
 
-# ---- global ARGs (must precede all FROM statements) -------------------------
-# Override at build time to roll any CLI forward without editing this file.
+ARG AGENT_BASE_IMAGE=ghcr.io/cvoya-com/spring-voyage-agent-base:latest
 ARG CLAUDE_CODE_VERSION=2.1.98
 ARG CODEX_VERSION=0.128.0
 ARG GEMINI_CLI_VERSION=0.40.1
-ARG NODE_VERSION=22
 
-# ---- sidecar build stage ----------------------------------------------------
-# Mirrors Dockerfile.agent-base stage 1: compile the TypeScript A2A sidecar
-# so we don't ship build tools or devDependencies in the runtime layer.
-FROM docker.io/library/node:${NODE_VERSION}-bookworm-slim AS sidecar-build
-
-WORKDIR /build
-COPY deployment/agent-sidecar/package.json deployment/agent-sidecar/tsconfig.json ./
-COPY deployment/agent-sidecar/src ./src
-RUN npm install --omit=optional --no-audit --no-fund \
- && npx tsc -p tsconfig.json \
- && npm prune --omit=dev
-
-# ---- dapr-agent build stage -------------------------------------------------
-# The spring-voyage-agent SDK requires Python >=3.12 (pyproject.toml).
-# We build the venv here, in a stage that already has the matching interpreter,
-# then copy only the venv artifacts into the runtime layer.  Mirrors the pip
-# recipe in Dockerfile.agent.dapr exactly (same paths, no --break-system-packages).
-FROM docker.io/library/python:3.12-slim AS dapr-agent-build
-
-WORKDIR /build
-
-COPY agents/dapr-agent/requirements.txt ./requirements.txt
-COPY agents/spring-voyage-agent         ./spring-voyage-agent
-
-RUN python -m venv /opt/dapr-agent-venv \
- && /opt/dapr-agent-venv/bin/pip install --no-cache-dir -r requirements.txt \
- && /opt/dapr-agent-venv/bin/pip install --no-cache-dir ./spring-voyage-agent
-
-# ---- runtime layer ----------------------------------------------------------
-# Build on python:3.12-slim (debian:13-slim, GLIBC 2.41) rather than on
-# spring-voyage-agent-base (debian:12-slim, GLIBC 2.36) so the Python 3.12
-# interpreter and the dapr-agent venv run on the same GLIBC version they were
-# compiled against.  We install Node.js 22, tini, and the A2A sidecar here
-# directly — the same packages and paths that Dockerfile.agent-base installs —
-# so the runtime behaviour is identical.
-FROM docker.io/library/python:3.12-slim
-
-ENV DEBIAN_FRONTEND=noninteractive \
-    LANG=C.UTF-8 \
-    LC_ALL=C.UTF-8 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    WORKSPACE=/workspace \
-    AGENT_PORT=8999 \
-    SIDECAR_DIR=/opt/spring-voyage/sidecar
+FROM ${AGENT_BASE_IMAGE}
 
 # Re-declare ARGs after FROM so they are in scope for the RUN steps below.
-ARG NODE_VERSION
 ARG CLAUDE_CODE_VERSION
 ARG CODEX_VERSION
 ARG GEMINI_CLI_VERSION
 
-# OS packages + Node.js 22 — mirrors Dockerfile.agent-base exactly.
-# python3 / python3-pip / python3-venv are already present (python:3.12-slim
-# base); we skip those and add the packages agent-base includes.
-RUN apt-get update \
- && apt-get install -y --no-install-recommends \
-        ca-certificates \
-        curl \
-        git \
-        gnupg \
-        jq \
-        openssh-client \
-        ripgrep \
-        tini \
-        tzdata \
-        unzip \
-        wget \
- && curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash - \
- && apt-get install -y --no-install-recommends nodejs \
- && apt-get purge -y --auto-remove gnupg \
- && rm -rf /var/lib/apt/lists/*
-
-# Non-root agent user — same uid/gid (1000/1000) as agent-base and
-# Dockerfile.agent.dapr for bind-mount compatibility.
-ARG AGENT_UID=1000
-ARG AGENT_GID=1000
-RUN groupadd --gid "${AGENT_GID}" agent \
- && useradd  --uid "${AGENT_UID}" --gid "${AGENT_GID}" --create-home --shell /bin/bash agent \
- && mkdir -p "${WORKSPACE}" "${SIDECAR_DIR}" \
- && chown -R agent:agent "${WORKSPACE}" /home/agent
-
-# ---- A2A sidecar (from sidecar-build stage) ---------------------------------
-# Owned by root, executable by everyone — the sidecar runs as `agent`.
-COPY --from=sidecar-build /build/dist        ${SIDECAR_DIR}/dist
-COPY --from=sidecar-build /build/node_modules ${SIDECAR_DIR}/node_modules
-COPY --from=sidecar-build /build/package.json ${SIDECAR_DIR}/package.json
-
-# ---- OSS CLI installs -------------------------------------------------------
 USER root
 
-# 1. Claude Code CLI  (@anthropic-ai/claude-code → `claude` binary)
-#    Recipe verbatim from Dockerfile.agent.claude-code.
+# ---- OSS CLI installs (npm globals) -----------------------------------------
+# 1. Claude Code CLI (@anthropic-ai/claude-code → `claude` binary)
 RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
  && command -v claude >/dev/null \
  && claude --version
 
-# 2. OpenAI Codex CLI  (@openai/codex → `codex` binary)
+# 2. OpenAI Codex CLI (@openai/codex → `codex` binary)
 RUN npm install -g "@openai/codex@${CODEX_VERSION}" \
  && command -v codex >/dev/null
 
-# 3. Google Gemini CLI  (@google/gemini-cli → `gemini` binary)
+# 3. Google Gemini CLI (@google/gemini-cli → `gemini` binary)
 RUN npm install -g "@google/gemini-cli@${GEMINI_CLI_VERSION}" \
  && command -v gemini >/dev/null
 
 # ---- dapr-agent stack -------------------------------------------------------
-# 4. Copy the pre-built venv from the dapr-agent-build stage.
-#    The venv's interpreter symlinks resolve to /usr/local/bin/python3.12
-#    which is the system interpreter in this python:3.12-slim image — no
-#    additional relinking or PATH changes needed.
-COPY --from=dapr-agent-build /opt/dapr-agent-venv /opt/dapr-agent-venv
+# Python 3.13 from agent-base satisfies spring-voyage-agent's
+# python_requires>=3.12. We build the venv in-place; no multi-stage hop or
+# --break-system-packages dance needed because the venv is an isolated prefix.
+COPY agents/dapr-agent/requirements.txt /tmp/dapr-agent-requirements.txt
+COPY agents/spring-voyage-agent         /tmp/spring-voyage-agent
 
-# Copy the dapr-agent Python source.  Mirrors the COPY recipe in
+RUN python3 -m venv /opt/dapr-agent-venv \
+ && /opt/dapr-agent-venv/bin/pip install --no-cache-dir -r /tmp/dapr-agent-requirements.txt \
+ && /opt/dapr-agent-venv/bin/pip install --no-cache-dir /tmp/spring-voyage-agent \
+ && rm -rf /tmp/dapr-agent-requirements.txt /tmp/spring-voyage-agent \
+ && chown -R agent:agent /opt/dapr-agent-venv
+
+# Copy the dapr-agent Python source. Mirrors the COPY recipe in
 # Dockerfile.agent.dapr so the dispatcher's SPRING_AGENT_ARGV path is
 # consistent across the standalone dapr-agent image and the omnibus.
 COPY agents/dapr-agent/agent.py        /opt/spring-voyage/dapr-agent/agent.py
@@ -174,24 +83,19 @@ COPY agents/dapr-agent/a2a_server.py   /opt/spring-voyage/dapr-agent/a2a_server.
 COPY agents/dapr-agent/mcp_bridge.py   /opt/spring-voyage/dapr-agent/mcp_bridge.py
 COPY agents/dapr-agent/pyproject.toml  /opt/spring-voyage/dapr-agent/pyproject.toml
 
-RUN chown -R agent:agent /opt/spring-voyage/dapr-agent \
- && chown -R agent:agent /opt/dapr-agent-venv
+RUN chown -R agent:agent /opt/spring-voyage/dapr-agent
 
 USER agent
-WORKDIR /workspace
-
-EXPOSE 8999
 
 # ---- labels -----------------------------------------------------------------
 LABEL org.opencontainers.image.title="spring-voyage-agents" \
-      org.opencontainers.image.description="Spring Voyage omnibus agent image: bundles the Claude Code, OpenAI Codex, and Google Gemini CLIs plus the dapr-agent Python stack. Python 3.12 base (debian:13-slim). Platform default for unit creation." \
+      org.opencontainers.image.description="Spring Voyage omnibus agent image: bundles the Claude Code, OpenAI Codex, and Google Gemini CLIs plus the dapr-agent Python stack on top of spring-voyage-agent-base. Platform default for unit creation." \
       org.opencontainers.image.source="https://github.com/cvoya-com/spring-voyage" \
       com.cvoya.spring-voyage.claude-code-version="${CLAUDE_CODE_VERSION}" \
       com.cvoya.spring-voyage.codex-version="${CODEX_VERSION}" \
       com.cvoya.spring-voyage.gemini-cli-version="${GEMINI_CLI_VERSION}"
 
-# ---- entrypoint -------------------------------------------------------------
-# Mirrors spring-voyage-agent-base: tini → node sidecar bridge.
+# Entrypoint inherited from spring-voyage-agent-base: tini → node sidecar.
 # The dispatcher sets SPRING_AGENT_ARGV to choose the active CLI:
 #
 #   SPRING_AGENT_ARGV='["claude","--dangerously-skip-permissions"]'  # Claude
@@ -201,4 +105,3 @@ LABEL org.opencontainers.image.title="spring-voyage-agents" \
 #
 # Do NOT override ENTRYPOINT unless you are implementing BYOI path 3 (native
 # A2A — see docs/architecture/agent-images.md).
-ENTRYPOINT ["/usr/bin/tini", "--", "node", "/opt/spring-voyage/sidecar/dist/cli.js"]

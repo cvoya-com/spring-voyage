@@ -15,13 +15,14 @@
 # stdin/stdout through.
 #
 # Stage 1 builds the sidecar from source so we don't ship build tools or
-# devDependencies in the runtime layer. Stage 2 starts from the same
-# debian:12-slim base as Dockerfile.agent so existing operators see no
-# behavioural drift on the OS layer.
+# devDependencies in the runtime layer. Stage 2 starts from python:3.13-slim
+# (Debian trixie) so the base already has Python 3.13 — required by
+# spring-voyage-agent (python_requires>=3.12) and used by the omnibus
+# spring-voyage-agents image that layers on top of this one.
 
 ARG NODE_VERSION=22
 
-FROM docker.io/library/node:${NODE_VERSION}-bookworm-slim AS sidecar-build
+FROM docker.io/library/node:${NODE_VERSION}-trixie-slim AS sidecar-build
 
 WORKDIR /build
 COPY deployment/agent-sidecar/package.json deployment/agent-sidecar/tsconfig.json ./
@@ -31,19 +32,23 @@ RUN npm install --omit=optional --no-audit --no-fund \
  && npm prune --omit=dev
 
 
-FROM docker.io/library/debian:12-slim
+FROM docker.io/library/python:3.13-slim
+
+# Re-declare ARG so it's in scope for RUN steps below.
+ARG NODE_VERSION
 
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=C.UTF-8 \
     LC_ALL=C.UTF-8 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
     WORKSPACE=/workspace \
     AGENT_PORT=8999 \
     SIDECAR_DIR=/opt/spring-voyage/sidecar
 
-# Identical OS layer to deployment/Dockerfile.agent so this image is a
-# strict superset (same tini, same Node 22, same coreutils). Operators
-# moving from `Dockerfile.agent` to `Dockerfile.agent-base` should see
-# zero behavioural change in the OS layer.
+# python:3.13-slim provides python3 / pip / venv already; we install the rest
+# of the agent runtime's userland tooling (tini, jq, ripgrep, …) plus Node.js
+# from nodesource so the bridge sidecar runs on a current LTS release.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
         ca-certificates \
@@ -52,15 +57,12 @@ RUN apt-get update \
         gnupg \
         jq \
         openssh-client \
-        python3 \
-        python3-pip \
-        python3-venv \
         ripgrep \
         tini \
         tzdata \
         unzip \
         wget \
- && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+ && curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash - \
  && apt-get install -y --no-install-recommends nodejs \
  && apt-get purge -y --auto-remove gnupg \
  && rm -rf /var/lib/apt/lists/*
