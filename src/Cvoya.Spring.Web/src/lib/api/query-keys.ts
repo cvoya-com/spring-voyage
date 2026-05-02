@@ -192,6 +192,13 @@ export const queryKeys = {
     detail: (name: string) => ["packages", "detail", name] as const,
   },
 
+  // Install status (ADR-0035 decision 11). Per-install slice keyed by id
+  // so polling two concurrent installs doesn't clobber each other's cache.
+  installs: {
+    all: ["installs"] as const,
+    detail: (id: string) => ["installs", "detail", id] as const,
+  },
+
   skills: {
     catalog: () => ["skills", "catalog"] as const,
   },

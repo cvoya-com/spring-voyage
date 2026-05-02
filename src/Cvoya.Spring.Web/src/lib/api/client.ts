@@ -21,8 +21,10 @@ import type {
   DirectorySearchResponse,
   ExpertiseDomainDto,
   InitiativePolicy,
+  InstallPackageDetail,
   InstallStatusResponse,
   MessageResponse,
+  PackageInstallTarget,
   PersistentAgentDeploymentResponse,
   PersistentAgentLogsResponse,
   ScalePersistentAgentRequest,
@@ -1485,26 +1487,6 @@ export const api = {
     }
     return resp.json() as Promise<InstallStatusResponse>;
   },
-  getInstallStatus: async (id: string): Promise<InstallStatusResponse> => {
-    const resp = await fetch(`${BASE}/api/v1/installs/${encodeURIComponent(id)}`);
-    if (!resp.ok) {
-      throw new ApiError(resp.status, resp.statusText, await resp.text());
-    }
-    return resp.json() as Promise<InstallStatusResponse>;
-  },
-  retryInstall: async (id: string): Promise<InstallStatusResponse> =>
-    unwrap(
-      await fetchClient.POST("/api/v1/installs/{id}/retry", {
-        params: { path: { id } },
-      }),
-    ) as InstallStatusResponse,
-  abortInstall: async (id: string): Promise<void> => {
-    assertOk(
-      await fetchClient.POST("/api/v1/installs/{id}/abort", {
-        params: { path: { id } },
-      }),
-    );
-  },
 
   // Tenant tree (SVR-tenant-tree, umbrella #815). Single-payload tenant
   // snapshot for the Explorer surface at `/units`.
@@ -1525,4 +1507,61 @@ export const api = {
         params: { path: { id } },
       }),
     ),
+
+  // Package install (ADR-0035 decision 11 — two-phase atomic install).
+  // POST /api/v1/packages/install — install one or more packages from the catalog.
+  // Returns 201 with InstallStatusResponse; Phase-2 failures show status=failed.
+  installPackages: async (
+    targets: PackageInstallTarget[],
+  ): Promise<InstallStatusResponse> => {
+    const result = await fetchClient.POST("/api/v1/packages/install", {
+      body: { targets },
+    });
+    if (result.error !== undefined || !result.response.ok) {
+      throw new ApiError(
+        result.response.status,
+        result.response.statusText,
+        result.error ?? null,
+      );
+    }
+    if (result.data === undefined) {
+      throw new Error("API 201: response body was empty (expected payload)");
+    }
+    return result.data as InstallStatusResponse;
+  },
+
+  // GET /api/v1/installs/{id} — inspect install status + per-package detail.
+  // Returns null when the install is not found (404) so callers can render
+  // a clean "not found" state without error boundary trips.
+  getInstallStatus: async (id: string): Promise<InstallStatusResponse | null> => {
+    const result = await fetchClient.GET("/api/v1/installs/{id}", {
+      params: { path: { id } },
+    });
+    if (result.response.status === 404) {
+      return null;
+    }
+    return unwrap(result) as InstallStatusResponse;
+  },
+
+  // POST /api/v1/installs/{id}/retry — re-run Phase 2 for a failed install.
+  retryInstall: async (id: string): Promise<InstallStatusResponse> =>
+    unwrap(
+      await fetchClient.POST("/api/v1/installs/{id}/retry", {
+        params: { path: { id } },
+      }),
+    ) as InstallStatusResponse,
+
+  // POST /api/v1/installs/{id}/abort — discard all staging rows.
+  // Returns 204 NoContent; use assertOk pattern (throws ApiError on non-2xx).
+  abortInstall: async (id: string): Promise<void> => {
+    assertOk(
+      await fetchClient.POST("/api/v1/installs/{id}/abort", {
+        params: { path: { id } },
+      }),
+    );
+  },
 };
+
+// Re-export for co-location: ensures the type is available to call sites
+// that import from this module rather than from types directly.
+export type { InstallPackageDetail, InstallStatusResponse, PackageInstallTarget };

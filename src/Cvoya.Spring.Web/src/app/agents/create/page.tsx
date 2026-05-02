@@ -188,6 +188,7 @@ export default function CreateAgentPage() {
         if (signal.aborted) return "aborted";
 
         const status = await api.getInstallStatus(installId);
+        if (status === null) return "failed"; // install no longer exists
         if (status.status === "active") return "active";
         if (status.status === "failed") return "failed";
         // still "staging" — keep polling

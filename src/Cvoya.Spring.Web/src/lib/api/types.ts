@@ -434,6 +434,20 @@ export type CreateSecretRequest = Schemas["CreateSecretRequest"];
 export type UnitMembershipResponse = Schemas["UnitMembershipResponse"];
 
 // ---------------------------------------------------------------------------
+// Package install (ADR-0035 decision 11 — two-phase atomic install).
+// Endpoints: POST /api/v1/packages/install, GET/POST /api/v1/installs/{id}.
+// ---------------------------------------------------------------------------
+
+/** One target within a package install request (POST /api/v1/packages/install). */
+export type PackageInstallTarget = Schemas["PackageInstallTarget"];
+
+/** Response body shared by POST /api/v1/packages/install, GET /api/v1/installs/{id}, and POST /api/v1/installs/{id}/retry. */
+export type InstallStatusResponse = Schemas["InstallStatusResponse"];
+
+/** Per-package detail row within an InstallStatusResponse. */
+export type InstallPackageDetail = Schemas["InstallPackageDetail"];
+
+// ---------------------------------------------------------------------------
 // Connectors (generic + GitHub)
 // ---------------------------------------------------------------------------
 
@@ -749,14 +763,3 @@ export interface ProviderCredentialStatusResponse {
    */
   suggestion: string | null;
 }
-
-// ---------------------------------------------------------------------------
-// Package install (ADR-0035, #1582)
-// ---------------------------------------------------------------------------
-
-/**
- * Response body for `POST /api/v1/packages/install`,
- * `POST /api/v1/installs/{id}/retry`, and `GET /api/v1/installs/{id}`.
- * Carries the shared batch identifier and per-package outcome.
- */
-export type InstallStatusResponse = Schemas["InstallStatusResponse"];

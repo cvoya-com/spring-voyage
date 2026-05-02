@@ -8,6 +8,12 @@
  * pick "engineering-team is inside software-engineering" at a glance
  * without drilling into the detail page.
  *
+ * Browse / Upload stub (ADR-0035 decision 5 / #1565): the file picker and
+ * card are visible but the submit action is disabled for v0.1. The stub
+ * keeps the surface honest so doc and UX align with the v0.2 final shape.
+ * Operators who need to install a local package today use the CLI:
+ *   spring package install --file ./my-package.yaml
+ *
  * Design contract: docs/design/portal-exploration.md § 3.2 lists
  * Packages as a primary nav entry (sidebar link wired in
  * `lib/extensions/defaults.ts`), § 5.1 describes the card-grid layout
@@ -16,11 +22,14 @@
  */
 
 import Link from "next/link";
-import { Package as PackageIcon } from "lucide-react";
+import { Package as PackageIcon, Upload } from "lucide-react";
+import { useRef } from "react";
 
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tooltip } from "@/components/ui/tooltip";
 import { usePackages } from "@/lib/api/queries";
 import type { PackageSummary } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
@@ -29,6 +38,7 @@ export default function PackagesListPage() {
   const packagesQuery = usePackages();
   const packages = packagesQuery.data ?? [];
   const loading = packagesQuery.isPending;
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   return (
     <div className="space-y-6">
@@ -45,6 +55,11 @@ export default function PackagesListPage() {
           .
         </p>
       </div>
+
+      {/* Browse / Upload stub — ADR-0035 decision 5 / 13. v0.1: disabled
+          submit; v0.2 will accept a real upload. The file picker is visible
+          so the UX shape matches the final design without requiring v0.2 work. */}
+      <BrowseUploadStub fileInputRef={fileInputRef} />
 
       {loading ? (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -82,6 +97,84 @@ export default function PackagesListPage() {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Browse / Upload package stub (ADR-0035 decision 5 / 13).
+ *
+ * v0.1: the file picker is visible and the operator can select a file, but
+ * the Upload button is disabled with a tooltip explaining the CLI path.
+ * v0.2 will wire the multipart POST to `/api/v1/packages/install/file`.
+ */
+function BrowseUploadStub({
+  fileInputRef,
+}: {
+  fileInputRef: React.RefObject<HTMLInputElement | null>;
+}) {
+  return (
+    <Card
+      data-testid="browse-upload-stub"
+      className="border-dashed border-border/70 bg-muted/20"
+    >
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-sm font-medium">
+          <Upload className="h-4 w-4" aria-hidden="true" />
+          Browse / Upload package
+          <Badge variant="outline" className="ml-1 text-xs">
+            Coming in v0.2
+          </Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-xs text-muted-foreground">
+          Upload a local <code className="rounded bg-muted px-1 py-0.5">package.yaml</code> or
+          a tarball to install a package directly from your machine. This
+          feature arrives in v0.2.
+        </p>
+
+        {/* File picker — visible but submit is disabled */}
+        <div className="flex items-center gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".yaml,.yml,.tar,.tgz"
+            aria-label="Select package file"
+            data-testid="browse-file-input"
+            className="flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-xs file:mr-2 file:rounded file:border-0 file:bg-secondary file:px-2 file:py-0.5 file:text-xs file:font-medium file:text-secondary-foreground"
+          />
+          <Tooltip label="Browse-and-upload arrives in v0.2. Use the CLI today." side="top">
+            <Button
+              type="button"
+              size="sm"
+              disabled
+              aria-disabled="true"
+              data-testid="browse-upload-button"
+            >
+              Upload
+            </Button>
+          </Tooltip>
+        </div>
+
+        {/* CLI hint for v0.1 */}
+        <p className="text-xs text-muted-foreground" data-testid="browse-cli-hint">
+          To install a local package today, run:{" "}
+          <code className="rounded bg-muted px-1 py-0.5 text-xs font-mono">
+            spring package install --file ./my-package.yaml
+          </code>
+          . See the{" "}
+          <Link
+            href="https://docs.spring.voyage/cli/package"
+            className="text-primary underline-offset-2 hover:underline"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            CLI reference
+          </Link>{" "}
+          for full options.
+        </p>
+      </CardContent>
+    </Card>
   );
 }
 

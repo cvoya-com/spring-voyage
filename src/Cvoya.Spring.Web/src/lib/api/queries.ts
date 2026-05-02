@@ -41,6 +41,8 @@ import type {
   CloneResponse,
   CostBreakdownResponse,
   InstalledConnectorResponse,
+  InstallStatusResponse,
+  PackageInstallTarget,
   ThreadDetail,
   ThreadListFilters,
   ThreadSummary,
@@ -971,6 +973,86 @@ export function useUnitTemplateDetail(
     enabled: opts?.enabled ?? Boolean(pkg && name),
     refetchInterval: opts?.refetchInterval,
     staleTime: opts?.staleTime,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Package install (ADR-0035 decision 11 — two-phase atomic install).
+// ---------------------------------------------------------------------------
+
+/**
+ * Poll install status for a given install id. When `id` is empty-string or
+ * nullish, the query is disabled. The caller drives polling by passing a
+ * `refetchInterval` (e.g. 2000 for 2-second polling during the staging
+ * phase) and stops polling by clearing the interval once `status` reaches
+ * `active` or `failed`.
+ */
+export function useInstallStatus(
+  id: string,
+  opts?: SliceOptions<InstallStatusResponse | null>,
+): UseQueryResult<InstallStatusResponse | null, Error> {
+  return useQuery({
+    queryKey: queryKeys.installs.detail(id),
+    queryFn: () => api.getInstallStatus(id),
+    enabled: opts?.enabled ?? Boolean(id),
+    refetchInterval: opts?.refetchInterval,
+    staleTime: opts?.staleTime ?? 0,
+  });
+}
+
+/**
+ * Install one or more packages from the catalog (POST /api/v1/packages/install).
+ * On success, seeds the install-status cache with the server response so the
+ * install-status view renders immediately without a redundant round-trip.
+ */
+export function useInstallPackages(): UseMutationResult<
+  InstallStatusResponse,
+  Error,
+  PackageInstallTarget[]
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (targets: PackageInstallTarget[]) =>
+      api.installPackages(targets),
+    onSuccess: (data) => {
+      // Pre-seed the cache so the status view loads from memory immediately.
+      queryClient.setQueryData(
+        queryKeys.installs.detail(data.installId),
+        data,
+      );
+    },
+  });
+}
+
+/**
+ * Retry Phase 2 for a failed install (POST /api/v1/installs/{id}/retry).
+ * Invalidates the install-status slice on success to trigger a fresh fetch.
+ */
+export function useRetryInstall(
+  id: string,
+): UseMutationResult<InstallStatusResponse, Error, void> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.retryInstall(id),
+    onSuccess: (data) => {
+      queryClient.setQueryData(queryKeys.installs.detail(id), data);
+    },
+  });
+}
+
+/**
+ * Abort a failed install (POST /api/v1/installs/{id}/abort).
+ * Removes the install-status cache slice on success.
+ */
+export function useAbortInstall(
+  id: string,
+): UseMutationResult<void, Error, void> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.abortInstall(id),
+    onSuccess: () => {
+      queryClient.removeQueries({ queryKey: queryKeys.installs.detail(id) });
+    },
   });
 }
 
