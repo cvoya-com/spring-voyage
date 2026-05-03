@@ -219,103 +219,10 @@ public class ActivityEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         }
     }
 
-    /// <summary>
-    /// #987: the portal tenant tree only carries unit/agent slugs, so the
-    /// Activity tab queries with `source=unit:<slug>`. Events are stored
-    /// with `source=unit:<actorId>`, so without normalization every
-    /// slug-based query returned an empty page. This test pins the
-    /// server-side rewrite: the query service sees the actor id, and the
-    /// slug-based URL reaches the same row set that a direct
-    /// `source=unit:<actorId>` URL would.
-    /// </summary>
-    [Fact]
-    public async Task QueryActivity_WithUnitSlugSource_ResolvesSlugToActorId()
-    {
-        var ct = TestContext.Current.CancellationToken;
-        const string slug = "portal-scratch-1";
-        const string actorId = "2d3e4f56-7890-4abc-8def-0123456789ab";
-
-        _factory.DirectoryService.ResolveAsync(new Address("unit", slug), Arg.Any<CancellationToken>())
-            .Returns(new DirectoryEntry(
-                new Address("unit", slug),
-                actorId,
-                "Portal Scratch 1",
-                string.Empty,
-                Role: null,
-                DateTimeOffset.UtcNow));
-
-        var items = new List<ActivityQueryResult.Item>
-        {
-            new(Guid.NewGuid(), $"unit:{actorId}", "MessageReceived", "Info", "msg", null, null, DateTimeOffset.UtcNow)
-        };
-        _factory.ActivityQueryService.QueryAsync(Arg.Any<ActivityQueryParameters>(), Arg.Any<CancellationToken>())
-            .Returns(new ActivityQueryResult(items, 1, 1, 50));
-
-        var response = await _client.GetAsync($"/api/v1/tenant/activity?source=unit:{slug}&pageSize=5", ct);
-
-        response.StatusCode.ShouldBe(HttpStatusCode.OK);
-
-        await _factory.ActivityQueryService.Received(1).QueryAsync(
-            Arg.Is<ActivityQueryParameters>(p => p.Source == $"unit:{actorId}"),
-            Arg.Any<CancellationToken>());
-    }
-
-    /// <summary>
-    /// Sibling to the unit slug test — agent Activity tabs hit the same
-    /// root cause per the issue, so the rewrite must cover `agent:` too.
-    /// </summary>
-    [Fact]
-    public async Task QueryActivity_WithAgentSlugSource_ResolvesSlugToActorId()
-    {
-        var ct = TestContext.Current.CancellationToken;
-        const string slug = "ada";
-        const string actorId = "00aa11bb-22cc-4dd5-e6f7-8901234567ef";
-
-        _factory.DirectoryService.ResolveAsync(new Address("agent", slug), Arg.Any<CancellationToken>())
-            .Returns(new DirectoryEntry(
-                new Address("agent", slug),
-                actorId,
-                "Ada",
-                string.Empty,
-                Role: null,
-                DateTimeOffset.UtcNow));
-
-        _factory.ActivityQueryService.QueryAsync(Arg.Any<ActivityQueryParameters>(), Arg.Any<CancellationToken>())
-            .Returns(new ActivityQueryResult([], 0, 1, 50));
-
-        var response = await _client.GetAsync($"/api/v1/tenant/activity?source=agent:{slug}", ct);
-
-        response.StatusCode.ShouldBe(HttpStatusCode.OK);
-
-        await _factory.ActivityQueryService.Received(1).QueryAsync(
-            Arg.Is<ActivityQueryParameters>(p => p.Source == $"agent:{actorId}"),
-            Arg.Any<CancellationToken>());
-    }
-
-    /// <summary>
-    /// Unknown slug (deleted unit, typo) must not 400 — the platform had
-    /// "empty page" semantics before the fix, and the issue explicitly
-    /// asks to preserve that shape.
-    /// </summary>
-    [Fact]
-    public async Task QueryActivity_WithUnknownUnitSlug_ReturnsEmptyNotError()
-    {
-        var ct = TestContext.Current.CancellationToken;
-
-        _factory.DirectoryService.ResolveAsync(Address.For("unit", "ghost"), Arg.Any<CancellationToken>())
-            .Returns((DirectoryEntry?)null);
-
-        _factory.ActivityQueryService.QueryAsync(Arg.Any<ActivityQueryParameters>(), Arg.Any<CancellationToken>())
-            .Returns(new ActivityQueryResult([], 0, 1, 50));
-
-        var response = await _client.GetAsync("/api/v1/tenant/activity?source=unit:ghost", ct);
-
-        response.StatusCode.ShouldBe(HttpStatusCode.OK);
-
-        var result = await response.Content.ReadFromJsonAsync<ActivityQueryResult>(ct);
-        result.ShouldNotBeNull();
-        result!.TotalCount.ShouldBe(0);
-    }
+    // #1629: QueryActivity_With{Unit,Agent}SlugSource_ResolvesSlugToActorId and
+    // QueryActivity_WithUnknownUnitSlug_ReturnsEmptyNotError were slug-resolution
+    // tests; post #1629 every address is identity, so the slug → actor-id rewrite
+    // path the tests exercised no longer exists.
 
     /// <summary>
     /// Thread-scoped SSE filter (#1421): when <c>?thread=&lt;id&gt;</c> is supplied,
@@ -349,7 +256,7 @@ public class ActivityEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         var matchingEvent = new ActivityEvent(
             Id: Guid.NewGuid(),
             Timestamp: DateTimeOffset.UtcNow,
-            Source: new Cvoya.Spring.Core.Messaging.Address("agent", "ada"),
+            Source: new Cvoya.Spring.Core.Messaging.Address("agent", Guid.NewGuid()),
             EventType: ActivityEventType.MessageReceived,
             Severity: ActivitySeverity.Info,
             Summary: "matching",
@@ -358,7 +265,7 @@ public class ActivityEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         var nonMatchingEvent = new ActivityEvent(
             Id: Guid.NewGuid(),
             Timestamp: DateTimeOffset.UtcNow,
-            Source: new Cvoya.Spring.Core.Messaging.Address("agent", "ada"),
+            Source: new Cvoya.Spring.Core.Messaging.Address("agent", Guid.NewGuid()),
             EventType: ActivityEventType.MessageReceived,
             Severity: ActivitySeverity.Info,
             Summary: "non-matching",

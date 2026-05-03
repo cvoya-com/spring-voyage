@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Host.Api.Tests;
 
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Host.Api.Endpoints;
 
@@ -14,62 +15,22 @@ using Shouldly;
 using Xunit;
 
 /// <summary>
-/// Unit coverage for <see cref="ActivitySourceNormalizer"/> — the
-/// slug-to-actor-id rewriter introduced for issue #987. The portal queries
-/// activity by slug (<c>unit:portal-scratch-1</c>), but the persistence layer
-/// keys on the Dapr actor id, so without normalization every slug-based query
-/// returned an empty page.
+/// Coverage for <see cref="ActivitySourceNormalizer"/>.
+///
+/// Post #1629: the normalizer's slug-to-actor-id rewrite path is gone
+/// (every address is identity), so the surface that remains is
+/// pass-through behaviour for malformed / non-Guid / non-resolvable
+/// inputs and the canonical URL-form output for the SSE stream.
 /// </summary>
 public class ActivitySourceNormalizerTests
 {
-    private const string UnitActorId = "2d3e4f56-7890-4abc-8def-0123456789ab";
-    private const string AgentActorId = "00aa11bb-22cc-4dd5-e6f7-8901234567ef";
+    private static readonly Guid UnitActorId = new("2d3e4f56-7890-4abc-8def-0123456789ab");
 
     [Fact]
-    public async Task NormalizeQuerySourceAsync_UnitSlug_ResolvesToActorId()
+    public async Task NormalizeQuerySourceAsync_KnownGuidActorId_ReturnsGuidPath()
     {
-        var directoryService = Substitute.For<IDirectoryService>();
-        directoryService.ResolveAsync(Address.For("unit", "portal-scratch-1"), Arg.Any<CancellationToken>())
-            .Returns(new DirectoryEntry(
-                Address.For("unit", "portal-scratch-1"),
-                UnitActorId,
-                "Portal Scratch 1",
-                string.Empty,
-                Role: null,
-                DateTimeOffset.UtcNow));
-
-        var result = await ActivitySourceNormalizer.NormalizeQuerySourceAsync(
-            "unit:portal-scratch-1", directoryService, TestContext.Current.CancellationToken);
-
-        result.ShouldBe($"unit:{UnitActorId}");
-    }
-
-    [Fact]
-    public async Task NormalizeQuerySourceAsync_AgentSlug_ResolvesToActorId()
-    {
-        var directoryService = Substitute.For<IDirectoryService>();
-        directoryService.ResolveAsync(Address.For("agent", "ada"), Arg.Any<CancellationToken>())
-            .Returns(new DirectoryEntry(
-                Address.For("agent", "ada"),
-                AgentActorId,
-                "Ada",
-                string.Empty,
-                Role: null,
-                DateTimeOffset.UtcNow));
-
-        var result = await ActivitySourceNormalizer.NormalizeQuerySourceAsync(
-            "agent:ada", directoryService, TestContext.Current.CancellationToken);
-
-        result.ShouldBe($"agent:{AgentActorId}");
-    }
-
-    [Fact]
-    public async Task NormalizeQuerySourceAsync_KnownActorId_StillRoundTripsThroughResolver()
-    {
-        // ResolveAsync accepts the same address shape for slug or actor id —
-        // the DirectoryService persists ActorId separately and returns it
-        // verbatim. This test pins the behaviour so a caller who already
-        // holds the actor id doesn't regress to an empty page.
+        // The directory resolves the Guid back to an entry whose
+        // ActorId matches; the normalizer emits "unit:<no-dash>".
         var directoryService = Substitute.For<IDirectoryService>();
         directoryService.ResolveAsync(new Address("unit", UnitActorId), Arg.Any<CancellationToken>())
             .Returns(new DirectoryEntry(
@@ -81,47 +42,26 @@ public class ActivitySourceNormalizerTests
                 DateTimeOffset.UtcNow));
 
         var result = await ActivitySourceNormalizer.NormalizeQuerySourceAsync(
-            $"unit:{UnitActorId}", directoryService, TestContext.Current.CancellationToken);
+            $"unit:{UnitActorId:N}", directoryService, TestContext.Current.CancellationToken);
 
-        result.ShouldBe($"unit:{UnitActorId}");
+        result.ShouldBe($"unit:{GuidFormatter.Format(UnitActorId)}");
     }
 
     [Fact]
-    public async Task NormalizeQuerySourceAsync_UnknownSlug_PassesThroughUnchanged()
+    public async Task NormalizeQuerySourceAsync_UnknownGuid_PassesThroughUnchanged()
     {
         var directoryService = Substitute.For<IDirectoryService>();
         directoryService.ResolveAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
             .Returns((DirectoryEntry?)null);
 
-        // The query still runs; an unknown slug must surface as an empty
-        // result page (which the downstream equality filter produces
-        // naturally), not a 400.
+        // Unresolved sources surface as the original input verbatim so the
+        // downstream equality filter produces an empty result page rather
+        // than a 400. Mirrors the pre-fix observable shape.
+        var unknown = $"unit:{Guid.NewGuid():N}";
         var result = await ActivitySourceNormalizer.NormalizeQuerySourceAsync(
-            "unit:does-not-exist", directoryService, TestContext.Current.CancellationToken);
+            unknown, directoryService, TestContext.Current.CancellationToken);
 
-        result.ShouldBe("unit:does-not-exist");
-    }
-
-    [Fact]
-    public async Task NormalizeQuerySourceAsync_UrlFormSlug_AcceptedAndResolved()
-    {
-        // Portal code paths that build display strings sometimes emit the
-        // `://` form. Accept both shapes on the REST surface so a future
-        // client that sends `unit://slug` doesn't regress to empty.
-        var directoryService = Substitute.For<IDirectoryService>();
-        directoryService.ResolveAsync(Address.For("unit", "eng-team"), Arg.Any<CancellationToken>())
-            .Returns(new DirectoryEntry(
-                Address.For("unit", "eng-team"),
-                UnitActorId,
-                "Eng Team",
-                string.Empty,
-                Role: null,
-                DateTimeOffset.UtcNow));
-
-        var result = await ActivitySourceNormalizer.NormalizeQuerySourceAsync(
-            "unit://eng-team", directoryService, TestContext.Current.CancellationToken);
-
-        result.ShouldBe($"unit:{UnitActorId}");
+        result.ShouldBe(unknown);
     }
 
     [Theory]
@@ -146,28 +86,27 @@ public class ActivitySourceNormalizerTests
     [Fact]
     public async Task NormalizeQuerySourceAsync_NonResolvableScheme_PassesThrough()
     {
-        // `human:` and `connector:` addresses never register actor ids the
-        // directory owns — skip the lookup so we don't poke the resolver for
-        // schemes the normalizer has nothing to rewrite.
+        // `human:` addresses are not directory-resolved — skip the lookup
+        // so we don't poke the resolver for schemes the normalizer has
+        // nothing to rewrite.
         var directoryService = Substitute.For<IDirectoryService>();
 
+        var input = $"human:{Guid.NewGuid():N}";
         var result = await ActivitySourceNormalizer.NormalizeQuerySourceAsync(
-            "human:alice", directoryService, TestContext.Current.CancellationToken);
+            input, directoryService, TestContext.Current.CancellationToken);
 
-        result.ShouldBe("human:alice");
+        result.ShouldBe(input);
         await directoryService.DidNotReceive()
             .ResolveAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task NormalizeStreamSourceAsync_UnitSlug_EmitsDoubleSlashWithActorId()
+    public async Task NormalizeStreamSourceAsync_KnownGuid_EmitsDoubleSlashUrlForm()
     {
-        // The SSE filter compares against `{scheme}://{path}` — the stream
-        // shape needs the URL form, not the single-colon persisted shape.
         var directoryService = Substitute.For<IDirectoryService>();
-        directoryService.ResolveAsync(Address.For("unit", "eng-team"), Arg.Any<CancellationToken>())
+        directoryService.ResolveAsync(new Address("unit", UnitActorId), Arg.Any<CancellationToken>())
             .Returns(new DirectoryEntry(
-                Address.For("unit", "eng-team"),
+                new Address("unit", UnitActorId),
                 UnitActorId,
                 "Eng Team",
                 string.Empty,
@@ -175,21 +114,22 @@ public class ActivitySourceNormalizerTests
                 DateTimeOffset.UtcNow));
 
         var result = await ActivitySourceNormalizer.NormalizeStreamSourceAsync(
-            "unit:eng-team", directoryService, TestContext.Current.CancellationToken);
+            $"unit:{UnitActorId:N}", directoryService, TestContext.Current.CancellationToken);
 
-        result.ShouldBe($"unit://{UnitActorId}");
+        result.ShouldBe($"unit://{GuidFormatter.Format(UnitActorId)}");
     }
 
     [Fact]
-    public async Task NormalizeStreamSourceAsync_UnknownSlug_PassesThrough()
+    public async Task NormalizeStreamSourceAsync_UnknownGuid_PassesThrough()
     {
         var directoryService = Substitute.For<IDirectoryService>();
         directoryService.ResolveAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
             .Returns((DirectoryEntry?)null);
 
+        var unknown = $"agent:{Guid.NewGuid():N}";
         var result = await ActivitySourceNormalizer.NormalizeStreamSourceAsync(
-            "agent:unknown", directoryService, TestContext.Current.CancellationToken);
+            unknown, directoryService, TestContext.Current.CancellationToken);
 
-        result.ShouldBe("agent:unknown");
+        result.ShouldBe(unknown);
     }
 }
