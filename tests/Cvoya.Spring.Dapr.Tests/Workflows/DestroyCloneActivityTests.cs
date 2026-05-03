@@ -8,6 +8,7 @@ using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.State;
 using Cvoya.Spring.Dapr.Actors;
+using Cvoya.Spring.Dapr.Tests.TestHelpers;
 using Cvoya.Spring.Dapr.Workflows;
 using Cvoya.Spring.Dapr.Workflows.Activities;
 
@@ -26,6 +27,10 @@ using Xunit;
 /// </summary>
 public class DestroyCloneActivityTests
 {
+    private static readonly string ParentAgentHex = TestSlugIds.HexFor("parent-agent");
+    private static readonly string Clone1Hex = TestSlugIds.HexFor("clone-1");
+    private static readonly string Clone2Hex = TestSlugIds.HexFor("clone-2");
+
     private readonly IDirectoryService _directoryService;
     private readonly IStateStore _stateStore;
     private readonly DestroyCloneActivity _activity;
@@ -45,13 +50,13 @@ public class DestroyCloneActivityTests
     public async Task RunAsync_UnregistersFromDirectory()
     {
         var input = new CloningInput(
-            "parent-agent", "clone-1",
+            ParentAgentHex, Clone1Hex,
             CloningPolicy.EphemeralNoMemory, AttachmentMode.Detached);
 
         await _activity.RunAsync(_context, input);
 
         await _directoryService.Received(1).UnregisterAsync(
-            Arg.Is<Address>(a => a.Scheme == "agent" && a.Path == "clone-1"),
+            Arg.Is<Address>(a => a.Scheme == "agent" && a.Path == Clone1Hex),
             Arg.Any<CancellationToken>());
     }
 
@@ -59,34 +64,34 @@ public class DestroyCloneActivityTests
     public async Task RunAsync_CleansUpCloneState()
     {
         var input = new CloningInput(
-            "parent-agent", "clone-1",
+            ParentAgentHex, Clone1Hex,
             CloningPolicy.EphemeralNoMemory, AttachmentMode.Detached);
 
         await _activity.RunAsync(_context, input);
 
         await _stateStore.Received(1).DeleteAsync(
-            $"clone-1:{StateKeys.CloneIdentity}", Arg.Any<CancellationToken>());
+            $"{Clone1Hex}:{StateKeys.CloneIdentity}", Arg.Any<CancellationToken>());
         await _stateStore.Received(1).DeleteAsync(
-            $"clone-1:{StateKeys.AgentDefinition}", Arg.Any<CancellationToken>());
+            $"{Clone1Hex}:{StateKeys.AgentDefinition}", Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task RunAsync_RemovesFromParentChildrenList()
     {
         var input = new CloningInput(
-            "parent-agent", "clone-1",
+            ParentAgentHex, Clone1Hex,
             CloningPolicy.EphemeralNoMemory, AttachmentMode.Detached);
 
-        var children = new List<string> { "clone-1", "clone-2" };
+        var children = new List<string> { Clone1Hex, Clone2Hex };
         _stateStore.GetAsync<List<string>>(
-            $"parent-agent:{StateKeys.CloneChildren}", Arg.Any<CancellationToken>())
+            $"{ParentAgentHex}:{StateKeys.CloneChildren}", Arg.Any<CancellationToken>())
             .Returns(children);
 
         await _activity.RunAsync(_context, input);
 
         await _stateStore.Received(1).SetAsync(
-            $"parent-agent:{StateKeys.CloneChildren}",
-            Arg.Is<List<string>>(list => !list.Contains("clone-1") && list.Contains("clone-2")),
+            $"{ParentAgentHex}:{StateKeys.CloneChildren}",
+            Arg.Is<List<string>>(list => !list.Contains(Clone1Hex) && list.Contains(Clone2Hex)),
             Arg.Any<CancellationToken>());
     }
 
@@ -94,7 +99,7 @@ public class DestroyCloneActivityTests
     public async Task RunAsync_ReturnsTrue()
     {
         var input = new CloningInput(
-            "parent-agent", "clone-1",
+            ParentAgentHex, Clone1Hex,
             CloningPolicy.EphemeralNoMemory, AttachmentMode.Detached);
 
         var result = await _activity.RunAsync(_context, input);

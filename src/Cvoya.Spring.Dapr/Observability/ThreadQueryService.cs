@@ -542,7 +542,7 @@ public class ThreadQueryService(
              || string.Equals(scheme, "human", StringComparison.OrdinalIgnoreCase))
             && Guid.TryParse(path, out var actorId))
         {
-            return $"{scheme}:id:{actorId}";
+            return $"{scheme}:id:{GuidFormatter.Format(actorId)}";
         }
 
         return $"{scheme}://{path}";

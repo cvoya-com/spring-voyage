@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Dapr.Tests.Workflows;
 
 using Cvoya.Spring.Core.Cloning;
+using Cvoya.Spring.Dapr.Tests.TestHelpers;
 using Cvoya.Spring.Dapr.Workflows;
 using Cvoya.Spring.Dapr.Workflows.Activities;
 
@@ -21,6 +22,9 @@ using Xunit;
 /// </summary>
 public class CloningLifecycleWorkflowTests
 {
+    private static readonly string ParentAgentHex = TestSlugIds.HexFor("parent-agent");
+    private static readonly string Clone1Hex = TestSlugIds.HexFor("clone-1");
+
     private readonly WorkflowContext _context;
     private readonly CloningLifecycleWorkflow _workflow;
 
@@ -34,7 +38,7 @@ public class CloningLifecycleWorkflowTests
     public async Task RunAsync_AllActivitiesSucceed_ReturnsSuccess()
     {
         var input = new CloningInput(
-            "parent-agent", "clone-1",
+            ParentAgentHex, Clone1Hex,
             CloningPolicy.EphemeralNoMemory, AttachmentMode.Detached);
 
         _context.CallActivityAsync<bool>(nameof(ValidateCloneRequestActivity), input)
@@ -47,8 +51,8 @@ public class CloningLifecycleWorkflowTests
         var result = await _workflow.RunAsync(_context, input);
 
         result.Success.ShouldBeTrue();
-        result.CloneId.ShouldBe("clone-1");
-        result.CloneAgentAddress.ShouldBe("agent/clone-1");
+        result.CloneId.ShouldBe(Clone1Hex);
+        result.CloneAgentAddress.ShouldBe($"agent/{Clone1Hex}");
         result.Error.ShouldBeNull();
     }
 
@@ -56,7 +60,7 @@ public class CloningLifecycleWorkflowTests
     public async Task RunAsync_ValidationFails_ReturnsFailure()
     {
         var input = new CloningInput(
-            "parent-agent", "clone-1",
+            ParentAgentHex, Clone1Hex,
             CloningPolicy.EphemeralNoMemory, AttachmentMode.Detached);
 
         _context.CallActivityAsync<bool>(nameof(ValidateCloneRequestActivity), input)
@@ -74,7 +78,7 @@ public class CloningLifecycleWorkflowTests
     public async Task RunAsync_ValidationFails_DoesNotCreateOrRegister()
     {
         var input = new CloningInput(
-            "parent-agent", "clone-1",
+            ParentAgentHex, Clone1Hex,
             CloningPolicy.EphemeralNoMemory, AttachmentMode.Detached);
 
         _context.CallActivityAsync<bool>(nameof(ValidateCloneRequestActivity), input)
@@ -92,7 +96,7 @@ public class CloningLifecycleWorkflowTests
     public async Task RunAsync_CreateFails_ReturnsFailure()
     {
         var input = new CloningInput(
-            "parent-agent", "clone-1",
+            ParentAgentHex, Clone1Hex,
             CloningPolicy.EphemeralWithMemory, AttachmentMode.Attached);
 
         _context.CallActivityAsync<bool>(nameof(ValidateCloneRequestActivity), input)
@@ -110,7 +114,7 @@ public class CloningLifecycleWorkflowTests
     public async Task RunAsync_CreateFails_DoesNotRegister()
     {
         var input = new CloningInput(
-            "parent-agent", "clone-1",
+            ParentAgentHex, Clone1Hex,
             CloningPolicy.EphemeralWithMemory, AttachmentMode.Attached);
 
         _context.CallActivityAsync<bool>(nameof(ValidateCloneRequestActivity), input)
@@ -128,7 +132,7 @@ public class CloningLifecycleWorkflowTests
     public async Task RunAsync_RegisterFails_ReturnsFailure()
     {
         var input = new CloningInput(
-            "parent-agent", "clone-1",
+            ParentAgentHex, Clone1Hex,
             CloningPolicy.EphemeralNoMemory, AttachmentMode.Detached);
 
         _context.CallActivityAsync<bool>(nameof(ValidateCloneRequestActivity), input)
@@ -148,7 +152,7 @@ public class CloningLifecycleWorkflowTests
     public async Task RunAsync_WithMemoryPolicy_PassesInputToActivities()
     {
         var input = new CloningInput(
-            "parent-agent", "clone-1",
+            ParentAgentHex, Clone1Hex,
             CloningPolicy.EphemeralWithMemory, AttachmentMode.Attached,
             Budget: 100m, MaxClones: 5);
 

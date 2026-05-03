@@ -9,6 +9,7 @@ using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Dapr.Skills;
+using Cvoya.Spring.Dapr.Tests.TestHelpers;
 
 using Microsoft.Extensions.Logging;
 
@@ -90,30 +91,32 @@ public class DirectorySearchSkillRegistryTests
         var hit = payload.GetProperty("hits").EnumerateArray().First();
         hit.GetProperty("slug").GetString().ShouldBe("python");
         hit.GetProperty("skill").GetString().ShouldBe("expertise/python");
-        hit.GetProperty("owner").GetString().ShouldBe("unit://eng");
+        hit.GetProperty("owner").GetString().ShouldBe($"unit://{TestSlugIds.HexFor("eng")}");
         hit.GetProperty("typedContract").GetBoolean().ShouldBeTrue();
     }
 
     [Fact]
     public void ParseArguments_AcceptsStringAddressForOwner()
     {
-        var args = JsonDocument.Parse("""{ "owner": "unit://ada-squad" }""").RootElement;
+        var adaSquadHex = TestSlugIds.HexFor("ada-squad");
+        var args = JsonDocument.Parse($$"""{ "owner": "unit://{{adaSquadHex}}" }""").RootElement;
         var query = DirectorySearchSkillRegistry.ParseArguments(args);
 
         query.Owner.ShouldNotBeNull();
         query.Owner!.Scheme.ShouldBe("unit");
-        query.Owner.Path.ShouldBe("ada-squad");
+        query.Owner.Path.ShouldBe(adaSquadHex);
     }
 
     [Fact]
     public void ParseArguments_AcceptsObjectAddressForOwner()
     {
-        var args = JsonDocument.Parse("""{ "owner": { "scheme": "agent", "path": "ada" } }""").RootElement;
+        var adaHex = TestSlugIds.HexFor("ada");
+        var args = JsonDocument.Parse($$"""{ "owner": { "scheme": "agent", "path": "{{adaHex}}" } }""").RootElement;
         var query = DirectorySearchSkillRegistry.ParseArguments(args);
 
         query.Owner.ShouldNotBeNull();
         query.Owner!.Scheme.ShouldBe("agent");
-        query.Owner.Path.ShouldBe("ada");
+        query.Owner.Path.ShouldBe(adaHex);
     }
 
     [Fact]

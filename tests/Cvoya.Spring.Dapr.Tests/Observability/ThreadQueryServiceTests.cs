@@ -32,12 +32,52 @@ public class ThreadQueryServiceTests : IDisposable
 {
     private readonly SpringDbContext _db;
 
+    /// <summary>
+    /// Tracks the seed-time scheme + slug for every actor id that
+    /// <see cref="SeedThreadAsync"/> writes, so <see cref="BuildDirectory"/>
+    /// can hand the projection a real <c>actorId → DirectoryEntry</c> map.
+    /// Without it the post-#1629 projection collapses every source to
+    /// <c>unknown:&lt;hex&gt;</c> and slug-form filter assertions stop
+    /// working.
+    /// </summary>
+    private readonly Dictionary<Guid, (string Scheme, string Slug)> _seededActors = new();
+
     public ThreadQueryServiceTests()
     {
         var dbOptions = new DbContextOptionsBuilder<SpringDbContext>()
             .UseInMemoryDatabase($"ThreadQueryTest-{Guid.NewGuid()}")
             .Options;
         _db = new SpringDbContext(dbOptions);
+    }
+
+    private ThreadQueryService BuildService()
+    {
+        return new ThreadQueryService(_db, BuildDirectory());
+    }
+
+    private IDirectoryService BuildDirectory()
+    {
+        var dir = Substitute.For<IDirectoryService>();
+        var entries = _seededActors
+            .Select(kvp => new DirectoryEntry(
+                Address: new Address(kvp.Value.Scheme, kvp.Key),
+                ActorId: kvp.Key,
+                DisplayName: kvp.Value.Slug,
+                Description: string.Empty,
+                Role: null,
+                RegisteredAt: DateTimeOffset.UtcNow))
+            .ToList();
+        dir.ListAllAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<DirectoryEntry>>(entries));
+        dir.ResolveAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
+            .Returns(ci =>
+            {
+                var addr = ci.Arg<Address>();
+                var match = entries.FirstOrDefault(
+                    e => e.Address.Scheme == addr.Scheme && e.ActorId == addr.Id);
+                return Task.FromResult<DirectoryEntry?>(match);
+            });
+        return dir;
     }
 
     public void Dispose()
@@ -49,7 +89,7 @@ public class ThreadQueryServiceTests : IDisposable
     [Fact]
     public async Task ListAsync_NoActivity_ReturnsEmpty()
     {
-        var svc = new ThreadQueryService(_db);
+        var svc = BuildService();
 
         var result = await svc.ListAsync(new ThreadQueryFilters(), TestContext.Current.CancellationToken);
 
@@ -71,15 +111,15 @@ public class ThreadQueryServiceTests : IDisposable
             ("agent:grace", "ThreadCompleted", "Done", DateTimeOffset.UtcNow.AddMinutes(-1)),
         });
 
-        var svc = new ThreadQueryService(_db);
+        var svc = BuildService();
 
         var result = await svc.ListAsync(new ThreadQueryFilters(), TestContext.Current.CancellationToken);
 
         result.Count.ShouldBe(2);
         var c1 = result.Single(r => r.Id == "c-1");
         c1.Status.ShouldBe("active");
-        c1.Participants.ShouldContain("agent://ada");
-        c1.Participants.ShouldContain("human://savasp");
+        c1.Participants.ShouldContain($"agent:id:{TestSlugIds.HexFor("ada")}");
+        c1.Participants.ShouldContain($"human:id:{TestSlugIds.HexFor("savasp")}");
         c1.EventCount.ShouldBe(3);
 
         var c2 = result.Single(r => r.Id == "c-2");
@@ -92,21 +132,23 @@ public class ThreadQueryServiceTests : IDisposable
     // upgrade path the tests exercised no longer exists.
 
     [Fact]
-    public async Task ListAsync_AgentFilter_NoDirectory_FallsBackToLiteralMatch()
+    public async Task ListAsync_AgentFilter_WithDirectory_ResolvesGuidNeedle()
     {
-        // Tests in this suite seed events with the slug-form source
-        // (`agent:ada`) — the existing assertions all rely on the literal
-        // form matching, so injecting no directory must keep that path
-        // working unchanged.
+        // Post-#1629 every address is a Guid; the projection renders the
+        // scheme via IDirectoryService and the agent filter resolves the
+        // caller-supplied Guid through the same directory. This is the
+        // happy-path replacement for the slug-resolution tests retired
+        // earlier in this file.
+        var adaHex = TestSlugIds.HexFor("ada");
         await SeedThreadAsync("c-ada", new[]
         {
-            ("agent:ada", "ThreadStarted", "Started c-ada", DateTimeOffset.UtcNow.AddMinutes(-5)),
+            ($"agent:{adaHex}", "ThreadStarted", "Started c-ada", DateTimeOffset.UtcNow.AddMinutes(-5)),
         });
 
-        var svc = new ThreadQueryService(_db);
+        var svc = BuildService();
 
         var result = await svc.ListAsync(
-            new ThreadQueryFilters(Agent: "ada"),
+            new ThreadQueryFilters(Agent: adaHex),
             TestContext.Current.CancellationToken);
 
         result.Count.ShouldBe(1);
@@ -126,7 +168,7 @@ public class ThreadQueryServiceTests : IDisposable
             ("agent:ada", "ThreadCompleted", "", DateTimeOffset.UtcNow.AddMinutes(-1)),
         });
 
-        var svc = new ThreadQueryService(_db);
+        var svc = BuildService();
 
         var completed = await svc.ListAsync(
             new ThreadQueryFilters(Status: "completed"),
@@ -147,7 +189,7 @@ public class ThreadQueryServiceTests : IDisposable
             ("agent:ada", "ThreadStarted", "first", earlier),
         });
 
-        var svc = new ThreadQueryService(_db);
+        var svc = BuildService();
         var detail = await svc.GetAsync("c-1", TestContext.Current.CancellationToken);
 
         detail.ShouldNotBeNull();
@@ -161,7 +203,7 @@ public class ThreadQueryServiceTests : IDisposable
     [Fact]
     public async Task GetAsync_UnknownId_ReturnsNull()
     {
-        var svc = new ThreadQueryService(_db);
+        var svc = BuildService();
 
         var detail = await svc.GetAsync("nope", TestContext.Current.CancellationToken);
 
@@ -178,13 +220,13 @@ public class ThreadQueryServiceTests : IDisposable
             ("human:savasp", "MessageReceived", "Approve merge?", DateTimeOffset.UtcNow.AddMinutes(-1)),
         });
 
-        var svc = new ThreadQueryService(_db);
-        var inbox = await svc.ListInboxAsync("human://savasp", null, TestContext.Current.CancellationToken);
+        var svc = BuildService();
+        var inbox = await svc.ListInboxAsync($"human:id:{TestSlugIds.HexFor("savasp")}", null, TestContext.Current.CancellationToken);
 
         inbox.Count.ShouldBe(1);
         inbox[0].ThreadId.ShouldBe("c-1");
-        inbox[0].Human.ShouldBe("human://savasp");
-        inbox[0].From.ShouldBe("agent://ada");
+        inbox[0].Human.ShouldBe($"human:id:{TestSlugIds.HexFor("savasp")}");
+        inbox[0].From.ShouldBe($"agent:id:{TestSlugIds.HexFor("ada")}");
     }
 
     [Fact]
@@ -198,8 +240,8 @@ public class ThreadQueryServiceTests : IDisposable
             ("agent:ada", "MessageReceived", "Ack from human", DateTimeOffset.UtcNow.AddMinutes(-5)),
         });
 
-        var svc = new ThreadQueryService(_db);
-        var inbox = await svc.ListInboxAsync("human://savasp", null, TestContext.Current.CancellationToken);
+        var svc = BuildService();
+        var inbox = await svc.ListInboxAsync($"human:id:{TestSlugIds.HexFor("savasp")}", null, TestContext.Current.CancellationToken);
 
         inbox.ShouldBeEmpty();
     }
@@ -213,8 +255,8 @@ public class ThreadQueryServiceTests : IDisposable
             ("human:alice", "MessageReceived", "For alice", DateTimeOffset.UtcNow.AddMinutes(-1)),
         });
 
-        var svc = new ThreadQueryService(_db);
-        var inbox = await svc.ListInboxAsync("human://savasp", null, TestContext.Current.CancellationToken);
+        var svc = BuildService();
+        var inbox = await svc.ListInboxAsync($"human:id:{TestSlugIds.HexFor("savasp")}", null, TestContext.Current.CancellationToken);
 
         inbox.ShouldBeEmpty();
     }
@@ -242,13 +284,13 @@ public class ThreadQueryServiceTests : IDisposable
             ("human:local-dev-user", "MessageReceived", "Received Domain message from agent://backend-engineer", t0.AddMinutes(1)),
         });
 
-        var svc = new ThreadQueryService(_db);
-        var inbox = await svc.ListInboxAsync("human://local-dev-user", null, TestContext.Current.CancellationToken);
+        var svc = BuildService();
+        var inbox = await svc.ListInboxAsync($"human:id:{TestSlugIds.HexFor("local-dev-user")}", null, TestContext.Current.CancellationToken);
 
         inbox.Count.ShouldBe(1);
         inbox[0].ThreadId.ShouldBe("e58eaf86");
-        inbox[0].Human.ShouldBe("human://local-dev-user");
-        inbox[0].From.ShouldBe("agent://backend-engineer");
+        inbox[0].Human.ShouldBe($"human:id:{TestSlugIds.HexFor("local-dev-user")}");
+        inbox[0].From.ShouldBe($"agent:id:{TestSlugIds.HexFor("backend-engineer")}");
     }
 
     [Fact]
@@ -272,8 +314,8 @@ public class ThreadQueryServiceTests : IDisposable
             ("human:local-dev-user", "MessageReceived", "Fresh reply", fresh),
         });
 
-        var svc = new ThreadQueryService(_db);
-        var inbox = await svc.ListInboxAsync("human://local-dev-user", null, TestContext.Current.CancellationToken);
+        var svc = BuildService();
+        var inbox = await svc.ListInboxAsync($"human:id:{TestSlugIds.HexFor("local-dev-user")}", null, TestContext.Current.CancellationToken);
 
         inbox.Count.ShouldBe(2);
         inbox[0].ThreadId.ShouldBe("e58eaf86");
@@ -300,12 +342,12 @@ public class ThreadQueryServiceTests : IDisposable
             ("agent:ada", "StateChanged", "State changed from Active to Idle", t0.AddSeconds(81)),
         });
 
-        var svc = new ThreadQueryService(_db);
-        var inbox = await svc.ListInboxAsync("human://savasp", null, TestContext.Current.CancellationToken);
+        var svc = BuildService();
+        var inbox = await svc.ListInboxAsync($"human:id:{TestSlugIds.HexFor("savasp")}", null, TestContext.Current.CancellationToken);
 
         inbox.Count.ShouldBe(1);
         inbox[0].ThreadId.ShouldBe("c-trailing");
-        inbox[0].From.ShouldBe("agent://ada");
+        inbox[0].From.ShouldBe($"agent:id:{TestSlugIds.HexFor("ada")}");
     }
 
     [Fact]
@@ -324,8 +366,8 @@ public class ThreadQueryServiceTests : IDisposable
             ("agent:ada", "StateChanged", "Trailing tail", t0.AddSeconds(121)),
         });
 
-        var svc = new ThreadQueryService(_db);
-        var inbox = await svc.ListInboxAsync("human://savasp", null, TestContext.Current.CancellationToken);
+        var svc = BuildService();
+        var inbox = await svc.ListInboxAsync($"human:id:{TestSlugIds.HexFor("savasp")}", null, TestContext.Current.CancellationToken);
 
         inbox.ShouldBeEmpty();
     }
@@ -360,14 +402,14 @@ public class ThreadQueryServiceTests : IDisposable
         });
         await _db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        var svc = new ThreadQueryService(_db);
+        var svc = BuildService();
         var detail = await svc.GetAsync("c-1", TestContext.Current.CancellationToken);
 
         detail.ShouldNotBeNull();
         var evt = detail!.Events.Single();
         evt.MessageId.ShouldBe(messageId);
-        evt.From.ShouldBe("human://savasp");
-        evt.To.ShouldBe("agent://ada");
+        evt.From.ShouldBe($"human://{TestSlugIds.HexFor("savasp")}");
+        evt.To.ShouldBe($"agent://{TestSlugIds.HexFor("ada")}");
         evt.Body.ShouldBe("Approve merge?");
     }
 
@@ -409,7 +451,7 @@ public class ThreadQueryServiceTests : IDisposable
         });
         await _db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        var svc = new ThreadQueryService(_db);
+        var svc = BuildService();
         var detail = await svc.GetAsync("c-reply", TestContext.Current.CancellationToken);
 
         detail.ShouldNotBeNull();
@@ -426,12 +468,14 @@ public class ThreadQueryServiceTests : IDisposable
         // bubble bodies rather than the "Received Domain message …" envelope
         // summary fallback.
         var messageId = Guid.NewGuid();
+        var adaHex = TestSlugIds.HexFor("ada");
+        var savaspHex = TestSlugIds.HexFor("savasp");
         var details = JsonDocument.Parse(
             $$"""
             {
                 "messageId": "{{messageId}}",
-                "from": "agent://ada",
-                "to": "human://savasp",
+                "from": "agent:id:{{adaHex}}",
+                "to": "human:id:{{savaspHex}}",
                 "messageType": "Domain",
                 "payload": {
                     "Output": "Reply text from before the fix.",
@@ -453,7 +497,7 @@ public class ThreadQueryServiceTests : IDisposable
         });
         await _db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        var svc = new ThreadQueryService(_db);
+        var svc = BuildService();
         var detail = await svc.GetAsync("c-legacy", TestContext.Current.CancellationToken);
 
         detail.ShouldNotBeNull();
@@ -476,8 +520,8 @@ public class ThreadQueryServiceTests : IDisposable
             ("human:savasp", "MessageReceived", "Agent's reply to human", t0.AddSeconds(60)),
         });
 
-        var svc = new ThreadQueryService(_db);
-        var inbox = await svc.ListInboxAsync("human://savasp", null, TestContext.Current.CancellationToken);
+        var svc = BuildService();
+        var inbox = await svc.ListInboxAsync($"human:id:{TestSlugIds.HexFor("savasp")}", null, TestContext.Current.CancellationToken);
 
         inbox.Count.ShouldBe(1);
         // All 3 events are "after MinValue" → UnreadCount = 3.
@@ -495,7 +539,7 @@ public class ThreadQueryServiceTests : IDisposable
             ("human:savasp", "MessageReceived", "Reply", t0.AddSeconds(60)),
         });
 
-        var svc = new ThreadQueryService(_db);
+        var svc = BuildService();
 
         // The human last read the thread after the first 2 events — only the
         // third event (human MessageReceived at t0+60s) is "new".
@@ -504,7 +548,7 @@ public class ThreadQueryServiceTests : IDisposable
             ["c-partial"] = t0.AddSeconds(45),
         };
 
-        var inbox = await svc.ListInboxAsync("human://savasp", lastReadAt, TestContext.Current.CancellationToken);
+        var inbox = await svc.ListInboxAsync($"human:id:{TestSlugIds.HexFor("savasp")}", lastReadAt, TestContext.Current.CancellationToken);
 
         inbox.Count.ShouldBe(1);
         inbox[0].UnreadCount.ShouldBe(1);
@@ -521,7 +565,7 @@ public class ThreadQueryServiceTests : IDisposable
             ("human:savasp", "MessageReceived", "Reply", t0.AddSeconds(60)),
         });
 
-        var svc = new ThreadQueryService(_db);
+        var svc = BuildService();
 
         // lastReadAt is after all events → UnreadCount = 0.
         var lastReadAt = new Dictionary<string, DateTimeOffset>
@@ -529,7 +573,7 @@ public class ThreadQueryServiceTests : IDisposable
             ["c-read"] = t0.AddSeconds(120),
         };
 
-        var inbox = await svc.ListInboxAsync("human://savasp", lastReadAt, TestContext.Current.CancellationToken);
+        var inbox = await svc.ListInboxAsync($"human:id:{TestSlugIds.HexFor("savasp")}", lastReadAt, TestContext.Current.CancellationToken);
 
         inbox.Count.ShouldBe(1);
         inbox[0].UnreadCount.ShouldBe(0);
@@ -541,18 +585,21 @@ public class ThreadQueryServiceTests : IDisposable
     public void NormaliseSource_AgentWithUuidPath_EmitsIdentityForm()
     {
         // Activity events for agents are stored as "agent:<uuid>".
-        // NormaliseSource must upgrade these to "agent:id:<uuid>".
+        // NormaliseSource must upgrade these to "agent:id:<uuid>" using the
+        // canonical no-dash 32-char form (#1629).
         var actorId = "2ab56e09-6746-40b2-9a34-f0d6babfc0f3";
+        var noDash = Guid.Parse(actorId).ToString("N");
         ThreadQueryService.NormaliseSource($"agent:{actorId}")
-            .ShouldBe($"agent:id:{actorId}");
+            .ShouldBe($"agent:id:{noDash}");
     }
 
     [Fact]
     public void NormaliseSource_UnitWithUuidPath_EmitsIdentityForm()
     {
         var actorId = "4c5d6e7f-0000-0000-0000-000000000001";
+        var noDash = Guid.Parse(actorId).ToString("N");
         ThreadQueryService.NormaliseSource($"unit:{actorId}")
-            .ShouldBe($"unit:id:{actorId}");
+            .ShouldBe($"unit:id:{noDash}");
     }
 
     [Fact]
@@ -566,7 +613,8 @@ public class ThreadQueryServiceTests : IDisposable
     [Fact]
     public void NormaliseSource_HumanWithAnyPath_EmitsNavigationForm()
     {
-        // Human sources always use the navigation form until #1491 lands.
+        // Non-UUID human sources are kept in the navigation form (legacy
+        // pre-#1491 events still surface this way).
         ThreadQueryService.NormaliseSource("human:savasp")
             .ShouldBe("human://savasp");
     }
@@ -582,7 +630,7 @@ public class ThreadQueryServiceTests : IDisposable
     [Fact]
     public void NormaliseSource_AlreadyInNavigationForm_Passthrough()
     {
-        ThreadQueryService.NormaliseSource("agent://ada").ShouldBe("agent://ada");
+        ThreadQueryService.NormaliseSource($"agent:id:{TestSlugIds.HexFor("ada")}").ShouldBe($"agent:id:{TestSlugIds.HexFor("ada")}");
     }
 
     [Fact]
@@ -599,14 +647,14 @@ public class ThreadQueryServiceTests : IDisposable
             ("human:savasp", "MessageReceived", "Ask", DateTimeOffset.UtcNow.AddMinutes(-1)),
         });
 
-        var svc = new ThreadQueryService(_db);
+        var svc = BuildService();
         var result = await svc.ListAsync(new ThreadQueryFilters(), TestContext.Current.CancellationToken);
 
         var thread = result.Single(t => t.Id == "c-uuid");
-        // Agent participant must be the identity form.
-        thread.Participants.ShouldContain($"agent:id:{actorId}");
+        // Agent participant must be the identity form (no-dash 32-char hex).
+        thread.Participants.ShouldContain($"agent:id:{Guid.Parse(actorId):N}");
         // Human participant stays in navigation form until #1491.
-        thread.Participants.ShouldContain("human://savasp");
+        thread.Participants.ShouldContain($"human:id:{TestSlugIds.HexFor("savasp")}");
         // The slug-shaped navigation form must NOT appear for UUID-path sources.
         thread.Participants.ShouldNotContain($"agent://{actorId}");
     }
@@ -623,12 +671,12 @@ public class ThreadQueryServiceTests : IDisposable
             ("human:savasp", "MessageReceived", "Ask", t0.AddSeconds(60)),
         });
 
-        var svc = new ThreadQueryService(_db);
-        var inbox = await svc.ListInboxAsync("human://savasp", null, TestContext.Current.CancellationToken);
+        var svc = BuildService();
+        var inbox = await svc.ListInboxAsync($"human:id:{TestSlugIds.HexFor("savasp")}", null, TestContext.Current.CancellationToken);
 
         inbox.Count.ShouldBe(1);
-        // The "from" field must be the stable identity form.
-        inbox[0].From.ShouldBe($"agent:id:{actorId}");
+        // The "from" field must be the stable identity form (no-dash hex, #1629).
+        inbox[0].From.ShouldBe($"agent:id:{Guid.Parse(actorId):N}");
     }
 
     [Fact]
@@ -643,13 +691,15 @@ public class ThreadQueryServiceTests : IDisposable
     [Fact]
     public void ToPersistenceSource_NavigationForm_ConvertsToCompactForm()
     {
-        ThreadQueryService.ToPersistenceSource("human://savasp").ShouldBe("human:savasp");
+        var savaspHex = TestSlugIds.HexFor("savasp").ToString();
+        ThreadQueryService.ToPersistenceSource($"human://{savaspHex}").ShouldBe($"human:{savaspHex}");
     }
 
     [Fact]
     public void ToPersistenceSource_AlreadyCompact_Passthrough()
     {
-        ThreadQueryService.ToPersistenceSource("human:savasp").ShouldBe("human:savasp");
+        var savaspHex = TestSlugIds.HexFor("savasp").ToString();
+        ThreadQueryService.ToPersistenceSource($"human:{savaspHex}").ShouldBe($"human:{savaspHex}");
     }
 
     /// <summary>
@@ -660,11 +710,17 @@ public class ThreadQueryServiceTests : IDisposable
     /// for the same legacy participant would each get a fresh Guid and break
     /// the production query's grouping/filter logic).
     /// </summary>
-    private static Guid ParseSourceGuid(string source)
+    private (Guid Id, string Scheme, string Slug) ParseSource(string source)
     {
         var sepIdx = source.IndexOf(':');
+        var scheme = sepIdx >= 0 ? source[..sepIdx] : "agent";
         var idPart = sepIdx >= 0 ? source[(sepIdx + 1)..] : source;
-        return Guid.TryParse(idPart, out var g) ? g : TestSlugIds.For(idPart);
+        if (Guid.TryParse(idPart, out var g))
+        {
+            return (g, scheme, idPart);
+        }
+        var guid = TestSlugIds.For(idPart);
+        return (guid, scheme, idPart);
     }
 
     private async Task SeedThreadAsync(
@@ -673,10 +729,12 @@ public class ThreadQueryServiceTests : IDisposable
     {
         foreach (var (source, type, summary, ts) in events)
         {
+            var (sourceId, scheme, slug) = ParseSource(source);
+            _seededActors.TryAdd(sourceId, (scheme, slug));
             _db.ActivityEvents.Add(new ActivityEventRecord
             {
                 Id = Guid.NewGuid(),
-                SourceId = ParseSourceGuid(source),
+                SourceId = sourceId,
                 EventType = type,
                 Severity = "Info",
                 Summary = summary,
