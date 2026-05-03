@@ -64,7 +64,7 @@ public class CloningPolicyEndpointsTests : IClassFixture<CustomWebApplicationFac
         var ct = TestContext.Current.CancellationToken;
         var address = new Address("agent", Agent_AdaGet_Id);
         _factory.DirectoryService.ResolveAsync(address, Arg.Any<CancellationToken>())
-            .Returns(new DirectoryEntry(address, "ada-get", "Ada", "Ada", null, DateTimeOffset.UtcNow));
+            .Returns(new DirectoryEntry(address, Agent_AdaGet_Id, "Ada", "Ada", null, DateTimeOffset.UtcNow));
         _factory.StateStore
             .GetAsync<AgentCloningPolicy>(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns((AgentCloningPolicy?)null);
@@ -86,7 +86,7 @@ public class CloningPolicyEndpointsTests : IClassFixture<CustomWebApplicationFac
         var ct = TestContext.Current.CancellationToken;
         var address = new Address("agent", Agent_AdaSet_Id);
         _factory.DirectoryService.ResolveAsync(address, Arg.Any<CancellationToken>())
-            .Returns(new DirectoryEntry(address, "ada-set", "Ada", "Ada", null, DateTimeOffset.UtcNow));
+            .Returns(new DirectoryEntry(address, Agent_AdaSet_Id, "Ada", "Ada", null, DateTimeOffset.UtcNow));
 
         var request = new AgentCloningPolicyResponse(
             AllowedPolicies: new[] { CloningPolicy.EphemeralNoMemory },

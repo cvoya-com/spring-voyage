@@ -48,7 +48,7 @@ public class UnitCreationServiceOrchestrationTests
 
         var manifest = new UnitManifest
         {
-            DisplayName = "triage-cell",
+            Name = "triage-cell",
             Description = "Label-triage cell",
             Orchestration = new OrchestrationManifest { Strategy = "label-routed" },
         };
@@ -75,7 +75,7 @@ public class UnitCreationServiceOrchestrationTests
 
         var manifest = new UnitManifest
         {
-            DisplayName = "plain-cell",
+            Name = "plain-cell",
             Description = "no orchestration directive",
         };
 
@@ -104,7 +104,7 @@ public class UnitCreationServiceOrchestrationTests
 
         var manifest = new UnitManifest
         {
-            DisplayName = "rich-cell",
+            Name = "rich-cell",
             Description = "both slots populated",
             Expertise = new List<ExpertiseManifestEntry>
             {
@@ -135,7 +135,7 @@ public class UnitCreationServiceOrchestrationTests
 
         var manifest = new UnitManifest
         {
-            DisplayName = "blank-strategy-cell",
+            Name = "blank-strategy-cell",
             Description = "blank strategy should be skipped",
             Orchestration = new OrchestrationManifest { Strategy = "   " },
         };

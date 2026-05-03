@@ -99,7 +99,7 @@ public class UnitCreationServiceExpertiseSeedTests
 
         var manifest = new UnitManifest
         {
-            DisplayName = "research-cell",
+            Name = "research-cell",
             Description = "a research cell",
             Expertise = new List<ExpertiseManifestEntry>
             {

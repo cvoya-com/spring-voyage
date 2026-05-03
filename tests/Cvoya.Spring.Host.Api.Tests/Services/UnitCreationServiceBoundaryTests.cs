@@ -48,7 +48,7 @@ public class UnitCreationServiceBoundaryTests
 
         var manifest = new UnitManifest
         {
-            DisplayName = "boundary-cell",
+            Name = "boundary-cell",
             Description = "cell with a declared boundary",
             Boundary = new BoundaryManifest
             {
@@ -70,7 +70,7 @@ public class UnitCreationServiceBoundaryTests
                 {
                     new BoundarySynthesisManifestEntry
                     {
-                        DisplayName = "full-stack",
+                        Name = "full-stack",
                         Level = "expert",
                     },
                 },
@@ -102,7 +102,7 @@ public class UnitCreationServiceBoundaryTests
 
         var manifest = new UnitManifest
         {
-            DisplayName = "plain-cell",
+            Name = "plain-cell",
             Description = "no boundary declared",
         };
 
@@ -122,7 +122,7 @@ public class UnitCreationServiceBoundaryTests
 
         var manifest = new UnitManifest
         {
-            DisplayName = "empty-boundary",
+            Name = "empty-boundary",
             Description = "boundary block present but empty",
             Boundary = new BoundaryManifest
             {
@@ -154,7 +154,7 @@ public class UnitCreationServiceBoundaryTests
 
         var manifest = new UnitManifest
         {
-            DisplayName = "flaky-boundary",
+            Name = "flaky-boundary",
             Description = "store throws on write",
             Boundary = new BoundaryManifest
             {
@@ -183,7 +183,7 @@ public class UnitCreationServiceBoundaryTests
 
         var manifest = new UnitManifest
         {
-            DisplayName = "blank-synthesis",
+            Name = "blank-synthesis",
             Description = "only blank syntheses",
             Boundary = new BoundaryManifest
             {
@@ -214,7 +214,7 @@ public class UnitCreationServiceBoundaryTests
 
         var manifest = new UnitManifest
         {
-            DisplayName = "tolerant-level",
+            Name = "tolerant-level",
             Description = "unknown levels resolve to null",
             Boundary = new BoundaryManifest
             {

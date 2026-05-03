@@ -62,7 +62,7 @@ public class ManifestBoundaryMapperTests
             {
                 new BoundarySynthesisManifestEntry
                 {
-                    DisplayName = "full-stack",
+                    Name = "full-stack",
                     DomainPattern = "*",
                     Description = "team-level full-stack",
                     Level = "expert",

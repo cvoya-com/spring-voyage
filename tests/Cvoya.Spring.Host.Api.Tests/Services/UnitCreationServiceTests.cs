@@ -211,7 +211,7 @@ public class UnitCreationServiceTests
             => Service.CreateFromManifestAsync(
                 new UnitManifest
                 {
-                    DisplayName = name,
+                    Name = name,
                     Description = $"{name} description",
                     Members = members.ToList(),
                 },
