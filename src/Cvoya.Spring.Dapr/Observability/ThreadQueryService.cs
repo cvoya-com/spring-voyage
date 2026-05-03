@@ -51,9 +51,10 @@ public class ThreadQueryService(
             .Select(e => new { e.CorrelationId, e.Id, e.SourceId, e.EventType, e.Severity, e.Summary, e.Timestamp })
             .ToListAsync(cancellationToken);
 
+        var schemeMap = await BuildSourceSchemeMapAsync(cancellationToken);
         var rows = raw
             .Select(e => new ThreadEventRow(
-                e.CorrelationId!, e.Id, RenderSource(e.SourceId), e.EventType, e.Severity, e.Summary, e.Timestamp))
+                e.CorrelationId!, e.Id, RenderSource(e.SourceId, schemeMap), e.EventType, e.Severity, e.Summary, e.Timestamp))
             .ToList();
 
         var summaries = BuildSummaries(rows);
@@ -82,9 +83,10 @@ public class ThreadQueryService(
             .Select(e => new { e.CorrelationId, e.Id, e.SourceId, e.EventType, e.Severity, e.Summary, e.Timestamp, e.Details })
             .ToListAsync(cancellationToken);
 
+        var schemeMap = await BuildSourceSchemeMapAsync(cancellationToken);
         var rows = raw
             .Select(e => new ThreadEventRow(
-                e.CorrelationId!, e.Id, RenderSource(e.SourceId), e.EventType, e.Severity, e.Summary, e.Timestamp, e.Details))
+                e.CorrelationId!, e.Id, RenderSource(e.SourceId, schemeMap), e.EventType, e.Severity, e.Summary, e.Timestamp, e.Details))
             .ToList();
 
         if (rows.Count == 0)
@@ -196,9 +198,10 @@ public class ThreadQueryService(
             .Select(e => new { e.CorrelationId, e.Id, e.SourceId, e.EventType, e.Severity, e.Summary, e.Timestamp })
             .ToListAsync(cancellationToken);
 
+        var schemeMap = await BuildSourceSchemeMapAsync(cancellationToken);
         var rows = raw
             .Select(e => new ThreadEventRow(
-                e.CorrelationId!, e.Id, RenderSource(e.SourceId), e.EventType, e.Severity, e.Summary, e.Timestamp))
+                e.CorrelationId!, e.Id, RenderSource(e.SourceId, schemeMap), e.EventType, e.Severity, e.Summary, e.Timestamp))
             .ToList();
 
         var inbox = new List<InboxItem>();
@@ -433,14 +436,49 @@ public class ThreadQueryService(
 
     /// <summary>
     /// Renders the persistence-layer SourceId Guid into the string form
-    /// used by activity-derived projections in this service. The stored
-    /// scheme was discarded during persistence (#1629), so we synthesize
-    /// the most common scheme — <c>agent</c> — at projection time. Display
-    /// resolution to actual entity names happens in the rendering layer
-    /// (#1635).
+    /// used by activity-derived projections in this service. Scheme is
+    /// resolved through the directory map keyed by actor id (#1629); rows
+    /// whose source id no longer maps to a directory entry render as
+    /// <c>unknown:&lt;hex&gt;</c> so callers retain a stable, comparable
+    /// projection even after the originating entity has been deleted.
     /// </summary>
-    private static string RenderSource(Guid sourceId)
-        => $"agent:{GuidFormatter.Format(sourceId)}";
+    private static string RenderSource(
+        Guid sourceId,
+        IReadOnlyDictionary<Guid, string> schemeMap)
+    {
+        var hex = GuidFormatter.Format(sourceId);
+        return schemeMap.TryGetValue(sourceId, out var scheme)
+            ? $"{scheme}:{hex}"
+            : $"unknown:{hex}";
+    }
+
+    /// <summary>
+    /// Builds a one-shot <c>actorId → scheme</c> projection by listing the
+    /// directory once. Used inside <see cref="ListAsync"/>,
+    /// <see cref="GetAsync"/>, and <see cref="ListInboxAsync"/> so the
+    /// per-row <see cref="RenderSource"/> calls stay synchronous and
+    /// allocation-light. When no directory service is wired, returns an
+    /// empty map and every <see cref="RenderSource"/> call falls back to
+    /// the <c>unknown:</c> scheme.
+    /// </summary>
+    private async Task<IReadOnlyDictionary<Guid, string>> BuildSourceSchemeMapAsync(
+        CancellationToken cancellationToken)
+    {
+        if (directoryService is null)
+        {
+            return new Dictionary<Guid, string>();
+        }
+
+        var entries = await directoryService.ListAllAsync(cancellationToken);
+        var map = new Dictionary<Guid, string>(entries.Count);
+        foreach (var entry in entries)
+        {
+            // First registered scheme wins — duplicates across schemes for
+            // the same actor id should not happen under #1629's identity model.
+            map.TryAdd(entry.ActorId, entry.Address.Scheme);
+        }
+        return map;
+    }
 
     /// <summary>
     /// Turns the persistence-layer source format (<c>scheme:path</c>) into the

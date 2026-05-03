@@ -587,6 +587,11 @@ public class UnitCreationService : IUnitCreationService
             resolvedParents.Add((parentId, parentEntry));
         }
 
+        // Mint the new unit's identity up-front so the bundle validator (and
+        // any policy-enforcer it consults) can key off the unit's stable Guid
+        // rather than its display name. Under #1629 the directory is Guid-keyed.
+        var actorGuid = Guid.NewGuid();
+
         // Resolve skill bundles and validate their tool requirements up-front
         // as well. Any failure here surfaces to the caller as a typed
         // exception that the endpoint layer maps to a ProblemDetails 4xx so
@@ -596,7 +601,7 @@ public class UnitCreationService : IUnitCreationService
         if (skillReferences.Count > 0)
         {
             resolvedBundles = await ResolveSkillBundlesAsync(skillReferences, cancellationToken);
-            var report = await _bundleValidator.ValidateAsync(name, resolvedBundles, cancellationToken);
+            var report = await _bundleValidator.ValidateAsync(actorGuid, resolvedBundles, cancellationToken);
             // Non-blocking warnings (e.g. bundles declaring tools no connector
             // surfaces) ride through the creation response's existing warnings
             // list so the wizard / CLI can surface them alongside manifest-
@@ -607,21 +612,25 @@ public class UnitCreationService : IUnitCreationService
             }
         }
 
-        var actorGuid = Guid.NewGuid();
         var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(actorGuid);
-        var address = Address.For("unit", name);
+        var address = Address.ForIdentity(Address.UnitScheme, actorGuid);
 
         // #325: when the caller supplies a canonical name override through
         // the request body we reject duplicates up front with a typed
-        // exception the endpoint layer maps to 400. Paths that keep using
-        // the manifest-derived name stay on the historical last-writer-wins
-        // behaviour so #325 does not silently turn into a breaking change.
+        // exception the endpoint layer maps to 400. Under #1629 the directory
+        // is keyed by Guid identity, so collision is checked by display name
+        // against persisted unit definitions rather than a directory resolve.
         if (rejectDuplicates)
         {
-            var existing = await _directoryService.ResolveAsync(address, cancellationToken);
-            if (existing is not null)
+            await using var dupScope = _scopeFactory.CreateAsyncScope();
+            var dupDb = dupScope.ServiceProvider.GetRequiredService<SpringDbContext>();
+            var nameTaken = await dupDb.UnitDefinitions
+                .AnyAsync(
+                    u => u.DisplayName == displayName && u.DeletedAt == null,
+                    cancellationToken);
+            if (nameTaken)
             {
-                throw new DuplicateUnitNameException(name);
+                throw new DuplicateUnitNameException(displayName);
             }
         }
 

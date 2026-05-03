@@ -329,7 +329,7 @@ public class DirectoryService(
         // #1154: tear down every persistent sub-unit edge that mentions
         // this unit on either side.
         var subunitEdges = await db.UnitSubunitMemberships
-            .Where(e => e.ParentUnitId == unitId || e.ChildUnitId == unitId)
+            .Where(e => e.ParentId == unitId || e.ChildId == unitId)
             .ToListAsync(cancellationToken);
 
         foreach (var edge in subunitEdges)

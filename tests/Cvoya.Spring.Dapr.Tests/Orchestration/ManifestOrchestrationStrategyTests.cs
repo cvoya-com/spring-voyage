@@ -141,7 +141,7 @@ public class ManifestOrchestrationStrategyTests
             if (policy is not null)
             {
                 var policyRepo = Substitute.For<IUnitPolicyRepository>();
-                policyRepo.GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+                policyRepo.GetAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
                     .Returns(policy);
                 services.AddScoped(_ => policyRepo);
             }

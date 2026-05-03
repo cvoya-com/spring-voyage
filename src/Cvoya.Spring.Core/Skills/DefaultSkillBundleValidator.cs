@@ -48,7 +48,7 @@ public class DefaultSkillBundleValidator : ISkillBundleValidator
 
     /// <inheritdoc />
     public async Task<SkillBundleValidationReport> ValidateAsync(
-        string unitId,
+        Guid unitId,
         IReadOnlyList<SkillBundle> bundles,
         CancellationToken cancellationToken = default)
     {
@@ -103,7 +103,7 @@ public class DefaultSkillBundleValidator : ISkillBundleValidator
                         bundle.SkillName,
                         requirement.Name,
                         SkillBundleValidationProblemReason.BlockedByUnitPolicy,
-                        DenyingUnitId: unitId);
+                        DenyingUnitId: unitId.ToString());
                     Classify(problem, blocking, warnings);
                 }
             }

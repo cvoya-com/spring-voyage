@@ -34,13 +34,13 @@ public interface ISkillBundleValidator
     /// list of problems.
     /// </summary>
     /// <param name="unitId">
-    /// The unit being created / updated. Passed through to the policy enforcer
-    /// so per-unit block lists are honoured.
+    /// The unit being created / updated (the actor Guid). Passed through to
+    /// the policy enforcer so per-unit block lists are honoured.
     /// </param>
     /// <param name="bundles">The resolved bundles referenced by the unit manifest.</param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     Task<SkillBundleValidationReport> ValidateAsync(
-        string unitId,
+        Guid unitId,
         IReadOnlyList<SkillBundle> bundles,
         CancellationToken cancellationToken = default);
 }

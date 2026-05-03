@@ -19,26 +19,17 @@ using Microsoft.EntityFrameworkCore;
 /// </summary>
 public class UnitPolicyRepository(SpringDbContext context) : IUnitPolicyRepository
 {
-    private static Guid Parse(string unitId)
-    {
-        if (!Cvoya.Spring.Core.Identifiers.GuidFormatter.TryParse(unitId, out var id))
-        {
-            throw new ArgumentException(
-                $"unit id '{unitId}' is not a valid Guid.", nameof(unitId));
-        }
-
-        return id;
-    }
-
     /// <inheritdoc />
-    public async Task<UnitPolicy> GetAsync(string unitId, CancellationToken cancellationToken = default)
+    public async Task<UnitPolicy> GetAsync(Guid unitId, CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(unitId);
-        var unitGuid = Parse(unitId);
+        if (unitId == Guid.Empty)
+        {
+            throw new ArgumentException("unitId must not be Guid.Empty.", nameof(unitId));
+        }
 
         var entity = await context.UnitPolicies
             .AsNoTracking()
-            .FirstOrDefaultAsync(p => p.UnitId == unitGuid, cancellationToken);
+            .FirstOrDefaultAsync(p => p.UnitId == unitId, cancellationToken);
 
         if (entity is null)
         {
@@ -55,11 +46,13 @@ public class UnitPolicyRepository(SpringDbContext context) : IUnitPolicyReposito
     }
 
     /// <inheritdoc />
-    public async Task SetAsync(string unitId, UnitPolicy policy, CancellationToken cancellationToken = default)
+    public async Task SetAsync(Guid unitId, UnitPolicy policy, CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(unitId);
+        if (unitId == Guid.Empty)
+        {
+            throw new ArgumentException("unitId must not be Guid.Empty.", nameof(unitId));
+        }
         ArgumentNullException.ThrowIfNull(policy);
-        var unitGuid = Parse(unitId);
 
         if (policy.IsEmpty)
         {
@@ -68,7 +61,7 @@ public class UnitPolicyRepository(SpringDbContext context) : IUnitPolicyReposito
         }
 
         var existing = await context.UnitPolicies
-            .FirstOrDefaultAsync(p => p.UnitId == unitGuid, cancellationToken);
+            .FirstOrDefaultAsync(p => p.UnitId == unitId, cancellationToken);
 
         var skill = Serialize(policy.Skill);
         var model = Serialize(policy.Model);
@@ -81,7 +74,7 @@ public class UnitPolicyRepository(SpringDbContext context) : IUnitPolicyReposito
         {
             context.UnitPolicies.Add(new UnitPolicyEntity
             {
-                UnitId = unitGuid,
+                UnitId = unitId,
                 Skill = skill,
                 Model = model,
                 Cost = cost,
@@ -104,13 +97,15 @@ public class UnitPolicyRepository(SpringDbContext context) : IUnitPolicyReposito
     }
 
     /// <inheritdoc />
-    public async Task DeleteAsync(string unitId, CancellationToken cancellationToken = default)
+    public async Task DeleteAsync(Guid unitId, CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(unitId);
-        var unitGuid = Parse(unitId);
+        if (unitId == Guid.Empty)
+        {
+            throw new ArgumentException("unitId must not be Guid.Empty.", nameof(unitId));
+        }
 
         var existing = await context.UnitPolicies
-            .FirstOrDefaultAsync(p => p.UnitId == unitGuid, cancellationToken);
+            .FirstOrDefaultAsync(p => p.UnitId == unitId, cancellationToken);
 
         if (existing is null)
         {

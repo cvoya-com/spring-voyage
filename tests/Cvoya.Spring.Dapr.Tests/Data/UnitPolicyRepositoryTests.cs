@@ -7,6 +7,7 @@ using Cvoya.Spring.Core.Agents;
 using Cvoya.Spring.Core.Initiative;
 using Cvoya.Spring.Core.Policies;
 using Cvoya.Spring.Dapr.Data;
+using Cvoya.Spring.Dapr.Tests.TestHelpers;
 
 using Microsoft.EntityFrameworkCore;
 
@@ -21,6 +22,9 @@ using Xunit;
 /// </summary>
 public class UnitPolicyRepositoryTests : IDisposable
 {
+    private static readonly Guid EngineeringId = TestSlugIds.For("engineering");
+    private static readonly Guid GhostId = TestSlugIds.For("ghost");
+
     private readonly SpringDbContext _context;
     private readonly UnitPolicyRepository _repository;
 
@@ -39,7 +43,7 @@ public class UnitPolicyRepositoryTests : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
 
-        var policy = await _repository.GetAsync("engineering", ct);
+        var policy = await _repository.GetAsync(EngineeringId, ct);
 
         policy.ShouldBe(UnitPolicy.Empty);
         policy.Skill.ShouldBeNull();
@@ -53,8 +57,8 @@ public class UnitPolicyRepositoryTests : IDisposable
             Allowed: new[] { "search", "summarize" },
             Blocked: new[] { "delete_repo" }));
 
-        await _repository.SetAsync("engineering", policy, ct);
-        var stored = await _repository.GetAsync("engineering", ct);
+        await _repository.SetAsync(EngineeringId, policy, ct);
+        var stored = await _repository.GetAsync(EngineeringId, ct);
 
         stored.Skill.ShouldNotBeNull();
         stored.Skill!.Allowed.ShouldBe(new[] { "search", "summarize" });
@@ -67,16 +71,16 @@ public class UnitPolicyRepositoryTests : IDisposable
         var ct = TestContext.Current.CancellationToken;
 
         await _repository.SetAsync(
-            "engineering",
+            EngineeringId,
             new UnitPolicy(new SkillPolicy(Blocked: new[] { "old" })),
             ct);
 
         await _repository.SetAsync(
-            "engineering",
+            EngineeringId,
             new UnitPolicy(new SkillPolicy(Blocked: new[] { "new" })),
             ct);
 
-        var stored = await _repository.GetAsync("engineering", ct);
+        var stored = await _repository.GetAsync(EngineeringId, ct);
         stored.Skill!.Blocked.ShouldBe(new[] { "new" });
     }
 
@@ -86,14 +90,14 @@ public class UnitPolicyRepositoryTests : IDisposable
         var ct = TestContext.Current.CancellationToken;
 
         await _repository.SetAsync(
-            "engineering",
+            EngineeringId,
             new UnitPolicy(new SkillPolicy(Blocked: new[] { "x" })),
             ct);
 
-        await _repository.SetAsync("engineering", UnitPolicy.Empty, ct);
+        await _repository.SetAsync(EngineeringId, UnitPolicy.Empty, ct);
 
         // No row — the GetAsync contract returns Empty when no row exists.
-        var stored = await _repository.GetAsync("engineering", ct);
+        var stored = await _repository.GetAsync(EngineeringId, ct);
         stored.ShouldBe(UnitPolicy.Empty);
         (await _context.UnitPolicies.CountAsync(ct)).ShouldBe(0);
     }
@@ -103,13 +107,13 @@ public class UnitPolicyRepositoryTests : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
         await _repository.SetAsync(
-            "engineering",
+            EngineeringId,
             new UnitPolicy(new SkillPolicy(Allowed: new[] { "search" })),
             ct);
 
-        await _repository.DeleteAsync("engineering", ct);
+        await _repository.DeleteAsync(EngineeringId, ct);
 
-        var stored = await _repository.GetAsync("engineering", ct);
+        var stored = await _repository.GetAsync(EngineeringId, ct);
         stored.ShouldBe(UnitPolicy.Empty);
     }
 
@@ -131,8 +135,8 @@ public class UnitPolicyRepositoryTests : IDisposable
                 AddOnAssign: new[] { "in-progress" },
                 RemoveOnAssign: new[] { "agent:backend" }));
 
-        await _repository.SetAsync("engineering", policy, ct);
-        var stored = await _repository.GetAsync("engineering", ct);
+        await _repository.SetAsync(EngineeringId, policy, ct);
+        var stored = await _repository.GetAsync(EngineeringId, ct);
 
         stored.Skill!.Allowed.ShouldBe(new[] { "search" });
         stored.Model!.Blocked.ShouldBe(new[] { "gpt-4" });
@@ -151,7 +155,7 @@ public class UnitPolicyRepositoryTests : IDisposable
         var ct = TestContext.Current.CancellationToken;
 
         await _repository.SetAsync(
-            "engineering",
+            EngineeringId,
             new UnitPolicy(
                 Skill: new SkillPolicy(Blocked: new[] { "x" }),
                 Model: new ModelPolicy(Blocked: new[] { "gpt-4" })),
@@ -159,11 +163,11 @@ public class UnitPolicyRepositoryTests : IDisposable
 
         // Overwrite with only skill — the model column should be cleared.
         await _repository.SetAsync(
-            "engineering",
+            EngineeringId,
             new UnitPolicy(Skill: new SkillPolicy(Blocked: new[] { "x" })),
             ct);
 
-        var stored = await _repository.GetAsync("engineering", ct);
+        var stored = await _repository.GetAsync(EngineeringId, ct);
         stored.Skill.ShouldNotBeNull();
         stored.Model.ShouldBeNull();
     }
@@ -173,7 +177,7 @@ public class UnitPolicyRepositoryTests : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
 
-        await _repository.DeleteAsync("ghost", ct);
+        await _repository.DeleteAsync(GhostId, ct);
 
         (await _context.UnitPolicies.CountAsync(ct)).ShouldBe(0);
     }

@@ -30,7 +30,7 @@ public class DefaultSkillBundleValidatorTests
             new FakePolicyRepository());
 
         var report = await validator.ValidateAsync(
-            "engineering", Array.Empty<SkillBundle>(), TestContext.Current.CancellationToken);
+            TestSlugIds.For("engineering"), Array.Empty<SkillBundle>(), TestContext.Current.CancellationToken);
 
         report.Warnings.ShouldBeEmpty();
     }
@@ -44,7 +44,7 @@ public class DefaultSkillBundleValidatorTests
             new FakePolicyRepository());
 
         var report = await validator.ValidateAsync(
-            "engineering", new[] { bundle }, TestContext.Current.CancellationToken);
+            TestSlugIds.For("engineering"), new[] { bundle }, TestContext.Current.CancellationToken);
 
         report.Warnings.ShouldBeEmpty();
     }
@@ -62,7 +62,7 @@ public class DefaultSkillBundleValidatorTests
             new FakePolicyRepository());
 
         var report = await validator.ValidateAsync(
-            "engineering", new[] { bundle }, TestContext.Current.CancellationToken);
+            TestSlugIds.For("engineering"), new[] { bundle }, TestContext.Current.CancellationToken);
 
         report.Warnings.ShouldHaveSingleItem();
         report.Warnings[0].ShouldContain("spring-voyage/software-engineering/triage-and-assign");
@@ -79,7 +79,7 @@ public class DefaultSkillBundleValidatorTests
             new FakePolicyRepository());
 
         var report = await validator.ValidateAsync(
-            "engineering", new[] { bundle }, TestContext.Current.CancellationToken);
+            TestSlugIds.For("engineering"), new[] { bundle }, TestContext.Current.CancellationToken);
 
         report.Warnings.Count.ShouldBe(2);
         report.Warnings.ShouldContain(w => w.Contains("requestReview"));
@@ -102,7 +102,7 @@ public class DefaultSkillBundleValidatorTests
             new FakePolicyRepository());
 
         var report = await validator.ValidateAsync(
-            "u", new[] { bundle }, TestContext.Current.CancellationToken);
+            TestSlugIds.For("u"), new[] { bundle }, TestContext.Current.CancellationToken);
 
         report.Warnings.ShouldBeEmpty();
     }
@@ -120,11 +120,11 @@ public class DefaultSkillBundleValidatorTests
             FakePolicyRepository.With(("engineering", policy)));
 
         var ex = await Should.ThrowAsync<SkillBundleValidationException>(
-            () => validator.ValidateAsync("engineering", new[] { bundle }, TestContext.Current.CancellationToken));
+            () => validator.ValidateAsync(TestSlugIds.For("engineering"), new[] { bundle }, TestContext.Current.CancellationToken));
 
         ex.Problems.ShouldHaveSingleItem();
         ex.Problems[0].Reason.ShouldBe(SkillBundleValidationProblemReason.BlockedByUnitPolicy);
-        ex.Problems[0].DenyingUnitId.ShouldBe("engineering");
+        ex.Problems[0].DenyingUnitId.ShouldBe(TestSlugIds.For("engineering").ToString());
     }
 
     [Fact]
@@ -137,7 +137,7 @@ public class DefaultSkillBundleValidatorTests
             FakePolicyRepository.With(("engineering", policy)));
 
         var ex = await Should.ThrowAsync<SkillBundleValidationException>(
-            () => validator.ValidateAsync("engineering", new[] { bundle }, TestContext.Current.CancellationToken));
+            () => validator.ValidateAsync(TestSlugIds.For("engineering"), new[] { bundle }, TestContext.Current.CancellationToken));
 
         ex.Problems[0].Reason.ShouldBe(SkillBundleValidationProblemReason.BlockedByUnitPolicy);
     }
@@ -164,7 +164,7 @@ public class DefaultSkillBundleValidatorTests
             FakePolicyRepository.With(("u", policy)));
 
         var ex = await Should.ThrowAsync<SkillBundleValidationException>(
-            () => validator.ValidateAsync("u", new[] { bundle }, TestContext.Current.CancellationToken));
+            () => validator.ValidateAsync(TestSlugIds.For("u"), new[] { bundle }, TestContext.Current.CancellationToken));
 
         ex.Problems.ShouldHaveSingleItem();
         ex.Problems[0].Reason.ShouldBe(SkillBundleValidationProblemReason.BlockedByUnitPolicy);
@@ -180,7 +180,7 @@ public class DefaultSkillBundleValidatorTests
             new FakePolicyRepository());
 
         var report = await validator.ValidateAsync(
-            "u", new[] { bundle }, TestContext.Current.CancellationToken);
+            TestSlugIds.For("u"), new[] { bundle }, TestContext.Current.CancellationToken);
 
         report.Warnings.ShouldBeEmpty();
     }
@@ -209,31 +209,57 @@ public class DefaultSkillBundleValidatorTests
 
     private sealed class FakePolicyRepository : IUnitPolicyRepository
     {
-        private readonly Dictionary<string, UnitPolicy> _rows = new(StringComparer.Ordinal);
+        private readonly Dictionary<Guid, UnitPolicy> _rows = new();
 
         public static FakePolicyRepository With(params (string unit, UnitPolicy policy)[] rows)
         {
             var repo = new FakePolicyRepository();
             foreach (var (unit, policy) in rows)
             {
-                repo._rows[unit] = policy;
+                repo._rows[TestSlugIds.For(unit)] = policy;
             }
             return repo;
         }
 
-        public Task<UnitPolicy> GetAsync(string unitId, CancellationToken cancellationToken = default) =>
+        public Task<UnitPolicy> GetAsync(Guid unitId, CancellationToken cancellationToken = default) =>
             Task.FromResult(_rows.TryGetValue(unitId, out var p) ? p : UnitPolicy.Empty);
 
-        public Task SetAsync(string unitId, UnitPolicy policy, CancellationToken cancellationToken = default)
+        public Task SetAsync(Guid unitId, UnitPolicy policy, CancellationToken cancellationToken = default)
         {
             _rows[unitId] = policy;
             return Task.CompletedTask;
         }
 
-        public Task DeleteAsync(string unitId, CancellationToken cancellationToken = default)
+        public Task DeleteAsync(Guid unitId, CancellationToken cancellationToken = default)
         {
             _rows.Remove(unitId);
             return Task.CompletedTask;
+        }
+    }
+
+    private static class TestSlugIds
+    {
+        private static readonly Dictionary<string, Guid> Cache = new(StringComparer.Ordinal);
+
+        public static Guid For(string slug)
+        {
+            if (Cache.TryGetValue(slug, out var existing))
+            {
+                return existing;
+            }
+
+            var bytes = System.Security.Cryptography.SHA1.HashData(System.Text.Encoding.UTF8.GetBytes(slug));
+            Span<byte> guidBytes = stackalloc byte[16];
+            bytes.AsSpan(0, 16).CopyTo(guidBytes);
+            guidBytes[6] = (byte)((guidBytes[6] & 0x0F) | 0x50);
+            guidBytes[8] = (byte)((guidBytes[8] & 0x3F) | 0x80);
+            (guidBytes[0], guidBytes[3]) = (guidBytes[3], guidBytes[0]);
+            (guidBytes[1], guidBytes[2]) = (guidBytes[2], guidBytes[1]);
+            (guidBytes[4], guidBytes[5]) = (guidBytes[5], guidBytes[4]);
+            (guidBytes[6], guidBytes[7]) = (guidBytes[7], guidBytes[6]);
+            var id = new Guid(guidBytes);
+            Cache[slug] = id;
+            return id;
         }
     }
 }

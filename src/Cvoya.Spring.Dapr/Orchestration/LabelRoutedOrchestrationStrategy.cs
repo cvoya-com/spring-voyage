@@ -121,7 +121,7 @@ public class LabelRoutedOrchestrationStrategy : IOrchestrationStrategy
             return null;
         }
 
-        var policy = await _policyRepository.GetAsync(context.UnitAddress.Path, cancellationToken);
+        var policy = await _policyRepository.GetAsync(context.UnitAddress.Id, cancellationToken);
         var routing = policy.LabelRouting;
 
         if (routing is null || routing.TriggerLabels is null || routing.TriggerLabels.Count == 0)

@@ -89,7 +89,7 @@ public static class UnitPolicyEndpoints
         // the URL. Slugs are reused when a unit is deleted and recreated with
         // the same name; using the UUID ensures the new unit sees no policy
         // inherited from the old one (#1488).
-        var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(auth.Entry!.ActorId);
+        var actorId = auth.Entry!.ActorId;
         var policy = await repository.GetAsync(actorId, cancellationToken);
         return Results.Ok(UnitPolicyResponse.From(policy));
     }
@@ -119,7 +119,7 @@ public static class UnitPolicyEndpoints
         // the URL. Slugs are reused when a unit is deleted and recreated with
         // the same name; using the UUID ensures the new unit's policy does not
         // collide with or overwrite the old one's (#1488).
-        var actorId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(auth.Entry!.ActorId);
+        var actorId = auth.Entry!.ActorId;
         var policy = request.ToCore();
         await repository.SetAsync(actorId, policy, cancellationToken);
 

@@ -20,10 +20,10 @@ public interface IUnitPolicyRepository
     /// when no row exists. Callers never have to branch on "is there a row" —
     /// an empty policy is semantically identical to "no row".
     /// </summary>
-    /// <param name="unitId">The unit identifier (<c>Address.Path</c>).</param>
+    /// <param name="unitId">The unit identifier (the actor Guid).</param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     /// <returns>The persisted policy, or an empty policy if none.</returns>
-    Task<UnitPolicy> GetAsync(string unitId, CancellationToken cancellationToken = default);
+    Task<UnitPolicy> GetAsync(Guid unitId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Upserts the policy for the unit. Passing <see cref="UnitPolicy.Empty"/>
@@ -32,16 +32,16 @@ public interface IUnitPolicyRepository
     /// that as a delete so the row count reflects units that actually have a
     /// policy.
     /// </summary>
-    /// <param name="unitId">The unit identifier (<c>Address.Path</c>).</param>
+    /// <param name="unitId">The unit identifier (the actor Guid).</param>
     /// <param name="policy">The policy to persist.</param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
-    Task SetAsync(string unitId, UnitPolicy policy, CancellationToken cancellationToken = default);
+    Task SetAsync(Guid unitId, UnitPolicy policy, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Removes the policy row for the unit. No-op when no row exists.
     /// Called by unit-delete flows so orphan policy rows are not left behind.
     /// </summary>
-    /// <param name="unitId">The unit identifier (<c>Address.Path</c>).</param>
+    /// <param name="unitId">The unit identifier (the actor Guid).</param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
-    Task DeleteAsync(string unitId, CancellationToken cancellationToken = default);
+    Task DeleteAsync(Guid unitId, CancellationToken cancellationToken = default);
 }

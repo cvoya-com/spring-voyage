@@ -120,9 +120,17 @@ public class DefaultOrchestrationStrategyResolver(
             return false;
         }
 
+        if (!Cvoya.Spring.Core.Identifiers.GuidFormatter.TryParse(unitId, out var unitGuid))
+        {
+            // Pre-#1629 callers (or test harnesses) sometimes pass a slug
+            // instead of a Guid; the post-#1629 repository is Guid-keyed,
+            // so we treat an unparseable id as "no LabelRouting".
+            return false;
+        }
+
         try
         {
-            var policy = await repo.GetAsync(unitId, cancellationToken);
+            var policy = await repo.GetAsync(unitGuid, cancellationToken);
             return policy.LabelRouting is not null;
         }
         catch (OperationCanceledException)

@@ -550,30 +550,30 @@ public class DefaultUnitPolicyEnforcerTests
 
     private sealed class FakePolicyRepository : IUnitPolicyRepository
     {
-        // Policy repo is keyed by unit UUID string, matching what
-        // DefaultUnitPolicyEnforcer passes: membership.UnitId.ToString().
-        private readonly Dictionary<string, UnitPolicy> _rows = new(StringComparer.Ordinal);
+        // Policy repo is keyed by unit Guid, matching what
+        // DefaultUnitPolicyEnforcer passes: membership.UnitId.
+        private readonly Dictionary<Guid, UnitPolicy> _rows = new();
 
         public static FakePolicyRepository With(params (Guid unit, UnitPolicy policy)[] rows)
         {
             var repo = new FakePolicyRepository();
             foreach (var (unit, policy) in rows)
             {
-                repo._rows[unit.ToString()] = policy;
+                repo._rows[unit] = policy;
             }
             return repo;
         }
 
-        public Task<UnitPolicy> GetAsync(string unitId, CancellationToken cancellationToken = default) =>
+        public Task<UnitPolicy> GetAsync(Guid unitId, CancellationToken cancellationToken = default) =>
             Task.FromResult(_rows.TryGetValue(unitId, out var p) ? p : UnitPolicy.Empty);
 
-        public Task SetAsync(string unitId, UnitPolicy policy, CancellationToken cancellationToken = default)
+        public Task SetAsync(Guid unitId, UnitPolicy policy, CancellationToken cancellationToken = default)
         {
             _rows[unitId] = policy;
             return Task.CompletedTask;
         }
 
-        public Task DeleteAsync(string unitId, CancellationToken cancellationToken = default)
+        public Task DeleteAsync(Guid unitId, CancellationToken cancellationToken = default)
         {
             _rows.Remove(unitId);
             return Task.CompletedTask;

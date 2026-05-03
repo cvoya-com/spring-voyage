@@ -7,6 +7,7 @@ using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Orchestration;
 using Cvoya.Spring.Core.Policies;
 using Cvoya.Spring.Dapr.Orchestration;
+using Cvoya.Spring.Dapr.Tests.TestHelpers;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -42,7 +43,7 @@ public class DefaultOrchestrationStrategyResolverTests
             fake.StrategyProvider, fake.ScopeFactory, NullLoggerFactory.Instance);
 
         await using var lease = await resolver.ResolveAsync(
-            "some-unit", TestContext.Current.CancellationToken);
+            TestSlugIds.HexFor("some-unit"), TestContext.Current.CancellationToken);
 
         lease.ResolvedKey.ShouldBeNull();
         lease.Strategy.ShouldBe(fake.DefaultStrategy);
@@ -53,14 +54,14 @@ public class DefaultOrchestrationStrategyResolverTests
     {
         var fake = BuildFixture();
         fake.StrategyProvider
-            .GetStrategyKeyAsync("triage-unit", Arg.Any<CancellationToken>())
+            .GetStrategyKeyAsync(TestSlugIds.HexFor("triage-unit"), Arg.Any<CancellationToken>())
             .Returns("label-routed");
 
         var resolver = new DefaultOrchestrationStrategyResolver(
             fake.StrategyProvider, fake.ScopeFactory, NullLoggerFactory.Instance);
 
         await using var lease = await resolver.ResolveAsync(
-            "triage-unit", TestContext.Current.CancellationToken);
+            TestSlugIds.HexFor("triage-unit"), TestContext.Current.CancellationToken);
 
         lease.ResolvedKey.ShouldBe("label-routed");
         lease.Strategy.ShouldBe(fake.LabelRoutedStrategy);
@@ -71,14 +72,14 @@ public class DefaultOrchestrationStrategyResolverTests
     {
         var fake = BuildFixture();
         fake.StrategyProvider
-            .GetStrategyKeyAsync("weird-unit", Arg.Any<CancellationToken>())
+            .GetStrategyKeyAsync(TestSlugIds.HexFor("weird-unit"), Arg.Any<CancellationToken>())
             .Returns("non-existent-strategy");
 
         var resolver = new DefaultOrchestrationStrategyResolver(
             fake.StrategyProvider, fake.ScopeFactory, NullLoggerFactory.Instance);
 
         await using var lease = await resolver.ResolveAsync(
-            "weird-unit", TestContext.Current.CancellationToken);
+            TestSlugIds.HexFor("weird-unit"), TestContext.Current.CancellationToken);
 
         lease.ResolvedKey.ShouldBeNull();
         lease.Strategy.ShouldBe(fake.DefaultStrategy);
@@ -96,7 +97,7 @@ public class DefaultOrchestrationStrategyResolverTests
             fake.StrategyProvider, fake.ScopeFactory, NullLoggerFactory.Instance);
 
         await using var lease = await resolver.ResolveAsync(
-            "inferred-unit", TestContext.Current.CancellationToken);
+            TestSlugIds.HexFor("inferred-unit"), TestContext.Current.CancellationToken);
 
         lease.ResolvedKey.ShouldBe("label-routed");
         lease.Strategy.ShouldBe(fake.LabelRoutedStrategy);
@@ -114,7 +115,7 @@ public class DefaultOrchestrationStrategyResolverTests
             fake.StrategyProvider, fake.ScopeFactory, NullLoggerFactory.Instance);
 
         await using var lease = await resolver.ResolveAsync(
-            "empty-policy-unit", TestContext.Current.CancellationToken);
+            TestSlugIds.HexFor("empty-policy-unit"), TestContext.Current.CancellationToken);
 
         lease.ResolvedKey.ShouldBeNull();
         lease.Strategy.ShouldBe(fake.DefaultStrategy);
@@ -135,7 +136,7 @@ public class DefaultOrchestrationStrategyResolverTests
             fake.StrategyProvider, fake.ScopeFactory, NullLoggerFactory.Instance);
 
         await using var lease = await resolver.ResolveAsync(
-            "ai-unit", TestContext.Current.CancellationToken);
+            TestSlugIds.HexFor("ai-unit"), TestContext.Current.CancellationToken);
 
         lease.ResolvedKey.ShouldBe("ai");
         lease.Strategy.ShouldBe(fake.AiStrategy);
@@ -161,7 +162,7 @@ public class DefaultOrchestrationStrategyResolverTests
             var policy = wireLabelRoutingPolicy
                 ? new UnitPolicy(LabelRouting: new LabelRoutingPolicy())
                 : UnitPolicy.Empty;
-            repo.GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(policy);
+            repo.GetAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(policy);
             services.AddScoped(_ => repo);
         }
 

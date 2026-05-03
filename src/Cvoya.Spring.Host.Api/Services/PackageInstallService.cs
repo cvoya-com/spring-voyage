@@ -503,21 +503,41 @@ public class PackageInstallService : IPackageInstallService
         List<(InstallTarget Target, ResolvedPackage Package)> sorted,
         CancellationToken cancellationToken)
     {
+        // Under #1629 every artefact's identity is a fresh Guid minted at
+        // install time, not its display name; the directory is keyed by Guid
+        // and offers no name → entry resolver. Name-collision pre-flight
+        // therefore queries the staging tables directly: an in-tenant unit
+        // (display-name match, not soft-deleted) means the install would
+        // produce a confusing duplicate, even though Guid identity would be
+        // distinct.
         var collisions = new List<string>();
+
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
 
         foreach (var (_, pkg) in sorted)
         {
-            foreach (var artefacts in new[] { pkg.Units, pkg.Agents })
+            foreach (var unit in pkg.Units.Where(a => !a.IsCrossPackage))
             {
-                foreach (var a in artefacts.Where(a => !a.IsCrossPackage))
+                var nameTaken = await db.UnitDefinitions
+                    .AnyAsync(
+                        u => u.DisplayName == unit.Name && u.DeletedAt == null,
+                        cancellationToken);
+                if (nameTaken)
                 {
-                    var scheme = a.Kind == ArtefactKind.Unit ? "unit" : "agent";
-                    var address = Address.For(scheme, a.Name);
-                    var existing = await _directoryService.ResolveAsync(address, cancellationToken);
-                    if (existing is not null)
-                    {
-                        collisions.Add(a.Name);
-                    }
+                    collisions.Add(unit.Name);
+                }
+            }
+
+            foreach (var agent in pkg.Agents.Where(a => !a.IsCrossPackage))
+            {
+                var nameTaken = await db.AgentDefinitions
+                    .AnyAsync(
+                        a => a.DisplayName == agent.Name && a.DeletedAt == null,
+                        cancellationToken);
+                if (nameTaken)
+                {
+                    collisions.Add(agent.Name);
                 }
             }
         }

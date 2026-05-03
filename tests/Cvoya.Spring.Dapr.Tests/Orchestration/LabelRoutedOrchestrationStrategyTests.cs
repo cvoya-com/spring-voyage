@@ -62,7 +62,7 @@ public class LabelRoutedOrchestrationStrategyTests
             TestContext.Current.CancellationToken);
 
         result.ShouldBeNull();
-        await _policyRepository.DidNotReceive().GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _policyRepository.DidNotReceive().GetAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -70,7 +70,7 @@ public class LabelRoutedOrchestrationStrategyTests
     {
         _context.Members.Returns([Address.For("agent", TestSlugIds.HexFor("backend-engineer"))]);
         _policyRepository
-            .GetAsync("engineering-team", Arg.Any<CancellationToken>())
+            .GetAsync(TestSlugIds.For("engineering-team"), Arg.Any<CancellationToken>())
             .Returns(UnitPolicy.Empty);
 
         var result = await _strategy.OrchestrateAsync(
@@ -87,7 +87,7 @@ public class LabelRoutedOrchestrationStrategyTests
     {
         _context.Members.Returns([Address.For("agent", TestSlugIds.HexFor("backend-engineer"))]);
         _policyRepository
-            .GetAsync("engineering-team", Arg.Any<CancellationToken>())
+            .GetAsync(TestSlugIds.For("engineering-team"), Arg.Any<CancellationToken>())
             .Returns(new UnitPolicy(LabelRouting: new LabelRoutingPolicy(
                 TriggerLabels: new Dictionary<string, string>
                 {
@@ -112,7 +112,7 @@ public class LabelRoutedOrchestrationStrategyTests
             target,
         ]);
         _policyRepository
-            .GetAsync("engineering-team", Arg.Any<CancellationToken>())
+            .GetAsync(TestSlugIds.For("engineering-team"), Arg.Any<CancellationToken>())
             .Returns(new UnitPolicy(LabelRouting: new LabelRoutingPolicy(
                 TriggerLabels: new Dictionary<string, string>
                 {
@@ -140,7 +140,7 @@ public class LabelRoutedOrchestrationStrategyTests
         var target = Address.For("agent", TestSlugIds.HexFor("backend-engineer"));
         _context.Members.Returns([target]);
         _policyRepository
-            .GetAsync("engineering-team", Arg.Any<CancellationToken>())
+            .GetAsync(TestSlugIds.For("engineering-team"), Arg.Any<CancellationToken>())
             .Returns(new UnitPolicy(LabelRouting: new LabelRoutingPolicy(
                 TriggerLabels: new Dictionary<string, string>
                 {
@@ -172,7 +172,7 @@ public class LabelRoutedOrchestrationStrategyTests
         var target = Address.For("agent", TestSlugIds.HexFor("backend-engineer"));
         _context.Members.Returns([target]);
         _policyRepository
-            .GetAsync("engineering-team", Arg.Any<CancellationToken>())
+            .GetAsync(TestSlugIds.For("engineering-team"), Arg.Any<CancellationToken>())
             .Returns(new UnitPolicy(LabelRouting: new LabelRoutingPolicy(
                 TriggerLabels: new Dictionary<string, string>
                 {
@@ -194,7 +194,7 @@ public class LabelRoutedOrchestrationStrategyTests
     {
         _context.Members.Returns([Address.For("agent", TestSlugIds.HexFor("qa-engineer"))]);
         _policyRepository
-            .GetAsync("engineering-team", Arg.Any<CancellationToken>())
+            .GetAsync(TestSlugIds.For("engineering-team"), Arg.Any<CancellationToken>())
             .Returns(new UnitPolicy(LabelRouting: new LabelRoutingPolicy(
                 TriggerLabels: new Dictionary<string, string>
                 {
@@ -217,7 +217,7 @@ public class LabelRoutedOrchestrationStrategyTests
         var qa = Address.For("agent", TestSlugIds.HexFor("qa-engineer"));
         _context.Members.Returns([backend, qa]);
         _policyRepository
-            .GetAsync("engineering-team", Arg.Any<CancellationToken>())
+            .GetAsync(TestSlugIds.For("engineering-team"), Arg.Any<CancellationToken>())
             .Returns(new UnitPolicy(LabelRouting: new LabelRoutingPolicy(
                 TriggerLabels: new Dictionary<string, string>
                 {
@@ -336,7 +336,7 @@ public class LabelRoutedOrchestrationStrategyTests
         var target = Address.For("agent", TestSlugIds.HexFor("backend-engineer"));
         _context.Members.Returns([target]);
         _policyRepository
-            .GetAsync("engineering-team", Arg.Any<CancellationToken>())
+            .GetAsync(TestSlugIds.For("engineering-team"), Arg.Any<CancellationToken>())
             .Returns(new UnitPolicy(LabelRouting: new LabelRoutingPolicy(
                 TriggerLabels: new Dictionary<string, string>
                 {
@@ -385,7 +385,7 @@ public class LabelRoutedOrchestrationStrategyTests
     {
         _context.Members.Returns([Address.For("agent", TestSlugIds.HexFor("backend-engineer"))]);
         _policyRepository
-            .GetAsync("engineering-team", Arg.Any<CancellationToken>())
+            .GetAsync(TestSlugIds.For("engineering-team"), Arg.Any<CancellationToken>())
             .Returns(UnitPolicy.Empty);
 
         var bus = Substitute.For<IActivityEventBus>();
@@ -407,7 +407,7 @@ public class LabelRoutedOrchestrationStrategyTests
         var target = Address.For("agent", TestSlugIds.HexFor("backend-engineer"));
         _context.Members.Returns([target]);
         _policyRepository
-            .GetAsync("engineering-team", Arg.Any<CancellationToken>())
+            .GetAsync(TestSlugIds.For("engineering-team"), Arg.Any<CancellationToken>())
             .Returns(new UnitPolicy(LabelRouting: new LabelRoutingPolicy(
                 TriggerLabels: new Dictionary<string, string>
                 {
