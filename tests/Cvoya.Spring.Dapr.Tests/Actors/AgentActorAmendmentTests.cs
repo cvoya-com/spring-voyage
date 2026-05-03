@@ -85,7 +85,6 @@ public class AgentActorAmendmentTests
         // The actor ID is the agent's stable UUID.
         var host = ActorHost.CreateForTest<AgentActor>(new ActorTestOptions
         {
-            ActorId = new ActorId(AgentActorUuid.ToString()),
         });
 
         _unitPolicyEnforcer.WithAllowByDefault();

@@ -67,9 +67,7 @@ public class UnitCreationServiceExpertiseSeedTests
             db.UnitDefinitions.Add(new UnitDefinitionEntity
             {
                 Id = Guid.NewGuid(),
-                UnitId = "research-cell",
-                ActorId = Guid.NewGuid().ToString(),
-                Name = "research-cell",
+                DisplayName = "research-cell",
                 Description = "test",
             });
             await db.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -101,7 +99,7 @@ public class UnitCreationServiceExpertiseSeedTests
 
         var manifest = new UnitManifest
         {
-            Name = "research-cell",
+            DisplayName = "research-cell",
             Description = "a research cell",
             Expertise = new List<ExpertiseManifestEntry>
             {

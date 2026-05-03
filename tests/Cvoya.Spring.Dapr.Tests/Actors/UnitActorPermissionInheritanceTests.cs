@@ -39,7 +39,6 @@ public class UnitActorPermissionInheritanceTests
 
         var host = ActorHost.CreateForTest<UnitActor>(new ActorTestOptions
         {
-            ActorId = new ActorId("test-unit"),
         });
         _actor = new UnitActor(
             host,

@@ -201,9 +201,7 @@ public class UnitDetailsEndpointTests : IClassFixture<CustomWebApplicationFactor
             {
                 Id = Guid.NewGuid(),
                 TenantId = "default",
-                UnitId = UnitName,
-                ActorId = ActorId,
-                Name = UnitName,
+                DisplayName = UnitName,
                 Description = "test",
                 CreatedAt = DateTimeOffset.UtcNow,
                 UpdatedAt = DateTimeOffset.UtcNow,

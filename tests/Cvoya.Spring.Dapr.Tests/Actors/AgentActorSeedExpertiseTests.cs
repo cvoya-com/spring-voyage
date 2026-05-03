@@ -159,7 +159,6 @@ public class AgentActorSeedExpertiseTests
 
         var host = ActorHost.CreateForTest<AgentActor>(new ActorTestOptions
         {
-            ActorId = new ActorId("seed-agent"),
         });
 
         var router = Substitute.For<MessageRouter>(

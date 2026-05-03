@@ -50,7 +50,6 @@ public class ContainerSupervisorActorTests
 
         var host = ActorHost.CreateForTest<ContainerSupervisorActor>(new ActorTestOptions
         {
-            ActorId = new ActorId(TestAgentId),
             TimerManager = _timerManager,
         });
 

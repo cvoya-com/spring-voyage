@@ -744,8 +744,6 @@ public class DirectoryServiceTests : IDisposable
         var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
         db.UnitMemberships.Add(new UnitMembershipEntity
         {
-            UnitId = unitId,
-            AgentId = agentId,
             Enabled = true,
             CreatedAt = DateTimeOffset.UtcNow,
             UpdatedAt = DateTimeOffset.UtcNow,

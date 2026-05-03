@@ -162,9 +162,7 @@ public class UnitMembershipTenantGuardTests : IDisposable
     {
         Id = Guid.NewGuid(),
         TenantId = tenantId,
-        UnitId = id,
-        ActorId = id,
-        Name = id,
+        DisplayName = id,
         Description = string.Empty,
     };
 
@@ -172,9 +170,7 @@ public class UnitMembershipTenantGuardTests : IDisposable
     {
         Id = Guid.NewGuid(),
         TenantId = tenantId,
-        AgentId = id,
-        ActorId = id,
-        Name = id,
+        DisplayName = id,
     };
 
     public void Dispose()

@@ -137,7 +137,7 @@ public class CredentialWriterTests
     {
         AppId = 12345,
         Slug = "my-app",
-        Name = "Spring Voyage (test)",
+        DisplayName = "Spring Voyage (test)",
         Pem = "-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----",
         WebhookSecret = "whsec_abc",
         ClientId = "lv1.xxxxxxxxx",

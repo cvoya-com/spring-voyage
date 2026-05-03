@@ -93,7 +93,6 @@ public class AgentActorUnitPolicyDispatchTests
 
         var host = ActorHost.CreateForTest<AgentActor>(new ActorTestOptions
         {
-            ActorId = new ActorId(AgentAdaUuid.ToString()),
         });
 
         _membershipRepository.GetAsync(Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>())

@@ -235,7 +235,7 @@ public class ApiTokenAuthHandlerTests : IDisposable
             Id = Guid.NewGuid(),
             UserId = "test-user",
             TokenHash = tokenHash,
-            Name = name,
+            DisplayName = name,
             CreatedAt = DateTimeOffset.UtcNow,
             ExpiresAt = expiresAt,
             RevokedAt = revokedAt

@@ -88,7 +88,6 @@ public class AgentActorEffectiveMetadataTests
         // The actor ID is the agent's stable UUID (not the slug).
         var host = ActorHost.CreateForTest<AgentActor>(new ActorTestOptions
         {
-            ActorId = new ActorId(AgentActorUuid.ToString()),
         });
 
         var unitPolicyEnforcer = Substitute.For<IUnitPolicyEnforcer>().WithAllowByDefault();

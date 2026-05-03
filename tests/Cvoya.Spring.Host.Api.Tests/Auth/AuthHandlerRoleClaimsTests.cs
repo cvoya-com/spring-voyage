@@ -172,7 +172,7 @@ public class AuthHandlerRoleClaimsTests : IDisposable
             Id = Guid.NewGuid(),
             UserId = "test-user",
             TokenHash = tokenHash,
-            Name = name,
+            DisplayName = name,
             CreatedAt = DateTimeOffset.UtcNow,
         });
         await dbContext.SaveChangesAsync();

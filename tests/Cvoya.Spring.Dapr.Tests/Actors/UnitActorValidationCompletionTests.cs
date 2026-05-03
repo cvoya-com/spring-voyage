@@ -54,7 +54,6 @@ public class UnitActorValidationCompletionTests
 
         var host = ActorHost.CreateForTest<UnitActor>(new ActorTestOptions
         {
-            ActorId = new ActorId(TestUnitActorId),
         });
         _actor = new UnitActor(
             host,

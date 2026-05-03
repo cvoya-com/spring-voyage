@@ -123,9 +123,7 @@ public class UnitParentEndpointTests : IClassFixture<CustomWebApplicationFactory
             {
                 Id = Guid.NewGuid(),
                 TenantId = "default",
-                UnitId = "root-unit",
-                ActorId = "actor-root",
-                Name = "Root Unit",
+                DisplayName = "Root Unit",
                 Description = string.Empty,
                 CreatedAt = DateTimeOffset.UtcNow,
                 UpdatedAt = DateTimeOffset.UtcNow,

@@ -121,7 +121,6 @@ public class UnitActorStrategyResolverTests
 
         var host = ActorHost.CreateForTest<UnitActor>(new ActorTestOptions
         {
-            ActorId = new ActorId("resolver-test-unit"),
         });
 
         var actor = new UnitActor(

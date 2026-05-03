@@ -35,8 +35,7 @@ public class SpringDbContextTests : IDisposable
         var agent = new AgentDefinitionEntity
         {
             Id = Guid.NewGuid(),
-            AgentId = "ada",
-            Name = "Ada",
+            DisplayName = "Ada",
             Role = "Software Engineer"
         };
 
@@ -57,8 +56,7 @@ public class SpringDbContextTests : IDisposable
         var agent = new AgentDefinitionEntity
         {
             Id = Guid.NewGuid(),
-            AgentId = "deleted-agent",
-            Name = "To Be Deleted",
+            DisplayName = "To Be Deleted",
             DeletedAt = DateTimeOffset.UtcNow
         };
 
@@ -79,8 +77,7 @@ public class SpringDbContextTests : IDisposable
         var agent = new AgentDefinitionEntity
         {
             Id = Guid.NewGuid(),
-            AgentId = "audit-test",
-            Name = "Audit Test"
+            DisplayName = "Audit Test"
         };
 
         _context.AgentDefinitions.Add(agent);
@@ -101,8 +98,7 @@ public class SpringDbContextTests : IDisposable
         var agent = new AgentDefinitionEntity
         {
             Id = Guid.NewGuid(),
-            AgentId = "update-test",
-            Name = "Original"
+            DisplayName = "Original"
         };
 
         _context.AgentDefinitions.Add(agent);

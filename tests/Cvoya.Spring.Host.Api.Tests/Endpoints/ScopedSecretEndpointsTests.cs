@@ -398,7 +398,7 @@ public class ScopedSecretEndpointsTests : IClassFixture<CustomWebApplicationFact
                 TenantId = "other-tenant",
                 Scope = scope,
                 OwnerId = ownerId,
-                Name = name,
+                DisplayName = name,
                 StoreKey = "sk-other",
                 Origin = SecretOrigin.PlatformOwned,
                 CreatedAt = DateTimeOffset.UtcNow,

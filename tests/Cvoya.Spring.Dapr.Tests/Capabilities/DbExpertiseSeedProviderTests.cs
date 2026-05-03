@@ -368,9 +368,7 @@ public class DbExpertiseSeedProviderTests
         db.AgentDefinitions.Add(new AgentDefinitionEntity
         {
             Id = Guid.NewGuid(),
-            AgentId = agentId,
-            ActorId = actorId,
-            Name = agentId,
+            DisplayName = agentId,
             Description = "test",
             Definition = stableDefinition,
             DeletedAt = deletedAt,
@@ -398,9 +396,7 @@ public class DbExpertiseSeedProviderTests
         db.UnitDefinitions.Add(new UnitDefinitionEntity
         {
             Id = Guid.NewGuid(),
-            UnitId = unitId,
-            ActorId = actorId,
-            Name = unitId,
+            DisplayName = unitId,
             Description = "test",
             Definition = stableDefinition,
             DeletedAt = deletedAt,

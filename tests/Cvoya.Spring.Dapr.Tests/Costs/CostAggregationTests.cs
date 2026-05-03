@@ -43,8 +43,6 @@ public class CostAggregationTests : IDisposable
         return new CostRecord
         {
             Id = Guid.NewGuid(),
-            AgentId = agentId,
-            UnitId = unitId,
             TenantId = tenantId,
             Model = "claude-3-opus",
             Cost = cost,

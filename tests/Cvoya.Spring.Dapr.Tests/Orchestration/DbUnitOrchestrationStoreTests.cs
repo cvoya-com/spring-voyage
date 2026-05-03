@@ -170,9 +170,7 @@ public class DbUnitOrchestrationStoreTests
         db.UnitDefinitions.Add(new UnitDefinitionEntity
         {
             Id = Guid.NewGuid(),
-            UnitId = unitId,
-            ActorId = actorId ?? $"actor-{unitId}",
-            Name = unitId,
+            DisplayName = unitId,
             Description = "test",
             Definition = stableDefinition,
         });

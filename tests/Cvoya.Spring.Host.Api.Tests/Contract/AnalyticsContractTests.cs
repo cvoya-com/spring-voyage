@@ -195,8 +195,6 @@ public class AnalyticsContractTests : IClassFixture<CustomWebApplicationFactory>
         db.CostRecords.Add(new CostRecord
         {
             Id = Guid.NewGuid(),
-            AgentId = agentId,
-            UnitId = unitId,
             TenantId = "default",
             Model = model,
             Cost = cost,

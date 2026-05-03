@@ -157,8 +157,7 @@ public class PackageExportServiceTests
         {
             Id = Guid.NewGuid(),
             TenantId = tenantId,
-            UnitId = unitName,
-            Name = unitName,
+            DisplayName = unitName,
             Description = string.Empty,
             InstallId = installId,
             InstallState = PackageInstallState.Active,
@@ -416,8 +415,7 @@ public class PackageExportServiceTests
         {
             Id = Guid.NewGuid(),
             TenantId = TenantA,
-            UnitId = "orphan-unit",
-            Name = "orphan-unit",
+            DisplayName = "orphan-unit",
             Description = string.Empty,
             InstallId = null,  // No install id.
             InstallState = PackageInstallState.Active,

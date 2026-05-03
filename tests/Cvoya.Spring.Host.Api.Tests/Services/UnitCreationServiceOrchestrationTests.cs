@@ -48,7 +48,7 @@ public class UnitCreationServiceOrchestrationTests
 
         var manifest = new UnitManifest
         {
-            Name = "triage-cell",
+            DisplayName = "triage-cell",
             Description = "Label-triage cell",
             Orchestration = new OrchestrationManifest { Strategy = "label-routed" },
         };
@@ -75,7 +75,7 @@ public class UnitCreationServiceOrchestrationTests
 
         var manifest = new UnitManifest
         {
-            Name = "plain-cell",
+            DisplayName = "plain-cell",
             Description = "no orchestration directive",
         };
 
@@ -104,7 +104,7 @@ public class UnitCreationServiceOrchestrationTests
 
         var manifest = new UnitManifest
         {
-            Name = "rich-cell",
+            DisplayName = "rich-cell",
             Description = "both slots populated",
             Expertise = new List<ExpertiseManifestEntry>
             {
@@ -135,7 +135,7 @@ public class UnitCreationServiceOrchestrationTests
 
         var manifest = new UnitManifest
         {
-            Name = "blank-strategy-cell",
+            DisplayName = "blank-strategy-cell",
             Description = "blank strategy should be skipped",
             Orchestration = new OrchestrationManifest { Strategy = "   " },
         };
@@ -178,9 +178,7 @@ public class UnitCreationServiceOrchestrationTests
             db.UnitDefinitions.Add(new UnitDefinitionEntity
             {
                 Id = Guid.NewGuid(),
-                UnitId = unitId,
-                ActorId = Guid.NewGuid().ToString(),
-                Name = unitId,
+                DisplayName = unitId,
                 Description = "test",
             });
             db.SaveChanges();

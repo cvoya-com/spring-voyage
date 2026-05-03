@@ -38,7 +38,6 @@ public class StreamEventSubscriberTests
         var tokenDelta = new StreamEvent.TokenDelta(Guid.NewGuid(), DateTimeOffset.UtcNow, "Hello");
         var envelope = new StreamEventEnvelope
         {
-            AgentId = "agent-1",
             EventType = nameof(StreamEvent.TokenDelta),
             Timestamp = DateTimeOffset.UtcNow,
             Payload = JsonSerializer.SerializeToElement(tokenDelta)
@@ -61,7 +60,6 @@ public class StreamEventSubscriberTests
             Guid.NewGuid(), DateTimeOffset.UtcNow, 100, 50, "end_turn");
         var envelope = new StreamEventEnvelope
         {
-            AgentId = "agent-3",
             EventType = nameof(StreamEvent.Completed),
             Timestamp = DateTimeOffset.UtcNow,
             Payload = JsonSerializer.SerializeToElement(completed)
@@ -82,7 +80,6 @@ public class StreamEventSubscriberTests
         var tokenDelta = new StreamEvent.TokenDelta(Guid.NewGuid(), DateTimeOffset.UtcNow, "test");
         var envelope = new StreamEventEnvelope
         {
-            AgentId = "my-agent-id",
             EventType = nameof(StreamEvent.TokenDelta),
             Timestamp = DateTimeOffset.UtcNow,
             Payload = JsonSerializer.SerializeToElement(tokenDelta)
@@ -107,7 +104,6 @@ public class StreamEventSubscriberTests
             Arguments: "{}");
         var envelope = new StreamEventEnvelope
         {
-            AgentId = "agent-42",
             EventType = nameof(StreamEvent.ToolCall),
             Timestamp = DateTimeOffset.UtcNow,
             Payload = JsonSerializer.SerializeToElement(call)
@@ -134,7 +130,6 @@ public class StreamEventSubscriberTests
             IsError: false);
         var envelope = new StreamEventEnvelope
         {
-            AgentId = "agent-42",
             EventType = nameof(StreamEvent.ToolResult),
             Timestamp = DateTimeOffset.UtcNow,
             Payload = JsonSerializer.SerializeToElement(result)
@@ -162,7 +157,6 @@ public class StreamEventSubscriberTests
             IsError: true);
         var envelope = new StreamEventEnvelope
         {
-            AgentId = "agent-42",
             EventType = nameof(StreamEvent.ToolResult),
             Timestamp = DateTimeOffset.UtcNow,
             Payload = JsonSerializer.SerializeToElement(result)

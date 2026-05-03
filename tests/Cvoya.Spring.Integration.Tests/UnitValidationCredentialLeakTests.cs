@@ -114,9 +114,7 @@ public sealed class UnitValidationCredentialLeakTests : IDisposable
         {
             Id = Guid.NewGuid(),
             TenantId = "default",
-            UnitId = _unitActorId,
-            ActorId = _unitActorId,
-            Name = _unitActorId,
+            DisplayName = _unitActorId,
             CreatedAt = DateTimeOffset.UtcNow,
             UpdatedAt = DateTimeOffset.UtcNow,
             LastValidationRunId = "canary-run-id",

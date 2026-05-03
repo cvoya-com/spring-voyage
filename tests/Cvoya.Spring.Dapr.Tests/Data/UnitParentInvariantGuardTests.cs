@@ -143,11 +143,8 @@ public class UnitParentInvariantGuardTests : IDisposable
         {
             Id = Guid.NewGuid(),
             TenantId = Tenant,
-            UnitId = unitId,
-            ActorId = unitId,
-            Name = unitId,
+            DisplayName = unitId,
             Description = string.Empty,
-            IsTopLevel = isTopLevel,
             CreatedAt = DateTimeOffset.UtcNow,
             UpdatedAt = DateTimeOffset.UtcNow,
         });

@@ -48,7 +48,7 @@ public class UnitCreationServiceBoundaryTests
 
         var manifest = new UnitManifest
         {
-            Name = "boundary-cell",
+            DisplayName = "boundary-cell",
             Description = "cell with a declared boundary",
             Boundary = new BoundaryManifest
             {
@@ -70,7 +70,7 @@ public class UnitCreationServiceBoundaryTests
                 {
                     new BoundarySynthesisManifestEntry
                     {
-                        Name = "full-stack",
+                        DisplayName = "full-stack",
                         Level = "expert",
                     },
                 },
@@ -102,7 +102,7 @@ public class UnitCreationServiceBoundaryTests
 
         var manifest = new UnitManifest
         {
-            Name = "plain-cell",
+            DisplayName = "plain-cell",
             Description = "no boundary declared",
         };
 
@@ -122,7 +122,7 @@ public class UnitCreationServiceBoundaryTests
 
         var manifest = new UnitManifest
         {
-            Name = "empty-boundary",
+            DisplayName = "empty-boundary",
             Description = "boundary block present but empty",
             Boundary = new BoundaryManifest
             {
@@ -154,7 +154,7 @@ public class UnitCreationServiceBoundaryTests
 
         var manifest = new UnitManifest
         {
-            Name = "flaky-boundary",
+            DisplayName = "flaky-boundary",
             Description = "store throws on write",
             Boundary = new BoundaryManifest
             {
@@ -183,7 +183,7 @@ public class UnitCreationServiceBoundaryTests
 
         var manifest = new UnitManifest
         {
-            Name = "blank-synthesis",
+            DisplayName = "blank-synthesis",
             Description = "only blank syntheses",
             Boundary = new BoundaryManifest
             {
@@ -214,7 +214,7 @@ public class UnitCreationServiceBoundaryTests
 
         var manifest = new UnitManifest
         {
-            Name = "tolerant-level",
+            DisplayName = "tolerant-level",
             Description = "unknown levels resolve to null",
             Boundary = new BoundaryManifest
             {
@@ -265,9 +265,7 @@ public class UnitCreationServiceBoundaryTests
             db.UnitDefinitions.Add(new UnitDefinitionEntity
             {
                 Id = Guid.NewGuid(),
-                UnitId = unitId,
-                ActorId = Guid.NewGuid().ToString(),
-                Name = unitId,
+                DisplayName = unitId,
                 Description = "test",
             });
             db.SaveChanges();

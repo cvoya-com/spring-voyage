@@ -123,9 +123,7 @@ public class ThreadEndpointsTests : IClassFixture<ThreadEndpointsTests.Factory>
             db.AgentDefinitions.Add(new AgentDefinitionEntity
             {
                 Id = Guid.NewGuid(),
-                AgentId = "ada",
-                ActorId = agentActorId,
-                Name = "Ada Lovelace",
+                DisplayName = "Ada Lovelace",
                 TenantId = "default",
                 CreatedAt = now,
                 UpdatedAt = now,
@@ -165,9 +163,7 @@ public class ThreadEndpointsTests : IClassFixture<ThreadEndpointsTests.Factory>
             db.UnitDefinitions.Add(new UnitDefinitionEntity
             {
                 Id = Guid.NewGuid(),
-                UnitId = "engineering",
-                ActorId = unitActorId,
-                Name = "Engineering",
+                DisplayName = "Engineering",
                 TenantId = "default",
                 CreatedAt = now,
                 UpdatedAt = now,

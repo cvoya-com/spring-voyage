@@ -362,7 +362,7 @@ public class SecretEndpointsTests : IClassFixture<CustomWebApplicationFactory>
                 TenantId = "other-tenant",
                 Scope = SecretScope.Unit,
                 OwnerId = unit,
-                Name = "leaked",
+                DisplayName = "leaked",
                 StoreKey = "sk-other",
                 CreatedAt = DateTimeOffset.UtcNow,
             });

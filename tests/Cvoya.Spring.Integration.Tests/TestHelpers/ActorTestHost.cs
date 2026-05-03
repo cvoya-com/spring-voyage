@@ -237,7 +237,6 @@ public static class ActorTestHost
 
         var host = ActorHost.CreateForTest<UnitActor>(new ActorTestOptions
         {
-            ActorId = new ActorId(actorId ?? Guid.NewGuid().ToString()),
         });
 
         var activityEventBus = Substitute.For<Core.Capabilities.IActivityEventBus>();

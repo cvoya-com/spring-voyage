@@ -47,7 +47,6 @@ public class AgentMetadataTests
 
         var host = ActorHost.CreateForTest<AgentActor>(new ActorTestOptions
         {
-            ActorId = new ActorId("test-agent"),
         });
 
         // Default: no state set for any metadata key.

@@ -227,9 +227,7 @@ public class DbOrchestrationStrategyProviderTests
         db.UnitDefinitions.Add(new UnitDefinitionEntity
         {
             Id = Guid.NewGuid(),
-            UnitId = unitId ?? resolvedActorId,
-            ActorId = resolvedActorId,
-            Name = unitId ?? resolvedActorId,
+            DisplayName = unitId ?? resolvedActorId,
             Description = "test",
             Definition = stableDefinition,
             DeletedAt = deletedAt,

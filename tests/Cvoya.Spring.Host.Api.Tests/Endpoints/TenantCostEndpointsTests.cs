@@ -192,8 +192,6 @@ public class TenantCostEndpointsTests : IClassFixture<CustomWebApplicationFactor
         return new CostRecord
         {
             Id = Guid.NewGuid(),
-            AgentId = agentId,
-            UnitId = unitId,
             TenantId = tenantId,
             Model = "claude-3-opus",
             Cost = cost,
