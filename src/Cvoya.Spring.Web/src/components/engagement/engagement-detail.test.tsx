@@ -31,8 +31,18 @@ vi.mock("@/lib/api/queries", () => ({
 
 // Mock child components to isolate the detail logic.
 vi.mock("./engagement-timeline", () => ({
-  EngagementTimeline: ({ threadId }: { threadId: string }) => (
-    <div data-testid="mock-timeline" data-thread-id={threadId} />
+  EngagementTimeline: ({
+    threadId,
+    layout,
+  }: {
+    threadId: string;
+    layout?: "dialog" | "timeline";
+  }) => (
+    <div
+      data-testid="mock-timeline"
+      data-thread-id={threadId}
+      data-layout={layout ?? "dialog"}
+    />
   ),
 }));
 
@@ -272,6 +282,57 @@ describe("EngagementDetail", () => {
 
       render(<EngagementDetail threadId="thread-abc" />);
       expect(screen.getByTestId("mock-timeline")).toBeInTheDocument();
+    });
+
+    // #1630
+    it("passes layout='timeline' to the timeline so observer view is left-justified", () => {
+      mockUseThread.mockReturnValue({
+        data: makeThread(),
+        isPending: false,
+        error: null,
+      });
+
+      render(<EngagementDetail threadId="thread-abc" />);
+      const timeline = screen.getByTestId("mock-timeline");
+      expect(timeline).toHaveAttribute("data-layout", "timeline");
+    });
+  });
+
+  describe("participant view layout (#1630)", () => {
+    it("passes layout='dialog' to the timeline so participants see chat bubbles", () => {
+      mockUseThread.mockReturnValue({
+        data: makeThread(),
+        isPending: false,
+        error: null,
+      });
+
+      render(<EngagementDetail threadId="thread-abc" />);
+      const timeline = screen.getByTestId("mock-timeline");
+      expect(timeline).toHaveAttribute("data-layout", "dialog");
+    });
+  });
+
+  // #1630
+  describe("header name resolution", () => {
+    it("renders 'Unknown participant' rather than a raw GUID when displayName is missing", () => {
+      const id = "d4ce4258-ab40-4c10-be06-407cc5ec9139";
+      mockUseThread.mockReturnValue({
+        data: makeThread({
+          participants: [
+            { address: "human://savas", displayName: "savas" },
+            // identity form, no displayName — the wire shape that
+            // produced the GUID titles in the issue screenshot.
+            { address: `agent:id:${id}`, displayName: "" },
+          ],
+        }),
+        isPending: false,
+        error: null,
+      });
+
+      render(<EngagementDetail threadId="thread-abc" />);
+      const header = screen.getByTestId("engagement-detail-header-names");
+      expect(header.textContent).not.toMatch(id);
+      expect(header.textContent).not.toMatch(/agent:id:/);
     });
   });
 

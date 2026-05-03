@@ -195,6 +195,59 @@ describe("EngagementList", () => {
       expect(title).not.toHaveTextContent("thread-abc");
     });
 
+    // #1630
+    it("never leaks raw GUIDs into the title when displayName is missing", () => {
+      const id = "d4ce4258-ab40-4c10-be06-407cc5ec9139";
+      mockUseThreads.mockReturnValue({
+        data: [
+          makeThread({
+            id: "thread-guidy",
+            participants: [
+              { address: "human://savas", displayName: "savas" },
+              // identity form, no displayName from the server — exactly
+              // the wire shape that produced the GUID-titled cards in
+              // the issue screenshot.
+              { address: `agent:id:${id}`, displayName: "" },
+            ],
+          }),
+        ],
+        isPending: false,
+        error: null,
+        isFetching: false,
+      });
+
+      render(<EngagementList slice="mine" />);
+      const title = screen.getByTestId("engagement-card-title");
+      // Falls back to a soft placeholder rather than dumping the GUID.
+      expect(title.textContent).not.toMatch(id);
+      expect(title.textContent).not.toMatch(/agent:id:/);
+    });
+
+    // #1630
+    it("renders all participant names for engagements where the user is an observer", () => {
+      mockUseThreads.mockReturnValue({
+        data: [
+          makeThread({
+            id: "thread-observed",
+            // No human in the participant list — the active user is
+            // observing, not a participant. The title should list every
+            // participant rather than hiding behind "Just you".
+            participants: [
+              { address: "agent://ada", displayName: "ada" },
+              { address: "agent://bob", displayName: "bob" },
+            ],
+          }),
+        ],
+        isPending: false,
+        error: null,
+        isFetching: false,
+      });
+
+      render(<EngagementList slice="mine" />);
+      const title = screen.getByTestId("engagement-card-title");
+      expect(title).toHaveTextContent("ada, bob");
+    });
+
     it("uses an ellipsis when the participant list is long", () => {
       mockUseThreads.mockReturnValue({
         data: [

@@ -35,6 +35,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { useThreads, useInbox, useCurrentUser } from "@/lib/api/queries";
 import type { ParticipantRef, ThreadSummary } from "@/lib/api/types";
+import {
+  addressOf,
+  participantDisplayName,
+} from "@/components/thread/role";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -83,7 +87,7 @@ function isHumanAddress(address: string): boolean {
  * Returns true when none of the participants is a human.
  */
 function isA2aOnly(participants: ParticipantRef[]): boolean {
-  return participants.every((p) => !isHumanAddress(participantAddress(p)));
+  return participants.every((p) => !isHumanAddress(addressOf(p)));
 }
 
 /**
@@ -94,7 +98,7 @@ function userIsParticipant(
   currentUserAddress: string | undefined,
 ): boolean {
   if (!currentUserAddress) return false;
-  return participants.some((p) => participantAddress(p) === currentUserAddress);
+  return participants.some((p) => addressOf(p) === currentUserAddress);
 }
 
 /**
@@ -135,67 +139,44 @@ const FRESHNESS_OPACITY: Record<string, string> = {
 };
 
 /**
- * Resolve a participant entry to its canonical address string.
- * Handles both `ParticipantRef` objects (server v2) and plain address
- * strings (server v1 or schema fallback).
- */
-function participantAddress(p: ParticipantRef): string {
-   
-  const pAny = p as any;
-  if (typeof p === "string") return p;
-  return pAny?.address ?? "";
-}
-
-/**
- * Resolve a participant entry to its human-readable display name.
- * For non-human participants we fall back to the address path segment
- * (e.g. "ada" from "agent://ada") so the label is always meaningful.
- * For human participants we skip the raw address — it could be a UUID —
- * and return null so the caller can omit the entry.
- */
-function participantDisplayName(p: ParticipantRef): string | null {
-   
-  const pAny = p as any;
-  // ParticipantRef object path (server v2):
-  if (typeof p !== "string" && pAny?.displayName) return pAny.displayName;
-  // Plain string path (server v1): extract the path segment from the address.
-  const addr = participantAddress(p);
-  const idx = addr.indexOf("://");
-  if (idx <= 0) return addr || null;
-  const scheme = addr.slice(0, idx).toLowerCase();
-  const path = addr.slice(idx + 3);
-  // Don't show UUID-shaped paths for human participants — they're meaningless.
-  if (scheme === "human") return null;
-  return path || null;
-}
-
-/**
  * Build the visible title for an engagement card: the display names of
  * everyone except the current user, joined by commas. Long lists fall back
  * to the first three names plus an ellipsis indicator.
  *
- * When the participant list — after excluding self — is empty (e.g. a
- * solo thread) we surface a neutral "Just you" placeholder so the card
- * always has a meaningful label.
+ * For engagements where the user is an *observer* (not a participant)
+ * we render the names of every participant — there's no "self" to
+ * exclude. Solo threads (just the user) surface "Just you" as a neutral
+ * fallback.
+ *
+ * Names that fail to resolve (UUID-shaped paths, missing displayName)
+ * are dropped quietly rather than printed as raw GUIDs (#1630). When
+ * every name fails to resolve we surface "Unknown" as a soft fallback
+ * — leaking a GUID into the title is the bug this issue tracks.
  *
  * Defensive against both `ParticipantRef` objects (server v2) and plain
- * address strings (server v1 / schema fallback). #1502 Fix 4.
+ * address strings (server v1 / schema fallback). #1502 Fix 4 / #1630.
  */
 function engagementTitle(
   participants: ParticipantRef[],
   currentUserAddress: string | undefined,
 ): string {
   const others = participants.filter((p) =>
-    currentUserAddress ? participantAddress(p) !== currentUserAddress : true,
+    currentUserAddress ? addressOf(p) !== currentUserAddress : true,
   );
+  // Solo thread (just the active user)
   if (others.length === 0) return "Just you";
   const visibleNames = others
     .slice(0, 3)
-    .map(participantDisplayName)
+    .map((p) => participantDisplayName(p))
     .filter(Boolean) as string[];
   const rest = others.length - 3;
   const head = visibleNames.join(", ");
-  if (!head) return "Just you";
+  if (!head) {
+    // No name resolved — rather than leak GUIDs, surface a neutral
+    // placeholder. The user can open the engagement to see participant
+    // details via the activity log if needed.
+    return others.length === 1 ? "Unknown participant" : "Unknown participants";
+  }
   return rest > 0 ? `${head}, …` : head;
 }
 

@@ -15,7 +15,9 @@ import { cn } from "@/lib/utils";
 import type { ThreadEvent } from "@/lib/api/types";
 
 import {
+  addressOf,
   parseThreadSource,
+  participantDisplayName,
   ROLE_STYLES,
   roleFromEvent,
   type ConversationRole,
@@ -68,6 +70,14 @@ interface ThreadEventRowProps {
   actions?: ThreadEventRowActions;
   /** Override for the row's `data-testid` prefix. */
   testIdPrefix?: string;
+  /**
+   * Override the row alignment. By default the row aligns by role
+   * (human → end / right; everyone else → start / left). Pass
+   * `"start"` to force-left-justify the row regardless of role —
+   * used by the engagement observer-view timeline layout (#1630)
+   * where the dialog metaphor is wrong.
+   */
+  align?: "auto" | "start";
 }
 
 /**
@@ -98,6 +108,7 @@ export function ThreadEventRow({
   event,
   actions = "activity-link",
   testIdPrefix = "conversation-event",
+  align = "auto",
 }: ThreadEventRowProps) {
   // Attribute MessageReceived bubbles to the sender (event.from) rather
   // than the receiver-projected event.source.
@@ -107,15 +118,15 @@ export function ThreadEventRow({
 
   // `attributed` may be a ParticipantRef object (address + displayName)
   // or a plain address string when served by an older API version.
-
-  const attributedAny = attributed as any;
-  const attributedAddress: string =
-    typeof attributed === "string"
-      ? attributed
-      : (attributedAny?.address ?? String(attributed));
+  const attributedAddress = addressOf(attributed) || String(attributed);
 
   const role = roleFromEvent(attributedAddress, event.eventType);
   const style = ROLE_STYLES[role];
+  // Effective alignment: callers in observer-view timelines force-start
+  // so the dialog metaphor doesn't leak into surfaces where there is no
+  // active-user axis (#1630).
+  const effectiveAlign: "start" | "end" =
+    align === "start" ? "start" : style.align;
   const source = parseThreadSource(attributedAddress);
   const collapsible = isCollapsibleByDefault(event.eventType, role);
   const [expanded, setExpanded] = useState(!collapsible);
@@ -126,21 +137,9 @@ export function ThreadEventRow({
   // reads as a real conversation rather than a list of envelope summaries.
   const bodyText = isMessageReceived && event.body ? event.body : null;
 
-  // Display name resolution:
-  //  - If the attributed value is a ParticipantRef with a non-empty
-  //    displayName, use it.
-  //  - Otherwise for non-human roles fall back to the address path so
-  //    the source is still identifiable.
-  //  - For human roles never fall back to the raw address (could be a
-  //    UUID) — return null instead so the caller can omit the name.
-  const resolvedDisplayName: string | null = (() => {
-    const dn: string | null | undefined =
-      typeof attributed === "string" ? null : attributedAny?.displayName;
-    if (dn) return dn;
-    if (role === "human") return null;
-    // Non-human fallback: address path (e.g. "ada" from "agent://ada")
-    return source.path || null;
-  })();
+  // Display name resolution: shared helper drops UUID-shaped paths so we
+  // never paint a raw GUID in place of a display name (#1630).
+  const resolvedDisplayName = participantDisplayName(attributed);
 
   // #1161: error events render with destructive styling and are never
   // collapsed — the user cannot be expected to open the activity log to
@@ -199,7 +198,7 @@ export function ThreadEventRow({
       <div
         className={cn(
           "flex items-center gap-2 text-[11px] text-muted-foreground",
-          style.align === "end" ? "justify-end" : "justify-start",
+          effectiveAlign === "end" ? "justify-end" : "justify-start",
         )}
       >
         <Link
@@ -265,7 +264,7 @@ export function ThreadEventRow({
     <div
       className={cn(
         "flex w-full",
-        style.align === "end" ? "justify-end" : "justify-start",
+        effectiveAlign === "end" ? "justify-end" : "justify-start",
       )}
       data-testid={`${testIdPrefix}-${event.id}`}
       data-role={role}
@@ -276,7 +275,7 @@ export function ThreadEventRow({
         <div
           className={cn(
             "flex items-center gap-2 text-xs text-muted-foreground",
-            style.align === "end" ? "justify-end" : "justify-start",
+            effectiveAlign === "end" ? "justify-end" : "justify-start",
           )}
         >
           {role !== "human" && (

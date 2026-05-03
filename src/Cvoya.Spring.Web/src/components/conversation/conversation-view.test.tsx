@@ -136,7 +136,10 @@ describe("ConversationView — filter behaviour", () => {
   it("defaults to the Messages filter and hides lifecycle events", () => {
     render(<ConversationView threadId="t-1" />);
     expect(screen.getByTestId("conversation-event-e-msg")).toBeInTheDocument();
+    // Lifecycle events render as cards (#1630). Whether the bubble or
+    // card variant — both should be absent under the Messages filter.
     expect(screen.queryByTestId("conversation-event-e-state")).toBeNull();
+    expect(screen.queryByTestId("conversation-event-card-e-state")).toBeNull();
     expect(screen.getByTestId("timeline-filter-label")).toHaveTextContent(
       "Messages",
     );
@@ -148,8 +151,9 @@ describe("ConversationView — filter behaviour", () => {
     fireEvent.click(screen.getByTestId("timeline-filter-option-full"));
 
     expect(screen.getByTestId("conversation-event-e-msg")).toBeInTheDocument();
+    // Lifecycle events surface as cards in the Full filter (#1630).
     expect(
-      screen.getByTestId("conversation-event-e-state"),
+      screen.getByTestId("conversation-event-card-e-state"),
     ).toBeInTheDocument();
   });
 
@@ -159,7 +163,7 @@ describe("ConversationView — filter behaviour", () => {
       "Full timeline",
     );
     expect(
-      screen.getByTestId("conversation-event-e-state"),
+      screen.getByTestId("conversation-event-card-e-state"),
     ).toBeInTheDocument();
   });
 
@@ -269,6 +273,88 @@ describe("ConversationView — `detail` prop bypass", () => {
       expect.objectContaining({ enabled: false }),
     );
     expect(screen.getByTestId("conversation-event-e-msg")).toBeInTheDocument();
+  });
+});
+
+// #1630
+describe("ConversationView — observer-view timeline layout", () => {
+  beforeEach(() => {
+    useThreadMock.mockReturnValue({
+      data: makeDetail([messageEvent, lifecycleEvent]),
+      isPending: false,
+      isFetching: false,
+      error: null,
+    });
+  });
+
+  it("renders non-message events as cards (not bubbles) in timeline mode", () => {
+    render(
+      <ConversationView
+        threadId="t-1"
+        layout="timeline"
+        defaultFilter="full"
+      />,
+    );
+    expect(
+      screen.getByTestId("conversation-event-card-e-state"),
+    ).toBeInTheDocument();
+  });
+
+  it("force-left-justifies message bubbles in timeline mode (no dialog axis)", () => {
+    const { container } = render(
+      <ConversationView
+        threadId="t-1"
+        layout="timeline"
+        defaultFilter="full"
+      />,
+    );
+    // The wrapper around the message bubble carries data-layout=timeline-row
+    // when timeline mode forces left alignment.
+    const wrappers = container.querySelectorAll(
+      "[data-layout='timeline-row']",
+    );
+    expect(wrappers.length).toBeGreaterThan(0);
+    wrappers.forEach((w) => expect(w.className).toMatch(/justify-start/));
+  });
+
+  it("annotates the events container with data-layout='timeline'", () => {
+    render(
+      <ConversationView
+        threadId="t-1"
+        layout="timeline"
+        defaultFilter="full"
+        testId="cv-tl"
+      />,
+    );
+    expect(
+      screen.getByTestId("cv-tl-events").getAttribute("data-layout"),
+    ).toBe("timeline");
+  });
+});
+
+describe("ConversationView — generic-event card fallback in dialog mode (#1630)", () => {
+  it("renders body-less MessageReceived events as cards (not envelope-summary bubbles)", () => {
+    const id = "d4ce4258-ab40-4c10-be06-407cc5ec9139";
+    const bodylessMessage = {
+      id: "e-bare",
+      eventType: "MessageReceived",
+      source: { address: "agent://ada", displayName: "ada" },
+      timestamp: "2026-04-30T10:02:00Z",
+      severity: "Info",
+      summary: `Received Domain message ${id} from human:id:${id}`,
+    };
+    useThreadMock.mockReturnValue({
+      data: makeDetail([bodylessMessage]),
+      isPending: false,
+      isFetching: false,
+      error: null,
+    });
+    render(<ConversationView threadId="t-1" defaultFilter="full" />);
+    const card = screen.getByTestId("conversation-event-card-e-bare");
+    expect(card).toBeInTheDocument();
+    // Compact-state MUST NOT leak the GUID; it lives behind the expand
+    // affordance only.
+    expect(card).not.toHaveTextContent(id);
   });
 });
 

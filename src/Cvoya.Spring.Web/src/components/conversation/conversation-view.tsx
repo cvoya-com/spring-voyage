@@ -42,9 +42,27 @@ import {
   ThreadEventRow,
   type ThreadEventRowActions,
 } from "@/components/thread/thread-event-row";
+import {
+  ThreadEventCard,
+  shouldRenderAsCard,
+} from "@/components/thread/thread-event-card";
 import type { ThreadDetail, ThreadEvent } from "@/lib/api/types";
 
 export type ConversationFilter = "messages" | "full";
+
+/**
+ * Visual layout for the timeline rows.
+ *
+ *  - `"dialog"` (default): chat-style bubbles aligned left/right by role
+ *    (human → right, every other role → left). Used when the active user
+ *    is a participant — the conversation reads as a dialog with them.
+ *
+ *  - `"timeline"`: every row is left-justified and rendered chronologically;
+ *    non-message events render as compact `<ThreadEventCard>`s with click-
+ *    to-expand details. Used by the engagement observer view (#1630),
+ *    where there is no "self" axis to mirror against.
+ */
+export type ConversationLayout = "dialog" | "timeline";
 
 const FILTER_LABELS: Record<ConversationFilter, string> = {
   messages: "Messages",
@@ -151,6 +169,12 @@ export interface ConversationViewProps {
    * (i) toggle.
    */
   rowActions?: ThreadEventRowActions;
+  /**
+   * Visual layout for rows. Defaults to `"dialog"` (chat bubbles aligned
+   * by role). The engagement observer view passes `"timeline"`.
+   * See {@link ConversationLayout}.
+   */
+  layout?: ConversationLayout;
   /** Initial filter — defaults to `"messages"`. */
   defaultFilter?: ConversationFilter;
   /**
@@ -201,6 +225,7 @@ export interface ConversationViewProps {
 export function ConversationView({
   threadId,
   rowActions = "activity-link",
+  layout = "dialog",
   defaultFilter = "messages",
   renderHeader,
   renderEmpty,
@@ -327,18 +352,64 @@ export function ConversationView({
         aria-label="Conversation timeline"
         aria-live="polite"
         aria-atomic="false"
+        data-layout={layout}
       >
         {visibleEvents.length === 0 ? (
           emptyContent
         ) : (
-          visibleEvents.map((event) => (
-            <ThreadEventRow
-              key={event.id}
-              event={event}
-              actions={rowActions}
-              testIdPrefix={rowTestIdPrefix}
-            />
-          ))
+          visibleEvents.map((event) => {
+            // In timeline mode (observer view) every non-message event
+            // renders as a compact card, left-justified, click-to-expand.
+            // Message events still render as bubbles, but the bubble is
+            // forced to the start by wrapping it in a left-aligned flex
+            // container so the dialog metaphor doesn't leak in.
+            if (layout === "timeline") {
+              if (shouldRenderAsCard(event)) {
+                return (
+                  <ThreadEventCard
+                    key={event.id}
+                    event={event}
+                    testIdPrefix={rowTestIdPrefix}
+                  />
+                );
+              }
+              return (
+                <div
+                  key={event.id}
+                  className="flex justify-start"
+                  data-layout="timeline-row"
+                >
+                  <ThreadEventRow
+                    event={event}
+                    actions={rowActions}
+                    testIdPrefix={rowTestIdPrefix}
+                    align="start"
+                  />
+                </div>
+              );
+            }
+            // Dialog mode (default participant view). Non-message events
+            // that lack a body still render as cards rather than leaking
+            // raw envelope summaries through the generic bubble path
+            // (#1630 — see ThreadEventCard for the template-strip).
+            if (shouldRenderAsCard(event) && !event.body) {
+              return (
+                <ThreadEventCard
+                  key={event.id}
+                  event={event}
+                  testIdPrefix={rowTestIdPrefix}
+                />
+              );
+            }
+            return (
+              <ThreadEventRow
+                key={event.id}
+                event={event}
+                actions={rowActions}
+                testIdPrefix={rowTestIdPrefix}
+              />
+            );
+          })
         )}
         <div ref={bottomRef} aria-hidden="true" />
       </div>
