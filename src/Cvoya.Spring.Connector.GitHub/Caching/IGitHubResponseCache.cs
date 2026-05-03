@@ -13,8 +13,7 @@ namespace Cvoya.Spring.Connector.GitHub.Caching;
 /// Webhook-driven invalidation uses <see cref="InvalidateByTagAsync"/> so a
 /// single event (e.g. <c>pull_request.edited</c> on <c>owner/repo#42</c>) can
 /// flush every cached read tagged <c>pr:owner/repo#42</c> in one call. The
-/// OSS default is in-memory and per-host; see follow-up issue for distributed
-/// variants.
+/// OSS default is in-memory and per-host; see #275 for distributed variants.
 /// </remarks>
 public interface IGitHubResponseCache
 {

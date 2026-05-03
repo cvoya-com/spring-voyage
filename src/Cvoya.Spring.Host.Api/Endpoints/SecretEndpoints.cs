@@ -878,7 +878,7 @@ public static class SecretEndpoints
                 {
                     // Best-effort reclaim; orphaned slots are handled by
                     // the same reconciliation sweep that covers rotate
-                    // failures (see follow-up issue for the reconciler).
+                    // failures (see #274 for the reconciler).
                 }
             },
             cancellationToken);

@@ -119,8 +119,8 @@ public class SecretsOptions
     /// maximum number of versions to retain per
     /// <see cref="Cvoya.Spring.Core.Secrets.SecretRef"/>; operators may
     /// consult this value when invoking <c>POST /.../secrets/{name}/prune</c>
-    /// or when building their own retention-enforcement scheduler (see
-    /// follow-up issue for the built-in scheduler).
+    /// or when building their own retention-enforcement scheduler (see #274
+    /// for the built-in scheduler).
     ///
     /// <para>
     /// The OSS registry never applies this value automatically — it is

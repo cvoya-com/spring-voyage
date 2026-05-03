@@ -138,7 +138,7 @@ public sealed class PackageExportService : IPackageExportService
         }
 
         // Multi-package install: v0.1 returns the first package's export.
-        // Multi-target tarball export is deferred to a follow-up issue.
+        // Multi-target tarball export is deferred — see #1579.
         var first = rows[0];
         _logger.LogWarning(
             "ExportByInstallIdAsync: install '{InstallId}' contains {Count} packages; " +
