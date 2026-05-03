@@ -21,7 +21,17 @@ public static class MessageFactory
     private static readonly Guid DefaultConnectorId = new("cccccccc-1111-1111-1111-000000000001");
 
     private static Address ParseOrDefault(string scheme, string? id, Guid fallback) =>
-        id is null ? new Address(scheme, fallback) : Address.For(scheme, id);
+        id is null ? new Address(scheme, fallback) : Address.For(scheme, ToHex(id));
+
+    /// <summary>
+    /// Treat the caller's id as either a literal Guid (canonical or dashed)
+    /// or as a stable test slug, mapped through <see cref="TestSlugIds"/>
+    /// so the test's referential identity is preserved across calls.
+    /// </summary>
+    private static string ToHex(string id)
+    {
+        return Guid.TryParse(id, out _) ? id : TestSlugIds.HexFor(id);
+    }
 
     /// <summary>
     /// Creates a domain message with optional overrides.
@@ -51,8 +61,8 @@ public static class MessageFactory
     {
         return new Message(
             Guid.NewGuid(),
-            Address.For("agent", fromId),
-            Address.For(toType, toId),
+            Address.For("agent", ToHex(fromId)),
+            Address.For(toType, ToHex(toId)),
             MessageType.StatusQuery,
             Guid.NewGuid().ToString(),
             JsonSerializer.SerializeToElement(new { }),
@@ -66,8 +76,8 @@ public static class MessageFactory
     {
         return new Message(
             Guid.NewGuid(),
-            Address.For("agent", fromId),
-            Address.For(toType, toId),
+            Address.For("agent", ToHex(fromId)),
+            Address.For(toType, ToHex(toId)),
             MessageType.Cancel,
             threadId,
             JsonSerializer.SerializeToElement(new { }),

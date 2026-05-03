@@ -91,7 +91,9 @@ public class DefaultTenantBootstrapTests : IDisposable
 
         await bootstrap.StartAsync(TestContext.Current.CancellationToken);
 
-        capture.SeededTenantIds.ShouldContain("default");
+        // Post #1629: tenant ids are Guids on the wire; bootstrap forwards
+        // the canonical OssTenantIds.Default Guid (no-dash hex) to providers.
+        capture.SeededTenantIds.ShouldContain(Cvoya.Spring.Core.Tenancy.OssTenantIds.Default.ToString("N"));
         capture.SeededTenantIds.Count.ShouldBe(1);
 
         // The OSS file-system bundle adapter is wired into the same

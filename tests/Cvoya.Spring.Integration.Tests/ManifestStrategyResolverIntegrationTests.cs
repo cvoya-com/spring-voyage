@@ -41,7 +41,7 @@ public class ManifestStrategyResolverIntegrationTests
 
         await actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
-        await resolver.Received(1).ResolveAsync("triage-team", Arg.Any<CancellationToken>());
+        await resolver.Received(1).ResolveAsync(TestSlugIds.HexFor("triage-team"), Arg.Any<CancellationToken>());
         await resolverStrategy.Received(1).OrchestrateAsync(
             message, Arg.Any<IUnitContext>(), Arg.Any<CancellationToken>());
         await fallbackStrategy.DidNotReceive().OrchestrateAsync(

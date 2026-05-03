@@ -73,7 +73,7 @@ public static class ActorTestHost
 
         var host = ActorHost.CreateForTest<AgentActor>(new ActorTestOptions
         {
-            ActorId = new ActorId(actorId ?? Guid.NewGuid().ToString())
+            ActorId = new ActorId(NormaliseActorId(actorId))
         });
 
         var activityEventBus = Substitute.For<IActivityEventBus>();
@@ -194,7 +194,7 @@ public static class ActorTestHost
 
         var host = ActorHost.CreateForTest<UnitActor>(new ActorTestOptions
         {
-            ActorId = new ActorId(actorId ?? Guid.NewGuid().ToString())
+            ActorId = new ActorId(NormaliseActorId(actorId))
         });
 
         var activityEventBus = Substitute.For<Core.Capabilities.IActivityEventBus>();
@@ -237,6 +237,7 @@ public static class ActorTestHost
 
         var host = ActorHost.CreateForTest<UnitActor>(new ActorTestOptions
         {
+            ActorId = new ActorId(NormaliseActorId(actorId)),
         });
 
         var activityEventBus = Substitute.For<Core.Capabilities.IActivityEventBus>();
@@ -255,6 +256,24 @@ public static class ActorTestHost
             .Returns(new ConditionalValue<List<CoreMessaging.Address>>(false, default!));
 
         return (actor, stateManager, resolver, fallbackStrategy);
+    }
+
+    /// <summary>
+    /// Normalises a caller-supplied actor id so the resulting <c>ActorId</c>
+    /// is always a valid Guid string. Accepts canonical or dashed Guids
+    /// verbatim and routes any legacy slug literal through
+    /// <see cref="TestSlugIds.HexFor"/> for stable cross-call identity.
+    /// </summary>
+    private static string NormaliseActorId(string? actorId)
+    {
+        if (string.IsNullOrEmpty(actorId))
+        {
+            return Guid.NewGuid().ToString("N");
+        }
+
+        return Guid.TryParse(actorId, out var g)
+            ? g.ToString("N")
+            : TestSlugIds.HexFor(actorId);
     }
 
     /// <summary>
