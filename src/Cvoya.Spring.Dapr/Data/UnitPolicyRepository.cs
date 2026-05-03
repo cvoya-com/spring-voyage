@@ -19,14 +19,26 @@ using Microsoft.EntityFrameworkCore;
 /// </summary>
 public class UnitPolicyRepository(SpringDbContext context) : IUnitPolicyRepository
 {
+    private static Guid Parse(string unitId)
+    {
+        if (!Cvoya.Spring.Core.Identifiers.GuidFormatter.TryParse(unitId, out var id))
+        {
+            throw new ArgumentException(
+                $"unit id '{unitId}' is not a valid Guid.", nameof(unitId));
+        }
+
+        return id;
+    }
+
     /// <inheritdoc />
     public async Task<UnitPolicy> GetAsync(string unitId, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(unitId);
+        var unitGuid = Parse(unitId);
 
         var entity = await context.UnitPolicies
             .AsNoTracking()
-            .FirstOrDefaultAsync(p => p.UnitId == unitId, cancellationToken);
+            .FirstOrDefaultAsync(p => p.UnitId == unitGuid, cancellationToken);
 
         if (entity is null)
         {
@@ -47,9 +59,8 @@ public class UnitPolicyRepository(SpringDbContext context) : IUnitPolicyReposito
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(unitId);
         ArgumentNullException.ThrowIfNull(policy);
+        var unitGuid = Parse(unitId);
 
-        // An all-null policy carries no constraint — delete the row rather
-        // than keep an inert marker around.
         if (policy.IsEmpty)
         {
             await DeleteAsync(unitId, cancellationToken);
@@ -57,7 +68,7 @@ public class UnitPolicyRepository(SpringDbContext context) : IUnitPolicyReposito
         }
 
         var existing = await context.UnitPolicies
-            .FirstOrDefaultAsync(p => p.UnitId == unitId, cancellationToken);
+            .FirstOrDefaultAsync(p => p.UnitId == unitGuid, cancellationToken);
 
         var skill = Serialize(policy.Skill);
         var model = Serialize(policy.Model);
@@ -70,7 +81,7 @@ public class UnitPolicyRepository(SpringDbContext context) : IUnitPolicyReposito
         {
             context.UnitPolicies.Add(new UnitPolicyEntity
             {
-                UnitId = unitId,
+                UnitId = unitGuid,
                 Skill = skill,
                 Model = model,
                 Cost = cost,
@@ -96,9 +107,10 @@ public class UnitPolicyRepository(SpringDbContext context) : IUnitPolicyReposito
     public async Task DeleteAsync(string unitId, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(unitId);
+        var unitGuid = Parse(unitId);
 
         var existing = await context.UnitPolicies
-            .FirstOrDefaultAsync(p => p.UnitId == unitId, cancellationToken);
+            .FirstOrDefaultAsync(p => p.UnitId == unitGuid, cancellationToken);
 
         if (existing is null)
         {

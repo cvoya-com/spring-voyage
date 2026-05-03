@@ -45,6 +45,16 @@ public class UnitDefinitionEntity : ITenantScopedEntity
     [System.ComponentModel.DataAnnotations.Schema.NotMapped]
     public string Name => DisplayName;
 
+    /// <summary>
+    /// Always returns <c>false</c>. Kept as a stub for legacy call sites
+    /// that read this flag; top-level membership is now expressed by a
+    /// <c>unit_subunit_memberships</c> row with <c>parent_id = tenant_id</c>.
+    /// Callers querying for top-level units should join the membership
+    /// table directly.
+    /// </summary>
+    [System.ComponentModel.DataAnnotations.Schema.NotMapped]
+    public bool IsTopLevel { get; set; }
+
     /// <summary>Gets or sets the tenant that owns this unit definition.</summary>
     public Guid TenantId { get; set; }
 

@@ -91,12 +91,22 @@ public sealed partial class CostTracker(
 
         var json = details.Value;
 
+        var tenantIdString = GetStringProperty(json, "tenantId");
+        var tenantId = Cvoya.Spring.Core.Identifiers.GuidFormatter.TryParse(tenantIdString, out var t)
+            ? t
+            : Cvoya.Spring.Core.Tenancy.OssTenantIds.Default;
+
+        var unitIdString = GetStringProperty(json, "unitId");
+        Guid? unitId = Cvoya.Spring.Core.Identifiers.GuidFormatter.TryParse(unitIdString, out var u)
+            ? u
+            : null;
+
         return new CostRecord
         {
             Id = Guid.NewGuid(),
-            TenantId = GetStringProperty(json, "tenantId") ?? "default",
-            AgentId = activityEvent.Source.Path,
-            UnitId = GetStringProperty(json, "unitId"),
+            TenantId = tenantId,
+            AgentId = activityEvent.Source.Id,
+            UnitId = unitId,
             Model = GetStringProperty(json, "model") ?? "unknown",
             InputTokens = GetIntProperty(json, "inputTokens"),
             OutputTokens = GetIntProperty(json, "outputTokens"),
