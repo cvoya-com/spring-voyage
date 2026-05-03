@@ -65,10 +65,11 @@ public class InMemoryExpertiseSearchPerformanceTests
         var domainMap = new Dictionary<Address, IReadOnlyList<ExpertiseDomain>>();
         for (var i = 0; i < entries.Length; i++)
         {
-            var address = new Address("agent", $"agent-{i:D4}");
+            var agentId = Guid.NewGuid();
+            var address = new Address("agent", agentId);
             entries[i] = new DirectoryEntry(
                 address,
-                address.Path,
+                agentId,
                 $"Agent {i}",
                 string.Empty,
                 null,

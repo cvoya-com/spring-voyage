@@ -16,6 +16,15 @@ using Xunit;
 
 public class CostAggregationTests : IDisposable
 {
+    private static readonly Guid TenantA = new("aaaaaaaa-1111-1111-1111-000000000001");
+    private static readonly Guid TenantOther = new("aaaaaaaa-1111-1111-1111-000000000002");
+    private static readonly Guid AgentAId = new("bbbbbbbb-2222-2222-2222-000000000001");
+    private static readonly Guid AgentBId = new("bbbbbbbb-2222-2222-2222-000000000002");
+    private static readonly Guid AgentMissingId = new("bbbbbbbb-2222-2222-2222-000000000003");
+    private static readonly Guid UnitAId = new("cccccccc-3333-3333-3333-000000000001");
+    private static readonly Guid UnitXId = new("cccccccc-3333-3333-3333-000000000002");
+    private static readonly Guid UnitYId = new("cccccccc-3333-3333-3333-000000000003");
+
     private readonly SpringDbContext _dbContext;
 
     public CostAggregationTests()
@@ -23,17 +32,17 @@ public class CostAggregationTests : IDisposable
         var options = new DbContextOptionsBuilder<SpringDbContext>()
             .UseInMemoryDatabase($"CostAggregationTest-{Guid.NewGuid()}")
             .Options;
-        // Tests seed rows with TenantId = "tenant-a"; align the
+        // Tests seed rows with TenantId = TenantA; align the
         // DbContext-level tenant filter so those rows are visible.
-        _dbContext = new SpringDbContext(options, new StaticTenantContext("tenant-a"));
+        _dbContext = new SpringDbContext(options, new StaticTenantContext(TenantA));
     }
 
     private CostAggregation CreateService() => new(_dbContext);
 
-    private CostRecord CreateRecord(
-        string agentId = "agent-a",
-        string? unitId = "unit-a",
-        string tenantId = "tenant-a",
+    private static CostRecord CreateRecord(
+        Guid? agentId = null,
+        Guid? unitId = null,
+        Guid? tenantId = null,
         decimal cost = 0.05m,
         int inputTokens = 100,
         int outputTokens = 50,
@@ -43,7 +52,9 @@ public class CostAggregationTests : IDisposable
         return new CostRecord
         {
             Id = Guid.NewGuid(),
-            TenantId = tenantId,
+            TenantId = tenantId ?? TenantA,
+            AgentId = agentId ?? AgentAId,
+            UnitId = unitId ?? UnitAId,
             Model = "claude-3-opus",
             Cost = cost,
             InputTokens = inputTokens,
@@ -59,13 +70,13 @@ public class CostAggregationTests : IDisposable
         var ct = TestContext.Current.CancellationToken;
         var now = DateTimeOffset.UtcNow;
         _dbContext.CostRecords.AddRange(
-            CreateRecord(agentId: "agent-a", cost: 0.10m, inputTokens: 200, outputTokens: 100, timestamp: now),
-            CreateRecord(agentId: "agent-a", cost: 0.20m, inputTokens: 300, outputTokens: 150, timestamp: now),
-            CreateRecord(agentId: "agent-b", cost: 0.05m, timestamp: now)); // different agent
+            CreateRecord(agentId: AgentAId, cost: 0.10m, inputTokens: 200, outputTokens: 100, timestamp: now),
+            CreateRecord(agentId: AgentAId, cost: 0.20m, inputTokens: 300, outputTokens: 150, timestamp: now),
+            CreateRecord(agentId: AgentBId, cost: 0.05m, timestamp: now)); // different agent
         await _dbContext.SaveChangesAsync(ct);
 
         var service = CreateService();
-        var result = await service.GetAgentCostAsync("agent-a", now.AddHours(-1), now.AddHours(1), ct);
+        var result = await service.GetAgentCostAsync(AgentAId, now.AddHours(-1), now.AddHours(1), ct);
 
         result.TotalCost.ShouldBe(0.30m);
         result.TotalInputTokens.ShouldBe(500);
@@ -80,7 +91,7 @@ public class CostAggregationTests : IDisposable
         var now = DateTimeOffset.UtcNow;
 
         var service = CreateService();
-        var result = await service.GetAgentCostAsync("nonexistent", now.AddHours(-1), now.AddHours(1), ct);
+        var result = await service.GetAgentCostAsync(AgentMissingId, now.AddHours(-1), now.AddHours(1), ct);
 
         result.TotalCost.ShouldBe(0m);
         result.RecordCount.ShouldBe(0);
@@ -92,13 +103,13 @@ public class CostAggregationTests : IDisposable
         var ct = TestContext.Current.CancellationToken;
         var now = DateTimeOffset.UtcNow;
         _dbContext.CostRecords.AddRange(
-            CreateRecord(unitId: "unit-x", cost: 0.15m, timestamp: now),
-            CreateRecord(unitId: "unit-x", cost: 0.25m, timestamp: now),
-            CreateRecord(unitId: "unit-y", cost: 0.10m, timestamp: now)); // different unit
+            CreateRecord(unitId: UnitXId, cost: 0.15m, timestamp: now),
+            CreateRecord(unitId: UnitXId, cost: 0.25m, timestamp: now),
+            CreateRecord(unitId: UnitYId, cost: 0.10m, timestamp: now)); // different unit
         await _dbContext.SaveChangesAsync(ct);
 
         var service = CreateService();
-        var result = await service.GetUnitCostAsync("unit-x", now.AddHours(-1), now.AddHours(1), ct);
+        var result = await service.GetUnitCostAsync(UnitXId, now.AddHours(-1), now.AddHours(1), ct);
 
         result.TotalCost.ShouldBe(0.40m);
         result.RecordCount.ShouldBe(2);
@@ -110,20 +121,20 @@ public class CostAggregationTests : IDisposable
         var ct = TestContext.Current.CancellationToken;
         var now = DateTimeOffset.UtcNow;
         // The DbContext-level tenant filter scopes all reads to the
-        // ambient tenant ("tenant-a" for this test fixture). Rows
-        // written for other tenants ("other") are invisible on read —
+        // ambient tenant (TenantA for this test fixture). Rows
+        // written for other tenants (TenantOther) are invisible on read —
         // which is the guarantee the whole scoping work introduces.
         // The test continues to verify that GetTenantCostAsync narrows
         // to the requested tenant AND that cross-tenant rows are
         // filtered out, so rows for a different tenant must not count.
         _dbContext.CostRecords.AddRange(
-            CreateRecord(tenantId: "tenant-a", cost: 0.50m, timestamp: now),
-            CreateRecord(tenantId: "tenant-a", cost: 0.30m, timestamp: now),
-            CreateRecord(tenantId: "other", cost: 0.10m, timestamp: now)); // different tenant
+            CreateRecord(tenantId: TenantA, cost: 0.50m, timestamp: now),
+            CreateRecord(tenantId: TenantA, cost: 0.30m, timestamp: now),
+            CreateRecord(tenantId: TenantOther, cost: 0.10m, timestamp: now)); // different tenant
         await _dbContext.SaveChangesAsync(ct);
 
         var service = CreateService();
-        var result = await service.GetTenantCostAsync("tenant-a", now.AddHours(-1), now.AddHours(1), ct);
+        var result = await service.GetTenantCostAsync(TenantA, now.AddHours(-1), now.AddHours(1), ct);
 
         result.TotalCost.ShouldBe(0.80m);
         result.RecordCount.ShouldBe(2);
@@ -135,13 +146,13 @@ public class CostAggregationTests : IDisposable
         var ct = TestContext.Current.CancellationToken;
         var now = DateTimeOffset.UtcNow;
         _dbContext.CostRecords.AddRange(
-            CreateRecord(agentId: "agent-a", cost: 0.10m, timestamp: now, source: CostSource.Work),
-            CreateRecord(agentId: "agent-a", cost: 0.07m, timestamp: now, source: CostSource.Work),
-            CreateRecord(agentId: "agent-a", cost: 0.03m, timestamp: now, source: CostSource.Initiative));
+            CreateRecord(agentId: AgentAId, cost: 0.10m, timestamp: now, source: CostSource.Work),
+            CreateRecord(agentId: AgentAId, cost: 0.07m, timestamp: now, source: CostSource.Work),
+            CreateRecord(agentId: AgentAId, cost: 0.03m, timestamp: now, source: CostSource.Initiative));
         await _dbContext.SaveChangesAsync(ct);
 
         var service = CreateService();
-        var result = await service.GetAgentCostAsync("agent-a", now.AddHours(-1), now.AddHours(1), ct);
+        var result = await service.GetAgentCostAsync(AgentAId, now.AddHours(-1), now.AddHours(1), ct);
 
         result.TotalCost.ShouldBe(0.20m);
         result.WorkCost.ShouldBe(0.17m);
@@ -158,11 +169,11 @@ public class CostAggregationTests : IDisposable
         var ct = TestContext.Current.CancellationToken;
         var now = DateTimeOffset.UtcNow;
         _dbContext.CostRecords.Add(
-            CreateRecord(agentId: "agent-a", cost: 0.05m, timestamp: now, source: CostSource.Work));
+            CreateRecord(agentId: AgentAId, cost: 0.05m, timestamp: now, source: CostSource.Work));
         await _dbContext.SaveChangesAsync(ct);
 
         var service = CreateService();
-        var result = await service.GetAgentCostAsync("agent-a", now.AddHours(-1), now.AddHours(1), ct);
+        var result = await service.GetAgentCostAsync(AgentAId, now.AddHours(-1), now.AddHours(1), ct);
 
         result.TotalCost.ShouldBe(0.05m);
         result.WorkCost.ShouldBe(0.05m);
@@ -180,7 +191,7 @@ public class CostAggregationTests : IDisposable
         await _dbContext.SaveChangesAsync(ct);
 
         var service = CreateService();
-        var result = await service.GetAgentCostAsync("agent-a", now.AddHours(-1), now.AddHours(1), ct);
+        var result = await service.GetAgentCostAsync(AgentAId, now.AddHours(-1), now.AddHours(1), ct);
 
         result.TotalCost.ShouldBe(0.20m);
         result.RecordCount.ShouldBe(1);

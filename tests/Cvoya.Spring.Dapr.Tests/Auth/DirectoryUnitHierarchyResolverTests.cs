@@ -30,6 +30,14 @@ using Xunit;
 /// </summary>
 public class DirectoryUnitHierarchyResolverTests
 {
+    private static readonly Guid AdaId = new("aaaaaaaa-0000-0000-0000-000000000001");
+    private static readonly Guid ParentId = new("bbbbbbbb-0000-0000-0000-000000000001");
+    private static readonly Guid ChildId = new("bbbbbbbb-0000-0000-0000-000000000002");
+    private static readonly Guid FlakyId = new("bbbbbbbb-0000-0000-0000-000000000003");
+    private static readonly Guid ForeignParentId = new("bbbbbbbb-0000-0000-0000-000000000004");
+
+    private static string Hex(Guid id) => id.ToString("N");
+
     private readonly IDirectoryService _directory = Substitute.For<IDirectoryService>();
     private readonly IActorProxyFactory _proxyFactory = Substitute.For<IActorProxyFactory>();
     private readonly IUnitMembershipTenantGuard _tenantGuard = Substitute.For<IUnitMembershipTenantGuard>();
@@ -69,15 +77,15 @@ public class DirectoryUnitHierarchyResolverTests
             _directory, _proxyFactory, provider.GetRequiredService<IServiceScopeFactory>(), _loggerFactory);
     }
 
-    private DirectoryEntry UnitEntry(string id) =>
-        new(new Address("unit", id), id, id, string.Empty, null, DateTimeOffset.UtcNow);
+    private static DirectoryEntry UnitEntry(Guid id) =>
+        new(new Address("unit", id), id, Hex(id), string.Empty, null, DateTimeOffset.UtcNow);
 
     [Fact]
     public async Task GetParentsAsync_AgentAddress_ReturnsEmpty()
     {
         var ct = TestContext.Current.CancellationToken;
 
-        var parents = await _resolver.GetParentsAsync(Address.For("agent", "ada"), ct);
+        var parents = await _resolver.GetParentsAsync(new Address("agent", AdaId), ct);
 
         parents.ShouldBeEmpty();
     }
@@ -86,15 +94,15 @@ public class DirectoryUnitHierarchyResolverTests
     public async Task GetParentsAsync_SingleParentInDirectory_ReturnsParent()
     {
         var ct = TestContext.Current.CancellationToken;
-        _memberships["parent"] = new[] { Address.For("unit", "child") };
+        _memberships[Hex(ParentId)] = new[] { new Address("unit", ChildId) };
 
         _directory.ListAllAsync(Arg.Any<CancellationToken>())
-            .Returns(new[] { UnitEntry("parent"), UnitEntry("child") });
+            .Returns(new[] { UnitEntry(ParentId), UnitEntry(ChildId) });
 
-        var parents = await _resolver.GetParentsAsync(Address.For("unit", "child"), ct);
+        var parents = await _resolver.GetParentsAsync(new Address("unit", ChildId), ct);
 
         parents.Count.ShouldBe(1);
-        parents[0].ShouldBe(Address.For("unit", "parent"));
+        parents[0].ShouldBe(new Address("unit", ParentId));
     }
 
     [Fact]
@@ -102,9 +110,9 @@ public class DirectoryUnitHierarchyResolverTests
     {
         var ct = TestContext.Current.CancellationToken;
         _directory.ListAllAsync(Arg.Any<CancellationToken>())
-            .Returns(new[] { UnitEntry("child") });
+            .Returns(new[] { UnitEntry(ChildId) });
 
-        var parents = await _resolver.GetParentsAsync(Address.For("unit", "child"), ct);
+        var parents = await _resolver.GetParentsAsync(new Address("unit", ChildId), ct);
 
         parents.ShouldBeEmpty();
     }
@@ -116,7 +124,7 @@ public class DirectoryUnitHierarchyResolverTests
         _directory.ListAllAsync(Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("directory down"));
 
-        var parents = await _resolver.GetParentsAsync(Address.For("unit", "child"), ct);
+        var parents = await _resolver.GetParentsAsync(new Address("unit", ChildId), ct);
 
         // Fail-safe: return empty so the permission walk degrades to "no
         // inheritance" rather than crashing the caller.
@@ -130,9 +138,9 @@ public class DirectoryUnitHierarchyResolverTests
 
         // "flaky" cannot be read; "parent" contains the child and must
         // still be returned.
-        _memberships["parent"] = new[] { Address.For("unit", "child") };
+        _memberships[Hex(ParentId)] = new[] { new Address("unit", ChildId) };
         _proxyFactory.CreateActorProxy<IUnitActor>(
-                Arg.Is<ActorId>(id => id.GetId() == "flaky"),
+                Arg.Is<ActorId>(id => id.GetId() == Hex(FlakyId)),
                 nameof(UnitActor))
             .Returns(ci =>
             {
@@ -143,12 +151,12 @@ public class DirectoryUnitHierarchyResolverTests
             });
 
         _directory.ListAllAsync(Arg.Any<CancellationToken>())
-            .Returns(new[] { UnitEntry("parent"), UnitEntry("flaky"), UnitEntry("child") });
+            .Returns(new[] { UnitEntry(ParentId), UnitEntry(FlakyId), UnitEntry(ChildId) });
 
-        var parents = await _resolver.GetParentsAsync(Address.For("unit", "child"), ct);
+        var parents = await _resolver.GetParentsAsync(new Address("unit", ChildId), ct);
 
         parents.Count.ShouldBe(1);
-        parents[0].ShouldBe(Address.For("unit", "parent"));
+        parents[0].ShouldBe(new Address("unit", ParentId));
     }
 
     [Fact]
@@ -163,24 +171,24 @@ public class DirectoryUnitHierarchyResolverTests
         // Arrange a candidate "foreign-parent" whose actor state claims
         // the child as a member — but the tenant guard reports them as
         // cross-tenant, so the resolver must skip it.
-        _memberships["foreign-parent"] = new[] { Address.For("unit", "child") };
+        _memberships[Hex(ForeignParentId)] = new[] { new Address("unit", ChildId) };
         _tenantGuard
             .ShareTenantAsync(
-                Arg.Is<Address>(a => a.Path == "foreign-parent"),
-                Arg.Is<Address>(a => a.Path == "child"),
+                Arg.Is<Address>(a => a.Id == ForeignParentId),
+                Arg.Is<Address>(a => a.Id == ChildId),
                 Arg.Any<CancellationToken>())
             .Returns(false);
 
         _directory.ListAllAsync(Arg.Any<CancellationToken>())
-            .Returns(new[] { UnitEntry("foreign-parent"), UnitEntry("child") });
+            .Returns(new[] { UnitEntry(ForeignParentId), UnitEntry(ChildId) });
 
-        var parents = await _resolver.GetParentsAsync(Address.For("unit", "child"), ct);
+        var parents = await _resolver.GetParentsAsync(new Address("unit", ChildId), ct);
 
         parents.ShouldBeEmpty();
         // Defensive: we must never have read the foreign parent's
         // members — the guard short-circuits before the actor call.
         _proxyFactory.DidNotReceive().CreateActorProxy<IUnitActor>(
-            Arg.Is<ActorId>(id => id.GetId() == "foreign-parent"),
+            Arg.Is<ActorId>(id => id.GetId() == Hex(ForeignParentId)),
             Arg.Any<string>());
     }
 }

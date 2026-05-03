@@ -16,6 +16,7 @@ using Cvoya.Spring.Core.Observability;
 using Cvoya.Spring.Core.Secrets;
 using Cvoya.Spring.Core.Skills;
 using Cvoya.Spring.Core.State;
+using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Auth;
 using Cvoya.Spring.Dapr.Data;
@@ -421,7 +422,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
             bindingStub.GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
                 .Returns(ci => Task.FromResult<TenantSkillBundleBinding?>(
                     new TenantSkillBundleBinding(
-                        TenantId: "default",
+                        TenantId: OssTenantIds.Default,
                         BundleId: ci.Arg<string>(),
                         Enabled: true,
                         BoundAt: DateTimeOffset.UtcNow)));

@@ -8,6 +8,7 @@ using System.Text.Json;
 using Cvoya.Spring.Core.Capabilities;
 using Cvoya.Spring.Core.Costs;
 using Cvoya.Spring.Core.Messaging;
+using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Costs;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Observability;
@@ -22,6 +23,11 @@ using Xunit;
 
 public class CostTrackerTests : IDisposable
 {
+    private static readonly Guid AgentTestId = new("aaaaaaaa-0000-0000-0000-000000000001");
+    private static readonly Guid AgentAId = new("aaaaaaaa-0000-0000-0000-000000000002");
+    private static readonly Guid AgentBId = new("aaaaaaaa-0000-0000-0000-000000000003");
+    private static readonly Guid TestUnitId = new("bbbbbbbb-0000-0000-0000-000000000001");
+
     private readonly ActivityEventBus _bus = new();
     private readonly ServiceProvider _serviceProvider;
 
@@ -43,20 +49,22 @@ public class CostTrackerTests : IDisposable
     }
 
     private static ActivityEvent CreateCostEvent(
-        string agentId = "test-agent",
+        Guid? agentId = null,
         decimal cost = 0.05m,
         int inputTokens = 100,
         int outputTokens = 50,
         string model = "claude-3-opus",
-        string? costSource = null)
+        string? costSource = null,
+        Guid? tenantId = null,
+        Guid? unitId = null)
     {
         // The emission site writes costSource as the enum's name; keep the
         // string form here so the test is sensitive to the contract rather
         // than to the internal enum representation.
         var details = JsonSerializer.SerializeToElement(new
         {
-            tenantId = "default",
-            unitId = "test-unit",
+            tenantId = (tenantId ?? OssTenantIds.Default).ToString("N"),
+            unitId = (unitId ?? TestUnitId).ToString("N"),
             model,
             inputTokens,
             outputTokens,
@@ -67,7 +75,7 @@ public class CostTrackerTests : IDisposable
         return new ActivityEvent(
             Guid.NewGuid(),
             DateTimeOffset.UtcNow,
-            new Address("agent", agentId),
+            new Address("agent", agentId ?? AgentTestId),
             ActivityEventType.CostIncurred,
             ActivitySeverity.Info,
             "Cost incurred",
@@ -93,13 +101,13 @@ public class CostTrackerTests : IDisposable
 
         records.ShouldHaveSingleItem();
         var record = records[0];
-        record.AgentId.ShouldBe("test-agent");
+        record.AgentId.ShouldBe(AgentTestId);
         record.Cost.ShouldBe(0.05m);
         record.InputTokens.ShouldBe(100);
         record.OutputTokens.ShouldBe(50);
         record.Model.ShouldBe("claude-3-opus");
-        record.UnitId.ShouldBe("test-unit");
-        record.TenantId.ShouldBe("default");
+        record.UnitId.ShouldBe(TestUnitId);
+        record.TenantId.ShouldBe(OssTenantIds.Default);
         record.Duration.ShouldNotBeNull();
 
         await tracker.StopAsync(ct);
@@ -121,9 +129,9 @@ public class CostTrackerTests : IDisposable
         var tracker = CreateTracker();
         await tracker.StartAsync(ct);
 
-        _bus.Publish(CreateCostEvent(agentId: "agent-a", cost: 0.10m));
-        _bus.Publish(CreateCostEvent(agentId: "agent-a", cost: 0.05m));
-        _bus.Publish(CreateCostEvent(agentId: "agent-b", cost: 0.20m));
+        _bus.Publish(CreateCostEvent(agentId: AgentAId, cost: 0.10m));
+        _bus.Publish(CreateCostEvent(agentId: AgentAId, cost: 0.05m));
+        _bus.Publish(CreateCostEvent(agentId: AgentBId, cost: 0.20m));
 
         // Wait for buffer window (1s) + processing time.
         await Task.Delay(3000, ct);
@@ -132,10 +140,10 @@ public class CostTrackerTests : IDisposable
         var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
 
         var agentA = await db.CostRecords
-            .Where(r => r.AgentId == "agent-a")
+            .Where(r => r.AgentId == AgentAId)
             .ToListAsync(ct);
         var agentB = await db.CostRecords
-            .Where(r => r.AgentId == "agent-b")
+            .Where(r => r.AgentId == AgentBId)
             .ToListAsync(ct);
 
         agentA.Count.ShouldBe(2);
@@ -156,7 +164,7 @@ public class CostTrackerTests : IDisposable
         var nonCostEvent = new ActivityEvent(
             Guid.NewGuid(),
             DateTimeOffset.UtcNow,
-            Address.For("agent", "test"),
+            new Address("agent", AgentTestId),
             ActivityEventType.MessageReceived,
             ActivitySeverity.Info,
             "Not a cost event");
@@ -179,7 +187,7 @@ public class CostTrackerTests : IDisposable
     public void MapToRecord_ValidEvent_MapsCorrectly()
     {
         var costEvent = CreateCostEvent(
-            agentId: "agent-a",
+            agentId: AgentAId,
             cost: 0.10m,
             inputTokens: 200,
             outputTokens: 100,
@@ -188,7 +196,7 @@ public class CostTrackerTests : IDisposable
         var record = CostTracker.MapToRecord(costEvent);
 
         record.ShouldNotBeNull();
-        record!.AgentId.ShouldBe("agent-a");
+        record!.AgentId.ShouldBe(AgentAId);
         record.Cost.ShouldBe(0.10m);
         record.InputTokens.ShouldBe(200);
         record.OutputTokens.ShouldBe(100);
@@ -239,7 +247,7 @@ public class CostTrackerTests : IDisposable
         var costEvent = new ActivityEvent(
             Guid.NewGuid(),
             DateTimeOffset.UtcNow,
-            Address.For("agent", "test"),
+            new Address("agent", AgentTestId),
             ActivityEventType.CostIncurred,
             ActivitySeverity.Info,
             "Cost incurred",

@@ -48,8 +48,11 @@ public class InMemoryExpertiseSearchTests
     private InMemoryExpertiseSearch CreateSearch() =>
         new(_directory, _store, _aggregator, _loggerFactory);
 
-    private static DirectoryEntry Entry(string scheme, string path, string displayName) =>
-        new(new Address(scheme, path), path, displayName, string.Empty, null, DateTimeOffset.UtcNow);
+    private static DirectoryEntry Entry(string scheme, string slug, string displayName)
+    {
+        var id = Guid.NewGuid();
+        return new(new Address(scheme, id), id, displayName, string.Empty, null, DateTimeOffset.UtcNow);
+    }
 
     private static ExpertiseDomain Domain(string name, string? schemaJson = null, string description = "") =>
         new(name, description, ExpertiseLevel.Advanced, schemaJson);
