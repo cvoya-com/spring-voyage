@@ -21,14 +21,14 @@ test.describe("units — create from scratch (wizard)", () => {
     });
     expect(unitUrl).toContain(`node=${name}`);
 
-    // The detail pane heading carries the unit's displayName (the
-    // unit name appears in the breadcrumb / address copier).
-    await expect(
-      page.getByRole("heading", { name: displayName }),
-    ).toBeVisible();
+    // The detail pane heading carries the unit's displayName via the
+    // `detail-title` h1 (the explorer hydrates the TreeNode's `name`
+    // prop with displayName for unit nodes; the slug appears in
+    // address-copy controls instead).
+    await expect(page.getByTestId("detail-title")).toContainText(displayName);
 
-    // Cross-check via the units list — the unit name shows in the
-    // tree's address copy button + breadcrumb pill.
+    // Cross-check via the units list — the displayName shows in the
+    // tree row.
     await page.goto("/units");
     await expect(page.getByTestId("unit-explorer-route")).toBeVisible();
     await expect(
@@ -38,23 +38,24 @@ test.describe("units — create from scratch (wizard)", () => {
 
   test("rejects an invalid name with an inline error", async ({ page }) => {
     await page.goto("/units/create");
-    // Names must match /^[a-z0-9-]+$/. Try an invalid one.
+    // Step 1 — Source: scratch.
+    await page.getByTestId("source-card-scratch").click();
+    await page.getByRole("button", { name: /^next$/i }).click();
+    // Step 2 — Identity. Names must match /^[a-z0-9-]+$/. Try an invalid one.
     await page.getByLabel("Name").or(page.getByRole("textbox", { name: /^name$/i })).first().fill("Has Spaces");
     await page.getByLabel("Display name").or(page.getByRole("textbox", { name: /display name/i })).first().fill("oops");
     await page.getByTestId("parent-choice-top-level").click();
-    // Step 1's validation hint surfaces via `stepError` after Next is
-    // pressed (the `next-disabled-reason` testid is Step-2 only — see
-    // `nextDisabledReason` in app/units/create/page.tsx). Click Next and
-    // assert the URL-safe error message appears inline.
-    await page.getByRole("button", { name: /^next$/i }).click();
-    // The wizard surfaces the URL-safe rule in two places — a static
-    // helper hint at the top of step 1 and the post-Next `stepError`
-    // banner. Match the banner specifically (it's a paragraph-level
-    // alert; the helper is part of an aside / muted hint).
+    // Post-#1563 the wizard surfaces the URL-safe rule as a static
+    // helper text under the Name field and gates progress by disabling
+    // the Next button when validation fails — no click-to-error
+    // banner. Assert both:
+    //   - the helper text is visible (informational), and
+    //   - the Next button is disabled (the actionable block on progress).
     await expect(
-      page.getByText(
-        /Name must be URL-safe \(lowercase letters, digits, and hyphens\)/i,
-      ).first(),
+      page.getByText(/Lowercase letters, digits, and hyphens only/i).first(),
     ).toBeVisible({ timeout: 5_000 });
+    await expect(
+      page.getByRole("button", { name: /^next$/i }),
+    ).toBeDisabled();
   });
 });

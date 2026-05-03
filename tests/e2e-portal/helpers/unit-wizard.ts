@@ -5,21 +5,24 @@ import { expect } from "@playwright/test";
 import { DEFAULT_MODEL, PROVIDER_ID, TOOL_ID } from "../fixtures/runtime.js";
 
 /**
- * Drives `/units/create` — the 6-step wizard at
+ * Drives `/units/create` — the post-ADR-0035 wizard at
  * `src/Cvoya.Spring.Web/src/app/units/create/page.tsx`.
  *
- * Steps (per STEP_LABELS in the wizard source):
- *   1. Identity         — name, displayName, parent choice
- *   2. Execution        — tool, provider, model, environment defaults
- *   3. Mode             — scratch / template / yaml
- *   4. Connector        — optional binding (we skip in fast specs)
- *   5. Secrets          — optional pending secrets
- *   6. Finalize         — review + Create
+ * Steps (per `stepLabel()` in the wizard source) — branch-specific:
+ *   Source step is always step 1 (catalog / browse / scratch).
+ *   scratch:  Source → Identity → Execution → Connector → Install (5)
+ *   catalog:  Source → Package  → Connector → Install            (4)
+ *   browse:   Source → Browse (stub, submit disabled)            (2)
  *
- * The helper is opinionated: it pins tool=dapr-agent, provider=ollama
- * (see fixtures/runtime.ts for the rationale) and creates a top-level
- * unit in scratch mode. Specs that diverge call it with overrides or
- * drive the wizard manually.
+ * #1563 removed YAML mode entirely; Template mode was superseded by the
+ * Catalog branch (`spring package install`). Helpers here drive the
+ * scratch branch (the analogue of the old "Mode = scratch") and the
+ * catalog branch (the analogue of the old "Mode = template").
+ *
+ * The helper is opinionated for the scratch path: it pins
+ * tool=dapr-agent, provider=ollama (see fixtures/runtime.ts for the
+ * rationale) and creates a top-level unit. Specs that diverge call it
+ * with overrides or drive the wizard manually.
  */
 
 export interface ScratchUnitOptions {
@@ -64,7 +67,13 @@ export async function createScratchUnit(
 
   await page.goto("/units/create");
 
-  // ── Step 1 — Identity ──────────────────────────────────────────────────
+  // ── Step 1 — Source ───────────────────────────────────────────────────
+  // ADR-0035 / #1563: pick a source branch first. Scratch is the
+  // closest analogue of the pre-#1563 "scratch mode".
+  await page.getByTestId("source-card-scratch").click();
+  await clickNext(page);
+
+  // ── Step 2 — Identity ──────────────────────────────────────────────────
   await page.getByLabel("Name").or(page.getByRole("textbox", { name: /^name$/i })).first().fill(opts.name);
   await page.getByLabel("Display name").or(page.getByRole("textbox", { name: /display name/i })).first().fill(displayName);
   // Description is optional — the textarea fallback is by aria-label.
@@ -77,7 +86,7 @@ export async function createScratchUnit(
 
   await clickNext(page);
 
-  // ── Step 2 — Execution ─────────────────────────────────────────────────
+  // ── Step 3 — Execution ─────────────────────────────────────────────────
   await page.getByLabel("Execution tool").selectOption(TOOL_ID);
   // Provider dropdown only renders when tool === dapr-agent.
   await page.getByLabel("LLM provider").selectOption(PROVIDER_ID);
@@ -109,14 +118,6 @@ export async function createScratchUnit(
 
   await clickNext(page);
 
-  // ── Step 3 — Mode ──────────────────────────────────────────────────────
-  // Card-based selection. The button's accessible name concatenates the
-  // title ("Scratch") and the description, so we match on the leading
-  // title plus a word-boundary so the regex doesn't drift into siblings.
-  // See `ModeCard` in `src/Cvoya.Spring.Web/src/app/units/create/page.tsx`.
-  await pickWizardMode(page, "scratch");
-  await clickNext(page);
-
   // ── Step 4 — Connector ────────────────────────────────────────────────
   // Skip — explicit "Skip connector" affordance, falls back to Next when absent.
   const skipConnector = page.getByRole("button", { name: /skip connector|no connector|don.?t bind/i }).first();
@@ -126,32 +127,46 @@ export async function createScratchUnit(
     await clickNext(page);
   }
 
-  // ── Step 5 — Secrets ──────────────────────────────────────────────────
-  // No pending secrets in the default flow — Next.
-  await clickNext(page);
+  // ── Step 5 — Install ──────────────────────────────────────────────────
+  // The pre-#1563 Finalize/Secrets pair is gone; Install is the final step
+  // and the button is `install-unit-button`. After install completes the
+  // wizard redirects to `/units` (or to the explorer deep-link once the
+  // unit reaches a terminal state via the createdUnit polling effect).
+  await page.getByTestId("install-unit-button").click();
 
-  // ── Step 6 — Finalize ─────────────────────────────────────────────────
-  await page.getByTestId("create-unit-button").click();
-
-  // The wizard transitions into the in-page Validation view after POST
-  // succeeds; verify the panel mounts so we know the create succeeded.
-  await expect(page.getByTestId("wizard-validation-view")).toBeVisible({
-    timeout: 30_000,
-  });
+  // Wait for the wizard to navigate away from `/units/create`. The
+  // `installActive` effect on the page redirects on success; a transient
+  // `install-status-failed` alert can flash mid-staging on the way to
+  // active so we use the URL change as the authoritative signal and
+  // only inspect the failed panel as a diagnostic when the URL never
+  // moves within the deadline.
+  try {
+    await page.waitForURL((url) => !url.pathname.endsWith("/units/create"), {
+      timeout: WIZARD_DEFAULT_TIMEOUTS.validationPanelMs,
+    });
+  } catch (err) {
+    const failed = page.getByTestId("install-status-failed");
+    if (await failed.isVisible().catch(() => false)) {
+      const errText = (await failed.innerText().catch(() => "")) || "(no error text)";
+      throw new Error(`Wizard install failed: ${errText}`);
+    }
+    throw err;
+  }
 
   if (opts.awaitValidation) {
-    // Wizard navigates to the explorer-deep-link form on success
-    // (`/units?node=<name>&tab=Overview`). The legacy `/units/<name>`
-    // routes are gone (they now redirect to the same deep-link).
+    // The post-install effect navigates to the explorer's deep-link
+    // form once createdUnit reaches a terminal state. Wait for it.
     await page.waitForURL(/\/units\?[^#]*\bnode=[^&]+/, {
       timeout: WIZARD_DEFAULT_TIMEOUTS.validationPanelMs,
     });
     return { unitUrl: page.url() };
   }
 
-  // Skip the wizard's auto-validation hop — see `awaitValidation`
-  // doc above. Navigate the test to the explorer's deep-link
-  // ourselves so callers always land on the unit detail page.
+  // The wizard's auto-redirect lands on /units (the explorer root) and
+  // then transitions to the deep-link form once the unit is fully
+  // validated. For specs that don't need to wait for terminal state we
+  // navigate to the deep-link ourselves so the caller always lands on
+  // the unit detail page.
   const target = `/units?node=${encodeURIComponent(opts.name)}&tab=Overview`;
   await page.goto(target);
   return { unitUrl: page.url() };

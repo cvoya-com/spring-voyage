@@ -1,82 +1,58 @@
-import { unitName } from "../../fixtures/ids.js";
 import { expect, test } from "../../fixtures/test.js";
-import { pickWizardMode } from "../../helpers/unit-wizard.js";
 
 /**
- * Wizard: create-from-template flow. v0.1 ships two built-in templates
- * under `packages/`:
- *   - software-engineering / engineering-team
- *   - product-management   / product-squad
+ * Wizard: Catalog source branch (post-#1563 replacement for the deleted
+ * "Mode = Template" path). v0.1 ships two operator-relevant catalog
+ * packages without required inputs:
+ *   - software-engineering → unit `engineering-team`
+ *   - product-management   → unit `product-squad`
  *
- * Mirrors `tests/e2e/scenarios/fast/04-create-unit-from-template.sh`.
+ * `spring-voyage-oss` requires GitHub inputs and is exercised in the
+ * killer suite. Mirrors the CLI scenario
+ * `tests/cli-scenarios/scenarios/units/unit-create-from-template.sh`
+ * which now drives `spring package install <name>` for the same flow.
+ *
+ * The catalog branch does NOT take a wizard-supplied unit name — the
+ * package's manifest declares the canonical name. Cleanup is done
+ * against that canonical name.
  */
 
-test.describe("units — create from template (wizard)", () => {
-  test("software-engineering / engineering-team", async ({ page, tracker }) => {
-    const name = tracker.unit(unitName("tmpl-eng"));
-    await runTemplateFlow(page, {
-      name,
-      packageId: "software-engineering",
-      templateId: "engineering-team",
-    });
+test.describe("units — create from package (catalog wizard)", () => {
+  test("software-engineering package → engineering-team unit", async ({ page, tracker }) => {
+    const unit = "engineering-team";
+    tracker.unit(unit);
+    await runCatalogFlow(page, { packageName: "software-engineering", expectedUnit: unit });
     await expect(page).toHaveURL(
-      new RegExp(`/units\\?[^#]*node=${name}\\b`),
+      new RegExp(`/units(?:\\?|$)`),
     );
   });
 
-  test("product-management / product-squad", async ({ page, tracker }) => {
-    const name = tracker.unit(unitName("tmpl-pm"));
-    await runTemplateFlow(page, {
-      name,
-      packageId: "product-management",
-      templateId: "product-squad",
-    });
+  test("product-management package → product-squad unit", async ({ page, tracker }) => {
+    const unit = "product-squad";
+    tracker.unit(unit);
+    await runCatalogFlow(page, { packageName: "product-management", expectedUnit: unit });
     await expect(page).toHaveURL(
-      new RegExp(`/units\\?[^#]*node=${name}\\b`),
+      new RegExp(`/units(?:\\?|$)`),
     );
   });
 });
 
-async function runTemplateFlow(
+async function runCatalogFlow(
   page: import("@playwright/test").Page,
-  opts: { name: string; packageId: string; templateId: string },
+  opts: { packageName: string; expectedUnit: string },
 ): Promise<void> {
   await page.goto("/units/create");
 
-  // Step 1 — Identity
-  await page.getByLabel("Name").or(page.getByRole("textbox", { name: /^name$/i })).first().fill(opts.name);
-  await page.getByLabel("Display name").or(page.getByRole("textbox", { name: /display name/i })).first().fill(opts.name);
-  await page.getByTestId("parent-choice-top-level").click();
+  // Step 1 — Source: pick Catalog.
+  await page.getByTestId("source-card-catalog").click();
   await page.getByRole("button", { name: /^next$/i }).click();
 
-  // Step 2 — Execution (the wizard still asks for tool/model even in template
-  // mode; templates can override these but the wizard form requires valid
-  // values to proceed).
-  await page.getByLabel("Execution tool").selectOption("dapr-agent");
-  await page.getByLabel("LLM provider").selectOption("ollama");
-  const modelSelect = page.getByLabel("Model");
-  await modelSelect.waitFor({ state: "visible", timeout: 30_000 });
-  const optionValues = await modelSelect.evaluate((el) =>
-    Array.from((el as HTMLSelectElement).options).map((o) => o.value),
-  );
-  if (optionValues.length === 0) {
-    throw new Error("Model dropdown empty; pull an Ollama model first.");
-  }
-  const firstValue = optionValues[0]!;
-  await modelSelect.selectOption(firstValue);
+  // Step 2 — Package picker.
+  await page.getByTestId(`package-option-${opts.packageName}`).waitFor({ timeout: 30_000 });
+  await page.getByTestId(`package-option-${opts.packageName}`).click();
   await page.getByRole("button", { name: /^next$/i }).click();
 
-  // Step 3 — Mode = template
-  await pickWizardMode(page, "template");
-  // Pick the template card from the catalogue. The card label includes the
-  // template's displayName; we match by package/templateId.
-  await page
-    .getByRole("button", { name: new RegExp(opts.templateId, "i") })
-    .first()
-    .click();
-  await page.getByRole("button", { name: /^next$/i }).click();
-
-  // Step 4 — Connector (skip)
+  // Step 3 — Connector (skip).
   const skip = page.getByRole("button", { name: /skip connector|don.?t bind/i }).first();
   if (await skip.isVisible().catch(() => false)) {
     await skip.click();
@@ -84,21 +60,23 @@ async function runTemplateFlow(
     await page.getByRole("button", { name: /^next$/i }).click();
   }
 
-  // Step 5 — Secrets (none)
-  await page.getByRole("button", { name: /^next$/i }).click();
-
-  // Step 6 — Finalize. The wizard mounts the validation view on POST
-  // success but its auto-start path is currently broken for the
-  // Ollama / no-credential runtime (Draft → Starting is rejected by
-  // the actor per #939); see the `awaitValidation` note in
-  // `helpers/unit-wizard.ts`. Verify the unit was created by
-  // navigating to the explorer's deep-link instead of waiting on
-  // the wizard's redirect.
-  await page.getByTestId("create-unit-button").click();
-  await expect(page.getByTestId("wizard-validation-view")).toBeVisible({
-    timeout: 30_000,
-  });
-  await page.goto(
-    `/units?node=${encodeURIComponent(opts.name)}&tab=Overview`,
-  );
+  // Step 4 — Install. The wizard's `installActive` effect navigates to
+  // `/units` once the install reaches active terminal state; the
+  // transient `install-status-failed` alert can also flash mid-staging,
+  // so we wait for the URL change as the authoritative signal and only
+  // inspect the failed panel as a diagnostic when the URL never changes
+  // within the deadline.
+  await page.getByTestId("install-unit-button").click();
+  try {
+    await page.waitForURL((url) => !url.pathname.endsWith("/units/create"), {
+      timeout: 90_000,
+    });
+  } catch (err) {
+    const failed = page.getByTestId("install-status-failed");
+    if (await failed.isVisible().catch(() => false)) {
+      const errText = (await failed.innerText().catch(() => "")) || "(no error text)";
+      throw new Error(`Catalog install failed: ${errText}`);
+    }
+    throw err;
+  }
 }

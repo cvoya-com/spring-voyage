@@ -2,7 +2,6 @@ import { apiPost } from "../../fixtures/api.js";
 import { unitName } from "../../fixtures/ids.js";
 import { DEFAULT_MODEL, PROVIDER_ID, TOOL_ID } from "../../fixtures/runtime.js";
 import { expect, test } from "../../fixtures/test.js";
-import { pickWizardMode } from "../../helpers/unit-wizard.js";
 
 /**
  * Sub-unit creation via the wizard's parent picker (#814).
@@ -38,7 +37,12 @@ test.describe("units — sub-unit (wizard parent picker)", () => {
 
     await page.goto("/units/create");
 
-    // Step 1 — Identity + has-parents picker
+    // Step 1 — Source: scratch (post-#1563 the wizard always asks for a
+    // source first; sub-units come from the scratch branch).
+    await page.getByTestId("source-card-scratch").click();
+    await page.getByRole("button", { name: /^next$/i }).click();
+
+    // Step 2 — Identity + has-parents picker.
     await page.getByLabel("Name").or(page.getByRole("textbox", { name: /^name$/i })).first().fill(child);
     await page.getByLabel("Display name").or(page.getByRole("textbox", { name: /display name/i })).first().fill(child);
     await page.getByTestId("parent-choice-has-parents").click();
@@ -52,7 +56,7 @@ test.describe("units — sub-unit (wizard parent picker)", () => {
     await option.click();
     await page.getByRole("button", { name: /^next$/i }).click();
 
-    // Steps 2–6: same as scratch flow.
+    // Step 3 — Execution.
     await page.getByLabel("Execution tool").selectOption(TOOL_ID);
     await page.getByLabel("LLM provider").selectOption(PROVIDER_ID);
     const modelSelect = page.getByLabel("Model");
@@ -64,16 +68,17 @@ test.describe("units — sub-unit (wizard parent picker)", () => {
     const firstValue = values[0]!;
     await modelSelect.selectOption(firstValue);
     await page.getByRole("button", { name: /^next$/i }).click();
-    await pickWizardMode(page, "scratch");
-    await page.getByRole("button", { name: /^next$/i }).click();
+
+    // Step 4 — Connector (skip).
     await page.getByRole("button", { name: /skip connector|don.?t bind/i }).or(page.getByRole("button", { name: /^next$/i })).first().click();
-    await page.getByRole("button", { name: /^next$/i }).click();
-    await page.getByTestId("create-unit-button").click();
-    // Wizard's auto-start path is broken for the no-credential
-    // runtime; verify the validation view mounted then navigate to
-    // the explorer ourselves (see helpers/unit-wizard.ts).
-    await expect(page.getByTestId("wizard-validation-view")).toBeVisible({
-      timeout: 30_000,
+
+    // Step 5 — Install (post-#1563 final step; was Finalize+Secrets pair).
+    await page.getByTestId("install-unit-button").click();
+    // The wizard redirects to /units after install completes; wait for
+    // the navigation away from /units/create then go to the explorer's
+    // deep-link for the child unit.
+    await page.waitForURL((url) => !url.pathname.endsWith("/units/create"), {
+      timeout: 90_000,
     });
     await page.goto(
       `/units?node=${encodeURIComponent(child)}&tab=Overview`,

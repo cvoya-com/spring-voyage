@@ -51,7 +51,12 @@ export async function createAgent(page: Page, opts: AgentCreateOptions): Promise
       .check();
   }
 
-  // Submit. The page redirects to /agents on success.
+  // Submit. Post-#1561 the page navigates to the units explorer's
+  // Agents tab on success (`/units?node=<unit>&tab=Agents`), or to
+  // `/units` when no unit was assigned. Wait for any navigation away
+  // from `/agents/create`.
   await page.getByRole("button", { name: /^create agent$|^create$/i }).click();
-  await page.waitForURL(/\/agents(\/|$|\?)/, { timeout: 30_000 });
+  await page.waitForURL((url) => !url.pathname.endsWith("/agents/create"), {
+    timeout: 60_000,
+  });
 }

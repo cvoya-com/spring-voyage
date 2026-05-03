@@ -25,9 +25,14 @@ test.describe("engagement portal — shell", () => {
     });
   });
 
-  test("engagement sidebar exposes the canonical entries", async ({ page }) => {
+  test("engagement sidebar + new-engagement CTA are exposed", async ({ page }) => {
+    // Post-#1502 the engagement sidebar lists live threads (no static
+    // nav-engagement-mine entry). The canonical entries to assert are
+    // the sidebar container itself and the New Engagement CTA in the
+    // header.
     await page.goto("/engagement/mine");
     await expect(page.getByTestId("engagement-sidebar")).toBeVisible();
-    await expect(page.getByTestId("engagement-nav-engagement-mine")).toBeVisible();
+    await expect(page.getByTestId("engagement-new-cta")).toBeVisible();
+    await expect(page.getByTestId("engagement-back-to-management")).toBeVisible();
   });
 });

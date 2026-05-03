@@ -1,45 +1,31 @@
-import { unitName } from "../../fixtures/ids.js";
 import { expect, test } from "../../fixtures/test.js";
-import { pickWizardMode } from "../../helpers/unit-wizard.js";
 
 /**
- * Killer use case — product-management/product-squad template variant.
- * Mirror of 01-software-engineering-team.spec.ts but using the product
- * template. The two templates ship working out of the box per E2 plan.
+ * Killer use case — product-management catalog package variant.
+ * Mirror of 01-software-engineering-team.spec.ts but using the
+ * product-management catalog package; both ship working out of the box
+ * per the E2 plan. Replaces the deleted "Mode = Template" path (#1583).
  */
 
 test.describe("killer use case — product management squad", () => {
   test.setTimeout(300_000);
 
-  test("template wizard creates a product-squad and lands on detail", async ({
+  test("catalog wizard creates a product-squad and lands on detail", async ({
     page,
     tracker,
     ollamaUp,
   }) => {
     void ollamaUp;
-    const name = tracker.unit(unitName("k-prod"));
+    // The package's manifest declares the canonical unit name.
+    const unit = "product-squad";
+    tracker.unit(unit);
 
     await page.goto("/units/create");
-
-    await page.getByLabel("Name").or(page.getByRole("textbox", { name: /^name$/i })).first().fill(name);
-    await page.getByLabel("Display name").or(page.getByRole("textbox", { name: /display name/i })).first().fill(name);
-    await page.getByTestId("parent-choice-top-level").click();
+    await page.getByTestId("source-card-catalog").click();
     await page.getByRole("button", { name: /^next$/i }).click();
 
-    await page.getByLabel("Execution tool").selectOption("dapr-agent");
-    await page.getByLabel("LLM provider").selectOption("ollama");
-    const modelSelect = page.getByLabel("Model");
-    await modelSelect.waitFor({ state: "visible", timeout: 30_000 });
-    const values = await modelSelect.evaluate((el) =>
-      Array.from((el as HTMLSelectElement).options).map((o) => o.value),
-    );
-    if (values.length === 0) test.skip(true, "Ollama empty");
-    const firstValue = values[0]!;
-    await modelSelect.selectOption(firstValue);
-    await page.getByRole("button", { name: /^next$/i }).click();
-
-    await pickWizardMode(page, "template");
-    await page.getByRole("button", { name: /product-squad/i }).first().click();
+    await page.getByTestId("package-option-product-management").waitFor({ timeout: 30_000 });
+    await page.getByTestId("package-option-product-management").click();
     await page.getByRole("button", { name: /^next$/i }).click();
 
     const skip = page.getByRole("button", { name: /skip connector|don.?t bind/i }).first();
@@ -48,22 +34,37 @@ test.describe("killer use case — product management squad", () => {
     } else {
       await page.getByRole("button", { name: /^next$/i }).click();
     }
-    await page.getByRole("button", { name: /^next$/i }).click();
 
-    // Auto-validation is broken for the no-credential runtime
-    // (see helpers/unit-wizard.ts § awaitValidation); navigate to the
-    // explorer ourselves once the validation view mounts.
-    await page.getByTestId("create-unit-button").click();
-    await expect(page.getByTestId("wizard-validation-view")).toBeVisible({
-      timeout: 30_000,
-    });
-    await page.goto(
-      `/units?node=${encodeURIComponent(name)}&tab=Agents`,
-    );
+    await page.getByTestId("install-unit-button").click();
+    // The wizard's `installActive` effect navigates to `/units` once the
+    // install reaches the active terminal state. The transient
+    // `install-status-failed` alert can also flash mid-staging on the
+    // way to active, so we wait for the URL change as the authoritative
+    // signal and only inspect the failed panel as a diagnostic when
+    // the URL never changes within the deadline.
+    try {
+      await page.waitForURL((url) => !url.pathname.endsWith("/units/create"), {
+        timeout: 90_000,
+      });
+    } catch (err) {
+      const failed = page.getByTestId("install-status-failed");
+      if (await failed.isVisible().catch(() => false)) {
+        const errText = (await failed.innerText().catch(() => "")) || "(no error text)";
+        throw new Error(`Catalog install failed on the wizard: ${errText}`);
+      }
+      throw err;
+    }
 
-    // The unit's Agents tab lists the seeded agents from the template.
-    await expect(
-      page.locator('[data-testid^="unit-membership-"]').first(),
-    ).toBeVisible({ timeout: 30_000 });
+    // The unit's Agents tab lists the seeded agents from the package.
+    // Cache invalidation between install and tab membership query can
+    // be eventually consistent; reload once if the first render is empty.
+    await page.goto(`/units?node=${encodeURIComponent(unit)}&tab=Agents`);
+    const membership = page.locator('[data-testid^="unit-membership-"]').first();
+    try {
+      await expect(membership).toBeVisible({ timeout: 30_000 });
+    } catch {
+      await page.reload();
+      await expect(membership).toBeVisible({ timeout: 30_000 });
+    }
   });
 });

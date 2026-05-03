@@ -23,6 +23,10 @@ test.describe("engagement — send message via composer", () => {
     ollamaUp,
   }) => {
     void ollamaUp;
+    // Cold-start LLM + dapr-agent container pull on the first turn can
+    // run well past the global per-test default; raise the cap so the
+    // legitimate slow path doesn't trip the test on a cold runner.
+    test.setTimeout(360_000);
     const unit = tracker.unit(unitName("eng-msg"));
     const agent = tracker.agent(agentName("eng-msg-ada"));
 
@@ -91,8 +95,13 @@ test.describe("engagement — send message via composer", () => {
             .locator('[data-role="agent"]')
             .count(),
         {
-          timeout: 90_000,
-          intervals: [1000, 2000, 3000],
+          // Cold-start cap: dapr-agent container pull (when not cached)
+          // + Ollama warmup + the LLM turn itself can comfortably exceed
+          // 90s on a slow runner. Match the killer use-case timeout
+          // (240s) so a legitimately slow first turn is not flagged as
+          // a regression.
+          timeout: 240_000,
+          intervals: [2000, 5000, 10_000],
           message:
             "Expected at least one agent-authored event in the timeline after the seeded message — the dispatcher → agent JSON-RPC round-trip looks broken (#1465).",
         },

@@ -36,9 +36,14 @@ test.describe("agents — create page", () => {
       unitNames: [unit],
     });
 
-    // Cross-check the list view.
+    // Cross-check the list view. The page renders either `agents-grid`
+    // (when at least one agent matches the active filters) or
+    // `agents-empty` otherwise; the agent-id text is the load-bearing
+    // assertion either way.
     await page.goto("/agents");
-    await expect(page.getByTestId("agents-grid")).toBeVisible();
+    await expect(
+      page.getByTestId("agents-grid").or(page.getByTestId("agents-empty")),
+    ).toBeVisible();
     await expect(page.getByText(aId).first()).toBeVisible();
   });
 
