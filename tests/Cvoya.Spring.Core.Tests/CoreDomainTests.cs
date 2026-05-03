@@ -12,13 +12,21 @@ using Shouldly;
 
 using Xunit;
 
+// Post #1629: Address is `(Scheme, Guid Id)` only — slug paths,
+// `IsIdentity`, `ForAgent`/`ForUnit` slug factories and `ToIdentityUri`
+// have been removed. Wire form is `scheme:<32-hex-no-dash>`; lenient
+// parsing accepts dashed Guids too.
 public class AddressTests
 {
+    private static readonly Guid AdaId = Guid.Parse("1f9e3c2d-0000-0000-0000-000000000001");
+    private static readonly Guid BobId = Guid.Parse("1f9e3c2d-0000-0000-0000-000000000002");
+    private static readonly Guid EngineeringId = Guid.Parse("2a3b4c5d-0000-0000-0000-000000000003");
+
     [Fact]
-    public void Equals_SameSchemeAndPath_ReturnsTrue()
+    public void Equals_SameSchemeAndId_ReturnsTrue()
     {
-        var address1 = Address.For("agent", "engineering-team/ada");
-        var address2 = Address.For("agent", "engineering-team/ada");
+        var address1 = new Address("agent", AdaId);
+        var address2 = new Address("agent", AdaId);
 
         address1.ShouldBe(address2);
     }
@@ -26,17 +34,17 @@ public class AddressTests
     [Fact]
     public void Equals_DifferentScheme_ReturnsFalse()
     {
-        var address1 = Address.For("agent", "engineering-team/ada");
-        var address2 = Address.For("unit", "engineering-team/ada");
+        var address1 = new Address("agent", AdaId);
+        var address2 = new Address("unit", AdaId);
 
         address1.ShouldNotBe(address2);
     }
 
     [Fact]
-    public void Equals_DifferentPath_ReturnsFalse()
+    public void Equals_DifferentId_ReturnsFalse()
     {
-        var address1 = Address.For("agent", "engineering-team/ada");
-        var address2 = Address.For("agent", "engineering-team/bob");
+        var address1 = new Address("agent", AdaId);
+        var address2 = new Address("agent", BobId);
 
         address1.ShouldNotBe(address2);
     }
@@ -44,167 +52,108 @@ public class AddressTests
     [Fact]
     public void GetHashCode_EqualAddresses_ReturnsSameHashCode()
     {
-        var address1 = Address.For("agent", "engineering-team/ada");
-        var address2 = Address.For("agent", "engineering-team/ada");
+        var address1 = new Address("agent", AdaId);
+        var address2 = new Address("agent", AdaId);
 
         address1.GetHashCode().ShouldBe(address2.GetHashCode());
     }
 
     [Fact]
-    public void ToString_ReturnsSchemeColonPath()
+    public void ToString_ReturnsSchemeColonNoDashHex()
     {
-        var address = Address.For("human", "local-dev-user");
+        var address = new Address("agent", AdaId);
 
-        address.ToString().ShouldBe("human:local-dev-user");
+        address.ToString().ShouldBe($"agent:{AdaId:N}");
     }
 
     [Fact]
-    public void ToString_InterpolatedIntoString_ReturnsSchemeColonPath()
+    public void ToString_InterpolatedIntoString_ReturnsSchemeColonNoDashHex()
     {
-        var address = Address.For("agent", "engineering-team/ada");
+        var address = new Address("agent", AdaId);
 
-        $"from {address}".ShouldBe("from agent:engineering-team/ada");
-    }
-
-    // #1060: ToCanonicalUri produces the scheme://path form used by wire
-    // projections (member field on UnitMembershipResponse, source column on
-    // activity / cost rows). Distinct from ToString, which uses ":" for
-    // log lines and error messages.
-    [Fact]
-    public void ToCanonicalUri_AgentScheme_ReturnsSchemeSlashSlashPath()
-    {
-        Address.For("agent", "engineering-team/ada")
-            .ToCanonicalUri()
-            .ShouldBe("agent://engineering-team/ada");
+        $"from {address}".ShouldBe($"from agent:{AdaId:N}");
     }
 
     [Fact]
-    public void ToCanonicalUri_UnitScheme_ReturnsSchemeSlashSlashPath()
+    public void ToCanonicalUri_AliasOfToString()
     {
-        Address.For("unit", "engineering-team")
-            .ToCanonicalUri()
-            .ShouldBe("unit://engineering-team");
+        var address = new Address("unit", EngineeringId);
+
+        address.ToCanonicalUri().ShouldBe(address.ToString());
+        address.ToCanonicalUri().ShouldBe($"unit:{EngineeringId:N}");
     }
 
     [Fact]
-    public void ToCanonicalUri_RoundTripsThroughForAgent()
+    public void Path_ReturnsNoDashHex()
     {
-        Address.ForAgent("ada").ToCanonicalUri().ShouldBe("agent://ada");
+        new Address("agent", AdaId).Path.ShouldBe(AdaId.ToString("N"));
     }
 
     [Fact]
-    public void ToCanonicalUri_RoundTripsThroughForUnit()
+    public void For_ParsesDashedGuidString()
     {
-        Address.ForUnit("engineering").ToCanonicalUri().ShouldBe("unit://engineering");
-    }
-
-    [Fact]
-    public void ForAgent_PopulatesAgentScheme()
-    {
-        var address = Address.ForAgent("ada");
+        var address = Address.For("agent", AdaId.ToString());
         address.Scheme.ShouldBe("agent");
-        address.Path.ShouldBe("ada");
+        address.Id.ShouldBe(AdaId);
     }
 
     [Fact]
-    public void ForUnit_PopulatesUnitScheme()
+    public void For_ParsesNoDashGuidString()
     {
-        var address = Address.ForUnit("engineering");
-        address.Scheme.ShouldBe("unit");
-        address.Path.ShouldBe("engineering");
+        var address = Address.For("agent", AdaId.ToString("N"));
+        address.Id.ShouldBe(AdaId);
     }
 
-    // --- Identity form tests (#1490) ---
+    [Fact]
+    public void For_NonGuidIdString_Throws()
+    {
+        Should.Throw<ArgumentException>(() => Address.For("agent", "not-a-uuid"));
+    }
 
     [Fact]
-    public void ForIdentity_SetsIsIdentityTrue()
+    public void ForIdentity_BuildsAddressFromGuid()
     {
-        var id = Guid.Parse("1f9e3c2d-0000-0000-0000-000000000001");
-        var address = Address.ForIdentity("agent", id);
-
+        var address = Address.ForIdentity("agent", AdaId);
         address.Scheme.ShouldBe("agent");
-        address.Path.ShouldBe(id.ToString());
-        address.IsIdentity.ShouldBeTrue();
+        address.Id.ShouldBe(AdaId);
     }
 
     [Fact]
-    public void ToIdentityUri_IdentityAddress_ReturnsSchemeIdUuid()
+    public void TryParse_DashedForm_Succeeds()
     {
-        var id = Guid.Parse("1f9e3c2d-0000-0000-0000-000000000001");
-        var address = Address.ForIdentity("agent", id);
-
-        address.ToIdentityUri().ShouldBe($"agent:id:{id}");
-    }
-
-    [Fact]
-    public void ToCanonicalUri_IdentityAddress_DelegatesToToIdentityUri()
-    {
-        var id = Guid.Parse("1f9e3c2d-0000-0000-0000-000000000002");
-        var address = Address.ForIdentity("unit", id);
-
-        address.ToCanonicalUri().ShouldBe($"unit:id:{id}");
-    }
-
-    [Fact]
-    public void ToIdentityUri_NavigationAddress_ThrowsInvalidOperationException()
-    {
-        var address = Address.ForAgent("ada");
-
-        Should.Throw<InvalidOperationException>(() => address.ToIdentityUri());
-    }
-
-    [Fact]
-    public void ToString_IdentityAddress_ReturnsSchemeIdUuid()
-    {
-        var id = Guid.Parse("1f9e3c2d-0000-0000-0000-000000000001");
-        var address = Address.ForIdentity("agent", id);
-
-        address.ToString().ShouldBe($"agent:id:{id}");
-    }
-
-    [Fact]
-    public void TryParse_NavigationForm_ReturnsTrueAndNavigationAddress()
-    {
-        var ok = Address.TryParse("agent://engineering/ada", out var address);
+        var ok = Address.TryParse($"agent:{AdaId}", out var address);
 
         ok.ShouldBeTrue();
         address.ShouldNotBeNull();
         address!.Scheme.ShouldBe("agent");
-        address.Path.ShouldBe("engineering/ada");
-        address.IsIdentity.ShouldBeFalse();
+        address.Id.ShouldBe(AdaId);
     }
 
     [Fact]
-    public void TryParse_IdentityForm_ReturnsTrueAndIdentityAddress()
+    public void TryParse_NoDashForm_Succeeds()
     {
-        var id = Guid.Parse("1f9e3c2d-0000-0000-0000-000000000001");
-        var ok = Address.TryParse($"agent:id:{id}", out var address);
+        var ok = Address.TryParse($"agent:{AdaId:N}", out var address);
 
         ok.ShouldBeTrue();
-        address.ShouldNotBeNull();
         address!.Scheme.ShouldBe("agent");
-        address.Path.ShouldBe(id.ToString());
-        address.IsIdentity.ShouldBeTrue();
+        address.Id.ShouldBe(AdaId);
     }
 
     [Fact]
-    public void TryParse_IdentityForm_UnitScheme_Works()
+    public void TryParse_UnitScheme_Succeeds()
     {
-        var id = Guid.Parse("2a3b4c5d-0000-0000-0000-000000000002");
-        var ok = Address.TryParse($"unit:id:{id}", out var address);
+        var ok = Address.TryParse($"unit:{EngineeringId:N}", out var address);
 
         ok.ShouldBeTrue();
         address!.Scheme.ShouldBe("unit");
-        address.IsIdentity.ShouldBeTrue();
+        address.Id.ShouldBe(EngineeringId);
     }
 
     [Fact]
-    public void TryParse_IdentityFormNotAUuid_ReturnsFalse()
+    public void TryParse_NonGuidId_ReturnsFalse()
     {
-        // The path after ":id:" must be a valid UUID; a slug-shaped value is rejected.
-        var ok = Address.TryParse("agent:id:not-a-uuid", out _);
-
-        ok.ShouldBeFalse();
+        // Slug-shaped paths are no longer addresses post #1629.
+        Address.TryParse("agent:not-a-uuid", out _).ShouldBeFalse();
     }
 
     [Fact]
@@ -220,56 +169,19 @@ public class AddressTests
     }
 
     [Fact]
-    public void IdentityAddress_RoundTrip_ParseFormatParse()
+    public void RoundTrip_ParseFormatParse()
     {
-        // Construct → ToIdentityUri → parse back → same value.
+        // Construct → ToString (canonical no-dash) → parse back → same value.
         var id = Guid.Parse("abcdef12-1234-5678-9abc-def012345678");
-        var original = Address.ForIdentity("agent", id);
-        var uri = original.ToIdentityUri();
+        var original = new Address("agent", id);
+        var uri = original.ToString();
 
         var ok = Address.TryParse(uri, out var parsed);
 
         ok.ShouldBeTrue();
         parsed!.Scheme.ShouldBe("agent");
-        parsed.Path.ShouldBe(id.ToString());
-        parsed.IsIdentity.ShouldBeTrue();
+        parsed.Id.ShouldBe(id);
         parsed.ShouldBe(original);
-    }
-
-    [Fact]
-    public void NavigationAddress_RoundTrip_ParseFormatParse()
-    {
-        // Construct → ToCanonicalUri → parse back → same value.
-        var original = Address.ForAgent("engineering/ada");
-        var uri = original.ToCanonicalUri();
-
-        var ok = Address.TryParse(uri, out var parsed);
-
-        ok.ShouldBeTrue();
-        parsed!.Scheme.ShouldBe("agent");
-        parsed.Path.ShouldBe("engineering/ada");
-        parsed.IsIdentity.ShouldBeFalse();
-        parsed.ShouldBe(original);
-    }
-
-    [Fact]
-    public void NavigationAddress_IsIdentity_DefaultsFalse()
-    {
-        var address = Address.For("agent", "ada");
-        address.IsIdentity.ShouldBeFalse();
-    }
-
-    [Fact]
-    public void IdentityAndNavigationAddresses_WithSameSchemeAndPath_AreNotEqual()
-    {
-        // The uuid-shaped slug "1f9e3c2d-..." stored in a navigation address
-        // must NOT equal an identity address for the same uuid. This is the
-        // core disambiguation that #1490 ships.
-        var id = Guid.Parse("1f9e3c2d-0000-0000-0000-000000000001");
-        var navAddress = new Address("agent", id.ToString(), IsIdentity: false);
-        var idAddress = Address.ForIdentity("agent", id);
-
-        navAddress.ShouldNotBe(idAddress);
     }
 }
 
@@ -279,8 +191,8 @@ public class MessageTests
     public void Constructor_WithValidParameters_CreatesMessage()
     {
         var id = Guid.NewGuid();
-        var from = Address.For("agent", "sender");
-        var to = Address.For("agent", "receiver");
+        var from = new Address("agent", Guid.NewGuid());
+        var to = new Address("agent", Guid.NewGuid());
         var payload = JsonDocument.Parse("{\"key\":\"value\"}").RootElement;
         var timestamp = DateTimeOffset.UtcNow;
 
@@ -302,8 +214,8 @@ public class MessageTests
 
         var message = new Message(
             Guid.NewGuid(),
-            Address.For("agent", "sender"),
-            Address.For("agent", "receiver"),
+            new Address("agent", Guid.NewGuid()),
+            new Address("agent", Guid.NewGuid()),
             MessageType.HealthCheck,
             null,
             payload,
@@ -316,8 +228,8 @@ public class MessageTests
     public void Equals_SameValues_ReturnsTrue()
     {
         var id = Guid.NewGuid();
-        var from = Address.For("agent", "sender");
-        var to = Address.For("agent", "receiver");
+        var from = new Address("agent", Guid.NewGuid());
+        var to = new Address("agent", Guid.NewGuid());
         var payload = JsonDocument.Parse("{}").RootElement;
         var timestamp = DateTimeOffset.UtcNow;
 
@@ -372,7 +284,7 @@ public class ActivityEventTests
     {
         var id = Guid.NewGuid();
         var timestamp = DateTimeOffset.UtcNow;
-        var source = Address.For("agent", "engineering-team/ada");
+        var source = new Address("agent", Guid.NewGuid());
 
         var activityEvent = new ActivityEvent(
             id, timestamp, source,
@@ -396,7 +308,7 @@ public class ActivityEventTests
     {
         var id = Guid.NewGuid();
         var timestamp = DateTimeOffset.UtcNow;
-        var source = Address.For("agent", "engineering-team/ada");
+        var source = new Address("agent", Guid.NewGuid());
         var details = JsonDocument.Parse("{\"tokens\":150}").RootElement;
 
         var activityEvent = new ActivityEvent(
@@ -419,7 +331,7 @@ public class ActivityEventTests
     {
         var id = Guid.NewGuid();
         var timestamp = DateTimeOffset.UtcNow;
-        var source = Address.For("agent", "engineering-team/ada");
+        var source = new Address("agent", Guid.NewGuid());
 
         var event1 = new ActivityEvent(id, timestamp, source, ActivityEventType.MessageSent, ActivitySeverity.Info, "Done");
         var event2 = new ActivityEvent(id, timestamp, source, ActivityEventType.MessageSent, ActivitySeverity.Info, "Done");

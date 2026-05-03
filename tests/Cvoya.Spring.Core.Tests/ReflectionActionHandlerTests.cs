@@ -19,7 +19,8 @@ using Xunit;
 /// </summary>
 public class ReflectionActionHandlerTests
 {
-    private static readonly Address AgentAddress = new("agent", "ada");
+    private static readonly Guid AgentId = Guid.NewGuid();
+    private static readonly Address AgentAddress = new("agent", AgentId);
 
     [Fact]
     public async Task SendMessage_ValidPayload_ProducesDomainMessage()
