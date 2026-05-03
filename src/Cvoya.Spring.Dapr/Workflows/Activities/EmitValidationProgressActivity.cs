@@ -55,7 +55,7 @@ public class EmitValidationProgressActivity(
             var activityEvent = new ActivityEvent(
                 Id: Guid.NewGuid(),
                 Timestamp: DateTimeOffset.UtcNow,
-                Source: Address.For("unit", input.UnitName),
+                Source: Address.ForIdentity(Address.UnitScheme, input.UnitId),
                 EventType: ActivityEventType.ValidationProgress,
                 Severity: severity,
                 Summary: summary,
@@ -75,8 +75,8 @@ public class EmitValidationProgressActivity(
             // fire-and-forget.
             _logger.LogWarning(
                 ex,
-                "Failed to emit ValidationProgress event for unit {UnitName} step {Step} status {Status}.",
-                input.UnitName, input.Step, input.Status);
+                "Failed to emit ValidationProgress event for unit {UnitId} step {Step} status {Status}.",
+                input.UnitId, input.Step, input.Status);
             return false;
         }
     }

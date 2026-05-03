@@ -22,6 +22,11 @@ using Xunit;
 /// </summary>
 public class StreamEventSubscriberTests
 {
+    // Stable Guid hex used as AgentId on every envelope; matches what the
+    // production code passes through Address.For("agent", AgentId) post-#1629.
+    private static readonly string AgentHex = TestSlugIds.HexFor("agent-1");
+    private static readonly string MyAgentHex = TestSlugIds.HexFor("my-agent-id");
+
     private readonly IActivityEventBus _activityEventBus = Substitute.For<IActivityEventBus>();
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
     private readonly StreamEventSubscriber _subscriber;
@@ -39,6 +44,7 @@ public class StreamEventSubscriberTests
         var envelope = new StreamEventEnvelope
         {
             EventType = nameof(StreamEvent.TokenDelta),
+            AgentId = AgentHex,
             Timestamp = DateTimeOffset.UtcNow,
             Payload = JsonSerializer.SerializeToElement(tokenDelta)
         };
@@ -47,7 +53,7 @@ public class StreamEventSubscriberTests
 
         await _activityEventBus.Received(1).PublishAsync(
             Arg.Is<ActivityEvent>(e =>
-                e.Source.Path == "agent-1" &&
+                e.Source.Path == AgentHex &&
                 e.EventType == ActivityEventType.TokenDelta &&
                 e.Summary == "Hello"),
             Arg.Any<CancellationToken>());
@@ -61,6 +67,7 @@ public class StreamEventSubscriberTests
         var envelope = new StreamEventEnvelope
         {
             EventType = nameof(StreamEvent.Completed),
+            AgentId = AgentHex,
             Timestamp = DateTimeOffset.UtcNow,
             Payload = JsonSerializer.SerializeToElement(completed)
         };
@@ -81,6 +88,7 @@ public class StreamEventSubscriberTests
         var envelope = new StreamEventEnvelope
         {
             EventType = nameof(StreamEvent.TokenDelta),
+            AgentId = MyAgentHex,
             Timestamp = DateTimeOffset.UtcNow,
             Payload = JsonSerializer.SerializeToElement(tokenDelta)
         };
@@ -90,7 +98,7 @@ public class StreamEventSubscriberTests
         await _activityEventBus.Received(1).PublishAsync(
             Arg.Is<ActivityEvent>(e =>
                 e.Source.Scheme == "agent" &&
-                e.Source.Path == "my-agent-id"),
+                e.Source.Path == MyAgentHex),
             Arg.Any<CancellationToken>());
     }
 
@@ -105,6 +113,7 @@ public class StreamEventSubscriberTests
         var envelope = new StreamEventEnvelope
         {
             EventType = nameof(StreamEvent.ToolCall),
+            AgentId = AgentHex,
             Timestamp = DateTimeOffset.UtcNow,
             Payload = JsonSerializer.SerializeToElement(call)
         };
@@ -131,6 +140,7 @@ public class StreamEventSubscriberTests
         var envelope = new StreamEventEnvelope
         {
             EventType = nameof(StreamEvent.ToolResult),
+            AgentId = AgentHex,
             Timestamp = DateTimeOffset.UtcNow,
             Payload = JsonSerializer.SerializeToElement(result)
         };
@@ -158,6 +168,7 @@ public class StreamEventSubscriberTests
         var envelope = new StreamEventEnvelope
         {
             EventType = nameof(StreamEvent.ToolResult),
+            AgentId = AgentHex,
             Timestamp = DateTimeOffset.UtcNow,
             Payload = JsonSerializer.SerializeToElement(result)
         };

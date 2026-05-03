@@ -41,8 +41,11 @@ public class ExpertiseSkillCatalogTests
     {
         _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
 
-        // Default: one unit, empty expertise. Per-test overrides replace this.
-        var engId = Guid.NewGuid();
+        // Default: one unit ("eng"), empty expertise. Per-test overrides
+        // replace this. The unit's identity is anchored to TestSlugIds.For("eng")
+        // so test-fixture addresses (Address.For("unit", TestSlugIds.HexFor("eng")))
+        // line up with the directory entry the catalog walks.
+        var engId = TestSlugIds.For("eng");
         _directory.ListAllAsync(Arg.Any<CancellationToken>())
             .Returns(new[]
             {

@@ -12,12 +12,12 @@ using Cvoya.Spring.Core.Units;
 /// workflow bodies must stay deterministic + service-free), so it emits
 /// every progress event via this tiny activity.
 /// </summary>
-/// <param name="UnitName">The unit's user-facing name; travels as the <see cref="Cvoya.Spring.Core.Messaging.Address.Path"/> on the emitted event (scheme <c>unit</c>) so the web detail page's SSE filter — keyed on the unit's name, not its actor Guid — matches the event.</param>
+/// <param name="UnitId">The unit's stable Guid identity; travels as the <see cref="Cvoya.Spring.Core.Messaging.Address.Id"/> on the emitted event (scheme <c>unit</c>) so subscribers see the canonical post-#1629 wire shape.</param>
 /// <param name="Step">The probe step this event is reporting on.</param>
 /// <param name="Status">Transition of the step — typically <c>Running</c>, <c>Succeeded</c>, or <c>Failed</c>. Strings (not an enum) so the set can grow without re-deploying the web filter, matching the T-06 front-end note.</param>
 /// <param name="Code">Stable <see cref="UnitValidationCodes"/> code — populated only when <paramref name="Status"/> is <c>Failed</c>; <c>null</c> on <c>Running</c> / <c>Succeeded</c>.</param>
 public record EmitValidationProgressActivityInput(
-    string UnitName,
+    Guid UnitId,
     UnitValidationStep Step,
     string Status,
     string? Code);

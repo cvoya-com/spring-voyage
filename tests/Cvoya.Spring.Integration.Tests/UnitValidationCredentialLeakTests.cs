@@ -143,7 +143,7 @@ public sealed class UnitValidationCredentialLeakTests : IDisposable
         await emitProgress.RunAsync(
             context: null!,
             new EmitValidationProgressActivityInput(
-                UnitName: unitName,
+                UnitId: Guid.Parse(unitName),
                 Step: UnitValidationStep.ValidatingCredential,
                 Status: "Running",
                 Code: null));
@@ -164,7 +164,7 @@ public sealed class UnitValidationCredentialLeakTests : IDisposable
         await emitProgress.RunAsync(
             context: null!,
             new EmitValidationProgressActivityInput(
-                UnitName: unitName,
+                UnitId: Guid.Parse(unitName),
                 Step: UnitValidationStep.ValidatingCredential,
                 Status: "Failed",
                 Code: probeOutput.Failure?.Code));

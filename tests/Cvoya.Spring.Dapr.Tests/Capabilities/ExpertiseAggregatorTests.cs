@@ -80,10 +80,14 @@ public class ExpertiseAggregatorTests
 
     private void RegisterUnit(string unitId, params Address[] members)
     {
-        if (!_unitActors.TryGetValue(unitId, out var actor))
+        // Production code creates actor proxies with ActorId = the unit's
+        // Guid hex (post-#1629). Tests pass slug-shaped names; map them to
+        // the same Guid hex used by Address.For so proxy lookups hit.
+        var key = TestSlugIds.HexFor(unitId);
+        if (!_unitActors.TryGetValue(key, out var actor))
         {
             actor = Substitute.For<IUnitActor>();
-            _unitActors[unitId] = actor;
+            _unitActors[key] = actor;
         }
         actor.GetMembersAsync(Arg.Any<CancellationToken>()).Returns(members);
     }
@@ -289,8 +293,12 @@ public class ExpertiseAggregatorTests
     [Fact]
     public async Task InvalidateAsync_ForAgent_EvictsEveryUnitThatContainsIt()
     {
-        var adaUuid = new Guid("aadaadaa-0000-0000-0000-000000000001");
-        var engUuid = new Guid("ee1ee111-0000-0000-0000-000000000001");
+        // Under #1629 the aggregator looks up an agent's memberships through
+        // the directory's ActorId; the directory entry's ActorId must equal
+        // the address Guid so the eviction loop walks back to the same unit
+        // cache entry the GetAsync() populated.
+        var adaUuid = TestSlugIds.For("ada");
+        var engUuid = TestSlugIds.For("eng");
 
         var aggregator = CreateAggregator();
         var unit = Address.For("unit", TestSlugIds.HexFor("eng"));

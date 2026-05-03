@@ -89,10 +89,14 @@ public class BoundaryFilteringExpertiseAggregatorTests
 
     private void RegisterUnit(string unitId, params Address[] members)
     {
-        if (!_unitActors.TryGetValue(unitId, out var actor))
+        // Production code creates actor proxies with ActorId = the unit's
+        // Guid hex (post-#1629). Tests pass slug-shaped names; map them to
+        // the same Guid hex used by Address.For so proxy lookups hit.
+        var key = TestSlugIds.HexFor(unitId);
+        if (!_unitActors.TryGetValue(key, out var actor))
         {
             actor = Substitute.For<IUnitActor>();
-            _unitActors[unitId] = actor;
+            _unitActors[key] = actor;
         }
         actor.GetMembersAsync(Arg.Any<CancellationToken>()).Returns(members);
     }
@@ -167,7 +171,7 @@ public class BoundaryFilteringExpertiseAggregatorTests
 
         // Hide every entry from ada (by origin), but keep kay's visible.
         ArrangeBoundary(unit, new UnitBoundary(
-            Opacities: new[] { new BoundaryOpacityRule(OriginPattern: "agent://ada") }));
+            Opacities: new[] { new BoundaryOpacityRule(OriginPattern: $"agent://{TestSlugIds.HexFor("ada")}") }));
 
         var result = await aggregator.GetAsync(
             unit, BoundaryViewContext.External, TestContext.Current.CancellationToken);

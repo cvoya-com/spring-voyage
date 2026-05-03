@@ -22,6 +22,9 @@ using Xunit;
 /// </summary>
 public class EmitValidationProgressActivityTests
 {
+    private static readonly Guid UnitId = TestSlugIds.For("unit-1");
+    private static readonly string UnitHex = TestSlugIds.HexFor("unit-1");
+
     private readonly IActivityEventBus _bus;
     private readonly EmitValidationProgressActivity _activity;
 
@@ -37,7 +40,7 @@ public class EmitValidationProgressActivityTests
     public async Task RunAsync_PublishesValidationProgressEvent_WithUnitAddress()
     {
         var input = new EmitValidationProgressActivityInput(
-            UnitName: "unit-1",
+            UnitId: UnitId,
             Step: UnitValidationStep.VerifyingTool,
             Status: "Running",
             Code: null);
@@ -50,7 +53,7 @@ public class EmitValidationProgressActivityTests
             Arg.Is<ActivityEvent>(e =>
                 e.EventType == ActivityEventType.ValidationProgress &&
                 e.Source.Scheme == "unit" &&
-                e.Source.Path == "unit-1"),
+                e.Source.Path == UnitHex),
             Arg.Any<CancellationToken>());
     }
 
@@ -58,7 +61,7 @@ public class EmitValidationProgressActivityTests
     public async Task RunAsync_RunningStatus_UsesInfoSeverity()
     {
         var input = new EmitValidationProgressActivityInput(
-            "unit-1", UnitValidationStep.VerifyingTool, "Running", null);
+            UnitId, UnitValidationStep.VerifyingTool, "Running", null);
         var context = Substitute.For<WorkflowActivityContext>();
 
         await _activity.RunAsync(context, input);
@@ -72,7 +75,7 @@ public class EmitValidationProgressActivityTests
     public async Task RunAsync_FailedStatus_UsesWarningSeverity()
     {
         var input = new EmitValidationProgressActivityInput(
-            "unit-1", UnitValidationStep.VerifyingTool, "Failed", UnitValidationCodes.ToolMissing);
+            UnitId, UnitValidationStep.VerifyingTool, "Failed", UnitValidationCodes.ToolMissing);
         var context = Substitute.For<WorkflowActivityContext>();
 
         await _activity.RunAsync(context, input);
@@ -86,7 +89,7 @@ public class EmitValidationProgressActivityTests
     public async Task RunAsync_DetailsCarryStepAndStatus()
     {
         var input = new EmitValidationProgressActivityInput(
-            "unit-1", UnitValidationStep.ResolvingModel, "Succeeded", null);
+            UnitId, UnitValidationStep.ResolvingModel, "Succeeded", null);
         var context = Substitute.For<WorkflowActivityContext>();
 
         ActivityEvent? captured = null;
@@ -109,7 +112,7 @@ public class EmitValidationProgressActivityTests
     public async Task RunAsync_FailureDetailsIncludeCode()
     {
         var input = new EmitValidationProgressActivityInput(
-            "unit-1",
+            UnitId,
             UnitValidationStep.ValidatingCredential,
             "Failed",
             UnitValidationCodes.CredentialInvalid);
@@ -133,7 +136,7 @@ public class EmitValidationProgressActivityTests
         _bus.PublishAsync(Arg.Any<ActivityEvent>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromException(new InvalidOperationException("bus down")));
         var input = new EmitValidationProgressActivityInput(
-            "unit-1", UnitValidationStep.VerifyingTool, "Running", null);
+            UnitId, UnitValidationStep.VerifyingTool, "Running", null);
         var context = Substitute.For<WorkflowActivityContext>();
 
         var result = await _activity.RunAsync(context, input);

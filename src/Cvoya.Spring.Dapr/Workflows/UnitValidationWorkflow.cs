@@ -169,7 +169,9 @@ public class UnitValidationWorkflow : Workflow<UnitValidationWorkflowInput, Unit
         context.CallActivityAsync<bool>(
             nameof(EmitValidationProgressActivity),
             new EmitValidationProgressActivityInput(
-                UnitName: input.UnitName,
+                UnitId: Cvoya.Spring.Core.Identifiers.GuidFormatter.TryParse(input.UnitId, out var unitGuid)
+                    ? unitGuid
+                    : Guid.Empty,
                 Step: step,
                 Status: status,
                 Code: code));
