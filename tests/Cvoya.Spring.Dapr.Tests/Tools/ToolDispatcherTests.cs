@@ -48,7 +48,7 @@ public class ToolDispatcherTests
 
         var stateManager = Substitute.For<IActorStateManager>();
         var executionContext = new ToolExecutionContext(
-            Address.For("agent", "test-agent"),
+            Address.For("agent", TestSlugIds.HexFor("test-agent")),
             "conv-1",
             stateManager);
 
@@ -70,7 +70,7 @@ public class ToolDispatcherTests
     {
         var stateManager = Substitute.For<IActorStateManager>();
         var executionContext = new ToolExecutionContext(
-            Address.For("agent", "test-agent"),
+            Address.For("agent", TestSlugIds.HexFor("test-agent")),
             "conv-1",
             stateManager);
 

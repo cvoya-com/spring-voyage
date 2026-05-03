@@ -33,7 +33,7 @@ public class CheckpointToolTests
         _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
         _tool = new CheckpointTool(_contextAccessor, _loggerFactory);
         _contextAccessor.Current = new ToolExecutionContext(
-            Address.For("agent", "test-agent"),
+            Address.For("agent", TestSlugIds.HexFor("test-agent")),
             "conv-1",
             _stateManager);
     }

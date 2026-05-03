@@ -340,8 +340,8 @@ public class ThreadQueryServiceTests : IDisposable
         var messageId = Guid.NewGuid();
         var message = new Message(
             messageId,
-            Address.For("human", "savasp"),
-            Address.For("agent", "ada"),
+            Address.For("human", TestSlugIds.HexFor("savasp")),
+            Address.For("agent", TestSlugIds.HexFor("ada")),
             MessageType.Domain,
             "c-1",
             JsonSerializer.SerializeToElement("Approve merge?"),
@@ -389,8 +389,8 @@ public class ThreadQueryServiceTests : IDisposable
         });
         var message = new Message(
             messageId,
-            Address.For("agent", "ada"),
-            Address.For("human", "savasp"),
+            Address.For("agent", TestSlugIds.HexFor("ada")),
+            Address.For("human", TestSlugIds.HexFor("savasp")),
             MessageType.Domain,
             "c-reply",
             replyPayload,
@@ -655,15 +655,16 @@ public class ThreadQueryServiceTests : IDisposable
     /// <summary>
     /// Best-effort parse of legacy "scheme:&lt;guid-or-slug&gt;" test seed strings into
     /// the <see cref="ActivityEventRecord.SourceId"/> Guid. When the slug part
-    /// is not a Guid, we synthesise a fresh Guid — slug-based filtering no
-    /// longer exists post #1629, so the tests that still seed slug-shaped
-    /// sources only care that some entity Guid is recorded.
+    /// is not a Guid, we map it through <see cref="TestSlugIds.For"/> so that
+    /// the same slug always produces the same Guid (otherwise repeated seeds
+    /// for the same legacy participant would each get a fresh Guid and break
+    /// the production query's grouping/filter logic).
     /// </summary>
     private static Guid ParseSourceGuid(string source)
     {
         var sepIdx = source.IndexOf(':');
         var idPart = sepIdx >= 0 ? source[(sepIdx + 1)..] : source;
-        return Guid.TryParse(idPart, out var g) ? g : Guid.NewGuid();
+        return Guid.TryParse(idPart, out var g) ? g : TestSlugIds.For(idPart);
     }
 
     private async Task SeedThreadAsync(

@@ -59,8 +59,8 @@ public class ActorRemotingJsonOptionsTests
 
         var message = new Message(
             Guid.NewGuid(),
-            Address.For("agent", "@actor-id"),
-            Address.For("human", "api"),
+            Address.For("agent", TestSlugIds.HexFor("@actor-id")),
+            Address.For("human", TestSlugIds.HexFor("api")),
             MessageType.StatusQuery,
             null,
             payload,
@@ -100,8 +100,8 @@ public class ActorRemotingJsonOptionsTests
         var payload = JsonSerializer.SerializeToElement(new { Status = "Idle" });
         var message = new Message(
             Guid.NewGuid(),
-            Address.For("agent", "@actor-id"),
-            Address.For("human", "api"),
+            Address.For("agent", TestSlugIds.HexFor("@actor-id")),
+            Address.For("human", TestSlugIds.HexFor("api")),
             MessageType.StatusQuery,
             null,
             payload,
@@ -146,8 +146,8 @@ public class ActorRemotingJsonOptionsTests
     {
         var message = new Message(
             Guid.NewGuid(),
-            Address.For("human", "api"),
-            Address.For("agent", "@actor-id"),
+            Address.For("human", TestSlugIds.HexFor("api")),
+            Address.For("agent", TestSlugIds.HexFor("@actor-id")),
             MessageType.StatusQuery,
             null,
             default, // no body, as produced by MessageEndpoints / AgentEndpoints StatusQuery builders.
@@ -172,8 +172,8 @@ public class ActorRemotingJsonOptionsTests
         var payload = JsonSerializer.SerializeToElement(new { Healthy = true, Tick = 42 });
         var original = new Message(
             Guid.NewGuid(),
-            Address.For("agent", "@actor-id"),
-            Address.For("agent", "@caller-id"),
+            Address.For("agent", TestSlugIds.HexFor("@actor-id")),
+            Address.For("agent", TestSlugIds.HexFor("@caller-id")),
             MessageType.HealthCheck,
             null,
             payload,
@@ -237,8 +237,8 @@ public class ActorRemotingJsonOptionsTests
     {
         var message = new Message(
             Guid.NewGuid(),
-            Address.For("agent", "sender"),
-            Address.For("agent", "receiver"),
+            Address.For("agent", TestSlugIds.HexFor("sender")),
+            Address.For("agent", TestSlugIds.HexFor("receiver")),
             MessageType.Domain,
             "thread-123",
             JsonSerializer.SerializeToElement(new { text = "hello" }),

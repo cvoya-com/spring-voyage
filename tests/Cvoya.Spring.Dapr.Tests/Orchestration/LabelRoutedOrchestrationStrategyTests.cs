@@ -38,14 +38,14 @@ public class LabelRoutedOrchestrationStrategyTests
     {
         _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
         _strategy = new LabelRoutedOrchestrationStrategy(_policyRepository, _loggerFactory);
-        _context.UnitAddress.Returns(Address.For("unit", "engineering-team"));
+        _context.UnitAddress.Returns(Address.For("unit", TestSlugIds.HexFor("engineering-team")));
     }
 
     private static Message CreateMessage(object payload) =>
         new(
             Guid.NewGuid(),
-            Address.For("connector", "github"),
-            Address.For("unit", "engineering-team"),
+            Address.For("connector", TestSlugIds.HexFor("github")),
+            Address.For("unit", TestSlugIds.HexFor("engineering-team")),
             MessageType.Domain,
             Guid.NewGuid().ToString(),
             JsonSerializer.SerializeToElement(payload),
@@ -68,7 +68,7 @@ public class LabelRoutedOrchestrationStrategyTests
     [Fact]
     public async Task OrchestrateAsync_NoLabelRoutingPolicy_DropsMessage()
     {
-        _context.Members.Returns([Address.For("agent", "backend-engineer")]);
+        _context.Members.Returns([Address.For("agent", TestSlugIds.HexFor("backend-engineer"))]);
         _policyRepository
             .GetAsync("engineering-team", Arg.Any<CancellationToken>())
             .Returns(UnitPolicy.Empty);
@@ -85,7 +85,7 @@ public class LabelRoutedOrchestrationStrategyTests
     [Fact]
     public async Task OrchestrateAsync_UnlabeledMessage_DropsWithoutDispatch()
     {
-        _context.Members.Returns([Address.For("agent", "backend-engineer")]);
+        _context.Members.Returns([Address.For("agent", TestSlugIds.HexFor("backend-engineer"))]);
         _policyRepository
             .GetAsync("engineering-team", Arg.Any<CancellationToken>())
             .Returns(new UnitPolicy(LabelRouting: new LabelRoutingPolicy(
@@ -106,9 +106,9 @@ public class LabelRoutedOrchestrationStrategyTests
     [Fact]
     public async Task OrchestrateAsync_MatchingLabel_ForwardsToMappedMember()
     {
-        var target = Address.For("agent", "backend-engineer");
+        var target = Address.For("agent", TestSlugIds.HexFor("backend-engineer"));
         _context.Members.Returns([
-            Address.For("agent", "qa-engineer"),
+            Address.For("agent", TestSlugIds.HexFor("qa-engineer")),
             target,
         ]);
         _policyRepository
@@ -137,7 +137,7 @@ public class LabelRoutedOrchestrationStrategyTests
     [Fact]
     public async Task OrchestrateAsync_GitHubWebhookPayloadShape_ExtractsLabelName()
     {
-        var target = Address.For("agent", "backend-engineer");
+        var target = Address.For("agent", TestSlugIds.HexFor("backend-engineer"));
         _context.Members.Returns([target]);
         _policyRepository
             .GetAsync("engineering-team", Arg.Any<CancellationToken>())
@@ -169,7 +169,7 @@ public class LabelRoutedOrchestrationStrategyTests
     [Fact]
     public async Task OrchestrateAsync_LabelMatchesCaseInsensitively()
     {
-        var target = Address.For("agent", "backend-engineer");
+        var target = Address.For("agent", TestSlugIds.HexFor("backend-engineer"));
         _context.Members.Returns([target]);
         _policyRepository
             .GetAsync("engineering-team", Arg.Any<CancellationToken>())
@@ -192,7 +192,7 @@ public class LabelRoutedOrchestrationStrategyTests
     [Fact]
     public async Task OrchestrateAsync_MatchedPathNotInMembers_DropsMessage()
     {
-        _context.Members.Returns([Address.For("agent", "qa-engineer")]);
+        _context.Members.Returns([Address.For("agent", TestSlugIds.HexFor("qa-engineer"))]);
         _policyRepository
             .GetAsync("engineering-team", Arg.Any<CancellationToken>())
             .Returns(new UnitPolicy(LabelRouting: new LabelRoutingPolicy(
@@ -213,8 +213,8 @@ public class LabelRoutedOrchestrationStrategyTests
     [Fact]
     public async Task OrchestrateAsync_FirstMatchingLabelInPayloadOrderWins()
     {
-        var backend = Address.For("agent", "backend-engineer");
-        var qa = Address.For("agent", "qa-engineer");
+        var backend = Address.For("agent", TestSlugIds.HexFor("backend-engineer"));
+        var qa = Address.For("agent", TestSlugIds.HexFor("qa-engineer"));
         _context.Members.Returns([backend, qa]);
         _policyRepository
             .GetAsync("engineering-team", Arg.Any<CancellationToken>())
@@ -316,7 +316,7 @@ public class LabelRoutedOrchestrationStrategyTests
     [Fact]
     public void ResolveMember_MatchesOnPathCaseInsensitively()
     {
-        var agent = Address.For("agent", "Backend-Engineer");
+        var agent = Address.For("agent", TestSlugIds.HexFor("Backend-Engineer"));
         var result = LabelRoutedOrchestrationStrategy.ResolveMember("backend-engineer", [agent]);
         result.ShouldBe(agent);
     }
@@ -326,14 +326,14 @@ public class LabelRoutedOrchestrationStrategyTests
     {
         var result = LabelRoutedOrchestrationStrategy.ResolveMember(
             "ghost",
-            [Address.For("agent", "backend-engineer")]);
+            [Address.For("agent", TestSlugIds.HexFor("backend-engineer"))]);
         result.ShouldBeNull();
     }
 
     [Fact]
     public async Task OrchestrateAsync_SuccessfulAssignment_PublishesLabelRoutedEvent()
     {
-        var target = Address.For("agent", "backend-engineer");
+        var target = Address.For("agent", TestSlugIds.HexFor("backend-engineer"));
         _context.Members.Returns([target]);
         _policyRepository
             .GetAsync("engineering-team", Arg.Any<CancellationToken>())
@@ -383,7 +383,7 @@ public class LabelRoutedOrchestrationStrategyTests
     [Fact]
     public async Task OrchestrateAsync_DroppedMessage_DoesNotPublishEvent()
     {
-        _context.Members.Returns([Address.For("agent", "backend-engineer")]);
+        _context.Members.Returns([Address.For("agent", TestSlugIds.HexFor("backend-engineer"))]);
         _policyRepository
             .GetAsync("engineering-team", Arg.Any<CancellationToken>())
             .Returns(UnitPolicy.Empty);
@@ -404,7 +404,7 @@ public class LabelRoutedOrchestrationStrategyTests
     [Fact]
     public async Task OrchestrateAsync_BusPublishFailure_DoesNotFaultOrchestration()
     {
-        var target = Address.For("agent", "backend-engineer");
+        var target = Address.For("agent", TestSlugIds.HexFor("backend-engineer"));
         _context.Members.Returns([target]);
         _policyRepository
             .GetAsync("engineering-team", Arg.Any<CancellationToken>())

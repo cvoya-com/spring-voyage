@@ -38,7 +38,7 @@ public class HumanActorTests
             .Returns(Task.CompletedTask);
         var host = ActorHost.CreateForTest<HumanActor>(new ActorTestOptions
         {
-            ActorId = new ActorId("test-human")
+            ActorId = new ActorId(TestSlugIds.HexFor("test-human"))
         });
         _actor = new HumanActor(host, _activityEventBus, _loggerFactory);
         SetStateManager(_actor, _stateManager);
@@ -58,8 +58,8 @@ public class HumanActorTests
     {
         return new Message(
             Guid.NewGuid(),
-            Address.For("agent", "test-sender"),
-            Address.For("human", "test-human"),
+            Address.For("agent", TestSlugIds.HexFor("test-sender")),
+            Address.For("human", TestSlugIds.HexFor("test-human")),
             type,
             threadId ?? Guid.NewGuid().ToString(),
             payload ?? JsonSerializer.SerializeToElement(new { }),
@@ -94,8 +94,8 @@ public class HumanActorTests
 
         result.ShouldNotBeNull();
         result!.Type.ShouldBe(MessageType.StatusQuery);
-        result.From.ShouldBe(Address.For("human", "test-human"));
-        result.To.ShouldBe(Address.For("agent", "test-sender"));
+        result.From.ShouldBe(Address.For("human", TestSlugIds.HexFor("test-human")));
+        result.To.ShouldBe(Address.For("agent", TestSlugIds.HexFor("test-sender")));
 
         var payload = result.Payload.Deserialize<JsonElement>();
         payload.GetProperty("Permission").GetString().ShouldBe("Operator");

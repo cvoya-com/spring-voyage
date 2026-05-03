@@ -87,7 +87,7 @@ public class LabelRoutingRoundtripSubscriberTests
         });
         _bus.Publish(new ActivityEvent(
             Guid.NewGuid(), DateTimeOffset.UtcNow,
-            Address.For("unit", "team"),
+            Address.For("unit", TestSlugIds.HexFor("team")),
             ActivityEventType.DecisionMade, ActivitySeverity.Info,
             "some other decision", details));
 
@@ -113,7 +113,7 @@ public class LabelRoutingRoundtripSubscriberTests
         });
         _bus.Publish(new ActivityEvent(
             Guid.NewGuid(), DateTimeOffset.UtcNow,
-            Address.For("unit", "team"),
+            Address.For("unit", TestSlugIds.HexFor("team")),
             ActivityEventType.DecisionMade, ActivitySeverity.Info,
             "linear assignment", details));
 
@@ -208,7 +208,7 @@ public class LabelRoutingRoundtripSubscriberTests
         });
         var evt = new ActivityEvent(
             Guid.NewGuid(), DateTimeOffset.UtcNow,
-            Address.For("unit", "team"),
+            Address.For("unit", TestSlugIds.HexFor("team")),
             ActivityEventType.DecisionMade, ActivitySeverity.Info,
             "malformed label-routed event", details);
 
@@ -326,7 +326,7 @@ public class LabelRoutingRoundtripSubscriberTests
         return new ActivityEvent(
             Guid.NewGuid(),
             DateTimeOffset.UtcNow,
-            Address.For("unit", "engineering-team"),
+            Address.For("unit", TestSlugIds.HexFor("engineering-team")),
             ActivityEventType.DecisionMade,
             ActivitySeverity.Info,
             "label-routed assignment",

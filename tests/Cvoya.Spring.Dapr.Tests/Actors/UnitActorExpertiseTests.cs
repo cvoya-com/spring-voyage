@@ -40,7 +40,7 @@ public class UnitActorExpertiseTests
 
         var host = ActorHost.CreateForTest<UnitActor>(new ActorTestOptions
         {
-            ActorId = new ActorId("test-unit")
+            ActorId = new ActorId(TestSlugIds.HexFor("test-unit"))
         });
         _actor = new UnitActor(
             host,
@@ -221,7 +221,7 @@ public class UnitActorExpertiseTests
             .GetUnitSeedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(seed);
 
-        var host = ActorHost.CreateForTest<UnitActor>(new ActorTestOptions { ActorId = new ActorId("seed-unit") });
+        var host = ActorHost.CreateForTest<UnitActor>(new ActorTestOptions { ActorId = new ActorId(TestSlugIds.HexFor("seed-unit")) });
         var actor = new UnitActor(
             host,
             loggerFactory,

@@ -97,7 +97,7 @@ public class ExpertiseAggregatorTests
     public async Task GetAsync_EmptyUnit_ReturnsEmptyAggregation()
     {
         var aggregator = CreateAggregator();
-        var unit = Address.For("unit", "empty");
+        var unit = Address.For("unit", TestSlugIds.HexFor("empty"));
         RegisterUnit("empty");
 
         var result = await aggregator.GetAsync(unit, TestContext.Current.CancellationToken);
@@ -112,9 +112,9 @@ public class ExpertiseAggregatorTests
     public async Task GetAsync_FlatUnitWithAgents_IncludesAgentExpertiseWithOrigin()
     {
         var aggregator = CreateAggregator();
-        var unit = Address.For("unit", "eng");
-        var ada = Address.For("agent", "ada");
-        var kay = Address.For("agent", "kay");
+        var unit = Address.For("unit", TestSlugIds.HexFor("eng"));
+        var ada = Address.For("agent", TestSlugIds.HexFor("ada"));
+        var kay = Address.For("agent", TestSlugIds.HexFor("kay"));
 
         RegisterUnit("eng", ada, kay);
         ArrangeExpertise(ada, new ExpertiseDomain("python", "FastAPI", ExpertiseLevel.Expert));
@@ -137,11 +137,11 @@ public class ExpertiseAggregatorTests
     {
         var aggregator = CreateAggregator();
         // root -> eng -> backend -> ada
-        var root = Address.For("unit", "root");
-        var eng = Address.For("unit", "eng");
-        var backend = Address.For("unit", "backend");
-        var ada = Address.For("agent", "ada");
-        var dijkstra = Address.For("agent", "dijkstra");
+        var root = Address.For("unit", TestSlugIds.HexFor("root"));
+        var eng = Address.For("unit", TestSlugIds.HexFor("eng"));
+        var backend = Address.For("unit", TestSlugIds.HexFor("backend"));
+        var ada = Address.For("agent", TestSlugIds.HexFor("ada"));
+        var dijkstra = Address.For("agent", TestSlugIds.HexFor("dijkstra"));
 
         RegisterUnit("root", eng);
         RegisterUnit("eng", backend);
@@ -163,7 +163,7 @@ public class ExpertiseAggregatorTests
     public async Task GetAsync_UnitOwnExpertiseIncluded()
     {
         var aggregator = CreateAggregator();
-        var unit = Address.For("unit", "eng");
+        var unit = Address.For("unit", TestSlugIds.HexFor("eng"));
         RegisterUnit("eng");
 
         ArrangeExpertise(unit, new ExpertiseDomain("full-stack", "synthesized", ExpertiseLevel.Advanced));
@@ -179,8 +179,8 @@ public class ExpertiseAggregatorTests
     public async Task GetAsync_DuplicateDomainAcrossPaths_StrongerLevelWins()
     {
         var aggregator = CreateAggregator();
-        var unit = Address.For("unit", "eng");
-        var ada = Address.For("agent", "ada");
+        var unit = Address.For("unit", TestSlugIds.HexFor("eng"));
+        var ada = Address.For("agent", TestSlugIds.HexFor("ada"));
 
         RegisterUnit("eng", ada);
         // Arrange two reads for same (domain, origin) with different levels —
@@ -204,7 +204,7 @@ public class ExpertiseAggregatorTests
         // root is a member of itself — the membership-time cycle check in
         // UnitActor.AddMemberAsync should have rejected this, but if state
         // is corrupted the aggregator must refuse to loop.
-        var root = Address.For("unit", "root");
+        var root = Address.For("unit", TestSlugIds.HexFor("root"));
         RegisterUnit("root", root);
 
         await Should.ThrowAsync<ExpertiseAggregationException>(() =>
@@ -215,8 +215,8 @@ public class ExpertiseAggregatorTests
     public async Task GetAsync_TwoCycle_Throws()
     {
         var aggregator = CreateAggregator();
-        var a = Address.For("unit", "a");
-        var b = Address.For("unit", "b");
+        var a = Address.For("unit", TestSlugIds.HexFor("a"));
+        var b = Address.For("unit", TestSlugIds.HexFor("b"));
 
         // a contains b, b contains a.
         RegisterUnit("a", b);
@@ -233,11 +233,11 @@ public class ExpertiseAggregatorTests
         var aggregator = CreateAggregator();
         // root -> [a, b] -> both contain shared. `shared` is visited twice
         // via different paths but isn't a cycle reaching back to root.
-        var root = Address.For("unit", "root");
-        var a = Address.For("unit", "a");
-        var b = Address.For("unit", "b");
-        var shared = Address.For("unit", "shared");
-        var leafAgent = Address.For("agent", "leaf");
+        var root = Address.For("unit", TestSlugIds.HexFor("root"));
+        var a = Address.For("unit", TestSlugIds.HexFor("a"));
+        var b = Address.For("unit", TestSlugIds.HexFor("b"));
+        var shared = Address.For("unit", TestSlugIds.HexFor("shared"));
+        var leafAgent = Address.For("agent", TestSlugIds.HexFor("leaf"));
 
         RegisterUnit("root", a, b);
         RegisterUnit("a", shared);
@@ -256,8 +256,8 @@ public class ExpertiseAggregatorTests
     public async Task GetAsync_CachesResult_SecondCallSkipsRecompute()
     {
         var aggregator = CreateAggregator();
-        var unit = Address.For("unit", "eng");
-        var ada = Address.For("agent", "ada");
+        var unit = Address.For("unit", TestSlugIds.HexFor("eng"));
+        var ada = Address.For("agent", TestSlugIds.HexFor("ada"));
         RegisterUnit("eng", ada);
         ArrangeExpertise(ada, new ExpertiseDomain("python", "", ExpertiseLevel.Advanced));
 
@@ -274,8 +274,8 @@ public class ExpertiseAggregatorTests
     public async Task InvalidateAsync_ForUnit_EvictsItFromCache()
     {
         var aggregator = CreateAggregator();
-        var unit = Address.For("unit", "eng");
-        var ada = Address.For("agent", "ada");
+        var unit = Address.For("unit", TestSlugIds.HexFor("eng"));
+        var ada = Address.For("agent", TestSlugIds.HexFor("ada"));
         RegisterUnit("eng", ada);
         ArrangeExpertise(ada, new ExpertiseDomain("python", "", ExpertiseLevel.Advanced));
 
@@ -293,8 +293,8 @@ public class ExpertiseAggregatorTests
         var engUuid = new Guid("ee1ee111-0000-0000-0000-000000000001");
 
         var aggregator = CreateAggregator();
-        var unit = Address.For("unit", "eng");
-        var ada = Address.For("agent", "ada");
+        var unit = Address.For("unit", TestSlugIds.HexFor("eng"));
+        var ada = Address.For("agent", TestSlugIds.HexFor("ada"));
 
         RegisterUnit("eng", ada);
         ArrangeExpertise(ada, new ExpertiseDomain("python", "", ExpertiseLevel.Advanced));
@@ -327,10 +327,10 @@ public class ExpertiseAggregatorTests
     {
         // root -> mid -> leaf   (agent under leaf)
         var aggregator = CreateAggregator();
-        var root = Address.For("unit", "root");
-        var mid = Address.For("unit", "mid");
-        var leaf = Address.For("unit", "leaf");
-        var ada = Address.For("agent", "ada");
+        var root = Address.For("unit", TestSlugIds.HexFor("root"));
+        var mid = Address.For("unit", TestSlugIds.HexFor("mid"));
+        var leaf = Address.For("unit", TestSlugIds.HexFor("leaf"));
+        var ada = Address.For("agent", TestSlugIds.HexFor("ada"));
 
         RegisterUnit("root", mid);
         RegisterUnit("mid", leaf);

@@ -209,7 +209,7 @@ public class AgentActorAmendmentTests
     [Fact]
     public async Task Amendment_FromAnotherAgent_Rejected()
     {
-        var message = CreateAmendment(Address.For("agent", "somebody-else"));
+        var message = CreateAmendment(Address.For("agent", TestSlugIds.HexFor("somebody-else")));
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
         await _stateManager.DidNotReceive().SetStateAsync(

@@ -46,8 +46,8 @@ public class UnitActorStrategyResolverTests
 
         var incoming = new Message(
             Id: Guid.NewGuid(),
-            From: Address.For("agent", "sender"),
-            To: Address.For("unit", "resolver-unit"),
+            From: Address.For("agent", TestSlugIds.HexFor("sender")),
+            To: Address.For("unit", TestSlugIds.HexFor("resolver-unit")),
             Type: MessageType.Domain,
             ThreadId: Guid.NewGuid().ToString(),
             Payload: System.Text.Json.JsonSerializer.SerializeToElement(new { }),
@@ -72,8 +72,8 @@ public class UnitActorStrategyResolverTests
 
         var incoming = new Message(
             Id: Guid.NewGuid(),
-            From: Address.For("agent", "sender"),
-            To: Address.For("unit", "bare-unit"),
+            From: Address.For("agent", TestSlugIds.HexFor("sender")),
+            To: Address.For("unit", TestSlugIds.HexFor("bare-unit")),
             Type: MessageType.Domain,
             ThreadId: Guid.NewGuid().ToString(),
             Payload: System.Text.Json.JsonSerializer.SerializeToElement(new { }),
@@ -100,8 +100,8 @@ public class UnitActorStrategyResolverTests
 
         var incoming = new Message(
             Id: Guid.NewGuid(),
-            From: Address.For("agent", "sender"),
-            To: Address.For("unit", "scope-unit"),
+            From: Address.For("agent", TestSlugIds.HexFor("sender")),
+            To: Address.For("unit", TestSlugIds.HexFor("scope-unit")),
             Type: MessageType.Domain,
             ThreadId: Guid.NewGuid().ToString(),
             Payload: System.Text.Json.JsonSerializer.SerializeToElement(new { }),

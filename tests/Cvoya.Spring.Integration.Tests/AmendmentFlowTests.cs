@@ -159,7 +159,7 @@ public class AmendmentFlowTests
 
         var amendment = new Message(
             Guid.NewGuid(),
-            Address.For("unit", "other-unit"),
+            Address.For("unit", TestSlugIds.HexFor("other-unit")),
             new Address("agent", AgentNudgeUuid),
             MessageType.Amendment,
             "conv-live",

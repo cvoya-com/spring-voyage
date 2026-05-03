@@ -69,8 +69,8 @@ public class MessageQueryServiceTests : IDisposable
         var threadId = "conv-1";
         var message = new Message(
             messageId,
-            Address.For("human", "savasp"),
-            Address.For("agent", "ada"),
+            Address.For("human", TestSlugIds.HexFor("savasp")),
+            Address.For("agent", TestSlugIds.HexFor("ada")),
             MessageType.Domain,
             threadId,
             JsonSerializer.SerializeToElement("hello, ada"),
@@ -100,8 +100,8 @@ public class MessageQueryServiceTests : IDisposable
         var payload = JsonSerializer.SerializeToElement(new { kind = "amend", text = "hi" });
         var message = new Message(
             messageId,
-            Address.For("agent", "grace"),
-            Address.For("agent", "ada"),
+            Address.For("agent", TestSlugIds.HexFor("grace")),
+            Address.For("agent", TestSlugIds.HexFor("ada")),
             MessageType.Domain,
             "conv-2",
             payload,
@@ -124,8 +124,8 @@ public class MessageQueryServiceTests : IDisposable
         var seededId = Guid.NewGuid();
         var message = new Message(
             seededId,
-            Address.For("human", "savasp"),
-            Address.For("agent", "ada"),
+            Address.For("human", TestSlugIds.HexFor("savasp")),
+            Address.For("agent", TestSlugIds.HexFor("ada")),
             MessageType.Domain,
             "conv-3",
             JsonSerializer.SerializeToElement("hi"),

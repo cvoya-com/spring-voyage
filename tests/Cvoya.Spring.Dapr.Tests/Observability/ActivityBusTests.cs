@@ -22,7 +22,7 @@ public class ActivityBusTests
 
         var evt = new ActivityEvent(
             Guid.NewGuid(), DateTimeOffset.UtcNow,
-            Address.For("agent", "test"),
+            Address.For("agent", TestSlugIds.HexFor("test")),
             ActivityEventType.WorkflowStepCompleted, ActivitySeverity.Info, "Done");
         bus.Publish(evt);
 
@@ -40,7 +40,7 @@ public class ActivityBusTests
 
         var evt = new ActivityEvent(
             Guid.NewGuid(), DateTimeOffset.UtcNow,
-            Address.For("agent", "test"),
+            Address.For("agent", TestSlugIds.HexFor("test")),
             ActivityEventType.WorkflowStepCompleted, ActivitySeverity.Info, "Done");
         bus.Publish(evt);
 
@@ -58,7 +58,7 @@ public class ActivityBusTests
 
         var evt = new ActivityEvent(
             Guid.NewGuid(), DateTimeOffset.UtcNow,
-            Address.For("agent", "test"),
+            Address.For("agent", TestSlugIds.HexFor("test")),
             ActivityEventType.WorkflowStepCompleted, ActivitySeverity.Info, "Done");
         bus.Publish(evt);
 

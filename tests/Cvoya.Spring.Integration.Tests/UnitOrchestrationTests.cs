@@ -47,8 +47,8 @@ public class UnitOrchestrationTests
     public async Task ReceiveAsync_DomainMessage_PassesMembersInContext()
     {
         var (actor, stateManager, strategy) = ActorTestHost.CreateUnitActor(actorId: "orch-unit");
-        var member1 = Address.For("agent", "agent-1");
-        var member2 = Address.For("agent", "agent-2");
+        var member1 = Address.For("agent", TestSlugIds.HexFor("agent-1"));
+        var member2 = Address.For("agent", TestSlugIds.HexFor("agent-2"));
 
         stateManager.TryGetStateAsync<List<Address>>(StateKeys.Members, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<List<Address>>(true, [member1, member2]));
@@ -74,8 +74,8 @@ public class UnitOrchestrationTests
     public async Task AddMemberAsync_ThenGetMembers_ReturnsAddedMembers()
     {
         var (actor, stateManager, _) = ActorTestHost.CreateUnitActor(actorId: "member-unit");
-        var member1 = Address.For("agent", "agent-a");
-        var member2 = Address.For("agent", "agent-b");
+        var member1 = Address.For("agent", TestSlugIds.HexFor("agent-a"));
+        var member2 = Address.For("agent", TestSlugIds.HexFor("agent-b"));
 
         // Add first member.
         await actor.AddMemberAsync(member1, TestContext.Current.CancellationToken);
@@ -130,7 +130,7 @@ public class UnitOrchestrationTests
         await actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
         capturedContext.ShouldNotBeNull();
-        capturedContext!.UnitAddress.ShouldBe(Address.For("unit", "addr-unit"));
+        capturedContext!.UnitAddress.ShouldBe(Address.For("unit", TestSlugIds.HexFor("addr-unit")));
     }
 
     // --- Nested Unit Membership (#98) ---
@@ -146,8 +146,8 @@ public class UnitOrchestrationTests
         // selected target so the test stays tied to the seam rather than
         // the AI round-trip.
         var (parent, parentState, parentStrategy) = ActorTestHost.CreateUnitActor(actorId: "parent-unit");
-        var agentMember = Address.For("agent", "ada");
-        var subUnitMember = Address.For("unit", "sub-unit");
+        var agentMember = Address.For("agent", TestSlugIds.HexFor("ada"));
+        var subUnitMember = Address.For("unit", TestSlugIds.HexFor("sub-unit"));
 
         parentState.TryGetStateAsync<List<Address>>(StateKeys.Members, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<List<Address>>(true, [agentMember, subUnitMember]));

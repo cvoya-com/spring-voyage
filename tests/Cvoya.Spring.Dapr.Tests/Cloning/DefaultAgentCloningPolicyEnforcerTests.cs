@@ -184,7 +184,7 @@ public class DefaultAgentCloningPolicyEnforcerTests
     [Fact]
     public async Task EvaluateAsync_OpaqueBoundary_DeniesDetachedAttachment()
     {
-        var unitAddr = Address.For("unit", "research-cell");
+        var unitAddr = Address.For("unit", TestSlugIds.HexFor("research-cell"));
 
         _membershipRepository
             .ListByAgentAsync(AgentAdaUuid, Arg.Any<CancellationToken>())
@@ -218,7 +218,7 @@ public class DefaultAgentCloningPolicyEnforcerTests
     {
         // Attached clones roll up inside the parent's boundary, so the
         // opacity rule does not surface them to the outside.
-        var unitAddr = Address.For("unit", "research-cell");
+        var unitAddr = Address.For("unit", TestSlugIds.HexFor("research-cell"));
 
         _membershipRepository
             .ListByAgentAsync(AgentAdaUuid, Arg.Any<CancellationToken>())

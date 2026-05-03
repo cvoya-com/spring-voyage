@@ -44,7 +44,7 @@ public class ActivityEventPersisterTests : IDisposable
         return new ActivityEvent(
             Guid.NewGuid(),
             DateTimeOffset.UtcNow,
-            Address.For("agent", "test"),
+            Address.For("agent", TestSlugIds.HexFor("test")),
             ActivityEventType.MessageReceived,
             ActivitySeverity.Info,
             summary);

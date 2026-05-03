@@ -25,7 +25,7 @@ public class GitHubWebhookHandlerProjectsV2Tests
     {
         var loggerFactory = Substitute.For<ILoggerFactory>();
         loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
-        var options = new GitHubConnectorOptions { DefaultTargetUnitPath = "test-team" };
+        var options = new GitHubConnectorOptions { DefaultTargetUnitPath = TestSlugIds.HexFor("test-team") };
         _handler = new GitHubWebhookHandler(options, loggerFactory);
     }
 

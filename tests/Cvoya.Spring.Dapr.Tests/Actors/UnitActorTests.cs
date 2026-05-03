@@ -80,8 +80,8 @@ public class UnitActorTests
     {
         return new Message(
             Guid.NewGuid(),
-            Address.For("agent", "test-sender"),
-            Address.For("unit", "test-unit"),
+            Address.For("agent", TestSlugIds.HexFor("test-sender")),
+            Address.For("unit", TestSlugIds.HexFor("test-unit")),
             type,
             threadId ?? Guid.NewGuid().ToString(),
             payload ?? JsonSerializer.SerializeToElement(new { }),
@@ -138,14 +138,14 @@ public class UnitActorTests
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
         capturedContext.ShouldNotBeNull();
-        capturedContext!.UnitAddress.ShouldBe(Address.For("unit", "test-unit"));
+        capturedContext!.UnitAddress.ShouldBe(Address.For("unit", TestSlugIds.HexFor("test-unit")));
     }
 
     [Fact]
     public async Task ReceiveAsync_DomainMessage_PassesCurrentMembersToStrategy()
     {
-        var member1 = Address.For("agent", "agent-1");
-        var member2 = Address.For("agent", "agent-2");
+        var member1 = Address.For("agent", TestSlugIds.HexFor("agent-1"));
+        var member2 = Address.For("agent", TestSlugIds.HexFor("agent-2"));
         _stateManager.TryGetStateAsync<List<Address>>(StateKeys.Members, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<List<Address>>(true, [member1, member2]));
 
@@ -171,8 +171,8 @@ public class UnitActorTests
     [Fact]
     public async Task ReceiveAsync_StatusQuery_ReturnsUnitStatusWithMemberCount()
     {
-        var member1 = Address.For("agent", "agent-1");
-        var member2 = Address.For("agent", "agent-2");
+        var member1 = Address.For("agent", TestSlugIds.HexFor("agent-1"));
+        var member2 = Address.For("agent", TestSlugIds.HexFor("agent-2"));
         _stateManager.TryGetStateAsync<List<Address>>(StateKeys.Members, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<List<Address>>(true, [member1, member2]));
 
@@ -182,7 +182,7 @@ public class UnitActorTests
 
         result.ShouldNotBeNull();
         result!.Type.ShouldBe(MessageType.StatusQuery);
-        result.From.ShouldBe(Address.For("unit", "test-unit"));
+        result.From.ShouldBe(Address.For("unit", TestSlugIds.HexFor("test-unit")));
 
         var payload = result.Payload.Deserialize<JsonElement>();
         payload.GetProperty("Status").GetString().ShouldBe("Draft");
@@ -232,7 +232,7 @@ public class UnitActorTests
     [Fact]
     public async Task AddMemberAsync_NewMember_AddsMemberToState()
     {
-        var member = Address.For("agent", "new-agent");
+        var member = Address.For("agent", TestSlugIds.HexFor("new-agent"));
 
         await _actor.AddMemberAsync(member, TestContext.Current.CancellationToken);
 
@@ -245,7 +245,7 @@ public class UnitActorTests
     [Fact]
     public async Task AddMemberAsync_DuplicateMember_DoesNotAddAgain()
     {
-        var member = Address.For("agent", "existing-agent");
+        var member = Address.For("agent", TestSlugIds.HexFor("existing-agent"));
         _stateManager.TryGetStateAsync<List<Address>>(StateKeys.Members, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<List<Address>>(true, [member]));
 
@@ -260,7 +260,7 @@ public class UnitActorTests
     [Fact]
     public async Task RemoveMemberAsync_ExistingMember_RemovesMemberFromState()
     {
-        var member = Address.For("agent", "agent-to-remove");
+        var member = Address.For("agent", TestSlugIds.HexFor("agent-to-remove"));
         _stateManager.TryGetStateAsync<List<Address>>(StateKeys.Members, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<List<Address>>(true, [member]));
 
@@ -275,7 +275,7 @@ public class UnitActorTests
     [Fact]
     public async Task RemoveMemberAsync_NonExistentMember_DoesNotModifyState()
     {
-        var member = Address.For("agent", "non-existent");
+        var member = Address.For("agent", TestSlugIds.HexFor("non-existent"));
 
         await _actor.RemoveMemberAsync(member, TestContext.Current.CancellationToken);
 
@@ -297,8 +297,8 @@ public class UnitActorTests
     [Fact]
     public async Task GetMembersAsync_WithMembers_ReturnsAllMembers()
     {
-        var member1 = Address.For("agent", "agent-1");
-        var member2 = Address.For("unit", "sub-unit-1");
+        var member1 = Address.For("agent", TestSlugIds.HexFor("agent-1"));
+        var member2 = Address.For("unit", TestSlugIds.HexFor("sub-unit-1"));
         _stateManager.TryGetStateAsync<List<Address>>(StateKeys.Members, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<List<Address>>(true, [member1, member2]));
 
@@ -314,7 +314,7 @@ public class UnitActorTests
     [Fact]
     public async Task UnitContext_ExposesCorrectAddressAndMembers()
     {
-        var member1 = Address.For("agent", "agent-1");
+        var member1 = Address.For("agent", TestSlugIds.HexFor("agent-1"));
         _stateManager.TryGetStateAsync<List<Address>>(StateKeys.Members, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<List<Address>>(true, [member1]));
 
@@ -330,7 +330,7 @@ public class UnitActorTests
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
 
         capturedContext.ShouldNotBeNull();
-        capturedContext!.UnitAddress.ShouldBe(Address.For("unit", "test-unit"));
+        capturedContext!.UnitAddress.ShouldBe(Address.For("unit", TestSlugIds.HexFor("test-unit")));
         capturedContext.Members.ShouldHaveSingleItem().ShouldBe(member1);
     }
 
@@ -512,7 +512,7 @@ public class UnitActorTests
     [Fact]
     public async Task AddMemberAsync_NewMember_EmitsStateChangedEvent()
     {
-        var member = Address.For("agent", "new-agent");
+        var member = Address.For("agent", TestSlugIds.HexFor("new-agent"));
 
         await _actor.AddMemberAsync(member, TestContext.Current.CancellationToken);
 
@@ -526,7 +526,7 @@ public class UnitActorTests
     [Fact]
     public async Task RemoveMemberAsync_ExistingMember_EmitsStateChangedEvent()
     {
-        var member = Address.For("agent", "agent-to-remove");
+        var member = Address.For("agent", TestSlugIds.HexFor("agent-to-remove"));
         _stateManager.TryGetStateAsync<List<Address>>(StateKeys.Members, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<List<Address>>(true, [member]));
 
@@ -1221,7 +1221,7 @@ public class UnitActorTests
     [Fact]
     public async Task RemoveMemberAsync_UnitMember_RemovesWithoutCycleCheck()
     {
-        var subAddress = Address.For("unit", "team-b");
+        var subAddress = Address.For("unit", TestSlugIds.HexFor("team-b"));
         _stateManager.TryGetStateAsync<List<Address>>(StateKeys.Members, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<List<Address>>(true, [subAddress]));
 
@@ -1241,8 +1241,8 @@ public class UnitActorTests
     public async Task ReceiveAsync_DomainMessage_WithMixedAgentAndUnitMembers_PassesBothToStrategy()
     {
         // Mixed members: one agent, one unit. Routing fans out to both.
-        var agent = Address.For("agent", "agent-1");
-        var unit = Address.For("unit", "team-b");
+        var agent = Address.For("agent", TestSlugIds.HexFor("agent-1"));
+        var unit = Address.For("unit", TestSlugIds.HexFor("team-b"));
         _stateManager.TryGetStateAsync<List<Address>>(StateKeys.Members, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<List<Address>>(true, [agent, unit]));
 

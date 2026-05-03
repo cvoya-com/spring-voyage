@@ -20,6 +20,8 @@ using Xunit;
 
 public class GitHubWebhookHandlerTests
 {
+    private static readonly string TestTeamHex = TestSlugIds.HexFor("test-team");
+
     private readonly GitHubWebhookHandler _handler;
 
     public GitHubWebhookHandlerTests()
@@ -27,7 +29,7 @@ public class GitHubWebhookHandlerTests
         var loggerFactory = Substitute.For<ILoggerFactory>();
         var logger = Substitute.For<ILogger>();
         loggerFactory.CreateLogger(Arg.Any<string>()).Returns(logger);
-        var options = new GitHubConnectorOptions { DefaultTargetUnitPath = "test-team" };
+        var options = new GitHubConnectorOptions { DefaultTargetUnitPath = TestTeamHex };
         _handler = new GitHubWebhookHandler(options, loggerFactory);
     }
 
@@ -214,7 +216,9 @@ public class GitHubWebhookHandlerTests
 
         message.ShouldNotBeNull();
         message!.From.Scheme.ShouldBe("connector");
-        message.From.Path.ShouldBe("github");
+        // Pinned synthetic Guid for the GitHub connector sentinel address
+        // (greppable as ASCII "github" in the trailing 12 hex chars).
+        message.From.Path.ShouldBe("00000000000000000000006769746875");
     }
 
     [Fact]
@@ -226,7 +230,7 @@ public class GitHubWebhookHandlerTests
 
         message.ShouldNotBeNull();
         message!.To.Scheme.ShouldBe("unit");
-        message.To.Path.ShouldBe("test-team");
+        message.To.Path.ShouldBe(TestTeamHex);
     }
 
     [Fact]
@@ -243,7 +247,9 @@ public class GitHubWebhookHandlerTests
 
         message.ShouldNotBeNull();
         message!.To.Scheme.ShouldBe("system");
-        message.To.Path.ShouldBe("router");
+        // Pinned synthetic Guid for the fallback router sentinel address
+        // (greppable as ASCII "router" in the trailing 12 hex chars).
+        message.To.Path.ShouldBe("00000000000000000000726f75746572");
     }
 
     [Fact]
@@ -580,7 +586,7 @@ public class GitHubWebhookHandlerTests
     {
         var loggerFactory = Substitute.For<ILoggerFactory>();
         loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
-        var options = new GitHubConnectorOptions { DefaultTargetUnitPath = "team" };
+        var options = new GitHubConnectorOptions { DefaultTargetUnitPath = TestSlugIds.HexFor("team") };
 
         // Custom vocabulary — "needs-triage" is not in the state set anymore.
         var machine = new LabelStateMachine(new LabelStateMachineOptions

@@ -34,7 +34,7 @@ public class ConnectorActorTests
         _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
         var host = ActorHost.CreateForTest<ConnectorActor>(new ActorTestOptions
         {
-            ActorId = new ActorId("test-connector")
+            ActorId = new ActorId(TestSlugIds.HexFor("test-connector"))
         });
         _actor = new ConnectorActor(host, _loggerFactory);
         SetStateManager(_actor, _stateManager);
@@ -53,8 +53,8 @@ public class ConnectorActorTests
     {
         return new Message(
             Guid.NewGuid(),
-            Address.For("agent", "test-sender"),
-            Address.For("connector", "test-connector"),
+            Address.For("agent", TestSlugIds.HexFor("test-sender")),
+            Address.For("connector", TestSlugIds.HexFor("test-connector")),
             type,
             threadId ?? Guid.NewGuid().ToString(),
             payload ?? JsonSerializer.SerializeToElement(new { }),
@@ -89,8 +89,8 @@ public class ConnectorActorTests
 
         result.ShouldNotBeNull();
         result!.Type.ShouldBe(MessageType.StatusQuery);
-        result.From.ShouldBe(Address.For("connector", "test-connector"));
-        result.To.ShouldBe(Address.For("agent", "test-sender"));
+        result.From.ShouldBe(Address.For("connector", TestSlugIds.HexFor("test-connector")));
+        result.To.ShouldBe(Address.For("agent", TestSlugIds.HexFor("test-sender")));
 
         var payload = result.Payload.Deserialize<JsonElement>();
         payload.GetProperty("Status").GetString().ShouldBe("Connected");

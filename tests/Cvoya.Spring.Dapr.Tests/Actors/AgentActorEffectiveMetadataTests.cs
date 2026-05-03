@@ -309,7 +309,7 @@ public class AgentActorEffectiveMetadataTests
     {
         SetAgentGlobalMetadata(model: "claude-3-haiku");
 
-        var message = DomainMessageFrom(Address.For("webhook", "github/incoming"));
+        var message = DomainMessageFrom(Address.For("webhook", TestSlugIds.HexFor("github/incoming")));
 
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
         await _actor.PendingDispatchTask!;
@@ -333,7 +333,7 @@ public class AgentActorEffectiveMetadataTests
     {
         SetAgentGlobalMetadata(model: "claude-3-haiku");
 
-        var message = DomainMessageFrom(Address.For("agent", "peer-agent"));
+        var message = DomainMessageFrom(Address.For("agent", TestSlugIds.HexFor("peer-agent")));
 
         await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
         await _actor.PendingDispatchTask!;
@@ -382,7 +382,7 @@ public class AgentActorEffectiveMetadataTests
             .Returns(new UnitMembership(UnitBUuid, AgentActorUuid, Model: "claude-3-5-sonnet", Enabled: true));
 
         // Turn 1: unit-a opens conversation conv-a; verify gpt-4.
-        var msgA = DomainMessageFrom(Address.For("unit", "unit-a"), "conv-a");
+        var msgA = DomainMessageFrom(Address.For("unit", TestSlugIds.HexFor("unit-a")), "conv-a");
         await _actor.ReceiveAsync(msgA, TestContext.Current.CancellationToken);
         await _actor.PendingDispatchTask!;
 
@@ -399,7 +399,7 @@ public class AgentActorEffectiveMetadataTests
         _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<ThreadChannel>(false, default!));
 
-        var msgB = DomainMessageFrom(Address.For("unit", "unit-b"), "conv-b");
+        var msgB = DomainMessageFrom(Address.For("unit", TestSlugIds.HexFor("unit-b")), "conv-b");
         await _actor.ReceiveAsync(msgB, TestContext.Current.CancellationToken);
         await _actor.PendingDispatchTask!;
 

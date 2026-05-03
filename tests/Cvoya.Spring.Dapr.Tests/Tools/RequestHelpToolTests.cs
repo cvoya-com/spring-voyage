@@ -41,7 +41,7 @@ public class RequestHelpToolTests
         var messageRouter = new MessageRouter(_directoryService, _agentProxyResolver, permissionService, _loggerFactory);
         _tool = new RequestHelpTool(messageRouter, _contextAccessor, _loggerFactory);
         _contextAccessor.Current = new ToolExecutionContext(
-            Address.For("agent", "test-agent"),
+            Address.For("agent", TestSlugIds.HexFor("test-agent")),
             "conv-1",
             _stateManager);
     }
@@ -52,8 +52,8 @@ public class RequestHelpToolTests
         var responsePayload = JsonSerializer.SerializeToElement(new { Answer = "42" });
         var responseMessage = new Message(
             Guid.NewGuid(),
-            Address.For("agent", "target-agent"),
-            Address.For("agent", "test-agent"),
+            Address.For("agent", TestSlugIds.HexFor("target-agent")),
+            Address.For("agent", TestSlugIds.HexFor("test-agent")),
             MessageType.Domain,
             "conv-1",
             responsePayload,
@@ -64,7 +64,7 @@ public class RequestHelpToolTests
             Arg.Is<Address>(a => a.Scheme == "agent" && a.Path == "target-agent"),
             Arg.Any<CancellationToken>())
             .Returns(new DirectoryEntry(
-                Address.For("agent", "target-agent"),
+                Address.For("agent", TestSlugIds.HexFor("target-agent")),
                 Guid.NewGuid(),
                 "Target",
                 "Target agent",

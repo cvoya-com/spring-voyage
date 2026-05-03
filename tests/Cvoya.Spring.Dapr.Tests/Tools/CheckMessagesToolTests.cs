@@ -34,7 +34,7 @@ public class CheckMessagesToolTests
         _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(Substitute.For<ILogger>());
         _tool = new CheckMessagesTool(_contextAccessor, _loggerFactory);
         _contextAccessor.Current = new ToolExecutionContext(
-            Address.For("agent", "test-agent"),
+            Address.For("agent", TestSlugIds.HexFor("test-agent")),
             "conv-1",
             _stateManager);
     }
@@ -44,8 +44,8 @@ public class CheckMessagesToolTests
     {
         var message1 = new Message(
             Guid.NewGuid(),
-            Address.For("agent", "sender-1"),
-            Address.For("agent", "test-agent"),
+            Address.For("agent", TestSlugIds.HexFor("sender-1")),
+            Address.For("agent", TestSlugIds.HexFor("test-agent")),
             MessageType.Domain,
             "conv-1",
             JsonSerializer.SerializeToElement(new { Text = "Hello" }),
@@ -53,8 +53,8 @@ public class CheckMessagesToolTests
 
         var message2 = new Message(
             Guid.NewGuid(),
-            Address.For("agent", "sender-2"),
-            Address.For("agent", "test-agent"),
+            Address.For("agent", TestSlugIds.HexFor("sender-2")),
+            Address.For("agent", TestSlugIds.HexFor("test-agent")),
             MessageType.Domain,
             "conv-1",
             JsonSerializer.SerializeToElement(new { Text = "World" }),

@@ -48,7 +48,7 @@ public class GitHubWebhookHandler : IGitHubWebhookHandler
     // ADDRESS_NOT_FOUND when no target unit is configured. The Guids are
     // pinned literals so they remain greppable across logs.
     internal static readonly Address FallbackRouterAddress =
-        new("system", new Guid("00000000-0000-0000-0000-000000726f7574"));
+        new("system", new Guid("00000000-0000-0000-0000-726f75746572"));
 
     private static readonly Address ConnectorAddress =
         new("connector", new Guid("00000000-0000-0000-0000-006769746875"));

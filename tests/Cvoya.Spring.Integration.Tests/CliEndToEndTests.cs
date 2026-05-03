@@ -31,8 +31,8 @@ public class CliEndToEndTests
         var (unitActor, unitStateManager, strategy) = ActorTestHost.CreateUnitActor(actorId: "cli-unit");
 
         // Step 2: Add agent members to the unit.
-        var agent1 = Address.For("agent", "cli-agent-1");
-        var agent2 = Address.For("agent", "cli-agent-2");
+        var agent1 = Address.For("agent", TestSlugIds.HexFor("cli-agent-1"));
+        var agent2 = Address.For("agent", TestSlugIds.HexFor("cli-agent-2"));
 
         await unitActor.AddMemberAsync(agent1, TestContext.Current.CancellationToken);
 
@@ -107,8 +107,8 @@ public class CliEndToEndTests
     public async Task FullLifecycle_RemoveMember_MemberNoLongerInList()
     {
         var (unitActor, unitStateManager, _) = ActorTestHost.CreateUnitActor(actorId: "rm-unit");
-        var agent1 = Address.For("agent", "rm-agent-1");
-        var agent2 = Address.For("agent", "rm-agent-2");
+        var agent1 = Address.For("agent", TestSlugIds.HexFor("rm-agent-1"));
+        var agent2 = Address.For("agent", TestSlugIds.HexFor("rm-agent-2"));
 
         // Add both agents.
         await unitActor.AddMemberAsync(agent1, TestContext.Current.CancellationToken);

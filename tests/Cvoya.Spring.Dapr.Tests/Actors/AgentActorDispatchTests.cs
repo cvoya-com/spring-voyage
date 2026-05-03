@@ -70,7 +70,7 @@ public class AgentActorDispatchTests
 
         var host = ActorHost.CreateForTest<AgentActor>(new ActorTestOptions
         {
-            ActorId = new ActorId("test-agent")
+            ActorId = new ActorId(TestSlugIds.HexFor("test-agent"))
         });
 
         _membershipRepository
@@ -107,8 +107,8 @@ public class AgentActorDispatchTests
     {
         return new Message(
             Guid.NewGuid(),
-            Address.For("unit", "my-unit"),
-            Address.For("agent", "test-agent"),
+            Address.For("unit", TestSlugIds.HexFor("my-unit")),
+            Address.For("agent", TestSlugIds.HexFor("test-agent")),
             MessageType.Domain,
             threadId,
             JsonSerializer.SerializeToElement(new { task = "do-it" }),
@@ -142,7 +142,7 @@ public class AgentActorDispatchTests
         var message = CreateDomainMessage();
         var response = new Message(
             Guid.NewGuid(),
-            Address.For("agent", "test-agent"),
+            Address.For("agent", TestSlugIds.HexFor("test-agent")),
             message.From,
             MessageType.Domain,
             message.ThreadId,

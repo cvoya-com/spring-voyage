@@ -70,8 +70,8 @@ public class BridgeWireContractTests
     private static SvMessage BuildOriginalMessage() =>
         new(
             Id: Guid.NewGuid(),
-            From: Address.For("agent", "caller"),
-            To: Address.For("agent", "target"),
+            From: Address.For("agent", TestSlugIds.HexFor("caller")),
+            To: Address.For("agent", TestSlugIds.HexFor("target")),
             Type: MessageType.Domain,
             ThreadId: "thread-1",
             Payload: default,
