@@ -103,43 +103,13 @@ vi.mock("next/link", () => ({
   ),
 }));
 
-vi.mock("@/components/thread/role", () => ({
-  // Mirrors the real parseThreadSource — handles both navigation (scheme://path)
-  // and identity (scheme:id:<uuid>) forms (#1490).
-  parseThreadSource: (src: string) => {
-    const idIdx = src.indexOf(":id:");
-    if (idIdx > 0) {
-      const scheme = src.slice(0, idIdx).toLowerCase();
-      const path = src.slice(idIdx + 4);
-      if (path && !path.includes("/") && !path.includes(":")) {
-        return { raw: src, scheme, path, kind: "identity" };
-      }
-    }
-    const navIdx = src.indexOf("://");
-    if (navIdx > 0) {
-      return { raw: src, scheme: src.slice(0, navIdx).toLowerCase(), path: src.slice(navIdx + 3), kind: "navigation" };
-    }
-    return { raw: src, scheme: "system", path: src, kind: "navigation" };
-  },
-  roleFromEvent: (_src: string, eventType: string) => {
-    if (eventType === "DecisionMade") return "tool";
-    // Match both navigation (scheme://) and identity (scheme:id:) forms.
-    const scheme = _src.includes(":id:") ? _src.slice(0, _src.indexOf(":id:")).toLowerCase()
-      : _src.includes("://") ? _src.slice(0, _src.indexOf("://")).toLowerCase()
-      : "system";
-    if (scheme === "human") return "human";
-    if (scheme === "agent") return "agent";
-    if (scheme === "unit") return "unit";
-    return "system";
-  },
-  ROLE_STYLES: {
-    agent: { align: "start", label: "Agent", bubble: "bg-muted" },
-    human: { align: "end", label: "Human", bubble: "bg-primary/10" },
-    system: { align: "start", label: "System", bubble: "bg-muted" },
-    tool: { align: "start", label: "Tool", bubble: "bg-muted/60" },
-    error: { align: "start", label: "Error", bubble: "bg-destructive/10" },
-  },
-}));
+vi.mock("@/components/thread/role", async (importOriginal) => {
+  // Use the real role module — the inbox surface tests cover end-to-end
+  // rendering, and the hand-rolled stubs that lived here drifted from
+  // the real helpers when #1630 added addressOf / participantDisplayName
+  // and the UUID-shaped-path fallback rules.
+  return await importOriginal<typeof import("@/components/thread/role")>();
+});
 
 function Wrapper({ children }: { children: ReactNode }) {
   const client = new QueryClient({
@@ -451,8 +421,10 @@ describe("InboxPage — timeline/messages dropdown (#1482)", () => {
     await waitFor(() => {
       // MessageReceived event should be visible
       expect(screen.getByTestId("inbox-event-e-msg")).toBeInTheDocument();
-      // StateChanged event should be hidden under "Messages" filter
+      // StateChanged event renders as a card (#1630) and should be hidden
+      // under the "Messages" filter regardless of bubble vs card variant.
       expect(screen.queryByTestId("inbox-event-e-state")).toBeNull();
+      expect(screen.queryByTestId("inbox-event-card-e-state")).toBeNull();
     });
   });
 
@@ -500,7 +472,10 @@ describe("InboxPage — timeline/messages dropdown (#1482)", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("inbox-event-e-msg")).toBeInTheDocument();
-      expect(screen.getByTestId("inbox-event-e-state")).toBeInTheDocument();
+      // StateChanged surfaces as a click-to-expand card (#1630).
+      expect(
+        screen.getByTestId("inbox-event-card-e-state"),
+      ).toBeInTheDocument();
     });
   });
 });

@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  addressOf,
   isHumanAddress,
+  looksLikeUuid,
   parseThreadSource,
+  participantDisplayName,
   ROLE_STYLES,
   roleFromEvent,
 } from "./role";
@@ -128,5 +131,110 @@ describe("ROLE_STYLES", () => {
     expect(ROLE_STYLES.unit.align).toBe("start");
     expect(ROLE_STYLES.tool.align).toBe("start");
     expect(ROLE_STYLES.system.align).toBe("start");
+  });
+});
+
+// #1630
+describe("looksLikeUuid", () => {
+  it("returns true for dashed UUIDs", () => {
+    expect(looksLikeUuid("d4ce4258-ab40-4c10-be06-407cc5ec9139")).toBe(true);
+  });
+
+  it("returns true for undashed (32 hex char) UUIDs", () => {
+    expect(looksLikeUuid("d4ce4258ab404c10be06407cc5ec9139")).toBe(true);
+  });
+
+  it("returns false for plain names", () => {
+    expect(looksLikeUuid("ada")).toBe(false);
+    expect(looksLikeUuid("engineering-team/ada")).toBe(false);
+  });
+
+  it("returns false for empty input", () => {
+    expect(looksLikeUuid("")).toBe(false);
+  });
+
+  it("returns false for partially UUID-shaped strings", () => {
+    expect(looksLikeUuid("d4ce4258-ab40")).toBe(false);
+  });
+});
+
+// #1630
+describe("addressOf", () => {
+  it("returns the address from a ParticipantRef object", () => {
+    expect(addressOf({ address: "agent://ada", displayName: "ada" })).toBe(
+      "agent://ada",
+    );
+  });
+
+  it("returns plain string addresses unchanged", () => {
+    expect(addressOf("agent://ada")).toBe("agent://ada");
+  });
+
+  it("returns empty string for null / undefined", () => {
+    expect(addressOf(null)).toBe("");
+    expect(addressOf(undefined)).toBe("");
+  });
+
+  it("returns empty string when address field is missing", () => {
+    expect(addressOf({ displayName: "ada" })).toBe("");
+  });
+});
+
+// #1630 — the bug this issue tracks: identity-form addresses leaked
+// raw UUIDs into engagement-list titles and detail headers.
+describe("participantDisplayName", () => {
+  it("prefers the server-supplied displayName when present", () => {
+    expect(
+      participantDisplayName({
+        address: "agent://ada",
+        displayName: "Ada Lovelace",
+      }),
+    ).toBe("Ada Lovelace");
+  });
+
+  it("falls back to the address path for navigation-form non-human addresses", () => {
+    expect(participantDisplayName({ address: "agent://ada" })).toBe("ada");
+    expect(participantDisplayName("agent://ada")).toBe("ada");
+  });
+
+  it("returns null for human navigation-form addresses (path may be a UUID)", () => {
+    expect(participantDisplayName({ address: "human://savas" })).toBeNull();
+  });
+
+  it("returns null for identity-form agent addresses (path is a UUID)", () => {
+    const id = "d4ce4258-ab40-4c10-be06-407cc5ec9139";
+    expect(
+      participantDisplayName({ address: `agent:id:${id}` }),
+    ).toBeNull();
+  });
+
+  it("returns null for identity-form unit addresses (path is a UUID)", () => {
+    const id = "d4ce4258-ab40-4c10-be06-407cc5ec9139";
+    expect(
+      participantDisplayName({ address: `unit:id:${id}` }),
+    ).toBeNull();
+  });
+
+  it("falls back over a UUID-shaped displayName", () => {
+    const id = "d4ce4258-ab40-4c10-be06-407cc5ec9139";
+    expect(
+      participantDisplayName({
+        address: "agent://ada",
+        displayName: id,
+      }),
+    ).toBe("ada");
+  });
+
+  it("returns null for a UUID-shaped path on a non-human navigation address", () => {
+    const id = "d4ce4258-ab40-4c10-be06-407cc5ec9139";
+    expect(
+      participantDisplayName({ address: `agent://${id}` }),
+    ).toBeNull();
+  });
+
+  it("returns null for null / undefined / empty address", () => {
+    expect(participantDisplayName(null)).toBeNull();
+    expect(participantDisplayName(undefined)).toBeNull();
+    expect(participantDisplayName("")).toBeNull();
   });
 });

@@ -25,6 +25,10 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { useThread, useCurrentUser, useInbox } from "@/lib/api/queries";
+import {
+  addressOf,
+  participantDisplayName,
+} from "@/components/thread/role";
 import { EngagementTimeline } from "./engagement-timeline";
 import { EngagementComposer } from "./engagement-composer";
 
@@ -153,11 +157,7 @@ export function EngagementDetail({ threadId }: EngagementDetailProps) {
   const currentUserAddress = userQuery.data?.address;
   const isParticipant = useMemo(() => {
     if (!currentUserAddress) return false;
-     
-    return participants.some((p: any) => {
-      const addr = typeof p === "string" ? p : (p?.address ?? "");
-      return addr === currentUserAddress;
-    });
+    return participants.some((p) => addressOf(p) === currentUserAddress);
   }, [participants, currentUserAddress]);
 
   // Detect whether there's a pending question for this engagement in the inbox.
@@ -198,31 +198,22 @@ export function EngagementDetail({ threadId }: EngagementDetailProps) {
   }
 
   // Header label: display names of everyone except the current user.
-  // Falls back to all participants when self is unknown so the header is
-  // never blank. Handles both ParticipantRef objects (server v2) and
-  // plain address strings (server v1). #1502 Fix 1/4.
+  // For observers (user not in participant list) we show every name so
+  // the header is meaningful. Names that fail to resolve to anything
+  // human-readable are dropped quietly rather than leaked as raw GUIDs
+  // — the previous fallback emitted strings like "agent:id:<uuid>",
+  // which is the bug tracked in #1630.
   const headerNames = (() => {
-     
-    const getAddr = (p: any): string =>
-      typeof p === "string" ? p : (p?.address ?? "");
-     
-    const getName = (p: any): string | null => {
-      if (typeof p !== "string" && p?.displayName) return p.displayName;
-      const addr = getAddr(p);
-      const idx = addr.indexOf("://");
-      if (idx <= 0) return addr || null;
-      const scheme = addr.slice(0, idx).toLowerCase();
-      const path = addr.slice(idx + 3);
-      if (scheme === "human") return null; // don't show UUID-shaped human addresses
-      return path || null;
-    };
     const others = currentUserAddress
-       
-      ? participants.filter((p: any) => getAddr(p) !== currentUserAddress)
+      ? participants.filter((p) => addressOf(p) !== currentUserAddress)
       : participants;
     if (others.length === 0) return "Just you";
-    const names = others.map(getName).filter(Boolean) as string[];
-    return names.length > 0 ? names.join(" · ") : "Just you";
+    const names = others
+      .map((p) => participantDisplayName(p))
+      .filter(Boolean) as string[];
+    if (names.length > 0) return names.join(" · ");
+    // No name resolved — soft fallback rather than leak GUIDs.
+    return others.length === 1 ? "Unknown participant" : "Unknown participants";
   })();
 
   return (
@@ -263,17 +254,23 @@ export function EngagementDetail({ threadId }: EngagementDetailProps) {
           The wrapper is a flex column so ConversationView's `flex-1`
           outer div grows to fill the available height. Without that,
           the inner `overflow-y-auto` events list has no constrained
-          height and the timeline does not scroll (#1574 follow-up). */}
+          height and the timeline does not scroll (#1574 follow-up).
+
+          Layout fork (#1630): observers see a left-justified timeline
+          with non-message events as click-to-expand cards; participants
+          keep the chat-style dialog. */}
       <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
-        <EngagementTimeline threadId={threadId} />
+        <EngagementTimeline
+          threadId={threadId}
+          layout={isParticipant ? "dialog" : "timeline"}
+        />
       </div>
 
       {/* Composer — only for participants */}
       {isParticipant && (
         <EngagementComposer
           threadId={threadId}
-           
-          participants={participants.map((p: any) => (typeof p === "string" ? p : (p?.address ?? "")))}
+          participants={participants.map((p) => addressOf(p))}
           initialKind={composerKind}
           onKindChange={setComposerKind}
           onSendSuccess={() => setComposerKind("information")}

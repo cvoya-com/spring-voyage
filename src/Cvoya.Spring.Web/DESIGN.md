@@ -774,6 +774,12 @@ Do not use `text-voyage` / `--color-voyage` tokens for any management-portal sur
 
 **Card shape.** `rounded-lg border border-border bg-card`, `hover:border-primary/40`, whole-card `<Link>` to `/engagement/<id>`. Inactive engagements fade via opacity class (`opacity-80` for 1–7 d old, `opacity-50` for > 7 d). The `data-role` icon signals the type: `MessagesSquare` (text-voyage) for participated threads, `Eye` (muted) for A2A-only threads.
 
+**Card title — participant names, never UUIDs (#1630).** The title renders the comma-joined display names of every participant *except the active user*. For engagements where the user is an *observer* (not in the participant list), every participant name appears. Names are resolved via the shared `participantDisplayName()` helper (`src/components/thread/role.ts`), which:
+- prefers the server-supplied `displayName` when present and not UUID-shaped;
+- falls back to the path segment of `scheme://path` navigation-form addresses for non-human schemes;
+- returns `null` for identity-form `scheme:id:<uuid>` addresses (the path is a meaningless GUID) and for human navigation-form addresses (the path may itself be a UUID).
+When every name fails to resolve, the title shows the soft fallback `Unknown participant` / `Unknown participants` rather than leaking a GUID into the UI.
+
 **Status badges on cards:**
 - Pending question: `<Badge variant="warning">Question</Badge>` + `MessageCircleQuestion` icon in `text-warning`. Sourced from `useInbox()` cross-matched by `threadId`.
 - A2A-only: `<Badge variant="secondary">A2A</Badge>`.
@@ -785,15 +791,54 @@ Do not use `text-voyage` / `--color-voyage` tokens for any management-portal sur
 
 `src/components/engagement/engagement-detail.tsx` is the client-side detail shell. Three regions stacked vertically:
 
-1. **Participants header** (border-b, px-4 py-2 text-xs): participant addresses in font-mono, status badge, `Observer` secondary badge when the human is not a participant.
+1. **Participants header** (border-b, px-4 py-2 text-xs): participant display names joined with `·`, status badge, `Observer` secondary badge when the human is not a participant. Same name-resolution rules as the engagement list (§16.5) — never a raw GUID.
 2. **Observe banner** (when not a participant): `rounded-md border border-primary/40 bg-primary/10`, `role="status"`, `Eye` icon in `text-primary`. Copy: "You are observing this engagement — not a participant. The Timeline is read-only…".
 3. **Question CTA** (E2.6 — when inbox has a pending question for this thread AND the user is a participant): `rounded-md border border-warning/50 bg-warning/10`, `role="alert"`, `MessageCircleQuestion` in `text-warning`. Includes an outline `<Button>` "Answer this question" that switches the composer to `kind=answer` mode.
-4. **Timeline** (`EngagementTimeline`): scrollable event list; stream-status indicator (Wifi icon `text-success` / WifiOff). Uses `useThreadStream(threadId)` which opens `/api/stream/activity?thread=<id>` for server-filtered SSE.
+4. **Timeline** (`EngagementTimeline`): scrollable event list; stream-status indicator (Wifi icon `text-success` / WifiOff). Uses `useThreadStream(threadId)` which opens `/api/stream/activity?thread=<id>` for server-filtered SSE. The timeline carries a `layout` prop forked by viewer role — see §16.6.1.
 5. **Composer** (`EngagementComposer`, participant-only): two modes:
    - `information` (default): normal border, "Send" button.
    - `answer`: `border-warning/40 bg-warning/5` form, badge `<Badge variant="warning">answer</Badge>`, "Send answer" button in warning colour, "Switch to regular message instead" dismiss link. The mode activates from the CTA or `initialKind` prop.
 
 **Thread-scoped SSE.** `src/lib/stream/use-thread-stream.ts` opens `EventSource` at `/api/stream/activity?thread=<id>` (proxied by the Next.js route handler which passes all query params through to the platform's `GET /api/v1/tenant/activity/stream`). On each event the hook invalidates `queryKeys.threads.detail(id)`, `queryKeys.threads.all`, and `queryKeys.threads.inbox()`.
+
+#### 16.6.1 Timeline layout — `dialog` vs `timeline` (#1630)
+
+`<EngagementTimeline>` accepts a `layout` prop with two values:
+
+- **`dialog`** (default — passed when the active user is a participant). Chat-style bubbles aligned by sender role: human → right (`bg-primary text-primary-foreground`), every other role → left (`bg-muted`). Tool calls and lifecycle events render as collapsible call-outs inside the same bubble column. This metaphor reads as a conversation with the user on one side and the agents/units on the other.
+- **`timeline`** (passed when the active user is an *observer*). All rows are left-justified — there is no "self" axis to mirror against — and chronologically ordered. Non-message events render as compact `<ThreadEventCard>`s (§16.6.2) instead of bubbles. Message events still render through `<ThreadEventRow>` but with `align="start"` forced, wrapped in a `data-layout="timeline-row"` flex container so the dialog metaphor doesn't leak in. The default filter is `Full timeline` (rather than `Messages`) because observers come to the engagement to *watch* — hiding the lifecycle is an active workflow, not the entry point.
+
+The fork happens in `engagement-detail.tsx`: `<EngagementTimeline layout={isParticipant ? "dialog" : "timeline"} />`. Both modes share the same `<ConversationView>` primitive (`src/components/conversation/conversation-view.tsx`); the layout switch is a single prop on `ConversationView` (`layout: ConversationLayout`).
+
+#### 16.6.2 `<ThreadEventCard>` — generic-event card pattern
+
+`src/components/thread/thread-event-card.tsx`. The compact, click-to-expand alternative to the chat-style bubble for any thread event that isn't a message. Used by:
+
+1. The observer-view timeline (`layout="timeline"`) for every non-message event.
+2. The participant-view dialog (`layout="dialog"`) as a fallback for `MessageReceived` events that arrived without a body — the bubble path would otherwise leak the platform's "Received Domain message `<uuid>` from `<address>`" envelope summary.
+
+**Compact state** (default).
+- Container: `rounded-md border px-3 py-2 text-sm shadow-sm`.
+- Tone token from a four-row table keyed by event type (`neutral` / `info` / `warning` / `destructive`); severity `Error` and `Warning` escalate the tone regardless of event type.
+- Layout: chevron + lucide icon (`Cog` / `MessageSquare` / `Wrench` / `ListTree` / `AlertTriangle`) + outline badge with the friendly label + source displayName + 24h-format timestamp + a one-line summary.
+- Friendly summary: prefers `event.body`, then a sanitised `event.summary` (the "Received Domain message `<uuid>` from `<address>`" template is stripped — never display the GUID-bearing template), then the per-type label.
+
+**Expanded state** (after click). The compact-state header stays put; below it appears a `bg-background/60 border-border/60 rounded font-mono text-[11px] text-muted-foreground` panel exposing `id`, `type`, `source`, optional `from`, `severity`, and full `summary`. This is where the raw addresses (including `agent:id:<uuid>` identity form) and event ids surface — strictly opt-in.
+
+**Event-type → label map** (kept as a single registry inside `thread-event-card.tsx`, extend rather than fork):
+
+| Event type | Label | Icon | Tone |
+|---|---|---|---|
+| `MessageReceived` / `MessageSent` | Message | `MessageSquare` | info |
+| `ThreadStarted` | Engagement started | `ListTree` | neutral |
+| `ThreadCompleted` | Engagement completed | `ListTree` | neutral |
+| `DecisionMade` | Tool call | `Wrench` | warning |
+| `StateChanged` / `WorkflowStepCompleted` / `ReflectionCompleted` | State changed / Workflow step / Reflection | `Cog` | neutral |
+| `CostIncurred` / `TokenDelta` / `ValidationProgress` | Cost / Token usage / Validation | `Cog` | neutral |
+| `InitiativeTriggered` | Initiative | `ListTree` | neutral |
+| `ErrorOccurred` | Error | `AlertTriangle` | destructive |
+
+Anything not in the table falls back to the raw event-type string and the `ListTree` icon.
 
 ### 16.7 Global inbox badge (E2.6)
 
