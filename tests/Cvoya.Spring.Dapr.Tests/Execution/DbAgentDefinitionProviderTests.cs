@@ -26,8 +26,7 @@ public class DbAgentDefinitionProviderTests
         var entity = new AgentDefinitionEntity
         {
             Id = Guid.NewGuid(),
-            AgentId = "ada",
-            Name = "Ada",
+            DisplayName = "Ada",
             Definition = JsonSerializer.SerializeToElement(new
             {
                 instructions = "Be careful.",
@@ -50,8 +49,7 @@ public class DbAgentDefinitionProviderTests
         var entity = new AgentDefinitionEntity
         {
             Id = Guid.NewGuid(),
-            AgentId = "ada",
-            Name = "Ada",
+            DisplayName = "Ada",
             Definition = JsonSerializer.SerializeToElement(new
             {
                 ai = new
@@ -75,8 +73,7 @@ public class DbAgentDefinitionProviderTests
         var entity = new AgentDefinitionEntity
         {
             Id = Guid.NewGuid(),
-            AgentId = "ada",
-            Name = "Ada",
+            DisplayName = "Ada",
             Definition = JsonSerializer.SerializeToElement(new { instructions = "do things" })
         };
 
@@ -89,17 +86,17 @@ public class DbAgentDefinitionProviderTests
     [Fact]
     public void Project_NullDefinition_ReturnsEmptyDefinition()
     {
+        var entityId = Guid.NewGuid();
         var entity = new AgentDefinitionEntity
         {
-            Id = Guid.NewGuid(),
-            AgentId = "ada",
-            Name = "Ada",
+            Id = entityId,
+            DisplayName = "Ada",
             Definition = null
         };
 
         var def = DbAgentDefinitionProvider.Project(entity);
 
-        def.AgentId.ShouldBe("ada");
+        def.AgentId.ShouldBe(entityId.ToString("N"));
         def.Name.ShouldBe("Ada");
         def.Instructions.ShouldBeNull();
         def.Execution.ShouldBeNull();
@@ -111,8 +108,7 @@ public class DbAgentDefinitionProviderTests
         var entity = new AgentDefinitionEntity
         {
             Id = Guid.NewGuid(),
-            AgentId = "ada",
-            Name = "Ada",
+            DisplayName = "Ada",
             Definition = JsonSerializer.SerializeToElement(new
             {
                 execution = new { tool = "claude-code", image = "spring-agent:latest", hosting = "persistent" }
@@ -131,8 +127,7 @@ public class DbAgentDefinitionProviderTests
         var entity = new AgentDefinitionEntity
         {
             Id = Guid.NewGuid(),
-            AgentId = "ada",
-            Name = "Ada",
+            DisplayName = "Ada",
             Definition = JsonSerializer.SerializeToElement(new
             {
                 execution = new { tool = "claude-code", image = "spring-agent:latest" }
@@ -155,8 +150,7 @@ public class DbAgentDefinitionProviderTests
         var entity = new AgentDefinitionEntity
         {
             Id = Guid.NewGuid(),
-            AgentId = "ada",
-            Name = "Ada",
+            DisplayName = "Ada",
             Definition = JsonSerializer.SerializeToElement(new
             {
                 execution = new { tool = "claude-code", image = "spring-agent:latest", hosting = "pooled" }
@@ -178,8 +172,7 @@ public class DbAgentDefinitionProviderTests
         var entity = new AgentDefinitionEntity
         {
             Id = Guid.NewGuid(),
-            AgentId = "ada",
-            Name = "Ada",
+            DisplayName = "Ada",
             Definition = JsonSerializer.SerializeToElement(new
             {
                 execution = new
@@ -205,8 +198,7 @@ public class DbAgentDefinitionProviderTests
         var entity = new AgentDefinitionEntity
         {
             Id = Guid.NewGuid(),
-            AgentId = "ada",
-            Name = "Ada",
+            DisplayName = "Ada",
             Definition = JsonSerializer.SerializeToElement(new
             {
                 execution = new { tool = "dapr-agent", image = "localhost/spring-voyage-agent-dapr:latest" }
@@ -226,8 +218,7 @@ public class DbAgentDefinitionProviderTests
         var entity = new AgentDefinitionEntity
         {
             Id = Guid.NewGuid(),
-            AgentId = "ada",
-            Name = "Ada",
+            DisplayName = "Ada",
             Definition = JsonSerializer.SerializeToElement(new
             {
                 execution = new { tool = "custom", hosting = "persistent" }

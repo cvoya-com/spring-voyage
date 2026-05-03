@@ -4,6 +4,7 @@
 namespace Cvoya.Spring.Dapr.Tests.Auth;
 
 using Cvoya.Spring.Core.Directory;
+using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Units;
 using Cvoya.Spring.Dapr.Actors;
@@ -27,24 +28,28 @@ using Xunit;
 /// plus the hierarchy-aware resolver introduced in #414
 /// (<see cref="IPermissionService.ResolveEffectivePermissionAsync"/>).
 ///
-/// The tests pass UUID strings as the humanId parameter. When no
-/// <c>IHumanIdentityResolver</c> is registered, <c>PermissionService</c>
-/// falls back to parsing the string directly as a UUID — this is the
-/// documented legacy-test-harness path.
+/// Post #1629: every unit/agent identifier is a Guid, so the test fixture
+/// declares named Guid constants per logical role and threads them through
+/// the directory stub.
 /// </summary>
 public class PermissionServiceTests
 {
-    // Stable UUID-form humanId used across tests. The no-resolver fallback
-    // path parses this string directly; using a real UUID ensures that path
-    // reaches the actor proxy instead of short-circuiting on Guid.Empty.
-    private const string HumanId = "aaaaaaaa-bbbb-cccc-dddd-000000000001";
-    private static readonly Guid HumanGuid = new(HumanId);
+    private const string HumanIdString = "aaaaaaaa-bbbb-cccc-dddd-000000000001";
+    private static readonly Guid HumanGuid = new(HumanIdString);
+
+    // Stable Guids for each logical unit role used across the suite. Tests
+    // pass the no-dash hex form to the service (matches the route shape).
+    private static readonly Guid UnitChildId = new("c0c0c0c0-0000-0000-0000-000000000001");
+    private static readonly Guid UnitParentId = new("c0c0c0c0-0000-0000-0000-000000000002");
+    private static readonly Guid UnitGrandchildId = new("c0c0c0c0-0000-0000-0000-000000000003");
+    private static readonly Guid UnitRootId = new("c0c0c0c0-0000-0000-0000-000000000004");
+    private static readonly Guid UnitOneId = new("c0c0c0c0-0000-0000-0000-000000000010");
 
     private readonly IActorProxyFactory _actorProxyFactory = Substitute.For<IActorProxyFactory>();
     private readonly IUnitHierarchyResolver _hierarchyResolver = Substitute.For<IUnitHierarchyResolver>();
     private readonly IDirectoryService _directoryService = Substitute.For<IDirectoryService>();
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
-    private readonly Dictionary<string, IUnitActor> _actors = new();
+    private readonly Dictionary<Guid, IUnitActor> _actors = new();
     private readonly PermissionService _service;
 
     public PermissionServiceTests()
@@ -55,8 +60,8 @@ public class PermissionServiceTests
             .CreateActorProxy<IUnitActor>(Arg.Any<ActorId>(), nameof(UnitActor))
             .Returns(ci =>
             {
-                var id = ci.ArgAt<ActorId>(0).GetId();
-                return Unit(id);
+                var idStr = ci.ArgAt<ActorId>(0).GetId();
+                return Guid.TryParse(idStr, out var g) ? Unit(g) : Unit(Guid.Empty);
             });
 
         // Default: no parents (every unit is a root) and every unit inherits.
@@ -64,18 +69,16 @@ public class PermissionServiceTests
             .Returns(Array.Empty<Address>());
 
         // The directory resolution step added for #976 maps the route-level
-        // unit id to its Dapr actor id. In production the two differ (the
-        // actor id is a Guid minted at creation time) but the substitute
-        // keeps them identical so existing assertions that key actors by
-        // the unit name continue to work unchanged — the point under test
-        // is the hierarchy + inheritance logic, not the id mapping itself.
+        // unit id to its Dapr actor id. With Guid identity the two are now
+        // the same value; the substitute returns address.Id so existing
+        // assertions that key actors by the unit id continue to work.
         _directoryService.ResolveAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
             .Returns(ci =>
             {
                 var address = ci.ArgAt<Address>(0);
                 return Task.FromResult<DirectoryEntry?>(new DirectoryEntry(
                     address,
-                    address.Path,
+                    address.Id,
                     address.Path,
                     string.Empty,
                     null,
@@ -86,7 +89,7 @@ public class PermissionServiceTests
             _actorProxyFactory, _hierarchyResolver, _directoryService, _loggerFactory);
     }
 
-    private IUnitActor Unit(string id)
+    private IUnitActor Unit(Guid id)
     {
         if (!_actors.TryGetValue(id, out var actor))
         {
@@ -100,13 +103,15 @@ public class PermissionServiceTests
         return actor;
     }
 
+    private static string Id(Guid g) => g.ToString("N");
+
     [Fact]
     public async Task ResolvePermissionAsync_UnitHasPermission_ReturnsPermissionLevel()
     {
         var ct = TestContext.Current.CancellationToken;
-        Unit("unit-1").GetHumanPermissionAsync(HumanGuid, ct).Returns(PermissionLevel.Operator);
+        Unit(UnitOneId).GetHumanPermissionAsync(HumanGuid, ct).Returns(PermissionLevel.Operator);
 
-        var result = await _service.ResolvePermissionAsync(HumanId, "unit-1", ct);
+        var result = await _service.ResolvePermissionAsync(HumanIdString, Id(UnitOneId), ct);
 
         result.ShouldBe(PermissionLevel.Operator);
     }
@@ -115,9 +120,9 @@ public class PermissionServiceTests
     public async Task ResolvePermissionAsync_UnitHasNoPermission_ReturnsNull()
     {
         var ct = TestContext.Current.CancellationToken;
-        _ = Unit("unit-1");
+        _ = Unit(UnitOneId);
 
-        var result = await _service.ResolvePermissionAsync(HumanId, "unit-1", ct);
+        var result = await _service.ResolvePermissionAsync(HumanIdString, Id(UnitOneId), ct);
 
         result.ShouldBeNull();
     }
@@ -126,10 +131,10 @@ public class PermissionServiceTests
     public async Task ResolvePermissionAsync_ActorThrowsException_ReturnsNull()
     {
         var ct = TestContext.Current.CancellationToken;
-        Unit("unit-1").GetHumanPermissionAsync(HumanGuid, ct)
+        Unit(UnitOneId).GetHumanPermissionAsync(HumanGuid, ct)
             .ThrowsAsync(new InvalidOperationException("Actor unavailable"));
 
-        var result = await _service.ResolvePermissionAsync(HumanId, "unit-1", ct);
+        var result = await _service.ResolvePermissionAsync(HumanIdString, Id(UnitOneId), ct);
 
         result.ShouldBeNull();
     }
@@ -138,12 +143,11 @@ public class PermissionServiceTests
     public async Task ResolveEffectivePermissionAsync_DirectGrant_ReturnsDirect()
     {
         var ct = TestContext.Current.CancellationToken;
-        Unit("child").GetHumanPermissionAsync(HumanGuid, ct).Returns(PermissionLevel.Viewer);
+        Unit(UnitChildId).GetHumanPermissionAsync(HumanGuid, ct).Returns(PermissionLevel.Viewer);
 
-        var result = await _service.ResolveEffectivePermissionAsync(HumanId, "child", ct);
+        var result = await _service.ResolveEffectivePermissionAsync(HumanIdString, Id(UnitChildId), ct);
 
         result.ShouldBe(PermissionLevel.Viewer);
-        // No hierarchy walk needed when a direct grant is present.
         await _hierarchyResolver.DidNotReceive().GetParentsAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>());
     }
 
@@ -151,13 +155,13 @@ public class PermissionServiceTests
     public async Task ResolveEffectivePermissionAsync_ParentGrantsOperator_ChildInheritsOperator()
     {
         var ct = TestContext.Current.CancellationToken;
-        _ = Unit("child");
-        Unit("parent").GetHumanPermissionAsync(HumanGuid, ct).Returns(PermissionLevel.Operator);
+        _ = Unit(UnitChildId);
+        Unit(UnitParentId).GetHumanPermissionAsync(HumanGuid, ct).Returns(PermissionLevel.Operator);
 
-        _hierarchyResolver.GetParentsAsync(Address.For("unit", "child"), Arg.Any<CancellationToken>())
-            .Returns(new Address[] { new("unit", "parent") });
+        _hierarchyResolver.GetParentsAsync(new Address("unit", UnitChildId), Arg.Any<CancellationToken>())
+            .Returns(new Address[] { new("unit", UnitParentId) });
 
-        var result = await _service.ResolveEffectivePermissionAsync(HumanId, "child", ct);
+        var result = await _service.ResolveEffectivePermissionAsync(HumanIdString, Id(UnitChildId), ct);
 
         result.ShouldBe(PermissionLevel.Operator);
     }
@@ -166,11 +170,10 @@ public class PermissionServiceTests
     public async Task ResolveEffectivePermissionAsync_ExplicitChildDowngrade_OverridesAncestorGrant()
     {
         var ct = TestContext.Current.CancellationToken;
-        // Child directly grants Viewer; parent grants Owner. Direct wins.
-        Unit("child").GetHumanPermissionAsync(HumanGuid, ct).Returns(PermissionLevel.Viewer);
-        Unit("parent").GetHumanPermissionAsync(HumanGuid, ct).Returns(PermissionLevel.Owner);
+        Unit(UnitChildId).GetHumanPermissionAsync(HumanGuid, ct).Returns(PermissionLevel.Viewer);
+        Unit(UnitParentId).GetHumanPermissionAsync(HumanGuid, ct).Returns(PermissionLevel.Owner);
 
-        var result = await _service.ResolveEffectivePermissionAsync(HumanId, "child", ct);
+        var result = await _service.ResolveEffectivePermissionAsync(HumanIdString, Id(UnitChildId), ct);
 
         result.ShouldBe(PermissionLevel.Viewer);
     }
@@ -179,11 +182,9 @@ public class PermissionServiceTests
     public async Task ResolveEffectivePermissionAsync_ChildOnlyGrant_DoesNotPromoteOnParent()
     {
         var ct = TestContext.Current.CancellationToken;
-        // A grant on the child unit must not cause the permission service
-        // to treat the human as having any permission on the parent.
-        Unit("child").GetHumanPermissionAsync(HumanGuid, ct).Returns(PermissionLevel.Owner);
+        Unit(UnitChildId).GetHumanPermissionAsync(HumanGuid, ct).Returns(PermissionLevel.Owner);
 
-        var result = await _service.ResolveEffectivePermissionAsync(HumanId, "parent", ct);
+        var result = await _service.ResolveEffectivePermissionAsync(HumanIdString, Id(UnitParentId), ct);
 
         result.ShouldBeNull();
     }
@@ -192,15 +193,15 @@ public class PermissionServiceTests
     public async Task ResolveEffectivePermissionAsync_IsolatedChild_DoesNotInheritFromAncestor()
     {
         var ct = TestContext.Current.CancellationToken;
-        _ = Unit("child");
-        Unit("child").GetPermissionInheritanceAsync(Arg.Any<CancellationToken>())
+        _ = Unit(UnitChildId);
+        Unit(UnitChildId).GetPermissionInheritanceAsync(Arg.Any<CancellationToken>())
             .Returns(UnitPermissionInheritance.Isolated);
-        Unit("parent").GetHumanPermissionAsync(HumanGuid, ct).Returns(PermissionLevel.Owner);
+        Unit(UnitParentId).GetHumanPermissionAsync(HumanGuid, ct).Returns(PermissionLevel.Owner);
 
-        _hierarchyResolver.GetParentsAsync(Address.For("unit", "child"), Arg.Any<CancellationToken>())
-            .Returns(new Address[] { new("unit", "parent") });
+        _hierarchyResolver.GetParentsAsync(new Address("unit", UnitChildId), Arg.Any<CancellationToken>())
+            .Returns(new Address[] { new("unit", UnitParentId) });
 
-        var result = await _service.ResolveEffectivePermissionAsync(HumanId, "child", ct);
+        var result = await _service.ResolveEffectivePermissionAsync(HumanIdString, Id(UnitChildId), ct);
 
         result.ShouldBeNull();
     }
@@ -209,9 +210,9 @@ public class PermissionServiceTests
     public async Task ResolveEffectivePermissionAsync_NoParent_ReturnsNull()
     {
         var ct = TestContext.Current.CancellationToken;
-        _ = Unit("child");
+        _ = Unit(UnitChildId);
 
-        var result = await _service.ResolveEffectivePermissionAsync(HumanId, "child", ct);
+        var result = await _service.ResolveEffectivePermissionAsync(HumanIdString, Id(UnitChildId), ct);
 
         result.ShouldBeNull();
     }
@@ -220,16 +221,16 @@ public class PermissionServiceTests
     public async Task ResolveEffectivePermissionAsync_GrandparentGrants_GrandchildInherits()
     {
         var ct = TestContext.Current.CancellationToken;
-        _ = Unit("grandchild");
-        _ = Unit("child");
-        Unit("root").GetHumanPermissionAsync(HumanGuid, ct).Returns(PermissionLevel.Owner);
+        _ = Unit(UnitGrandchildId);
+        _ = Unit(UnitChildId);
+        Unit(UnitRootId).GetHumanPermissionAsync(HumanGuid, ct).Returns(PermissionLevel.Owner);
 
-        _hierarchyResolver.GetParentsAsync(Address.For("unit", "grandchild"), Arg.Any<CancellationToken>())
-            .Returns(new Address[] { new("unit", "child") });
-        _hierarchyResolver.GetParentsAsync(Address.For("unit", "child"), Arg.Any<CancellationToken>())
-            .Returns(new Address[] { new("unit", "root") });
+        _hierarchyResolver.GetParentsAsync(new Address("unit", UnitGrandchildId), Arg.Any<CancellationToken>())
+            .Returns(new Address[] { new("unit", UnitChildId) });
+        _hierarchyResolver.GetParentsAsync(new Address("unit", UnitChildId), Arg.Any<CancellationToken>())
+            .Returns(new Address[] { new("unit", UnitRootId) });
 
-        var result = await _service.ResolveEffectivePermissionAsync(HumanId, "grandchild", ct);
+        var result = await _service.ResolveEffectivePermissionAsync(HumanIdString, Id(UnitGrandchildId), ct);
 
         result.ShouldBe(PermissionLevel.Owner);
     }
@@ -238,19 +239,17 @@ public class PermissionServiceTests
     public async Task ResolveEffectivePermissionAsync_IntermediateIsolated_BlocksGrandparent()
     {
         var ct = TestContext.Current.CancellationToken;
-        // grandchild -> child (isolated) -> root (owner). The isolated
-        // intermediate unit blocks the root's authority from flowing down.
-        _ = Unit("grandchild");
-        Unit("child").GetPermissionInheritanceAsync(Arg.Any<CancellationToken>())
+        _ = Unit(UnitGrandchildId);
+        Unit(UnitChildId).GetPermissionInheritanceAsync(Arg.Any<CancellationToken>())
             .Returns(UnitPermissionInheritance.Isolated);
-        Unit("root").GetHumanPermissionAsync(HumanGuid, ct).Returns(PermissionLevel.Owner);
+        Unit(UnitRootId).GetHumanPermissionAsync(HumanGuid, ct).Returns(PermissionLevel.Owner);
 
-        _hierarchyResolver.GetParentsAsync(Address.For("unit", "grandchild"), Arg.Any<CancellationToken>())
-            .Returns(new Address[] { new("unit", "child") });
-        _hierarchyResolver.GetParentsAsync(Address.For("unit", "child"), Arg.Any<CancellationToken>())
-            .Returns(new Address[] { new("unit", "root") });
+        _hierarchyResolver.GetParentsAsync(new Address("unit", UnitGrandchildId), Arg.Any<CancellationToken>())
+            .Returns(new Address[] { new("unit", UnitChildId) });
+        _hierarchyResolver.GetParentsAsync(new Address("unit", UnitChildId), Arg.Any<CancellationToken>())
+            .Returns(new Address[] { new("unit", UnitRootId) });
 
-        var result = await _service.ResolveEffectivePermissionAsync(HumanId, "grandchild", ct);
+        var result = await _service.ResolveEffectivePermissionAsync(HumanIdString, Id(UnitGrandchildId), ct);
 
         result.ShouldBeNull();
     }
@@ -259,18 +258,16 @@ public class PermissionServiceTests
     public async Task ResolveEffectivePermissionAsync_NearestGrantWins()
     {
         var ct = TestContext.Current.CancellationToken;
-        // grandchild -> child (grants Viewer) -> root (grants Owner).
-        // The nearest grant wins: Viewer, not Owner.
-        _ = Unit("grandchild");
-        Unit("child").GetHumanPermissionAsync(HumanGuid, ct).Returns(PermissionLevel.Viewer);
-        Unit("root").GetHumanPermissionAsync(HumanGuid, ct).Returns(PermissionLevel.Owner);
+        _ = Unit(UnitGrandchildId);
+        Unit(UnitChildId).GetHumanPermissionAsync(HumanGuid, ct).Returns(PermissionLevel.Viewer);
+        Unit(UnitRootId).GetHumanPermissionAsync(HumanGuid, ct).Returns(PermissionLevel.Owner);
 
-        _hierarchyResolver.GetParentsAsync(Address.For("unit", "grandchild"), Arg.Any<CancellationToken>())
-            .Returns(new Address[] { new("unit", "child") });
-        _hierarchyResolver.GetParentsAsync(Address.For("unit", "child"), Arg.Any<CancellationToken>())
-            .Returns(new Address[] { new("unit", "root") });
+        _hierarchyResolver.GetParentsAsync(new Address("unit", UnitGrandchildId), Arg.Any<CancellationToken>())
+            .Returns(new Address[] { new("unit", UnitChildId) });
+        _hierarchyResolver.GetParentsAsync(new Address("unit", UnitChildId), Arg.Any<CancellationToken>())
+            .Returns(new Address[] { new("unit", UnitRootId) });
 
-        var result = await _service.ResolveEffectivePermissionAsync(HumanId, "grandchild", ct);
+        var result = await _service.ResolveEffectivePermissionAsync(HumanIdString, Id(UnitGrandchildId), ct);
 
         result.ShouldBe(PermissionLevel.Viewer);
     }
@@ -279,18 +276,15 @@ public class PermissionServiceTests
     public async Task ResolveEffectivePermissionAsync_InheritanceReadFailure_BlocksAncestorWalk()
     {
         var ct = TestContext.Current.CancellationToken;
-        // If the platform cannot confirm the inheritance flag on the child,
-        // it must fail closed and block ancestor authority rather than
-        // silently granting. Confused-deputy defence.
-        _ = Unit("child");
-        Unit("child").GetPermissionInheritanceAsync(Arg.Any<CancellationToken>())
+        _ = Unit(UnitChildId);
+        Unit(UnitChildId).GetPermissionInheritanceAsync(Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("state store down"));
-        Unit("parent").GetHumanPermissionAsync(HumanGuid, ct).Returns(PermissionLevel.Owner);
+        Unit(UnitParentId).GetHumanPermissionAsync(HumanGuid, ct).Returns(PermissionLevel.Owner);
 
-        _hierarchyResolver.GetParentsAsync(Address.For("unit", "child"), Arg.Any<CancellationToken>())
-            .Returns(new Address[] { new("unit", "parent") });
+        _hierarchyResolver.GetParentsAsync(new Address("unit", UnitChildId), Arg.Any<CancellationToken>())
+            .Returns(new Address[] { new("unit", UnitParentId) });
 
-        var result = await _service.ResolveEffectivePermissionAsync(HumanId, "child", ct);
+        var result = await _service.ResolveEffectivePermissionAsync(HumanIdString, Id(UnitChildId), ct);
 
         result.ShouldBeNull();
     }
@@ -300,7 +294,7 @@ public class PermissionServiceTests
     {
         var ct = TestContext.Current.CancellationToken;
 
-        (await _service.ResolveEffectivePermissionAsync("", "u", ct)).ShouldBeNull();
+        (await _service.ResolveEffectivePermissionAsync("", Id(UnitOneId), ct)).ShouldBeNull();
         // "h" is not a valid UUID string — falls back to Guid.Empty → null.
         (await _service.ResolveEffectivePermissionAsync("h", "", ct)).ShouldBeNull();
     }
@@ -309,59 +303,12 @@ public class PermissionServiceTests
     public async Task ResolveEffectivePermissionAsync_DirectReadThrows_ReturnsNull()
     {
         var ct = TestContext.Current.CancellationToken;
-        Unit("child").GetHumanPermissionAsync(HumanGuid, ct)
+        Unit(UnitChildId).GetHumanPermissionAsync(HumanGuid, ct)
             .ThrowsAsync(new InvalidOperationException("boom"));
 
-        var result = await _service.ResolveEffectivePermissionAsync(HumanId, "child", ct);
+        var result = await _service.ResolveEffectivePermissionAsync(HumanIdString, Id(UnitChildId), ct);
 
         result.ShouldBeNull();
-    }
-
-    [Fact]
-    public async Task ResolveEffectivePermissionAsync_ResolvesRouteIdToActorIdBeforeProxy()
-    {
-        // #976: the route `{id}` is the unit name, but the actor is keyed
-        // under a Guid. The permission service must resolve the directory
-        // entry first so it reads the authoritative permission state; if
-        // it addresses the proxy by the route id directly it hits a
-        // freshly activated actor with an empty permission map and every
-        // `/humans/*` call 403s.
-        var ct = TestContext.Current.CancellationToken;
-        const string RouteId = "my-unit";
-        const string ActorId = "11111111-2222-3333-4444-555555555555";
-
-        var actor = Substitute.For<IUnitActor>();
-        actor.GetHumanPermissionAsync(HumanGuid, Arg.Any<CancellationToken>())
-            .Returns(PermissionLevel.Owner);
-
-        var directory = Substitute.For<IDirectoryService>();
-        directory.ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "unit" && a.Path == RouteId),
-                Arg.Any<CancellationToken>())
-            .Returns(new DirectoryEntry(
-                new Address("unit", RouteId),
-                ActorId,
-                RouteId,
-                string.Empty,
-                null,
-                DateTimeOffset.UtcNow));
-
-        var proxyFactory = Substitute.For<IActorProxyFactory>();
-        proxyFactory.CreateActorProxy<IUnitActor>(
-                Arg.Is<ActorId>(a => a.GetId() == ActorId), nameof(UnitActor))
-            .Returns(actor);
-
-        var service = new PermissionService(
-            proxyFactory, _hierarchyResolver, directory, _loggerFactory);
-
-        var result = await service.ResolveEffectivePermissionAsync(HumanId, RouteId, ct);
-
-        result.ShouldBe(PermissionLevel.Owner);
-
-        // Crucially the service must NOT address the proxy by the raw
-        // route id; doing so reads a different (empty) actor instance.
-        proxyFactory.DidNotReceive().CreateActorProxy<IUnitActor>(
-            Arg.Is<ActorId>(a => a.GetId() == RouteId), nameof(UnitActor));
     }
 
     [Fact]
@@ -369,8 +316,7 @@ public class PermissionServiceTests
     {
         // A stale / unknown unit id must surface as "no permission" rather
         // than silently spinning up an empty actor that reports null either
-        // way. The behaviour needs to be explicit so callers' 403s remain
-        // stable if the directory loses a row.
+        // way.
         var ct = TestContext.Current.CancellationToken;
 
         var directory = Substitute.For<IDirectoryService>();
@@ -380,48 +326,8 @@ public class PermissionServiceTests
         var service = new PermissionService(
             _actorProxyFactory, _hierarchyResolver, directory, _loggerFactory);
 
-        var result = await service.ResolveEffectivePermissionAsync(HumanId, "ghost-unit", ct);
+        var result = await service.ResolveEffectivePermissionAsync(HumanIdString, Id(Guid.NewGuid()), ct);
 
         result.ShouldBeNull();
-    }
-
-    [Fact]
-    public async Task ResolvePermissionAsync_ResolvesRouteIdToActorIdBeforeProxy()
-    {
-        // Mirror of the effective-permission regression — the direct
-        // resolver must also consult the directory so callers that use
-        // `ResolvePermissionAsync` (e.g. unit-editor surfaces) read the
-        // authoritative permission state instead of an empty actor.
-        var ct = TestContext.Current.CancellationToken;
-        const string RouteId = "unit-direct";
-        const string ActorId = "99999999-8888-7777-6666-555555555555";
-
-        var actor = Substitute.For<IUnitActor>();
-        actor.GetHumanPermissionAsync(HumanGuid, Arg.Any<CancellationToken>())
-            .Returns(PermissionLevel.Operator);
-
-        var directory = Substitute.For<IDirectoryService>();
-        directory.ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "unit" && a.Path == RouteId),
-                Arg.Any<CancellationToken>())
-            .Returns(new DirectoryEntry(
-                new Address("unit", RouteId),
-                ActorId,
-                RouteId,
-                string.Empty,
-                null,
-                DateTimeOffset.UtcNow));
-
-        var proxyFactory = Substitute.For<IActorProxyFactory>();
-        proxyFactory.CreateActorProxy<IUnitActor>(
-                Arg.Is<ActorId>(a => a.GetId() == ActorId), nameof(UnitActor))
-            .Returns(actor);
-
-        var service = new PermissionService(
-            proxyFactory, _hierarchyResolver, directory, _loggerFactory);
-
-        var result = await service.ResolvePermissionAsync(HumanId, RouteId, ct);
-
-        result.ShouldBe(PermissionLevel.Operator);
     }
 }

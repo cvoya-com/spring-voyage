@@ -31,6 +31,13 @@ public class SecretsEncryptorTests : IDisposable
     private const string EnvVar = SecretsEncryptor.KeyEnvironmentVariable;
     private readonly string? _savedEnv = Environment.GetEnvironmentVariable(EnvVar);
 
+    // Stable test tenant Guids — different rows so cross-tenant tests can
+    // assert the AAD binding fails as designed.
+    private static readonly Guid TenantAcme = new("acacacac-0000-0000-0000-000000000001");
+    private static readonly Guid TenantMallory = new("ba5eba11-0000-0000-0000-000000000002");
+    private static readonly Guid TenantPlatform = new("11111111-2222-3333-4444-555555555555");
+    private static readonly Guid TenantOther = new("99999999-0000-0000-0000-000000000099");
+
     public void Dispose()
     {
         Environment.SetEnvironmentVariable(EnvVar, _savedEnv);
@@ -65,8 +72,8 @@ public class SecretsEncryptorTests : IDisposable
         Environment.SetEnvironmentVariable(EnvVar, null);
         var sut = new SecretsEncryptor(Opts(allowEphemeralDevKey: true), Log());
 
-        var envelope = sut.Encrypt("hunter2", "acme", "k1");
-        var round = sut.Decrypt(envelope, "acme", "k1", out var wasEnveloped);
+        var envelope = sut.Encrypt("hunter2", TenantAcme, "k1");
+        var round = sut.Decrypt(envelope, TenantAcme, "k1", out var wasEnveloped);
 
         wasEnveloped.ShouldBeTrue();
         round.ShouldBe("hunter2");
@@ -139,15 +146,15 @@ public class SecretsEncryptorTests : IDisposable
             var sut = new SecretsEncryptor(Opts(aesKeyFile: path), Log());
 
             // Envelope encrypted with env key should round-trip.
-            var envelope = sut.Encrypt("hunter2", "acme", "k1");
-            sut.Decrypt(envelope, "acme", "k1", out _).ShouldBe("hunter2");
+            var envelope = sut.Encrypt("hunter2", TenantAcme, "k1");
+            sut.Decrypt(envelope, TenantAcme, "k1", out _).ShouldBe("hunter2");
 
             // But a new encryptor built from just the file key should NOT
             // decrypt the env-key envelope.
             Environment.SetEnvironmentVariable(EnvVar, null);
             var fileSut = new SecretsEncryptor(Opts(aesKeyFile: path), Log());
             Should.Throw<SecretUnreadableException>(
-                () => fileSut.Decrypt(envelope, "acme", "k1", out _));
+                () => fileSut.Decrypt(envelope, TenantAcme, "k1", out _));
         }
         finally
         {
@@ -170,8 +177,8 @@ public class SecretsEncryptorTests : IDisposable
     public void EncryptDecrypt_RoundTrip()
     {
         var sut = CreateWithFreshKey();
-        var envelope = sut.Encrypt("hunter2", "acme", "k1");
-        sut.Decrypt(envelope, "acme", "k1", out var wasEnveloped).ShouldBe("hunter2");
+        var envelope = sut.Encrypt("hunter2", TenantAcme, "k1");
+        sut.Decrypt(envelope, TenantAcme, "k1", out var wasEnveloped).ShouldBe("hunter2");
         wasEnveloped.ShouldBeTrue();
     }
 
@@ -179,8 +186,8 @@ public class SecretsEncryptorTests : IDisposable
     public void Encrypt_UsesFreshNonceEachTime()
     {
         var sut = CreateWithFreshKey();
-        var a = sut.Encrypt("hunter2", "acme", "k1");
-        var b = sut.Encrypt("hunter2", "acme", "k1");
+        var a = sut.Encrypt("hunter2", TenantAcme, "k1");
+        var b = sut.Encrypt("hunter2", TenantAcme, "k1");
         a.ShouldNotBe(b);
     }
 
@@ -188,10 +195,10 @@ public class SecretsEncryptorTests : IDisposable
     public void Decrypt_WrongTenant_ThrowsSecretUnreadable()
     {
         var sut = CreateWithFreshKey();
-        var envelope = sut.Encrypt("hunter2", "acme", "k1");
+        var envelope = sut.Encrypt("hunter2", TenantAcme, "k1");
 
         var ex = Should.Throw<SecretUnreadableException>(
-            () => sut.Decrypt(envelope, "mallory", "k1", out _));
+            () => sut.Decrypt(envelope, TenantMallory, "k1", out _));
         ex.InnerException.ShouldBeAssignableTo<CryptographicException>();
     }
 
@@ -199,10 +206,10 @@ public class SecretsEncryptorTests : IDisposable
     public void Decrypt_WrongStoreKey_ThrowsSecretUnreadable()
     {
         var sut = CreateWithFreshKey();
-        var envelope = sut.Encrypt("hunter2", "acme", "k1");
+        var envelope = sut.Encrypt("hunter2", TenantAcme, "k1");
 
         var ex = Should.Throw<SecretUnreadableException>(
-            () => sut.Decrypt(envelope, "acme", "k2", out _));
+            () => sut.Decrypt(envelope, TenantAcme, "k2", out _));
         ex.InnerException.ShouldBeAssignableTo<CryptographicException>();
     }
 
@@ -210,7 +217,7 @@ public class SecretsEncryptorTests : IDisposable
     public void Decrypt_LegacyPlaintext_ReturnedVerbatim()
     {
         var sut = CreateWithFreshKey();
-        var result = sut.Decrypt("plain-legacy-value", "acme", "k1", out var wasEnveloped);
+        var result = sut.Decrypt("plain-legacy-value", TenantAcme, "k1", out var wasEnveloped);
         result.ShouldBe("plain-legacy-value");
         wasEnveloped.ShouldBeFalse();
     }
@@ -221,22 +228,22 @@ public class SecretsEncryptorTests : IDisposable
         var sut = CreateWithFreshKey();
         // Valid base64, but no version-1 prefix — falls back to legacy.
         var looksLikeBase64 = Convert.ToBase64String(new byte[] { 0x99, 0x00, 0x00, 0x00 });
-        var result = sut.Decrypt(looksLikeBase64, "acme", "k1", out var wasEnveloped);
+        var result = sut.Decrypt(looksLikeBase64, TenantAcme, "k1", out var wasEnveloped);
         result.ShouldBe(looksLikeBase64);
         wasEnveloped.ShouldBeFalse();
     }
 
     [Fact]
-    public void PlatformScope_UsesLiteralPlatformAsTenantId()
+    public void PlatformScope_UsesDistinctTenantId()
     {
-        // Sanity check: the caller chooses the tenantId string. "platform"
-        // is the idiomatic value for platform-scoped secrets and round-
-        // trips like any other.
+        // Platform-scoped secrets are bound to a fixed tenant Guid sentinel
+        // by the caller; the encryptor itself is tenant-agnostic and only
+        // verifies that the AAD binds.
         var sut = CreateWithFreshKey();
-        var envelope = sut.Encrypt("token", "platform", "k1");
-        sut.Decrypt(envelope, "platform", "k1", out _).ShouldBe("token");
+        var envelope = sut.Encrypt("token", TenantPlatform, "k1");
+        sut.Decrypt(envelope, TenantPlatform, "k1", out _).ShouldBe("token");
         Should.Throw<SecretUnreadableException>(
-            () => sut.Decrypt(envelope, "some-tenant", "k1", out _));
+            () => sut.Decrypt(envelope, TenantOther, "k1", out _));
     }
 
     private SecretsEncryptor CreateWithFreshKey()
