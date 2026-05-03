@@ -47,18 +47,19 @@ public class SecretEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     {
         _factory = factory;
         _client = factory.CreateClient();
-        StubUnit("u1");
+        StubUnit(U1);
     }
 
     [Fact]
     public async Task Get_Returns404_WhenUnitMissing()
     {
         var ct = TestContext.Current.CancellationToken;
+        var missingId = Guid.NewGuid();
         _factory.DirectoryService.ResolveAsync(
-            Address.For("unit", "missing"), Arg.Any<CancellationToken>())
+            new Address("unit", missingId), Arg.Any<CancellationToken>())
             .Returns((DirectoryEntry?)null);
 
-        var response = await _client.GetAsync("/api/v1/tenant/units/missing/secrets", ct);
+        var response = await _client.GetAsync($"/api/v1/tenant/units/{missingId:N}/secrets", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
@@ -67,7 +68,7 @@ public class SecretEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     {
         var ct = TestContext.Current.CancellationToken;
 
-        var response = await _client.GetAsync("/api/v1/tenant/units/u1/secrets", ct);
+        var response = await _client.GetAsync($"/api/v1/tenant/units/{U1}/secrets", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var body = await response.Content.ReadFromJsonAsync<UnitSecretsListResponse>(JsonOptions, ct);
@@ -79,7 +80,7 @@ public class SecretEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     public async Task Post_PassThrough_Stores_And_Registers()
     {
         var ct = TestContext.Current.CancellationToken;
-        var unit = NewUnitId();
+        var unit = NewUnit();
         StubUnit(unit);
 
         var response = await _client.PostAsJsonAsync(
@@ -103,13 +104,13 @@ public class SecretEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
         var tenant = scope.ServiceProvider.GetRequiredService<ITenantContext>().CurrentTenantId;
         var row = db.SecretRegistryEntries.SingleOrDefault(
-            e => e.TenantId == tenant && e.OwnerId == unit && e.Name == "gh-token");
+            e => e.TenantId == tenant && e.OwnerId == unit.Id && e.Name == "gh-token");
         row.ShouldNotBeNull();
         row!.StoreKey.ShouldNotBeNullOrWhiteSpace();
         // StoreKey must be opaque: it must not encode the tenant,
         // unit, or secret name.
-        row.StoreKey.ShouldNotContain(tenant);
-        row.StoreKey.ShouldNotContain(unit);
+        row.StoreKey.ShouldNotContain(tenant.ToString("N"));
+        row.StoreKey.ShouldNotContain(unit.Path);
         row.StoreKey.ShouldNotContain("gh-token");
     }
 
@@ -117,7 +118,7 @@ public class SecretEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     public async Task Post_ExternalReference_Registers_WithoutStoreWrite()
     {
         var ct = TestContext.Current.CancellationToken;
-        var unit = NewUnitId();
+        var unit = NewUnit();
         StubUnit(unit);
 
         var response = await _client.PostAsJsonAsync(
@@ -131,7 +132,7 @@ public class SecretEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
         var tenant = scope.ServiceProvider.GetRequiredService<ITenantContext>().CurrentTenantId;
         var row = db.SecretRegistryEntries.Single(
-            e => e.TenantId == tenant && e.OwnerId == unit && e.Name == "kv-ref");
+            e => e.TenantId == tenant && e.OwnerId == unit.Id && e.Name == "kv-ref");
         row.StoreKey.ShouldBe("kv://vault1/secret1");
     }
 
@@ -139,7 +140,7 @@ public class SecretEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     public async Task Post_BothValueAndExternal_Returns400()
     {
         var ct = TestContext.Current.CancellationToken;
-        var unit = NewUnitId();
+        var unit = NewUnit();
         StubUnit(unit);
 
         var response = await _client.PostAsJsonAsync(
@@ -153,7 +154,7 @@ public class SecretEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     public async Task Post_NeitherValueNorExternal_Returns400()
     {
         var ct = TestContext.Current.CancellationToken;
-        var unit = NewUnitId();
+        var unit = NewUnit();
         StubUnit(unit);
 
         var response = await _client.PostAsJsonAsync(
@@ -167,7 +168,7 @@ public class SecretEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     public async Task Post_EmptyName_Returns400()
     {
         var ct = TestContext.Current.CancellationToken;
-        var unit = NewUnitId();
+        var unit = NewUnit();
         StubUnit(unit);
 
         var response = await _client.PostAsJsonAsync(
@@ -181,7 +182,7 @@ public class SecretEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     public async Task Delete_ExistingSecret_Returns204_RemovesRegistryRow()
     {
         var ct = TestContext.Current.CancellationToken;
-        var unit = NewUnitId();
+        var unit = NewUnit();
         StubUnit(unit);
 
         var postResponse = await _client.PostAsJsonAsync(
@@ -197,7 +198,7 @@ public class SecretEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
         db.SecretRegistryEntries
-            .Where(e => e.OwnerId == unit && e.Name == "temp")
+            .Where(e => e.OwnerId == unit.Id && e.Name == "temp")
             .ShouldBeEmpty();
     }
 
@@ -208,7 +209,7 @@ public class SecretEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         // platform owns it — otherwise pass-through writes would leak
         // plaintext via ISecretStore forever.
         var ct = TestContext.Current.CancellationToken;
-        var unit = NewUnitId();
+        var unit = NewUnit();
         StubUnit(unit);
         _factory.SecretStore.ClearReceivedCalls();
 
@@ -225,7 +226,7 @@ public class SecretEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
             var tenant = scope.ServiceProvider.GetRequiredService<ITenantContext>().CurrentTenantId;
             storeKey = db.SecretRegistryEntries
-                .Single(e => e.TenantId == tenant && e.OwnerId == unit && e.Name == "owned")
+                .Single(e => e.TenantId == tenant && e.OwnerId == unit.Id && e.Name == "owned")
                 .StoreKey;
         }
 
@@ -245,7 +246,7 @@ public class SecretEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         // on an externally-managed key would destroy a customer-owned
         // secret in the private-cloud Key Vault implementation.
         var ct = TestContext.Current.CancellationToken;
-        var unit = NewUnitId();
+        var unit = NewUnit();
         StubUnit(unit);
         _factory.SecretStore.ClearReceivedCalls();
 
@@ -267,7 +268,7 @@ public class SecretEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
         db.SecretRegistryEntries
-            .Where(e => e.OwnerId == unit && e.Name == "ext")
+            .Where(e => e.OwnerId == unit.Id && e.Name == "ext")
             .ShouldBeEmpty();
     }
 
@@ -275,7 +276,7 @@ public class SecretEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     public async Task Post_PassThrough_Records_PlatformOwnedOrigin()
     {
         var ct = TestContext.Current.CancellationToken;
-        var unit = NewUnitId();
+        var unit = NewUnit();
         StubUnit(unit);
 
         var response = await _client.PostAsJsonAsync(
@@ -287,7 +288,7 @@ public class SecretEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
         var row = db.SecretRegistryEntries.Single(
-            e => e.OwnerId == unit && e.Name == "owned");
+            e => e.OwnerId == unit.Id && e.Name == "owned");
         row.Origin.ShouldBe(SecretOrigin.PlatformOwned);
     }
 
@@ -295,7 +296,7 @@ public class SecretEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     public async Task Post_ExternalReference_Records_ExternalReferenceOrigin()
     {
         var ct = TestContext.Current.CancellationToken;
-        var unit = NewUnitId();
+        var unit = NewUnit();
         StubUnit(unit);
 
         var response = await _client.PostAsJsonAsync(
@@ -307,7 +308,7 @@ public class SecretEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
         var row = db.SecretRegistryEntries.Single(
-            e => e.OwnerId == unit && e.Name == "ext");
+            e => e.OwnerId == unit.Id && e.Name == "ext");
         row.Origin.ShouldBe(SecretOrigin.ExternalReference);
     }
 
@@ -315,11 +316,11 @@ public class SecretEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     public async Task List_Returns403_WhenAccessPolicyDenies()
     {
         var ct = TestContext.Current.CancellationToken;
-        var unit = NewUnitId();
+        var unit = NewUnit();
         StubUnit(unit);
 
         _factory.SecretAccessPolicy
-            .IsAuthorizedAsync(SecretAccessAction.List, SecretScope.Unit, unit, Arg.Any<CancellationToken>())
+            .IsAuthorizedAsync(SecretAccessAction.List, SecretScope.Unit, unit.Id, Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(false));
 
         var response = await _client.GetAsync($"/api/v1/tenant/units/{unit}/secrets", ct);
@@ -327,7 +328,7 @@ public class SecretEndpointsTests : IClassFixture<CustomWebApplicationFactory>
 
         // Reset for other tests running against the same factory.
         _factory.SecretAccessPolicy
-            .IsAuthorizedAsync(SecretAccessAction.List, SecretScope.Unit, unit, Arg.Any<CancellationToken>())
+            .IsAuthorizedAsync(SecretAccessAction.List, SecretScope.Unit, unit.Id, Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(true));
     }
 
@@ -335,7 +336,7 @@ public class SecretEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     public async Task Delete_MissingSecret_Returns404()
     {
         var ct = TestContext.Current.CancellationToken;
-        var unit = NewUnitId();
+        var unit = NewUnit();
         StubUnit(unit);
 
         var response = await _client.DeleteAsync(
@@ -350,7 +351,7 @@ public class SecretEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         // database, then verify the list endpoint (which runs under
         // the factory's default tenant "local") does not see it.
         var ct = TestContext.Current.CancellationToken;
-        var unit = NewUnitId();
+        var unit = NewUnit();
         StubUnit(unit);
 
         using (var scope = _factory.Services.CreateScope())
@@ -359,10 +360,10 @@ public class SecretEndpointsTests : IClassFixture<CustomWebApplicationFactory>
             db.SecretRegistryEntries.Add(new SecretRegistryEntry
             {
                 Id = Guid.NewGuid(),
-                TenantId = "other-tenant",
+                TenantId = Guid.NewGuid(),
                 Scope = SecretScope.Unit,
-                OwnerId = unit,
-                DisplayName = "leaked",
+                OwnerId = unit.Id,
+                Name = "leaked",
                 StoreKey = "sk-other",
                 CreatedAt = DateTimeOffset.UtcNow,
             });
@@ -376,61 +377,29 @@ public class SecretEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         body!.Secrets.ShouldNotContain(s => s.Name == "leaked");
     }
 
+    // Post #1629: there are no slugs, so the slug-vs-uuid collision the
+    // #1488 test exercised is structurally impossible — every unit's
+    // identity is a fresh Guid. The test was deleted as obsolete.
+
     /// <summary>
-    /// Regression test for #1488: if a unit is deleted and recreated with the
-    /// same slug, the new unit must not see the old unit's secrets. Before the
-    /// fix, the secret owner key was the slug so both instances shared the row.
+    /// Test unit fixture: a stable Guid identity surfaced as both the URL
+    /// path segment (no-dash hex) and the database OwnerId (Guid).
     /// </summary>
-    [Fact]
-    public async Task Get_AfterRecreateWithSameName_NewUnitSeesNoSecrets()
+    private readonly record struct UnitFixture(Guid Id)
     {
-        var ct = TestContext.Current.CancellationToken;
-        var unitSlug = NewUnitId();
-
-        // First unit instance — ActorId differs from slug.
-        var actorIdV1 = $"actor-v1-{Guid.NewGuid():N}";
-        StubUnitWithActorId(unitSlug, actorIdV1);
-
-        // Register a secret under the first instance.
-        var createResp = await _client.PostAsJsonAsync(
-            $"/api/v1/tenant/units/{unitSlug}/secrets",
-            new CreateSecretRequest("api-token", "supersecret"),
-            ct);
-        createResp.StatusCode.ShouldBe(HttpStatusCode.Created);
-
-        // Confirm the secret is visible for the first instance.
-        var listV1 = await _client.GetAsync($"/api/v1/tenant/units/{unitSlug}/secrets", ct);
-        listV1.StatusCode.ShouldBe(HttpStatusCode.OK);
-        var bodyV1 = await listV1.Content.ReadFromJsonAsync<UnitSecretsListResponse>(JsonOptions, ct);
-        bodyV1!.Secrets.ShouldContain(s => s.Name == "api-token",
-            "First unit instance must see its own secret");
-
-        // Simulate delete+recreate: the same slug now resolves to a new ActorId.
-        var actorIdV2 = $"actor-v2-{Guid.NewGuid():N}";
-        StubUnitWithActorId(unitSlug, actorIdV2);
-
-        // The second unit instance must not see the first instance's secret.
-        var listV2 = await _client.GetAsync($"/api/v1/tenant/units/{unitSlug}/secrets", ct);
-        listV2.StatusCode.ShouldBe(HttpStatusCode.OK);
-        var bodyV2 = await listV2.Content.ReadFromJsonAsync<UnitSecretsListResponse>(JsonOptions, ct);
-        bodyV2!.Secrets.ShouldBeEmpty(
-            "New unit instance (same slug, new ActorId) must not see the deleted unit's secrets (#1488)");
+        public string Path => Id.ToString("N");
+        public override string ToString() => Path;
     }
 
-    private static string NewUnitId() => $"unit-{Guid.NewGuid():N}";
+    private static UnitFixture NewUnit() => new(Guid.NewGuid());
 
-    private void StubUnit(string id)
-    {
-        // When ActorId == id (slug), the tests exercise the code path without
-        // the slug-vs-uuid distinction. This is the legacy/simple setup.
-        StubUnitWithActorId(id, id);
-    }
+    private static readonly UnitFixture U1 = new(new Guid("aaaaaaaa-1111-1111-1111-000000000001"));
 
-    private void StubUnitWithActorId(string slug, string actorId)
+    private void StubUnit(UnitFixture u)
     {
-        var address = new Address("unit", slug);
+        var address = new Address("unit", u.Id);
         var entry = new DirectoryEntry(
-            address, actorId, slug, "test", null, DateTimeOffset.UtcNow);
+            address, u.Id, u.Path, "test", null, DateTimeOffset.UtcNow);
         _factory.DirectoryService.ResolveAsync(address, Arg.Any<CancellationToken>())
             .Returns(entry);
     }
