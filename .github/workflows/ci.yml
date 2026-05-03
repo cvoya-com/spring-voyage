@@ -91,9 +91,16 @@ jobs:
               - 'deployment/spring.env.example'
               - 'src/Cvoya.Spring.Dispatcher/**'
             agent_images:
+              # build-agent-images.sh builds every Dockerfile.agent.* in
+              # `deployment/` (agent-base + claude-code + dapr + the four
+              # OSS role images). Globbing the family keeps the smoke
+              # job in sync with what the script actually builds, so a
+              # change to e.g. `Dockerfile.agent.oss-software-engineering`
+              # is exercised end-to-end on its own PR rather than
+              # slipping in unvalidated and only surfacing on a later
+              # workflow-touching PR.
               - 'deployment/Dockerfile.agent-base'
-              - 'deployment/Dockerfile.agent.claude-code'
-              - 'deployment/Dockerfile.agent.dapr'
+              - 'deployment/Dockerfile.agent.*'
               - 'deployment/build-agent-images.sh'
               - 'deployment/agent-sidecar/**'
               - 'agents/dapr-agent/**'

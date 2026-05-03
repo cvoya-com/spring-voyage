@@ -123,7 +123,11 @@ RUN npm install -g "playwright@${PLAYWRIGHT_VERSION}" \
 # step will fail the build immediately rather than silently shipping a broken
 # image. Firefox and WebKit are not smoke-tested here (Chromium covers the
 # binary/glibc compat signal). See #1550.
-RUN node -e "\
+#
+# NODE_PATH is required so `node -e "require('playwright')"` resolves the
+# package installed by `npm install -g` above — node only searches the global
+# `node_modules` tree when NODE_PATH points at it.
+RUN NODE_PATH="$(npm root -g)" node -e "\
 const { chromium } = require('playwright'); \
 chromium.launch({ headless: true }).then(b => { \
   console.log('chromium launches OK'); \
