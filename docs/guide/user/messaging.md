@@ -152,9 +152,9 @@ See [Messaging architecture — Routing Mechanism](../../architecture/messaging.
 
 ## See it in action
 
-Two fast e2e scenarios exercise the messaging plumbing without needing an LLM backend:
+Two `pool: fast` CLI scenarios exercise the messaging plumbing without needing an LLM backend:
 
-- [`fast/13-agent-domain-message.sh`](../../../tests/e2e/scenarios/fast/13-agent-domain-message.sh) — sends a Domain message to an agent and verifies the `MessageReceived` activity event lands. Proves the router → actor → activity-bus path end-to-end.
-- [`fast/14-conversation-lifecycle.sh`](../../../tests/e2e/scenarios/fast/14-conversation-lifecycle.sh) — starts a fresh conversation on an idle agent and verifies the three lifecycle events fire in order: `MessageReceived` → `ThreadStarted` → `StateChanged (Idle→Active)`.
+- [`messaging/agent-domain-message.sh`](../../../tests/cli-scenarios/scenarios/messaging/agent-domain-message.sh) — sends a Domain message to an agent and verifies the `MessageReceived` activity event lands. Proves the router → actor → activity-bus path end-to-end.
+- [`messaging/conversation-lifecycle.sh`](../../../tests/cli-scenarios/scenarios/messaging/conversation-lifecycle.sh) — starts a fresh conversation on an idle agent and verifies the three lifecycle events fire in order: `MessageReceived` → `ThreadStarted` → `StateChanged (Idle→Active)`.
 
-Scenario [`llm/20-message-human-to-agent.sh`](../../../tests/e2e/scenarios/llm/20-message-human-to-agent.sh) (requires Ollama) drives the full human-to-agent round-trip through `spring message send`. See [Runnable Examples](examples.md) for the full catalogue.
+Scenario [`messaging/message-human-to-agent.sh`](../../../tests/cli-scenarios/scenarios/messaging/message-human-to-agent.sh) (`pool: llm`, requires Ollama) drives the full human-to-agent round-trip through `spring message send`. See [Runnable Examples](examples.md) for the full catalogue.

@@ -301,16 +301,16 @@ For local development `spring apply` auto-builds missing images.
 
 ## See it in action
 
-The end-to-end scenarios under [`tests/e2e/scenarios/`](../../../tests/e2e/scenarios) exercise every CRUD and lifecycle path in this guide. See [`tests/e2e/README.md`](../../../tests/e2e/README.md) for the runner and prerequisites.
+The CLI scenarios under [`tests/cli-scenarios/scenarios/`](../../../tests/cli-scenarios/scenarios) exercise every CRUD and lifecycle path in this guide. See [`tests/cli-scenarios/README.md`](../../../tests/cli-scenarios/README.md) for the runner and prerequisites.
 
 Key scenarios for this guide:
 
 | Scenario | What it covers |
 |----------|----------------|
-| `fast/02-create-unit-scratch.sh` | `spring unit create` + `spring unit list` |
-| `fast/06-unit-membership-roundtrip.sh` | Full membership CRUD with overrides |
-| `fast/07-create-start-unit.sh` | `spring unit start` + status polling |
-| `fast/12-nested-units.sh` | Nested units via `spring unit members add --unit` |
-| `fast/15-unit-policy-roundtrip.sh` | Policy CRUD for `skill` and `model` dimensions |
-| `llm/30-policy-block-at-turn-time.sh` | Policy deny at turn dispatch (requires Ollama) |
-| `llm/40-dapr-agent-turn.sh` | `dapr-agent` turn via A2A (requires Ollama) |
+| `units/unit-create-scratch.sh` | `spring unit create` + `spring unit list` |
+| `units/unit-membership-roundtrip.sh` | Full membership CRUD with overrides |
+| `units/unit-create-and-start.sh` | `spring unit start` + status polling |
+| `units/unit-nested.sh` | Nested units via `spring unit members add --unit` |
+| `policy/unit-policy-http-roundtrip.sh` | Policy CRUD for `skill` and `model` dimensions |
+| `policy/policy-block-at-turn-time.sh` | Policy deny at turn dispatch (requires Ollama) |
+| `agents/dapr-agent-turn.sh` | `dapr-agent` turn via A2A (requires Ollama) |

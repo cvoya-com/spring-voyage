@@ -1,7 +1,7 @@
 # End-to-end portal test scenarios (Playwright)
 
 Browser-driven scenarios that exercise the **Spring Voyage portal** UI
-against a running v0.1 stack. Sibling to [`tests/e2e/`](../e2e/) (shell-based
+against a running v0.1 stack. Sibling to [`tests/cli-scenarios/`](../cli-scenarios/) (shell-based
 CLI/API scenarios). Every workflow here has a counterpart there or is
 deliberately portal-only (sidebar, command palette, engagement portal IA,
 wizard flows, etc.).
@@ -230,7 +230,7 @@ Total: **41 specs / 60 tests**.
 
 ## Tracking
 
-Companion to [`tests/e2e/`](../e2e/README.md) which covers the same v0.1
+Companion to [`tests/cli-scenarios/`](../cli-scenarios/README.md) which covers the same v0.1
 surface from the CLI/API side. Issues for portal-side coverage gaps and
 flake follow-ups belong under the `area:e2` label / E2 umbrella in
 [the v0.1 plan](../../docs/plan/v0.1/areas/e2-new-ux.md).
