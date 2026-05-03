@@ -149,37 +149,6 @@ e2e::cli_unit_create() {
     e2e::cli "${root_args[@]}" unit create "${sub_args[@]}"
 }
 
-# e2e::cli_unit_create_from_template ARGS... — same contract as
-# e2e::cli_unit_create, for the first-class `spring unit create-from-template`
-# verb. The CLI enforces the same parent-or-top-level rule here, so the
-# helper injects --top-level by default.
-e2e::cli_unit_create_from_template() {
-    local has_parent=0 has_top=0
-    local -a root_args=() sub_args=()
-    local i=1 arg
-    while (( i <= $# )); do
-        arg="${!i}"
-        if _e2e_is_root_option "${arg}"; then
-            root_args+=("${arg}")
-            if [[ "${arg}" == "--output" || "${arg}" == "-o" ]]; then
-                i=$((i+1))
-                if (( i <= $# )); then root_args+=("${!i}"); fi
-            fi
-        else
-            sub_args+=("${arg}")
-            case "${arg}" in
-                --parent-unit|--parent-unit=*) has_parent=1 ;;
-                --top-level) has_top=1 ;;
-            esac
-        fi
-        i=$((i+1))
-    done
-    if (( has_parent == 0 && has_top == 0 )); then
-        sub_args+=(--top-level)
-    fi
-    e2e::cli "${root_args[@]}" unit create-from-template "${sub_args[@]}"
-}
-
 # e2e::cli_agent_create ARGS... — wraps `spring agent create`. The #744
 # contract requires ≥1 `--unit <id>` flag; this helper does no injection
 # (there is no sensible default) but exists so scenario call sites go

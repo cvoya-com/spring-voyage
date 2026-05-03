@@ -1,0 +1,6 @@
+apiVersion: spring.voyage/v1
+kind: UnitPackage
+metadata:
+  name: software-engineering
+  description: A software engineering team — tech lead, backend engineer, and QA — wired up with triage / PR-review skills and a GitHub connector.
+unit: engineering-team

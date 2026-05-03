@@ -179,7 +179,21 @@ public class DirectoryService(
         await using var scope = scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
 
+        // Prefer the active (DeletedAt == null) row if one exists — there can
+        // be at most one such row thanks to the partial unique index. Only
+        // fall back to resurrecting a soft-deleted row when no active row is
+        // present; otherwise we'd flip a soft-deleted row's DeletedAt to null
+        // alongside the still-active one and trip the partial unique index
+        // (IX_unit_definitions_tenant_id_unit_id) on SaveChanges. Surfaces in
+        // the package re-install path: PackageInstallService Phase 1 inserts
+        // a fresh staging row with deleted_at=null, and Phase 2 then calls
+        // RegisterAsync → UpsertUnitAsync, which previously found the
+        // *soft-deleted* historical row first and flipped it back, producing
+        // two rows with deleted_at=null for the same tenant + unit_id.
         var existing = await db.UnitDefinitions
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(u => u.UnitId == entry.Address.Path && u.DeletedAt == null, cancellationToken);
+        existing ??= await db.UnitDefinitions
             .IgnoreQueryFilters()
             .FirstOrDefaultAsync(u => u.UnitId == entry.Address.Path, cancellationToken);
 
@@ -210,7 +224,13 @@ public class DirectoryService(
         await using var scope = scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
 
+        // Same prefer-active-row contract as UpsertUnitAsync — see the comment
+        // there for the full reasoning. The agent_definitions partial unique
+        // index has the same shape (tenant_id, agent_id) WHERE deleted_at IS NULL.
         var existing = await db.AgentDefinitions
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(a => a.AgentId == entry.Address.Path && a.DeletedAt == null, cancellationToken);
+        existing ??= await db.AgentDefinitions
             .IgnoreQueryFilters()
             .FirstOrDefaultAsync(a => a.AgentId == entry.Address.Path, cancellationToken);
 

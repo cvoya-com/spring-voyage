@@ -787,19 +787,58 @@ public class UnitCreationService : IUnitCreationService
                     continue;
                 }
 
-                // Fix #340: the actor-state member list is no longer the
-                // source of truth for the Agents tab, memberships endpoint,
-                // and per-membership config — the unit_memberships table is
-                // (see #245 / C2b-1). Mirror the add into the DB so template-
-                // created units show up in those surfaces. Unit-typed members
-                // remain 1:N and are not stored here (per #217 scope); only
-                // agent-scheme members get a row. Template creation passes no
-                // per-membership overrides so Model/Specialty/ExecutionMode
-                // default to null and Enabled defaults to true.
-                // After #1492, membership rows use UUID keys, so resolve both
-                // the unit and agent slugs to their stable UUIDs first.
                 if (string.Equals(resolved.Value.Scheme, "agent", StringComparison.OrdinalIgnoreCase))
                 {
+                    // Fix #374: auto-register agent-scheme members in the
+                    // directory so they are discoverable via GET /api/v1/agents
+                    // and the dashboard's Agents section. Idempotent — if the
+                    // agent was already registered (e.g. via `spring agent
+                    // create` before being added to the unit), the existing
+                    // entry is preserved.
+                    //
+                    // Order matters: we register the agent BEFORE writing the
+                    // unit_memberships row below, because the membership write
+                    // resolves the agent's UUID via DirectoryService and would
+                    // skip the row when the agent has no directory entry yet
+                    // (the symptom: package-installed units showing the unit
+                    // members in the actor list but `[]` from /memberships).
+                    try
+                    {
+                        var agentAddress = new Address("agent", resolved.Value.Path);
+                        var existing = await _directoryService.ResolveAsync(agentAddress, cancellationToken);
+                        if (existing is null)
+                        {
+                            var agentActorId = Guid.NewGuid().ToString();
+                            var agentEntry = new DirectoryEntry(
+                                agentAddress,
+                                agentActorId,
+                                resolved.Value.Path,  // displayName = member name
+                                string.Empty,          // description
+                                null,                  // role
+                                DateTimeOffset.UtcNow);
+                            await _directoryService.RegisterAsync(agentEntry, cancellationToken);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex,
+                            "Unit '{UnitName}' member {Member}: failed to auto-register agent directory entry.",
+                            name, $"agent:{resolved.Value.Path}");
+                        warnings.Add(
+                            $"member agent:{resolved.Value.Path} added to unit but directory registration failed: {ex.Message}");
+                    }
+
+                    // Fix #340: the actor-state member list is no longer the
+                    // source of truth for the Agents tab, memberships endpoint,
+                    // and per-membership config — the unit_memberships table is
+                    // (see #245 / C2b-1). Mirror the add into the DB so template-
+                    // created units show up in those surfaces. Unit-typed members
+                    // remain 1:N and are not stored here (per #217 scope); only
+                    // agent-scheme members get a row. Template creation passes no
+                    // per-membership overrides so Model/Specialty/ExecutionMode
+                    // default to null and Enabled defaults to true.
+                    // After #1492, membership rows use UUID keys, so resolve both
+                    // the unit and agent slugs to their stable UUIDs first.
                     try
                     {
                         // Resolve unit UUID from the newly-registered entry.
@@ -839,38 +878,6 @@ public class UnitCreationService : IUnitCreationService
                             name, $"{resolved.Value.Scheme}:{resolved.Value.Path}");
                         warnings.Add(
                             $"member {resolved.Value.Scheme}:{resolved.Value.Path} added to actor state but membership table write failed: {ex.Message}");
-                    }
-
-                    // Fix #374: auto-register agent-scheme members in the
-                    // directory so they are discoverable via GET /api/v1/agents
-                    // and the dashboard's Agents section. Idempotent — if the
-                    // agent was already registered (e.g. via `spring agent
-                    // create` before being added to the unit), the existing
-                    // entry is preserved.
-                    try
-                    {
-                        var agentAddress = new Address("agent", resolved.Value.Path);
-                        var existing = await _directoryService.ResolveAsync(agentAddress, cancellationToken);
-                        if (existing is null)
-                        {
-                            var agentActorId = Guid.NewGuid().ToString();
-                            var agentEntry = new DirectoryEntry(
-                                agentAddress,
-                                agentActorId,
-                                resolved.Value.Path,  // displayName = member name
-                                string.Empty,          // description
-                                null,                  // role
-                                DateTimeOffset.UtcNow);
-                            await _directoryService.RegisterAsync(agentEntry, cancellationToken);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex,
-                            "Unit '{UnitName}' member {Member}: failed to auto-register agent directory entry.",
-                            name, $"agent:{resolved.Value.Path}");
-                        warnings.Add(
-                            $"member agent:{resolved.Value.Path} added to unit but directory registration failed: {ex.Message}");
                     }
                 }
             }

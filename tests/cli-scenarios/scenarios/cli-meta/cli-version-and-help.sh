@@ -23,6 +23,8 @@ fi
 # Spot-check that the subcommand surface scenarios depend on is still there.
 e2e::expect_contains "Spring Voyage CLI" "${body}" "help mentions the CLI description"
 e2e::expect_contains "unit" "${body}" "help lists the 'unit' subcommand"
-e2e::expect_contains "apply" "${body}" "help lists the 'apply' subcommand"
+# `apply` was deleted by #1583 (213f39bc); the v0.1 install surface is
+# `spring package install` (catalog install + status/retry/abort/export).
+e2e::expect_contains "package" "${body}" "help lists the 'package' subcommand"
 
 e2e::summary

@@ -108,16 +108,20 @@ while (( $(date +%s) < deadline )); do
         continue
     fi
 
-    # Any event whose source starts with "agent://" represents output from the
-    # executor. `jq` is the precise extractor; `grep` is a coarser fallback.
+    # The agent's reply lands as a MessageReceived event whose summary text
+    # carries "from agent:<...>" (the human inbox records the inbound
+    # message; the routing-info string is what flags it as agent-authored).
+    # Take that event's body — the LLM's actual text — as the agent reply.
     if command -v jq >/dev/null 2>&1; then
         agent_reply="$(printf '%s' "${show_body}" \
-            | jq -r '[.events[]? | select(.source|tostring|startswith("agent://"))][-1].summary // ""' \
+            | jq -r '[.events[]? | select(.eventType == "MessageReceived" and ((.summary // "") | test("from agent:")))][-1] | (.body // "")' \
             2>/dev/null || true)"
     else
+        # Fallback: scan for any "body" field that doesn't look like the
+        # human's prompt. Coarse but enough for a smoke test.
         agent_reply="$(printf '%s' "${show_body}" \
-            | grep -oE '"summary":[[:space:]]*"[^"]+"' | tail -1 \
-            | sed -E 's/^"summary":[[:space:]]*"//; s/"$//' || true)"
+            | grep -oE '"body":[[:space:]]*"[^"]+"' | tail -1 \
+            | sed -E 's/^"body":[[:space:]]*"//; s/"$//' || true)"
     fi
 
     if [[ -n "${agent_reply}" ]]; then
