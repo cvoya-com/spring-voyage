@@ -22,9 +22,9 @@ internal class PackageInstallEntityConfiguration : IEntityTypeConfiguration<Pack
         builder.ToTable("package_installs");
 
         builder.HasKey(e => e.Id);
-        builder.Property(e => e.Id).HasColumnName("id");
-        builder.Property(e => e.InstallId).HasColumnName("install_id").IsRequired();
-        builder.Property(e => e.TenantId).HasColumnName("tenant_id").IsRequired().HasMaxLength(128);
+        builder.Property(e => e.Id).HasColumnName("id").HasColumnType("uuid");
+        builder.Property(e => e.InstallId).HasColumnName("install_id").IsRequired().HasColumnType("uuid");
+        builder.Property(e => e.TenantId).HasColumnName("tenant_id").IsRequired().HasColumnType("uuid");
         builder.Property(e => e.PackageName).HasColumnName("package_name").IsRequired().HasMaxLength(256);
         builder.Property(e => e.Status)
             .HasColumnName("status")

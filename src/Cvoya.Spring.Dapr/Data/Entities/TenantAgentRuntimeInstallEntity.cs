@@ -16,7 +16,7 @@ using Cvoya.Spring.Core.Tenancy;
 public class TenantAgentRuntimeInstallEntity : ITenantScopedEntity
 {
     /// <summary>Tenant that owns this install row.</summary>
-    public string TenantId { get; set; } = string.Empty;
+    public Guid TenantId { get; set; }
 
     /// <summary>
     /// Stable runtime identifier (e.g. <c>claude</c>, <c>openai</c>) matching

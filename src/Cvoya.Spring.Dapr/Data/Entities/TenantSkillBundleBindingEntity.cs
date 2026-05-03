@@ -14,7 +14,7 @@ using Cvoya.Spring.Core.Tenancy;
 public class TenantSkillBundleBindingEntity : ITenantScopedEntity
 {
     /// <summary>Tenant that owns this binding.</summary>
-    public string TenantId { get; set; } = string.Empty;
+    public Guid TenantId { get; set; }
 
     /// <summary>Package directory name under the configured packages root
     /// (<c>Skills:PackagesRoot</c> or the shared <c>Packages:Root</c>).</summary>

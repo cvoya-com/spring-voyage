@@ -184,7 +184,7 @@ public class DefaultUnitPolicyEnforcer(
             if (policy.Cost.MaxCostPerHour is { } perHour)
             {
                 hourlySum ??= (await costQueries.GetAgentCostAsync(
-                    agentId, now.AddHours(-1), now, cancellationToken)).TotalCost;
+                    agentUuid, now.AddHours(-1), now, cancellationToken)).TotalCost;
 
                 if (hourlySum.Value + projectedCost > perHour)
                 {
@@ -198,7 +198,7 @@ public class DefaultUnitPolicyEnforcer(
             if (policy.Cost.MaxCostPerDay is { } perDay)
             {
                 dailySum ??= (await costQueries.GetAgentCostAsync(
-                    agentId, now.AddDays(-1), now, cancellationToken)).TotalCost;
+                    agentUuid, now.AddDays(-1), now, cancellationToken)).TotalCost;
 
                 if (dailySum.Value + projectedCost > perDay)
                 {

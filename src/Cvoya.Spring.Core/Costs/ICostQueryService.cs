@@ -16,7 +16,7 @@ public interface ICostQueryService
     /// <param name="to">The end of the time range.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>The cost summary for the agent.</returns>
-    Task<CostSummary> GetAgentCostAsync(string agentId, DateTimeOffset from, DateTimeOffset to, CancellationToken cancellationToken = default);
+    Task<CostSummary> GetAgentCostAsync(Guid agentId, DateTimeOffset from, DateTimeOffset to, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Gets the aggregated cost summary for a specific unit within a time range.
@@ -26,7 +26,7 @@ public interface ICostQueryService
     /// <param name="to">The end of the time range.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>The cost summary for the unit.</returns>
-    Task<CostSummary> GetUnitCostAsync(string unitId, DateTimeOffset from, DateTimeOffset to, CancellationToken cancellationToken = default);
+    Task<CostSummary> GetUnitCostAsync(Guid unitId, DateTimeOffset from, DateTimeOffset to, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Gets the aggregated cost summary for a specific tenant within a time range.
@@ -36,7 +36,7 @@ public interface ICostQueryService
     /// <param name="to">The end of the time range.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>The cost summary for the tenant.</returns>
-    Task<CostSummary> GetTenantCostAsync(string tenantId, DateTimeOffset from, DateTimeOffset to, CancellationToken cancellationToken = default);
+    Task<CostSummary> GetTenantCostAsync(Guid tenantId, DateTimeOffset from, DateTimeOffset to, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Gets a tenant-wide cost time-series bucketed by fixed-size UTC
@@ -59,7 +59,7 @@ public interface ICostQueryService
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>The zero-filled time-series for the tenant.</returns>
     Task<CostTimeseries> GetTenantCostTimeseriesAsync(
-        string tenantId,
+        Guid tenantId,
         DateTimeOffset from,
         DateTimeOffset to,
         TimeSpan bucket,
@@ -79,7 +79,7 @@ public interface ICostQueryService
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>The zero-filled time-series for the agent.</returns>
     Task<CostTimeseries> GetAgentCostTimeseriesAsync(
-        string agentId,
+        Guid agentId,
         DateTimeOffset from,
         DateTimeOffset to,
         TimeSpan bucket,
@@ -99,7 +99,7 @@ public interface ICostQueryService
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>The zero-filled time-series for the unit.</returns>
     Task<CostTimeseries> GetUnitCostTimeseriesAsync(
-        string unitId,
+        Guid unitId,
         DateTimeOffset from,
         DateTimeOffset to,
         TimeSpan bucket,
@@ -117,7 +117,7 @@ public interface ICostQueryService
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>One entry per distinct model, ordered by total cost descending.</returns>
     Task<IReadOnlyList<CostBreakdownEntry>> GetAgentCostBreakdownAsync(
-        string agentId,
+        Guid agentId,
         DateTimeOffset from,
         DateTimeOffset to,
         CancellationToken cancellationToken = default);

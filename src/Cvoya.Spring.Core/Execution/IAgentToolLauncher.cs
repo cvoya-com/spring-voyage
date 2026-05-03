@@ -79,7 +79,7 @@ public record AgentLaunchContext(
     string Prompt,
     string McpEndpoint,
     string McpToken,
-    string TenantId = "default",
+    Guid TenantId,
     string? UnitId = null,
     string? AgentDefinitionYaml = null,
     string? TenantConfigJson = null,

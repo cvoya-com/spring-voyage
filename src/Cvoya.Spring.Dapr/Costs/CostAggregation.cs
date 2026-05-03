@@ -17,7 +17,7 @@ using static Cvoya.Spring.Core.Costs.CostSource;
 public class CostAggregation(SpringDbContext dbContext) : ICostQueryService
 {
     /// <inheritdoc />
-    public async Task<CostSummary> GetAgentCostAsync(string agentId, DateTimeOffset from, DateTimeOffset to, CancellationToken cancellationToken = default)
+    public async Task<CostSummary> GetAgentCostAsync(Guid agentId, DateTimeOffset from, DateTimeOffset to, CancellationToken cancellationToken = default)
     {
         var query = dbContext.CostRecords
             .Where(r => r.AgentId == agentId && r.Timestamp >= from && r.Timestamp <= to);
@@ -26,7 +26,7 @@ public class CostAggregation(SpringDbContext dbContext) : ICostQueryService
     }
 
     /// <inheritdoc />
-    public async Task<CostSummary> GetUnitCostAsync(string unitId, DateTimeOffset from, DateTimeOffset to, CancellationToken cancellationToken = default)
+    public async Task<CostSummary> GetUnitCostAsync(Guid unitId, DateTimeOffset from, DateTimeOffset to, CancellationToken cancellationToken = default)
     {
         var query = dbContext.CostRecords
             .Where(r => r.UnitId == unitId && r.Timestamp >= from && r.Timestamp <= to);
@@ -35,7 +35,7 @@ public class CostAggregation(SpringDbContext dbContext) : ICostQueryService
     }
 
     /// <inheritdoc />
-    public async Task<CostSummary> GetTenantCostAsync(string tenantId, DateTimeOffset from, DateTimeOffset to, CancellationToken cancellationToken = default)
+    public async Task<CostSummary> GetTenantCostAsync(Guid tenantId, DateTimeOffset from, DateTimeOffset to, CancellationToken cancellationToken = default)
     {
         var query = dbContext.CostRecords
             .Where(r => r.TenantId == tenantId && r.Timestamp >= from && r.Timestamp <= to);
@@ -45,7 +45,7 @@ public class CostAggregation(SpringDbContext dbContext) : ICostQueryService
 
     /// <inheritdoc />
     public async Task<CostTimeseries> GetTenantCostTimeseriesAsync(
-        string tenantId,
+        Guid tenantId,
         DateTimeOffset from,
         DateTimeOffset to,
         TimeSpan bucket,
@@ -106,7 +106,7 @@ public class CostAggregation(SpringDbContext dbContext) : ICostQueryService
 
     /// <inheritdoc />
     public async Task<CostTimeseries> GetAgentCostTimeseriesAsync(
-        string agentId,
+        Guid agentId,
         DateTimeOffset from,
         DateTimeOffset to,
         TimeSpan bucket,
@@ -123,7 +123,7 @@ public class CostAggregation(SpringDbContext dbContext) : ICostQueryService
 
     /// <inheritdoc />
     public async Task<CostTimeseries> GetUnitCostTimeseriesAsync(
-        string unitId,
+        Guid unitId,
         DateTimeOffset from,
         DateTimeOffset to,
         TimeSpan bucket,
@@ -140,7 +140,7 @@ public class CostAggregation(SpringDbContext dbContext) : ICostQueryService
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<CostBreakdownEntry>> GetAgentCostBreakdownAsync(
-        string agentId,
+        Guid agentId,
         DateTimeOffset from,
         DateTimeOffset to,
         CancellationToken cancellationToken = default)

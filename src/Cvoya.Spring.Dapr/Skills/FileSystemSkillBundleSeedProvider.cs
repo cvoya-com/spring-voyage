@@ -63,7 +63,7 @@ public class FileSystemSkillBundleSeedProvider(
     public int Priority => 10;
 
     /// <inheritdoc />
-    public async Task ApplySeedsAsync(string tenantId, CancellationToken cancellationToken)
+    public async Task ApplySeedsAsync(Guid tenantId, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(tenantId);
 

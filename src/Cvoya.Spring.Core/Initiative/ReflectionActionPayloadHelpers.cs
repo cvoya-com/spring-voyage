@@ -16,9 +16,9 @@ using Cvoya.Spring.Core.Messaging;
 internal static class ReflectionActionPayloadHelpers
 {
     /// <summary>
-    /// Reads <c>targetScheme</c> + <c>targetPath</c> out of <paramref name="payload"/>
+    /// Reads <c>targetScheme</c> + <c>targetId</c> out of <paramref name="payload"/>
     /// and returns an <see cref="Address"/>, or <c>null</c> if either field is
-    /// missing or blank.
+    /// missing, blank, or fails to parse as a Guid.
     /// </summary>
     internal static Address? ReadTarget(JsonElement payload)
     {
@@ -28,13 +28,22 @@ internal static class ReflectionActionPayloadHelpers
             return null;
         }
 
-        if (!TryGetString(payload, "targetPath", out var path) ||
-            string.IsNullOrWhiteSpace(path))
+        // Accept either "targetId" (canonical, post-#1629) or the legacy
+        // "targetPath" key for in-flight payloads.
+        if ((!TryGetString(payload, "targetId", out var rawId) ||
+             string.IsNullOrWhiteSpace(rawId)) &&
+            (!TryGetString(payload, "targetPath", out rawId) ||
+             string.IsNullOrWhiteSpace(rawId)))
         {
             return null;
         }
 
-        return new Address(scheme, path);
+        if (!Identifiers.GuidFormatter.TryParse(rawId, out var id))
+        {
+            return null;
+        }
+
+        return new Address(scheme, id);
     }
 
     /// <summary>

@@ -29,12 +29,16 @@ namespace Cvoya.Spring.Core.Units;
 /// is never the source of truth for "would this add create a cycle".
 /// </para>
 /// </remarks>
-/// <param name="ParentUnitId">The unit that contains the child (the parent unit's <c>Address.Path</c>).</param>
-/// <param name="ChildUnitId">The unit being contained (the child unit's <c>Address.Path</c>).</param>
+/// <param name="ParentId">
+/// The container's stable Guid id. May be the tenant id (top-level units)
+/// or another unit's id. No DB-level FK because the column is polymorphic;
+/// the application enforces validity at write time.
+/// </param>
+/// <param name="ChildId">The contained unit's stable Guid id.</param>
 /// <param name="CreatedAt">UTC timestamp when the edge was first projected.</param>
 /// <param name="UpdatedAt">UTC timestamp when the edge was last touched. Equal to <see cref="CreatedAt"/> for non-mutated rows.</param>
 public record UnitSubunitMembership(
-    string ParentUnitId,
-    string ChildUnitId,
+    Guid ParentId,
+    Guid ChildId,
     DateTimeOffset CreatedAt = default,
     DateTimeOffset UpdatedAt = default);

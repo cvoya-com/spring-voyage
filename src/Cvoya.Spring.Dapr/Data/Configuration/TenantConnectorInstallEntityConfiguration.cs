@@ -21,7 +21,7 @@ internal class TenantConnectorInstallEntityConfiguration : IEntityTypeConfigurat
         builder.ToTable("tenant_connector_installs");
 
         builder.HasKey(e => new { e.TenantId, e.ConnectorId });
-        builder.Property(e => e.TenantId).HasColumnName("tenant_id").IsRequired().HasMaxLength(128);
+        builder.Property(e => e.TenantId).HasColumnName("tenant_id").IsRequired().HasColumnType("uuid");
         builder.Property(e => e.ConnectorId).HasColumnName("connector_id").IsRequired().HasMaxLength(128);
         builder.Property(e => e.ConfigJson).HasColumnName("config").HasColumnType("jsonb");
         builder.Property(e => e.InstalledAt).HasColumnName("installed_at").IsRequired();

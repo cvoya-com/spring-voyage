@@ -43,7 +43,7 @@ public record RoutingError(
     /// <returns>A routing error for address not found.</returns>
     public static RoutingError AddressNotFound(Address address)
     {
-        var detail = $"No directory entry found for address {address.Scheme}://{address.Path}";
+        var detail = $"No directory entry found for address {address}";
         return new("ADDRESS_NOT_FOUND", detail, detail);
     }
 
@@ -54,7 +54,7 @@ public record RoutingError(
     /// <returns>A routing error for permission denied.</returns>
     public static RoutingError PermissionDenied(Address address)
     {
-        var detail = $"Permission denied for address {address.Scheme}://{address.Path}";
+        var detail = $"Permission denied for address {address}";
         return new("PERMISSION_DENIED", detail, detail);
     }
 
@@ -71,7 +71,7 @@ public record RoutingError(
     public static RoutingError DeliveryFailed(Address address, string reason) =>
         new(
             "DELIVERY_FAILED",
-            $"Delivery to {address.Scheme}://{address.Path} failed: {reason}",
+            $"Delivery to {address} failed: {reason}",
             reason);
 
     /// <summary>
@@ -89,7 +89,7 @@ public record RoutingError(
     public static RoutingError CallerValidation(Address address, string detailCode, string detail) =>
         new(
             "CALLER_VALIDATION",
-            $"Caller validation failed for {address.Scheme}://{address.Path}: {detail}",
+            $"Caller validation failed for {address}: {detail}",
             detail,
             detailCode);
 }

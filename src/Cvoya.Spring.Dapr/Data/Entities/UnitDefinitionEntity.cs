@@ -10,32 +10,38 @@ using Cvoya.Spring.Core.Tenancy;
 /// <summary>
 /// Represents a unit (team) definition stored in the database.
 /// A unit groups agents together under a shared orchestration strategy.
+/// Identity is the entity Guid <see cref="Id"/> — there is no separate
+/// slug column; <see cref="DisplayName"/> is the only human-readable
+/// label and is not addressable.
 /// </summary>
 public class UnitDefinitionEntity : ITenantScopedEntity
 {
-    /// <summary>Gets or sets the unique identifier for the unit definition.</summary>
+    /// <summary>Gets or sets the unique identifier for the unit definition (the actor identity).</summary>
     public Guid Id { get; set; }
 
+    /// <summary>
+    /// Convenience accessor for callers that historically used a separate
+    /// <c>ActorId</c> column. Identical to <see cref="Id"/> rendered as a
+    /// no-dash 32-char hex string — the canonical Dapr <c>ActorId</c>
+    /// keying form.
+    /// </summary>
+    [System.ComponentModel.DataAnnotations.Schema.NotMapped]
+    public string ActorId => Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(Id);
+
     /// <summary>Gets or sets the tenant that owns this unit definition.</summary>
-    public string TenantId { get; set; } = string.Empty;
+    public Guid TenantId { get; set; }
 
-    /// <summary>Gets or sets the user-facing identifier for the unit.</summary>
-    public string UnitId { get; set; } = string.Empty;
-
-    /// <summary>Gets or sets the Dapr actor identifier used to invoke this unit.</summary>
-    public string? ActorId { get; set; }
-
-    /// <summary>Gets or sets the display name of the unit.</summary>
-    public string Name { get; set; } = string.Empty;
+    /// <summary>
+    /// Gets or sets the human-readable display name. NOT unique; not
+    /// addressable; renames do not invalidate routing or audit history.
+    /// </summary>
+    public string DisplayName { get; set; } = string.Empty;
 
     /// <summary>Gets or sets an optional description of the unit.</summary>
     public string? Description { get; set; }
 
     /// <summary>Gets or sets the full unit definition stored as JSON.</summary>
     public JsonElement? Definition { get; set; }
-
-    /// <summary>Gets or sets the list of member identifiers stored as JSON.</summary>
-    public JsonElement? Members { get; set; }
 
     /// <summary>Gets or sets the timestamp when the unit definition was created.</summary>
     public DateTimeOffset CreatedAt { get; set; }
@@ -45,16 +51,6 @@ public class UnitDefinitionEntity : ITenantScopedEntity
 
     /// <summary>Gets or sets the timestamp when the unit definition was soft-deleted, or null if active.</summary>
     public DateTimeOffset? DeletedAt { get; set; }
-
-    /// <summary>
-    /// Gets or sets a flag indicating whether this unit is a top-level unit —
-    /// i.e. its parent is the tenant itself, not another unit. Every unit must
-    /// either be top-level OR carry at least one parent-unit edge; the two
-    /// cases are mutually exclusive at creation time. Default is <c>false</c>:
-    /// a plain (non-top-level) unit must be added as a member of at least one
-    /// parent unit.
-    /// </summary>
-    public bool IsTopLevel { get; set; }
 
     /// <summary>
     /// Structured validation error from the last Validating → Error transition,

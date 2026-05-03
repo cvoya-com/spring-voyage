@@ -33,11 +33,11 @@ namespace Cvoya.Spring.Core.Tenancy;
 public interface ITenantScopedEntity
 {
     /// <summary>
-    /// Tenant identifier that owns this row. Never null or empty on
-    /// persisted rows. Populated from the ambient
-    /// <see cref="ITenantContext.CurrentTenantId"/> on insert and
-    /// preserved through updates; the column is NOT NULL at the
+    /// Tenant identifier that owns this row. Never
+    /// <see cref="Guid.Empty"/> on persisted rows. Populated from the
+    /// ambient <see cref="ITenantContext.CurrentTenantId"/> on insert
+    /// and preserved through updates; the column is NOT NULL at the
     /// database layer.
     /// </summary>
-    string TenantId { get; }
+    Guid TenantId { get; }
 }

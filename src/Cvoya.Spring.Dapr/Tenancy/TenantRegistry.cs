@@ -3,8 +3,7 @@
 
 namespace Cvoya.Spring.Dapr.Tenancy;
 
-using System.Text.RegularExpressions;
-
+using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Tenancy;
 using Cvoya.Spring.Dapr.Data;
 using Cvoya.Spring.Dapr.Data.Entities;
@@ -23,33 +22,14 @@ using Microsoft.Extensions.Logging;
 /// underlying entity is global (no tenant query filter applied), but
 /// every method still wraps its work in
 /// <see cref="ITenantScopeBypass.BeginBypass(string)"/> for the
-/// structured audit signal. The OSS bypass implementation only logs;
-/// the cloud overlay's permission-checked variant gates the open on
-/// the caller's role, so wrapping every call here lets the cloud
-/// override apply uniformly without each call site having to know.
-/// </para>
-/// <para>
-/// Id-shape validation lives here rather than at the API layer so the
-/// registry stays self-defending — a callsite that bypasses the
-/// endpoints (a CLI script, a private-cloud admin tool) cannot create
-/// a tenant with a malformed id.
+/// structured audit signal.
 /// </para>
 /// </remarks>
-public sealed partial class TenantRegistry(
+public sealed class TenantRegistry(
     SpringDbContext dbContext,
     ITenantScopeBypass tenantScopeBypass,
     ILogger<TenantRegistry> logger) : ITenantRegistry
 {
-    /// <summary>
-    /// Stable lower-case slug shape for tenant ids:
-    /// 1–64 chars; first char alphanumeric; remaining chars alphanumeric,
-    /// underscore, or hyphen. Mirrors the shape we recommend for
-    /// <see cref="ITenantScopedEntity.TenantId"/> values throughout the
-    /// platform.
-    /// </summary>
-    [GeneratedRegex(@"^[a-z0-9][a-z0-9_-]{0,63}$")]
-    private static partial Regex TenantIdShape();
-
     /// <inheritdoc />
     public async Task<IReadOnlyList<TenantRecord>> ListAsync(CancellationToken cancellationToken = default)
     {
@@ -63,9 +43,12 @@ public sealed partial class TenantRegistry(
     }
 
     /// <inheritdoc />
-    public async Task<TenantRecord?> GetAsync(string id, CancellationToken cancellationToken = default)
+    public async Task<TenantRecord?> GetAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(id);
+        if (id == Guid.Empty)
+        {
+            throw new ArgumentException("Tenant id must not be Guid.Empty.", nameof(id));
+        }
 
         using var bypass = tenantScopeBypass.BeginBypass("platform-tenants get");
         var row = await dbContext.Tenants
@@ -77,16 +60,13 @@ public sealed partial class TenantRegistry(
 
     /// <inheritdoc />
     public async Task<TenantRecord> CreateAsync(
-        string id,
+        Guid id,
         string? displayName,
         CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(id);
-        if (!TenantIdShape().IsMatch(id))
+        if (id == Guid.Empty)
         {
-            throw new ArgumentException(
-                $"Tenant id '{id}' does not match the required shape (lower-case alphanumerics + '_' / '-', 1-64 chars).",
-                nameof(id));
+            throw new ArgumentException("Tenant id must not be Guid.Empty.", nameof(id));
         }
 
         using var bypass = tenantScopeBypass.BeginBypass("platform-tenants create");
@@ -104,12 +84,12 @@ public sealed partial class TenantRegistry(
         {
             throw new InvalidOperationException(
                 existing.DeletedAt is null
-                    ? $"Tenant '{id}' already exists."
-                    : $"Tenant '{id}' was previously soft-deleted; restore is out of scope for v0.1.");
+                    ? $"Tenant '{GuidFormatter.Format(id)}' already exists."
+                    : $"Tenant '{GuidFormatter.Format(id)}' was previously soft-deleted; restore is out of scope for v0.1.");
         }
 
         var now = DateTimeOffset.UtcNow;
-        var resolvedDisplay = string.IsNullOrWhiteSpace(displayName) ? id : displayName!;
+        var resolvedDisplay = string.IsNullOrWhiteSpace(displayName) ? GuidFormatter.Format(id) : displayName!;
         var entity = new TenantRecordEntity
         {
             Id = id,
@@ -126,11 +106,14 @@ public sealed partial class TenantRegistry(
 
     /// <inheritdoc />
     public async Task<TenantRecord?> UpdateAsync(
-        string id,
+        Guid id,
         string? displayName,
         CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(id);
+        if (id == Guid.Empty)
+        {
+            throw new ArgumentException("Tenant id must not be Guid.Empty.", nameof(id));
+        }
 
         using var bypass = tenantScopeBypass.BeginBypass("platform-tenants update");
 
@@ -144,7 +127,7 @@ public sealed partial class TenantRegistry(
 
         if (displayName is not null)
         {
-            row.DisplayName = string.IsNullOrWhiteSpace(displayName) ? id : displayName;
+            row.DisplayName = string.IsNullOrWhiteSpace(displayName) ? GuidFormatter.Format(id) : displayName;
         }
 
         row.UpdatedAt = DateTimeOffset.UtcNow;
@@ -154,9 +137,12 @@ public sealed partial class TenantRegistry(
     }
 
     /// <inheritdoc />
-    public async Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default)
+    public async Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(id);
+        if (id == Guid.Empty)
+        {
+            throw new ArgumentException("Tenant id must not be Guid.Empty.", nameof(id));
+        }
 
         using var bypass = tenantScopeBypass.BeginBypass("platform-tenants delete");
 

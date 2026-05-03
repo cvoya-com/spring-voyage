@@ -17,7 +17,7 @@ public class HumanEntity : ITenantScopedEntity
     public Guid Id { get; set; }
 
     /// <summary>Gets or sets the tenant that owns this human record.</summary>
-    public string TenantId { get; set; } = string.Empty;
+    public Guid TenantId { get; set; }
 
     /// <summary>
     /// Gets or sets the JWT subject claim (NameIdentifier). Unique within

@@ -123,10 +123,8 @@ public class EfSecretRegistry : ISecretRegistry
     }
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<SecretRef>> ListAsync(SecretScope scope, string ownerId, CancellationToken ct)
+    public async Task<IReadOnlyList<SecretRef>> ListAsync(SecretScope scope, Guid? ownerId, CancellationToken ct)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(ownerId);
-
         var tenant = _tenantContext.CurrentTenantId;
 
         // Collapse per-version rows to one entry per (scope, owner,

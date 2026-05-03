@@ -18,6 +18,6 @@ public class AllowAllSecretAccessPolicy : ISecretAccessPolicy
     public Task<bool> IsAuthorizedAsync(
         SecretAccessAction action,
         SecretScope scope,
-        string ownerId,
+        Guid? ownerId,
         CancellationToken ct) => Task.FromResult(true);
 }

@@ -19,13 +19,17 @@ public sealed class StaticTenantContext : ITenantContext
     /// Creates a new <see cref="StaticTenantContext"/>.
     /// </summary>
     /// <param name="tenantId">Tenant id returned by
-    /// <see cref="CurrentTenantId"/>. Must not be null or empty.</param>
-    public StaticTenantContext(string tenantId)
+    /// <see cref="CurrentTenantId"/>. Must not be <see cref="Guid.Empty"/>.</param>
+    public StaticTenantContext(Guid tenantId)
     {
-        ArgumentException.ThrowIfNullOrEmpty(tenantId);
+        if (tenantId == Guid.Empty)
+        {
+            throw new ArgumentException("Tenant id must not be Guid.Empty.", nameof(tenantId));
+        }
+
         CurrentTenantId = tenantId;
     }
 
     /// <inheritdoc />
-    public string CurrentTenantId { get; }
+    public Guid CurrentTenantId { get; }
 }

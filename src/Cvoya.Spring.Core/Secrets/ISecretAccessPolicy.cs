@@ -31,16 +31,16 @@ public interface ISecretAccessPolicy
     /// <param name="action">The action being attempted.</param>
     /// <param name="scope">The target secret scope.</param>
     /// <param name="ownerId">
-    /// The scope-specific owner id: the unit name for
-    /// <see cref="SecretScope.Unit"/>; the tenant id for
-    /// <see cref="SecretScope.Tenant"/>; a platform-owned identifier for
+    /// The scope-specific owner id: the unit Guid for
+    /// <see cref="SecretScope.Unit"/>; the tenant Guid for
+    /// <see cref="SecretScope.Tenant"/>; <c>null</c> for
     /// <see cref="SecretScope.Platform"/>.
     /// </param>
     /// <param name="ct">Cancellation token.</param>
     Task<bool> IsAuthorizedAsync(
         SecretAccessAction action,
         SecretScope scope,
-        string ownerId,
+        Guid? ownerId,
         CancellationToken ct);
 }
 

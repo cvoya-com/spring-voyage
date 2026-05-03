@@ -22,10 +22,10 @@ internal class CostRecordConfiguration : IEntityTypeConfiguration<CostRecord>
         builder.ToTable("cost_records");
 
         builder.HasKey(e => e.Id);
-        builder.Property(e => e.Id).HasColumnName("id");
-        builder.Property(e => e.TenantId).HasColumnName("tenant_id").IsRequired().HasMaxLength(128);
-        builder.Property(e => e.AgentId).HasColumnName("agent_id").IsRequired().HasMaxLength(128);
-        builder.Property(e => e.UnitId).HasColumnName("unit_id").HasMaxLength(128);
+        builder.Property(e => e.Id).HasColumnName("id").HasColumnType("uuid");
+        builder.Property(e => e.TenantId).HasColumnName("tenant_id").IsRequired().HasColumnType("uuid");
+        builder.Property(e => e.AgentId).HasColumnName("agent_id").IsRequired().HasColumnType("uuid");
+        builder.Property(e => e.UnitId).HasColumnName("unit_id").HasColumnType("uuid");
         builder.Property(e => e.Model).HasColumnName("model").IsRequired().HasMaxLength(128);
         builder.Property(e => e.InputTokens).HasColumnName("input_tokens");
         builder.Property(e => e.OutputTokens).HasColumnName("output_tokens");

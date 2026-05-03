@@ -118,8 +118,7 @@ public record AgentBootstrapContext(
 /// </remarks>
 /// <param name="AgentId">The stable agent identifier.</param>
 /// <param name="TenantId">
-/// The tenant the agent runs under. Defaults to <c>"default"</c> for
-/// existing supervisors that pre-date this field (safe migration value).
+/// The tenant the agent runs under.
 /// </param>
 /// <param name="UnitId">
 /// The unit the agent is a member of, if applicable. <c>null</c> for
@@ -131,6 +130,6 @@ public record AgentBootstrapContext(
 /// </param>
 public record SupervisorRestartContext(
     string AgentId,
-    string TenantId = "default",
+    Guid TenantId,
     string? UnitId = null,
     bool ConcurrentThreads = true);

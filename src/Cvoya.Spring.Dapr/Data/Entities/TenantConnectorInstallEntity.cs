@@ -18,7 +18,7 @@ using Cvoya.Spring.Core.Tenancy;
 public class TenantConnectorInstallEntity : ITenantScopedEntity
 {
     /// <summary>Tenant that owns this install row.</summary>
-    public string TenantId { get; set; } = string.Empty;
+    public Guid TenantId { get; set; }
 
     /// <summary>
     /// Stable connector identifier matching

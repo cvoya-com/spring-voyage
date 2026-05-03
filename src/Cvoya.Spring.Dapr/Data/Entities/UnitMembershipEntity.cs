@@ -8,33 +8,19 @@ using Cvoya.Spring.Core.Tenancy;
 
 /// <summary>
 /// Persists one (unit, agent) membership edge with per-membership config
-/// overrides. Replaces the single-pointer <c>Agent:ParentUnit</c> state
-/// at the actor layer with an M:N join row (see #160 / C2b). Unit-typed
-/// members remain 1:N and are not stored here — only <c>agent://</c>
-/// members have rows in this table.
-///
-/// As of #1492 the primary key columns are stable UUIDs (actor IDs),
-/// not slug strings. A delete + recreate of a unit or agent with the
-/// same slug no longer inherits stale membership rows from the prior
-/// instance.
+/// overrides. The composite primary key is
+/// <c>(tenant_id, unit_id, agent_id)</c> with both identity columns typed
+/// as Guid; there is no slug column on this table.
 /// </summary>
 public class UnitMembershipEntity : ITenantScopedEntity
 {
     /// <summary>Gets or sets the tenant that owns this membership row.</summary>
-    public string TenantId { get; set; } = string.Empty;
+    public Guid TenantId { get; set; }
 
-    /// <summary>
-    /// Stable UUID identity of the unit this membership attaches the agent
-    /// to. Matches the unit's <c>ActorId</c> so a delete + recreate of a
-    /// unit with the same slug does not inherit stale rows (#1492).
-    /// </summary>
+    /// <summary>Stable Guid identity of the unit this membership attaches the agent to.</summary>
     public Guid UnitId { get; set; }
 
-    /// <summary>
-    /// Stable UUID identity of the agent. Matches the agent's <c>ActorId</c>.
-    /// Renamed from the prior <c>AgentAddress</c> column because "address"
-    /// implied a slug-shaped URI string (#1492).
-    /// </summary>
+    /// <summary>Stable Guid identity of the agent.</summary>
     public Guid AgentId { get; set; }
 
     /// <summary>Optional per-membership model override.</summary>

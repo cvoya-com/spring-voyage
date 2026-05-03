@@ -13,11 +13,12 @@ namespace Cvoya.Spring.Core.Secrets;
 /// <param name="Scope">The ownership scope.</param>
 /// <param name="OwnerId">
 /// The scope-specific owner identifier. For <see cref="SecretScope.Unit"/>
-/// this is the unit name; for <see cref="SecretScope.Tenant"/> the tenant id;
-/// for <see cref="SecretScope.Platform"/> a platform-owned identifier.
+/// this is the unit's Guid; for <see cref="SecretScope.Tenant"/> the tenant
+/// Guid (matches the ambient tenant); for <see cref="SecretScope.Platform"/>
+/// the value is <c>null</c>.
 /// </param>
 /// <param name="Name">
 /// The secret name. Case-sensitive; the registry enforces a unique index
 /// on (TenantId, Scope, OwnerId, Name).
 /// </param>
-public record SecretRef(SecretScope Scope, string OwnerId, string Name);
+public record SecretRef(SecretScope Scope, Guid? OwnerId, string Name);

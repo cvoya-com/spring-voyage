@@ -21,7 +21,7 @@ internal class TenantSkillBundleBindingEntityConfiguration : IEntityTypeConfigur
         builder.ToTable("tenant_skill_bundle_bindings");
 
         builder.HasKey(e => new { e.TenantId, e.BundleId });
-        builder.Property(e => e.TenantId).HasColumnName("tenant_id").IsRequired().HasMaxLength(128);
+        builder.Property(e => e.TenantId).HasColumnName("tenant_id").IsRequired().HasColumnType("uuid");
         builder.Property(e => e.BundleId).HasColumnName("bundle_id").IsRequired().HasMaxLength(256);
         builder.Property(e => e.Enabled).HasColumnName("enabled").IsRequired();
         builder.Property(e => e.BoundAt).HasColumnName("bound_at").IsRequired();

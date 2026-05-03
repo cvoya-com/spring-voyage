@@ -44,13 +44,13 @@ public class SpringDbContext : DbContext
 
     /// <summary>
     /// Back-compat constructor that falls back to the <see cref="StaticTenantContext"/>
-    /// bound to <see cref="Cvoya.Spring.Dapr.Tenancy.ConfiguredTenantContext.DefaultTenantId"/>.
-    /// Kept for the design-time factory and any test harness that has
-    /// not yet been updated to pass an explicit tenant context. Runtime
-    /// DI always takes the two-argument constructor.
+    /// bound to <see cref="OssTenantIds.Default"/>. Kept for the
+    /// design-time factory and any test harness that has not yet been
+    /// updated to pass an explicit tenant context. Runtime DI always
+    /// takes the two-argument constructor.
     /// </summary>
     public SpringDbContext(DbContextOptions<SpringDbContext> options)
-        : this(options, new StaticTenantContext(Cvoya.Spring.Dapr.Tenancy.ConfiguredTenantContext.DefaultTenantId))
+        : this(options, new StaticTenantContext(OssTenantIds.Default))
     {
     }
 
@@ -60,11 +60,9 @@ public class SpringDbContext : DbContext
     /// EF Core re-evaluates the filter closure against the specific
     /// context instance on every query, giving each instance its own
     /// tenant view — a requirement once the model cache is shared across
-    /// instances (which it always is). Hidden from the public surface
-    /// via <see cref="System.ComponentModel.EditorBrowsableAttribute"/>
-    /// because it only exists to wire the query filter.
+    /// instances (which it always is).
     /// </summary>
-    internal string CurrentTenantId => _tenantContext.CurrentTenantId;
+    internal Guid CurrentTenantId => _tenantContext.CurrentTenantId;
 
     /// <summary>Gets the set of agent definition entities.</summary>
     public DbSet<AgentDefinitionEntity> AgentDefinitions => Set<AgentDefinitionEntity>();
@@ -243,7 +241,7 @@ public class SpringDbContext : DbContext
                 // tenancy centralised so individual write sites don't
                 // have to plumb ITenantContext through every call path.
                 if (entry.Entity is ITenantScopedEntity tenantScoped
-                    && string.IsNullOrEmpty(tenantScoped.TenantId)
+                    && tenantScoped.TenantId == Guid.Empty
                     && entry.Properties.FirstOrDefault(p => p.Metadata.Name == nameof(ITenantScopedEntity.TenantId)) is { } tenantIdProperty)
                 {
                     tenantIdProperty.CurrentValue = _tenantContext.CurrentTenantId;

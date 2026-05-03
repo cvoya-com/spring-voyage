@@ -13,7 +13,15 @@ using Cvoya.Spring.Core.Tenancy;
 /// itself is never stored on this entity.
 ///
 /// <para>
-/// <b>Multi-version coexistence (wave 7 A5).</b> A single secret named
+/// <b>Scope/owner split.</b> <see cref="OwnerId"/> is a nullable Guid:
+/// for <see cref="SecretScope.Unit"/> it is the unit's Guid; for
+/// <see cref="SecretScope.Tenant"/> it is the tenant Guid (matches
+/// <see cref="TenantId"/>); for <see cref="SecretScope.Platform"/> it is
+/// <c>null</c>.
+/// </para>
+///
+/// <para>
+/// <b>Multi-version coexistence.</b> A single secret named
 /// <c>(scope, owner, name)</c> is persisted as N rows — one per
 /// retained version. Each rotation inserts a new row at
 /// <c>max(Version)+1</c>; the prior rows stay until pruned. The
@@ -26,14 +34,19 @@ public class SecretRegistryEntry : ITenantScopedEntity
     /// <summary>Unique identifier for the registry entry.</summary>
     public Guid Id { get; set; }
 
-    /// <summary>Tenant that owns the entry. Never null or empty.</summary>
-    public string TenantId { get; set; } = string.Empty;
+    /// <summary>Tenant that owns the entry.</summary>
+    public Guid TenantId { get; set; }
 
     /// <summary>Ownership scope (unit / tenant / platform).</summary>
     public SecretScope Scope { get; set; }
 
-    /// <summary>Scope-specific owner id — unit name, tenant id, etc.</summary>
-    public string OwnerId { get; set; } = string.Empty;
+    /// <summary>
+    /// Scope-specific owner Guid. Unit Guid for
+    /// <see cref="SecretScope.Unit"/>; tenant Guid (matches
+    /// <see cref="TenantId"/>) for <see cref="SecretScope.Tenant"/>;
+    /// <c>null</c> for <see cref="SecretScope.Platform"/>.
+    /// </summary>
+    public Guid? OwnerId { get; set; }
 
     /// <summary>Secret name (case-sensitive within the triple).</summary>
     public string Name { get; set; } = string.Empty;
@@ -47,32 +60,17 @@ public class SecretRegistryEntry : ITenantScopedEntity
 
     /// <summary>
     /// Who owns the storage slot that <see cref="StoreKey"/> points at.
-    /// This distinction is critical on delete / rotate paths: the store
-    /// layer must only mutate slots the platform owns — see
-    /// <see cref="SecretOrigin"/> for the full semantics.
     /// </summary>
     public SecretOrigin Origin { get; set; }
 
     /// <summary>
-    /// Monotonically-increasing version number, bumped by
-    /// <see cref="ISecretRegistry.RotateAsync"/>. <c>null</c> for legacy
-    /// rows that predate the version column; they transition to version
-    /// <c>1</c> on their first rotation. Rows created after the
-    /// migration start at version <c>1</c> (<see cref="RegisterAsync"/>
-    /// leaves <c>null</c> for an unmodified legacy row but initialises
-    /// new inserts).
+    /// Monotonically-increasing version number, bumped by rotations.
     /// </summary>
     public int? Version { get; set; }
 
     /// <summary>Creation timestamp (UTC).</summary>
     public DateTimeOffset CreatedAt { get; set; }
 
-    /// <summary>
-    /// Last-update timestamp (UTC). Set on creation and refreshed by
-    /// every <see cref="ISecretRegistry.RotateAsync"/>. Audit decorators
-    /// observe the transition via <see cref="SecretRotation"/>'s version
-    /// fields; <see cref="UpdatedAt"/> is the persistent record for
-    /// operators browsing the registry directly.
-    /// </summary>
+    /// <summary>Last-update timestamp (UTC).</summary>
     public DateTimeOffset UpdatedAt { get; set; }
 }

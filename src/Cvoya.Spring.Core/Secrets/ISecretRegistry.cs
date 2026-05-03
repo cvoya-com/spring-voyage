@@ -144,7 +144,7 @@ public interface ISecretRegistry
     /// <param name="scope">The scope to list.</param>
     /// <param name="ownerId">The scope-specific owner id.</param>
     /// <param name="ct">Cancellation token.</param>
-    Task<IReadOnlyList<SecretRef>> ListAsync(SecretScope scope, string ownerId, CancellationToken ct);
+    Task<IReadOnlyList<SecretRef>> ListAsync(SecretScope scope, Guid? ownerId, CancellationToken ct);
 
     /// <summary>
     /// Lists the versions retained for the given structural reference,

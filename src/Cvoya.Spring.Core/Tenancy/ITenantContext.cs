@@ -5,16 +5,16 @@ namespace Cvoya.Spring.Core.Tenancy;
 
 /// <summary>
 /// Returns the tenant identifier for the current execution context.
-/// The OSS implementation is a singleton that reads a configured
-/// default tenant id (<c>Secrets:DefaultTenantId</c>, defaulting to
-/// <c>"default"</c>). The private cloud repo swaps in a scoped
-/// implementation that resolves the tenant from the request principal.
+/// The OSS implementation is a singleton that resolves to
+/// <see cref="OssTenantIds.Default"/>; the private cloud repo swaps in a
+/// scoped implementation that resolves the tenant from the request
+/// principal.
 /// </summary>
 public interface ITenantContext
 {
     /// <summary>
     /// Gets the tenant identifier for the current execution context.
-    /// Never null or empty.
+    /// Never <see cref="Guid.Empty"/>.
     /// </summary>
-    string CurrentTenantId { get; }
+    Guid CurrentTenantId { get; }
 }

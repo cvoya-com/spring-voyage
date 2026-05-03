@@ -7,22 +7,25 @@ using Cvoya.Spring.Core.Tenancy;
 
 /// <summary>
 /// Persists one parent → child unit edge in the unit containment graph.
-/// Mirrors the <c>unit://</c>-scheme entries kept in <c>UnitActor</c>
-/// state so the tenant-tree endpoint can render nested unit hierarchies
-/// without a per-unit actor fanout (#1154). Per-edge configuration
-/// overrides for unit-typed members remain deferred to #217 — this row
-/// carries only the edge plus audit timestamps.
+/// Composite primary key on <c>(tenant_id, parent_id, child_id)</c>; no
+/// slug column. <see cref="ParentId"/> may be a tenant id (top-level
+/// units) or a unit id — there is no DB-level FK on the parent column
+/// because the reference is polymorphic; the application enforces a
+/// real tenant or unit at write time.
 /// </summary>
 public class UnitSubunitMembershipEntity : ITenantScopedEntity
 {
     /// <summary>Gets or sets the tenant that owns this edge.</summary>
-    public string TenantId { get; set; } = string.Empty;
+    public Guid TenantId { get; set; }
 
-    /// <summary>The unit that contains the child (parent unit's <c>Address.Path</c>).</summary>
-    public string ParentUnitId { get; set; } = string.Empty;
+    /// <summary>
+    /// The container's stable Guid id. Tenant id for top-level units;
+    /// otherwise a unit id. Polymorphic — no DB FK.
+    /// </summary>
+    public Guid ParentId { get; set; }
 
-    /// <summary>The unit being contained (child unit's <c>Address.Path</c>).</summary>
-    public string ChildUnitId { get; set; } = string.Empty;
+    /// <summary>The contained unit's stable Guid id.</summary>
+    public Guid ChildId { get; set; }
 
     /// <summary>UTC timestamp when the edge was first projected.</summary>
     public DateTimeOffset CreatedAt { get; set; }

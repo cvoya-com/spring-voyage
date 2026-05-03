@@ -18,13 +18,13 @@ using Cvoya.Spring.Core.Tenancy;
 public class UnitPolicyEntity : ITenantScopedEntity
 {
     /// <summary>Gets or sets the tenant that owns this policy row.</summary>
-    public string TenantId { get; set; } = string.Empty;
+    public Guid TenantId { get; set; }
 
     /// <summary>
-    /// The unit id (<c>Address.Path</c>). Primary key — at most one policy
-    /// row per unit.
+    /// The unit's stable Guid id. Part of the primary key — at most one
+    /// policy row per unit.
     /// </summary>
-    public string UnitId { get; set; } = string.Empty;
+    public Guid UnitId { get; set; }
 
     /// <summary>
     /// Persisted skill policy encoded as JSON, or <c>null</c> when the unit

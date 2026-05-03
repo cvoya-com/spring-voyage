@@ -44,9 +44,12 @@ public sealed class DefaultTenantRecordSeedProvider(
     public int Priority => 5;
 
     /// <inheritdoc />
-    public async Task ApplySeedsAsync(string tenantId, CancellationToken cancellationToken)
+    public async Task ApplySeedsAsync(Guid tenantId, CancellationToken cancellationToken)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(tenantId);
+        if (tenantId == Guid.Empty)
+        {
+            throw new ArgumentException("Tenant id must not be Guid.Empty.", nameof(tenantId));
+        }
 
         await using var scope = scopeFactory.CreateAsyncScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
@@ -67,10 +70,11 @@ public sealed class DefaultTenantRecordSeedProvider(
         }
 
         var now = DateTimeOffset.UtcNow;
+        var displayName = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(tenantId);
         dbContext.Tenants.Add(new TenantRecordEntity
         {
             Id = tenantId,
-            DisplayName = tenantId,
+            DisplayName = displayName,
             State = TenantState.Active,
             CreatedAt = now,
             UpdatedAt = now,

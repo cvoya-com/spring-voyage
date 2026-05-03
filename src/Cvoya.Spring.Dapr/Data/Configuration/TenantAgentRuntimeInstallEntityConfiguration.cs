@@ -23,7 +23,7 @@ internal class TenantAgentRuntimeInstallEntityConfiguration : IEntityTypeConfigu
         builder.ToTable("tenant_agent_runtime_installs");
 
         builder.HasKey(e => new { e.TenantId, e.RuntimeId });
-        builder.Property(e => e.TenantId).HasColumnName("tenant_id").IsRequired().HasMaxLength(128);
+        builder.Property(e => e.TenantId).HasColumnName("tenant_id").IsRequired().HasColumnType("uuid");
         builder.Property(e => e.RuntimeId).HasColumnName("runtime_id").IsRequired().HasMaxLength(64);
         builder.Property(e => e.ConfigJson).HasColumnName("config").HasColumnType("jsonb");
         builder.Property(e => e.InstalledAt).HasColumnName("installed_at").IsRequired();

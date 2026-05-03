@@ -11,19 +11,28 @@ using Cvoya.Spring.Core.Tenancy;
 /// single credential attached to an agent runtime or connector. Shared
 /// schema so wizard banners and admin read-outs can enumerate runtime
 /// and connector health via a single read.
+///
+/// <para>
+/// <see cref="Kind"/> discriminates the subject scope. <see cref="SubjectId"/>
+/// is the catalog slug for both kinds — agent runtime ids
+/// (<c>claude</c>, <c>openai</c>, …) and connector kind slugs
+/// (<c>github</c>, …) are content-addressable identifiers owned by the
+/// package author and stable across tenants; they intentionally remain
+/// strings.
+/// </para>
 /// </summary>
 public class CredentialHealthEntity : ITenantScopedEntity
 {
     /// <summary>Tenant that owns this row.</summary>
-    public string TenantId { get; set; } = string.Empty;
+    public Guid TenantId { get; set; }
 
     /// <summary>Whether the subject is an agent runtime or a connector.</summary>
     public CredentialHealthKind Kind { get; set; }
 
     /// <summary>
-    /// Stable identifier of the subject — runtime <c>Id</c> for
-    /// <see cref="CredentialHealthKind.AgentRuntime"/>, connector slug
-    /// for <see cref="CredentialHealthKind.Connector"/>.
+    /// Catalog slug identifying the subject — runtime <c>Id</c> for
+    /// <see cref="CredentialHealthKind.AgentRuntime"/>, connector type
+    /// slug for <see cref="CredentialHealthKind.Connector"/>.
     /// </summary>
     public string SubjectId { get; set; } = string.Empty;
 

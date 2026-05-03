@@ -35,7 +35,7 @@ public interface IUnitSubunitMembershipRepository
     /// — safe to call repeatedly from the actor write-through path and
     /// from the startup reconciliation service.
     /// </summary>
-    Task UpsertAsync(string parentUnitId, string childUnitId, CancellationToken cancellationToken = default);
+    Task UpsertAsync(Guid parentId, Guid childId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Removes the row for the given composite key. No-op when no row
@@ -43,7 +43,7 @@ public interface IUnitSubunitMembershipRepository
     /// <c>RemoveMemberAsync</c> can call it without branching on
     /// "row exists".
     /// </summary>
-    Task DeleteAsync(string parentUnitId, string childUnitId, CancellationToken cancellationToken = default);
+    Task DeleteAsync(Guid parentId, Guid childId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Bulk-removes every edge that mentions the given unit, on either
@@ -51,13 +51,14 @@ public interface IUnitSubunitMembershipRepository
     /// <c>DirectoryService</c> so a tear-down purges both "this unit's
     /// children" and "this unit's parents" rows in one statement.
     /// </summary>
-    Task DeleteAllForUnitAsync(string unitId, CancellationToken cancellationToken = default);
+    Task DeleteAllForUnitAsync(Guid unitId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Returns every direct child unit id of the given parent, ordered
-    /// by <c>CreatedAt</c> for stable iteration.
+    /// by <c>CreatedAt</c> for stable iteration. The parent may be a
+    /// tenant id (top-level units) or a unit id.
     /// </summary>
-    Task<IReadOnlyList<UnitSubunitMembership>> ListByParentAsync(string parentUnitId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<UnitSubunitMembership>> ListByParentAsync(Guid parentId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Returns every direct parent unit id of the given child, ordered
@@ -66,7 +67,7 @@ public interface IUnitSubunitMembershipRepository
     /// constraint so a multi-parent extension (#217) does not require a
     /// schema change.
     /// </summary>
-    Task<IReadOnlyList<UnitSubunitMembership>> ListByChildAsync(string childUnitId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<UnitSubunitMembership>> ListByChildAsync(Guid childId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Returns every edge visible in the current tenant scope. Used by

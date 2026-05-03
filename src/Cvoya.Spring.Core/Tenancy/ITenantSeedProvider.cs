@@ -99,8 +99,8 @@ public interface ITenantSeedProvider
     /// <c>Information</c> level.
     /// </summary>
     /// <param name="tenantId">Identifier of the tenant being seeded.
-    /// Never null or whitespace.</param>
+    /// Never <see cref="Guid.Empty"/>.</param>
     /// <param name="cancellationToken">Cancellation token forwarded
     /// from the host's <c>StartAsync</c>.</param>
-    Task ApplySeedsAsync(string tenantId, CancellationToken cancellationToken);
+    Task ApplySeedsAsync(Guid tenantId, CancellationToken cancellationToken);
 }

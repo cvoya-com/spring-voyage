@@ -14,10 +14,10 @@ public class ApiTokenEntity : ITenantScopedEntity
     public Guid Id { get; set; }
 
     /// <summary>Gets or sets the tenant that owns this token.</summary>
-    public string TenantId { get; set; } = string.Empty;
+    public Guid TenantId { get; set; }
 
-    /// <summary>Gets or sets the identifier of the user associated with this token.</summary>
-    public string? UserId { get; set; }
+    /// <summary>Gets or sets the FK to <see cref="HumanEntity.Id"/> for the owning human, or <c>null</c> for system-issued tokens.</summary>
+    public Guid? UserId { get; set; }
 
     /// <summary>Gets or sets the hash of the token value. The raw token is never stored.</summary>
     public string TokenHash { get; set; } = string.Empty;
@@ -36,5 +36,4 @@ public class ApiTokenEntity : ITenantScopedEntity
 
     /// <summary>Gets or sets the timestamp when the token was revoked, or null if active.</summary>
     public DateTimeOffset? RevokedAt { get; set; }
-
 }

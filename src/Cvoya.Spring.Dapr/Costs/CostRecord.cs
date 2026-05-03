@@ -16,13 +16,13 @@ public class CostRecord : ITenantScopedEntity
     public Guid Id { get; set; }
 
     /// <summary>Gets or sets the tenant that owns this cost record.</summary>
-    public string TenantId { get; set; } = string.Empty;
+    public Guid TenantId { get; set; }
 
-    /// <summary>Gets or sets the agent that incurred this cost.</summary>
-    public string AgentId { get; set; } = string.Empty;
+    /// <summary>Gets or sets the agent (Guid) that incurred this cost.</summary>
+    public Guid AgentId { get; set; }
 
-    /// <summary>Gets or sets the unit the agent belongs to, if any.</summary>
-    public string? UnitId { get; set; }
+    /// <summary>Gets or sets the unit Guid the agent belongs to, if any.</summary>
+    public Guid? UnitId { get; set; }
 
     /// <summary>Gets or sets the AI model used for the completion.</summary>
     public string Model { get; set; } = string.Empty;

@@ -140,7 +140,7 @@ public class ComposedSecretResolver : ISecretResolver
     }
 
     /// <inheritdoc />
-    public Task<IReadOnlyList<SecretRef>> ListAsync(SecretScope scope, string ownerId, CancellationToken ct)
+    public Task<IReadOnlyList<SecretRef>> ListAsync(SecretScope scope, Guid? ownerId, CancellationToken ct)
         => _registry.ListAsync(scope, ownerId, ct);
 
     private async Task<(string? Value, int? Version)> TryReadAtVersionAsync(

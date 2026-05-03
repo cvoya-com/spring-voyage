@@ -21,7 +21,7 @@ namespace Cvoya.Spring.Core.Skills;
 /// </param>
 /// <param name="BoundAt">Timestamp when the binding was first created.</param>
 public sealed record TenantSkillBundleBinding(
-    string TenantId,
+    Guid TenantId,
     string BundleId,
     bool Enabled,
     DateTimeOffset BoundAt);

@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Dapr.Tenancy;
 
+using Cvoya.Spring.Core.Identifiers;
 using Cvoya.Spring.Core.Tenancy;
 
 using Microsoft.Extensions.Options;
@@ -10,21 +11,19 @@ using Microsoft.Extensions.Options;
 /// <summary>
 /// Static, configuration-backed <see cref="ITenantContext"/>. Reads the
 /// tenant id from <c>Secrets:DefaultTenantId</c>, defaulting to
-/// <c>"default"</c>. This implementation ships with the OSS core; the
-/// private cloud repo replaces it with a request-scoped variant that
-/// resolves the tenant from the authenticated principal.
+/// <see cref="OssTenantIds.Default"/>. This implementation ships with
+/// the OSS core; the private cloud repo replaces it with a
+/// request-scoped variant that resolves the tenant from the
+/// authenticated principal.
 /// </summary>
 public class ConfiguredTenantContext : ITenantContext
 {
     /// <summary>
     /// The tenant id used when <see cref="SecretsOptions.DefaultTenantId"/>
-    /// is absent or whitespace. The OSS platform ships functionally
-    /// single-tenant, and <c>"default"</c> is the canonical tenant name
-    /// for the singleton install. Kept as a constant so the bootstrap /
-    /// migration paths can reference it without drifting from the
-    /// fallback used here.
+    /// is absent, whitespace, or unparseable. Mirrors
+    /// <see cref="OssTenantIds.Default"/>.
     /// </summary>
-    public const string DefaultTenantId = "default";
+    public static readonly Guid DefaultTenantId = OssTenantIds.Default;
 
     /// <summary>
     /// Creates a new <see cref="ConfiguredTenantContext"/>.
@@ -33,9 +32,13 @@ public class ConfiguredTenantContext : ITenantContext
     public ConfiguredTenantContext(IOptions<SecretsOptions> options)
     {
         var configured = options.Value.DefaultTenantId;
-        CurrentTenantId = string.IsNullOrWhiteSpace(configured) ? DefaultTenantId : configured;
+        CurrentTenantId = !string.IsNullOrWhiteSpace(configured)
+            && GuidFormatter.TryParse(configured, out var parsed)
+            && parsed != Guid.Empty
+                ? parsed
+                : DefaultTenantId;
     }
 
     /// <inheritdoc />
-    public string CurrentTenantId { get; }
+    public Guid CurrentTenantId { get; }
 }

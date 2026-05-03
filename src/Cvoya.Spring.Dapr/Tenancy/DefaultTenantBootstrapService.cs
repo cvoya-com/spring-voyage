@@ -73,7 +73,7 @@ public class DefaultTenantBootstrapService(
     /// Mirrors <see cref="ConfiguredTenantContext.DefaultTenantId"/>
     /// so the bootstrap and the OSS tenant context cannot drift.
     /// </summary>
-    public const string DefaultTenantId = ConfiguredTenantContext.DefaultTenantId;
+    public static readonly Guid DefaultTenantId = ConfiguredTenantContext.DefaultTenantId;
 
     private readonly TenancyOptions _options = options.Value;
 

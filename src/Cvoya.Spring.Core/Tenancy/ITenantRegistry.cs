@@ -5,9 +5,9 @@ namespace Cvoya.Spring.Core.Tenancy;
 
 /// <summary>
 /// CRUD surface for the platform's first-class tenant registry. Backs
-/// <c>/api/v1/platform/tenants</c> (C1.2d / #1260) — the CLI's
-/// <c>spring tenant …</c> verbs, the portal's tenant-management view,
-/// and the cloud overlay's self-onboarding flow all sit on top of this.
+/// <c>/api/v1/platform/tenants</c> — the CLI's <c>spring tenant …</c>
+/// verbs, the portal's tenant-management view, and the cloud overlay's
+/// self-onboarding flow all sit on top of this.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -48,25 +48,21 @@ public interface ITenantRegistry
     /// </summary>
     /// <param name="id">The tenant id to look up.</param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
-    Task<TenantRecord?> GetAsync(string id, CancellationToken cancellationToken = default);
+    Task<TenantRecord?> GetAsync(Guid id, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Inserts a new tenant record. Throws when a row with the same
     /// <paramref name="id"/> already exists (active or soft-deleted).
     /// </summary>
-    /// <param name="id">
-    /// Stable, lower-case, slug-shaped tenant id. Must match
-    /// <c>^[a-z0-9][a-z0-9_-]{0,63}$</c>; the registry enforces shape
-    /// independently of the API layer to keep the contract explicit.
-    /// </param>
+    /// <param name="id">Stable Guid tenant id. Never <see cref="Guid.Empty"/>.</param>
     /// <param name="displayName">
     /// Optional human-facing display name. The registry falls back to
-    /// <paramref name="id"/> when the value is null or whitespace.
+    /// the Guid wire form when the value is null or whitespace.
     /// </param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     /// <returns>The newly-created record.</returns>
     Task<TenantRecord> CreateAsync(
-        string id,
+        Guid id,
         string? displayName,
         CancellationToken cancellationToken = default);
 
@@ -77,12 +73,12 @@ public interface ITenantRegistry
     /// <param name="id">The tenant id to update.</param>
     /// <param name="displayName">
     /// New display name. <c>null</c> leaves the existing value
-    /// unchanged; an empty / whitespace string falls back to
-    /// <paramref name="id"/>.
+    /// unchanged; an empty / whitespace string falls back to the Guid
+    /// wire form.
     /// </param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     Task<TenantRecord?> UpdateAsync(
-        string id,
+        Guid id,
         string? displayName,
         CancellationToken cancellationToken = default);
 
@@ -96,5 +92,5 @@ public interface ITenantRegistry
     /// </summary>
     /// <param name="id">The tenant id to delete.</param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
-    Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default);
+    Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default);
 }

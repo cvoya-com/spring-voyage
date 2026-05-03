@@ -9,24 +9,34 @@ using Cvoya.Spring.Core.Tenancy;
 
 /// <summary>
 /// Represents an agent definition stored in the database.
-/// Contains the configuration and metadata for an agent that can be instantiated as a Dapr actor.
+/// Contains the configuration and metadata for an agent that can be
+/// instantiated as a Dapr actor. Identity is the entity Guid
+/// <see cref="Id"/> — there is no separate slug column;
+/// <see cref="DisplayName"/> is the only human-readable label and is
+/// not addressable.
 /// </summary>
 public class AgentDefinitionEntity : ITenantScopedEntity
 {
-    /// <summary>Gets or sets the unique identifier for the agent definition.</summary>
+    /// <summary>Gets or sets the unique identifier for the agent definition (the actor identity).</summary>
     public Guid Id { get; set; }
 
+    /// <summary>
+    /// Convenience accessor for callers that historically used a separate
+    /// <c>ActorId</c> column. Identical to <see cref="Id"/> rendered as a
+    /// no-dash 32-char hex string — the canonical Dapr <c>ActorId</c>
+    /// keying form.
+    /// </summary>
+    [System.ComponentModel.DataAnnotations.Schema.NotMapped]
+    public string ActorId => Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(Id);
+
     /// <summary>Gets or sets the tenant that owns this agent definition.</summary>
-    public string TenantId { get; set; } = string.Empty;
+    public Guid TenantId { get; set; }
 
-    /// <summary>Gets or sets the user-facing identifier for the agent (e.g., "ada").</summary>
-    public string AgentId { get; set; } = string.Empty;
-
-    /// <summary>Gets or sets the Dapr actor identifier used to invoke this agent.</summary>
-    public string? ActorId { get; set; }
-
-    /// <summary>Gets or sets the display name of the agent.</summary>
-    public string Name { get; set; } = string.Empty;
+    /// <summary>
+    /// Gets or sets the human-readable display name. NOT unique; not
+    /// addressable; renames do not invalidate routing or audit history.
+    /// </summary>
+    public string DisplayName { get; set; } = string.Empty;
 
     /// <summary>Gets or sets an optional description of the agent.</summary>
     public string? Description { get; set; }
@@ -37,8 +47,8 @@ public class AgentDefinitionEntity : ITenantScopedEntity
     /// <summary>Gets or sets the full agent definition stored as JSON.</summary>
     public JsonElement? Definition { get; set; }
 
-    /// <summary>Gets or sets the identifier of the user who created this agent definition.</summary>
-    public string? CreatedBy { get; set; }
+    /// <summary>Gets or sets the FK to <see cref="HumanEntity.Id"/> for the human who created this agent definition.</summary>
+    public Guid? CreatedBy { get; set; }
 
     /// <summary>Gets or sets the timestamp when the agent definition was created.</summary>
     public DateTimeOffset CreatedAt { get; set; }
@@ -48,5 +58,4 @@ public class AgentDefinitionEntity : ITenantScopedEntity
 
     /// <summary>Gets or sets the timestamp when the agent definition was soft-deleted, or null if active.</summary>
     public DateTimeOffset? DeletedAt { get; set; }
-
 }

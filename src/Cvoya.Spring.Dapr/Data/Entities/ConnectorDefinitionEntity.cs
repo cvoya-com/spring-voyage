@@ -9,7 +9,10 @@ using Cvoya.Spring.Core.Tenancy;
 
 /// <summary>
 /// Represents a connector definition stored in the database.
-/// Connectors bridge external systems (e.g., GitHub, Slack) into the Spring Voyage platform.
+/// Connectors bridge external systems (e.g., GitHub, Slack) into the
+/// Spring Voyage platform. Identity is the entity Guid <see cref="Id"/>;
+/// <see cref="Type"/> is the catalog connector kind slug (e.g.
+/// <c>github</c>).
 /// </summary>
 public class ConnectorDefinitionEntity : ITenantScopedEntity
 {
@@ -17,12 +20,17 @@ public class ConnectorDefinitionEntity : ITenantScopedEntity
     public Guid Id { get; set; }
 
     /// <summary>Gets or sets the tenant that owns this connector definition.</summary>
-    public string TenantId { get; set; } = string.Empty;
+    public Guid TenantId { get; set; }
 
-    /// <summary>Gets or sets the user-facing identifier for the connector.</summary>
-    public string ConnectorId { get; set; } = string.Empty;
+    /// <summary>Gets or sets the human-readable display name. NOT addressable.</summary>
+    public string DisplayName { get; set; } = string.Empty;
 
-    /// <summary>Gets or sets the type of the connector (e.g., "github", "slack").</summary>
+    /// <summary>
+    /// Gets or sets the connector kind — the catalog slug for the
+    /// connector type (e.g. <c>github</c>, <c>slack</c>). Catalog slugs
+    /// are content-addressable identifiers owned by the package author,
+    /// stable across tenants; they intentionally remain strings.
+    /// </summary>
     public string Type { get; set; } = string.Empty;
 
     /// <summary>Gets or sets the connector configuration stored as JSON.</summary>

@@ -28,7 +28,7 @@ namespace Cvoya.Spring.Core.CredentialHealth;
 /// </param>
 /// <param name="LastChecked">Timestamp of the most recent status update.</param>
 public sealed record CredentialHealth(
-    string TenantId,
+    Guid TenantId,
     CredentialHealthKind Kind,
     string SubjectId,
     string SecretName,

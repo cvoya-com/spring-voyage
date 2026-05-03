@@ -21,10 +21,10 @@ using Cvoya.Spring.Core.Tenancy;
 /// </summary>
 public class TenantRecordEntity
 {
-    /// <summary>Stable tenant identifier; primary key.</summary>
-    public string Id { get; set; } = string.Empty;
+    /// <summary>Stable Guid tenant identifier; primary key.</summary>
+    public Guid Id { get; set; }
 
-    /// <summary>Human-facing display name. Defaults to <see cref="Id"/> on create.</summary>
+    /// <summary>Human-facing display name. Defaults to the Guid wire form on create.</summary>
     public string DisplayName { get; set; } = string.Empty;
 
     /// <summary>Lifecycle state — <see cref="TenantState.Active"/> or <see cref="TenantState.Deleted"/>.</summary>

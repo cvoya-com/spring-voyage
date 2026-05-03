@@ -10,12 +10,12 @@ namespace Cvoya.Spring.Core.Secrets;
 /// </summary>
 public enum SecretScope
 {
-    /// <summary>Scoped to a single unit. OwnerId is the unit name.</summary>
+    /// <summary>Scoped to a single unit. OwnerId is the unit Guid.</summary>
     Unit = 0,
 
-    /// <summary>Scoped to the whole tenant. OwnerId is the tenant identifier.</summary>
+    /// <summary>Scoped to the whole tenant. OwnerId is the tenant Guid.</summary>
     Tenant = 1,
 
-    /// <summary>Scoped to the platform. OwnerId is a platform-owned identifier.</summary>
+    /// <summary>Scoped to the platform. OwnerId is <c>null</c>.</summary>
     Platform = 2,
 }

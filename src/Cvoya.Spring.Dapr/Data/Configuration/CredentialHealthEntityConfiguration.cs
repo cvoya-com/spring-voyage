@@ -25,7 +25,7 @@ internal class CredentialHealthEntityConfiguration : IEntityTypeConfiguration<Cr
         builder.ToTable("credential_health");
 
         builder.HasKey(e => new { e.TenantId, e.Kind, e.SubjectId, e.SecretName });
-        builder.Property(e => e.TenantId).HasColumnName("tenant_id").IsRequired().HasMaxLength(128);
+        builder.Property(e => e.TenantId).HasColumnName("tenant_id").IsRequired().HasColumnType("uuid");
         builder.Property(e => e.Kind).HasColumnName("kind").IsRequired().HasConversion<int>();
         builder.Property(e => e.SubjectId).HasColumnName("subject_id").IsRequired().HasMaxLength(128);
         builder.Property(e => e.SecretName).HasColumnName("secret_name").IsRequired().HasMaxLength(128);

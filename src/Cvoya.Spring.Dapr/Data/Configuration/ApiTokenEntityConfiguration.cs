@@ -23,9 +23,9 @@ internal class ApiTokenEntityConfiguration : IEntityTypeConfiguration<ApiTokenEn
         builder.ToTable("api_tokens");
 
         builder.HasKey(e => e.Id);
-        builder.Property(e => e.Id).HasColumnName("id");
-        builder.Property(e => e.TenantId).HasColumnName("tenant_id").IsRequired().HasMaxLength(128);
-        builder.Property(e => e.UserId).HasColumnName("user_id").HasMaxLength(256);
+        builder.Property(e => e.Id).HasColumnName("id").HasColumnType("uuid");
+        builder.Property(e => e.TenantId).HasColumnName("tenant_id").IsRequired().HasColumnType("uuid");
+        builder.Property(e => e.UserId).HasColumnName("user_id").HasColumnType("uuid");
         builder.Property(e => e.TokenHash).HasColumnName("token_hash").IsRequired().HasMaxLength(512);
         builder.Property(e => e.Name).HasColumnName("name").IsRequired().HasMaxLength(256);
         builder.Property(e => e.Scopes).HasColumnName("scopes").HasMaxLength(1024);

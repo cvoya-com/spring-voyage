@@ -23,7 +23,7 @@ public class PackageInstallEntity : ITenantScopedEntity
     public Guid InstallId { get; set; }
 
     /// <summary>Tenant that owns this install record.</summary>
-    public string TenantId { get; set; } = string.Empty;
+    public Guid TenantId { get; set; }
 
     /// <summary>Package name from <c>metadata.name</c> in the package manifest.</summary>
     public string PackageName { get; set; } = string.Empty;

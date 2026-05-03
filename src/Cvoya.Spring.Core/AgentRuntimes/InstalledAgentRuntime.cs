@@ -14,7 +14,7 @@ namespace Cvoya.Spring.Core.AgentRuntimes;
 /// <param name="UpdatedAt">Timestamp when the install row was last updated.</param>
 public sealed record InstalledAgentRuntime(
     string RuntimeId,
-    string TenantId,
+    Guid TenantId,
     AgentRuntimeInstallConfig Config,
     DateTimeOffset InstalledAt,
     DateTimeOffset UpdatedAt);
