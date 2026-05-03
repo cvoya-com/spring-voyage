@@ -607,14 +607,17 @@ public class GitHubConnectorEndpointsTests
                 new GitHubInstallation(1001L, "acme", "Organization", "all"),
                 new GitHubInstallation(1002L, "other-org", "Organization", "all"),
             });
-        installationsClient.ListInstallationRepositoriesAsync(1001L, Arg.Any<CancellationToken>())
+        // The session-scoped path uses the user's OAuth token, so
+        // repositories are listed via the user-accessible endpoint, not
+        // the App-installation endpoint.
+        installationsClient.ListUserAccessibleRepositoriesAsync(
+                1001L, fakeAccessToken, Arg.Any<CancellationToken>())
             .Returns(new[]
             {
                 new GitHubInstallationRepository(10L, "acme", "platform", "acme/platform", false),
             });
-        // Installation 1002 (other-org) must NEVER be called — asserting
-        // at the end that ListInstallationRepositoriesAsync is only called
-        // once (for installation 1001).
+        // Installation 1002 (other-org) must NEVER be called — asserted
+        // at the end via DidNotReceive on the user-scoped method.
 
         await using var factory = CreateFactory(
             installationsClient: installationsClient,
@@ -639,7 +642,12 @@ public class GitHubConnectorEndpointsTests
 
         // The other-org installation must NOT have been enumerated.
         await installationsClient.DidNotReceive()
-            .ListInstallationRepositoriesAsync(1002L, Arg.Any<CancellationToken>());
+            .ListUserAccessibleRepositoriesAsync(
+                1002L, Arg.Any<string>(), Arg.Any<CancellationToken>());
+        // And the installation-token path must not be used at all when an
+        // OAuth user token is available — that's the leak this fix closes.
+        await installationsClient.DidNotReceive()
+            .ListInstallationRepositoriesAsync(Arg.Any<long>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -682,7 +690,8 @@ public class GitHubConnectorEndpointsTests
                 new GitHubInstallation(2001L, "alice", "User", "all"),
                 new GitHubInstallation(2002L, "other-corp", "Organization", "all"),
             });
-        installationsClient.ListInstallationRepositoriesAsync(2001L, Arg.Any<CancellationToken>())
+        installationsClient.ListUserAccessibleRepositoriesAsync(
+                2001L, fakeAccessToken, Arg.Any<CancellationToken>())
             .Returns(new[]
             {
                 new GitHubInstallationRepository(20L, "alice", "dotfiles", "alice/dotfiles", false),
@@ -707,7 +716,8 @@ public class GitHubConnectorEndpointsTests
         body[0].FullName.ShouldBe("alice/dotfiles");
 
         await installationsClient.DidNotReceive()
-            .ListInstallationRepositoriesAsync(2002L, Arg.Any<CancellationToken>());
+            .ListUserAccessibleRepositoriesAsync(
+                2002L, Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

@@ -37,6 +37,23 @@ public interface IGitHubInstallationsClient
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Lists the repositories accessible to a particular user under a given
+    /// installation. Calls <c>GET /user/installations/{installation_id}/repositories</c>
+    /// authenticated with the user's OAuth access token, so the result is
+    /// the intersection of "repos the App can see" AND "repos the user can
+    /// see" — narrower than <see cref="ListInstallationRepositoriesAsync"/>,
+    /// which authenticates as the App installation itself.
+    /// </summary>
+    /// <param name="installationId">The numeric installation id.</param>
+    /// <param name="userAccessToken">The caller's GitHub OAuth access token.</param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    /// <returns>The repositories under the installation that the user can access.</returns>
+    Task<IReadOnlyList<GitHubInstallationRepository>> ListUserAccessibleRepositoriesAsync(
+        long installationId,
+        string userAccessToken,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Resolves which installation, if any, covers the given repository.
     /// Calls <c>GET /repos/{owner}/{repo}/installation</c>. Returns
     /// <c>null</c> when the App is not installed for the repo (GitHub returns

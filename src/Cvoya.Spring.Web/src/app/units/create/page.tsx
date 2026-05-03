@@ -1211,6 +1211,41 @@ export default function CreateUnitPage() {
     };
   };
 
+  // Catalog branch: derive package inputs from the connector wizard step
+  // when the package's input names match conventional connector keys. The
+  // canonical case today is the spring-voyage-oss package, whose unit YAMLs
+  // substitute `${{ inputs.github_owner }}` / `github_repo` /
+  // `github_installation_id` from values the GitHub connector step already
+  // collects. Without this bridge, install fails with
+  // "Input 'github_owner' is required but was not supplied" because the
+  // wizard never re-prompts the operator for the same fields.
+  //
+  // Explicit `catalogInputs` entries win over derived ones so the
+  // (currently absent, post-#1908 TODO) per-input UI can override.
+  const buildCatalogInputs = (): Record<string, string> => {
+    const merged: Record<string, string> = {};
+    if (form.connectorSlug === "github" && form.connectorConfig !== null) {
+      const cfg = form.connectorConfig as {
+        owner?: unknown;
+        repo?: unknown;
+        appInstallationId?: unknown;
+      };
+      if (typeof cfg.owner === "string" && cfg.owner.trim() !== "") {
+        merged.github_owner = cfg.owner;
+      }
+      if (typeof cfg.repo === "string" && cfg.repo.trim() !== "") {
+        merged.github_repo = cfg.repo;
+      }
+      if (
+        typeof cfg.appInstallationId === "number" &&
+        Number.isFinite(cfg.appInstallationId)
+      ) {
+        merged.github_installation_id = String(cfg.appInstallationId);
+      }
+    }
+    return { ...merged, ...form.catalogInputs };
+  };
+
   // Install mutation. Routes by source branch:
   //   catalog → POST /api/v1/packages/install (JSON body) — ADR-0035 path
   //   scratch → POST /api/v1/tenant/units (+ PUT /execution for image/runtime)
@@ -1230,7 +1265,7 @@ export default function CreateUnitPage() {
         return api.installPackages([
           {
             packageName: form.catalogPackageName,
-            inputs: form.catalogInputs,
+            inputs: buildCatalogInputs(),
           },
         ]);
       }

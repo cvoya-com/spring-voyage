@@ -580,6 +580,7 @@ public class GitHubConnectorType : IConnectorType
             // callers that do not carry an OAuth session). A warning is
             // logged so operators can audit unauthenticated calls.
             IReadOnlySet<string>? userScope = null;
+            string? userAccessToken = null;
             if (!string.IsNullOrWhiteSpace(sessionId))
             {
                 var session = await _oauthSessionStore.GetAsync(sessionId, cancellationToken);
@@ -594,6 +595,7 @@ public class GitHubConnectorType : IConnectorType
                         session.AccessTokenStoreKey, cancellationToken);
                     if (!string.IsNullOrEmpty(accessToken))
                     {
+                        userAccessToken = accessToken;
                         userScope = await _userScopeResolver.ResolveAsync(
                             accessToken, cancellationToken);
                         _logger.LogInformation(
@@ -646,10 +648,19 @@ public class GitHubConnectorType : IConnectorType
             }
 
             // Aggregate across installations so the wizard can present a
-            // single repository dropdown (#1133). The per-installation
-            // call goes through the existing
-            // ListInstallationRepositoriesAsync which mints an installation
-            // token and pages through GET /installation/repositories.
+            // single repository dropdown (#1133).
+            //
+            // Two paths:
+            //   * With a user OAuth access token, call
+            //     `GET /user/installations/{id}/repositories` so the result
+            //     is intersected with the *user's* repository permissions.
+            //     This is what closes the "App is installed on my org but I
+            //     can't actually access this private repo" leak — the App
+            //     can see it, but the user-token endpoint won't return it.
+            //   * Without a token (CLI / unauthenticated), fall back to the
+            //     installation-token path which returns every repo the App
+            //     can see.
+            //
             // A failure on one installation MUST NOT poison the list —
             // log it and keep the other installations' rows so the wizard
             // still has something to render.
@@ -659,8 +670,13 @@ public class GitHubConnectorType : IConnectorType
                 IReadOnlyList<GitHubInstallationRepository> repos;
                 try
                 {
-                    repos = await _installationsClient
-                        .ListInstallationRepositoriesAsync(installation.InstallationId, cancellationToken);
+                    repos = userAccessToken is not null
+                        ? await _installationsClient
+                            .ListUserAccessibleRepositoriesAsync(
+                                installation.InstallationId, userAccessToken, cancellationToken)
+                        : await _installationsClient
+                            .ListInstallationRepositoriesAsync(
+                                installation.InstallationId, cancellationToken);
                 }
                 catch (Exception ex)
                 {

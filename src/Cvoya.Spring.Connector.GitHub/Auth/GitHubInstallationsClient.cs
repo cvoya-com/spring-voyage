@@ -79,6 +79,84 @@ public class GitHubInstallationsClient(
     }
 
     /// <inheritdoc />
+    public virtual async Task<IReadOnlyList<GitHubInstallationRepository>> ListUserAccessibleRepositoriesAsync(
+        long installationId,
+        string userAccessToken,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(userAccessToken);
+
+        // `GET /user/installations/{installation_id}/repositories` returns
+        // the repos under a given installation that the OAuth user can see.
+        // It uses the user access token, NOT an installation token — that's
+        // the whole point: cross-checking the App's coverage against the
+        // user's own permissions so a private repo the App can reach but the
+        // user cannot access is filtered out.
+        //
+        // Octokit has no typed wrapper for this endpoint as of v13, so we go
+        // through Connection.Get<T> with a local DTO. Pagination is handled by
+        // requesting per_page=100 and looping while the response has a
+        // RepositoryCount > what we have so far. GitHub caps installations at
+        // a reasonable size for the UI use case.
+        var userClient = new GitHubClient(new ProductHeaderValue("SpringVoyage"))
+        {
+            Credentials = new Credentials(userAccessToken),
+        };
+
+        var aggregated = new List<GitHubInstallationRepository>();
+        var seen = new HashSet<long>();
+        var page = 1;
+        const int PerPage = 100;
+        var uri = new Uri(
+            $"user/installations/{installationId}/repositories",
+            UriKind.Relative);
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var parameters = new Dictionary<string, string>
+            {
+                ["per_page"] = PerPage.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                ["page"] = page.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            };
+            var response = await userClient.Connection
+                .Get<UserInstallationRepositoriesResponse>(uri, parameters, accepts: null, cancellationToken)
+                .ConfigureAwait(false);
+            var payload = response.Body;
+            if (payload?.Repositories is null || payload.Repositories.Count == 0)
+            {
+                break;
+            }
+
+            foreach (var repo in payload.Repositories)
+            {
+                if (!seen.Add(repo.Id))
+                {
+                    continue;
+                }
+                aggregated.Add(new GitHubInstallationRepository(
+                    repo.Id,
+                    repo.Owner?.Login ?? string.Empty,
+                    repo.Name ?? string.Empty,
+                    repo.FullName ?? string.Empty,
+                    repo.Private));
+            }
+
+            if (payload.Repositories.Count < PerPage)
+            {
+                break;
+            }
+            page++;
+        }
+
+        _logger.LogInformation(
+            "User-scoped installation {InstallationId} surfaces {Count} repositor(y|ies)",
+            installationId, aggregated.Count);
+
+        return aggregated;
+    }
+
+    /// <inheritdoc />
     public virtual async Task<GitHubInstallation?> FindInstallationForRepoAsync(
         string owner,
         string repo,
@@ -134,4 +212,29 @@ public class GitHubInstallationsClient(
             // endpoint contract documented on GitHubInstallation.
             i.TargetType.StringValue ?? "User",
             i.RepositorySelection.StringValue ?? "all");
+
+    // Local DTOs for `GET /user/installations/{installation_id}/repositories`.
+    // Octokit (14.x) lacks a typed wrapper for this user-scoped endpoint, so
+    // we deserialize through Octokit's SimpleJson which maps JSON snake_case
+    // to PascalCase property names by convention — no explicit attributes
+    // needed (e.g. `full_name` → `FullName`).
+    private sealed class UserInstallationRepositoriesResponse
+    {
+        public int TotalCount { get; set; }
+        public List<UserInstallationRepository> Repositories { get; set; } = new();
+    }
+
+    private sealed class UserInstallationRepository
+    {
+        public long Id { get; set; }
+        public string? Name { get; set; }
+        public string? FullName { get; set; }
+        public bool Private { get; set; }
+        public UserInstallationRepositoryOwner? Owner { get; set; }
+    }
+
+    private sealed class UserInstallationRepositoryOwner
+    {
+        public string? Login { get; set; }
+    }
 }
