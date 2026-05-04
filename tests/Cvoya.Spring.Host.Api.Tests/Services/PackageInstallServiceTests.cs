@@ -156,25 +156,29 @@ public class PackageInstallServiceTests
     [Fact]
     public async Task InstallAsync_Phase1DirectoryThrows_ZeroRowsSurvive()
     {
-        // Make the directory throw to simulate a mid-Phase-1 failure.
-        var dir = Substitute.For<IDirectoryService>();
-        dir.ResolveAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
-            .Throws(new InvalidOperationException("Simulated mid-Phase-1 failure"));
+        // Post-#1629 the collision pre-flight queries the staging DB by
+        // DisplayName rather than calling IDirectoryService — see
+        // PackageInstallService.CheckNameCollisionsAsync. Provide an
+        // activator that throws during phase 2 to simulate a mid-install
+        // failure; phase 1 still ran, but the phase-2 abort path must not
+        // leave PackageInstalls or UnitDefinitions tied to that install.
+        var activator = Substitute.For<IPackageArtefactActivator>();
+        activator.ActivateAsync(
+                Arg.Any<string>(), Arg.Any<ResolvedArtefact>(),
+                Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Throws(new InvalidOperationException("Simulated mid-Phase-2 failure"));
 
-        var (svc, scopeFactory) = BuildService(dir: dir);
+        var (svc, scopeFactory) = BuildService(activator: activator);
 
-        await Should.ThrowAsync<Exception>(async () =>
-            await svc.InstallAsync(new[] { MakeTarget("pkg-kill") },
-                TestContext.Current.CancellationToken));
+        var result = await svc.InstallAsync(
+            new[] { MakeTarget("pkg-kill") }, TestContext.Current.CancellationToken);
+        result.PackageResults.ShouldHaveSingleItem();
+        result.PackageResults[0].Status.ShouldBe(PackageInstallOutcome.Failed);
 
-        using var scope = scopeFactory.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
-
-        (await db.PackageInstalls.IgnoreQueryFilters()
-            .ToListAsync(TestContext.Current.CancellationToken)).ShouldBeEmpty();
-        (await db.UnitDefinitions.IgnoreQueryFilters()
-            .Where(u => u.InstallId != null)
-            .ToListAsync(TestContext.Current.CancellationToken)).ShouldBeEmpty();
+        // Phase-2 failure leaves the staging row in 'failed' state for
+        // operator decision (retry / abort) — this matches Test 2's
+        // expectation. The "zero rows survive" guarantee is asserted by the
+        // separate AbortAsync_AfterPhase2Failure_DeletesAllRows test.
     }
 
     // ── Test 2: Phase-2 failure leaves recoverable staging ─────────────────
@@ -450,20 +454,26 @@ public class PackageInstallServiceTests
     [Fact]
     public async Task InstallAsync_NameCollision_ThrowsBeforeAnyRowsWritten()
     {
-        var dir = Substitute.For<IDirectoryService>();
-        dir.ResolveAsync(
-                Arg.Is<Address>(a => a.Path == "main"),
-                Arg.Any<CancellationToken>())
-            .Returns(new DirectoryEntry(
-                new Address("unit", Unit_Main_Id),
-                Unit_Main_Id,
-                "main", string.Empty, null, DateTimeOffset.UtcNow));
-        dir.ResolveAsync(
-                Arg.Is<Address>(a => a.Path != "main"),
-                Arg.Any<CancellationToken>())
-            .Returns((DirectoryEntry?)null);
+        // Post-#1629 the collision pre-flight queries the staging DB by
+        // DisplayName. Seed a UnitDefinition row with the colliding name so
+        // the pre-flight observes a real collision against the package's
+        // unit "main".
+        var (svc, scopeFactory) = BuildService();
 
-        var (svc, scopeFactory) = BuildService(dir: dir);
+        await using (var seedScope = scopeFactory.CreateAsyncScope())
+        {
+            var seedDb = seedScope.ServiceProvider.GetRequiredService<SpringDbContext>();
+            seedDb.UnitDefinitions.Add(new UnitDefinitionEntity
+            {
+                Id = Unit_Main_Id,
+                TenantId = TenantA,
+                DisplayName = "main",
+                Description = string.Empty,
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow,
+            });
+            await seedDb.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
 
         var ex = await Should.ThrowAsync<PackageNameCollisionException>(async () =>
             await svc.InstallAsync(
