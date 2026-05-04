@@ -123,7 +123,8 @@ public class PackageInstallServiceTests
         var a = Substitute.For<IPackageArtefactActivator>();
         a.ActivateAsync(
                 Arg.Any<string>(), Arg.Any<ResolvedArtefact>(),
-                Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+                Arg.Any<Guid>(), Arg.Any<LocalSymbolMap>(),
+                Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
         return a;
     }
@@ -165,7 +166,7 @@ public class PackageInstallServiceTests
         var activator = Substitute.For<IPackageArtefactActivator>();
         activator.ActivateAsync(
                 Arg.Any<string>(), Arg.Any<ResolvedArtefact>(),
-                Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+                Arg.Any<Guid>(), Arg.Any<LocalSymbolMap>(), Arg.Any<CancellationToken>())
             .Throws(new InvalidOperationException("Simulated mid-Phase-2 failure"));
 
         var (svc, scopeFactory) = BuildService(activator: activator);
@@ -189,7 +190,7 @@ public class PackageInstallServiceTests
         var activator = Substitute.For<IPackageArtefactActivator>();
         activator.ActivateAsync(
                 Arg.Any<string>(), Arg.Any<ResolvedArtefact>(),
-                Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+                Arg.Any<Guid>(), Arg.Any<LocalSymbolMap>(), Arg.Any<CancellationToken>())
             .Throws(new InvalidOperationException("Phase-2 failure"));
 
         var (svc, scopeFactory) = BuildService(activator: activator);
@@ -226,7 +227,7 @@ public class PackageInstallServiceTests
         var activator = Substitute.For<IPackageArtefactActivator>();
         activator.ActivateAsync(
                 Arg.Any<string>(), Arg.Any<ResolvedArtefact>(),
-                Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+                Arg.Any<Guid>(), Arg.Any<LocalSymbolMap>(), Arg.Any<CancellationToken>())
             .Returns(_ =>
             {
                 if (failCount++ == 0)
@@ -264,7 +265,7 @@ public class PackageInstallServiceTests
         var activator = Substitute.For<IPackageArtefactActivator>();
         activator.ActivateAsync(
                 Arg.Any<string>(), Arg.Any<ResolvedArtefact>(),
-                Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+                Arg.Any<Guid>(), Arg.Any<LocalSymbolMap>(), Arg.Any<CancellationToken>())
             .Throws(new InvalidOperationException("Activation fails"));
 
         var (svc, scopeFactory) = BuildService(activator: activator);
@@ -289,6 +290,49 @@ public class PackageInstallServiceTests
         var status = await svc.GetStatusAsync(
             result.InstallId, TestContext.Current.CancellationToken);
         status.ShouldBeNull();
+    }
+
+    // ── #1629 PR7: staging row id == symbol-map id ────────────────────────
+
+    [Fact]
+    public async Task InstallAsync_StagingRowAndSymbolMap_ShareSingleGuidIdentity()
+    {
+        // The activator must receive the LocalSymbolMap whose minted Guid
+        // for `main` matches the unit_definitions staging row's id. Without
+        // the link, Phase-1 and Phase-2 would write two near-duplicate rows
+        // for the same display name — exactly the bug #1629 PR7 fixes.
+        LocalSymbolMap? capturedMap = null;
+        var activator = Substitute.For<IPackageArtefactActivator>();
+        activator.ActivateAsync(
+                Arg.Any<string>(),
+                Arg.Any<ResolvedArtefact>(),
+                Arg.Any<Guid>(),
+                Arg.Do<LocalSymbolMap>(m => capturedMap = m),
+                Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+
+        var (svc, scopeFactory) = BuildService(activator: activator);
+
+        var result = await svc.InstallAsync(
+            new[] { MakeTarget("pkg-symbol-id") },
+            TestContext.Current.CancellationToken);
+
+        result.PackageResults.ShouldHaveSingleItem();
+        result.PackageResults[0].Status.ShouldBe(PackageInstallOutcome.Active);
+
+        using var scope = scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        var stagingRow = await db.UnitDefinitions
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(
+                u => u.InstallId == result.InstallId && u.DisplayName == "main",
+                TestContext.Current.CancellationToken);
+
+        stagingRow.ShouldNotBeNull();
+        capturedMap.ShouldNotBeNull();
+
+        var resolved = capturedMap!.GetOrMint(ArtefactKind.Unit, "main");
+        resolved.ShouldBe(stagingRow!.Id);
     }
 
     // ── Test 5: Multi-package batch — both packages install ─────────────────

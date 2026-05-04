@@ -65,7 +65,75 @@ public static class ManifestParser
             throw new ManifestParseException("Manifest is missing the required 'unit.name' field.");
         }
 
+        // #1629 PR7: validate the manifest grammar — reject path-style refs
+        // (the slug-as-PK era is over) and ensure member symbols are unique
+        // within the file. Cross-package references that parse as Guids are
+        // accepted; bare strings are treated as local symbols.
+        ValidateUnitMemberGrammar(doc.Unit);
+
         return doc.Unit;
+    }
+
+    /// <summary>
+    /// Validates the <c>members:</c> list against the v0.1 manifest grammar:
+    /// <list type="bullet">
+    ///   <item><description>
+    ///     Path-style references (<c>scheme://...</c>) are rejected — the
+    ///     slug-as-PK era is over (#1629). Authors use local symbols within
+    ///     the manifest and 32-char no-dash hex Guids across packages.
+    ///   </description></item>
+    ///   <item><description>
+    ///     Each member resolves to either an <c>agent:</c> or <c>unit:</c>
+    ///     reference, not both, not neither.
+    ///   </description></item>
+    ///   <item><description>
+    ///     Within a single unit's member list, the resolved symbol (the
+    ///     reference value) must be unique — two entries naming the same
+    ///     peer artefact is a manifest authoring error.
+    ///   </description></item>
+    /// </list>
+    /// </summary>
+    private static void ValidateUnitMemberGrammar(UnitManifest unit)
+    {
+        if (unit.Members is null || unit.Members.Count == 0)
+        {
+            return;
+        }
+
+        var seenSymbols = new HashSet<string>(System.StringComparer.Ordinal);
+        for (var i = 0; i < unit.Members.Count; i++)
+        {
+            var member = unit.Members[i];
+
+            LocalSymbolValidator.RejectPathStyleReference(member.Agent, $"unit.members[{i}].agent");
+            LocalSymbolValidator.RejectPathStyleReference(member.Unit, $"unit.members[{i}].unit");
+
+            var hasAgent = !string.IsNullOrWhiteSpace(member.Agent);
+            var hasUnit = !string.IsNullOrWhiteSpace(member.Unit);
+
+            if (hasAgent && hasUnit)
+            {
+                throw new ManifestParseException(
+                    $"unit.members[{i}] declares both 'agent' and 'unit'; " +
+                    "a single member entry must reference exactly one peer artefact.");
+            }
+
+            if (!hasAgent && !hasUnit)
+            {
+                throw new ManifestParseException(
+                    $"unit.members[{i}] is missing both 'agent' and 'unit'; " +
+                    "every member entry must reference exactly one peer artefact " +
+                    "by local symbol or 32-char no-dash hex Guid.");
+            }
+
+            var symbol = (member.Agent ?? member.Unit)!.Trim();
+            if (!seenSymbols.Add(symbol))
+            {
+                throw new ManifestParseException(
+                    $"unit.members lists '{symbol}' more than once. " +
+                    "Each member symbol must be unique within a unit's member list.");
+            }
+        }
     }
 
     /// <summary>

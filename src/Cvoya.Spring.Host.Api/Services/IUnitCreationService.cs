@@ -57,6 +57,13 @@ public interface IUnitCreationService
 /// <c>name</c> field — lets callers instantiate the same template more than
 /// once without colliding on the unique-name constraint. See #325.
 /// </param>
+/// <param name="ActorId">
+/// Pre-minted Guid identity for the unit (#1629 PR7). When supplied, the
+/// service uses this Guid instead of minting a fresh one — so the
+/// install pipeline's local-symbol → Guid map and the directory entry
+/// agree on a single identity. <c>null</c> falls back to the historical
+/// behaviour (mint inside <see cref="IUnitCreationService"/>).
+/// </param>
 public record UnitCreationOverrides(
     string? DisplayName = null,
     string? Color = null,
@@ -66,7 +73,8 @@ public record UnitCreationOverrides(
     string? Provider = null,
     string? Hosting = null,
     IReadOnlyList<string>? ParentUnitIds = null,
-    bool? IsTopLevel = null);
+    bool? IsTopLevel = null,
+    System.Guid? ActorId = null);
 
 /// <summary>
 /// Outcome of a unit-creation call.

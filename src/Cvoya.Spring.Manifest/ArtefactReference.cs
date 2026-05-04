@@ -8,19 +8,26 @@ namespace Cvoya.Spring.Manifest;
 /// reference grammar is a flat string (ADR-0035 decision 3):
 /// <list type="bullet">
 ///   <item><description>
-///     <b>Bare name</b> — <c>sv-oss-design</c> — resolves within the current
-///     package (units → <c>./units/sv-oss-design.yaml</c>, agents →
+///     <b>Bare name</b> — <c>sv-oss-design</c> — a local symbol scoped to
+///     the current package (#1629 PR7). Resolves to a sibling artefact file
+///     (units → <c>./units/sv-oss-design.yaml</c>, agents →
 ///     <c>./agents/sv-oss-design.yaml</c>, skills →
 ///     <c>./skills/sv-oss-design.md</c>, workflows →
-///     <c>./workflows/sv-oss-design/</c>).
+///     <c>./workflows/sv-oss-design/</c>) and is mapped to a fresh Guid at
+///     install time. Local symbols never persist past Phase 2.
 ///   </description></item>
 ///   <item><description>
 ///     <b>Qualified name</b> — <c>spring-voyage-oss/architect</c> — resolves
-///     cross-package via the catalog. The part before the first <c>/</c> is
-///     the package name; the part after is the artefact name within that
-///     package.
+///     cross-package via the catalog. The package portion (before the
+///     <c>/</c>) and artefact portion (after the <c>/</c>) are both
+///     content-addressable identifiers — they target a specific file inside
+///     the referenced package's source tree, not a live entity row.
 ///   </description></item>
 /// </list>
+/// References to live entities created by a different package use Guid form
+/// at the field level (e.g. <c>members[].agent: 8c5fab2a8e7e…</c>); those
+/// never reach this parser because they are intercepted earlier by the
+/// member-grammar validator.
 /// </summary>
 /// <param name="RawValue">The original string from the manifest.</param>
 /// <param name="PackageName">

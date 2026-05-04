@@ -24,10 +24,19 @@ public interface IPackageArtefactActivator
     /// <param name="packageName">The owning package name.</param>
     /// <param name="artefact">The resolved artefact to activate.</param>
     /// <param name="installId">The shared install batch identifier.</param>
+    /// <param name="symbolMap">
+    /// The per-package local-symbol → Guid map minted in Phase 1 (#1629 PR7).
+    /// The activator uses this map to look up the artefact's pre-allocated
+    /// identity (so the directory entry it writes lines up with the
+    /// staging row Phase 1 already committed) and to resolve any
+    /// member-list entry references against peer artefacts in the same
+    /// package.
+    /// </param>
     /// <param name="cancellationToken">A cancellation token.</param>
     Task ActivateAsync(
         string packageName,
         ResolvedArtefact artefact,
         System.Guid installId,
+        LocalSymbolMap symbolMap,
         CancellationToken cancellationToken = default);
 }

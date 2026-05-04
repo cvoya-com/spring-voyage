@@ -88,6 +88,27 @@ public class PackageInstallService : IPackageInstallService
         // after their dependencies.
         var sorted = TopologicalSort(resolvedTargets);
 
+        // #1629 PR7: mint a Guid per local artefact symbol up-front so the
+        // staging row, the directory entry, and the activator all key off the
+        // same identity. The map is keyed by package name so two packages can
+        // share artefact names without colliding. Cross-package artefacts
+        // already have a Guid identity in the referenced package's catalog;
+        // they are not minted here.
+        var symbolMap = new Dictionary<string, LocalSymbolMap>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (_, pkg) in sorted)
+        {
+            var map = new LocalSymbolMap();
+            foreach (var unit in pkg.Units.Where(a => !a.IsCrossPackage))
+            {
+                map.GetOrMint(ArtefactKind.Unit, unit.Name);
+            }
+            foreach (var agent in pkg.Agents.Where(a => !a.IsCrossPackage))
+            {
+                map.GetOrMint(ArtefactKind.Agent, agent.Name);
+            }
+            symbolMap[pkg.Name] = map;
+        }
+
         await using var scope = _scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
 
@@ -117,9 +138,13 @@ public class PackageInstallService : IPackageInstallService
 
                 // Write unit_definitions staging rows. Identity is the row's
                 // Guid id post-#1629; the human-readable name lives on
-                // DisplayName only.
+                // DisplayName only. The Guid is taken from the per-package
+                // symbol map so the staging row and the directory entry the
+                // activator later writes share a single identity (#1629 PR7).
+                var pkgMap = symbolMap[pkg.Name];
                 foreach (var unit in pkg.Units.Where(a => !a.IsCrossPackage))
                 {
+                    var unitId = pkgMap.GetOrMint(ArtefactKind.Unit, unit.Name);
                     var existing = await db.UnitDefinitions
                         .IgnoreQueryFilters()
                         .FirstOrDefaultAsync(u =>
@@ -129,7 +154,7 @@ public class PackageInstallService : IPackageInstallService
                     {
                         var entity = new UnitDefinitionEntity
                         {
-                            Id = Guid.NewGuid(),
+                            Id = unitId,
                             DisplayName = unit.Name,
                             Description = string.Empty,
                             InstallState = PackageInstallState.Staging,
@@ -169,7 +194,8 @@ public class PackageInstallService : IPackageInstallService
         var packageResults = new List<PackageInstallResult>();
         foreach (var (target, pkg) in sorted)
         {
-            var (outcome, error) = await ActivatePackageAsync(pkg, installId, cancellationToken);
+            var (outcome, error) = await ActivatePackageAsync(
+                pkg, installId, symbolMap[pkg.Name], cancellationToken);
             packageResults.Add(new PackageInstallResult(pkg.Name, outcome, error));
 
             // Update the package_installs row for this package.
@@ -270,7 +296,14 @@ public class PackageInstallService : IPackageInstallService
                 continue;
             }
 
-            var (outcome, error) = await ActivatePackageAsync(pkg, installId, cancellationToken);
+            // Rebuild the local-symbol map from the staging rows so the
+            // retry uses the same Guids that Phase 1 minted on the original
+            // install. Looking the rows up by display-name keeps the symbol
+            // map deterministic across retries — every artefact resolves to
+            // its previously-minted id rather than getting a fresh one.
+            var retryMap = await BuildSymbolMapFromStagingAsync(pkg, installId, cancellationToken);
+
+            var (outcome, error) = await ActivatePackageAsync(pkg, installId, retryMap, cancellationToken);
             packageResults.Add(new PackageInstallResult(row.PackageName, outcome, error));
 
             await UpdatePackageInstallRowAsync(installId, row.PackageName,
@@ -548,11 +581,65 @@ public class PackageInstallService : IPackageInstallService
         }
     }
 
+    /// <summary>
+    /// Reconstructs a <see cref="LocalSymbolMap"/> for a retry by reading
+    /// the staging rows that the original install wrote. Each artefact is
+    /// re-bound to its existing Guid so re-running activation does not
+    /// create a duplicate entity with a different id.
+    /// </summary>
+    private async Task<LocalSymbolMap> BuildSymbolMapFromStagingAsync(
+        ResolvedPackage pkg,
+        Guid installId,
+        CancellationToken cancellationToken)
+    {
+        var map = new LocalSymbolMap();
+
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+
+        foreach (var unit in pkg.Units.Where(a => !a.IsCrossPackage))
+        {
+            var row = await db.UnitDefinitions
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(
+                    u => u.InstallId == installId && u.DisplayName == unit.Name,
+                    cancellationToken);
+            if (row is not null)
+            {
+                map.Bind(ArtefactKind.Unit, unit.Name, row.Id);
+            }
+            else
+            {
+                _ = map.GetOrMint(ArtefactKind.Unit, unit.Name);
+            }
+        }
+
+        foreach (var agent in pkg.Agents.Where(a => !a.IsCrossPackage))
+        {
+            var row = await db.AgentDefinitions
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(
+                    a => a.DisplayName == agent.Name,
+                    cancellationToken);
+            if (row is not null)
+            {
+                map.Bind(ArtefactKind.Agent, agent.Name, row.Id);
+            }
+            else
+            {
+                _ = map.GetOrMint(ArtefactKind.Agent, agent.Name);
+            }
+        }
+
+        return map;
+    }
+
     // ── Phase 2 helpers ────────────────────────────────────────────────────
 
     private async Task<(PackageInstallOutcome Outcome, string? Error)> ActivatePackageAsync(
         ResolvedPackage pkg,
         Guid installId,
+        LocalSymbolMap symbolMap,
         CancellationToken cancellationToken)
     {
         string? firstError = null;
@@ -566,7 +653,7 @@ public class PackageInstallService : IPackageInstallService
         {
             try
             {
-                await _activator.ActivateAsync(pkg.Name, artefact, installId, cancellationToken);
+                await _activator.ActivateAsync(pkg.Name, artefact, installId, symbolMap, cancellationToken);
                 await FlipArtefactStateToActiveAsync(artefact, installId, cancellationToken);
             }
             catch (OperationCanceledException)

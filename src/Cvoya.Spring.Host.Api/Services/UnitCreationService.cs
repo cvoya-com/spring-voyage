@@ -155,6 +155,7 @@ public class UnitCreationService : IUnitCreationService
             // for the manifest-backed path (rejectDuplicates: true there).
             rejectDuplicates: false,
             parentInfo: parentInfo,
+            preMintedActorId: null,
             cancellationToken);
     }
 
@@ -213,6 +214,7 @@ public class UnitCreationService : IUnitCreationService
             ExtractSkillReferences(manifest),
             rejectDuplicates,
             parentInfo,
+            overrides.ActorId,
             cancellationToken);
 
         // #488: persist the manifest's `expertise:` block onto the unit
@@ -549,6 +551,7 @@ public class UnitCreationService : IUnitCreationService
         IReadOnlyList<SkillBundleReference> skillReferences,
         bool rejectDuplicates,
         UnitParentInfo parentInfo,
+        Guid? preMintedActorId,
         CancellationToken cancellationToken)
     {
         // Validate the connector binding request up-front — before we touch
@@ -593,7 +596,10 @@ public class UnitCreationService : IUnitCreationService
         // Mint the new unit's identity up-front so the bundle validator (and
         // any policy-enforcer it consults) can key off the unit's stable Guid
         // rather than its display name. Under #1629 the directory is Guid-keyed.
-        var actorGuid = Guid.NewGuid();
+        // PR7: when the package-install pipeline pre-mints the Guid (so the
+        // staging row and directory entry agree on a single identity), use
+        // that Guid instead of generating a fresh one here.
+        var actorGuid = preMintedActorId ?? Guid.NewGuid();
 
         // Resolve skill bundles and validate their tool requirements up-front
         // as well. Any failure here surfaces to the caller as a typed

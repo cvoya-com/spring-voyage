@@ -26,7 +26,9 @@ public enum PackageKind
 /// metadata, inputs schema, and the root artefact it wraps.
 /// </summary>
 /// <remarks>
-/// The package YAML shape (decision 2 in ADR-0035):
+/// <para>
+/// The package YAML shape (decision 2 in ADR-0035, refined by #1629 PR7):
+/// </para>
 /// <code>
 /// apiVersion: spring.voyage/v1
 /// kind: UnitPackage            # or AgentPackage
@@ -37,9 +39,18 @@ public enum PackageKind
 ///   - name: team_name
 ///     type: string
 ///     required: true
-/// unit: sv-oss-design          # bare = ./units/sv-oss-design.yaml
-///                              # qualified = other-pkg/sv-oss-design
+/// unit: sv-oss-design          # bare = local symbol → ./units/sv-oss-design.yaml
+///                              # qualified = cross-package = other-pkg/sv-oss-design
 /// </code>
+/// <para>
+/// <b>Reference grammar (#1629 PR7):</b> within a manifest, references
+/// between artefacts use IaC-style local symbols (the bare-name form
+/// above) that are mapped to fresh Guids at install time and never
+/// persist. Cross-package references to live entities are written as
+/// 32-char no-dash hex Guids — display-name lookups across packages are
+/// gone, since display names aren't unique. Path-style references like
+/// <c>unit://eng/backend</c> are rejected.
+/// </para>
 /// </remarks>
 public class PackageManifest
 {

@@ -182,14 +182,39 @@ public class SkillReference
     public string? Skill { get; set; }
 }
 
-/// <summary>A unit member reference.</summary>
+/// <summary>
+/// A unit member reference. Identifies a peer artefact in the same manifest
+/// (a sibling agent or sub-unit) using one of two forms (#1629 PR7):
+/// <list type="bullet">
+///   <item><description>
+///     <b>Local symbol</b> — the value of <see cref="Agent"/> or
+///     <see cref="Unit"/> names a local symbol scoped to the manifest. The
+///     install-time activator maps the symbol to the freshly-minted Guid of
+///     the corresponding artefact. Path-style references
+///     (<c>scheme://path</c>) are rejected with an actionable error.
+///   </description></item>
+///   <item><description>
+///     <b>Cross-package Guid</b> — a 32-char no-dash hex string (or any form
+///     <c>Guid.TryParse</c> accepts) addresses an entity created by a
+///     different package. Display-name lookup across packages is gone — names
+///     aren't unique, so resolving by name would silently bind to the wrong
+///     target.
+///   </description></item>
+/// </list>
+/// </summary>
 public class MemberManifest
 {
-    /// <summary>Agent name when the member is an agent.</summary>
+    /// <summary>
+    /// Agent reference — either a local symbol (peer agent in the same
+    /// manifest) or a 32-char no-dash hex Guid (cross-package).
+    /// </summary>
     [YamlMember(Alias = "agent")]
     public string? Agent { get; set; }
 
-    /// <summary>Nested unit name when the member is another unit.</summary>
+    /// <summary>
+    /// Nested-unit reference — either a local symbol (peer unit in the same
+    /// manifest) or a 32-char no-dash hex Guid (cross-package).
+    /// </summary>
     [YamlMember(Alias = "unit")]
     public string? Unit { get; set; }
 }

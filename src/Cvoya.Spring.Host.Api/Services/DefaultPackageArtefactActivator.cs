@@ -58,6 +58,7 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
         string packageName,
         ResolvedArtefact artefact,
         Guid installId,
+        LocalSymbolMap symbolMap,
         CancellationToken cancellationToken = default)
     {
         if (artefact.Content is null)
@@ -70,11 +71,11 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
         switch (artefact.Kind)
         {
             case ArtefactKind.Unit:
-                await ActivateUnitAsync(artefact, cancellationToken);
+                await ActivateUnitAsync(artefact, symbolMap, cancellationToken);
                 break;
 
             case ArtefactKind.Agent:
-                await ActivateAgentAsync(artefact, cancellationToken);
+                await ActivateAgentAsync(artefact, symbolMap, cancellationToken);
                 break;
 
             case ArtefactKind.Skill:
@@ -94,10 +95,22 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
         }
     }
 
-    private async Task ActivateUnitAsync(ResolvedArtefact artefact, CancellationToken ct)
+    private async Task ActivateUnitAsync(
+        ResolvedArtefact artefact,
+        LocalSymbolMap symbolMap,
+        CancellationToken ct)
     {
         var manifest = ManifestParser.Parse(artefact.Content!);
-        var overrides = new UnitCreationOverrides(IsTopLevel: true);
+
+        // #1629 PR7: pull the unit's pre-minted Guid out of the symbol map so
+        // the directory entry the creation service writes shares a single
+        // identity with the staging row Phase 1 already committed. Without
+        // this, RegisterAsync would mint a fresh Guid and the install would
+        // produce two near-duplicate UnitDefinitionEntity rows for the same
+        // display name — exactly the inconsistency #1629 PR7 sets out to fix.
+        var actorId = symbolMap.GetOrMint(ArtefactKind.Unit, artefact.Name);
+
+        var overrides = new UnitCreationOverrides(IsTopLevel: true, ActorId: actorId);
         await _unitCreationService.CreateFromManifestAsync(manifest, overrides, ct);
     }
 
@@ -118,7 +131,10 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
     /// is logged as a warning and registration proceeds without it (the
     /// platform's runtime catalog falls back to defaults).
     /// </remarks>
-    private async Task ActivateAgentAsync(ResolvedArtefact artefact, CancellationToken ct)
+    private async Task ActivateAgentAsync(
+        ResolvedArtefact artefact,
+        LocalSymbolMap symbolMap,
+        CancellationToken ct)
     {
         var content = artefact.Content!;
         AgentManifestFields fields;
@@ -148,9 +164,13 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
         var displayName = string.IsNullOrWhiteSpace(fields.DisplayName) ? slug : fields.DisplayName!;
         var description = fields.Description ?? string.Empty;
 
+        // #1629 PR7: resolve the agent's identity through the local-symbol
+        // map so a re-run of activation reuses the pre-allocated Guid. The
+        // directory's own ResolveAsync still wins when the agent already has
+        // a registration (e.g. retry after Phase-2 partial failure).
         var address = Address.For("agent", slug);
         var existing = await _directoryService.ResolveAsync(address, ct);
-        var actorId = existing?.ActorId ?? Guid.NewGuid();
+        var actorId = existing?.ActorId ?? symbolMap.GetOrMint(ArtefactKind.Agent, artefact.Name);
 
         var entry = new DirectoryEntry(
             address,

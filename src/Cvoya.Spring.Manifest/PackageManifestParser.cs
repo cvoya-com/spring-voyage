@@ -58,7 +58,54 @@ public static class PackageManifestParser
         }
 
         ValidateRequiredFields(doc);
+        ValidatePackageGrammar(doc);
         return doc;
+    }
+
+    /// <summary>
+    /// Validates the package-level grammar against the v0.1 rules introduced
+    /// by #1629 PR7 — namely that every reference field rejects path-style
+    /// values (<c>scheme://...</c>). Runs from <see cref="ParseRaw"/> so the
+    /// rejection fires even on paths that never make it as far as
+    /// <see cref="ParseAndResolveAsync"/> (e.g. export tooling that only
+    /// inspects the schema).
+    /// </summary>
+    private static void ValidatePackageGrammar(PackageManifest doc)
+    {
+        if (doc.Unit is { IsInline: false } unitSlot)
+        {
+            LocalSymbolValidator.RejectPathStyleReference(
+                unitSlot.Reference, "unit", GrammarLayer.PackageManifest);
+        }
+        if (doc.Agent is { IsInline: false } agentSlot)
+        {
+            LocalSymbolValidator.RejectPathStyleReference(
+                agentSlot.Reference, "agent", GrammarLayer.PackageManifest);
+        }
+        if (doc.SubUnits is { Count: > 0 })
+        {
+            for (var i = 0; i < doc.SubUnits.Count; i++)
+            {
+                LocalSymbolValidator.RejectPathStyleReference(
+                    doc.SubUnits[i], $"subUnits[{i}]", GrammarLayer.PackageManifest);
+            }
+        }
+        if (doc.Skills is { Count: > 0 })
+        {
+            for (var i = 0; i < doc.Skills.Count; i++)
+            {
+                LocalSymbolValidator.RejectPathStyleReference(
+                    doc.Skills[i], $"skills[{i}]", GrammarLayer.PackageManifest);
+            }
+        }
+        if (doc.Workflows is { Count: > 0 })
+        {
+            for (var i = 0; i < doc.Workflows.Count; i++)
+            {
+                LocalSymbolValidator.RejectPathStyleReference(
+                    doc.Workflows[i], $"workflows[{i}]", GrammarLayer.PackageManifest);
+            }
+        }
     }
 
     /// <summary>
@@ -330,6 +377,11 @@ public static class PackageManifestParser
 
     private static List<ArtefactCollectEntry> CollectReferences(PackageManifest manifest)
     {
+        // Path-style rejection lives in ValidatePackageGrammar (called from
+        // ParseRaw) so it fires even on schema-only inspection paths. By the
+        // time we reach CollectReferences, every reference field has already
+        // been screened for the obsolete `scheme://...` form.
+
         var refs = new List<ArtefactCollectEntry>();
 
         AddSlot(refs, manifest.Unit, ArtefactKind.Unit);

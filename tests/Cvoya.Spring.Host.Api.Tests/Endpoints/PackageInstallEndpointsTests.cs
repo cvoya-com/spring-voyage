@@ -99,7 +99,7 @@ public class PackageInstallEndpointsTests : IClassFixture<PackageInstallEndpoint
         var ct = TestContext.Current.CancellationToken;
         _factory.Activator.ActivateAsync(
                 Arg.Any<string>(), Arg.Any<ResolvedArtefact>(),
-                Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+                Arg.Any<Guid>(), Arg.Any<LocalSymbolMap>(), Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
 
         var packageName = $"pkg-single-{Guid.NewGuid():N}";
@@ -129,7 +129,7 @@ public class PackageInstallEndpointsTests : IClassFixture<PackageInstallEndpoint
         var activationOrder = new ConcurrentQueue<(string Package, string Artefact)>();
         _factory.Activator.ActivateAsync(
                 Arg.Any<string>(), Arg.Any<ResolvedArtefact>(),
-                Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+                Arg.Any<Guid>(), Arg.Any<LocalSymbolMap>(), Arg.Any<CancellationToken>())
             .Returns(ci =>
             {
                 var pkg = ci.ArgAt<string>(0);
@@ -215,7 +215,7 @@ public class PackageInstallEndpointsTests : IClassFixture<PackageInstallEndpoint
 
         _factory.Activator.ActivateAsync(
                 Arg.Any<string>(), Arg.Any<ResolvedArtefact>(),
-                Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+                Arg.Any<Guid>(), Arg.Any<LocalSymbolMap>(), Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
 
         // First install using a catalog-backed package that has a real unit
@@ -276,7 +276,7 @@ public class PackageInstallEndpointsTests : IClassFixture<PackageInstallEndpoint
         var ct = TestContext.Current.CancellationToken;
         _factory.Activator.ActivateAsync(
                 Arg.Any<string>(), Arg.Any<ResolvedArtefact>(),
-                Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+                Arg.Any<Guid>(), Arg.Any<LocalSymbolMap>(), Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
 
         var packageName = $"pkg-getst-{Guid.NewGuid():N}";
@@ -320,7 +320,7 @@ public class PackageInstallEndpointsTests : IClassFixture<PackageInstallEndpoint
         // First: activator throws on every call.
         _factory.Activator.ActivateAsync(
                 Arg.Any<string>(), Arg.Any<ResolvedArtefact>(),
-                Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+                Arg.Any<Guid>(), Arg.Any<LocalSymbolMap>(), Arg.Any<CancellationToken>())
             .Throws(new InvalidOperationException("Simulated Phase-2 failure"));
 
         var packageName = $"pkg-retry-{Guid.NewGuid():N}";
@@ -346,7 +346,7 @@ public class PackageInstallEndpointsTests : IClassFixture<PackageInstallEndpoint
         // Fix the activator — it now succeeds.
         _factory.Activator.ActivateAsync(
                 Arg.Any<string>(), Arg.Any<ResolvedArtefact>(),
-                Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+                Arg.Any<Guid>(), Arg.Any<LocalSymbolMap>(), Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
 
         var retryResp = await _client.PostAsync($"/api/v1/installs/{installId}/retry", null, ct);
@@ -366,7 +366,7 @@ public class PackageInstallEndpointsTests : IClassFixture<PackageInstallEndpoint
 
         _factory.Activator.ActivateAsync(
                 Arg.Any<string>(), Arg.Any<ResolvedArtefact>(),
-                Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+                Arg.Any<Guid>(), Arg.Any<LocalSymbolMap>(), Arg.Any<CancellationToken>())
             .Throws(new InvalidOperationException("Simulated Phase-2 failure"));
 
         // Use catalog-backed package so the activator IS invoked.
@@ -399,7 +399,7 @@ public class PackageInstallEndpointsTests : IClassFixture<PackageInstallEndpoint
         var ct = TestContext.Current.CancellationToken;
         _factory.Activator.ActivateAsync(
                 Arg.Any<string>(), Arg.Any<ResolvedArtefact>(),
-                Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+                Arg.Any<Guid>(), Arg.Any<LocalSymbolMap>(), Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
 
         var packageName = $"pkg-upload-{Guid.NewGuid():N}";
@@ -428,7 +428,7 @@ public class PackageInstallEndpointsTests : IClassFixture<PackageInstallEndpoint
 
         _factory.Activator.ActivateAsync(
                 Arg.Any<string>(), Arg.Any<ResolvedArtefact>(),
-                Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+                Arg.Any<Guid>(), Arg.Any<LocalSymbolMap>(), Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
 
         var packageName = $"pkg-iso-{Guid.NewGuid():N}";
@@ -543,7 +543,7 @@ public class PackageInstallEndpointsTests : IClassFixture<PackageInstallEndpoint
             // Default: succeed silently (no Dapr sidecar needed).
             a.ActivateAsync(
                     Arg.Any<string>(), Arg.Any<ResolvedArtefact>(),
-                    Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+                    Arg.Any<Guid>(), Arg.Any<LocalSymbolMap>(), Arg.Any<CancellationToken>())
                 .Returns(Task.CompletedTask);
             return a;
         }
