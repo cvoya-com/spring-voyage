@@ -41,11 +41,22 @@ public class ProcessContainerRuntime(
     };
 
     /// <summary>
-    /// Pulls a container image by shelling out to <c>&lt;binary&gt; pull &lt;image&gt;</c>.
+    /// Pulls a container image by shelling out to
+    /// <c>&lt;binary&gt; pull --policy missing &lt;image&gt;</c>.
     /// </summary>
     /// <param name="image">The fully-qualified container image reference.</param>
     /// <param name="timeout">Maximum wall-clock time the pull is allowed to run.</param>
     /// <param name="ct">A token to cancel the operation.</param>
+    /// <remarks>
+    /// <c>--policy missing</c> tells podman / docker to use the locally
+    /// cached image when it is already present and only round-trip to the
+    /// registry when it is not. Without this flag, pull always queries the
+    /// registry to check for a newer manifest, so a perfectly good local
+    /// copy is not enough to satisfy the unit-validation pull step when the
+    /// registry is private, anonymous-pull-disabled, or unreachable
+    /// (#1676). Operators who want a forced refresh can call
+    /// <c>podman pull</c> themselves.
+    /// </remarks>
     public async Task PullImageAsync(string image, TimeSpan timeout, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(image);
@@ -59,7 +70,7 @@ public class ProcessContainerRuntime(
         try
         {
             var (exitCode, _, stderr) = await RunProcessAsync(
-                binaryName, ["pull", image], timeoutCts.Token);
+                binaryName, BuildPullArguments(image), timeoutCts.Token);
 
             if (exitCode != 0)
             {
@@ -819,6 +830,15 @@ public class ProcessContainerRuntime(
         AppendCommonArguments(args, config);
         return args;
     }
+
+    /// <summary>
+    /// Builds the argv vector for an image-pull command (#1676). Includes
+    /// <c>--policy missing</c> so the pull short-circuits on a locally
+    /// cached image and only round-trips to the registry when no local
+    /// copy is present.
+    /// </summary>
+    internal static IReadOnlyList<string> BuildPullArguments(string image)
+        => ["pull", "--policy", "missing", image];
 
     /// <summary>
     /// Appends the option / image / command portion shared by run and

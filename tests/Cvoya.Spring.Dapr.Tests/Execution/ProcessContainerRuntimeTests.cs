@@ -286,6 +286,37 @@ public class ProcessContainerRuntimeTests
         AssertFlagPair(args, "-e", "KEY=val with spaces");
     }
 
+    // ── BuildPullArguments tests (#1676) ──
+
+    [Fact]
+    public void BuildPullArguments_IncludesPolicyMissing()
+    {
+        // #1676: pull must short-circuit on a locally cached image. Without
+        // `--policy missing` podman/docker always round-trip to the registry
+        // to check for a newer manifest, which fails (with a confusing 403)
+        // for private images even when a perfectly good local copy exists.
+        var args = ProcessContainerRuntime.BuildPullArguments("ghcr.io/example/agent:latest");
+
+        args.ShouldBe(["pull", "--policy", "missing", "ghcr.io/example/agent:latest"]);
+        AssertFlagPair(args, "--policy", "missing");
+    }
+
+    [Fact]
+    public void BuildPullArguments_ImageRidesAsSingleArgvEntryAfterPolicyFlag()
+    {
+        // The image reference is the trailing positional argv entry; it must
+        // not be split or fused with the --policy/missing pair, regardless
+        // of whether the reference happens to contain characters podman
+        // would normally treat as separators in a string-args path.
+        var args = ProcessContainerRuntime.BuildPullArguments("registry.local:5000/team/img:tag-with-dashes");
+
+        var imageIndex = IndexOf(args, "registry.local:5000/team/img:tag-with-dashes");
+        imageIndex.ShouldBe(args.Count - 1);
+        // policy/missing precede the image, in order, with no other tokens between.
+        IndexOf(args, "--policy").ShouldBe(imageIndex - 2);
+        IndexOf(args, "missing").ShouldBe(imageIndex - 1);
+    }
+
     // ── RewriteUrlHost tests (ProbeHttpFromHostAsync helper, issue #1175) ──
 
     [Theory]
