@@ -9,7 +9,7 @@ agent:
     tool: claude-code
     environment:
       image: localhost/spring-voyage-agent-claude-code:latest
-      runtime: docker
+      runtime: podman
   instructions: |
     You are a tech lead. You review plans, provide technical guidance, make
     architecture decisions, and break down work for the team. You use AI for

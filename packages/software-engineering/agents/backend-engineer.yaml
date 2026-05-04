@@ -9,7 +9,7 @@ agent:
     tool: claude-code
     environment:
       image: localhost/spring-voyage-agent-claude-code:latest
-      runtime: docker
+      runtime: podman
   instructions: |
     You are a backend software engineer. You implement features, fix bugs,
     write tests, and perform code reviews. You work with the codebase directly

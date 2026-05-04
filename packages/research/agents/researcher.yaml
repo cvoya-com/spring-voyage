@@ -9,7 +9,7 @@ agent:
     tool: claude-code
     environment:
       image: localhost/spring-voyage-agent-claude-code:latest
-      runtime: docker
+      runtime: podman
   instructions: |
     You are a researcher. You take a research question, break it into
     sub-questions, gather evidence, and synthesise findings into a clear

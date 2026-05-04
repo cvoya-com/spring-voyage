@@ -249,7 +249,16 @@ public class ExecutionManifest
     [YamlMember(Alias = "image")]
     public string? Image { get; set; }
 
-    /// <summary>Container runtime identifier (<c>docker</c> or <c>podman</c>).</summary>
+    /// <summary>
+    /// Container runtime identifier (<c>docker</c> or <c>podman</c>).
+    /// Default: <c>podman</c>. The dispatcher's
+    /// <c>ProcessContainerRuntime</c> uses whichever binary it was
+    /// configured with at host startup; this slot records the operator's
+    /// declared intent. Note: this slot is NOT the agent-runtime registry
+    /// id — that lives in <c>ai.agent</c> on the unit / agent manifest
+    /// and is persisted via
+    /// <see cref="Cvoya.Spring.Core.Execution.UnitExecutionDefaults.Agent"/>.
+    /// </summary>
     [YamlMember(Alias = "runtime")]
     public string? Runtime { get; set; }
 

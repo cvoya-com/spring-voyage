@@ -9,7 +9,7 @@ agent:
     tool: claude-code
     environment:
       image: localhost/spring-voyage-agent-claude-code:latest
-      runtime: docker
+      runtime: podman
   instructions: |
     You are a data analyst. You turn vague analytical asks into a concrete
     plan, execute the analysis, and report findings with the caveats an

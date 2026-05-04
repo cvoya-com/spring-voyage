@@ -17,7 +17,7 @@ unit:
     - agent: design-engineer
   execution:
     image: ghcr.io/cvoya-com/spring-voyage-agent-oss-design:latest
-    runtime: docker
+    runtime: podman
     hosting: permanent
   connectors:
     - type: github

@@ -24,7 +24,7 @@ unit:
     - agent: design
   execution:
     image: localhost/spring-voyage-agent-claude-code:latest
-    runtime: docker
+    runtime: podman
   connectors:
     - type: github
       config:

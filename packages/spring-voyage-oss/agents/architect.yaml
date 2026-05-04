@@ -9,7 +9,7 @@ agent:
     tool: claude-code
     environment:
       image: ghcr.io/cvoya-com/spring-voyage-agent-oss-software-engineering:latest
-      runtime: docker
+      runtime: podman
   instructions: |
     Platform architect for Spring Voyage. Owns architecture decisions,
     boundary design, and ADR stewardship.

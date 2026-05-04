@@ -9,7 +9,7 @@ agent:
     tool: claude-code
     environment:
       image: localhost/spring-voyage-agent-claude-code:latest
-      runtime: docker
+      runtime: podman
   instructions: |
     You are a product designer. You shape the user experience by exploring
     problems, producing design artifacts, and reviewing proposals for

@@ -266,7 +266,13 @@ public class UnitCreationService : IUnitCreationService
         // defaults match what a PUT /api/v1/units/{id}/execution call
         // would produce. An absent or all-empty block is a no-op so an
         // operator who clears the YAML doesn't re-apply a stale default.
-        if (manifest.Execution is { IsEmpty: false })
+        // #1683: also forward the manifest's `ai.agent` value into the
+        // execution block's new `agent` slot. The validator reads
+        // `defaults.Agent` first as the agent-runtime registry id; without
+        // this propagation every manifest-installed unit failed Step 1
+        // with `No agent runtime is registered with id 'docker'.`
+        var manifestAgent = manifest.Ai?.Agent;
+        if (manifest.Execution is { IsEmpty: false } || !string.IsNullOrWhiteSpace(manifestAgent))
         {
             // #1666: IUnitExecutionStore is keyed by the unit's actor Guid
             // (DbUnitExecutionStore parses the id with GuidFormatter.TryParse
@@ -276,7 +282,11 @@ public class UnitCreationService : IUnitCreationService
             // UnitDefinition row — otherwise validation fails with
             // ConfigurationIncomplete: missing image,runtime.
             await PersistUnitExecutionAsync(
-                name, result.Unit.Id, manifest.Execution, cancellationToken);
+                name,
+                result.Unit.Id,
+                manifest.Execution ?? new ExecutionManifest(),
+                manifestAgent,
+                cancellationToken);
         }
 
         return result;
@@ -289,10 +299,18 @@ public class UnitCreationService : IUnitCreationService
     /// the unit is already live; the operator can push the block via
     /// <c>PUT /api/v1/units/{id}/execution</c> if the write hiccups.
     /// </summary>
+    /// <remarks>
+    /// #1683: <paramref name="agent"/> carries the manifest's <c>ai.agent</c>
+    /// value (the agent-runtime registry id) so it lands in the execution
+    /// block's <c>agent</c> slot alongside the operator-declared
+    /// <c>execution.runtime</c> (which is the container-runtime selector,
+    /// not the agent-runtime id).
+    /// </remarks>
     private async Task PersistUnitExecutionAsync(
         string unitName,
         Guid unitActorId,
         ExecutionManifest execution,
+        string? agent,
         CancellationToken cancellationToken)
     {
         if (_executionStore is null)
@@ -310,7 +328,8 @@ public class UnitCreationService : IUnitCreationService
                 Runtime: execution.Runtime,
                 Tool: execution.Tool,
                 Provider: execution.Provider,
-                Model: execution.Model);
+                Model: execution.Model,
+                Agent: agent);
             // #1666: the store is Guid-keyed — see DbUnitExecutionStore
             // line 80, which throws ArgumentException for a non-Guid id.
             // GuidFormatter.Format is the canonical "N"-format counterpart
@@ -950,6 +969,13 @@ public class UnitCreationService : IUnitCreationService
             // `provider` into `Runtime` mislabels every unit created
             // with `--provider ollama` as needing the (non-existent)
             // `ollama` container runtime.
+            // #1683: `Agent` (the agent-runtime registry id) is also
+            // left null here — the direct-create request body carries
+            // no `--agent` flag and partial-update semantics preserve
+            // any pre-existing manifest-applied value on subsequent
+            // overwrites. Operators can set it via
+            // `PUT /api/v1/units/{id}/execution` once the slot is
+            // surfaced on that endpoint.
             if (_executionStore is not null &&
                 (!string.IsNullOrWhiteSpace(model)
                     || !string.IsNullOrWhiteSpace(provider)
@@ -971,7 +997,8 @@ public class UnitCreationService : IUnitCreationService
                             Runtime: null,
                             Tool: tool,
                             Provider: provider,
-                            Model: model),
+                            Model: model,
+                            Agent: null),
                         cancellationToken);
                 }
                 catch (Exception ex)

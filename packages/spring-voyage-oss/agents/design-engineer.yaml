@@ -9,7 +9,7 @@ agent:
     tool: claude-code
     environment:
       image: ghcr.io/cvoya-com/spring-voyage-agent-oss-design:latest
-      runtime: docker
+      runtime: podman
   instructions: |
     You are a UI/UX design engineer for Spring Voyage.
 

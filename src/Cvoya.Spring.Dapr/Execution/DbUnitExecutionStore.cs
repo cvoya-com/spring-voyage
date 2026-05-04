@@ -113,7 +113,8 @@ public class DbUnitExecutionStore(
             Runtime: PickTrimmed(defaults.Runtime, existing.Runtime),
             Tool: PickTrimmed(defaults.Tool, existing.Tool),
             Provider: PickTrimmed(defaults.Provider, existing.Provider),
-            Model: PickTrimmed(defaults.Model, existing.Model));
+            Model: PickTrimmed(defaults.Model, existing.Model),
+            Agent: PickTrimmed(defaults.Agent, existing.Agent));
 
         await PersistAsync(db, entity, merged, cancellationToken);
     }
@@ -176,6 +177,7 @@ public class DbUnitExecutionStore(
             if (!string.IsNullOrWhiteSpace(defaults.Tool)) block["tool"] = defaults.Tool!.Trim();
             if (!string.IsNullOrWhiteSpace(defaults.Provider)) block["provider"] = defaults.Provider!.Trim();
             if (!string.IsNullOrWhiteSpace(defaults.Model)) block["model"] = defaults.Model!.Trim();
+            if (!string.IsNullOrWhiteSpace(defaults.Agent)) block["agent"] = defaults.Agent!.Trim();
             payload["execution"] = block;
         }
 
@@ -208,8 +210,9 @@ public class DbUnitExecutionStore(
         var tool = GetStringOrNull(exec, "tool");
         var provider = GetStringOrNull(exec, "provider");
         var model = GetStringOrNull(exec, "model");
+        var agent = GetStringOrNull(exec, "agent");
 
-        var shaped = new UnitExecutionDefaults(image, runtime, tool, provider, model);
+        var shaped = new UnitExecutionDefaults(image, runtime, tool, provider, model, agent);
         return shaped.IsEmpty ? null : shaped;
     }
 

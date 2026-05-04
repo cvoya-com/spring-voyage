@@ -9,7 +9,7 @@ agent:
     tool: claude-code
     environment:
       image: localhost/spring-voyage-agent-claude-code:latest
-      runtime: docker
+      runtime: podman
   instructions: |
     You are a QA engineer. You write tests, analyze test coverage, identify bugs,
     and ensure quality across the codebase. You work with the codebase directly
