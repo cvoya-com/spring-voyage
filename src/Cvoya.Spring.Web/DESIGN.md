@@ -815,13 +815,15 @@ The fork happens in `engagement-detail.tsx`: `<EngagementTimeline layout={isPart
 `src/components/thread/thread-event-card.tsx`. The compact, click-to-expand alternative to the chat-style bubble for any thread event that isn't a message. Used by:
 
 1. The observer-view timeline (`layout="timeline"`) for every non-message event.
-2. The participant-view dialog (`layout="dialog"`) as a fallback for `MessageReceived` events that arrived without a body — the bubble path would otherwise leak the platform's "Received Domain message `<uuid>` from `<address>`" envelope summary.
+2. The participant-view dialog (`layout="dialog"`) for every non-message event.
+
+Message events (`MessageReceived` / `MessageSent`) always render through the bubble path — the platform now guarantees a usable `event.body` (or a non-leaky `event.summary` placeholder) on every projected message event, so there is no body-less envelope-leak case for the card path to absorb (#1641 / #1639).
 
 **Compact state** (default).
 - Container: `rounded-md border px-3 py-2 text-sm shadow-sm`.
 - Tone token from a four-row table keyed by event type (`neutral` / `info` / `warning` / `destructive`); severity `Error` and `Warning` escalate the tone regardless of event type.
 - Layout: chevron + lucide icon (`Cog` / `MessageSquare` / `Wrench` / `ListTree` / `AlertTriangle`) + outline badge with the friendly label + source displayName + 24h-format timestamp + a one-line summary.
-- Friendly summary: prefers `event.body`, then a sanitised `event.summary` (the "Received Domain message `<uuid>` from `<address>`" template is stripped — never display the GUID-bearing template), then the per-type label.
+- Friendly summary: prefers `event.body`, then `event.summary`, then the per-type label.
 
 **Expanded state** (after click). The compact-state header stays put; below it appears a `bg-background/60 border-border/60 rounded font-mono text-[11px] text-muted-foreground` panel exposing `id`, `type`, `source`, optional `from`, `severity`, and full `summary`. This is where the raw addresses (including `agent:id:<uuid>` identity form) and event ids surface — strictly opt-in.
 

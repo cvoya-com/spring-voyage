@@ -332,16 +332,15 @@ describe("ConversationView — observer-view timeline layout", () => {
   });
 });
 
-describe("ConversationView — generic-event card fallback in dialog mode (#1630)", () => {
-  it("renders body-less MessageReceived events as cards (not envelope-summary bubbles)", () => {
-    const id = "d4ce4258-ab40-4c10-be06-407cc5ec9139";
+describe("ConversationView — message-vs-card dispatch in dialog mode", () => {
+  it("renders body-less MessageReceived events as bubbles (the platform now provides a usable summary upstream — #1641)", () => {
     const bodylessMessage = {
       id: "e-bare",
       eventType: "MessageReceived",
       source: { address: "agent://ada", displayName: "ada" },
       timestamp: "2026-04-30T10:02:00Z",
       severity: "Info",
-      summary: `Received Domain message ${id} from human:id:${id}`,
+      summary: "agent reply placeholder",
     };
     useThreadMock.mockReturnValue({
       data: makeDetail([bodylessMessage]),
@@ -350,11 +349,11 @@ describe("ConversationView — generic-event card fallback in dialog mode (#1630
       error: null,
     });
     render(<ConversationView threadId="t-1" defaultFilter="full" />);
-    const card = screen.getByTestId("conversation-event-card-e-bare");
-    expect(card).toBeInTheDocument();
-    // Compact-state MUST NOT leak the GUID; it lives behind the expand
-    // affordance only.
-    expect(card).not.toHaveTextContent(id);
+    expect(screen.getByTestId("conversation-event-e-bare")).toBeInTheDocument();
+    // No card path for message events anymore.
+    expect(
+      screen.queryByTestId("conversation-event-card-e-bare"),
+    ).toBeNull();
   });
 });
 

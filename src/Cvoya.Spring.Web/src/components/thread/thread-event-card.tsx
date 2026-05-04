@@ -3,14 +3,11 @@
 // Compact "event card" for non-message events in a thread timeline (#1630).
 //
 // The participant view of a thread reads like a chat (left/right bubbles
-// for human ↔ agent messages). When a non-message event lands in the same
-// timeline (a tool call, a state change, a workflow step) the bubble
-// rendering leaks envelope summaries like
-//   "Received Domain message d4ce4258-… from human:id:5ea189a0-…"
-// which exposes raw UUIDs the user can't act on.
-//
-// This component renders such events as a compact card with friendly,
-// UX-first copy:
+// for human ↔ agent messages). Non-message events (a tool call, a state
+// change, a workflow step) don't fit that metaphor — rendering them as
+// bubbles makes the timeline read as if the system is talking to the
+// user. This component renders them as a compact card with friendly,
+// UX-first copy instead:
 //
 //   ┌──────────────────────────────────────────────────────┐
 //   │  ⚙  StateChanged · ada · 14:03                  ⌃    │
@@ -19,9 +16,7 @@
 //
 // Click anywhere on the row (or the chevron) to expand the card; the
 // expanded view exposes the raw envelope (event id, type, source/from
-// addresses, severity, summary line) for diagnostic use. This is the
-// observer view's fallback for any event that does not carry a message
-// body, and the participant view's fallback for the same.
+// addresses, severity, summary line) for diagnostic use.
 //
 // Click-to-expand is local state (no router round-trip) so the user can
 // open many cards at once and the page state remains stable across SSE
@@ -74,25 +69,21 @@ const EVENT_PRESENTATION: Record<
 };
 
 /**
- * Best-effort friendly summary. Pulls the body when present, otherwise
- * the event-type-specific friendly label, otherwise the engine summary.
- * Specifically — and load-bearing for #1630 — strips the
- *   "Received Domain message <uuid> from <address>"
- * envelope template that the platform emits for non-projected receive
- * events when the message body could not be reconstructed. That string
- * leaks raw GUIDs into the UI; we'd rather say "Message exchanged"
- * and let the user expand for the IDs.
+ * Best-effort friendly summary. Prefers the body when present, then the
+ * engine summary, then the event-type-specific friendly label.
+ *
+ * Historical note: this used to strip a `"Received Domain message <uuid>
+ * from <address>"` envelope template that the platform emitted as the
+ * receive-event summary. That envelope was removed upstream in #1641, so
+ * the strip is gone. If a card ever surfaces text matching that template
+ * again, the fix is on the platform side, not here (#1639).
  */
 function friendlySummary(event: ThreadEvent, fallbackLabel: string): string {
   const body = event.body?.trim();
   if (body) return body;
   const summary = event.summary?.trim();
-  if (!summary) return fallbackLabel;
-  // Drop the UUID-bearing envelope template — never display it raw.
-  if (/^Received Domain message\s+[0-9a-f-]{8,}/i.test(summary)) {
-    return fallbackLabel;
-  }
-  return summary;
+  if (summary) return summary;
+  return fallbackLabel;
 }
 
 const TONE_BUBBLE: Record<string, string> = {
@@ -276,16 +267,13 @@ export function ThreadEventCard({
 /**
  * Heuristic: should this event render as a card rather than a chat-style
  * message bubble? Cards are for non-conversational events (lifecycle,
- * tool calls, errors) plus message events that were stripped of their
- * body (the receive-projection corner case from #1630).
+ * tool calls, errors). Message events always render as bubbles — the
+ * platform now populates `event.body` (or a non-leaky `event.summary`
+ * placeholder) for every projected message event, so the bubble path
+ * always has usable text (#1641 / #1639).
  */
 export function shouldRenderAsCard(event: ThreadEvent): boolean {
-  if (event.eventType === "MessageReceived" || event.eventType === "MessageSent") {
-    // Message events render as bubbles when the body is present. When
-    // it's missing the bubble would fall back to the envelope summary
-    // ("Received Domain message <uuid> from …"); render as a card
-    // instead so the GUID stays inside the expand panel.
-    return !event.body || event.body.trim().length === 0;
-  }
-  return true;
+  return (
+    event.eventType !== "MessageReceived" && event.eventType !== "MessageSent"
+  );
 }

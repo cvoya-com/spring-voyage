@@ -96,7 +96,7 @@ interface ThreadEventRowProps {
  *
  * If the event carries a message body, render the body in place of the
  * envelope summary so the thread reads as a real conversation rather
- * than a list of "Received Domain message X from Y" lines.
+ * than a list of platform-side summary placeholders.
  *
  * Header row rules (#1502):
  *  - Human bubbles: omit the role badge entirely. Show displayName only

@@ -508,7 +508,7 @@ describe("InboxPage — user's own message renders text, not placeholder (#1482)
           source: { address: "human://savas", displayName: "savas" },
           timestamp: "2026-04-30T10:00:00Z",
           severity: "Info",
-          summary: "Received Domain message from human://savas",
+          summary: "human message placeholder",
           body: "Can you help me with this?",
         },
       ],
@@ -520,9 +520,9 @@ describe("InboxPage — user's own message renders text, not placeholder (#1482)
     );
     await waitFor(() => {
       const eventEl = screen.getByTestId("inbox-event-e-human");
-      // Body text should appear, not the "received domain message" placeholder
+      // Body text should appear, not the engine-side summary placeholder.
       expect(eventEl).toHaveTextContent("Can you help me with this?");
-      expect(eventEl).not.toHaveTextContent("Received Domain message from human://savas");
+      expect(eventEl).not.toHaveTextContent("human message placeholder");
     });
   });
 });
