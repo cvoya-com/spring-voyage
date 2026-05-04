@@ -137,7 +137,7 @@ public class ThreadContractTests : IClassFixture<ThreadContractTests.Factory>
             .Returns(Result<Message?, RoutingError>.Success(reply));
 
         var body = new ThreadMessageRequest(
-            new AddressDto("agent", "contract-bot"),
+            new AddressDto("agent", Agent_ContractBot_Id.ToString("N")),
             "Hello from contract test");
 
         var response = await _client.PostAsJsonAsync(
@@ -177,7 +177,7 @@ public class ThreadContractTests : IClassFixture<ThreadContractTests.Factory>
             .Returns(Result<Message?, RoutingError>.Success(reply));
 
         var body = new ThreadMessageRequest(
-            new AddressDto("agent", "contract-bot"),
+            new AddressDto("agent", Agent_ContractBot_Id.ToString("N")),
             $"Test message for kind={kind}",
             kind);
 
@@ -214,7 +214,7 @@ public class ThreadContractTests : IClassFixture<ThreadContractTests.Factory>
 
         // Omit kind — server must default to "information".
         var body = new ThreadMessageRequest(
-            new AddressDto("agent", "contract-bot"),
+            new AddressDto("agent", Agent_ContractBot_Id.ToString("N")),
             "Test message with no kind");
 
         var response = await _client.PostAsJsonAsync(
@@ -254,16 +254,17 @@ public class ThreadContractTests : IClassFixture<ThreadContractTests.Factory>
     {
         var ct = TestContext.Current.CancellationToken;
         var now = DateTimeOffset.UtcNow;
+        var contractBot = $"agent://{Agent_ContractBot_Id:N}";
         var summary = new ThreadSummary(
             "contract-close-ok",
-            new[] { "agent://contract-bot" },
-            "active", now, now, 1, "agent://contract-bot", "Started");
+            new[] { contractBot },
+            "active", now, now, 1, contractBot, "Started");
         var beforeDetail = new ThreadDetail(summary, new List<ThreadEvent>());
         var afterDetail = new ThreadDetail(
             summary with { Status = "closed" },
             new List<ThreadEvent>
             {
-                new(Guid.NewGuid(), now, "agent://contract-bot",
+                new(Guid.NewGuid(), now, contractBot,
                     "ThreadClosed", "Info", "Closed"),
             });
 
@@ -282,7 +283,7 @@ public class ThreadContractTests : IClassFixture<ThreadContractTests.Factory>
         _factory.DirectoryService.ClearSubstitute();
         _factory.DirectoryService
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "agent" && a.Path == "contract-bot"),
+                Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == Agent_ContractBot_Id),
                 Arg.Any<CancellationToken>())
             .Returns(entry);
 
