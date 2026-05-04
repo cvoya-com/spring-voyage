@@ -120,7 +120,7 @@ public class UnitActivityObservableTests : IDisposable
             .Returns(unit);
 
         var sut = CreateSut();
-        var stream = await sut.GetStreamAsync("unit-none", TestContext.Current.CancellationToken);
+        var stream = await sut.GetStreamAsync(TestSlugIds.HexFor("unit-none"), TestContext.Current.CancellationToken);
 
         var observed = new List<ActivityEvent>();
         using var subscription = stream.Subscribe(observed.Add);

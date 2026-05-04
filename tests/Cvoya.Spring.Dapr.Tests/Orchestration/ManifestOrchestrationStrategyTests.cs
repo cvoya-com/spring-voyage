@@ -47,7 +47,7 @@ public class ManifestOrchestrationStrategyTests
         await using var fixture = TestFixture.Create(providerKey: null);
 
         await using var lease = await fixture.Resolver.ResolveAsync(
-            "plain-team", TestContext.Current.CancellationToken);
+            TestSlugIds.HexFor("plain-team"), TestContext.Current.CancellationToken);
 
         lease.ResolvedKey.ShouldBeNull();
         lease.Strategy.ShouldBe(fixture.DefaultStrategy);
@@ -64,7 +64,7 @@ public class ManifestOrchestrationStrategyTests
             policy: new UnitPolicy(LabelRouting: new LabelRoutingPolicy()));
 
         await using var lease = await fixture.Resolver.ResolveAsync(
-            "inferred", TestContext.Current.CancellationToken);
+            TestSlugIds.HexFor("inferred"), TestContext.Current.CancellationToken);
 
         lease.ResolvedKey.ShouldBe("label-routed");
         lease.Strategy.ShouldBe(fixture.LabelRoutedStrategy);
@@ -76,7 +76,7 @@ public class ManifestOrchestrationStrategyTests
         await using var fixture = TestFixture.Create(providerKey: "workflow");
 
         await using var lease = await fixture.Resolver.ResolveAsync(
-            "pipeline", TestContext.Current.CancellationToken);
+            TestSlugIds.HexFor("pipeline"), TestContext.Current.CancellationToken);
 
         lease.ResolvedKey.ShouldBe("workflow");
         lease.Strategy.ShouldBe(fixture.WorkflowStrategy);

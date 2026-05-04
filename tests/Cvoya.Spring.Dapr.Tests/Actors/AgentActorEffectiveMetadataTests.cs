@@ -73,8 +73,8 @@ public class AgentActorEffectiveMetadataTests
         _dispatcher.DispatchAsync(Arg.Any<Message>(), Arg.Any<PromptAssemblyContext?>(), Arg.Any<CancellationToken>())
             .Returns((Message?)null);
 
-        _definitionProvider.GetByIdAsync(AgentActorUuid.ToString(), Arg.Any<CancellationToken>())
-            .Returns(new AgentDefinition(AgentActorUuid.ToString(), "Test", "Agent instructions", null));
+        _definitionProvider.GetByIdAsync(AgentId, Arg.Any<CancellationToken>())
+            .Returns(new AgentDefinition(AgentId, "Test", "Agent instructions", null));
 
         // Wire directory service to resolve unit addresses → directory entries.
         _directoryService
@@ -385,7 +385,7 @@ public class AgentActorEffectiveMetadataTests
             .Returns(new UnitMembership(UnitBUuid, AgentActorUuid, Model: "claude-3-5-sonnet", Enabled: true));
 
         // Turn 1: unit-a opens conversation conv-a; verify gpt-4.
-        var msgA = DomainMessageFrom(Address.For("unit", TestSlugIds.HexFor("unit-a")), "conv-a");
+        var msgA = DomainMessageFrom(new Address("unit", UnitAUuid), "conv-a");
         await _actor.ReceiveAsync(msgA, TestContext.Current.CancellationToken);
         await _actor.PendingDispatchTask!;
 
@@ -402,7 +402,7 @@ public class AgentActorEffectiveMetadataTests
         _stateManager.TryGetStateAsync<ThreadChannel>(StateKeys.ActiveConversation, Arg.Any<CancellationToken>())
             .Returns(new ConditionalValue<ThreadChannel>(false, default!));
 
-        var msgB = DomainMessageFrom(Address.For("unit", TestSlugIds.HexFor("unit-b")), "conv-b");
+        var msgB = DomainMessageFrom(new Address("unit", UnitBUuid), "conv-b");
         await _actor.ReceiveAsync(msgB, TestContext.Current.CancellationToken);
         await _actor.PendingDispatchTask!;
 

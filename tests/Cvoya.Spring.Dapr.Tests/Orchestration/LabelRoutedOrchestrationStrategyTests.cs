@@ -297,7 +297,7 @@ public class LabelRoutedOrchestrationStrategyTests
             });
 
         label.ShouldBe("agent:backend");
-        path.ShouldBe("backend-engineer");
+        path.ShouldBe(TestSlugIds.HexFor("backend-engineer"));
     }
 
     [Fact]

@@ -56,6 +56,14 @@ public class UnitParentInvariantGuard(
         var currentParents = await hierarchyResolver.GetParentsAsync(
             child, cancellationToken);
 
+        // No parent edges at all → top-level unit; removing an edge that does
+        // not exist is a no-op (idempotent RemoveMember contract). Treat this
+        // as the implicit top-level signal post-#1629.
+        if (currentParents.Count == 0)
+        {
+            return;
+        }
+
         // The edge under review is from `parent` to `child`. After removal,
         // the child keeps every other parent. If the only remaining parent
         // is `parent` itself, we're about to strip the last one.

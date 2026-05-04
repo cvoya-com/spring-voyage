@@ -84,8 +84,8 @@ public class MessageQueryServiceTests : IDisposable
         result.ShouldNotBeNull();
         result!.MessageId.ShouldBe(messageId);
         result.ThreadId.ShouldBe(threadId);
-        result.From.ShouldBe("human://savasp");
-        result.To.ShouldBe("agent://ada");
+        result.From.ShouldBe($"human://{TestSlugIds.HexFor("savasp")}");
+        result.To.ShouldBe($"agent://{TestSlugIds.HexFor("ada")}");
         result.MessageType.ShouldBe("Domain");
         result.Body.ShouldBe("hello, ada");
     }

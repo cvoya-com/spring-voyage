@@ -37,15 +37,16 @@ public class UnregisterAgentActivityTests
     [Fact]
     public async Task RunAsync_CallsDirectoryServiceUnregister()
     {
+        var agentHex = TestSlugIds.HexFor("agent-1");
         var input = new AgentLifecycleInput(
-            LifecycleOperation.Delete, "agent-1");
+            LifecycleOperation.Delete, agentHex);
         var context = Substitute.For<WorkflowActivityContext>();
 
         var result = await _activity.RunAsync(context, input);
 
         result.ShouldBeTrue();
         await _directoryService.Received(1).UnregisterAsync(
-            Arg.Is<Address>(a => a.Scheme == "agent" && a.Path == "agent-1"),
+            Arg.Is<Address>(a => a.Scheme == "agent" && a.Path == agentHex),
             Arg.Any<CancellationToken>());
     }
 }

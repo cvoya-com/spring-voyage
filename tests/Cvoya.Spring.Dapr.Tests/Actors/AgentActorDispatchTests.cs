@@ -65,8 +65,8 @@ public class AgentActorDispatchTests
             new ToolDefinition("github_comment", "comment", JsonSerializer.SerializeToElement(new { }))
         ]);
 
-        _definitionProvider.GetByIdAsync("test-agent", Arg.Any<CancellationToken>())
-            .Returns(new AgentDefinition("test-agent", "Test", "Agent instructions", null));
+        _definitionProvider.GetByIdAsync(TestSlugIds.HexFor("test-agent"), Arg.Any<CancellationToken>())
+            .Returns(new AgentDefinition(TestSlugIds.HexFor("test-agent"), "Test", "Agent instructions", null));
 
         var host = ActorHost.CreateForTest<AgentActor>(new ActorTestOptions
         {

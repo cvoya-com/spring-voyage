@@ -159,8 +159,7 @@ public class DbExpertiseSeedProviderTests
         await SeedAgentAsync(
             scopeFactory, agentId: "ada", actorId: "actor-ada", definition: definition);
 
-        var result = await provider.GetAgentSeedAsync(
-            "actor-ada", TestContext.Current.CancellationToken);
+        var result = await provider.GetAgentSeedAsync(TestSlugIds.HexFor("actor-ada"), TestContext.Current.CancellationToken);
 
         result.ShouldNotBeNull();
         result!.Count.ShouldBe(1);
@@ -180,8 +179,7 @@ public class DbExpertiseSeedProviderTests
         await SeedAgentAsync(
             scopeFactory, agentId: "ada", actorId: "actor-ada", definition: definition);
 
-        var result = await provider.GetAgentSeedAsync(
-            "ada", TestContext.Current.CancellationToken);
+        var result = await provider.GetAgentSeedAsync(TestSlugIds.HexFor("ada"), TestContext.Current.CancellationToken);
 
         result.ShouldBeNull();
     }
@@ -236,8 +234,7 @@ public class DbExpertiseSeedProviderTests
             definition: definition,
             deletedAt: DateTimeOffset.UtcNow);
 
-        var result = await provider.GetAgentSeedAsync(
-            "actor-ada-deleted", TestContext.Current.CancellationToken);
+        var result = await provider.GetAgentSeedAsync(TestSlugIds.HexFor("actor-ada-deleted"), TestContext.Current.CancellationToken);
 
         result.ShouldBeNull();
     }
@@ -255,8 +252,7 @@ public class DbExpertiseSeedProviderTests
         await SeedUnitAsync(
             scopeFactory, unitId: "triage", actorId: "actor-triage", definition: definition);
 
-        var result = await provider.GetUnitSeedAsync(
-            "actor-triage", TestContext.Current.CancellationToken);
+        var result = await provider.GetUnitSeedAsync(TestSlugIds.HexFor("actor-triage"), TestContext.Current.CancellationToken);
 
         result.ShouldNotBeNull();
         result!.Count.ShouldBe(1);
@@ -274,8 +270,7 @@ public class DbExpertiseSeedProviderTests
         await SeedUnitAsync(
             scopeFactory, unitId: "triage", actorId: "actor-triage", definition: definition);
 
-        var result = await provider.GetUnitSeedAsync(
-            "triage", TestContext.Current.CancellationToken);
+        var result = await provider.GetUnitSeedAsync(TestSlugIds.HexFor("triage"), TestContext.Current.CancellationToken);
 
         result.ShouldBeNull();
     }
@@ -327,8 +322,7 @@ public class DbExpertiseSeedProviderTests
             definition: definition,
             deletedAt: DateTimeOffset.UtcNow);
 
-        var result = await provider.GetUnitSeedAsync(
-            "actor-triage-deleted", TestContext.Current.CancellationToken);
+        var result = await provider.GetUnitSeedAsync(TestSlugIds.HexFor("actor-triage-deleted"), TestContext.Current.CancellationToken);
 
         result.ShouldBeNull();
     }

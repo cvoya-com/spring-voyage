@@ -118,7 +118,7 @@ public class DefaultAgentCloningPolicyEnforcerTests
             new AgentCloningPolicy(MaxClones: 10),
             TestContext.Current.CancellationToken);
         await _repository.SetAsync(
-            CloningPolicyScope.Tenant, "test-tenant",
+            CloningPolicyScope.Tenant, _tenantContext.CurrentTenantId.ToString("N"),
             new AgentCloningPolicy(MaxClones: 3),
             TestContext.Current.CancellationToken);
 

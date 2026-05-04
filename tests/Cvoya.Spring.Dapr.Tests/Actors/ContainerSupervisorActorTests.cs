@@ -93,7 +93,7 @@ public class ContainerSupervisorActorTests
     public async Task StartAsync_NoExistingContainer_ProvisionesVolumeAndStartsContainer()
     {
         const string expectedContainerId = "container-abc";
-        const string expectedVolumeName = "spring-ws-test-agent-123";
+        string expectedVolumeName = $"spring-ws-{TestAgentId}";
 
         _containerRuntime
             .EnsureVolumeAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
@@ -185,7 +185,7 @@ public class ContainerSupervisorActorTests
             ContainerId: existingContainerId,
             SidecarId: null,
             NetworkName: null,
-            VolumeName: "spring-ws-test-agent-123",
+            VolumeName: $"spring-ws-{TestAgentId}",
             RestartCount: 0,
             MaxRestarts: ContainerSupervisorActor.DefaultMaxRestarts,
             LastStartedAt: DateTimeOffset.UtcNow,
@@ -216,7 +216,7 @@ public class ContainerSupervisorActorTests
     public async Task DoneAsync_EphemeralAgent_StopsContainerAndReclaimsVolume()
     {
         const string containerId = "ephemeral-container";
-        const string volumeName = "spring-ws-test-agent-123";
+        string volumeName = $"spring-ws-{TestAgentId}";
 
         var runningState = new SupervisorState(
             AgentId: TestAgentId,
@@ -254,7 +254,7 @@ public class ContainerSupervisorActorTests
     public async Task DoneAsync_PersistentAgent_StopsContainerButDoesNotReclaimVolume()
     {
         const string containerId = "persistent-container";
-        const string volumeName = "spring-ws-test-agent-123";
+        string volumeName = $"spring-ws-{TestAgentId}";
 
         var runningState = new SupervisorState(
             AgentId: TestAgentId,
@@ -300,7 +300,7 @@ public class ContainerSupervisorActorTests
     public async Task StopAsync_PersistentAgent_StopsContainerWithoutReclaimingVolume()
     {
         const string containerId = "persistent-container";
-        const string volumeName = "spring-ws-test-agent-123";
+        string volumeName = $"spring-ws-{TestAgentId}";
 
         var runningState = new SupervisorState(
             AgentId: TestAgentId,
@@ -346,7 +346,7 @@ public class ContainerSupervisorActorTests
             ContainerId: containerId,
             SidecarId: null,
             NetworkName: null,
-            VolumeName: "spring-ws-test-agent-123",
+            VolumeName: $"spring-ws-{TestAgentId}",
             RestartCount: 0,
             MaxRestarts: ContainerSupervisorActor.DefaultMaxRestarts,
             LastStartedAt: DateTimeOffset.UtcNow,
@@ -379,7 +379,7 @@ public class ContainerSupervisorActorTests
             ContainerId: containerId,
             SidecarId: null,
             NetworkName: null,
-            VolumeName: "spring-ws-test-agent-123",
+            VolumeName: $"spring-ws-{TestAgentId}",
             RestartCount: 0,
             MaxRestarts: ContainerSupervisorActor.DefaultMaxRestarts,
             LastStartedAt: DateTimeOffset.UtcNow,
@@ -411,7 +411,7 @@ public class ContainerSupervisorActorTests
         // The workspace volume must survive the crash so the restarted container
         // can resume from checkpoint state (ADR-0029 § 3.2 + D3c).
         const string containerId = "crashed-container";
-        const string volumeName = "spring-ws-test-agent-123";
+        string volumeName = $"spring-ws-{TestAgentId}";
 
         var runningState = new SupervisorState(
             AgentId: TestAgentId,
@@ -453,7 +453,7 @@ public class ContainerSupervisorActorTests
             ContainerId: containerId,
             SidecarId: null,
             NetworkName: null,
-            VolumeName: "spring-ws-test-agent-123",
+            VolumeName: $"spring-ws-{TestAgentId}",
             RestartCount: ContainerSupervisorActor.DefaultMaxRestarts, // already at limit
             MaxRestarts: ContainerSupervisorActor.DefaultMaxRestarts,
             LastStartedAt: DateTimeOffset.UtcNow,
@@ -487,7 +487,7 @@ public class ContainerSupervisorActorTests
         const string persistedImage = "ghcr.io/cvoya/test-agent:1.0.0";
         const string crashedContainerId = "crashed-container";
         const string newContainerId = "restarted-container";
-        const string volumeName = "spring-ws-test-agent-123";
+        string volumeName = $"spring-ws-{TestAgentId}";
 
         var runningState = new SupervisorState(
             AgentId: TestAgentId,
@@ -552,7 +552,7 @@ public class ContainerSupervisorActorTests
         const string persistedImage = "ghcr.io/cvoya/test-agent:1.0.0";
         const string crashedContainerId = "crashed-container";
         const string newContainerId = "restarted-container";
-        const string volumeName = "spring-ws-test-agent-123";
+        string volumeName = $"spring-ws-{TestAgentId}";
 
         var runningState = new SupervisorState(
             AgentId: TestAgentId,
@@ -609,7 +609,7 @@ public class ContainerSupervisorActorTests
         // Two successive restarts MUST produce distinct credential sets — tokens
         // MUST NOT be cached or replayed (D1 spec § 2.2.3).
         const string persistedImage = "ghcr.io/cvoya/test-agent:1.0.0";
-        const string volumeName = "spring-ws-test-agent-123";
+        string volumeName = $"spring-ws-{TestAgentId}";
 
         // Capture the bucket2 tokens emitted across two restart calls.
         var bucket2Tokens = new List<string>();
@@ -765,7 +765,7 @@ public class ContainerSupervisorActorTests
             ContainerId: containerId,
             SidecarId: null,
             NetworkName: null,
-            VolumeName: "spring-ws-test-agent-123",
+            VolumeName: $"spring-ws-{TestAgentId}",
             RestartCount: 0,
             MaxRestarts: ContainerSupervisorActor.DefaultMaxRestarts,
             LastStartedAt: DateTimeOffset.UtcNow,
@@ -796,7 +796,7 @@ public class ContainerSupervisorActorTests
             ContainerId: "healthy-container",
             SidecarId: null,
             NetworkName: null,
-            VolumeName: "spring-ws-test-agent-123",
+            VolumeName: $"spring-ws-{TestAgentId}",
             RestartCount: 0,
             MaxRestarts: ContainerSupervisorActor.DefaultMaxRestarts,
             LastStartedAt: DateTimeOffset.UtcNow,

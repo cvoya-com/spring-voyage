@@ -31,8 +31,7 @@ public class DbOrchestrationStrategyProviderTests
     {
         var (provider, _) = BuildProvider();
 
-        var key = await provider.GetStrategyKeyAsync(
-            "missing-unit", TestContext.Current.CancellationToken);
+        var key = await provider.GetStrategyKeyAsync(TestSlugIds.HexFor("missing-unit"), TestContext.Current.CancellationToken);
 
         key.ShouldBeNull();
     }
@@ -43,8 +42,7 @@ public class DbOrchestrationStrategyProviderTests
         var (provider, scopeFactory) = BuildProvider();
         await SeedUnitAsync(scopeFactory, actorId: "actor-bare", definition: null);
 
-        var key = await provider.GetStrategyKeyAsync(
-            "actor-bare", TestContext.Current.CancellationToken);
+        var key = await provider.GetStrategyKeyAsync(TestSlugIds.HexFor("actor-bare"), TestContext.Current.CancellationToken);
 
         key.ShouldBeNull();
     }
@@ -59,8 +57,7 @@ public class DbOrchestrationStrategyProviderTests
         });
         await SeedUnitAsync(scopeFactory, actorId: "actor-no-orch", definition: definition);
 
-        var key = await provider.GetStrategyKeyAsync(
-            "actor-no-orch", TestContext.Current.CancellationToken);
+        var key = await provider.GetStrategyKeyAsync(TestSlugIds.HexFor("actor-no-orch"), TestContext.Current.CancellationToken);
 
         key.ShouldBeNull();
     }
@@ -77,8 +74,7 @@ public class DbOrchestrationStrategyProviderTests
             definition: null,
             deletedAt: DateTimeOffset.UtcNow);
 
-        var key = await provider.GetStrategyKeyAsync(
-            "actor-deleted", TestContext.Current.CancellationToken);
+        var key = await provider.GetStrategyKeyAsync(TestSlugIds.HexFor("actor-deleted"), TestContext.Current.CancellationToken);
 
         key.ShouldBeNull();
     }
@@ -101,8 +97,7 @@ public class DbOrchestrationStrategyProviderTests
             actorId: "actor-triage",
             definition: definition);
 
-        var key = await provider.GetStrategyKeyAsync(
-            "actor-triage", TestContext.Current.CancellationToken);
+        var key = await provider.GetStrategyKeyAsync(TestSlugIds.HexFor("actor-triage"), TestContext.Current.CancellationToken);
 
         key.ShouldBe("label-routed");
     }
@@ -125,8 +120,7 @@ public class DbOrchestrationStrategyProviderTests
             actorId: "actor-triage",
             definition: definition);
 
-        var key = await provider.GetStrategyKeyAsync(
-            "triage", TestContext.Current.CancellationToken);
+        var key = await provider.GetStrategyKeyAsync(TestSlugIds.HexFor("triage"), TestContext.Current.CancellationToken);
 
         key.ShouldBeNull();
     }

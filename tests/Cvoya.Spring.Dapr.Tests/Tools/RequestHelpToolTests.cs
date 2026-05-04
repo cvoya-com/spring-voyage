@@ -60,12 +60,13 @@ public class RequestHelpToolTests
             DateTimeOffset.UtcNow);
 
         // Set up directory to resolve the target address.
+        var targetActorId = TestSlugIds.For("target-agent");
         _directoryService.ResolveAsync(
-            Arg.Is<Address>(a => a.Scheme == "agent" && a.Path == "target-agent"),
+            Arg.Is<Address>(a => a.Scheme == "agent" && a.Path == TestSlugIds.HexFor("target-agent")),
             Arg.Any<CancellationToken>())
             .Returns(new DirectoryEntry(
                 Address.For("agent", TestSlugIds.HexFor("target-agent")),
-                Guid.NewGuid(),
+                targetActorId,
                 "Target",
                 "Target agent",
                 null,
@@ -75,12 +76,12 @@ public class RequestHelpToolTests
         var agentProxy = Substitute.For<IAgent>();
         agentProxy.ReceiveAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
             .Returns(responseMessage);
-        _agentProxyResolver.Resolve("agent", "target-actor-id").Returns(agentProxy);
+        _agentProxyResolver.Resolve("agent", Arg.Any<string>()).Returns(agentProxy);
 
         var parameters = JsonSerializer.SerializeToElement(new
         {
             targetScheme = "agent",
-            targetPath = "target-agent",
+            targetPath = TestSlugIds.HexFor("target-agent"),
             message = "Help me with this"
         });
 

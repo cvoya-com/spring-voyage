@@ -229,7 +229,7 @@ public class AnalyticsQueryServiceTests : IDisposable
             TestContext.Current.CancellationToken);
 
         result.Entries.Count.ShouldBe(1);
-        result.Entries[0].Source.ShouldBe("agent:ada");
+        result.Entries[0].Source.ShouldBe(SourceHex("agent:ada"));
     }
 
     private async Task SeedLifecycleAsync(
