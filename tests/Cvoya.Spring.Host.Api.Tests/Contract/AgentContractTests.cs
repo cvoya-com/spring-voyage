@@ -87,12 +87,14 @@ public class AgentContractTests : IClassFixture<CustomWebApplicationFactory>
         ArrangeUnitEntry("contract-unit", ActorUnitContract_Id);
         ArrangeAgentActorProxy();
 
+        // Post-#1629 the agent's `name` is its Guid identity; the
+        // human-readable label travels in DisplayName.
         var request = new CreateAgentRequest(
-            "contract-create",
+            Guid.NewGuid().ToString("N"),
             "Contract Create",
             "An agent for contract tests",
             Role: "backend",
-            UnitIds: new[] { "contract-unit" });
+            UnitIds: new[] { ActorUnitContract_Id.ToString("N") });
 
         var response = await _client.PostAsJsonAsync("/api/v1/tenant/agents", request, ct);
         response.StatusCode.ShouldBe(HttpStatusCode.Created);
@@ -105,13 +107,14 @@ public class AgentContractTests : IClassFixture<CustomWebApplicationFactory>
     public async Task GetAgent_NotFound_MatchesProblemDetailsContract()
     {
         var ct = TestContext.Current.CancellationToken;
+        var ghostId = TestSlugIds.For("contract-ghost-agent");
         _factory.DirectoryService
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "agent" && a.Path == "contract-ghost-agent"),
+                Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == ghostId),
                 Arg.Any<CancellationToken>())
             .Returns((DirectoryEntry?)null);
 
-        var response = await _client.GetAsync("/api/v1/tenant/agents/contract-ghost-agent", ct);
+        var response = await _client.GetAsync($"/api/v1/tenant/agents/{ghostId:N}", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
 
         var body = await response.Content.ReadAsStringAsync(ct);
@@ -123,14 +126,15 @@ public class AgentContractTests : IClassFixture<CustomWebApplicationFactory>
     public async Task DeployPersistentAgent_NotFound_MatchesProblemDetailsContract()
     {
         var ct = TestContext.Current.CancellationToken;
+        var ghostId = TestSlugIds.For("contract-ghost-deploy");
         _factory.DirectoryService
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "agent" && a.Path == "contract-ghost-deploy"),
+                Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == ghostId),
                 Arg.Any<CancellationToken>())
             .Returns((DirectoryEntry?)null);
 
         var response = await _client.PostAsJsonAsync(
-            "/api/v1/tenant/agents/contract-ghost-deploy/deploy",
+            $"/api/v1/tenant/agents/{ghostId:N}/deploy",
             new DeployPersistentAgentRequest(),
             ct);
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
@@ -146,7 +150,7 @@ public class AgentContractTests : IClassFixture<CustomWebApplicationFactory>
         var ct = TestContext.Current.CancellationToken;
         _factory.DirectoryService
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "agent" && a.Path == Agent_ContractUndeploy_Id.ToString("N")),
+                Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == Agent_ContractUndeploy_Id),
                 Arg.Any<CancellationToken>())
             .Returns(new DirectoryEntry(
                 new Address("agent", Agent_ContractUndeploy_Id),
@@ -160,7 +164,7 @@ public class AgentContractTests : IClassFixture<CustomWebApplicationFactory>
         // the endpoint returns the canonical empty deployment shape so the
         // response carries every required field on the wire.
         var response = await _client.PostAsync(
-            "/api/v1/tenant/agents/contract-undeploy/undeploy", content: null, ct);
+            $"/api/v1/tenant/agents/{Agent_ContractUndeploy_Id:N}/undeploy", content: null, ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var body = await response.Content.ReadAsStringAsync(ct);
