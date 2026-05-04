@@ -524,4 +524,211 @@ public class ConnectorCommandTests
 
         parseResult.Errors.ShouldNotBeEmpty();
     }
+
+    // ---- `connector config set` (#1619) ----
+
+    [Fact]
+    public void ConfigSet_ParsesPositionalArguments()
+    {
+        // System.CommandLine shells out the inline JSON via its tokeniser
+        // (the test passes an unquoted string that's already been split by
+        // whitespace), so we feed it argv-style to keep the JSON intact.
+        var outputOption = CreateOutputOption();
+        var connectorCommand = ConnectorCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(connectorCommand);
+
+        var parseResult = rootCommand.Parse(
+            new[] { "connector", "config", "set", "arxiv", """config={"foo":"bar"}""" });
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<string>("slugOrId").ShouldBe("arxiv");
+        parseResult.GetValue<string>("key=value").ShouldBe("""config={"foo":"bar"}""");
+    }
+
+    [Fact]
+    public void ConfigSet_RequiresBothPositionals()
+    {
+        var outputOption = CreateOutputOption();
+        var connectorCommand = ConnectorCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(connectorCommand);
+
+        var parseResult = rootCommand.Parse("connector config set arxiv");
+
+        parseResult.Errors.ShouldNotBeEmpty();
+    }
+
+    [Fact]
+    public async Task UpdateConnectorInstallConfigAsync_PatchesEndpointWithBody()
+    {
+        // Wire-level happy path for the new helper. The body must round-trip
+        // through Kiota's UntypedNode tree onto the wire as a `config`
+        // property whose JSON value mirrors the operator-supplied JsonElement.
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/tenant/connectors/arxiv/config",
+            expectedMethod: HttpMethod.Patch,
+            responseBody:
+                """{"typeId":"6a1e0c1a-3a7b-4a12-8a2f-0a71e1b2fb02","typeSlug":"arxiv","displayName":"Arxiv","description":"Arxiv search","configUrl":"/api/v1/tenant/connectors/arxiv/units/{unitId}/config","actionsBaseUrl":"/api/v1/tenant/connectors/arxiv/actions","configSchemaUrl":"/api/v1/tenant/connectors/arxiv/config-schema","installedAt":"2025-01-01T00:00:00Z","updatedAt":"2025-05-01T00:00:00Z","config":{"foo":"bar","n":42,"flag":true,"items":[1,2,3]}}""",
+            validateRequestBody: body =>
+            {
+                var json = JsonSerializer.Deserialize<JsonElement>(body);
+                var config = json.GetProperty("config");
+                config.GetProperty("foo").GetString().ShouldBe("bar");
+                config.GetProperty("n").GetInt64().ShouldBe(42L);
+                config.GetProperty("flag").GetBoolean().ShouldBeTrue();
+                var items = config.GetProperty("items").EnumerateArray()
+                    .Select(e => e.GetInt64()).ToArray();
+                items.ShouldBe(new[] { 1L, 2L, 3L });
+            });
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        using var doc = JsonDocument.Parse("""{"foo":"bar","n":42,"flag":true,"items":[1,2,3]}""");
+        var result = await client.UpdateConnectorInstallConfigAsync(
+            "arxiv", doc.RootElement.Clone(), TestContext.Current.CancellationToken);
+
+        result.TypeSlug.ShouldBe("arxiv");
+        result.UpdatedAt.ShouldNotBeNull();
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task UpdateConnectorInstallConfigAsync_PropagatesNotFound()
+    {
+        // Unknown connector: the server returns 404, and the wrapper surfaces
+        // the Kiota ApiException so callers (the CLI command) can render a
+        // clean error and exit non-zero.
+        var handler = new MockHttpMessageHandler(
+            expectedPath: "/api/v1/tenant/connectors/missing/config",
+            expectedMethod: HttpMethod.Patch,
+            responseBody:
+                """{"title":"Not Found","status":404,"detail":"Connector 'missing' is not registered."}""",
+            returnStatusCode: HttpStatusCode.NotFound);
+
+        var httpClient = new HttpClient(handler);
+        var client = new SpringApiClient(httpClient, BaseUrl);
+
+        using var doc = JsonDocument.Parse("""{"foo":"bar"}""");
+        var ex = await Should.ThrowAsync<Microsoft.Kiota.Abstractions.ApiException>(async () =>
+            await client.UpdateConnectorInstallConfigAsync(
+                "missing", doc.RootElement.Clone(), TestContext.Current.CancellationToken));
+
+        ex.ResponseStatusCode.ShouldBe(404);
+        handler.WasCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void JsonElementToUntypedNode_RoundTripsScalarsAndContainers()
+    {
+        // Direct unit test on the JsonElement → UntypedNode walker — the
+        // higher-level wire test exercises the same code path via PATCH, but
+        // covering each value-kind branch here keeps regressions on number
+        // / null / bool handling cheap to diagnose.
+        using var doc = JsonDocument.Parse(
+            """{"s":"hello","i":7,"d":1.5,"b":false,"n":null,"a":[true,"x",3]}""");
+        var node = SpringApiClient.JsonElementToUntypedNode(doc.RootElement.Clone());
+
+        node.ShouldBeOfType<Microsoft.Kiota.Abstractions.Serialization.UntypedObject>();
+        var obj = ((Microsoft.Kiota.Abstractions.Serialization.UntypedObject)node).GetValue();
+        obj["s"].ShouldBeOfType<Microsoft.Kiota.Abstractions.Serialization.UntypedString>();
+        obj["i"].ShouldBeOfType<Microsoft.Kiota.Abstractions.Serialization.UntypedLong>();
+        obj["d"].ShouldBeOfType<Microsoft.Kiota.Abstractions.Serialization.UntypedDouble>();
+        obj["b"].ShouldBeOfType<Microsoft.Kiota.Abstractions.Serialization.UntypedBoolean>();
+        obj["n"].ShouldBeOfType<Microsoft.Kiota.Abstractions.Serialization.UntypedNull>();
+        obj["a"].ShouldBeOfType<Microsoft.Kiota.Abstractions.Serialization.UntypedArray>();
+    }
+
+    [Fact]
+    public async Task ResolveConfigArgumentAsync_HappyPath_ReturnsParsedJsonElement()
+    {
+        var (parsed, error) = await ConnectorCommand.ResolveConfigArgumentAsync(
+            """config={"foo":"bar"}""", TestContext.Current.CancellationToken);
+
+        error.ShouldBeNull();
+        parsed.ValueKind.ShouldBe(JsonValueKind.Object);
+        parsed.GetProperty("foo").GetString().ShouldBe("bar");
+    }
+
+    [Fact]
+    public async Task ResolveConfigArgumentAsync_EmptyValue_ParsesAsNull()
+    {
+        // 'config=' (empty) is the documented "clear the payload" form —
+        // round-trips as JSON null so the server-side handler stores nothing.
+        var (parsed, error) = await ConnectorCommand.ResolveConfigArgumentAsync(
+            "config=", TestContext.Current.CancellationToken);
+
+        error.ShouldBeNull();
+        parsed.ValueKind.ShouldBe(JsonValueKind.Null);
+    }
+
+    [Fact]
+    public async Task ResolveConfigArgumentAsync_MissingEquals_ReturnsError()
+    {
+        var (_, error) = await ConnectorCommand.ResolveConfigArgumentAsync(
+            "config", TestContext.Current.CancellationToken);
+
+        error.ShouldNotBeNull();
+        error.ShouldContain("Expected key=value");
+    }
+
+    [Fact]
+    public async Task ResolveConfigArgumentAsync_UnknownKey_ReturnsError()
+    {
+        var (_, error) = await ConnectorCommand.ResolveConfigArgumentAsync(
+            "secret=42", TestContext.Current.CancellationToken);
+
+        error.ShouldNotBeNull();
+        error.ShouldContain("Unknown config key");
+    }
+
+    [Fact]
+    public async Task ResolveConfigArgumentAsync_MalformedJson_ReturnsParseError()
+    {
+        // Issue #1619 acceptance: malformed JSON must surface as a non-null
+        // error string so the CLI command can render it to stderr and exit
+        // non-zero. The exact JsonException message is BCL-defined; we only
+        // assert the user-facing prefix.
+        var (_, error) = await ConnectorCommand.ResolveConfigArgumentAsync(
+            "config={not-json", TestContext.Current.CancellationToken);
+
+        error.ShouldNotBeNull();
+        error.ShouldStartWith("Failed to parse config JSON");
+    }
+
+    [Fact]
+    public async Task ResolveConfigArgumentAsync_ReadsJsonFromAtPath()
+    {
+        // '@path/to/file.json' is the documented file form — operators with
+        // larger config payloads pipe a JSON document into the CLI rather
+        // than escaping it through the shell. Round-trips through the disk
+        // before the JSON parser runs.
+        var path = Path.Combine(Path.GetTempPath(), $"spring-cli-config-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(path, """{"a":1,"b":[true,false]}""", TestContext.Current.CancellationToken);
+        try
+        {
+            var (parsed, error) = await ConnectorCommand.ResolveConfigArgumentAsync(
+                $"config=@{path}", TestContext.Current.CancellationToken);
+
+            error.ShouldBeNull();
+            parsed.GetProperty("a").GetInt32().ShouldBe(1);
+            parsed.GetProperty("b").EnumerateArray().Count().ShouldBe(2);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task ResolveConfigArgumentAsync_MissingFile_ReturnsError()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"spring-cli-missing-{Guid.NewGuid():N}.json");
+        var (_, error) = await ConnectorCommand.ResolveConfigArgumentAsync(
+            $"config=@{path}", TestContext.Current.CancellationToken);
+
+        error.ShouldNotBeNull();
+        error.ShouldContain("Failed to read config file");
+    }
 }

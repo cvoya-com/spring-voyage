@@ -2042,6 +2042,92 @@ public class SpringApiClient
         => _client.Api.V1.Tenant.Connectors[slugOrId].DeleteAsync(cancellationToken: ct);
 
     /// <summary>
+    /// Replaces the tenant-scoped install configuration for a connector
+    /// (#1619). Targets <c>PATCH /api/v1/tenant/connectors/{slugOrId}/config</c>,
+    /// the same endpoint the portal would call once it grows a config-set
+    /// surface. The body is an opaque <see cref="System.Text.Json.JsonElement"/>
+    /// so per-connector schemas evolve without the CLI needing to update.
+    /// </summary>
+    /// <remarks>
+    /// The Kiota model exposes the body's <c>config</c> property as an
+    /// <see cref="Microsoft.Kiota.Abstractions.Serialization.UntypedNode"/>
+    /// (the OpenAPI <c>JsonElement</c> schema is empty so Kiota can't pick a
+    /// concrete shape). We bridge from <c>System.Text.Json</c> to the
+    /// untyped tree via <see cref="JsonElementToUntypedNode"/> so callers
+    /// can hand us a parsed JSON value without touching Kiota internals.
+    /// </remarks>
+    public async Task<InstalledConnectorResponse> UpdateConnectorInstallConfigAsync(
+        string slugOrId,
+        System.Text.Json.JsonElement config,
+        CancellationToken ct = default)
+    {
+        var body = new ConnectorInstallConfig
+        {
+            Config = JsonElementToUntypedNode(config),
+        };
+        var result = await _client.Api.V1.Tenant.Connectors[slugOrId].Config
+            .PatchAsync(body, cancellationToken: ct);
+        return result ?? throw new InvalidOperationException(
+            $"Server returned an empty config response for connector '{slugOrId}'.");
+    }
+
+    /// <summary>
+    /// Walks a <see cref="System.Text.Json.JsonElement"/> and emits the
+    /// equivalent Kiota <see cref="Microsoft.Kiota.Abstractions.Serialization.UntypedNode"/>
+    /// tree. Used by <see cref="UpdateConnectorInstallConfigAsync"/> so the
+    /// CLI can hand operator-supplied JSON straight into a Kiota request body
+    /// without needing a typed schema for every connector. Only the shapes the
+    /// JSON document model produces are mapped — anything else is rejected
+    /// rather than silently dropped.
+    /// </summary>
+    internal static UntypedNode JsonElementToUntypedNode(System.Text.Json.JsonElement element)
+    {
+        switch (element.ValueKind)
+        {
+            case System.Text.Json.JsonValueKind.Object:
+                var props = new Dictionary<string, UntypedNode>(StringComparer.Ordinal);
+                foreach (var prop in element.EnumerateObject())
+                {
+                    props[prop.Name] = JsonElementToUntypedNode(prop.Value);
+                }
+                return new UntypedObject(props);
+            case System.Text.Json.JsonValueKind.Array:
+                var items = new List<UntypedNode>();
+                foreach (var item in element.EnumerateArray())
+                {
+                    items.Add(JsonElementToUntypedNode(item));
+                }
+                return new UntypedArray(items);
+            case System.Text.Json.JsonValueKind.String:
+                return new UntypedString(element.GetString());
+            case System.Text.Json.JsonValueKind.Number:
+                // Preserve integer width when possible so the wire form stays
+                // a JSON integer rather than a float; fall back to double for
+                // anything that doesn't round-trip as long.
+                if (element.TryGetInt64(out var l))
+                {
+                    return new UntypedLong(l);
+                }
+                if (element.TryGetDouble(out var d))
+                {
+                    return new UntypedDouble(d);
+                }
+                return new UntypedString(element.GetRawText());
+            case System.Text.Json.JsonValueKind.True:
+                return new UntypedBoolean(true);
+            case System.Text.Json.JsonValueKind.False:
+                return new UntypedBoolean(false);
+            case System.Text.Json.JsonValueKind.Null:
+            case System.Text.Json.JsonValueKind.Undefined:
+                return new UntypedNull();
+            default:
+                throw new ArgumentException(
+                    $"Unsupported JSON value kind '{element.ValueKind}'.",
+                    nameof(element));
+        }
+    }
+
+    /// <summary>
     /// Returns the current credential-health row for a connector, or
     /// <c>null</c> when no validation has been recorded yet.
     /// </summary>

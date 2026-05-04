@@ -662,7 +662,9 @@ public static class ConnectorCommand
         var idArg = new Argument<string>("slugOrId") { Description = "Connector slug or type id." };
         var kvArg = new Argument<string>("key=value")
         {
-            Description = "Supported keys: 'config=<json>'. Empty value clears the payload.",
+            Description =
+                "Supported keys: 'config=<json>'. The value is either inline JSON or '@path/to/file.json' to read from disk. " +
+                "An empty value (e.g. 'config=') clears the payload.",
         };
         var command = new Command(
             "set",
@@ -673,35 +675,109 @@ public static class ConnectorCommand
         {
             var slugOrId = parseResult.GetValue(idArg)!;
             var kv = parseResult.GetValue(kvArg)!;
-            var eq = kv.IndexOf('=');
-            if (eq < 0)
+            var (parsed, error) = await ResolveConfigArgumentAsync(kv, ct);
+            if (error is not null)
             {
-                await Console.Error.WriteLineAsync($"Expected key=value, got '{kv}'.");
-                Environment.Exit(1);
-                return;
-            }
-            var key = kv[..eq].Trim();
-            if (!string.Equals(key, "config", StringComparison.OrdinalIgnoreCase))
-            {
-                await Console.Error.WriteLineAsync(
-                    $"Unknown config key '{key}'. Supported: config=<json>. Use 'spring connector bind' for per-unit typed config.");
+                await Console.Error.WriteLineAsync(error);
                 Environment.Exit(1);
                 return;
             }
 
-            // Deferred to a follow-up: wiring this through a typed Kiota
-            // PATCH call. The endpoint exists (PATCH
-            // /api/v1/connectors/{slugOrId}/install/config) but the Kiota
-            // wrapper for opaque JsonElement bodies requires a small
-            // helper that we'll land alongside the first connector that
-            // ships a typed tenant-config schema. For V2, all OSS
-            // connectors either carry no tenant-level config (Arxiv,
-            // WebSearch) or rely on unit-level config (GitHub).
-            await Console.Error.WriteLineAsync(
-                $"'spring connector config set' is not yet wired to the PATCH endpoint (tracked as a follow-up to #689). Use the HTTP API directly to set tenant-scoped connector config for now.");
-            Environment.Exit(1);
+            var client = ClientFactory.Create();
+            try
+            {
+                var result = await client.UpdateConnectorInstallConfigAsync(slugOrId, parsed, ct);
+                var output = parseResult.GetValue(outputOption) ?? "table";
+                Console.WriteLine(output == "json"
+                    ? OutputFormatter.FormatJson(result)
+                    : OutputFormatter.FormatTable(new[] { result }, InstalledColumns));
+            }
+            catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode == 404)
+            {
+                await Console.Error.WriteLineAsync(
+                    $"Connector '{slugOrId}' is not installed on the current tenant. " +
+                    $"{ProblemDetailsFormatter.Format(ex)}");
+                Environment.Exit(1);
+            }
         });
         return command;
+    }
+
+    /// <summary>
+    /// Resolves the <c>key=value</c> positional supplied to <c>spring
+    /// connector config set</c> into a parsed <see cref="System.Text.Json.JsonElement"/>.
+    /// Returns a non-null error string when validation fails so the caller
+    /// can render it to stderr and exit non-zero. Lives at class scope (not
+    /// inside the action lambda) so unit tests can drive each branch
+    /// without spawning a process — the action wrapper would otherwise have
+    /// to call <see cref="Environment.Exit"/> mid-test, which tears down the
+    /// xUnit runner.
+    /// </summary>
+    /// <remarks>
+    /// Accepts either inline JSON (e.g. <c>config={"foo":"bar"}</c>) or
+    /// <c>config=@path/to/file.json</c>. An empty value
+    /// (<c>config=</c>) is treated as an explicit JSON <c>null</c> so the
+    /// server-side handler clears the stored payload. Unknown keys, missing
+    /// <c>=</c>, malformed JSON, and IO failures all surface as a non-null
+    /// error string.
+    /// </remarks>
+    internal static async Task<(System.Text.Json.JsonElement Parsed, string? Error)> ResolveConfigArgumentAsync(
+        string kv,
+        CancellationToken ct = default)
+    {
+        var eq = kv.IndexOf('=');
+        if (eq < 0)
+        {
+            return (default, $"Expected key=value, got '{kv}'.");
+        }
+        var key = kv[..eq].Trim();
+        if (!string.Equals(key, "config", StringComparison.OrdinalIgnoreCase))
+        {
+            return (default,
+                $"Unknown config key '{key}'. Supported: config=<json>. Use 'spring connector bind' for per-unit typed config.");
+        }
+
+        // The raw value is either inline JSON or '@path/to/file.json'.
+        // Empty string means "clear the payload" — send an explicit JSON
+        // null so the server-side handler stores no config.
+        var raw = kv[(eq + 1)..];
+        string jsonText;
+        if (string.IsNullOrEmpty(raw))
+        {
+            jsonText = "null";
+        }
+        else if (raw.StartsWith('@'))
+        {
+            var path = raw[1..];
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return (default, "Expected a file path after '@'.");
+            }
+            try
+            {
+                jsonText = await File.ReadAllTextAsync(path, ct);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+            {
+                return (default, $"Failed to read config file '{path}': {ex.Message}");
+            }
+        }
+        else
+        {
+            jsonText = raw;
+        }
+
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(jsonText);
+            // JsonDocument owns the underlying buffer — clone the root so
+            // the JsonElement stays valid after the document is disposed.
+            return (doc.RootElement.Clone(), null);
+        }
+        catch (System.Text.Json.JsonException ex)
+        {
+            return (default, $"Failed to parse config JSON: {ex.Message}");
+        }
     }
 
     private static Command CreateCredentialsCommand(Option<string> outputOption)

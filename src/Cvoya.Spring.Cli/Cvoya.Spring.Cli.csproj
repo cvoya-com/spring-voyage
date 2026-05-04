@@ -11,6 +11,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Test access to internal helpers (e.g. JsonElementToUntypedNode,
+         ResolveConfigArgumentAsync) keeps the public API surface narrow
+         while still letting unit tests hit each branch directly. -->
+    <InternalsVisibleTo Include="Cvoya.Spring.Cli.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="System.CommandLine" />
     <!-- Microsoft.Kiota.Bundle is the runtime the generated client under
          Generated/ depends on. Bundle includes Abstractions, HTTP, and
