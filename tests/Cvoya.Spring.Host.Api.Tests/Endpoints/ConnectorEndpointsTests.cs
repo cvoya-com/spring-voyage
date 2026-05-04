@@ -297,12 +297,13 @@ public class ConnectorEndpointsTests : IClassFixture<CustomWebApplicationFactory
         _factory.ConnectorConfigStore.GetAsync(Unit_U1_Id.ToString("N"), Arg.Any<CancellationToken>())
             .Returns(binding);
 
-        var response = await _client.GetAsync("/api/v1/tenant/units/u1/connector", ct);
+        var response = await _client.GetAsync(
+            $"/api/v1/tenant/units/{Unit_U1_Id:N}/connector", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<UnitConnectorPointerResponse>(ct);
         body.ShouldNotBeNull();
         body!.TypeSlug.ShouldBe("stub");
-        body.ConfigUrl.ShouldBe("/api/v1/tenant/connectors/stub/units/u1/config");
+        body.ConfigUrl.ShouldBe($"/api/v1/tenant/connectors/stub/units/{Unit_U1_Id:N}/config");
     }
 
     [Fact]
@@ -349,7 +350,7 @@ public class ConnectorEndpointsTests : IClassFixture<CustomWebApplicationFactory
         body.ShouldAllBe(r => r.TypeSlug == "stub");
         body.ShouldAllBe(r => r.TypeId == _factory.StubConnectorType.TypeId);
         body.Single(r => r.UnitId == Unit_Alpha_Id.ToString("N")).UnitDisplayName.ShouldBe("Alpha");
-        body.Single(r => r.UnitId == Unit_Alpha_Id.ToString("N")).ConfigUrl.ShouldBe("/api/v1/tenant/connectors/stub/units/alpha/config");
+        body.Single(r => r.UnitId == Unit_Alpha_Id.ToString("N")).ConfigUrl.ShouldBe($"/api/v1/tenant/connectors/stub/units/{Unit_Alpha_Id:N}/config");
         body.Single(r => r.UnitId == Unit_Alpha_Id.ToString("N")).ActionsBaseUrl.ShouldBe("/api/v1/tenant/connectors/stub/actions");
     }
 
@@ -435,7 +436,8 @@ public class ConnectorEndpointsTests : IClassFixture<CustomWebApplicationFactory
         _factory.ConnectorConfigStore.ClearReceivedCalls();
         _factory.ConnectorRuntimeStore.ClearReceivedCalls();
 
-        var response = await _client.DeleteAsync("/api/v1/tenant/units/u2/connector", ct);
+        var response = await _client.DeleteAsync(
+            $"/api/v1/tenant/units/{Unit_U2_Id:N}/connector", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
         await _factory.ConnectorConfigStore.Received(1).ClearAsync(Unit_U2_Id.ToString("N"), Arg.Any<CancellationToken>());
