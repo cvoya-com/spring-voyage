@@ -133,6 +133,19 @@ public static class PlatformTenantsEndpoints
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
+        // #1632: an explicitly supplied display name must clear the same
+        // Guid-shape / control-char gate every other entity surface uses.
+        // null / whitespace is the "default to the id" signal documented on
+        // CreateTenantRequest — leave that path unchanged.
+        if (!string.IsNullOrWhiteSpace(request.DisplayName))
+        {
+            var displayNameProblem = DisplayNameProblems.ValidateOrProblem(request.DisplayName);
+            if (displayNameProblem is not null)
+            {
+                return displayNameProblem;
+            }
+        }
+
         TenantRecord record;
         try
         {
@@ -174,6 +187,19 @@ public static class PlatformTenantsEndpoints
         {
             return TenantNotFound(id);
         }
+
+        // #1632: see CreateAsync — empty / whitespace is the "fall back to
+        // the tenant id" signal documented on UpdateTenantRequest, so the
+        // validator only fires on a meaningful value.
+        if (!string.IsNullOrWhiteSpace(request.DisplayName))
+        {
+            var displayNameProblem = DisplayNameProblems.ValidateOrProblem(request.DisplayName);
+            if (displayNameProblem is not null)
+            {
+                return displayNameProblem;
+            }
+        }
+
         var record = await registry.UpdateAsync(idGuid, request.DisplayName, cancellationToken);
         return record is null
             ? TenantNotFound(id)

@@ -342,6 +342,15 @@ public static class UnitEndpoints
         [FromServices] IUnitCreationService creationService,
         CancellationToken cancellationToken)
     {
+        // #1632: reject Guid-shaped / empty / control-char display names up
+        // front. The unit creation service treats DisplayName as opaque, so
+        // the validation has to live on the endpoint boundary.
+        var displayNameProblem = DisplayNameProblems.ValidateOrProblem(request.DisplayName);
+        if (displayNameProblem is not null)
+        {
+            return displayNameProblem;
+        }
+
         try
         {
             var result = await creationService.CreateAsync(request, cancellationToken);
@@ -408,6 +417,18 @@ public static class UnitEndpoints
         CancellationToken cancellationToken)
     {
         var logger = loggerFactory.CreateLogger("Cvoya.Spring.Host.Api.Endpoints.UnitEndpoints");
+
+        // #1632: validate only when the caller actually supplied a new
+        // display name — null means "leave unchanged" on the PATCH surface
+        // and must stay a no-op for the validator.
+        if (request.DisplayName is not null)
+        {
+            var displayNameProblem = DisplayNameProblems.ValidateOrProblem(request.DisplayName);
+            if (displayNameProblem is not null)
+            {
+                return displayNameProblem;
+            }
+        }
 
         var address = Address.For("unit", id);
         var entry = await directoryService.ResolveAsync(address, cancellationToken);

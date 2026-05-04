@@ -656,12 +656,15 @@ public static class AgentEndpoints
                 detail: "Agent creation must include a non-empty 'name'.",
                 statusCode: StatusCodes.Status400BadRequest);
         }
-        if (string.IsNullOrWhiteSpace(request.DisplayName))
+        // #1632: a Guid-shaped display name would collide with the Guid-first
+        // addressing surface defined by #1629 — every endpoint that accepts
+        // a display_name on create / update routes through DisplayNameValidator
+        // to keep the rejection class uniform. The validator also catches the
+        // empty-string failure mode that used to live inline above.
+        var displayNameProblem = DisplayNameProblems.ValidateOrProblem(request.DisplayName);
+        if (displayNameProblem is not null)
         {
-            return Results.Problem(
-                title: "Agent displayName is required",
-                detail: "Agent creation must include a non-empty 'displayName'.",
-                statusCode: StatusCodes.Status400BadRequest);
+            return displayNameProblem;
         }
 
         // Per #744: every agent must carry at least one unit membership
