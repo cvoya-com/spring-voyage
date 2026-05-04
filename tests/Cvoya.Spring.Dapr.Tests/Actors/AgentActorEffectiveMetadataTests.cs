@@ -85,9 +85,12 @@ public class AgentActorEffectiveMetadataTests
             .Returns(new DirectoryEntry(new Address("unit", UnitBUuid), UnitBUuid, "unit-b", string.Empty, null, DateTimeOffset.UtcNow));
         // Unknown units → null by default (NSubstitute returns null for unmatched reference-type calls).
 
-        // The actor ID is the agent's stable UUID (not the slug).
+        // The actor ID is the agent's stable UUID (not the slug); pass it
+        // explicitly so AgentActor.ResolveEffectiveMetadataAsync can parse
+        // Id.GetId() into the agent Guid.
         var host = ActorHost.CreateForTest<AgentActor>(new ActorTestOptions
         {
+            ActorId = new ActorId(AgentId),
         });
 
         var unitPolicyEnforcer = Substitute.For<IUnitPolicyEnforcer>().WithAllowByDefault();

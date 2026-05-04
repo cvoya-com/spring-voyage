@@ -83,9 +83,11 @@ public class AgentActorAmendmentTests
             .GetAsync(Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns((UnitMembership?)null);
 
-        // The actor ID is the agent's stable UUID.
+        // The actor ID is the agent's stable UUID; pass it explicitly so
+        // Id.GetId() parses to AgentActorUuid (post-#1629).
         var host = ActorHost.CreateForTest<AgentActor>(new ActorTestOptions
         {
+            ActorId = new ActorId(AgentId),
         });
 
         _unitPolicyEnforcer.WithAllowByDefault();

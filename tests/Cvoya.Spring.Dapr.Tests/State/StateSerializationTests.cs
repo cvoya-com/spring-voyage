@@ -94,7 +94,7 @@ public class StateSerializationTests
 
         deserialized.ShouldNotBeNull();
         deserialized!.Scheme.ShouldBe("connector");
-        deserialized.Path.ShouldBe("github/spring-voyage");
+        deserialized.Path.ShouldBe(TestSlugIds.HexFor("github/spring-voyage"));
     }
 
     [Fact]

@@ -81,6 +81,7 @@ public class AgentActorReflectionDispatchTests
 
         var host = ActorHost.CreateForTest<AgentActor>(new ActorTestOptions
         {
+            ActorId = new ActorId(AgentIdHex),
         });
 
         _membershipRepository
