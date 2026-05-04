@@ -65,7 +65,7 @@ public class PlatformTenantsEndpointsTests : IClassFixture<CustomWebApplicationF
         var payload = await response.Content.ReadFromJsonAsync<TenantsListResponse>(JsonOptions, ct);
         payload.ShouldNotBeNull();
         payload.Items.ShouldNotBeNull();
-        payload.Items.ShouldContain(t => t.Id == "default" && t.State == TenantState.Active);
+        payload.Items.ShouldContain(t => t.Id == OssTenantIds.DefaultNoDash && t.State == TenantState.Active);
     }
 
     [Fact]
@@ -73,20 +73,21 @@ public class PlatformTenantsEndpointsTests : IClassFixture<CustomWebApplicationF
     {
         var ct = TestContext.Current.CancellationToken;
 
-        var request = new CreateTenantRequest("acme", "ACME Corporation");
+        var acmeId = Guid.NewGuid().ToString("N");
+        var request = new CreateTenantRequest(acmeId, "ACME Corporation");
         var response = await _client.PostAsJsonAsync("/api/v1/platform/tenants", request, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Created);
-        response.Headers.Location?.ToString().ShouldBe("/api/v1/platform/tenants/acme");
+        response.Headers.Location?.ToString().ShouldBe($"/api/v1/platform/tenants/{acmeId}");
 
         var payload = await response.Content.ReadFromJsonAsync<TenantResponse>(JsonOptions, ct);
         payload.ShouldNotBeNull();
-        payload.Id.ShouldBe("acme");
+        payload.Id.ShouldBe(acmeId);
         payload.DisplayName.ShouldBe("ACME Corporation");
         payload.State.ShouldBe(TenantState.Active);
 
         // GET should now resolve.
-        var getResponse = await _client.GetAsync("/api/v1/platform/tenants/acme", ct);
+        var getResponse = await _client.GetAsync($"/api/v1/platform/tenants/{acmeId}", ct);
         getResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
     }
 
@@ -94,16 +95,17 @@ public class PlatformTenantsEndpointsTests : IClassFixture<CustomWebApplicationF
     public async Task CreateTenant_DuplicateId_ReturnsConflict()
     {
         var ct = TestContext.Current.CancellationToken;
+        var dupId = Guid.NewGuid().ToString("N");
 
         var first = await _client.PostAsJsonAsync(
             "/api/v1/platform/tenants",
-            new CreateTenantRequest("dup-tenant", null),
+            new CreateTenantRequest(dupId, null),
             ct);
         first.StatusCode.ShouldBe(HttpStatusCode.Created);
 
         var second = await _client.PostAsJsonAsync(
             "/api/v1/platform/tenants",
-            new CreateTenantRequest("dup-tenant", null),
+            new CreateTenantRequest(dupId, null),
             ct);
         second.StatusCode.ShouldBe(HttpStatusCode.Conflict);
     }
@@ -113,7 +115,7 @@ public class PlatformTenantsEndpointsTests : IClassFixture<CustomWebApplicationF
     {
         var ct = TestContext.Current.CancellationToken;
 
-        // Upper-case ids violate the registry's slug shape.
+        // Non-Guid ids violate the registry's identifier shape.
         var response = await _client.PostAsJsonAsync(
             "/api/v1/platform/tenants",
             new CreateTenantRequest("BadCaseTenant", null),
@@ -146,15 +148,16 @@ public class PlatformTenantsEndpointsTests : IClassFixture<CustomWebApplicationF
     public async Task UpdateTenant_HappyPath_UpdatesDisplayName()
     {
         var ct = TestContext.Current.CancellationToken;
+        var updId = Guid.NewGuid().ToString("N");
 
         var create = await _client.PostAsJsonAsync(
             "/api/v1/platform/tenants",
-            new CreateTenantRequest("upd-tenant", "Original"),
+            new CreateTenantRequest(updId, "Original"),
             ct);
         create.StatusCode.ShouldBe(HttpStatusCode.Created);
 
         var patch = await _client.PatchAsJsonAsync(
-            "/api/v1/platform/tenants/upd-tenant",
+            $"/api/v1/platform/tenants/{updId}",
             new UpdateTenantRequest("Updated"),
             ct);
         patch.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -180,19 +183,20 @@ public class PlatformTenantsEndpointsTests : IClassFixture<CustomWebApplicationF
     public async Task DeleteTenant_HappyPath_ReturnsNoContent()
     {
         var ct = TestContext.Current.CancellationToken;
+        var delId = Guid.NewGuid().ToString("N");
 
         var create = await _client.PostAsJsonAsync(
             "/api/v1/platform/tenants",
-            new CreateTenantRequest("del-tenant", null),
+            new CreateTenantRequest(delId, null),
             ct);
         create.StatusCode.ShouldBe(HttpStatusCode.Created);
 
-        var del = await _client.DeleteAsync("/api/v1/platform/tenants/del-tenant", ct);
+        var del = await _client.DeleteAsync($"/api/v1/platform/tenants/{delId}", ct);
         del.StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
         // Subsequent GET should 404 — soft-deleted rows are excluded
         // from the default view.
-        var get = await _client.GetAsync("/api/v1/platform/tenants/del-tenant", ct);
+        var get = await _client.GetAsync($"/api/v1/platform/tenants/{delId}", ct);
         get.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
