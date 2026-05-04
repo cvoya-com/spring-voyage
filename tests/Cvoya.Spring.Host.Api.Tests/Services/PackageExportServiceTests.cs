@@ -187,7 +187,7 @@ public class PackageExportServiceTests
     public async Task ExportByInstallId_NoWithValues_ReturnsOriginalYamlByteForByte()
     {
         // Arrange: a package whose YAML has comments + non-canonical key ordering.
-        var (svc, scopeFactory, _) = BuildService();
+        var (svc, scopeFactory, _) = BuildService(TenantA);
         const string yaml = PackageWithInputYaml;
         var packageName = "byte-stable-pkg";
         var formattedYaml = string.Format(yaml, packageName);
@@ -215,7 +215,7 @@ public class PackageExportServiceTests
     public async Task ExportByInstallId_WithValues_NonSecretInputMaterialised()
     {
         // Arrange.
-        var (svc, scopeFactory, _) = BuildService();
+        var (svc, scopeFactory, _) = BuildService(TenantA);
         var packageName = "with-values-pkg";
         var formattedYaml = string.Format(PackageWithInputYaml, packageName);
         var inputs = JsonSerializer.Serialize(new Dictionary<string, string>
@@ -245,7 +245,7 @@ public class PackageExportServiceTests
     public async Task ExportByInstallId_WithValues_SecretInputExportedAsPlaceholder()
     {
         // Arrange: secret input stored as secret:// reference.
-        var (svc, scopeFactory, _) = BuildService();
+        var (svc, scopeFactory, _) = BuildService(TenantA);
         var packageName = "secret-pkg";
         var formattedYaml = string.Format(PackageWithSecretInputYaml, packageName);
         var inputs = JsonSerializer.Serialize(new Dictionary<string, string>
@@ -277,22 +277,26 @@ public class PackageExportServiceTests
     public async Task ExportByUnitName_KnownUnit_ReturnsCorrectPackage()
     {
         // Arrange.
-        var (svc, scopeFactory, dir) = BuildService();
+        var (svc, scopeFactory, dir) = BuildService(TenantA);
         var packageName = "unit-name-pkg";
         var formattedYaml = string.Format(MinimalPackageYaml, packageName);
 
         var installId = await SeedInstallAsync(
             scopeFactory, TenantA, packageName, formattedYaml);
 
-        // Directory resolves the unit.
-        dir.ResolveAsync(new Address("unit", Unit_Main_Id), Arg.Any<CancellationToken>())
-            .Returns(new DirectoryEntry(
-                new Address("unit", Unit_Main_Id),
-                Guid.NewGuid(),
-                "Main Unit",
-                string.Empty,
-                null,
-                DateTimeOffset.UtcNow));
+        // Post-#1629 ExportByUnitNameAsync looks the unit up by DisplayName
+        // via ListAllAsync rather than Address.For (Guid-only). Seed the
+        // directory listing accordingly.
+        dir.ListAllAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<DirectoryEntry>
+            {
+                new(new Address("unit", Unit_Main_Id),
+                    Guid.NewGuid(),
+                    "main",
+                    string.Empty,
+                    null,
+                    DateTimeOffset.UtcNow),
+            });
 
         // Act.
         var result = await svc.ExportByUnitNameAsync(
@@ -309,7 +313,7 @@ public class PackageExportServiceTests
     public async Task ExportByInstallId_KnownId_ReturnsCorrectPackage()
     {
         // Arrange.
-        var (svc, scopeFactory, _) = BuildService();
+        var (svc, scopeFactory, _) = BuildService(TenantA);
         var packageName = "install-id-pkg";
         var formattedYaml = string.Format(MinimalPackageYaml, packageName);
         var installId = await SeedInstallAsync(
@@ -504,7 +508,7 @@ public class PackageExportServiceTests
             """;
 
         // Seed directly (simulates the install service having done its work).
-        var (svc, scopeFactory, dir) = BuildService();
+        var (svc, scopeFactory, dir) = BuildService(TenantA);
         var inputs = JsonSerializer.Serialize(new Dictionary<string, string>
         {
             { "team_name", "engineering" }
