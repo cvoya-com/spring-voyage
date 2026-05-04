@@ -833,16 +833,22 @@ public class UnitCreationService : IUnitCreationService
                     // skip the row when the agent has no directory entry yet
                     // (the symptom: package-installed units showing the unit
                     // members in the actor list but `[]` from /memberships).
+                    //
+                    // Post-#1629 every Address is keyed by Guid identity. The
+                    // memberAddress minted above already carries the agent's
+                    // stable Guid (matched to an existing display-name row when
+                    // possible, freshly minted otherwise) so we register
+                    // against that — never against Address.For(slug), which
+                    // would throw on the non-Guid manifest path.
                     try
                     {
-                        var agentAddress = Address.For("agent", resolved.Value.Path);
-                        var existing = await _directoryService.ResolveAsync(agentAddress, cancellationToken);
+                        var existing = await _directoryService.ResolveAsync(memberAddress, cancellationToken);
                         if (existing is null)
                         {
                             var agentEntry = new DirectoryEntry(
-                                agentAddress,
-                                agentAddress.Id,
-                                resolved.Value.Path,  // displayName = member name
+                                memberAddress,
+                                memberAddress.Id,
+                                resolved.Value.Path,  // displayName = member name (slug-form preserved)
                                 string.Empty,          // description
                                 null,                  // role
                                 DateTimeOffset.UtcNow);
@@ -867,32 +873,18 @@ public class UnitCreationService : IUnitCreationService
                     // agent-scheme members get a row. Template creation passes no
                     // per-membership overrides so Model/Specialty/ExecutionMode
                     // default to null and Enabled defaults to true.
-                    // After #1492, membership rows use UUID keys, so resolve both
-                    // the unit and agent slugs to their stable UUIDs first.
+                    // Post-#1629 the membership row keys off the Guid identities
+                    // we already resolved above (memberAddress + the unit's
+                    // freshly minted actorGuid), so no further slug→Guid lookup
+                    // is needed.
                     try
                     {
-                        // Resolve unit UUID from the newly-registered entry.
-                        var unitDir = await _directoryService.ResolveAsync(address, cancellationToken);
-                        var agentDir = await _directoryService.ResolveAsync(
-                            Address.For("agent", resolved.Value.Path), cancellationToken);
-
-                        if (unitDir is not null && agentDir is not null)
-                        {
-                            await _membershipRepository.UpsertAsync(
-                                new UnitMembership(
-                                    UnitId: unitDir.ActorId,
-                                    AgentId: agentDir.ActorId,
-                                    Enabled: true),
-                                cancellationToken);
-                        }
-                        else
-                        {
-                            _logger.LogWarning(
-                                "Unit '{UnitName}' member {Member}: could not resolve UUIDs for membership row; skipping DB write.",
-                                name, $"{resolved.Value.Scheme}:{resolved.Value.Path}");
-                            warnings.Add(
-                                $"member {resolved.Value.Scheme}:{resolved.Value.Path} added to actor state but membership UUID resolution failed");
-                        }
+                        await _membershipRepository.UpsertAsync(
+                            new UnitMembership(
+                                UnitId: actorGuid,
+                                AgentId: memberAddress.Id,
+                                Enabled: true),
+                            cancellationToken);
                     }
                     catch (Exception ex)
                     {

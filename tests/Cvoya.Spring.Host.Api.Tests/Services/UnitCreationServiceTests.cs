@@ -56,7 +56,9 @@ public class UnitCreationServiceTests
 
         var result = await fixture.CreateAsync("no-ctx-unit");
 
-        result.Unit.Name.ShouldBe("no-ctx-unit");
+        // Post-#1629 Unit.Name carries the address Path (Guid hex), not the
+        // request slug — DisplayName carries the human-readable label.
+        result.Unit.DisplayName.ShouldBe("no-ctx-unit");
 
         // The grant went to the UUID that the resolver returned for the fallback username.
         await fixture.Proxy.Received(1).SetHumanPermissionAsync(
@@ -228,48 +230,37 @@ public class UnitCreationServiceTests
         // was already happening; this verifies the parallel DB write-through
         // now lands on the membership repository for every agent member.
         //
-        // After #1492 the service resolves unit and agent slugs to stable
-        // UUIDs (via DirectoryService.ResolveAsync) before writing the row,
-        // so the test must supply UUID-actorId entries so the UUID resolution
-        // succeeds and UpsertAsync is actually called.
+        // After #1629 the service resolves manifest slugs to stable UUIDs
+        // by walking the directory's ListAllAsync result and matching on
+        // DisplayName == slug. The test seeds those entries so the lookup
+        // returns deterministic UUIDs.
         var fixture = new Fixture(FallbackGuid, AliceGuid);
         fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
 
-        var unitUuid = new Guid("ee1ee111-0000-0000-0000-000000000001");
         var techLeadUuid = new Guid("aadaadaa-0000-0000-0000-000000000001");
         var backendUuid = new Guid("aadaadaa-0000-0000-0000-000000000002");
         var qaUuid = new Guid("aadaadaa-0000-0000-0000-000000000003");
 
-        // The service calls ResolveAsync(unit) and ResolveAsync(agent) after
-        // adding the member to actor state in order to get the stable UUIDs
-        // for the membership row. Return UUID-actorId entries for each.
+        var seededEntries = new List<DirectoryEntry>
+        {
+            new(new Address("agent", techLeadUuid), techLeadUuid, "tech-lead", string.Empty, null, DateTimeOffset.UtcNow),
+            new(new Address("agent", backendUuid), backendUuid, "backend-engineer", string.Empty, null, DateTimeOffset.UtcNow),
+            new(new Address("agent", qaUuid), qaUuid, "qa-engineer", string.Empty, null, DateTimeOffset.UtcNow),
+        };
         fixture.Directory
-            .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "unit" && a.Path == "eng-team"),
-                Arg.Any<CancellationToken>())
-            .Returns(new DirectoryEntry(new Address("unit", unitUuid), unitUuid,
-                "eng-team", string.Empty, null, DateTimeOffset.UtcNow));
+            .ListAllAsync(Arg.Any<CancellationToken>())
+            .Returns(seededEntries);
 
-        fixture.Directory
-            .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "agent" && a.Path == "tech-lead"),
-                Arg.Any<CancellationToken>())
-            .Returns(new DirectoryEntry(new Address("agent", techLeadUuid), techLeadUuid,
-                "tech-lead", string.Empty, null, DateTimeOffset.UtcNow));
-
-        fixture.Directory
-            .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "agent" && a.Path == "backend-engineer"),
-                Arg.Any<CancellationToken>())
-            .Returns(new DirectoryEntry(new Address("agent", backendUuid), backendUuid,
-                "backend-engineer", string.Empty, null, DateTimeOffset.UtcNow));
-
-        fixture.Directory
-            .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "agent" && a.Path == "qa-engineer"),
-                Arg.Any<CancellationToken>())
-            .Returns(new DirectoryEntry(new Address("agent", qaUuid), qaUuid,
-                "qa-engineer", string.Empty, null, DateTimeOffset.UtcNow));
+        // The auto-register path then calls Resolve(agent, <guid-hex>) — return
+        // the same entry so it is treated as already-registered.
+        foreach (var entry in seededEntries)
+        {
+            fixture.Directory
+                .ResolveAsync(
+                    Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == entry.ActorId),
+                    Arg.Any<CancellationToken>())
+                .Returns(entry);
+        }
 
         var members = new[]
         {
@@ -282,22 +273,23 @@ public class UnitCreationServiceTests
 
         result.MembersAdded.ShouldBe(3);
 
-        // After #1492, UnitMembership.UnitId and AgentId are Guids (not slugs).
+        // The UnitId is the unit's actor Guid, minted internally by the
+        // service. Assert on the agent ids only — those are deterministic.
         await fixture.MembershipRepository.Received(1).UpsertAsync(
             Arg.Is<UnitMembership>(u =>
-                u.UnitId == unitUuid && u.AgentId == techLeadUuid
+                u.AgentId == techLeadUuid
                 && u.Enabled && u.Model == null && u.Specialty == null && u.ExecutionMode == null),
             Arg.Any<CancellationToken>());
 
         await fixture.MembershipRepository.Received(1).UpsertAsync(
             Arg.Is<UnitMembership>(u =>
-                u.UnitId == unitUuid && u.AgentId == backendUuid
+                u.AgentId == backendUuid
                 && u.Enabled && u.Model == null && u.Specialty == null && u.ExecutionMode == null),
             Arg.Any<CancellationToken>());
 
         await fixture.MembershipRepository.Received(1).UpsertAsync(
             Arg.Is<UnitMembership>(u =>
-                u.UnitId == unitUuid && u.AgentId == qaUuid
+                u.AgentId == qaUuid
                 && u.Enabled && u.Model == null && u.Specialty == null && u.ExecutionMode == null),
             Arg.Any<CancellationToken>());
     }
@@ -327,7 +319,7 @@ public class UnitCreationServiceTests
         // The actor-state add still happened — unit-typed membership is the
         // fast-path read until #217 lands polymorphic rows.
         await fixture.Proxy.Received(1).AddMemberAsync(
-            Arg.Is<Address>(a => a.Scheme == "unit" && a.Path == "sub-team"),
+            Arg.Is<Address>(a => a.Scheme == "unit"),
             Arg.Any<CancellationToken>());
     }
 
@@ -344,17 +336,19 @@ public class UnitCreationServiceTests
         var fixture = new Fixture(FallbackGuid, AliceGuid);
         fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
 
-        // #1492: UnitCreationService resolves unit and agent slugs → UUIDs before
-        // calling UpsertAsync. Stub both so the throw path is exercised.
+        // Post-#1629 the manifest-driven member resolution walks ListAllAsync
+        // and matches DisplayName == slug. Seed the directory so the agent
+        // resolves to a deterministic UUID before the throw path is exercised.
+        fixture.Directory
+            .ListAllAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<DirectoryEntry>
+            {
+                new(new Address("agent", lonelyAgentUuid), lonelyAgentUuid,
+                    "lonely-agent", string.Empty, null, DateTimeOffset.UtcNow),
+            });
         fixture.Directory
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "unit" && a.Path == "flaky-unit"),
-                Arg.Any<CancellationToken>())
-            .Returns(new DirectoryEntry(new Address("unit", flakyUnitUuid), flakyUnitUuid,
-                "flaky-unit", string.Empty, null, DateTimeOffset.UtcNow));
-        fixture.Directory
-            .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "agent" && a.Path == "lonely-agent"),
+                Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == lonelyAgentUuid),
                 Arg.Any<CancellationToken>())
             .Returns(new DirectoryEntry(new Address("agent", lonelyAgentUuid), lonelyAgentUuid,
                 "lonely-agent", string.Empty, null, DateTimeOffset.UtcNow));
@@ -370,7 +364,7 @@ public class UnitCreationServiceTests
         // The actor-state add succeeded — tally reflects it.
         result.MembersAdded.ShouldBe(1);
         await fixture.Proxy.Received(1).AddMemberAsync(
-            Arg.Is<Address>(a => a.Scheme == "agent" && a.Path == "lonely-agent"),
+            Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == lonelyAgentUuid),
             Arg.Any<CancellationToken>());
 
         // The DB-write failure surfaces as a warning on the creation result.
@@ -401,16 +395,18 @@ public class UnitCreationServiceTests
 
         result.MembersAdded.ShouldBe(3);
 
-        // Each agent member should have a Resolve check + Register call.
+        // Each agent member should be auto-registered: post-#1629 the
+        // service mints a fresh Guid for each manifest slug and registers
+        // an agent-scheme entry whose DisplayName carries the slug. Three
+        // distinct agent registrations land per call.
+        await fixture.Directory.Received(3).RegisterAsync(
+            Arg.Is<DirectoryEntry>(e => e.Address.Scheme == "agent"),
+            Arg.Any<CancellationToken>());
         foreach (var m in members)
         {
-            await fixture.Directory.Received().ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "agent" && a.Path == m.Agent),
-                Arg.Any<CancellationToken>());
             await fixture.Directory.Received().RegisterAsync(
                 Arg.Is<DirectoryEntry>(e =>
                     e.Address.Scheme == "agent"
-                    && e.Address.Path == m.Agent
                     && e.DisplayName == m.Agent
                     && e.Description == string.Empty),
                 Arg.Any<CancellationToken>());
@@ -426,7 +422,9 @@ public class UnitCreationServiceTests
         var fixture = new Fixture(FallbackGuid, AliceGuid);
         fixture.HttpContextAccessor.HttpContext.Returns((HttpContext?)null);
 
-        // Pre-register "tech-lead" so the Resolve returns non-null.
+        // Seed the directory so manifest slug "tech-lead" resolves to a
+        // stable Guid and looks already-registered to the auto-register
+        // step — RegisterAsync should not be called for it.
         var existingEntry = new DirectoryEntry(
             new Address("agent", Agent_TechLead_Id),
             Agent_TechLead_Id,
@@ -435,8 +433,11 @@ public class UnitCreationServiceTests
             null,
             DateTimeOffset.UtcNow);
         fixture.Directory
+            .ListAllAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<DirectoryEntry> { existingEntry });
+        fixture.Directory
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "agent" && a.Path == "tech-lead"),
+                Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == Agent_TechLead_Id),
                 Arg.Any<CancellationToken>())
             .Returns(existingEntry);
 
@@ -450,19 +451,16 @@ public class UnitCreationServiceTests
 
         result.MembersAdded.ShouldBe(2);
 
-        // tech-lead was resolved as non-null so the auto-register skips it —
-        // no RegisterAsync call should be made for agent://tech-lead.
-        await fixture.Directory.DidNotReceive().RegisterAsync(
-            Arg.Is<DirectoryEntry>(e =>
-                e.Address.Scheme == "agent"
-                && e.Address.Path == "tech-lead"),
+        // tech-lead resolved as non-null so the auto-register skips it.
+        // backend-engineer resolved as null (default) so it gets registered:
+        // exactly one agent-scheme RegisterAsync call should occur.
+        await fixture.Directory.Received(1).RegisterAsync(
+            Arg.Is<DirectoryEntry>(e => e.Address.Scheme == "agent"),
             Arg.Any<CancellationToken>());
-
-        // backend-engineer resolved as null (default) so it gets registered.
         await fixture.Directory.Received(1).RegisterAsync(
             Arg.Is<DirectoryEntry>(e =>
                 e.Address.Scheme == "agent"
-                && e.Address.Path == "backend-engineer"),
+                && e.DisplayName == "backend-engineer"),
             Arg.Any<CancellationToken>());
     }
 
