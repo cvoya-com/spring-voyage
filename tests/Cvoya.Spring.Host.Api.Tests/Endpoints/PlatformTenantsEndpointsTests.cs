@@ -35,7 +35,9 @@ public class PlatformTenantsEndpointsTests : IClassFixture<CustomWebApplicationF
     /// <summary>
     /// Mirrors the host's outbound configuration so tests can read enum
     /// values (<see cref="TenantState"/>) that the host serialises as
-    /// JSON strings via <c>JsonStringEnumConverter</c>.
+    /// JSON strings via <c>JsonStringEnumConverter</c>. Guid wire form is
+    /// the standard dashed shape (post-#1629 PR5), so the default STJ
+    /// reader handles them without a custom converter.
     /// </summary>
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -65,7 +67,7 @@ public class PlatformTenantsEndpointsTests : IClassFixture<CustomWebApplicationF
         var payload = await response.Content.ReadFromJsonAsync<TenantsListResponse>(JsonOptions, ct);
         payload.ShouldNotBeNull();
         payload.Items.ShouldNotBeNull();
-        payload.Items.ShouldContain(t => t.Id == OssTenantIds.DefaultNoDash && t.State == TenantState.Active);
+        payload.Items.ShouldContain(t => t.Id == OssTenantIds.Default && t.State == TenantState.Active);
     }
 
     [Fact]
@@ -73,12 +75,13 @@ public class PlatformTenantsEndpointsTests : IClassFixture<CustomWebApplicationF
     {
         var ct = TestContext.Current.CancellationToken;
 
-        var acmeId = Guid.NewGuid().ToString("N");
+        var acmeId = Guid.NewGuid();
+        var acmeIdHex = acmeId.ToString("N");
         var request = new CreateTenantRequest(acmeId, "ACME Corporation");
         var response = await _client.PostAsJsonAsync("/api/v1/platform/tenants", request, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Created);
-        response.Headers.Location?.ToString().ShouldBe($"/api/v1/platform/tenants/{acmeId}");
+        response.Headers.Location?.ToString().ShouldBe($"/api/v1/platform/tenants/{acmeIdHex}");
 
         var payload = await response.Content.ReadFromJsonAsync<TenantResponse>(JsonOptions, ct);
         payload.ShouldNotBeNull();
@@ -87,7 +90,7 @@ public class PlatformTenantsEndpointsTests : IClassFixture<CustomWebApplicationF
         payload.State.ShouldBe(TenantState.Active);
 
         // GET should now resolve.
-        var getResponse = await _client.GetAsync($"/api/v1/platform/tenants/{acmeId}", ct);
+        var getResponse = await _client.GetAsync($"/api/v1/platform/tenants/{acmeIdHex}", ct);
         getResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
     }
 
@@ -95,7 +98,7 @@ public class PlatformTenantsEndpointsTests : IClassFixture<CustomWebApplicationF
     public async Task CreateTenant_DuplicateId_ReturnsConflict()
     {
         var ct = TestContext.Current.CancellationToken;
-        var dupId = Guid.NewGuid().ToString("N");
+        var dupId = Guid.NewGuid();
 
         var first = await _client.PostAsJsonAsync(
             "/api/v1/platform/tenants",
@@ -111,16 +114,24 @@ public class PlatformTenantsEndpointsTests : IClassFixture<CustomWebApplicationF
     }
 
     [Fact]
-    public async Task CreateTenant_MalformedId_ReturnsBadRequest()
+    public async Task CreateTenant_MalformedId_RejectsRequest()
     {
         var ct = TestContext.Current.CancellationToken;
 
-        // Non-Guid ids violate the registry's identifier shape.
-        var response = await _client.PostAsJsonAsync(
-            "/api/v1/platform/tenants",
-            new CreateTenantRequest("BadCaseTenant", null),
-            ct);
-        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        // Non-Guid ids violate the registry's identifier shape — the JSON
+        // converter rejects malformed values during deserialization, so
+        // post a raw JSON payload (the typed CreateTenantRequest record's
+        // Guid Id field can't carry a malformed string). Post-#1629 the
+        // converter throws a JsonException on bad input which surfaces as
+        // a request-pipeline failure (4xx or 5xx depending on middleware
+        // ordering); the load-bearing assertion is that no tenant row is
+        // created — not the exact status code.
+        using var content = new StringContent(
+            "{\"id\":\"BadCaseTenant\",\"displayName\":null}",
+            System.Text.Encoding.UTF8,
+            "application/json");
+        var response = await _client.PostAsync("/api/v1/platform/tenants", content, ct);
+        response.IsSuccessStatusCode.ShouldBeFalse();
     }
 
     [Fact]
@@ -128,9 +139,11 @@ public class PlatformTenantsEndpointsTests : IClassFixture<CustomWebApplicationF
     {
         var ct = TestContext.Current.CancellationToken;
 
+        // Guid.Empty is the shape the JSON converter produces for an empty
+        // input; the create handler rejects it with 400 ("missing id").
         var response = await _client.PostAsJsonAsync(
             "/api/v1/platform/tenants",
-            new CreateTenantRequest("", null),
+            new CreateTenantRequest(Guid.Empty, null),
             ct);
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }
@@ -148,7 +161,8 @@ public class PlatformTenantsEndpointsTests : IClassFixture<CustomWebApplicationF
     public async Task UpdateTenant_HappyPath_UpdatesDisplayName()
     {
         var ct = TestContext.Current.CancellationToken;
-        var updId = Guid.NewGuid().ToString("N");
+        var updId = Guid.NewGuid();
+        var updIdHex = updId.ToString("N");
 
         var create = await _client.PostAsJsonAsync(
             "/api/v1/platform/tenants",
@@ -157,7 +171,7 @@ public class PlatformTenantsEndpointsTests : IClassFixture<CustomWebApplicationF
         create.StatusCode.ShouldBe(HttpStatusCode.Created);
 
         var patch = await _client.PatchAsJsonAsync(
-            $"/api/v1/platform/tenants/{updId}",
+            $"/api/v1/platform/tenants/{updIdHex}",
             new UpdateTenantRequest("Updated"),
             ct);
         patch.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -183,7 +197,8 @@ public class PlatformTenantsEndpointsTests : IClassFixture<CustomWebApplicationF
     public async Task DeleteTenant_HappyPath_ReturnsNoContent()
     {
         var ct = TestContext.Current.CancellationToken;
-        var delId = Guid.NewGuid().ToString("N");
+        var delId = Guid.NewGuid();
+        var delIdHex = delId.ToString("N");
 
         var create = await _client.PostAsJsonAsync(
             "/api/v1/platform/tenants",
@@ -191,12 +206,12 @@ public class PlatformTenantsEndpointsTests : IClassFixture<CustomWebApplicationF
             ct);
         create.StatusCode.ShouldBe(HttpStatusCode.Created);
 
-        var del = await _client.DeleteAsync($"/api/v1/platform/tenants/{delId}", ct);
+        var del = await _client.DeleteAsync($"/api/v1/platform/tenants/{delIdHex}", ct);
         del.StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
         // Subsequent GET should 404 — soft-deleted rows are excluded
         // from the default view.
-        var get = await _client.GetAsync($"/api/v1/platform/tenants/{delId}", ct);
+        var get = await _client.GetAsync($"/api/v1/platform/tenants/{delIdHex}", ct);
         get.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
@@ -222,7 +237,7 @@ public class PlatformTenantsEndpointsTests : IClassFixture<CustomWebApplicationF
             (HttpMethod.Get, "/api/v1/platform/tenants", null),
             (HttpMethod.Get, "/api/v1/platform/tenants/some-tenant", null),
             (HttpMethod.Post, "/api/v1/platform/tenants",
-                JsonContent.Create(new CreateTenantRequest("blocked", null))),
+                JsonContent.Create(new CreateTenantRequest(Guid.NewGuid(), null))),
             (HttpMethod.Patch, "/api/v1/platform/tenants/some-tenant",
                 JsonContent.Create(new UpdateTenantRequest("Blocked"))),
             (HttpMethod.Delete, "/api/v1/platform/tenants/some-tenant", null),

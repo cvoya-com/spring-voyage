@@ -2,11 +2,11 @@
  * Role attribution helpers for the conversation thread UI (#410).
  *
  * Conversations are derived from the activity event stream. Each event
- * carries a `source` address in one of two wire forms:
- *
- *   - Navigation form: `scheme://path`   (slug-based, used for humans and legacy)
- *   - Identity form:   `scheme:id:<uuid>` (UUID-based stable identity, used for
- *     agents and units after #1490)
+ * carries a `source` address. Post-#1629 every wire-form participant
+ * address is `scheme:<32-hex-no-dash>` (e.g. `agent:8c5fab2a8e7e…`); the
+ * legacy `scheme://path` and `scheme:id:<uuid>` shapes are still tolerated
+ * defensively so threads composed of pre-#1629 activity events continue
+ * to render.
  *
  * The UI maps the scheme to a small fixed set of presentation roles so
  * visually distinct bubbles stay consistent across the portal.
@@ -19,24 +19,30 @@ export type AddressKind = "navigation" | "identity";
 export interface ParsedThreadSource {
   scheme: string;
   path: string;
-  /** The address kind: "navigation" for `scheme://path`, "identity" for `scheme:id:<uuid>`. */
+  /**
+   * The address kind. Post-#1629 every Spring-emitted address is in
+   * canonical identity form (`scheme:<hex>`); the navigation form
+   * (`scheme://path`) is preserved for legacy events.
+   */
   kind: AddressKind;
   /** Original raw source string. */
   raw: string;
 }
 
 /**
- * Splits a source address into its components. Accepts both wire forms:
+ * Splits a source address into its components. Accepts every wire form
+ * the platform has emitted:
  *
- *   - Navigation form `scheme://path` (humans, legacy agents)
- *   - Identity form `scheme:id:<uuid>` (agents and units post-#1490)
+ *   - Identity form `scheme:id:<uuid>` (legacy explicit identity)
+ *   - Navigation form `scheme://path` (legacy slug-based)
+ *   - Canonical form `scheme:<32-hex-no-dash>` (post-#1629)
  *
  * Falls back to a `system://<raw>` navigation shape when the value
  * doesn't contain a recognised separator — the projection layer can emit
  * shorthand on platform-internal events.
  */
 export function parseThreadSource(source: string): ParsedThreadSource {
-  // Try identity form first: "scheme:id:<uuid>"
+  // Try explicit identity form first: "scheme:id:<uuid>"
   const idIdx = source.indexOf(":id:");
   if (idIdx > 0) {
     const scheme = source.slice(0, idIdx).toLowerCase();
@@ -58,28 +64,41 @@ export function parseThreadSource(source: string): ParsedThreadSource {
     };
   }
 
+  // Try canonical post-#1629 form: "scheme:<hex>"
+  const colonIdx = source.indexOf(":");
+  if (colonIdx > 0 && colonIdx < source.length - 1) {
+    const scheme = source.slice(0, colonIdx).toLowerCase();
+    const path = source.slice(colonIdx + 1);
+    if (path && !path.includes("/") && !path.includes(":")) {
+      return { scheme, path, kind: "identity", raw: source };
+    }
+  }
+
   // Fallback: no recognisable separator
   return { scheme: "system", path: source, kind: "navigation", raw: source };
 }
 
 /**
  * Returns true when the address belongs to the human scheme using the
- * navigation form (`human://`). Humans do not yet use the identity form
- * (`human:id:<uuid>`) — that lands in #1491.
+ * navigation form (`human://`). Humans now also surface in canonical
+ * `human:<hex>` form post-#1629; this helper continues to detect the
+ * navigation legacy form for back-compat with persisted activity events.
  */
 export function isHumanAddress(address: string): boolean {
-  return address.startsWith("human://");
+  return (
+    address.startsWith("human://") ||
+    address.toLowerCase().startsWith("human:") &&
+      !address.startsWith("human://") &&
+      address.length > "human:".length
+  );
 }
 
 /**
  * Loose UUID detector. Returns true for both dashed (`8-4-4-4-12`) and
- * undashed (32 hex chars) forms. Used to recognise UUID-shaped path
- * segments so the engagement portal never displays a bare GUID as a
- * participant name (#1630).
- *
- * Lenient on purpose — the wire format for identity-form addresses is
- * being reshaped in #1629 (no-dash GUIDs) and we need both forms to be
- * recognised in the meantime.
+ * undashed (32 hex chars) forms. Retained because legacy navigation-form
+ * paths can still be UUID-shaped (e.g. `agent://<uuid>` from pre-#1629
+ * activity events) — the resolver in #1635 covers post-#1629 emit, but
+ * this detector still gates the legacy path.
  */
 export function looksLikeUuid(value: string): boolean {
   if (!value) return false;
@@ -117,25 +136,48 @@ export function addressOf(p: AddressLike): string {
  * Resolves the human-readable display name for any `AddressLike` value
  * for the engagement portal — never returns a UUID.
  *
- * Resolution order:
- *  1. Server-supplied `displayName` when non-empty AND not UUID-shaped.
- *  2. For navigation-form addresses (`scheme://path`) the path segment,
- *     unless the path is UUID-shaped or the scheme is `human` (raw human
- *     paths can be UUIDs and are visible to nobody but the user themself).
- *  3. `null` — caller decides on the placeholder ("…", "Unknown
- *     participant", etc.).
+ * <p>
+ * Post-#1635 the server guarantees that every <c>ParticipantRef</c>
+ * returned from the API carries a non-empty <c>displayName</c> (deleted
+ * entities surface as <c>&lt;deleted&gt;</c>). This helper therefore
+ * collapses to a thin pass-through over the server-supplied value: when
+ * the input shape carries a non-empty string we use it verbatim, no
+ * UUID-shape filtering applied.
+ * </p>
  *
- * Identity-form addresses (`scheme:id:<uuid>`) deliberately surface no
- * fallback — the path is a meaningless UUID. That's why every event in
- * issue #1630's screenshots showed a bare GUID: the previous fallback
- * dumped the entire `agent:id:<uuid>` string into the title.
+ * <p>
+ * The fallbacks below cover the legacy / partial-data cases:
+ * </p>
+ * <ul>
+ *   <li>
+ *     The input is a bare string (pre-#1502 server shape): treat the
+ *     string as the address and walk the legacy heuristic — this is the
+ *     pathway that still gates UUID-shaped paths in case the activity
+ *     event is older than #1629.
+ *   </li>
+ *   <li>
+ *     The input is a {@link ParticipantRef} but the server somehow
+ *     supplied an empty / whitespace display name. The resolver should
+ *     never emit that, but we still cover it with a path-segment fallback
+ *     so the UI never blanks the row.
+ *   </li>
+ * </ul>
  */
 export function participantDisplayName(p: AddressLike): string | null {
   if (!p) return null;
+
   if (typeof p !== "string") {
+    // Server-supplied display name is the source of truth post-#1635.
+    // Trim and return verbatim (including the `<deleted>` placeholder)
+    // when present.
     const dn = p.displayName?.trim();
-    if (dn && !looksLikeUuid(dn)) return dn;
+    if (dn) return dn;
   }
+
+  // Legacy fallback path — the input is either a bare-string address or a
+  // ParticipantRef with no displayName. Walk the address with the
+  // pre-#1635 heuristic so old activity events (pre-baseline migration)
+  // still render rather than leaking a raw GUID.
   const addr = addressOf(p);
   if (!addr) return null;
   const parsed = parseThreadSource(addr);

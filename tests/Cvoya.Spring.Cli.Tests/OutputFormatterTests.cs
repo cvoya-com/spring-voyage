@@ -14,26 +14,33 @@ public class OutputFormatterTests
 {
     private static readonly OutputFormatter.Column<AgentResponse>[] AgentColumns =
     {
-        new("id", a => a.Id),
+        new("id", a => GuidDisplay.Format(a.Id)),
         new("name", a => a.Name),
     };
+
+    // Stable test-only Guids — labelled hex prefixes so failure diffs read
+    // intent. These are not the canonical no-dash form (the formatter
+    // re-renders them for the assertion).
+    private static readonly Guid AgentA1 = Guid.Parse("a1a1a1a1-0000-0000-0000-000000000001");
+    private static readonly Guid AgentB2 = Guid.Parse("b2b2b2b2-0000-0000-0000-000000000002");
+    private static readonly Guid AgentX1 = Guid.Parse("11111111-0000-0000-0000-000000000001");
 
     [Fact]
     public void FormatTable_ArrayData_ProducesAlignedColumns()
     {
         var agents = new[]
         {
-            new AgentResponse { Id = "a1", Name = "Alice" },
-            new AgentResponse { Id = "b2", Name = "Bob" },
+            new AgentResponse { Id = AgentA1, Name = "Alice" },
+            new AgentResponse { Id = AgentB2, Name = "Bob" },
         };
 
         var result = OutputFormatter.FormatTable(agents, AgentColumns);
 
         result.ShouldContain("ID");
         result.ShouldContain("NAME");
-        result.ShouldContain("a1");
+        result.ShouldContain(AgentA1.ToString("N"));
         result.ShouldContain("Alice");
-        result.ShouldContain("b2");
+        result.ShouldContain(AgentB2.ToString("N"));
         result.ShouldContain("Bob");
 
         var lines = result.Split(Environment.NewLine);
@@ -44,11 +51,11 @@ public class OutputFormatterTests
     [Fact]
     public void FormatTable_SingleObject_TreatedAsOneRowTable()
     {
-        var agent = new AgentResponse { Id = "x1", Name = "Xander" };
+        var agent = new AgentResponse { Id = AgentX1, Name = "Xander" };
 
         var result = OutputFormatter.FormatTable(agent, AgentColumns);
 
-        result.ShouldContain("x1");
+        result.ShouldContain(AgentX1.ToString("N"));
         result.ShouldContain("Xander");
     }
 
@@ -65,12 +72,19 @@ public class OutputFormatterTests
     {
         // Kiota's writer emits camelCase property names matching the OpenAPI contract,
         // not the C# PascalCase that System.Text.Json would produce by default.
-        var agent = new AgentResponse { Id = "test", Name = "Test", DisplayName = "Test Agent" };
+        var agentId = Guid.NewGuid();
+        var agent = new AgentResponse { Id = agentId, Name = "Test", DisplayName = "Test Agent" };
 
         var result = OutputFormatter.FormatJson(agent);
 
         var reparsed = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(result);
-        reparsed.GetProperty("id").GetString().ShouldBe("test");
+        // Kiota emits Guids in the dashed form by default; the API host's
+        // own converter normalises to no-dash, but the CLI's writer is
+        // stock Kiota — accept either shape here so the test stays
+        // meaningful as a wire-format smoke check.
+        var emittedId = reparsed.GetProperty("id").GetString();
+        Guid.TryParse(emittedId, out var roundTripId).ShouldBeTrue();
+        roundTripId.ShouldBe(agentId);
         reparsed.GetProperty("displayName").GetString().ShouldBe("Test Agent");
         result.ShouldContain(Environment.NewLine);
     }
@@ -78,11 +92,11 @@ public class OutputFormatterTests
     [Fact]
     public void FormatTable_NullProperty_ShowsEmptyString()
     {
-        var agents = new[] { new AgentResponse { Id = "a1", Name = null } };
+        var agents = new[] { new AgentResponse { Id = AgentA1, Name = null } };
 
         var result = OutputFormatter.FormatTable(agents, AgentColumns);
 
-        result.ShouldContain("a1");
+        result.ShouldContain(AgentA1.ToString("N"));
         result.ShouldContain("NAME");
     }
 

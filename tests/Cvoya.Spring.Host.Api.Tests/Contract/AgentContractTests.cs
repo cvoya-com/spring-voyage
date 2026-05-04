@@ -94,7 +94,7 @@ public class AgentContractTests : IClassFixture<CustomWebApplicationFactory>
             "Contract Create",
             "An agent for contract tests",
             Role: "backend",
-            UnitIds: new[] { ActorUnitContract_Id.ToString("N") });
+            UnitIds: new[] { ActorUnitContract_Id });
 
         var response = await _client.PostAsJsonAsync("/api/v1/tenant/agents", request, ct);
         response.StatusCode.ShouldBe(HttpStatusCode.Created);

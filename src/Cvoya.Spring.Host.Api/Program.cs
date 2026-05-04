@@ -165,10 +165,21 @@ try
     // Serialize every enum as its string name (case-insensitive on the way in)
     // so clients get "Running" instead of 3 and don't have to reconstruct the
     // numeric ordering. Individual endpoints no longer need to call .ToString().
+    //
+    // Per #1629 every public Guid field rides the wire in the canonical
+    // 32-char lowercase no-dash hex form (matches Address.Path /
+    // GuidFormatter). The JsonConverter is registered here so every DTO that
+    // ships a `Guid` property — including the ones that flipped from
+    // `string` in PR5 — emits the same shape Address.ToString() emits.
+    // Parse stays lenient (accepts both dashed and no-dash); emit is strict.
     builder.Services.ConfigureHttpJsonOptions(options =>
     {
         options.SerializerOptions.Converters.Add(
             new JsonStringEnumConverter(allowIntegerValues: false));
+        options.SerializerOptions.Converters.Add(
+            new Cvoya.Spring.Host.Api.Serialization.NoDashGuidJsonConverter());
+        options.SerializerOptions.Converters.Add(
+            new Cvoya.Spring.Host.Api.Serialization.NullableNoDashGuidJsonConverter());
     });
 
     builder.Services.AddProblemDetails();
@@ -229,7 +240,69 @@ try
                 schema.Type = Microsoft.OpenApi.JsonSchemaType.Integer | Microsoft.OpenApi.JsonSchemaType.Null;
                 schema.Pattern = null;
             }
+            // #1629 PR5: every public Guid field rides the wire in the
+            // canonical 32-character no-dash hex form (see
+            // NoDashGuidJsonConverter and Cvoya.Spring.Core.Identifiers.GuidFormatter).
+            // Microsoft.AspNetCore.OpenApi advertises Guid-typed fields as
+            // { "type": "string", "format": "uuid" } by default, which is
+            // the right marker for "stable identifier" — Kiota and
+            // openapi-typescript both treat the format as opaque-string,
+            // so the deviation from strict v4-uuid-with-dashes has no
+            // generated-client cost. The custom converter handles the
+            // wire-shape difference at runtime.
+            else if (t == typeof(Guid))
+            {
+                schema.Type = Microsoft.OpenApi.JsonSchemaType.String;
+                schema.Format = "uuid";
+                schema.Pattern = null;
+            }
+            else if (t == typeof(Guid?))
+            {
+                schema.Type = Microsoft.OpenApi.JsonSchemaType.String | Microsoft.OpenApi.JsonSchemaType.Null;
+                schema.Format = "uuid";
+                schema.Pattern = null;
+            }
+            // Microsoft.AspNetCore.OpenApi 10.0 emits `{ "type": "array" }`
+            // (no `items`) for IReadOnlyList<Guid> / IList<Guid> / Guid[],
+            // which Kiota cannot translate to a typed C# list — it falls
+            // back to `UntypedNode`. Plug the items slot for any
+            // IEnumerable<Guid> so the generated client surfaces a
+            // strongly-typed `List<Guid>`. Preserves the schema's existing
+            // nullability bit (so an `IReadOnlyList<Guid>?` property keeps
+            // `["null", "array"]` while gaining proper items).
+            else if (IsGuidEnumerable(t))
+            {
+                // Keep any pre-set Null bit; ensure Array bit is set.
+                schema.Type = Microsoft.OpenApi.JsonSchemaType.Array
+                    | (schema.Type & Microsoft.OpenApi.JsonSchemaType.Null);
+                schema.Items = new Microsoft.OpenApi.OpenApiSchema
+                {
+                    Type = Microsoft.OpenApi.JsonSchemaType.String,
+                    Format = "uuid",
+                };
+            }
             return Task.CompletedTask;
+
+            static bool IsGuidEnumerable(Type type)
+            {
+                if (type == typeof(Guid[]))
+                {
+                    return true;
+                }
+
+                if (!type.IsGenericType)
+                {
+                    return false;
+                }
+
+                var args = type.GetGenericArguments();
+                if (args.Length != 1 || args[0] != typeof(Guid))
+                {
+                    return false;
+                }
+
+                return typeof(System.Collections.Generic.IEnumerable<Guid>).IsAssignableFrom(type);
+            }
         });
 
         // Emit a `servers` entry so Kiota (and other OpenAPI clients) can

@@ -18,7 +18,7 @@ using Cvoya.Spring.Core.Tenancy;
 /// <param name="CreatedAt">Creation timestamp.</param>
 /// <param name="UpdatedAt">Last-update timestamp.</param>
 public sealed record TenantResponse(
-    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("id")] Guid Id,
     [property: JsonPropertyName("displayName")] string DisplayName,
     [property: JsonPropertyName("state")] TenantState State,
     [property: JsonPropertyName("createdAt")] DateTimeOffset CreatedAt,
@@ -37,16 +37,19 @@ public sealed record TenantsListResponse(
 /// Request body for <c>POST /api/v1/platform/tenants</c>.
 /// </summary>
 /// <param name="Id">
-/// Stable tenant id. Lower-case, slug-shaped, 1–64 chars
-/// (<c>^[a-z0-9][a-z0-9_-]{0,63}$</c>). The registry rejects malformed
-/// values with 400.
+/// Stable tenant id. Per #1629 the type is a Guid; the wire form is the
+/// canonical 32-character no-dash hex (matching
+/// <see cref="Cvoya.Spring.Core.Identifiers.GuidFormatter.Format"/>).
+/// Parsing is lenient and also accepts the dashed
+/// <c>8-4-4-4-12</c> form so copy-pasted ids continue to work; values
+/// that do not parse as a Guid are rejected with 400.
 /// </param>
 /// <param name="DisplayName">
-/// Optional human-facing display name. Defaults to <paramref name="Id"/>
-/// when null or whitespace.
+/// Optional human-facing display name. Defaults to the canonical
+/// no-dash form of <paramref name="Id"/> when null or whitespace.
 /// </param>
 public sealed record CreateTenantRequest(
-    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("id")] Guid Id,
     [property: JsonPropertyName("displayName")] string? DisplayName);
 
 /// <summary>

@@ -4,31 +4,57 @@
 namespace Cvoya.Spring.Host.Api.Services;
 
 /// <summary>
-/// Resolves a human-readable display name for an address string of the form
-/// <c>scheme://path</c>. Supported schemes are <c>agent</c>, <c>unit</c>,
-/// and <c>human</c>. For <c>agent://</c> the name comes from
-/// <see cref="Cvoya.Spring.Core.Execution.AgentDefinition.Name"/>; for
-/// <c>unit://</c> from the <c>UnitDefinitionEntity.Name</c>; for
-/// <c>human://</c> from the <c>ApiTokenEntity</c> display-name claim (same
-/// source as <c>UserProfileResponse.DisplayName</c>).
+/// Resolves a human-readable display name for a wire-form participant
+/// address. Post-#1629 the canonical wire form is
+/// <c>scheme:&lt;32-hex-no-dash&gt;</c> (e.g. <c>agent:8c5fab…</c>); the
+/// legacy navigation (<c>scheme://path</c>) and identity-form
+/// (<c>scheme:id:&lt;uuid&gt;</c>) shapes are still accepted defensively
+/// for activity events written under the old wire format.
 ///
-/// Caches results for the duration of a single request scope so repeated
-/// calls for the same address (e.g. the same agent appearing in multiple
-/// inbox rows) issue at most one database query.
+/// <para>
+/// <b>Non-empty contract (#1635).</b> Implementations MUST return a
+/// non-empty string for every input. Resolution failures (deleted entity,
+/// missing row, transient DB error) surface as
+/// <see cref="ParticipantDisplayNameResolver.DeletedDisplayName"/>
+/// (<c>&lt;deleted&gt;</c>) so the portal never has to fall back to a
+/// raw GUID. The portal can drop its <c>looksLikeUuid</c> heuristic once
+/// every <c>ParticipantRef</c> on the wire carries a non-empty
+/// <c>DisplayName</c>.
+/// </para>
 ///
-/// When no definition can be found (deleted agent, missing human profile, or
-/// an unknown scheme) the resolver falls back to the address <em>path</em>
-/// component — that is, the same readable slug the portal previously derived
-/// client-side — and logs at <c>Debug</c>.
+/// <para>
+/// Resolution sources by scheme:
+/// </para>
+/// <list type="bullet">
+///   <item><description>
+///     <c>agent:&lt;guid&gt;</c> → <c>AgentDefinitions.DisplayName</c>.
+///   </description></item>
+///   <item><description>
+///     <c>unit:&lt;guid&gt;</c> → <c>UnitDefinitions.DisplayName</c>.
+///   </description></item>
+///   <item><description>
+///     <c>human:&lt;guid&gt;</c> →
+///     <see cref="Cvoya.Spring.Core.Security.IHumanIdentityResolver.GetDisplayNameAsync"/>.
+///   </description></item>
+/// </list>
+///
+/// <para>
+/// Implementations are scoped per-request and should cache lookups within
+/// the request lifetime so repeated calls for the same address (e.g. the
+/// same agent appearing on multiple inbox rows) round-trip the database
+/// at most once.
+/// </para>
 /// </summary>
 public interface IParticipantDisplayNameResolver
 {
     /// <summary>
-    /// Returns the display name for <paramref name="address"/>, or the
-    /// path component of the address when resolution fails.
+    /// Returns the display name for <paramref name="address"/>. Never
+    /// returns an empty or whitespace string — see the type-level
+    /// non-empty contract.
     /// </summary>
     /// <param name="address">
-    /// A <c>scheme://path</c> address string, e.g. <c>agent://ada</c>.
+    /// A wire-form participant address (e.g. <c>agent:8c5fab2a…</c> or,
+    /// for legacy events, <c>agent://ada</c>).
     /// </param>
     /// <param name="cancellationToken">Propagates request cancellation.</param>
     ValueTask<string> ResolveAsync(string address, CancellationToken cancellationToken = default);

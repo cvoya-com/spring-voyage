@@ -333,6 +333,12 @@ public static class ThreadEndpoints
             ParticipantRef? from = e.From is not null
                 ? await ToRefAsync(e.From, resolver, ct)
                 : null;
+            // #1635: also enrich the recipient address so the portal
+            // gets a non-empty display name without resolving the
+            // address client-side.
+            ParticipantRef? to = e.To is not null
+                ? await ToRefAsync(e.To, resolver, ct)
+                : null;
             events.Add(new ThreadEventResponse(
                 e.Id,
                 e.Timestamp,
@@ -342,7 +348,7 @@ public static class ThreadEndpoints
                 e.Summary,
                 e.MessageId,
                 from,
-                e.To,
+                to,
                 e.Body));
         }
         return new ThreadDetailResponse(summary, events);

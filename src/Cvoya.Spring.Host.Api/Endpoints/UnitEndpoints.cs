@@ -597,7 +597,7 @@ public static class UnitEndpoints
         if (failures.Count > 0)
         {
             return Results.Ok(new UnitForceDeleteResponse(
-                UnitId: id,
+                UnitId: actorId,
                 ForceDeleted: true,
                 PreviousStatus: previousStatus,
                 TeardownFailures: failures,
@@ -724,7 +724,7 @@ public static class UnitEndpoints
 
         return Results.Accepted(
             $"/api/v1/units/{id}",
-            new UnitLifecycleResponse(id, runningTransition.CurrentStatus));
+            new UnitLifecycleResponse(entry.ActorId, runningTransition.CurrentStatus));
     }
 
     private static async Task<IResult> StopUnitAsync(
@@ -781,7 +781,7 @@ public static class UnitEndpoints
 
         return Results.Accepted(
             $"/api/v1/units/{id}",
-            new UnitLifecycleResponse(id, stoppedTransition.CurrentStatus));
+            new UnitLifecycleResponse(entry.ActorId, stoppedTransition.CurrentStatus));
     }
 
     /// <summary>
@@ -1070,7 +1070,7 @@ public static class UnitEndpoints
 
         await humanProxy.SetPermissionForUnitAsync(id, permissionLevel, cancellationToken);
 
-        return Results.Ok(new SetHumanPermissionResponse(humanGuid.ToString(), permissionLevel));
+        return Results.Ok(new SetHumanPermissionResponse(humanGuid, permissionLevel));
     }
 
     private static async Task<IResult> GetHumanPermissionsAsync(
@@ -1235,7 +1235,7 @@ public static class UnitEndpoints
         UnitMetadata? metadata = null,
         UnitValidationTracking? validationTracking = null) =>
         new(
-            Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId),
+            entry.ActorId,
             entry.Address.Path,
             entry.DisplayName,
             entry.Description,

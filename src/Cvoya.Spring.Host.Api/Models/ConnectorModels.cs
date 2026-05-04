@@ -44,7 +44,7 @@ public record UnitConnectorPointerResponse(
 /// <param name="ConfigUrl">URL of the unit's typed config document.</param>
 /// <param name="ActionsBaseUrl">Base URL for the owning connector's actions.</param>
 public record ConnectorUnitBindingResponse(
-    string UnitId,
+    Guid UnitId,
     string UnitName,
     string UnitDisplayName,
     Guid TypeId,

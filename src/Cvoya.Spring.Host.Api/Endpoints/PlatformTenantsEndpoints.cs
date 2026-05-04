@@ -118,18 +118,16 @@ public static class PlatformTenantsEndpoints
         [FromServices] ITenantRegistry registry,
         CancellationToken cancellationToken)
     {
-        if (request is null || string.IsNullOrWhiteSpace(request.Id))
+        // Per #1629 the wire shape for `id` is a Guid (no-dash hex on emit,
+        // dashed-or-no-dash on parse). The JSON converter rejects malformed
+        // values with 400 before this handler runs; an empty string in the
+        // body deserialises to Guid.Empty, which we treat the same as
+        // "missing id".
+        if (request is null || request.Id == Guid.Empty)
         {
             return Results.Problem(
                 title: "Invalid tenant request",
                 detail: "Request body must include a non-empty 'id'.",
-                statusCode: StatusCodes.Status400BadRequest);
-        }
-        if (!Cvoya.Spring.Core.Identifiers.GuidFormatter.TryParse(request.Id, out var requestIdGuid))
-        {
-            return Results.Problem(
-                title: "Invalid tenant request",
-                detail: $"Tenant id '{request.Id}' is not a valid Guid.",
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
@@ -149,7 +147,7 @@ public static class PlatformTenantsEndpoints
         TenantRecord record;
         try
         {
-            record = await registry.CreateAsync(requestIdGuid, request.DisplayName, cancellationToken);
+            record = await registry.CreateAsync(request.Id, request.DisplayName, cancellationToken);
         }
         catch (ArgumentException ex)
         {
@@ -220,7 +218,7 @@ public static class PlatformTenantsEndpoints
     }
 
     private static TenantResponse Project(TenantRecord record) =>
-        new(Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(record.Id), record.DisplayName, record.State, record.CreatedAt, record.UpdatedAt);
+        new(record.Id, record.DisplayName, record.State, record.CreatedAt, record.UpdatedAt);
 
     private static IResult TenantNotFound(string id) =>
         Results.Problem(

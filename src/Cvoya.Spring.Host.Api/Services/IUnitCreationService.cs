@@ -72,9 +72,9 @@ public record UnitCreationOverrides(
     string? Tool = null,
     string? Provider = null,
     string? Hosting = null,
-    IReadOnlyList<string>? ParentUnitIds = null,
+    IReadOnlyList<Guid>? ParentUnitIds = null,
     bool? IsTopLevel = null,
-    System.Guid? ActorId = null);
+    Guid? ActorId = null);
 
 /// <summary>
 /// Outcome of a unit-creation call.

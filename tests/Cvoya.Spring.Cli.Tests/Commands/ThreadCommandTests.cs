@@ -30,7 +30,7 @@ public class ThreadCommandTests
         string severity,
         string summary,
         ParticipantRef? from = null,
-        string? to = null,
+        ParticipantRef? to = null,
         string? body = null)
     {
         return new ThreadEventResponse
@@ -44,7 +44,11 @@ public class ThreadCommandTests
             From = from is not null
                 ? new ThreadEventResponse.ThreadEventResponse_from { ParticipantRef = from }
                 : null,
-            To = to,
+            // #1635: To is now a ParticipantRef-shaped slot (server resolves
+            // recipient display name) rather than a bare string.
+            To = to is not null
+                ? new ThreadEventResponse.ThreadEventResponse_to { ParticipantRef = to }
+                : null,
             Body = body,
         };
     }
@@ -130,7 +134,7 @@ public class ThreadCommandTests
                 severity: "Info",
                 summary: "Received message",
                 from: new ParticipantRef { Address = "human://savasp", DisplayName = "savasp" },
-                to: "agent://ada",
+                to: new ParticipantRef { Address = "agent://ada", DisplayName = "ada" },
                 body: "Hello!"),
         };
 

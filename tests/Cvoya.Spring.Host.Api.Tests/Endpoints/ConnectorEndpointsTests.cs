@@ -346,12 +346,12 @@ public class ConnectorEndpointsTests : IClassFixture<CustomWebApplicationFactory
         var body = await response.Content.ReadFromJsonAsync<ConnectorUnitBindingResponse[]>(ct);
         body.ShouldNotBeNull();
         body!.Length.ShouldBe(2);
-        body.Select(r => r.UnitId).OrderBy(x => x).ShouldBe(new[] { Unit_Alpha_Id.ToString("N"), Unit_Delta_Id.ToString("N") });
+        body.Select(r => r.UnitId).OrderBy(x => x).ShouldBe(new[] { Unit_Alpha_Id, Unit_Delta_Id }.OrderBy(x => x));
         body.ShouldAllBe(r => r.TypeSlug == "stub");
         body.ShouldAllBe(r => r.TypeId == _factory.StubConnectorType.TypeId);
-        body.Single(r => r.UnitId == Unit_Alpha_Id.ToString("N")).UnitDisplayName.ShouldBe("Alpha");
-        body.Single(r => r.UnitId == Unit_Alpha_Id.ToString("N")).ConfigUrl.ShouldBe($"/api/v1/tenant/connectors/stub/units/{Unit_Alpha_Id:N}/config");
-        body.Single(r => r.UnitId == Unit_Alpha_Id.ToString("N")).ActionsBaseUrl.ShouldBe("/api/v1/tenant/connectors/stub/actions");
+        body.Single(r => r.UnitId == Unit_Alpha_Id).UnitDisplayName.ShouldBe("Alpha");
+        body.Single(r => r.UnitId == Unit_Alpha_Id).ConfigUrl.ShouldBe($"/api/v1/tenant/connectors/stub/units/{Unit_Alpha_Id:N}/config");
+        body.Single(r => r.UnitId == Unit_Alpha_Id).ActionsBaseUrl.ShouldBe("/api/v1/tenant/connectors/stub/actions");
     }
 
     [Fact]
@@ -423,7 +423,7 @@ public class ConnectorEndpointsTests : IClassFixture<CustomWebApplicationFactory
         var body = await response.Content.ReadFromJsonAsync<ConnectorUnitBindingResponse[]>(ct);
         body.ShouldNotBeNull();
         body!.Length.ShouldBe(1);
-        body[0].UnitId.ShouldBe(Unit_Visible_Id.ToString("N"));
+        body[0].UnitId.ShouldBe(Unit_Visible_Id);
 
         await _factory.ConnectorConfigStore.DidNotReceive()
             .GetAsync("hidden", Arg.Any<CancellationToken>());
