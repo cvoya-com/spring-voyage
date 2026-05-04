@@ -85,6 +85,65 @@ public class DatabaseMigratorTests
     }
 
     /// <summary>
+    /// Regression test for #1608. The Worker host invokes
+    /// <see cref="DatabaseMigrator.StartAsync"/> directly via
+    /// <c>IHost.MigrateSpringDatabaseAsync</c> between
+    /// <c>app.Build()</c> and <c>app.RunAsync()</c>; the Generic Host
+    /// then invokes the same method again as part of normal
+    /// hosted-service start-up. The body must be idempotent — only the
+    /// first call may apply migrations — so the second invocation does
+    /// not re-enter <c>MigrateAsync</c> against an already-migrated
+    /// database.
+    /// </summary>
+    [Fact]
+    public async Task StartAsync_IsIdempotent_OnlyRunsOnce()
+    {
+        await using var provider = BuildProvider();
+        var migrator = CreateMigrator(
+            provider,
+            // AutoMigrate=true + non-relational provider exercises the
+            // earliest opportunity to set HasRun: the first call
+            // returns at the IsRelational check, the second must
+            // observe HasRun=true and short-circuit at the guard.
+            new DatabaseOptions { AutoMigrate = true },
+            connectionString: "Host=localhost;Database=notused");
+
+        migrator.HasRun.ShouldBeFalse();
+
+        await migrator.StartAsync(TestContext.Current.CancellationToken);
+        migrator.HasRun.ShouldBeTrue("first call must set HasRun");
+
+        // Second call: no throw, still HasRun.
+        await Should.NotThrowAsync(
+            () => migrator.StartAsync(TestContext.Current.CancellationToken));
+        migrator.HasRun.ShouldBeTrue("second call must leave HasRun set");
+    }
+
+    /// <summary>
+    /// The idempotency guard sits BEFORE the AutoMigrate / connection-
+    /// string / IsRelational early-returns. A second invocation must
+    /// short-circuit at the guard regardless of which downstream
+    /// branch the first invocation took, so the host's later
+    /// <see cref="IHostedService.StartAsync"/> never re-enters the
+    /// migrator body.
+    /// </summary>
+    [Fact]
+    public async Task StartAsync_IsIdempotent_EvenWhenAutoMigrateDisabled()
+    {
+        await using var provider = BuildProvider();
+        var migrator = CreateMigrator(
+            provider,
+            new DatabaseOptions { AutoMigrate = false },
+            connectionString: "Host=localhost;Database=notused");
+
+        await migrator.StartAsync(TestContext.Current.CancellationToken);
+        migrator.HasRun.ShouldBeTrue();
+
+        await migrator.StartAsync(TestContext.Current.CancellationToken);
+        migrator.HasRun.ShouldBeTrue();
+    }
+
+    /// <summary>
     /// Regression test for #305. <c>AddCvoyaSpringDapr</c> on its own MUST
     /// NOT register <see cref="DatabaseMigrator"/> as a hosted service —
     /// otherwise both the API and Worker hosts (which both call

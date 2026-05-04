@@ -54,10 +54,46 @@ public class DatabaseMigrator(
     ILogger<DatabaseMigrator> logger) : IHostedService
 {
     private readonly DatabaseOptions _options = options.Value;
+    private int _hasRun;
+
+    /// <summary>
+    /// Whether <see cref="StartAsync(CancellationToken)"/> has already
+    /// completed a migration pass. Exposed for diagnostics and tests
+    /// so callers can confirm the explicit
+    /// <c>IHost.MigrateSpringDatabaseAsync</c> call demoted the
+    /// hosted-service invocation to a no-op (#1608).
+    /// </summary>
+    public bool HasRun => Volatile.Read(ref _hasRun) != 0;
 
     /// <inheritdoc />
+    /// <remarks>
+    /// <para>
+    /// Idempotent: only the first invocation applies migrations; later
+    /// calls return immediately. The Worker host calls
+    /// <see cref="DependencyInjection.HostMigrationExtensions.MigrateSpringDatabaseAsync"/>
+    /// between <c>app.Build()</c> and <c>app.RunAsync()</c> so the schema
+    /// exists before any other <see cref="IHostedService.StartAsync"/>
+    /// runs (#1608). The Generic Host's subsequent invocation of this
+    /// method as part of normal hosted-service lifecycle then short-
+    /// circuits without re-running <c>MigrateAsync</c>.
+    /// </para>
+    /// </remarks>
     public async Task StartAsync(CancellationToken cancellationToken)
     {
+        // Idempotency guard: the Worker host invokes this directly via
+        // IHost.MigrateSpringDatabaseAsync before RunAsync, then the
+        // Generic Host invokes it again as part of normal hosted-service
+        // start-up. Run the body only the first time. Use Interlocked
+        // so the guard survives the (unlikely but legal) case of two
+        // hosts sharing a single migrator instance — the OSS topology
+        // does not, but the contract is cheap to maintain.
+        if (Interlocked.CompareExchange(ref _hasRun, 1, 0) != 0)
+        {
+            logger.LogDebug(
+                "DatabaseMigrator.StartAsync: already executed; skipping.");
+            return;
+        }
+
         if (!_options.AutoMigrate)
         {
             logger.LogInformation(

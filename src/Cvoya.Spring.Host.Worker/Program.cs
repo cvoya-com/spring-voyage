@@ -3,6 +3,7 @@
 
 using System.Runtime.InteropServices;
 
+using Cvoya.Spring.Dapr.DependencyInjection;
 using Cvoya.Spring.Host.Worker.Composition;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -56,6 +57,20 @@ try
 
     // Dapr actor endpoints
     app.MapActorsHandlers();
+
+    // Drive EF Core migrations to completion BEFORE any hosted service
+    // starts. The Generic Host invokes IHostedService.StartAsync in
+    // registration order, but several services in AddCvoyaSpringDapr's
+    // graph (registered before AddCvoyaSpringDatabaseMigrator in
+    // WorkerComposition) query spring.unit_definitions on a fresh
+    // PostgreSQL volume — the migrator hasn't created the table yet,
+    // and the cold start logs a 42P01 relation-not-exist line per
+    // affected service. Running the migrator here, before RunAsync,
+    // guarantees the schema exists before any of those services
+    // execute. The migrator's hosted-service registration stays in
+    // place and StartAsync is idempotent (DatabaseMigrator.HasRun), so
+    // the host's later invocation short-circuits. See #1608.
+    await app.MigrateSpringDatabaseAsync();
 
     await app.RunAsync();
 }
