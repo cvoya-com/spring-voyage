@@ -147,7 +147,10 @@ public class MessageQueryServiceTests : IDisposable
             SourceId = message.To.Id,
             EventType = nameof(ActivityEventType.MessageReceived),
             Severity = "Info",
-            Summary = $"Received {message.Type} message {message.Id} from {message.From}",
+            // #1636: actors never write the legacy "Received {Type} message
+            // <uuid> from <address>" envelope. Mirror production by storing
+            // the body-as-summary helper output.
+            Summary = MessageReceivedDetails.BuildSummary(message),
             Details = MessageReceivedDetails.Build(message),
             CorrelationId = correlationId,
             Timestamp = DateTimeOffset.UtcNow,

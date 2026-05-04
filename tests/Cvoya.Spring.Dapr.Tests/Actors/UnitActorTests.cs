@@ -494,6 +494,48 @@ public class UnitActorTests
     }
 
     [Fact]
+    public async Task ReceiveAsync_DomainMessageWithStringPayload_SummaryIsBodyText()
+    {
+        // #1636: production must NEVER write the legacy "Received Domain
+        // message <uuid> from <address>" envelope as the activity-event
+        // summary. The summary is the message text — never the GUID-bearing
+        // envelope template.
+        var payload = JsonSerializer.SerializeToElement("Plan the next sprint.");
+        var message = CreateMessage(threadId: "conv-1636-unit-string", payload: payload);
+        _strategy.OrchestrateAsync(message, Arg.Any<IUnitContext>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<Message?>(null));
+
+        await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
+
+        await _activityEventBus.Received().PublishAsync(
+            Arg.Is<ActivityEvent>(e =>
+                e.EventType == ActivityEventType.MessageReceived
+                && e.Summary == "Plan the next sprint."),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ReceiveAsync_DomainMessage_SummaryNeverContainsLegacyEnvelopeTemplate()
+    {
+        // #1636: hard regression guard — never start with "Received " and
+        // never carry the message GUID or sender address.
+        var payload = JsonSerializer.SerializeToElement(new { Acknowledged = true });
+        var message = CreateMessage(threadId: "conv-1636-unit-no-envelope", payload: payload);
+        _strategy.OrchestrateAsync(message, Arg.Any<IUnitContext>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<Message?>(null));
+
+        await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
+
+        await _activityEventBus.Received().PublishAsync(
+            Arg.Is<ActivityEvent>(e =>
+                e.EventType == ActivityEventType.MessageReceived
+                && !e.Summary.StartsWith("Received ")
+                && !e.Summary.Contains(message.Id.ToString())
+                && !e.Summary.Contains(message.From.Path)),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task ReceiveAsync_DomainMessage_EmitsDecisionMadeEvent()
     {
         var message = CreateMessage();

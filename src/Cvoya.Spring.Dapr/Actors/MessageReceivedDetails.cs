@@ -120,6 +120,69 @@ public static class MessageReceivedDetails
         return null;
     }
 
+    /// <summary>
+    /// Maximum summary length when truncating extracted message text for the
+    /// <see cref="Capabilities.ActivityEvent.Summary"/> one-liner. The surfaces
+    /// already render the full body from <see cref="BodyProperty"/>; the
+    /// summary is just a glance-line.
+    /// </summary>
+    private const int SummaryMaxLength = 160;
+
+    /// <summary>
+    /// Builds the human-readable one-liner used for an
+    /// <see cref="Capabilities.ActivityEventType.MessageReceived"/> activity
+    /// event's <see cref="Capabilities.ActivityEvent.Summary"/> (#1636).
+    /// <para>
+    /// Production must NEVER emit the legacy
+    /// <c>"Received {Type} message {Id} from {From}"</c> envelope template —
+    /// it leaks raw GUIDs into every downstream surface (CLI, portal, inbox)
+    /// and forces consumers to reverse-engineer the platform's summary to
+    /// recover usable text. Instead, the summary line carries the actual
+    /// message text (truncated for one-line display) when extractable, and a
+    /// short non-leaky placeholder otherwise. The full body always rides
+    /// alongside on <see cref="BodyProperty"/> so the portal renders chat
+    /// bubbles directly without templating.
+    /// </para>
+    /// </summary>
+    /// <param name="message">The received message.</param>
+    /// <returns>A non-empty, GUID-free, address-free summary line.</returns>
+    public static string BuildSummary(Message message)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+
+        var body = TryExtractText(message.Payload);
+        if (!string.IsNullOrWhiteSpace(body))
+        {
+            return Truncate(body!.Trim(), SummaryMaxLength);
+        }
+
+        // Control / structured-payload messages (Cancel, HealthCheck,
+        // StatusQuery, ack envelopes, etc.) have no reader-visible text. A
+        // short type label is safe — it carries no GUIDs and no addresses.
+        return message.Type switch
+        {
+            MessageType.Domain => "Message received",
+            MessageType.HealthCheck => "Health check received",
+            MessageType.StatusQuery => "Status query received",
+            MessageType.Cancel => "Cancel received",
+            MessageType.PolicyUpdate => "Policy update received",
+            MessageType.Amendment => "Amendment received",
+            _ => $"{message.Type} received",
+        };
+    }
+
+    private static string Truncate(string value, int maxLength)
+    {
+        if (value.Length <= maxLength)
+        {
+            return value;
+        }
+
+        // Leave room for the ellipsis character so the rendered glyph count
+        // stays at maxLength — important for surfaces that hard-clip lines.
+        return string.Concat(value.AsSpan(0, maxLength - 1), "…");
+    }
+
     private static string FormatAddress(Address address) =>
         $"{address.Scheme}://{address.Path}";
 }

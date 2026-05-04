@@ -588,6 +588,99 @@ public class AgentActorTests
     }
 
     [Fact]
+    public async Task ReceiveAsync_DomainMessageWithStringPayload_SummaryIsBodyText()
+    {
+        // #1636: production must NEVER write the legacy "Received Domain
+        // message <uuid> from <address>" envelope as the activity-event
+        // summary. The summary is the actual message text (truncated for the
+        // one-liner) when extractable — the portal renders it directly as a
+        // chat bubble line without templating.
+        var threadId = "conv-1636-string";
+        var payload = JsonSerializer.SerializeToElement("Approve merge?");
+        var message = CreateMessage(threadId: threadId, payload: payload);
+
+        await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
+
+        await _activityEventBus.Received().PublishAsync(
+            Arg.Is<ActivityEvent>(e =>
+                e.EventType == ActivityEventType.MessageReceived
+                && e.Summary == "Approve merge?"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ReceiveAsync_DomainMessageWithAgentReplyShape_SummaryIsOutputText()
+    {
+        // #1636 / #1547: agent replies arrive as { Output, ExitCode } objects;
+        // the summary is the Output string (truncated), not the leaky envelope.
+        var threadId = "conv-1636-output";
+        var payload = JsonSerializer.SerializeToElement(new
+        {
+            Output = "Looks good — shipping.",
+            ExitCode = 0,
+        });
+        var message = CreateMessage(threadId: threadId, payload: payload);
+
+        await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
+
+        await _activityEventBus.Received().PublishAsync(
+            Arg.Is<ActivityEvent>(e =>
+                e.EventType == ActivityEventType.MessageReceived
+                && e.Summary == "Looks good — shipping."),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ReceiveAsync_MessageReceived_SummaryNeverContainsLegacyEnvelopeTemplate()
+    {
+        // #1636: hard regression guard — every message-class projected event
+        // must NEVER carry the "Received {Type} message <uuid> from …"
+        // envelope on its summary. Filing it here pins the contract for any
+        // future refactor that touches the emit path.
+        var threadId = "conv-1636-no-envelope";
+        var payload = JsonSerializer.SerializeToElement(new { Acknowledged = true });
+        var message = CreateMessage(threadId: threadId, payload: payload);
+
+        await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
+
+        await _activityEventBus.Received().PublishAsync(
+            Arg.Is<ActivityEvent>(e =>
+                e.EventType == ActivityEventType.MessageReceived
+                && !e.Summary.StartsWith("Received ")
+                && !e.Summary.Contains(message.Id.ToString())
+                && !e.Summary.Contains(message.From.Path)),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ReceiveAsync_NonMessageEvent_HasNoBodyOnDetails()
+    {
+        // #1636: events that genuinely represent non-message activity
+        // (state changes, thread lifecycle) leave the body field absent;
+        // the portal renders them as cards. Spot-check the StateChanged
+        // emission for a freshly-routed message — Details either has no
+        // `body` key or carries a non-message payload (e.g. transition map).
+        var message = CreateMessage(threadId: "conv-1636-non-msg");
+
+        await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
+
+        await _activityEventBus.Received().PublishAsync(
+            Arg.Is<ActivityEvent>(e =>
+                e.EventType == ActivityEventType.StateChanged
+                && !DetailsCarryBody(e.Details)),
+            Arg.Any<CancellationToken>());
+    }
+
+    private static bool DetailsCarryBody(JsonElement? details)
+    {
+        if (details is not JsonElement el || el.ValueKind != JsonValueKind.Object)
+        {
+            return false;
+        }
+        return el.TryGetProperty("body", out var prop) && prop.ValueKind == JsonValueKind.String;
+    }
+
+    [Fact]
     public async Task ReceiveAsync_ActivityEventBusFailure_DoesNotBreakActor()
     {
         _activityEventBus.PublishAsync(Arg.Any<ActivityEvent>(), Arg.Any<CancellationToken>())

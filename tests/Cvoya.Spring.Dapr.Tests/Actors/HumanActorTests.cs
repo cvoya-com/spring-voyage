@@ -369,4 +369,66 @@ public class HumanActorTests
         result.ShouldContain(e => e.ThreadId == "thread-a" && e.LastReadAt == ts);
         result.ShouldContain(e => e.ThreadId == "thread-b" && e.LastReadAt == ts.AddMinutes(-3));
     }
+
+    [Fact]
+    public async Task ReceiveAsync_DomainMessageWithStringPayload_SummaryIsBodyText()
+    {
+        // #1636: production must NEVER write the legacy "Received Domain
+        // message <uuid> from <address>" envelope as the activity-event
+        // summary. The summary is the actual message text — the portal renders
+        // it directly as a chat bubble line without templating.
+        var threadId = "conv-1636-string";
+        var payload = JsonSerializer.SerializeToElement("Approve merge?");
+        var message = CreateMessage(threadId: threadId, payload: payload);
+
+        await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
+
+        await _activityEventBus.Received().PublishAsync(
+            Arg.Is<ActivityEvent>(e =>
+                e.EventType == ActivityEventType.MessageReceived
+                && e.Summary == "Approve merge?"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ReceiveAsync_DomainMessageWithAgentReplyShape_SummaryIsOutputText()
+    {
+        // #1636 / #1547: agent replies arrive as { Output, ExitCode } objects;
+        // the summary is the Output string, never the leaky envelope.
+        var threadId = "conv-1636-output";
+        var payload = JsonSerializer.SerializeToElement(new
+        {
+            Output = "Looks good — shipping.",
+            ExitCode = 0,
+        });
+        var message = CreateMessage(threadId: threadId, payload: payload);
+
+        await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
+
+        await _activityEventBus.Received().PublishAsync(
+            Arg.Is<ActivityEvent>(e =>
+                e.EventType == ActivityEventType.MessageReceived
+                && e.Summary == "Looks good — shipping."),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ReceiveAsync_DomainMessage_SummaryNeverContainsLegacyEnvelopeTemplate()
+    {
+        // #1636: hard regression guard — the receive-event summary must never
+        // start with "Received " or carry the message GUID / sender address.
+        var threadId = "conv-1636-no-envelope";
+        var payload = JsonSerializer.SerializeToElement("hello");
+        var message = CreateMessage(threadId: threadId, payload: payload);
+
+        await _actor.ReceiveAsync(message, TestContext.Current.CancellationToken);
+
+        await _activityEventBus.Received().PublishAsync(
+            Arg.Is<ActivityEvent>(e =>
+                e.EventType == ActivityEventType.MessageReceived
+                && !e.Summary.StartsWith("Received ")
+                && !e.Summary.Contains(message.Id.ToString())
+                && !e.Summary.Contains(message.From.Path)),
+            Arg.Any<CancellationToken>());
+    }
 }

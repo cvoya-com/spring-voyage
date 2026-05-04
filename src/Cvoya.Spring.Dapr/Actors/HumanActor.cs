@@ -51,11 +51,15 @@ public class HumanActor(
             // #1209: persist the message envelope (sender / recipient /
             // payload) on the event so `spring inbox show` can render the
             // body inline, not just the summary line.
+            // #1636: the summary line is the actual message text (or a
+            // short non-leaky placeholder) — never the legacy
+            // "Received Domain message <uuid> from <address>" envelope,
+            // which leaks GUIDs into every downstream surface.
             if (message.Type == MessageType.Domain)
             {
                 await EmitActivityEventAsync(
                     ActivityEventType.MessageReceived,
-                    $"Received Domain message {message.Id} from {message.From}",
+                    MessageReceivedDetails.BuildSummary(message),
                     cancellationToken,
                     details: MessageReceivedDetails.Build(message),
                     correlationId: message.ThreadId);

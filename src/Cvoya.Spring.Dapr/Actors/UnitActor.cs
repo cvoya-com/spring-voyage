@@ -232,8 +232,12 @@ public class UnitActor : Actor, IUnitActor
             // envelope (messageId, from, to, payload) onto Details so the
             // thread surfaces can render the body, not just the
             // summary.
+            // #1636: the summary line is the actual message text (or a
+            // short non-leaky placeholder) — never the legacy "Received
+            // {Type} message <uuid> from <address>" envelope, which leaks
+            // GUIDs into every downstream surface.
             await EmitActivityEventAsync(ActivityEventType.MessageReceived,
-                $"Received {message.Type} message {message.Id} from {message.From}",
+                MessageReceivedDetails.BuildSummary(message),
                 ct,
                 details: MessageReceivedDetails.Build(message),
                 correlationId: message.ThreadId);

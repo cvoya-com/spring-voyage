@@ -276,12 +276,15 @@ public class ThreadQueryServiceTests : IDisposable
         // The inbox predicate keys off "last event is MessageReceived from
         // the caller's human address", so this conversation must show up.
         var t0 = DateTimeOffset.UtcNow.AddMinutes(-2);
+        // #1636: actors emit the message body (or a short placeholder) as the
+        // summary now — never the legacy "Received Domain message <uuid>
+        // from <address>" envelope. Test seeds mirror that.
         await SeedThreadAsync("e58eaf86", new[]
         {
-            ("agent:backend-engineer", "MessageReceived", "Received Domain message from human://local-dev-user", t0),
+            ("agent:backend-engineer", "MessageReceived", "Hello, agent.", t0),
             ("agent:backend-engineer", "ThreadStarted", "Started thread e58eaf86", t0.AddMilliseconds(1)),
             ("agent:backend-engineer", "StateChanged", "State changed from Idle to Active", t0.AddMilliseconds(2)),
-            ("human:local-dev-user", "MessageReceived", "Received Domain message from agent://backend-engineer", t0.AddMinutes(1)),
+            ("human:local-dev-user", "MessageReceived", "On it.", t0.AddMinutes(1)),
         });
 
         var svc = BuildService();
@@ -307,9 +310,11 @@ public class ThreadQueryServiceTests : IDisposable
             ("agent:debug-agent", "ThreadStarted", "Started 5925edfa", stale.AddMinutes(-1)),
             ("human:local-dev-user", "MessageReceived", "Stale ask", stale),
         });
+        // #1636: production never writes "Received Domain message" — the
+        // summary is the message body or a short placeholder.
         await SeedThreadAsync("e58eaf86", new[]
         {
-            ("agent:backend-engineer", "MessageReceived", "Received Domain message", fresh.AddSeconds(-80)),
+            ("agent:backend-engineer", "MessageReceived", "Message received", fresh.AddSeconds(-80)),
             ("agent:backend-engineer", "ThreadStarted", "Started e58eaf86", fresh.AddSeconds(-79)),
             ("human:local-dev-user", "MessageReceived", "Fresh reply", fresh),
         });
@@ -395,7 +400,9 @@ public class ThreadQueryServiceTests : IDisposable
             SourceId = Guid.NewGuid(),
             EventType = nameof(ActivityEventType.MessageReceived),
             Severity = "Info",
-            Summary = $"Received Domain message {message.Id} from human://savasp",
+            // #1636: actors write the body (or a short placeholder) — never
+            // the legacy "Received Domain message …" envelope.
+            Summary = MessageReceivedDetails.BuildSummary(message),
             Details = MessageReceivedDetails.Build(message),
             CorrelationId = "c-1",
             Timestamp = DateTimeOffset.UtcNow,
@@ -421,8 +428,8 @@ public class ThreadQueryServiceTests : IDisposable
         // A2AExecutionDispatcher response shape), so MessageReceivedDetails
         // must surface the Output string as the message body — otherwise the
         // recipient's MessageReceived event has a null body and the portal
-        // bubble falls back to the envelope summary line ("Received Domain
-        // message <uuid> from …").
+        // bubble falls back to the summary line. #1636: the summary is now
+        // body-as-text or a short placeholder, never the GUID envelope.
         var messageId = Guid.NewGuid();
         var replyPayload = JsonSerializer.SerializeToElement(new
         {
@@ -444,7 +451,7 @@ public class ThreadQueryServiceTests : IDisposable
             SourceId = Guid.NewGuid(),
             EventType = nameof(ActivityEventType.MessageReceived),
             Severity = "Info",
-            Summary = $"Received Domain message {message.Id} from agent://ada",
+            Summary = MessageReceivedDetails.BuildSummary(message),
             Details = MessageReceivedDetails.Build(message),
             CorrelationId = "c-reply",
             Timestamp = DateTimeOffset.UtcNow,
@@ -465,8 +472,9 @@ public class ThreadQueryServiceTests : IDisposable
         // Older events (persisted before #1551 extended TryExtractText) have a
         // Details blob with `payload` but no `body`. The projection must
         // re-extract from `payload` so already-stored agent replies surface as
-        // bubble bodies rather than the "Received Domain message …" envelope
-        // summary fallback.
+        // bubble bodies. #1636: legacy rows may also carry the old
+        // "Received Domain message …" envelope as the summary — the projection
+        // must still surface a usable body from `payload` regardless.
         var messageId = Guid.NewGuid();
         var adaHex = TestSlugIds.HexFor("ada");
         var savaspHex = TestSlugIds.HexFor("savasp");
@@ -490,6 +498,8 @@ public class ThreadQueryServiceTests : IDisposable
             SourceId = Guid.NewGuid(),
             EventType = nameof(ActivityEventType.MessageReceived),
             Severity = "Info",
+            // Legacy on-disk shape: the envelope template that production no
+            // longer writes (#1636) but pre-fix activity rows still carry.
             Summary = $"Received Domain message {messageId} from agent://ada",
             Details = details,
             CorrelationId = "c-legacy",
