@@ -97,6 +97,12 @@ public static class UnitCommand
 
         unitCommand.Subcommands.Add(CreateListCommand(outputOption));
         unitCommand.Subcommands.Add(CreateCreateCommand(outputOption));
+        // #1629 PR6 — `show <id-or-name>` accepts a Guid (canonical no-dash
+        // 32-hex or dashed) for direct lookup, OR a display_name for search
+        // with disambiguation. `--unit <parent-name-or-guid>` constrains the
+        // search to children of that parent. Distinct from `status`, which
+        // returns the lifecycle / readiness state.
+        unitCommand.Subcommands.Add(CreateShowCommand(outputOption));
         // ADR-0035 decision 4: `create-from-template` is deleted outright;
         // `spring package install` is the replacement.
         unitCommand.Subcommands.Add(CreateDeleteCommand());
@@ -700,6 +706,116 @@ public static class UnitCommand
         }
         return ex is ProblemDetails problem
             && string.Equals(problem.Title, LastMembershipConflictTitle, StringComparison.Ordinal);
+    }
+
+    // #1629 PR6 — show columns. `show` is the read-on-name verb: it
+    // resolves a Guid OR a display_name to a single unit and prints its
+    // canonical identity. We surface a slimmer column set than `status`
+    // because `status` is the lifecycle/readiness verb (status, ready,
+    // missing) and `show` is the identity verb.
+    private static readonly OutputFormatter.Column<UnitResponse>[] UnitShowColumns =
+    {
+        new("id", u => GuidDisplay.Format(u.Id)),
+        new("displayName", u => u.DisplayName ?? u.Name),
+        new("description", u => u.Description),
+        new("hosting", u => u.Hosting),
+        new("provider", u => u.Provider),
+        new("model", u => u.Model),
+    };
+
+    private static Command CreateShowCommand(Option<string> outputOption)
+    {
+        // #1629 final design: every `show` accepts Guid OR display_name.
+        // Guid input short-circuits to a direct lookup; name input goes
+        // through CliResolver and emits a disambiguation list on n-match.
+        var idArg = new Argument<string>("id-or-name")
+        {
+            Description =
+                "The unit's stable Guid (32-char no-dash hex or dashed form), " +
+                "OR a display_name to search for. When a name is supplied and " +
+                "multiple units match, a disambiguation list is printed with " +
+                "each candidate's Guid.",
+        };
+        var unitOption = new Option<string?>("--unit")
+        {
+            Description =
+                "Optional parent-unit context (Guid or display_name) used to " +
+                "constrain a name search to children of that parent. Ignored " +
+                "when the first argument is itself a Guid.",
+        };
+        var command = new Command(
+            "show",
+            "Resolve a unit by Guid OR display_name (with optional --unit parent context) and print its identity. " +
+            "Exits non-zero with a disambiguation list when the name search is ambiguous.");
+        command.Arguments.Add(idArg);
+        command.Options.Add(unitOption);
+
+        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var idOrName = parseResult.GetValue(idArg)!;
+            var unitArg = parseResult.GetValue(unitOption);
+            var output = parseResult.GetValue(outputOption) ?? "table";
+
+            var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+
+            // Resolve the optional parent-unit context first; same 0/1/n
+            // contract — cleanest to surface "the parent isn't found"
+            // before drilling into the children.
+            Guid? parentContext = null;
+            if (!string.IsNullOrWhiteSpace(unitArg))
+            {
+                try
+                {
+                    parentContext = await resolver.ResolveUnitAsync(unitArg, parentContext: null, ct);
+                }
+                catch (CliResolutionException ex)
+                {
+                    CliResolutionPrinter.Write(Console.Error, ex);
+                    Environment.Exit(1);
+                    return;
+                }
+            }
+
+            Guid unitId;
+            try
+            {
+                unitId = await resolver.ResolveUnitAsync(idOrName, parentContext, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
+
+            var canonical = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(unitId);
+
+            try
+            {
+                var detail = await client.GetUnitAsync(canonical, ct);
+                var unit = detail.Unit;
+
+                if (unit is null)
+                {
+                    await Console.Error.WriteLineAsync(
+                        $"Unit '{canonical}' resolved but the server returned an empty payload.");
+                    Environment.Exit(1);
+                    return;
+                }
+
+                Console.WriteLine(output == "json"
+                    ? OutputFormatter.FormatJson(unit)
+                    : OutputFormatter.FormatTable(unit, UnitShowColumns));
+            }
+            catch (ApiException ex) when (ex.ResponseStatusCode == 404)
+            {
+                await Console.Error.WriteLineAsync($"No unit found matching '{idOrName}'.");
+                Environment.Exit(1);
+            }
+        });
+
+        return command;
     }
 
 

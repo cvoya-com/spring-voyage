@@ -91,6 +91,12 @@ public static class AgentCommand
 
         agentCommand.Subcommands.Add(CreateListCommand(outputOption));
         agentCommand.Subcommands.Add(CreateCreateCommand(outputOption));
+        // #1629 PR6 — `show <id-or-name>` accepts a Guid (canonical no-dash
+        // 32-hex or dashed) for direct lookup, OR a display_name for search
+        // with disambiguation. `--unit <name-or-guid>` constrains the search
+        // to that unit's membership. Distinct from `status`, which returns
+        // the actor's runtime + persistent-deployment state.
+        agentCommand.Subcommands.Add(CreateShowCommand(outputOption));
         agentCommand.Subcommands.Add(CreateStatusCommand(outputOption));
         agentCommand.Subcommands.Add(CreateDeleteCommand());
         agentCommand.Subcommands.Add(CreatePurgeCommand());
@@ -376,6 +382,123 @@ public static class AgentCommand
         payload["execution"] = exec;
 
         return System.Text.Json.JsonSerializer.Serialize(payload);
+    }
+
+    // #1629 PR6 — show columns. `show` is the read-on-name verb: it
+    // resolves a Guid OR a display_name to a single agent and prints the
+    // canonical bits. We deliberately surface a slimmer column set than
+    // `status` because `status` is the deployment-aware verb (running,
+    // health, container) and `show` is the identity-aware verb.
+    private static readonly OutputFormatter.Column<AgentResponse>[] AgentShowColumns =
+    {
+        new("id", a => GuidDisplay.Format(a.Id)),
+        new("displayName", a => a.DisplayName ?? a.Name),
+        new("role", a => a.Role),
+        new("hosting", a => a.HostingMode),
+        new("initiative", a => a.InitiativeLevel),
+        new("parentUnit", a => a.ParentUnit),
+    };
+
+    private static Command CreateShowCommand(Option<string> outputOption)
+    {
+        // #1629 final design: every `show` accepts Guid OR display_name.
+        // Guid input short-circuits to a direct lookup; name input goes
+        // through CliResolver and emits a disambiguation list on n-match.
+        var idArg = new Argument<string>("id-or-name")
+        {
+            Description =
+                "The agent's stable Guid (32-char no-dash hex or dashed form), " +
+                "OR a display_name to search for. When a name is supplied and " +
+                "multiple agents match, a disambiguation list is printed with " +
+                "each candidate's Guid.",
+        };
+        var unitOption = new Option<string?>("--unit")
+        {
+            Description =
+                "Optional parent-unit context (Guid or display_name) used to " +
+                "constrain a name search to that unit's members. Ignored when " +
+                "the first argument is itself a Guid.",
+        };
+        var command = new Command(
+            "show",
+            "Resolve an agent by Guid OR display_name (with optional --unit context) and print its identity. " +
+            "Exits non-zero with a disambiguation list when the name search is ambiguous.");
+        command.Arguments.Add(idArg);
+        command.Options.Add(unitOption);
+
+        command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
+        {
+            var idOrName = parseResult.GetValue(idArg)!;
+            var unitArg = parseResult.GetValue(unitOption);
+            var output = parseResult.GetValue(outputOption) ?? "table";
+
+            var client = ClientFactory.Create();
+            var resolver = new CliResolver(client);
+
+            // Resolve the optional parent-unit context first; if the user
+            // typed a name there, the same 0/1/n disambiguation contract
+            // applies. Surface a clean error message rather than letting
+            // the inner agent search confuse them about which lookup
+            // failed.
+            Guid? unitContext = null;
+            if (!string.IsNullOrWhiteSpace(unitArg))
+            {
+                try
+                {
+                    unitContext = await resolver.ResolveUnitAsync(unitArg, parentContext: null, ct);
+                }
+                catch (CliResolutionException ex)
+                {
+                    CliResolutionPrinter.Write(Console.Error, ex);
+                    Environment.Exit(1);
+                    return;
+                }
+            }
+
+            Guid agentId;
+            try
+            {
+                agentId = await resolver.ResolveAgentAsync(idOrName, unitContext, ct);
+            }
+            catch (CliResolutionException ex)
+            {
+                CliResolutionPrinter.Write(Console.Error, ex);
+                Environment.Exit(1);
+                return;
+            }
+
+            // After resolution, every server interaction speaks the
+            // canonical no-dash 32-hex form (#1629 §3 wire format).
+            var canonical = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(agentId);
+
+            try
+            {
+                var detail = await client.GetAgentStatusAsync(canonical, ct);
+                var agent = detail.Agent;
+
+                if (agent is null)
+                {
+                    await Console.Error.WriteLineAsync(
+                        $"Agent '{canonical}' resolved but the server returned an empty status payload.");
+                    Environment.Exit(1);
+                    return;
+                }
+
+                Console.WriteLine(output == "json"
+                    ? OutputFormatter.FormatJson(agent)
+                    : OutputFormatter.FormatTable(agent, AgentShowColumns));
+            }
+            catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode == 404)
+            {
+                // Direct-Guid path landed on a non-existent agent. Match
+                // the resolver's 0-match wording so the operator sees the
+                // same shape regardless of which mode they used.
+                await Console.Error.WriteLineAsync($"No agent found matching '{idOrName}'.");
+                Environment.Exit(1);
+            }
+        });
+
+        return command;
     }
 
     private static Command CreateStatusCommand(Option<string> outputOption)

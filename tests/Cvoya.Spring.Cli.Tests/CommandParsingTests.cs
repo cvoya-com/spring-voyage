@@ -959,4 +959,71 @@ public class CommandParsingTests
         parseResult.GetValue<string[]>("--initiative")
             .ShouldBe(new[] { "autonomous", "proactive" }, ignoreOrder: true);
     }
+
+    // --- #1629 PR6: `agent show` and `unit show` ---------------------
+
+    [Fact]
+    public void AgentShow_ParsesGuidArgument()
+    {
+        // Guid path: the resolver short-circuits and never lists agents.
+        var outputOption = CreateOutputOption();
+        var agentCommand = AgentCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(agentCommand);
+
+        var parseResult = rootCommand.Parse(
+            "agent show 8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<string>("id-or-name")
+            .ShouldBe("8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7");
+    }
+
+    [Fact]
+    public void AgentShow_ParsesNameWithUnitContext()
+    {
+        // Name path with --unit: resolver lists agents, intersects with the
+        // unit's memberships, surfaces 0/1/n.
+        var outputOption = CreateOutputOption();
+        var agentCommand = AgentCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(agentCommand);
+
+        var parseResult = rootCommand.Parse("agent show alice --unit engineering");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<string>("id-or-name").ShouldBe("alice");
+        parseResult.GetValue<string>("--unit").ShouldBe("engineering");
+    }
+
+    [Fact]
+    public void UnitShow_ParsesGuidArgument()
+    {
+        var outputOption = CreateOutputOption();
+        var unitCommand = UnitCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(unitCommand);
+
+        var parseResult = rootCommand.Parse(
+            "unit show 8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<string>("id-or-name")
+            .ShouldBe("8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7");
+    }
+
+    [Fact]
+    public void UnitShow_ParsesNameWithParentUnit()
+    {
+        var outputOption = CreateOutputOption();
+        var unitCommand = UnitCommand.Create(outputOption);
+        var rootCommand = new RootCommand { Options = { outputOption } };
+        rootCommand.Subcommands.Add(unitCommand);
+
+        var parseResult = rootCommand.Parse("unit show backend --unit engineering");
+
+        parseResult.Errors.ShouldBeEmpty();
+        parseResult.GetValue<string>("id-or-name").ShouldBe("backend");
+        parseResult.GetValue<string>("--unit").ShouldBe("engineering");
+    }
 }
