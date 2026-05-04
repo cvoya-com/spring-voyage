@@ -143,14 +143,15 @@ public class UnitContractTests : IClassFixture<CustomWebApplicationFactory>
     {
         var ct = TestContext.Current.CancellationToken;
         ResetDirectory();
+        var ghostId = Guid.NewGuid();
         _factory.DirectoryService
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "unit" && a.Path == "contract-ghost-readiness"),
+                Arg.Is<Address>(a => a.Scheme == "unit" && a.Id == ghostId),
                 Arg.Any<CancellationToken>())
             .Returns((DirectoryEntry?)null);
 
         var response = await _client.GetAsync(
-            "/api/v1/tenant/units/contract-ghost-readiness/readiness", ct);
+            $"/api/v1/tenant/units/{ghostId:N}/readiness", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
 
         var body = await response.Content.ReadAsStringAsync(ct);

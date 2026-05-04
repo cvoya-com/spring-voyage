@@ -166,7 +166,20 @@ public static class ActivitySourceNormalizer
         IDirectoryService directoryService,
         CancellationToken cancellationToken)
     {
-        var entry = await directoryService.ResolveAsync(Address.For(scheme, path), cancellationToken);
-        return entry is null ? null : Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
+        // Post-#1629 the directory is Guid-keyed; if the path is already a
+        // Guid hex, resolve directly. Otherwise treat it as a legacy display
+        // name and walk ListAllAsync — Address.For would throw for a non-Guid
+        // input and turn the 500 into a regression here.
+        if (Cvoya.Spring.Core.Identifiers.GuidFormatter.TryParse(path, out _))
+        {
+            var entry = await directoryService.ResolveAsync(Address.For(scheme, path), cancellationToken);
+            return entry is null ? null : Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId);
+        }
+
+        var allEntries = await directoryService.ListAllAsync(cancellationToken);
+        var match = allEntries.FirstOrDefault(
+            e => string.Equals(e.Address.Scheme, scheme, StringComparison.OrdinalIgnoreCase)
+                 && string.Equals(e.DisplayName, path, StringComparison.Ordinal));
+        return match is null ? null : Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(match.ActorId);
     }
 }

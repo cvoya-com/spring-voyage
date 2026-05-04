@@ -50,9 +50,11 @@ public class PlatformTenantsContractTests : IClassFixture<CustomWebApplicationFa
     {
         var ct = TestContext.Current.CancellationToken;
 
+        // Post-#1629 the wire `id` field on the request is a Guid hex.
+        var newId = Guid.NewGuid().ToString("N");
         var response = await _client.PostAsJsonAsync(
             "/api/v1/platform/tenants",
-            new CreateTenantRequest("contract-create", "Contract Create"),
+            new CreateTenantRequest(newId, "Contract Create"),
             ct);
         response.StatusCode.ShouldBe(HttpStatusCode.Created);
 
@@ -66,7 +68,8 @@ public class PlatformTenantsContractTests : IClassFixture<CustomWebApplicationFa
         var ct = TestContext.Current.CancellationToken;
         await SeedTenantAsync("contract-get", ct);
 
-        var response = await _client.GetAsync("/api/v1/platform/tenants/contract-get", ct);
+        var tenantHex = DeriveTenantId("contract-get").ToString("N");
+        var response = await _client.GetAsync($"/api/v1/platform/tenants/{tenantHex}", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var body = await response.Content.ReadAsStringAsync(ct);
@@ -79,7 +82,8 @@ public class PlatformTenantsContractTests : IClassFixture<CustomWebApplicationFa
     {
         var ct = TestContext.Current.CancellationToken;
 
-        var response = await _client.GetAsync("/api/v1/platform/tenants/contract-ghost", ct);
+        var response = await _client.GetAsync(
+            $"/api/v1/platform/tenants/{Guid.NewGuid():N}", ct);
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
 
         var body = await response.Content.ReadAsStringAsync(ct);

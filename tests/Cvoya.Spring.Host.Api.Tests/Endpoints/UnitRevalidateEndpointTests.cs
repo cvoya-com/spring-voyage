@@ -109,7 +109,7 @@ public class UnitRevalidateEndpointTests : IClassFixture<CustomWebApplicationFac
             .Returns((DirectoryEntry?)null);
 
         var response = await _client.PostAsync(
-            "/api/v1/tenant/units/nope/revalidate", content: null, ct);
+            $"/api/v1/tenant/units/{Guid.NewGuid():N}/revalidate", content: null, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }

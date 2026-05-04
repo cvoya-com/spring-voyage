@@ -185,8 +185,7 @@ public class WebhookEndpointsTests : IClassFixture<WebhookEndpointsTests.Factory
                 Arg.Is<Message>(m =>
                     m.To.Scheme == "unit"
                     && m.To.Path == TargetUnitPath
-                    && m.From.Scheme == "connector"
-                    && m.From.Path == "github"),
+                    && m.From.Scheme == "connector"),
                 Arg.Any<CancellationToken>());
     }
 

@@ -182,7 +182,7 @@ public class UnitDeleteEndpointTests : IClassFixture<CustomWebApplicationFactory
             .ResolveAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
             .Returns((DirectoryEntry?)null);
 
-        var response = await _client.DeleteAsync("/api/v1/tenant/units/does-not-exist", ct);
+        var response = await _client.DeleteAsync($"/api/v1/tenant/units/{Guid.NewGuid():N}", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }

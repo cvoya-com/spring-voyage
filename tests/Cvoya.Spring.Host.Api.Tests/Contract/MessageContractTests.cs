@@ -53,7 +53,7 @@ public class MessageContractTests : IClassFixture<CustomWebApplicationFactory>
             DateTimeOffset.UtcNow);
         _factory.DirectoryService
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "agent" && a.Path == "contract-send-target"),
+                Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == Agent_ContractSendTarget_Id),
                 Arg.Any<CancellationToken>())
             .Returns(entry);
 
@@ -82,7 +82,7 @@ public class MessageContractTests : IClassFixture<CustomWebApplicationFactory>
             .Returns(agent);
 
         var request = new SendMessageRequest(
-            new AddressDto("agent", "contract-send-target"),
+            new AddressDto("agent", Agent_ContractSendTarget_Id.ToString("N")),
             "Domain",
             "contract-conv-1",
             JsonSerializer.SerializeToElement(new { Text = "hello from contract test" }));
@@ -100,7 +100,7 @@ public class MessageContractTests : IClassFixture<CustomWebApplicationFactory>
         var ct = TestContext.Current.CancellationToken;
 
         var request = new SendMessageRequest(
-            new AddressDto("agent", "contract-bad-type"),
+            new AddressDto("agent", Guid.NewGuid().ToString("N")),
             "TotallyMadeUpType",
             null,
             JsonSerializer.SerializeToElement(new { }));
@@ -134,7 +134,7 @@ public class MessageContractTests : IClassFixture<CustomWebApplicationFactory>
             DateTimeOffset.UtcNow);
         _factory.DirectoryService
             .ResolveAsync(
-                Arg.Is<Address>(a => a.Scheme == "agent" && a.Path == "contract-null-payload-target"),
+                Arg.Is<Address>(a => a.Scheme == "agent" && a.Id == Agent_ContractNullPayloadTarget_Id),
                 Arg.Any<CancellationToken>())
             .Returns(entry);
 
@@ -151,7 +151,7 @@ public class MessageContractTests : IClassFixture<CustomWebApplicationFactory>
             .Returns(agent);
 
         var request = new SendMessageRequest(
-            new AddressDto("agent", "contract-null-payload-target"),
+            new AddressDto("agent", Agent_ContractNullPayloadTarget_Id.ToString("N")),
             "Domain",
             "contract-conv-null",
             JsonSerializer.SerializeToElement(new { Text = "hello" }));

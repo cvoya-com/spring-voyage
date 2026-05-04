@@ -243,7 +243,7 @@ public class UnitMetadataEndpointTests : IClassFixture<CustomWebApplicationFacto
             .Returns((DirectoryEntry?)null);
 
         var response = await _client.PatchAsJsonAsync(
-            "/api/v1/tenant/units/does-not-exist",
+            $"/api/v1/tenant/units/{Guid.NewGuid():N}",
             new UpdateUnitRequest(Model: "gpt-4o"),
             ct);
 

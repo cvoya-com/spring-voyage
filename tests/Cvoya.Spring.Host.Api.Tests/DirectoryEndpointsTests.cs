@@ -163,8 +163,9 @@ public class DirectoryEndpointsTests : IClassFixture<CustomWebApplicationFactory
         var hit = result.Hits.ShouldHaveSingleItem();
         hit.AncestorChain.Count.ShouldBe(2);
         hit.AncestorChain[0].Scheme.ShouldBe("unit");
-        hit.AncestorChain[0].Path.ShouldBe("mid");
-        hit.AncestorChain[1].Path.ShouldBe("root");
+        // Post-#1629 Address.Path is the Guid hex of the actor identity.
+        hit.AncestorChain[0].Path.ShouldBe(Unit_Mid_Id.ToString("N"));
+        hit.AncestorChain[1].Path.ShouldBe(Unit_Root_Id.ToString("N"));
         hit.ProjectionPaths.Count.ShouldBe(2);
         hit.ProjectionPaths.ShouldAllBe(p => p == "projection/translation");
     }
