@@ -1307,8 +1307,6 @@ public class SpringApiClientTests
     }
 
     // --- #1038 / #1288 — `spring thread close <id>` API path ---
-    // TODO(#1291): expectedPath will change to /api/v1/tenant/threads/c-1/close
-    // once the API URL rename (#1291) lands.
 
     [Fact]
     public async Task CloseThreadAsync_PostsCloseEndpointWithReason()
