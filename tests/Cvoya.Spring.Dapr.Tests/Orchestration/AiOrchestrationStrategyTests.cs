@@ -58,13 +58,13 @@ public class AiOrchestrationStrategyTests
         var member2 = Address.For("agent", TestSlugIds.HexFor("agent-2"));
         _context.Members.Returns([member1, member2]);
         _aiProvider.CompleteAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns("agent://agent-1");
+            .Returns($"agent://{TestSlugIds.HexFor("agent-1")}");
 
         var message = CreateMessage();
         await _strategy.OrchestrateAsync(message, _context, TestContext.Current.CancellationToken);
 
         await _aiProvider.Received(1).CompleteAsync(
-            Arg.Is<string>(p => p.Contains("agent://agent-1") && p.Contains("agent://agent-2")),
+            Arg.Is<string>(p => p.Contains($"agent://{TestSlugIds.HexFor("agent-1")}") && p.Contains($"agent://{TestSlugIds.HexFor("agent-2")}")),
             Arg.Any<CancellationToken>());
     }
 
@@ -75,7 +75,7 @@ public class AiOrchestrationStrategyTests
         var member2 = Address.For("agent", TestSlugIds.HexFor("agent-2"));
         _context.Members.Returns([member1, member2]);
         _aiProvider.CompleteAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns("agent://agent-2");
+            .Returns($"agent://{TestSlugIds.HexFor("agent-2")}");
 
         var expectedResponse = CreateMessage(threadId: "response");
         _context.SendAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>())
@@ -127,8 +127,8 @@ public class AiOrchestrationStrategyTests
         var message = CreateMessage();
         var prompt = AiOrchestrationStrategy.BuildRoutingPrompt(message, _context);
 
-        prompt.ShouldContain("agent://agent-1");
-        prompt.ShouldContain("unit://sub-unit");
+        prompt.ShouldContain($"agent://{TestSlugIds.HexFor("agent-1")}");
+        prompt.ShouldContain($"unit://{TestSlugIds.HexFor("sub-unit")}");
         prompt.ShouldContain("process data");
     }
 
@@ -139,7 +139,7 @@ public class AiOrchestrationStrategyTests
         var member2 = Address.For("agent", TestSlugIds.HexFor("agent-2"));
         var members = new List<Address> { member1, member2 };
 
-        var result = AiOrchestrationStrategy.ParseRoutingDecision("agent://agent-2", members);
+        var result = AiOrchestrationStrategy.ParseRoutingDecision($"agent://{TestSlugIds.HexFor("agent-2")}", members);
 
         result.ShouldBe(member2);
     }

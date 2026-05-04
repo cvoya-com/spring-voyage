@@ -365,9 +365,16 @@ public class DbExpertiseSeedProviderTests
             stableDefinition = doc.RootElement.Clone();
         }
 
+        // Post-#1629 the seed-provider keys off the row's Guid Id (which the
+        // actor passes as Id.GetId()). Map slug-shaped actorId arguments to
+        // a deterministic Guid so test lookups by the same string find the row.
+        var rowId = Cvoya.Spring.Core.Identifiers.GuidFormatter.TryParse(actorId, out var parsed)
+            ? parsed
+            : TestSlugIds.For(actorId);
+
         db.AgentDefinitions.Add(new AgentDefinitionEntity
         {
-            Id = Guid.NewGuid(),
+            Id = rowId,
             DisplayName = agentId,
             Description = "test",
             Definition = stableDefinition,
@@ -393,9 +400,13 @@ public class DbExpertiseSeedProviderTests
             stableDefinition = doc.RootElement.Clone();
         }
 
+        var rowId = Cvoya.Spring.Core.Identifiers.GuidFormatter.TryParse(actorId, out var parsed)
+            ? parsed
+            : TestSlugIds.For(actorId);
+
         db.UnitDefinitions.Add(new UnitDefinitionEntity
         {
-            Id = Guid.NewGuid(),
+            Id = rowId,
             DisplayName = unitId,
             Description = "test",
             Definition = stableDefinition,

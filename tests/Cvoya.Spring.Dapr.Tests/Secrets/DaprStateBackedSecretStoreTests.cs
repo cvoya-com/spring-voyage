@@ -217,8 +217,9 @@ public class DaprStateBackedSecretStoreTests
 
         await sut.WriteAsync("hunter2", ct);
 
+        var expectedComponent = $"statestore-{TenantId:N}";
         await _dapr.Received(1).SaveStateAsync(
-            "statestore-acme",
+            expectedComponent,
             Arg.Any<string>(),
             Arg.Any<string>(),
             Arg.Any<StateOptions?>(),
@@ -244,8 +245,9 @@ public class DaprStateBackedSecretStoreTests
             KeyPrefix = "secrets/",
         }, tenantContext: TenantContext());
 
+        var expectedComponent = $"statestore-{TenantId:N}";
         _dapr
-            .GetStateAsync<string?>("statestore-acme", "secrets/abc", cancellationToken: Arg.Any<CancellationToken>())
+            .GetStateAsync<string?>(expectedComponent, "secrets/abc", cancellationToken: Arg.Any<CancellationToken>())
             .Returns("legacy-plaintext");
 
         var result = await sut.ReadAsync("abc", ct);
@@ -263,9 +265,9 @@ public class DaprStateBackedSecretStoreTests
         _dapr
             .GetStateAsync<string?>(Component, "secrets/abc", cancellationToken: Arg.Any<CancellationToken>())
             .Returns((string?)null);
-        // Legacy key hits with a plain value.
+        // Legacy key hits with a plain value (legacy form: secrets/<tenantHex>/<key>).
         _dapr
-            .GetStateAsync<string?>(Component, "secrets/acme/abc", cancellationToken: Arg.Any<CancellationToken>())
+            .GetStateAsync<string?>(Component, $"secrets/{TenantId:N}/abc", cancellationToken: Arg.Any<CancellationToken>())
             .Returns("hunter2");
 
         var result = await sut.ReadAsync("abc", ct);

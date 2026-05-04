@@ -126,7 +126,9 @@ public sealed partial class BudgetEnforcer(
             accumulated = _tenantAccumulatedCost;
         }
 
-        var tenantId = "default";
+        // OSS hosts run with the single canonical tenant id; the cloud
+        // overlay swaps this enforcer for a tenant-aware version.
+        var tenantId = Cvoya.Spring.Core.Tenancy.OssTenantIds.DefaultNoDash;
         var budgetKey = $"{tenantId}:{StateKeys.TenantCostBudget}";
         var budget = await stateStore.GetAsync<decimal?>(budgetKey);
 

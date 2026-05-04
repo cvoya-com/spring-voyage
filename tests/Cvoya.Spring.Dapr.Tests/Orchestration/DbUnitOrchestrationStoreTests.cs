@@ -34,7 +34,7 @@ public class DbUnitOrchestrationStoreTests
         var (store, _, _) = BuildStore();
 
         var key = await store.GetStrategyKeyAsync(
-            "missing-unit", TestContext.Current.CancellationToken);
+            TestSlugIds.HexFor("missing-unit"), TestContext.Current.CancellationToken);
 
         key.ShouldBeNull();
     }
@@ -47,10 +47,10 @@ public class DbUnitOrchestrationStoreTests
         {
             orchestration = new { strategy = "workflow" },
         });
-        await SeedUnitAsync(scopeFactory, unitId: "eng-team", definition: definition);
+        await SeedUnitAsync(scopeFactory, unitId: TestSlugIds.HexFor("eng-team"), definition: definition);
 
         var key = await store.GetStrategyKeyAsync(
-            "eng-team", TestContext.Current.CancellationToken);
+            TestSlugIds.HexFor("eng-team"), TestContext.Current.CancellationToken);
 
         key.ShouldBe("workflow");
     }
@@ -59,17 +59,17 @@ public class DbUnitOrchestrationStoreTests
     public async Task SetStrategyKeyAsync_NewRow_WritesSlotAndInvalidatesCache()
     {
         var (store, scopeFactory, invalidator) = BuildStore();
-        await SeedUnitAsync(scopeFactory, unitId: "triage", actorId: "actor-triage", definition: null);
+        await SeedUnitAsync(scopeFactory, unitId: TestSlugIds.HexFor("triage"), actorId: TestSlugIds.HexFor("actor-triage"), definition: null);
 
         await store.SetStrategyKeyAsync(
-            "triage", "label-routed", TestContext.Current.CancellationToken);
+            TestSlugIds.HexFor("triage"), "label-routed", TestContext.Current.CancellationToken);
 
         // Round-trip through GetStrategyKeyAsync so we exercise the JSON
         // shape the resolver will actually read.
         var key = await store.GetStrategyKeyAsync(
-            "triage", TestContext.Current.CancellationToken);
+            TestSlugIds.HexFor("triage"), TestContext.Current.CancellationToken);
         key.ShouldBe("label-routed");
-        invalidator.Received().Invalidate("actor-triage");
+        invalidator.Received().Invalidate(TestSlugIds.HexFor("triage"));
     }
 
     [Fact]
@@ -81,14 +81,14 @@ public class DbUnitOrchestrationStoreTests
             expertise = new[] { new { domain = "triage" } },
             instructions = "Do the triage.",
         });
-        await SeedUnitAsync(scopeFactory, unitId: "triage", definition: seedDefinition);
+        await SeedUnitAsync(scopeFactory, unitId: TestSlugIds.HexFor("triage"), definition: seedDefinition);
 
         await store.SetStrategyKeyAsync(
-            "triage", "ai", TestContext.Current.CancellationToken);
+            TestSlugIds.HexFor("triage"), "ai", TestContext.Current.CancellationToken);
 
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
-        var persisted = db.UnitDefinitions.Single(u => u.DisplayName == "triage");
+        var persisted = db.UnitDefinitions.Single(u => u.DisplayName == TestSlugIds.HexFor("triage"));
         var json = persisted.Definition!.Value;
         // Expertise + instructions survive the rewrite verbatim; the
         // orchestration slot carries the new key.
@@ -108,23 +108,23 @@ public class DbUnitOrchestrationStoreTests
             orchestration = new { strategy = "label-routed" },
         });
         await SeedUnitAsync(
-            scopeFactory, unitId: "triage", actorId: "actor-triage", definition: seedDefinition);
+            scopeFactory, unitId: TestSlugIds.HexFor("triage"), actorId: TestSlugIds.HexFor("actor-triage"), definition: seedDefinition);
 
         await store.SetStrategyKeyAsync(
-            "triage", strategyKey: null, TestContext.Current.CancellationToken);
+            TestSlugIds.HexFor("triage"), strategyKey: null, TestContext.Current.CancellationToken);
 
         var key = await store.GetStrategyKeyAsync(
-            "triage", TestContext.Current.CancellationToken);
+            TestSlugIds.HexFor("triage"), TestContext.Current.CancellationToken);
         key.ShouldBeNull();
 
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
-        var persisted = db.UnitDefinitions.Single(u => u.DisplayName == "triage");
+        var persisted = db.UnitDefinitions.Single(u => u.DisplayName == TestSlugIds.HexFor("triage"));
         // Expertise survives the clear — only the orchestration slot is
         // stripped.
         persisted.Definition!.Value.TryGetProperty("expertise", out _).ShouldBeTrue();
         persisted.Definition.Value.TryGetProperty("orchestration", out _).ShouldBeFalse();
-        invalidator.Received().Invalidate("actor-triage");
+        invalidator.Received().Invalidate(TestSlugIds.HexFor("triage"));
     }
 
     [Fact]
@@ -133,7 +133,7 @@ public class DbUnitOrchestrationStoreTests
         var (store, _, invalidator) = BuildStore();
 
         await store.SetStrategyKeyAsync(
-            "ghost", "ai", TestContext.Current.CancellationToken);
+            TestSlugIds.HexFor("ghost"), "ai", TestContext.Current.CancellationToken);
 
         invalidator.DidNotReceive().Invalidate(Arg.Any<string>());
     }
@@ -167,9 +167,16 @@ public class DbUnitOrchestrationStoreTests
             stableDefinition = doc.RootElement.Clone();
         }
 
+        // Post-#1629 the store keys off Address.Id; align the seeded row's
+        // Id with the unitId argument (interpreted as Guid hex) so the test
+        // can pass the same string into the store under test.
+        var rowId = Cvoya.Spring.Core.Identifiers.GuidFormatter.TryParse(unitId, out var parsed)
+            ? parsed
+            : Guid.NewGuid();
+
         db.UnitDefinitions.Add(new UnitDefinitionEntity
         {
-            Id = Guid.NewGuid(),
+            Id = rowId,
             DisplayName = unitId,
             Description = "test",
             Definition = stableDefinition,
