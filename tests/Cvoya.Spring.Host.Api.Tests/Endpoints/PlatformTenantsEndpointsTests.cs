@@ -114,24 +114,24 @@ public class PlatformTenantsEndpointsTests : IClassFixture<CustomWebApplicationF
     }
 
     [Fact]
-    public async Task CreateTenant_MalformedId_RejectsRequest()
+    public async Task CreateTenant_MalformedId()
     {
         var ct = TestContext.Current.CancellationToken;
 
         // Non-Guid ids violate the registry's identifier shape — the JSON
         // converter rejects malformed values during deserialization, so
         // post a raw JSON payload (the typed CreateTenantRequest record's
-        // Guid Id field can't carry a malformed string). Post-#1629 the
-        // converter throws a JsonException on bad input which surfaces as
-        // a request-pipeline failure (4xx or 5xx depending on middleware
-        // ordering); the load-bearing assertion is that no tenant row is
-        // created — not the exact status code.
+        // Guid Id field can't carry a malformed string). The custom
+        // converter throws a JsonException on bad input; the framework
+        // wraps it in BadHttpRequestException (StatusCode = 400), and the
+        // host's StatusCodeSelector on UseExceptionHandler honours that
+        // status so the response surfaces as a clean 400.
         using var content = new StringContent(
             "{\"id\":\"BadCaseTenant\",\"displayName\":null}",
             System.Text.Encoding.UTF8,
             "application/json");
         var response = await _client.PostAsync("/api/v1/platform/tenants", content, ct);
-        response.IsSuccessStatusCode.ShouldBeFalse();
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }
 
     [Fact]

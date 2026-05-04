@@ -348,7 +348,20 @@ try
         app.MapOpenApi();
     }
 
-    app.UseExceptionHandler();
+    // BadHttpRequestException carries a StatusCode (400 for malformed
+    // request bodies — e.g. a JsonException raised from a custom
+    // JsonConverter such as NoDashGuidJsonConverter — rejected by
+    // RequestDelegateFactory.TryReadBodyAsync). The default
+    // ExceptionHandlerMiddleware ignores that property and emits 500;
+    // the StatusCodeSelector below honours it so deserialization
+    // failures surface as a clean 400. Other exception types fall
+    // through to the framework default (500). See #1644.
+    app.UseExceptionHandler(new ExceptionHandlerOptions
+    {
+        StatusCodeSelector = ex => ex is BadHttpRequestException badRequest
+            ? badRequest.StatusCode
+            : StatusCodes.Status500InternalServerError,
+    });
     app.UseAuthentication();
     app.UseAuthorization();
 
