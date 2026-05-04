@@ -20,6 +20,15 @@ unit:
     - unit: sv-oss-product-management
     - unit: sv-oss-program-management
   execution:
+    # The umbrella runs claude-opus-4-7 to route incoming work to the right
+    # sub-unit; routing is agent reasoning, not just dispatch, so it needs a
+    # container of its own. The platform-default omnibus image bundles every
+    # supported CLI runtime and is the right baseline for an orchestration
+    # role that doesn't need team-specific tooling. Once package-level
+    # `execution:` inheritance ships (#1679), this declaration moves up to
+    # package.yaml and member units inherit unless they override.
+    image: ghcr.io/cvoya-com/spring-voyage-agents:latest
+    runtime: docker
     hosting: permanent
   policies:
     communication: through-unit
