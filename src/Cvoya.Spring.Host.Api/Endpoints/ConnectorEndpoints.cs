@@ -273,7 +273,10 @@ public static class ConnectorEndpoints
                 continue;
             }
             rows.Add(new ConnectorUnitBindingResponse(
-                UnitId: unitId,
+                // Post-#1629 the directory entry's address id IS the
+                // canonical actor id; surface it on the wire as the
+                // unit's typed Guid identity.
+                UnitId: entry.Address.Id,
                 UnitName: unitId,
                 UnitDisplayName: string.IsNullOrEmpty(entry.DisplayName) ? unitId : entry.DisplayName,
                 TypeId: target.TypeId,

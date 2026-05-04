@@ -670,10 +670,10 @@ public static class AgentEndpoints
         // Per #744: every agent must carry at least one unit membership
         // at creation time. An empty / null UnitIds list is a hard
         // 400 — the "unit-less agent" state is no longer representable.
-        var unitIds = (request.UnitIds ?? Array.Empty<string>())
-            .Where(id => !string.IsNullOrWhiteSpace(id))
-            .Select(id => id!.Trim())
-            .Distinct(StringComparer.Ordinal)
+        // Post-#1629 every entry is a Guid (the unit's stable actor id).
+        var unitIds = (request.UnitIds ?? Array.Empty<Guid>())
+            .Where(id => id != Guid.Empty)
+            .Distinct()
             .ToList();
         if (unitIds.Count == 0)
         {
@@ -692,16 +692,16 @@ public static class AgentEndpoints
         // shape we return for genuinely missing units, so the agent
         // creation surface never leaks the existence of other-tenant
         // units.
-        var resolvedUnits = new List<(string Id, DirectoryEntry Entry)>(unitIds.Count);
+        var resolvedUnits = new List<(Guid Id, DirectoryEntry Entry)>(unitIds.Count);
         var pseudoParent = Address.For("agent", request.Name);
         foreach (var unitId in unitIds)
         {
-            var unitAddress = Address.For("unit", unitId);
+            var unitAddress = Address.ForIdentity("unit", unitId);
             var unitEntry = await directoryService.ResolveAsync(unitAddress, cancellationToken);
             if (unitEntry is null)
             {
                 return Results.Problem(
-                    detail: $"Unit '{unitId}' not found",
+                    detail: $"Unit '{Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(unitId)}' not found",
                     statusCode: StatusCodes.Status404NotFound);
             }
             // Ask the guard whether the unit is visible in the current
@@ -715,7 +715,7 @@ public static class AgentEndpoints
             if (!visibleInTenant)
             {
                 return Results.Problem(
-                    detail: $"Unit '{unitId}' not found",
+                    detail: $"Unit '{Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(unitId)}' not found",
                     statusCode: StatusCodes.Status404NotFound);
             }
             resolvedUnits.Add((unitId, unitEntry));
@@ -783,8 +783,12 @@ public static class AgentEndpoints
 
         // Mirror the primary unit onto the legacy cached pointer on the
         // agent actor so any reader still consulting it sees a consistent
-        // value. Authoritative source is the membership table.
-        var primaryUnit = resolvedUnits[0].Id;
+        // value. Authoritative source is the membership table. The
+        // ParentUnit field carries the unit's display name (slug-shaped
+        // navigation label) so existing readers continue to render it
+        // unchanged; the canonical Guid identity lives on the membership
+        // row.
+        var primaryUnit = resolvedUnits[0].Entry.DisplayName;
         var agentProxy = actorProxyFactory.CreateActorProxy<IAgentActor>(
             new ActorId(actorId), nameof(AgentActor));
         await agentProxy.SetMetadataAsync(
@@ -909,7 +913,7 @@ public static class AgentEndpoints
         string? hostingMode = null,
         InitiativeLevel? initiativeLevel = null) =>
         new(
-            Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId),
+            entry.ActorId,
             entry.DisplayName,
             entry.DisplayName,
             entry.Description,

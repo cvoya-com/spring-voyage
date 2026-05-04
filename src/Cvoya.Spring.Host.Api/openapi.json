@@ -8648,7 +8648,8 @@
         "type": "object",
         "properties": {
           "id": {
-            "type": "string"
+            "type": "string",
+            "format": "uuid"
           },
           "name": {
             "type": "string"
@@ -9311,7 +9312,8 @@
         "type": "object",
         "properties": {
           "unitId": {
-            "type": "string"
+            "type": "string",
+            "format": "uuid"
           },
           "unitName": {
             "type": "string"
@@ -9584,7 +9586,8 @@
           "unitIds": {
             "type": "array",
             "items": {
-              "type": "string"
+              "type": "string",
+              "format": "uuid"
             }
           },
           "definitionJson": {
@@ -9661,7 +9664,8 @@
         "type": "object",
         "properties": {
           "id": {
-            "type": "string"
+            "type": "string",
+            "format": "uuid"
           },
           "displayName": {
             "type": [
@@ -9776,7 +9780,8 @@
               "array"
             ],
             "items": {
-              "type": "string"
+              "type": "string",
+              "format": "uuid"
             }
           },
           "isTopLevel": {
@@ -11636,7 +11641,8 @@
         "type": "object",
         "properties": {
           "humanId": {
-            "type": "string"
+            "type": "string",
+            "format": "uuid"
           },
           "permission": {
             "$ref": "#/components/schemas/PermissionLevel"
@@ -11748,7 +11754,8 @@
         "type": "object",
         "properties": {
           "id": {
-            "type": "string"
+            "type": "string",
+            "format": "uuid"
           },
           "displayName": {
             "type": "string"
@@ -11935,9 +11942,13 @@
             ]
           },
           "to": {
-            "type": [
-              "null",
-              "string"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ParticipantRef"
+              }
             ]
           },
           "body": {
@@ -12442,7 +12453,8 @@
         "type": "object",
         "properties": {
           "unitId": {
-            "type": "string"
+            "type": "string",
+            "format": "uuid"
           },
           "status": {
             "$ref": "#/components/schemas/UnitStatus"
@@ -12644,7 +12656,8 @@
         "type": "object",
         "properties": {
           "id": {
-            "type": "string"
+            "type": "string",
+            "format": "uuid"
           },
           "name": {
             "type": "string"

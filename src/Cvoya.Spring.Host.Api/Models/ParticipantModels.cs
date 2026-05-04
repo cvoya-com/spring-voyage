@@ -4,51 +4,47 @@
 namespace Cvoya.Spring.Host.Api.Models;
 
 /// <summary>
-/// A participant address enriched with a human-readable display name.
-/// Used in <see cref="InboxItemResponse"/>, thread summaries, and thread
-/// events wherever a raw address was previously returned. The
-/// <see cref="Address"/> field always carries the canonical address so
-/// callers can route, filter, or display the raw address in a metadata
-/// popover; <see cref="DisplayName"/> is the resolved name from the
-/// appropriate definition store (agent / unit) or the address path as a
-/// fallback for unknown / deleted participants.
+/// A participant address paired with a server-resolved human-readable
+/// display name. Used in <see cref="InboxItemResponse"/>, thread summaries,
+/// and thread events wherever a raw address would otherwise leak into the
+/// UI.
 /// </summary>
 /// <remarks>
 /// <para>
-/// The <see cref="Address"/> field is intentionally heterogeneous in this
-/// transitional state (#1490):
-/// <list type="bullet">
-///   <item><description>
-///     <b>Agents and units</b> carry the identity form
-///     <c>scheme:id:&lt;uuid&gt;</c> — unambiguous stable UUID, not a slug.
-///   </description></item>
-///   <item><description>
-///     <b>Humans</b> still carry the navigation form
-///     <c>human://&lt;username&gt;</c> until #1491 (human stable identity)
-///     lands. The resolver picks the correct comparison strategy per scheme:
-///     human addresses compare via <c>://</c>, agent/unit addresses compare
-///     via <c>:id:</c>.
-///   </description></item>
-/// </list>
+/// <b>Wire shape (post-#1629).</b> <see cref="Address"/> always carries
+/// the canonical <c>scheme:&lt;32-hex-no-dash&gt;</c> form (e.g.
+/// <c>agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7</c>). The legacy
+/// <c>scheme://path</c> and <c>scheme:id:&lt;uuid&gt;</c> shapes were
+/// retired with the single-identity baseline; the resolver still accepts
+/// them on the read side for activity events persisted before the
+/// baseline migration.
+/// </para>
+/// <para>
+/// <b>Non-empty <see cref="DisplayName"/> (#1635).</b> The server resolves
+/// every Guid identity on the way out — agents and units against their
+/// definition rows, humans via
+/// <see cref="Cvoya.Spring.Core.Security.IHumanIdentityResolver"/>. When
+/// the entity has been deleted (or never existed) the resolver returns
+/// the literal <c>&lt;deleted&gt;</c> placeholder rather than blanking
+/// the field. This contract lets the portal render <c>DisplayName</c>
+/// directly without UUID-shape heuristics.
 /// </para>
 /// <para>
 /// Callers checking "is this participant the currently logged-in user?"
-/// should compare against <c>UserProfileResponse.Address</c>, which always
-/// carries a <c>human://</c> form. Cross-scheme comparisons are inherently
-/// false, so the heterogeneous mix never produces a false positive.
+/// should compare the canonical address string against
+/// <see cref="UserProfileResponse.Address"/>; cross-scheme comparisons
+/// are inherently false.
 /// </para>
 /// </remarks>
 /// <param name="Address">
-/// The canonical address string. For <c>agent://</c> and <c>unit://</c>
-/// sources this is <c>scheme:id:&lt;uuid&gt;</c>; for <c>human://</c>
-/// sources this is <c>human://&lt;username&gt;</c> (navigation form, until
-/// #1491 lands).
+/// The canonical wire-form participant address —
+/// <c>scheme:&lt;32-hex-no-dash&gt;</c> per #1629. May still surface in
+/// legacy <c>scheme://path</c> form on threads that include events
+/// persisted before the baseline migration.
 /// </param>
 /// <param name="DisplayName">
-/// The human-readable display name. For <c>agent</c> sources this is
-/// <c>AgentDefinition.Name</c>; for <c>unit</c> it is
-/// <c>UnitDefinitionEntity.Name</c>; for <c>human</c> and any other
-/// scheme it is the path component of the address (the user-id slug).
-/// Never null — falls back to the path when resolution fails.
+/// The server-resolved human-readable display name. Always non-empty.
+/// Falls back to <c>&lt;deleted&gt;</c> when the underlying entity has
+/// been removed; the portal can render this string directly.
 /// </param>
 public record ParticipantRef(string Address, string DisplayName);

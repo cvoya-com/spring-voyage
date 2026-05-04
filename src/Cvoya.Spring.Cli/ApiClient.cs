@@ -102,7 +102,7 @@ public class SpringApiClient
         string id,
         string? displayName,
         string? role,
-        IReadOnlyList<string> unitIds,
+        IReadOnlyList<Guid> unitIds,
         string? definitionJson = null,
         CancellationToken ct = default)
     {
@@ -112,7 +112,13 @@ public class SpringApiClient
             DisplayName = string.IsNullOrWhiteSpace(displayName) ? id : displayName,
             Description = string.Empty,
             Role = role,
-            UnitIds = unitIds?.ToList() ?? new List<string>(),
+            // Kiota models the array element as nullable Guid (the OpenAPI
+            // items schema can't express "non-null entries inside a
+            // required array"); the wrapper takes non-null Guids and
+            // lifts to Guid? at the boundary.
+            UnitIds = unitIds is { Count: > 0 }
+                ? unitIds.Select(g => (Guid?)g).ToList()
+                : new List<Guid?>(),
             DefinitionJson = string.IsNullOrWhiteSpace(definitionJson) ? null : definitionJson,
         };
 
@@ -319,7 +325,7 @@ public class SpringApiClient
         string? tool = null,
         string? provider = null,
         string? hosting = null,
-        IReadOnlyList<string>? parentUnitIds = null,
+        IReadOnlyList<Guid>? parentUnitIds = null,
         bool? isTopLevel = null,
         CancellationToken ct = default)
     {
@@ -336,8 +342,13 @@ public class SpringApiClient
             // Review feedback on #744: forward the parent-required inputs
             // so the server enforces the invariant. The CLI catches the
             // neither/both case at parse time; the server remains the
-            // source of truth.
-            ParentUnitIds = parentUnitIds is { Count: > 0 } ? parentUnitIds.ToList() : null,
+            // source of truth. Kiota models the array element as nullable
+            // Guid (the OpenAPI items schema can't express "non-null
+            // entries inside a nullable array"), so the wrapper accepts
+            // non-null Guids and lifts each entry to Guid? at the boundary.
+            ParentUnitIds = parentUnitIds is { Count: > 0 }
+                ? parentUnitIds.Select(g => (Guid?)g).ToList()
+                : null,
             IsTopLevel = isTopLevel,
         };
         var result = await _client.Api.V1.Tenant.Units.PostAsync(request, cancellationToken: ct);

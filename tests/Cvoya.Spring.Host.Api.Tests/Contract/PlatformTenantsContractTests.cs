@@ -50,8 +50,9 @@ public class PlatformTenantsContractTests : IClassFixture<CustomWebApplicationFa
     {
         var ct = TestContext.Current.CancellationToken;
 
-        // Post-#1629 the wire `id` field on the request is a Guid hex.
-        var newId = Guid.NewGuid().ToString("N");
+        // Post-#1629 the wire `id` field on the request is a Guid (no-dash
+        // hex on emit; lenient on parse).
+        var newId = Guid.NewGuid();
         var response = await _client.PostAsJsonAsync(
             "/api/v1/platform/tenants",
             new CreateTenantRequest(newId, "Contract Create"),

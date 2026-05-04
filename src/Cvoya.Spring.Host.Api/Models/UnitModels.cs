@@ -20,10 +20,12 @@ using Cvoya.Spring.Core.Units;
 /// review feedback on #744, every unit must either belong to at least
 /// one parent unit OR be created with the explicit <paramref name="IsTopLevel"/>
 /// flag set. The two options are mutually exclusive: neither → 400, both
-/// → 400, unknown parent-unit id → 404. Each entry is a unit id
-/// (equivalent to the unit's <c>Address.Path</c>); the server resolves
-/// each through the directory and rejects the whole request with 404
-/// when any id does not map to a registered unit.
+/// → 400, unknown parent-unit id → 404. Each entry is the parent unit's
+/// stable Guid actor id (matching <c>Address.Id</c>); the server
+/// resolves each through the directory and rejects the whole request
+/// with 404 when any id does not map to a registered unit. Wire form
+/// is the canonical 32-character no-dash hex per
+/// <see cref="Cvoya.Spring.Core.Identifiers.GuidFormatter"/>.
 /// </param>
 /// <param name="IsTopLevel">
 /// When <c>true</c>, marks the unit as a top-level (tenant-parented)
@@ -42,7 +44,7 @@ public record CreateUnitRequest(
     string? Tool = null,
     string? Provider = null,
     string? Hosting = null,
-    IReadOnlyList<string>? ParentUnitIds = null,
+    IReadOnlyList<Guid>? ParentUnitIds = null,
     bool? IsTopLevel = null);
 
 /// <summary>
@@ -79,7 +81,7 @@ public record UpdateUnitRequest(
 /// <param name="LastValidationError">Structured outcome of the most recent failed validation run, or <c>null</c> when the most recent run succeeded or the unit has never been validated.</param>
 /// <param name="LastValidationRunId">Dapr workflow instance id of the most recent validation run. Null until the first run.</param>
 public record UnitResponse(
-    string Id,
+    Guid Id,
     string Name,
     string DisplayName,
     string Description,
@@ -136,7 +138,7 @@ public record UnitDetailResponse(UnitResponse Unit, System.Text.Json.JsonElement
 /// <c>POST /api/v1/units/{id}/stop</c>. Returns the unit id and the
 /// post-transition lifecycle status.
 /// </summary>
-public record UnitLifecycleResponse(string UnitId, UnitStatus Status);
+public record UnitLifecycleResponse(Guid UnitId, UnitStatus Status);
 
 /// <summary>
 /// Response body for <c>PATCH /api/v1/units/{id}/humans/{humanId}/permissions</c>.
@@ -145,7 +147,7 @@ public record UnitLifecycleResponse(string UnitId, UnitStatus Status);
 /// into the Models layer for one type.
 /// </summary>
 public record SetHumanPermissionResponse(
-    string HumanId,
+    Guid HumanId,
     Cvoya.Spring.Dapr.Actors.PermissionLevel Permission);
 
 /// <summary>
@@ -154,7 +156,7 @@ public record SetHumanPermissionResponse(
 /// operators can see which subsystems need manual cleanup.
 /// </summary>
 public record UnitForceDeleteResponse(
-    string UnitId,
+    Guid UnitId,
     bool ForceDeleted,
     UnitStatus PreviousStatus,
     IReadOnlyList<string> TeardownFailures,

@@ -64,7 +64,12 @@ public record ThreadSummaryResponse(
 /// <param name="Summary">Human-readable summary of the event.</param>
 /// <param name="MessageId">The message id this event corresponds to, or <c>null</c>.</param>
 /// <param name="From">The sender of the underlying message, enriched with a display name, or <c>null</c>.</param>
-/// <param name="To">The recipient address string of the underlying message, or <c>null</c>.</param>
+/// <param name="To">
+/// The recipient of the underlying message — enriched with a display
+/// name when non-null so the portal renders a label rather than a raw
+/// address (#1635 / #1630). <c>null</c> when the underlying event has
+/// no message-shaped recipient (e.g. <c>StateChanged</c>).
+/// </param>
 /// <param name="Body">The rendered text body of the underlying message, or <c>null</c>.</param>
 public record ThreadEventResponse(
     Guid Id,
@@ -75,7 +80,7 @@ public record ThreadEventResponse(
     string Summary,
     Guid? MessageId = null,
     ParticipantRef? From = null,
-    string? To = null,
+    ParticipantRef? To = null,
     string? Body = null);
 
 /// <summary>

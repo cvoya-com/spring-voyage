@@ -11,16 +11,52 @@ using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// Default scoped implementation of <see cref="IParticipantDisplayNameResolver"/>.
-/// Looks up display names from <c>AgentDefinitions</c> and <c>UnitDefinitions</c>
-/// tables for the <c>agent://</c> and <c>unit://</c> schemes respectively.
-/// For <c>human:id:&lt;uuid&gt;</c> (identity form, post-#1491) the UUID is
-/// resolved to a display name via <see cref="IHumanIdentityResolver.GetDisplayNameAsync"/>;
-/// for <c>human://&lt;username&gt;</c> (legacy navigation form) the username
-/// path is returned as-is.
+/// Resolves a wire-form participant address (post-#1629:
+/// <c>scheme:&lt;32-hex-no-dash&gt;</c>) into a human-readable display
+/// name by joining onto the appropriate definition / humans table.
 ///
-/// Results are cached in a per-request dictionary so repeated calls for the
-/// same address (e.g. a single human appearing as the <c>Human</c> on multiple
-/// inbox rows) issue at most one database round-trip.
+/// <para>
+/// Schemes covered:
+/// <list type="bullet">
+///   <item><description>
+///     <c>agent:&lt;guid&gt;</c> → <c>AgentDefinitions.DisplayName</c>.
+///   </description></item>
+///   <item><description>
+///     <c>unit:&lt;guid&gt;</c> → <c>UnitDefinitions.DisplayName</c>.
+///   </description></item>
+///   <item><description>
+///     <c>human:&lt;guid&gt;</c> → resolved via
+///     <see cref="IHumanIdentityResolver.GetDisplayNameAsync"/> (which
+///     reads <c>humans.display_name</c>, falling back to <c>username</c>).
+///   </description></item>
+/// </list>
+/// </para>
+///
+/// <para>
+/// <b>Non-empty contract (#1635).</b> The resolver always returns a
+/// non-empty string. Resolution failures fall through tiers:
+/// </para>
+/// <list type="number">
+///   <item><description>
+///     The directory / definition row is found and has a non-empty
+///     display name → return it.
+///   </description></item>
+///   <item><description>
+///     The row is missing (entity was deleted or never existed) → return
+///     the literal <c>&lt;deleted&gt;</c> placeholder so the portal can
+///     render a friendly tag without leaking GUIDs.
+///   </description></item>
+///   <item><description>
+///     The address itself is malformed / empty → return the address
+///     verbatim so logs / debugging surfaces still carry the raw value.
+///   </description></item>
+/// </list>
+///
+/// <para>
+/// Results are cached in a per-request dictionary so repeated calls for
+/// the same address (e.g. a single human appearing as the <c>Human</c>
+/// on multiple inbox rows) issue at most one database round-trip.
+/// </para>
 /// </summary>
 internal sealed class ParticipantDisplayNameResolver(
     SpringDbContext db,
@@ -28,6 +64,14 @@ internal sealed class ParticipantDisplayNameResolver(
     ILogger<ParticipantDisplayNameResolver> logger)
     : IParticipantDisplayNameResolver
 {
+    /// <summary>
+    /// Sentinel display name returned for participant addresses whose
+    /// backing entity (agent / unit / human) is no longer present in the
+    /// directory / humans table. Surfaces as a friendly tag in the
+    /// portal — see #1630, #1635.
+    /// </summary>
+    public const string DeletedDisplayName = "<deleted>";
+
     private readonly Dictionary<string, string> _cache = new(StringComparer.Ordinal);
 
     /// <inheritdoc />
@@ -37,7 +81,7 @@ internal sealed class ParticipantDisplayNameResolver(
     {
         if (string.IsNullOrWhiteSpace(address))
         {
-            return address;
+            return string.IsNullOrEmpty(address) ? DeletedDisplayName : address;
         }
 
         if (_cache.TryGetValue(address, out var cached))
@@ -54,191 +98,147 @@ internal sealed class ParticipantDisplayNameResolver(
         string address,
         CancellationToken cancellationToken)
     {
-        // Check for identity form "scheme:id:<uuid>" first (no "://" separator).
-        var idIdx = address.IndexOf(":id:", StringComparison.Ordinal);
-        if (idIdx > 0)
+        // Post-#1629 canonical wire form: "scheme:<32-hex-no-dash>".
+        // Legacy forms ("scheme://path", "scheme:id:<uuid>") are still
+        // accepted defensively — older activity-event sources predate the
+        // baseline migration and the resolver is read-side; failing them
+        // would blank participant names on legacy threads.
+        var (scheme, idText) = ParseAddress(address);
+        if (scheme is null || idText is null)
         {
-            var scheme = address[..idIdx];
-            var uuidStr = address[(idIdx + 4)..];
-
-            if (string.Equals(scheme, "human", StringComparison.OrdinalIgnoreCase)
-                && Guid.TryParse(uuidStr, out var humanId))
-            {
-                try
-                {
-                    var displayName = await humanIdentityResolver.GetDisplayNameAsync(humanId, cancellationToken);
-                    if (displayName is not null)
-                    {
-                        return displayName;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    logger.LogDebug(
-                        ex,
-                        "Failed to resolve display name for human {HumanId}; falling back to UUID.",
-                        humanId);
-                }
-
-                // Fall back to the UUID string when no display name is available.
-                return uuidStr;
-            }
-
-            // Agent / unit identity form: NormaliseSource emits "agent:id:<uuid>"
-            // / "unit:id:<uuid>" whenever the activity event was persisted with
-            // the actor UUID as the source — which is the common case. Look up
-            // the entity by ActorId (the same UUID) so the thread surfaces show
-            // the agent / unit name instead of a raw UUID (#1545, #1547, #1548).
-            if (!Cvoya.Spring.Core.Identifiers.GuidFormatter.TryParse(uuidStr, out var idGuid))
-            {
-                return uuidStr;
-            }
-
-            if (string.Equals(scheme, "agent", StringComparison.OrdinalIgnoreCase))
-            {
-                try
-                {
-                    var name = await db.AgentDefinitions
-                        .AsNoTracking()
-                        .Where(a => a.Id == idGuid && a.DeletedAt == null)
-                        .Select(a => a.DisplayName)
-                        .FirstOrDefaultAsync(cancellationToken);
-
-                    if (!string.IsNullOrWhiteSpace(name))
-                    {
-                        return name;
-                    }
-
-                    logger.LogDebug(
-                        "No agent definition found for actor id {ActorId}; falling back to UUID.",
-                        uuidStr);
-                }
-                catch (Exception ex)
-                {
-                    logger.LogDebug(
-                        ex,
-                        "Failed to resolve display name for agent actor id {ActorId}; falling back to UUID.",
-                        uuidStr);
-                }
-
-                return uuidStr;
-            }
-
-            if (string.Equals(scheme, "unit", StringComparison.OrdinalIgnoreCase))
-            {
-                try
-                {
-                    var name = await db.UnitDefinitions
-                        .AsNoTracking()
-                        .Where(u => u.Id == idGuid && u.DeletedAt == null)
-                        .Select(u => u.DisplayName)
-                        .FirstOrDefaultAsync(cancellationToken);
-
-                    if (!string.IsNullOrWhiteSpace(name))
-                    {
-                        return name;
-                    }
-
-                    logger.LogDebug(
-                        "No unit definition found for actor id {ActorId}; falling back to UUID.",
-                        uuidStr);
-                }
-                catch (Exception ex)
-                {
-                    logger.LogDebug(
-                        ex,
-                        "Failed to resolve display name for unit actor id {ActorId}; falling back to UUID.",
-                        uuidStr);
-                }
-
-                return uuidStr;
-            }
-
-            // Unknown identity-form scheme — fall back to the uuid portion.
-            return uuidStr;
-        }
-
-        var separatorIdx = address.IndexOf("://", StringComparison.Ordinal);
-        string schemeNav;
-        string path;
-
-        if (separatorIdx > 0)
-        {
-            schemeNav = address[..separatorIdx];
-            path = address[(separatorIdx + 3)..];
-        }
-        else
-        {
-            // No scheme separator — return as-is (defensive).
+            // Truly malformed — return the raw address so logs still
+            // carry the value.
             return address;
         }
 
-        if (string.IsNullOrWhiteSpace(path))
+        if (!Cvoya.Spring.Core.Identifiers.GuidFormatter.TryParse(idText, out var idGuid))
         {
-            return address;
+            // Slug-shaped legacy address (e.g. "human://savas"). The slug
+            // IS the human-readable label, so return it verbatim.
+            return string.IsNullOrEmpty(idText) ? DeletedDisplayName : idText;
         }
 
-        try
+        if (string.Equals(scheme, "human", StringComparison.OrdinalIgnoreCase))
         {
-            // Path may already be a Guid hex form (post-#1629). Parse and
-            // resolve via the Guid id.
-            if (!Cvoya.Spring.Core.Identifiers.GuidFormatter.TryParse(path, out var pathGuid))
+            try
             {
-                return path;
+                var name = await humanIdentityResolver.GetDisplayNameAsync(idGuid, cancellationToken);
+                if (!string.IsNullOrWhiteSpace(name))
+                {
+                    return name;
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogDebug(
+                    ex,
+                    "Failed to resolve display name for human {HumanId}; treating as deleted.",
+                    idGuid);
             }
 
-            if (string.Equals(schemeNav, "agent", StringComparison.OrdinalIgnoreCase))
+            return DeletedDisplayName;
+        }
+
+        if (string.Equals(scheme, "agent", StringComparison.OrdinalIgnoreCase))
+        {
+            try
             {
                 var name = await db.AgentDefinitions
                     .AsNoTracking()
-                    .Where(a => a.Id == pathGuid && a.DeletedAt == null)
+                    .Where(a => a.Id == idGuid && a.DeletedAt == null)
                     .Select(a => a.DisplayName)
                     .FirstOrDefaultAsync(cancellationToken);
 
-                if (name is not null)
+                if (!string.IsNullOrWhiteSpace(name))
                 {
                     return name;
                 }
 
                 logger.LogDebug(
-                    "No agent definition found for {AgentId}; falling back to path.",
-                    path);
-                return path;
+                    "No agent definition found for actor id {ActorId}; treating as deleted.",
+                    idGuid);
+            }
+            catch (Exception ex)
+            {
+                logger.LogDebug(
+                    ex,
+                    "Failed to resolve display name for agent actor id {ActorId}; treating as deleted.",
+                    idGuid);
             }
 
-            if (string.Equals(schemeNav, "unit", StringComparison.OrdinalIgnoreCase))
+            return DeletedDisplayName;
+        }
+
+        if (string.Equals(scheme, "unit", StringComparison.OrdinalIgnoreCase))
+        {
+            try
             {
                 var name = await db.UnitDefinitions
                     .AsNoTracking()
-                    .Where(u => u.Id == pathGuid && u.DeletedAt == null)
+                    .Where(u => u.Id == idGuid && u.DeletedAt == null)
                     .Select(u => u.DisplayName)
                     .FirstOrDefaultAsync(cancellationToken);
 
-                if (name is not null)
+                if (!string.IsNullOrWhiteSpace(name))
                 {
                     return name;
                 }
 
                 logger.LogDebug(
-                    "No unit definition found for {UnitId}; falling back to path.",
-                    path);
-                return path;
+                    "No unit definition found for actor id {ActorId}; treating as deleted.",
+                    idGuid);
+            }
+            catch (Exception ex)
+            {
+                logger.LogDebug(
+                    ex,
+                    "Failed to resolve display name for unit actor id {ActorId}; treating as deleted.",
+                    idGuid);
             }
 
-            // For human:// (legacy navigation form) and any other scheme,
-            // return the path component as-is. The human's display name is
-            // now stored in the humans table, but the legacy navigation form
-            // only carries the username slug — callers that hold the identity
-            // form get full resolution above.
-            return path;
+            return DeletedDisplayName;
         }
-        catch (Exception ex)
+
+        // Unknown scheme — return the id as-is rather than the deleted
+        // sentinel so operator tooling can still trace it.
+        return idText;
+    }
+
+    /// <summary>
+    /// Splits a wire-form participant address into its <c>(scheme, id)</c>
+    /// components. Accepts the canonical post-#1629 form
+    /// (<c>scheme:&lt;hex&gt;</c>) AND the two legacy forms produced by
+    /// pre-#1629 activity events:
+    /// <list type="bullet">
+    ///   <item><description><c>scheme://path</c> — slug-form navigation.</description></item>
+    ///   <item><description><c>scheme:id:&lt;uuid&gt;</c> — explicit identity-form.</description></item>
+    /// </list>
+    /// Returns <c>(null, null)</c> for malformed input.
+    /// </summary>
+    private static (string? scheme, string? id) ParseAddress(string address)
+    {
+        // Identity form: "scheme:id:<uuid>" — recognise the explicit
+        // ":id:" infix first to avoid colliding with the canonical form.
+        var idIdx = address.IndexOf(":id:", StringComparison.Ordinal);
+        if (idIdx > 0)
         {
-            logger.LogDebug(
-                ex,
-                "Failed to resolve display name for {Address}; falling back to path.",
-                address);
-            return path;
+            return (address[..idIdx], address[(idIdx + 4)..]);
         }
+
+        // Navigation form: "scheme://path".
+        var navIdx = address.IndexOf("://", StringComparison.Ordinal);
+        if (navIdx > 0)
+        {
+            return (address[..navIdx], address[(navIdx + 3)..]);
+        }
+
+        // Canonical form: "scheme:<hex>" — single ':' separator.
+        var colonIdx = address.IndexOf(':');
+        if (colonIdx > 0 && colonIdx < address.Length - 1)
+        {
+            return (address[..colonIdx], address[(colonIdx + 1)..]);
+        }
+
+        return (null, null);
     }
 }

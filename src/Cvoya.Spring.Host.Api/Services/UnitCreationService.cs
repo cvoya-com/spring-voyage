@@ -253,8 +253,9 @@ public class UnitCreationService : IUnitCreationService
         // keeps YAML-applied and API-applied boundaries wire-identical. An
         // absent or all-empty block is a no-op so the unit's default
         // "transparent" view is preserved.
-        // Post-#1629 the address is keyed by the unit's actor Guid (parsed
-        // back from result.Unit.Id, the hex form returned by CreateCoreAsync).
+        // Post-#1629 the address is keyed by the unit's actor Guid;
+        // result.Unit.Id is the strongly-typed Guid returned by
+        // CreateCoreAsync.
         if (manifest.Boundary is { IsEmpty: false })
         {
             await PersistUnitBoundaryAsync(name, result.Unit.Id, manifest.Boundary, cancellationToken);
@@ -478,7 +479,7 @@ public class UnitCreationService : IUnitCreationService
     /// </summary>
     private async Task PersistUnitBoundaryAsync(
         string unitName,
-        string unitIdHex,
+        Guid unitActorId,
         BoundaryManifest boundary,
         CancellationToken cancellationToken)
     {
@@ -501,7 +502,7 @@ public class UnitCreationService : IUnitCreationService
                 return;
             }
 
-            var address = Address.For("unit", unitIdHex);
+            var address = Address.ForIdentity("unit", unitActorId);
             await _boundaryStore.SetAsync(address, core, cancellationToken);
         }
         catch (OperationCanceledException)
@@ -568,14 +569,14 @@ public class UnitCreationService : IUnitCreationService
         // clean 404 with no partial-register rollback. Per-tenant visibility
         // is enforced through the tenant guard — cross-tenant parent-unit
         // ids surface as 404 so we never leak other-tenant units.
-        var resolvedParents = new List<(string Id, DirectoryEntry Entry)>(parentInfo.ParentUnitIds.Count);
+        var resolvedParents = new List<(Guid Id, DirectoryEntry Entry)>(parentInfo.ParentUnitIds.Count);
         foreach (var parentId in parentInfo.ParentUnitIds)
         {
-            var parentAddress = Address.For("unit", parentId);
+            var parentAddress = Address.ForIdentity("unit", parentId);
             var parentEntry = await _directoryService.ResolveAsync(parentAddress, cancellationToken);
             if (parentEntry is null)
             {
-                throw new UnknownParentUnitException(parentId);
+                throw new UnknownParentUnitException(Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(parentId));
             }
             if (_tenantGuard is not null)
             {
@@ -587,7 +588,7 @@ public class UnitCreationService : IUnitCreationService
                     parentAddress, parentAddress, cancellationToken);
                 if (!visibleInTenant)
                 {
-                    throw new UnknownParentUnitException(parentId);
+                    throw new UnknownParentUnitException(Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(parentId));
                 }
             }
             resolvedParents.Add((parentId, parentEntry));
@@ -1019,7 +1020,7 @@ public class UnitCreationService : IUnitCreationService
             }
 
             var response = new UnitResponse(
-                Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(entry.ActorId),
+                entry.ActorId,
                 entry.Address.Path,
                 entry.DisplayName,
                 entry.Description,
@@ -1243,13 +1244,12 @@ public class UnitCreationService : IUnitCreationService
     /// whole service graph.
     /// </summary>
     public static UnitParentInfo ValidateParentRequest(
-        IReadOnlyList<string>? parentUnitIds,
+        IReadOnlyList<Guid>? parentUnitIds,
         bool? isTopLevel)
     {
-        var normalisedParents = (parentUnitIds ?? Array.Empty<string>())
-            .Where(id => !string.IsNullOrWhiteSpace(id))
-            .Select(id => id!.Trim())
-            .Distinct(StringComparer.Ordinal)
+        var normalisedParents = (parentUnitIds ?? Array.Empty<Guid>())
+            .Where(id => id != Guid.Empty)
+            .Distinct()
             .ToList();
 
         var topLevel = isTopLevel ?? false;
@@ -1324,4 +1324,4 @@ public class UnitCreationService : IUnitCreationService
 /// is empty, or <see cref="ParentUnitIds"/> has at least one entry and
 /// <see cref="IsTopLevel"/> is <c>false</c>.
 /// </summary>
-public sealed record UnitParentInfo(bool IsTopLevel, IReadOnlyList<string> ParentUnitIds);
+public sealed record UnitParentInfo(bool IsTopLevel, IReadOnlyList<Guid> ParentUnitIds);

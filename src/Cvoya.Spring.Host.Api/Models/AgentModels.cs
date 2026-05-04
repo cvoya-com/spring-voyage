@@ -18,9 +18,11 @@ using Cvoya.Spring.Core.Agents;
 /// The unit memberships to establish for the new agent. Per #744 every
 /// agent must belong to at least one unit at creation time — the server
 /// rejects the request with 400 when this list is empty or omitted.
-/// Each entry is a unit id (equivalent to the unit's <c>Address.Path</c>);
-/// the server resolves each through the directory and rejects the whole
-/// request with 404 when any id does not map to a registered unit.
+/// Each entry is the unit's stable Guid actor id (matching
+/// <c>Address.Id</c>); the server resolves each through the directory
+/// and rejects the whole request with 404 when any id does not map to
+/// a registered unit. Wire form is the canonical 32-character no-dash
+/// hex per <see cref="Cvoya.Spring.Core.Identifiers.GuidFormatter"/>.
 /// </param>
 /// <param name="DefinitionJson">
 /// Optional agent-definition JSON document serialised as a string (e.g.
@@ -38,7 +40,7 @@ public record CreateAgentRequest(
     string DisplayName,
     string Description,
     string? Role,
-    IReadOnlyList<string> UnitIds,
+    IReadOnlyList<Guid> UnitIds,
     string? DefinitionJson = null);
 
 /// <summary>
@@ -62,7 +64,7 @@ public record CreateAgentRequest(
 /// (e.g. policy store unavailable — fail-open on the list path). Added by #573.
 /// </param>
 public record AgentResponse(
-    string Id,
+    Guid Id,
     string Name,
     string DisplayName,
     string Description,

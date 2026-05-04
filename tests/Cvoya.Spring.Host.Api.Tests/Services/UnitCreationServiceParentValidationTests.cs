@@ -15,9 +15,14 @@ using Xunit;
 /// inputs into <see cref="UnitParentInfo"/> or throws
 /// <see cref="InvalidUnitParentRequestException"/> when neither / both
 /// forms are supplied. Introduced with the review feedback on #744.
+/// Post-#1629 PR5 the parent-unit ids are typed Guids on the wire; the
+/// validator dedupes/strips Guid.Empty rather than blank strings.
 /// </summary>
 public class UnitCreationServiceParentValidationTests
 {
+    private static readonly Guid EngTeam = Guid.Parse("a1a1a1a1-1111-1111-1111-aaaaaaaaaaaa");
+    private static readonly Guid Ops = Guid.Parse("b2b2b2b2-2222-2222-2222-bbbbbbbbbbbb");
+
     [Fact]
     public void ValidateParentRequest_NeitherSupplied_Throws()
     {
@@ -32,18 +37,18 @@ public class UnitCreationServiceParentValidationTests
     {
         Should.Throw<InvalidUnitParentRequestException>(() =>
             UnitCreationService.ValidateParentRequest(
-                parentUnitIds: Array.Empty<string>(),
+                parentUnitIds: Array.Empty<Guid>(),
                 isTopLevel: false));
     }
 
     [Fact]
-    public void ValidateParentRequest_WhitespaceOnlyParents_Throws()
+    public void ValidateParentRequest_OnlyEmptyGuidEntries_Throws()
     {
-        // Normalisation strips blank entries; once stripped this is the
-        // "neither" case, not the "parent=blank-value" case.
+        // Normalisation strips Guid.Empty entries; once stripped this is the
+        // "neither" case, not the "parent=Guid.Empty" case.
         Should.Throw<InvalidUnitParentRequestException>(() =>
             UnitCreationService.ValidateParentRequest(
-                parentUnitIds: new[] { "  ", string.Empty },
+                parentUnitIds: new[] { Guid.Empty, Guid.Empty },
                 isTopLevel: null));
     }
 
@@ -52,7 +57,7 @@ public class UnitCreationServiceParentValidationTests
     {
         Should.Throw<InvalidUnitParentRequestException>(() =>
             UnitCreationService.ValidateParentRequest(
-                parentUnitIds: new[] { "eng-team" },
+                parentUnitIds: new[] { EngTeam },
                 isTopLevel: true));
     }
 
@@ -71,10 +76,10 @@ public class UnitCreationServiceParentValidationTests
     public void ValidateParentRequest_ParentsOnly_Succeeds_NormalisesInput()
     {
         var result = UnitCreationService.ValidateParentRequest(
-            parentUnitIds: new[] { "eng-team", "  ", "eng-team", "ops" },
+            parentUnitIds: new[] { EngTeam, Guid.Empty, EngTeam, Ops },
             isTopLevel: null);
 
         result.IsTopLevel.ShouldBeFalse();
-        result.ParentUnitIds.ShouldBe(new[] { "eng-team", "ops" });
+        result.ParentUnitIds.ShouldBe(new[] { EngTeam, Ops });
     }
 }

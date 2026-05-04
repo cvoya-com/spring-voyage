@@ -18,7 +18,7 @@ public static class AgentCommand
 {
     private static readonly OutputFormatter.Column<AgentResponse>[] AgentListColumns =
     {
-        new("id", a => a.Id),
+        new("id", a => GuidDisplay.Format(a.Id)),
         new("name", a => a.Name),
         new("role", a => a.Role),
         new("enabled", a => a.Enabled?.ToString().ToLowerInvariant()),
@@ -28,14 +28,14 @@ public static class AgentCommand
 
     private static readonly OutputFormatter.Column<AgentResponse>[] AgentCreateColumns =
     {
-        new("id", a => a.Id),
+        new("id", a => GuidDisplay.Format(a.Id)),
         new("name", a => a.Name),
         new("role", a => a.Role),
     };
 
     private static readonly OutputFormatter.Column<AgentDetailResponse>[] AgentStatusColumns =
     {
-        new("id", a => a.Agent?.Id),
+        new("id", a => GuidDisplay.Format(a.Agent?.Id)),
         new("name", a => a.Agent?.Name),
         new("enabled", a => a.Agent?.Enabled?.ToString().ToLowerInvariant()),
         // Persistent-agent enrichment (#396). Kiota models the nullable
@@ -296,10 +296,26 @@ public static class AgentCommand
 
             var client = ClientFactory.Create();
 
-            var unitIds = units
-                .Where(u => !string.IsNullOrWhiteSpace(u))
-                .Select(u => u.Trim())
-                .ToArray();
+            // CLI accepts both no-dash hex (canonical post-#1629) and dashed
+            // Guid forms; the shared GuidFormatter parses leniently.
+            var unitIds = new List<Guid>();
+            foreach (var raw in units ?? Array.Empty<string>())
+            {
+                if (string.IsNullOrWhiteSpace(raw))
+                {
+                    continue;
+                }
+
+                if (!Guid.TryParse(raw.Trim(), out var unitGuid))
+                {
+                    await Console.Error.WriteLineAsync($"Invalid unit id '{raw}': expected a Guid.");
+                    Environment.Exit(1);
+                    return;
+                }
+
+                unitIds.Add(unitGuid);
+            }
+
             var result = await client.CreateAgentAsync(id, displayName, role, unitIds, definitionJson, ct);
 
             Console.WriteLine(output == "json"

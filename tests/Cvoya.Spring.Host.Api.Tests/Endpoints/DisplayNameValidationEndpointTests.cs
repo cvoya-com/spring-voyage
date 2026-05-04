@@ -64,7 +64,7 @@ public class DisplayNameValidationEndpointTests : IClassFixture<CustomWebApplica
             DisplayName: GuidShapedDashed,
             Description: "",
             Role: null,
-            UnitIds: new[] { Guid.NewGuid().ToString("N") });
+            UnitIds: new[] { Guid.NewGuid() });
 
         var response = await _client.PostAsJsonAsync("/api/v1/tenant/agents", request, ct);
 
@@ -88,7 +88,7 @@ public class DisplayNameValidationEndpointTests : IClassFixture<CustomWebApplica
             DisplayName: "   ",
             Description: "",
             Role: null,
-            UnitIds: new[] { Guid.NewGuid().ToString("N") });
+            UnitIds: new[] { Guid.NewGuid() });
 
         var response = await _client.PostAsJsonAsync("/api/v1/tenant/agents", request, ct);
 
@@ -202,7 +202,7 @@ public class DisplayNameValidationEndpointTests : IClassFixture<CustomWebApplica
         var ct = TestContext.Current.CancellationToken;
 
         var request = new CreateTenantRequest(
-            Id: Guid.NewGuid().ToString("N"),
+            Id: Guid.NewGuid(),
             DisplayName: GuidShapedDashed);
 
         var response = await _client.PostAsJsonAsync("/api/v1/platform/tenants", request, ct);
@@ -218,7 +218,8 @@ public class DisplayNameValidationEndpointTests : IClassFixture<CustomWebApplica
 
         // Seed a tenant first so the 400 must come from the validator, not
         // from the tenant-not-found path.
-        var tenantId = Guid.NewGuid().ToString("N");
+        var tenantId = Guid.NewGuid();
+        var tenantIdHex = tenantId.ToString("N");
         var create = await _client.PostAsJsonAsync(
             "/api/v1/platform/tenants",
             new CreateTenantRequest(tenantId, "Original"),
@@ -226,7 +227,7 @@ public class DisplayNameValidationEndpointTests : IClassFixture<CustomWebApplica
         create.StatusCode.ShouldBe(HttpStatusCode.Created);
 
         var response = await _client.PatchAsJsonAsync(
-            $"/api/v1/platform/tenants/{tenantId}",
+            $"/api/v1/platform/tenants/{tenantIdHex}",
             new UpdateTenantRequest(GuidShapedNoDash),
             ct);
 

@@ -180,10 +180,13 @@ describe("addressOf", () => {
   });
 });
 
-// #1630 — the bug this issue tracks: identity-form addresses leaked
-// raw UUIDs into engagement-list titles and detail headers.
+// #1630 / #1635 — post-#1635 the server guarantees a non-empty
+// `displayName` on every ParticipantRef-shaped DTO. The portal therefore
+// uses the server-supplied label verbatim and only falls back to the
+// legacy heuristic for raw-string inputs (pre-#1502 server shape) or
+// missing display names (defensive).
 describe("participantDisplayName", () => {
-  it("prefers the server-supplied displayName when present", () => {
+  it("returns the server-supplied displayName when present", () => {
     expect(
       participantDisplayName({
         address: "agent://ada",
@@ -192,40 +195,62 @@ describe("participantDisplayName", () => {
     ).toBe("Ada Lovelace");
   });
 
-  it("falls back to the address path for navigation-form non-human addresses", () => {
-    expect(participantDisplayName({ address: "agent://ada" })).toBe("ada");
+  it("returns the server-supplied displayName even when it looks UUID-shaped", () => {
+    // Post-#1635 the server resolves names from the directory; if the
+    // operator legitimately named an agent with a UUID-shaped string the
+    // portal must pass it through. Filtering UUID-shape is now the
+    // server's job (handled via the <deleted> sentinel for missing
+    // entities), not the portal's.
+    const looksLikeId = "d4ce4258-ab40-4c10-be06-407cc5ec9139";
+    expect(
+      participantDisplayName({
+        address: "agent://ada",
+        displayName: looksLikeId,
+      }),
+    ).toBe(looksLikeId);
+  });
+
+  it("returns the deleted-sentinel pass-through when the server emits one", () => {
+    // The server resolver returns "<deleted>" for entities the
+    // directory can no longer resolve (#1635). The portal renders that
+    // string directly.
+    expect(
+      participantDisplayName({
+        address: "agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7",
+        displayName: "<deleted>",
+      }),
+    ).toBe("<deleted>");
+  });
+
+  it("falls back to the address path for navigation-form bare-string addresses", () => {
+    // Bare-string inputs come from pre-#1502 servers that didn't ship the
+    // ParticipantRef shape. The legacy heuristic still applies.
     expect(participantDisplayName("agent://ada")).toBe("ada");
   });
 
-  it("returns null for human navigation-form addresses (path may be a UUID)", () => {
+  it("falls back to the path when a ParticipantRef has empty displayName (defensive)", () => {
+    expect(participantDisplayName({ address: "agent://ada" })).toBe("ada");
+  });
+
+  it("returns null for legacy human navigation-form addresses (path may be a UUID)", () => {
     expect(participantDisplayName({ address: "human://savas" })).toBeNull();
   });
 
-  it("returns null for identity-form agent addresses (path is a UUID)", () => {
+  it("returns null for legacy identity-form agent addresses (path is a UUID)", () => {
     const id = "d4ce4258-ab40-4c10-be06-407cc5ec9139";
     expect(
       participantDisplayName({ address: `agent:id:${id}` }),
     ).toBeNull();
   });
 
-  it("returns null for identity-form unit addresses (path is a UUID)", () => {
+  it("returns null for legacy identity-form unit addresses (path is a UUID)", () => {
     const id = "d4ce4258-ab40-4c10-be06-407cc5ec9139";
     expect(
       participantDisplayName({ address: `unit:id:${id}` }),
     ).toBeNull();
   });
 
-  it("falls back over a UUID-shaped displayName", () => {
-    const id = "d4ce4258-ab40-4c10-be06-407cc5ec9139";
-    expect(
-      participantDisplayName({
-        address: "agent://ada",
-        displayName: id,
-      }),
-    ).toBe("ada");
-  });
-
-  it("returns null for a UUID-shaped path on a non-human navigation address", () => {
+  it("returns null for a UUID-shaped path on a legacy non-human navigation address", () => {
     const id = "d4ce4258-ab40-4c10-be06-407cc5ec9139";
     expect(
       participantDisplayName({ address: `agent://${id}` }),

@@ -17,7 +17,7 @@ public static class UnitCommand
 {
     private static readonly OutputFormatter.Column<UnitResponse>[] UnitColumns =
     {
-        new("id", u => u.Id),
+        new("id", u => GuidDisplay.Format(u.Id)),
         new("name", u => u.Name),
     };
 
@@ -275,24 +275,39 @@ public static class UnitCommand
             var apiKey = parseResult.GetValue(apiKeyOption);
             var apiKeyFromFile = parseResult.GetValue(apiKeyFromFileOption);
             var saveAsTenantDefault = parseResult.GetValue(saveAsTenantDefaultOption);
-            var parentUnits = (parseResult.GetValue(parentUnitOption) ?? Array.Empty<string>())
+            // Post-#1629 parent-unit ids are stable Guids; the CLI parses
+            // both no-dash and dashed forms, surfaces a friendly error
+            // before the API call when any value is malformed.
+            var parentUnitsRaw = (parseResult.GetValue(parentUnitOption) ?? Array.Empty<string>())
                 .Where(p => !string.IsNullOrWhiteSpace(p))
                 .Select(p => p.Trim())
                 .ToArray();
+            var parentUnits = new List<Guid>(parentUnitsRaw.Length);
+            foreach (var raw in parentUnitsRaw)
+            {
+                if (!Guid.TryParse(raw, out var parentGuid))
+                {
+                    await Console.Error.WriteLineAsync(
+                        $"Invalid parent-unit id '{raw}': expected a Guid.");
+                    Environment.Exit(1);
+                    return;
+                }
+                parentUnits.Add(parentGuid);
+            }
             var topLevel = parseResult.GetValue(topLevelOption);
             var noWait = parseResult.GetValue(noWaitOption);
             var output = parseResult.GetValue(outputOption) ?? "table";
 
             // Review feedback on #744: reject neither / both at parse time
             // so callers see a local error instead of the server's 400.
-            if (topLevel && parentUnits.Length > 0)
+            if (topLevel && parentUnits.Count > 0)
             {
                 await Console.Error.WriteLineAsync(
                     "--top-level and --parent-unit are mutually exclusive. Supply exactly one.");
                 Environment.Exit(1);
                 return;
             }
-            if (!topLevel && parentUnits.Length == 0)
+            if (!topLevel && parentUnits.Count == 0)
             {
                 await Console.Error.WriteLineAsync(
                     "Every unit must have a parent. Supply one or more --parent-unit <id> flags, "
@@ -382,7 +397,7 @@ public static class UnitCommand
                 tool: tool,
                 provider: provider,
                 hosting: hosting,
-                parentUnitIds: parentUnits.Length > 0 ? parentUnits : null,
+                parentUnitIds: parentUnits.Count > 0 ? (IReadOnlyList<Guid>)parentUnits : null,
                 isTopLevel: topLevel ? true : null,
                 ct: ct);
 

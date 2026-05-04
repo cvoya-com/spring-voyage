@@ -111,10 +111,16 @@ public class SpringApiClientTests
     [Fact]
     public async Task CreateAgentAsync_SendsContractFieldsAndDeserialisesResponse()
     {
+        // Post-#1629 PR5: stable IDs are typed Guids on the wire (uuid format
+        // in OpenAPI, lowercase hex in canonical no-dash form on emit). The
+        // CLI takes Guid arguments and Kiota emits the dashed form into the
+        // wire body — both forms parse leniently on the server.
+        var agentGuid = Guid.NewGuid();
+        var unitGuid = Guid.NewGuid();
         var handler = new MockHttpMessageHandler(
             expectedPath: "/api/v1/tenant/agents",
             expectedMethod: HttpMethod.Post,
-            responseBody: """{"id":"ada","name":"ada","displayName":"Ada","role":"coder"}""",
+            responseBody: $"{{\"id\":\"{agentGuid}\",\"name\":\"ada\",\"displayName\":\"Ada\",\"role\":\"coder\"}}",
             validateRequestBody: body =>
             {
                 // Kiota's JSON writer mirrors the OpenAPI contract: name → CreateAgentRequest.Name
@@ -123,21 +129,23 @@ public class SpringApiClientTests
                 json.GetProperty("name").GetString().ShouldBe("ada");
                 json.GetProperty("displayName").GetString().ShouldBe("Ada");
                 json.GetProperty("role").GetString().ShouldBe("coder");
-                // #744: unitIds is required ≥1 on create.
+                // #744: unitIds is required ≥1 on create. Kiota emits each
+                // entry as the dashed Guid form; assert on parseable shape.
                 var units = json.GetProperty("unitIds");
                 units.ValueKind.ShouldBe(JsonValueKind.Array);
                 units.GetArrayLength().ShouldBe(1);
-                units[0].GetString().ShouldBe("engineering");
+                Guid.TryParse(units[0].GetString(), out var emittedUnit).ShouldBeTrue();
+                emittedUnit.ShouldBe(unitGuid);
             });
 
         var httpClient = new HttpClient(handler);
         var client = new SpringApiClient(httpClient, BaseUrl);
 
         var result = await client.CreateAgentAsync(
-            "ada", "Ada", "coder", new[] { "engineering" },
+            "ada", "Ada", "coder", new[] { unitGuid },
             ct: TestContext.Current.CancellationToken);
 
-        result.Id.ShouldBe("ada");
+        result.Id.ShouldBe(agentGuid);
         result.DisplayName.ShouldBe("Ada");
         handler.WasCalled.ShouldBeTrue();
     }
@@ -179,10 +187,12 @@ public class SpringApiClientTests
     [Fact]
     public async Task GetAgentStatusAsync_RoundTripsThroughFormatJson()
     {
-        var responseBody = """
+        // Post-#1629 the agent id rides the wire as a Guid (uuid format).
+        var agentId = Guid.NewGuid();
+        var responseBody = $$"""
         {
           "agent": {
-            "id": "agent-id",
+            "id": "{{agentId}}",
             "name": "ada",
             "displayName": "Ada",
             "description": "",
@@ -439,10 +449,13 @@ public class SpringApiClientTests
     [Fact]
     public async Task CreateUnitAsync_WithModelAndColor_SendsBothOnRequestBody()
     {
+        // Post-#1629 the unit id is a typed Guid on the wire; the mock
+        // returns a synthesised Guid so the Kiota deserialiser accepts it.
+        var actorEng = Guid.NewGuid();
         var handler = new MockHttpMessageHandler(
             expectedPath: "/api/v1/tenant/units",
             expectedMethod: HttpMethod.Post,
-            responseBody: """{"id":"actor-eng","name":"eng-team","displayName":"eng-team","description":"","registeredAt":"2026-04-01T00:00:00Z","status":"Draft","model":"claude-sonnet-4","color":"#6366f1"}""",
+            responseBody: $"{{\"id\":\"{actorEng}\",\"name\":\"eng-team\",\"displayName\":\"eng-team\",\"description\":\"\",\"registeredAt\":\"2026-04-01T00:00:00Z\",\"status\":\"Draft\",\"model\":\"claude-sonnet-4\",\"color\":\"#6366f1\"}}",
             validateRequestBody: body =>
             {
                 var json = JsonSerializer.Deserialize<JsonElement>(body);
@@ -472,10 +485,11 @@ public class SpringApiClientTests
     {
         // Typical happy path: server returns 202 Accepted with the unit
         // flipped to Validating + a fresh workflow instance id.
+        var actorEng = Guid.NewGuid();
         var handler = new MockHttpMessageHandler(
             expectedPath: "/api/v1/tenant/units/eng-team/revalidate",
             expectedMethod: HttpMethod.Post,
-            responseBody: """{"id":"actor-eng","name":"eng-team","displayName":"eng-team","description":"","registeredAt":"2026-04-01T00:00:00Z","status":"Validating","model":"claude-sonnet-4","color":"#6366f1","tool":"claude-code","lastValidationError":null,"lastValidationRunId":"run-42"}""",
+            responseBody: $"{{\"id\":\"{actorEng}\",\"name\":\"eng-team\",\"displayName\":\"eng-team\",\"description\":\"\",\"registeredAt\":\"2026-04-01T00:00:00Z\",\"status\":\"Validating\",\"model\":\"claude-sonnet-4\",\"color\":\"#6366f1\",\"tool\":\"claude-code\",\"lastValidationError\":null,\"lastValidationRunId\":\"run-42\"}}",
             returnStatusCode: HttpStatusCode.Accepted);
 
         var httpClient = new HttpClient(handler);
@@ -647,10 +661,15 @@ public class SpringApiClientTests
     [Fact]
     public async Task ListUnitHumanPermissionsAsync_CallsCorrectEndpoint()
     {
+        // UnitPermissionEntry crosses the Dapr actor remoting boundary as a
+        // record with string HumanId; that leaks through to the OpenAPI
+        // contract. The wire format here remains a string for that reason
+        // (the typed-Guid flip is on Models DTOs only — see Models/UnitModels.cs).
+        var aliceId = Guid.NewGuid().ToString("N");
         var handler = new MockHttpMessageHandler(
             expectedPath: "/api/v1/tenant/units/eng-team/humans",
             expectedMethod: HttpMethod.Get,
-            responseBody: "[{\"humanId\":\"alice\",\"permission\":\"Owner\",\"identity\":\"alice@example.com\",\"notifications\":true}]");
+            responseBody: $"[{{\"humanId\":\"{aliceId}\",\"permission\":\"Owner\",\"identity\":\"alice@example.com\",\"notifications\":true}}]");
 
         var httpClient = new HttpClient(handler);
         var client = new SpringApiClient(httpClient, BaseUrl);
@@ -658,17 +677,18 @@ public class SpringApiClientTests
         var entries = await client.ListUnitHumanPermissionsAsync("eng-team", TestContext.Current.CancellationToken);
 
         entries.Count.ShouldBe(1);
-        entries[0].HumanId.ShouldBe("alice");
+        entries[0].HumanId.ShouldBe(aliceId);
         handler.WasCalled.ShouldBeTrue();
     }
 
     [Fact]
     public async Task SetUnitHumanPermissionAsync_PatchesWithContractFields()
     {
+        var aliceId = Guid.NewGuid();
         var handler = new MockHttpMessageHandler(
             expectedPath: "/api/v1/tenant/units/eng-team/humans/alice/permissions",
             expectedMethod: HttpMethod.Patch,
-            responseBody: "{\"humanId\":\"alice\",\"permission\":\"Operator\"}",
+            responseBody: $"{{\"humanId\":\"{aliceId}\",\"permission\":\"Operator\"}}",
             validateRequestBody: body =>
             {
                 var json = JsonSerializer.Deserialize<JsonElement>(body);
@@ -688,7 +708,7 @@ public class SpringApiClientTests
             notifications: true,
             ct: TestContext.Current.CancellationToken);
 
-        result.HumanId.ShouldBe("alice");
+        result.HumanId.ShouldBe(aliceId);
         handler.WasCalled.ShouldBeTrue();
     }
 

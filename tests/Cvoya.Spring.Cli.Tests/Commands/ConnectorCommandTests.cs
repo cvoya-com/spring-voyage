@@ -338,8 +338,10 @@ public class ConnectorCommandTests
         var handler = new MockHttpMessageHandler(
             expectedPath: "/api/v1/tenant/connectors/github/bindings",
             expectedMethod: HttpMethod.Get,
+            // Post-#1629 unitId is a typed Guid on the wire; alpha/beta are
+            // the human-readable unit names that ride alongside.
             responseBody:
-                """[{"unitId":"alpha","unitName":"alpha","unitDisplayName":"Alpha","typeId":"6a1e0c1a-3a7b-4a12-8a2f-0a71e1b2fb01","typeSlug":"github","configUrl":"/api/v1/tenant/connectors/github/units/alpha/config","actionsBaseUrl":"/api/v1/tenant/connectors/github/actions"},{"unitId":"beta","unitName":"beta","unitDisplayName":"Beta","typeId":"6a1e0c1a-3a7b-4a12-8a2f-0a71e1b2fb01","typeSlug":"github","configUrl":"/api/v1/tenant/connectors/github/units/beta/config","actionsBaseUrl":"/api/v1/tenant/connectors/github/actions"}]""");
+                """[{"unitId":"a1a1a1a1-1111-1111-1111-aaaaaaaaaaaa","unitName":"alpha","unitDisplayName":"Alpha","typeId":"6a1e0c1a-3a7b-4a12-8a2f-0a71e1b2fb01","typeSlug":"github","configUrl":"/api/v1/tenant/connectors/github/units/alpha/config","actionsBaseUrl":"/api/v1/tenant/connectors/github/actions"},{"unitId":"b2b2b2b2-2222-2222-2222-bbbbbbbbbbbb","unitName":"beta","unitDisplayName":"Beta","typeId":"6a1e0c1a-3a7b-4a12-8a2f-0a71e1b2fb01","typeSlug":"github","configUrl":"/api/v1/tenant/connectors/github/units/beta/config","actionsBaseUrl":"/api/v1/tenant/connectors/github/actions"}]""");
 
         var httpClient = new HttpClient(handler);
         var client = new SpringApiClient(httpClient, BaseUrl);
@@ -347,11 +349,12 @@ public class ConnectorCommandTests
         var result = await client.ListConnectorBindingsAsync("github", TestContext.Current.CancellationToken);
 
         result.Count.ShouldBe(2);
-        result[0].UnitId.ShouldBe("alpha");
+        result[0].UnitId.ShouldBe(Guid.Parse("a1a1a1a1-1111-1111-1111-aaaaaaaaaaaa"));
+        result[0].UnitName.ShouldBe("alpha");
         result[0].UnitDisplayName.ShouldBe("Alpha");
         result[0].TypeSlug.ShouldBe("github");
         result[0].ConfigUrl.ShouldBe("/api/v1/tenant/connectors/github/units/alpha/config");
-        result[1].UnitId.ShouldBe("beta");
+        result[1].UnitId.ShouldBe(Guid.Parse("b2b2b2b2-2222-2222-2222-bbbbbbbbbbbb"));
         handler.WasCalled.ShouldBeTrue();
     }
 

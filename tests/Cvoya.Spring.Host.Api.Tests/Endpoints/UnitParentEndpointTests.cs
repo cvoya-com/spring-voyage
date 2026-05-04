@@ -91,7 +91,7 @@ public class UnitParentEndpointTests : IClassFixture<CustomWebApplicationFactory
             Color: null,
             Connector: null,
             IsTopLevel: true,
-            ParentUnitIds: new[] { "some-parent" });
+            ParentUnitIds: new[] { Guid.NewGuid() });
 
         var response = await _client.PostAsJsonAsync("/api/v1/tenant/units", request, ct);
 
@@ -210,7 +210,7 @@ public class UnitParentEndpointTests : IClassFixture<CustomWebApplicationFactory
             Name: "child-unit",
             DisplayName: "Child Unit",
             Description: "Parented by eng-team",
-            ParentUnitIds: new[] { Unit_EngTeam_Id.ToString("N") });
+            ParentUnitIds: new[] { Unit_EngTeam_Id });
 
         var response = await _client.PostAsJsonAsync("/api/v1/tenant/units", request, ct);
 
@@ -232,7 +232,7 @@ public class UnitParentEndpointTests : IClassFixture<CustomWebApplicationFactory
             .ResolveAsync(Arg.Any<Address>(), Arg.Any<CancellationToken>())
             .Returns((DirectoryEntry?)null);
 
-        var ghostId = Guid.NewGuid().ToString("N");
+        var ghostId = Guid.NewGuid();
         var request = new CreateUnitRequest(
             Name: "lost-child",
             DisplayName: "Lost",
