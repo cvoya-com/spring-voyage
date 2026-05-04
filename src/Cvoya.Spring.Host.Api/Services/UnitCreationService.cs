@@ -268,7 +268,15 @@ public class UnitCreationService : IUnitCreationService
         // operator who clears the YAML doesn't re-apply a stale default.
         if (manifest.Execution is { IsEmpty: false })
         {
-            await PersistUnitExecutionAsync(name, manifest.Execution, cancellationToken);
+            // #1666: IUnitExecutionStore is keyed by the unit's actor Guid
+            // (DbUnitExecutionStore parses the id with GuidFormatter.TryParse
+            // and throws ArgumentException on a name). Pass the strongly-
+            // typed Guid that CreateCoreAsync just minted instead of the
+            // user-facing name so the execution block actually lands on the
+            // UnitDefinition row — otherwise validation fails with
+            // ConfigurationIncomplete: missing image,runtime.
+            await PersistUnitExecutionAsync(
+                name, result.Unit.Id, manifest.Execution, cancellationToken);
         }
 
         return result;
@@ -283,6 +291,7 @@ public class UnitCreationService : IUnitCreationService
     /// </summary>
     private async Task PersistUnitExecutionAsync(
         string unitName,
+        Guid unitActorId,
         ExecutionManifest execution,
         CancellationToken cancellationToken)
     {
@@ -302,7 +311,12 @@ public class UnitCreationService : IUnitCreationService
                 Tool: execution.Tool,
                 Provider: execution.Provider,
                 Model: execution.Model);
-            await _executionStore.SetAsync(unitName, defaults, cancellationToken);
+            // #1666: the store is Guid-keyed — see DbUnitExecutionStore
+            // line 80, which throws ArgumentException for a non-Guid id.
+            // GuidFormatter.Format is the canonical "N"-format counterpart
+            // to the TryParse on the read path.
+            var unitId = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(unitActorId);
+            await _executionStore.SetAsync(unitId, defaults, cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -943,8 +957,15 @@ public class UnitCreationService : IUnitCreationService
             {
                 try
                 {
+                    // #1666: the store parses the unit id as a Guid (see
+                    // DbUnitExecutionStore line 80) — passing `name` here
+                    // silently failed the persistence write, leaving every
+                    // direct-created unit's `definition->'execution'` NULL
+                    // and validation reporting ConfigurationIncomplete.
+                    // `actorId` is the GuidFormatter.Format(actorGuid)
+                    // value computed earlier in this method.
                     await _executionStore.SetAsync(
-                        name,
+                        actorId,
                         new UnitExecutionDefaults(
                             Image: null,
                             Runtime: null,

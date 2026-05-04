@@ -23,9 +23,15 @@ using Microsoft.Extensions.Logging;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Lookup is by <c>UnitDefinitionEntity.UnitId</c> because the HTTP and
-/// CLI surfaces address units by their user-facing name. Write semantics
-/// match <c>DbUnitOrchestrationStore.SetStrategyKeyAsync</c>: the
+/// Lookup is by the unit's actor <c>Guid</c> (formatted with
+/// <see cref="Cvoya.Spring.Core.Identifiers.GuidFormatter"/>'s "N" form).
+/// The <c>unitId</c> argument MUST be parseable as a Guid — passing a
+/// user-facing display name throws <see cref="ArgumentException"/>.
+/// Callers that hold only a name should resolve to the actor Guid through
+/// the directory before calling in (the HTTP surface does this in its
+/// route handlers; see #1666 for the regression that motivated the
+/// clarification). Write semantics match
+/// <c>DbUnitOrchestrationStore.SetStrategyKeyAsync</c>: the
 /// <c>execution</c> slot is rewritten in place and every other property
 /// on the Definition document (instructions / expertise / orchestration)
 /// is preserved verbatim.

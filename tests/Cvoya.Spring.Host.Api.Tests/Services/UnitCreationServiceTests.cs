@@ -43,6 +43,12 @@ public class UnitCreationServiceTests
     private static readonly Guid FallbackGuid = new("00000000-0000-0000-0000-000000000001");
     private static readonly Guid AliceGuid = new("aaaaaaaa-0000-0000-0000-000000000001");
 
+    // #1666: helper for Arg.Is<> assertions that need to verify a string
+    // is the actor Guid in GuidFormatter "N" form. Wrapped in a method
+    // because NSubstitute's Arg.Is<> takes an expression tree that can't
+    // hold an `out` declaration directly.
+    private static bool IsGuidN(string id) => Guid.TryParseExact(id, "N", out _);
+
     [Fact]
     public async Task CreateAsync_NoHttpContext_FallsBackToApiIdentity()
     {
@@ -579,8 +585,11 @@ public class UnitCreationServiceTests
         // The execution defaults must persist Tool/Provider/Model from the
         // request, but Runtime must stay null — the request has no runtime
         // field, and provider must not be mirrored into the runtime slot.
+        // #1666: the unit id passed to the store is the actor's Guid in
+        // GuidFormatter.Format ("N") form — DbUnitExecutionStore parses it
+        // as a Guid, so the user-facing name would be silently rejected.
         await fixture.ExecutionStore.Received(1).SetAsync(
-            "ollama-no-runtime",
+            Arg.Is<string>(id => IsGuidN(id)),
             Arg.Is<Cvoya.Spring.Core.Execution.UnitExecutionDefaults>(d =>
                 d.Runtime == null
                 && d.Provider == "ollama"
@@ -616,8 +625,11 @@ public class UnitCreationServiceTests
                 IsTopLevel: true),
             CancellationToken.None);
 
+        // #1666: the store id is the actor Guid (parsed by
+        // DbUnitExecutionStore.SetAsync via GuidFormatter.TryParse), not
+        // the user-facing name.
         await fixture.ExecutionStore.Received(1).SetAsync(
-            "claude-only",
+            Arg.Is<string>(id => IsGuidN(id)),
             Arg.Is<Cvoya.Spring.Core.Execution.UnitExecutionDefaults>(d =>
                 d.Runtime == null
                 && d.Provider == null
