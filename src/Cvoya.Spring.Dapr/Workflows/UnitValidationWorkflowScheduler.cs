@@ -122,10 +122,7 @@ public class UnitValidationWorkflowScheduler(
                 }));
         }
 
-        // Runtime id lives in the execution.runtime slot. The dapr-agent
-        // style runtimes use `provider` as their runtime id too (e.g.
-        // openai/google); fall back to provider when `runtime` is not set.
-        var runtimeId = defaults.Runtime ?? defaults.Provider;
+        var runtimeId = ResolveAgentRuntimeId(defaults);
         if (string.IsNullOrWhiteSpace(runtimeId))
         {
             throw new UnitValidationSchedulingException(new UnitValidationError(
@@ -170,5 +167,36 @@ public class UnitValidationWorkflowScheduler(
             instanceId, entity.DisplayName, unitActorId, defaults.Image, runtimeId, requestedModel);
 
         return new UnitValidationSchedule(instanceId, entity.DisplayName);
+    }
+
+    /// <summary>
+    /// Resolves the agent-runtime registry id used by
+    /// <see cref="UnitValidationWorkflowInput.RuntimeId"/> from the unit's
+    /// persisted <see cref="UnitExecutionDefaults"/> (#1683).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Precedence — <see cref="UnitExecutionDefaults.Agent"/> wins, then
+    /// <see cref="UnitExecutionDefaults.Runtime"/>, then
+    /// <see cref="UnitExecutionDefaults.Provider"/>. <c>Agent</c> is the
+    /// source of truth (sourced from the manifest's <c>ai.agent</c>
+    /// field by <c>UnitCreationService</c>); <c>Runtime</c> is the
+    /// container-runtime selector (<c>docker</c> | <c>podman</c>) and
+    /// only kicks in as a fallback for units persisted before the
+    /// <c>agent</c> slot existed; <c>Provider</c> is a last-ditch
+    /// fallback because dapr-agent-style runtimes carry the same string
+    /// in both their <c>provider</c> and <c>id</c> slots.
+    /// </para>
+    /// <para>
+    /// Returns <c>null</c> when none of the slots are populated; the
+    /// caller surfaces that as <c>ConfigurationIncomplete</c>.
+    /// </para>
+    /// </remarks>
+    internal static string? ResolveAgentRuntimeId(UnitExecutionDefaults defaults)
+    {
+        if (!string.IsNullOrWhiteSpace(defaults.Agent)) return defaults.Agent;
+        if (!string.IsNullOrWhiteSpace(defaults.Runtime)) return defaults.Runtime;
+        if (!string.IsNullOrWhiteSpace(defaults.Provider)) return defaults.Provider;
+        return null;
     }
 }

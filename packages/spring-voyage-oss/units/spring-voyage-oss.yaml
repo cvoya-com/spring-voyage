@@ -28,7 +28,7 @@ unit:
     # `execution:` inheritance ships (#1679), this declaration moves up to
     # package.yaml and member units inherit unless they override.
     image: ghcr.io/cvoya-com/spring-voyage-agents:latest
-    runtime: docker
+    runtime: podman
     hosting: permanent
   policies:
     communication: through-unit

@@ -66,20 +66,32 @@ public interface IUnitExecutionStore
 }
 
 /// <summary>
-/// Five-field view of a unit's execution defaults (#601 "B-wide"). Each
-/// field is independently nullable — a unit can declare any subset.
+/// Six-field view of a unit's execution defaults (#601 "B-wide" + #1683
+/// agent-runtime id). Each field is independently nullable — a unit can
+/// declare any subset.
 /// </summary>
 /// <param name="Image">Default container image reference.</param>
 /// <param name="Runtime">Default container runtime identifier (<c>docker</c> / <c>podman</c>).</param>
 /// <param name="Tool">Default external agent tool identifier.</param>
 /// <param name="Provider">Default LLM provider (Dapr-Agent-tool-specific).</param>
 /// <param name="Model">Default model identifier (Dapr-Agent-tool-specific).</param>
+/// <param name="Agent">
+/// Agent runtime registry id (#1683) — sourced from the unit / agent
+/// manifest's <c>ai.agent</c> field. Matches an
+/// <see cref="Cvoya.Spring.Core.AgentRuntimes.IAgentRuntime.Id"/>
+/// registration (e.g. <c>claude</c>, <c>openai</c>, <c>google</c>,
+/// <c>ollama</c>). The validation scheduler reads this slot first when
+/// composing the workflow input; <see cref="Runtime"/> is the container
+/// runtime selector and is preserved as a back-compat fallback for units
+/// persisted before the slot existed.
+/// </param>
 public record UnitExecutionDefaults(
     string? Image = null,
     string? Runtime = null,
     string? Tool = null,
     string? Provider = null,
-    string? Model = null)
+    string? Model = null,
+    string? Agent = null)
 {
     /// <summary>True when every field is null / whitespace.</summary>
     public bool IsEmpty =>
@@ -87,5 +99,6 @@ public record UnitExecutionDefaults(
         && string.IsNullOrWhiteSpace(Runtime)
         && string.IsNullOrWhiteSpace(Tool)
         && string.IsNullOrWhiteSpace(Provider)
-        && string.IsNullOrWhiteSpace(Model);
+        && string.IsNullOrWhiteSpace(Model)
+        && string.IsNullOrWhiteSpace(Agent);
 }

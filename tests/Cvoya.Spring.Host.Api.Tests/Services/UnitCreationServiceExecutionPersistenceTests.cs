@@ -99,6 +99,93 @@ public class UnitCreationServiceExecutionPersistenceTests
         execution.GetProperty("model").GetString().ShouldBe("claude-sonnet-4");
     }
 
+    [Fact]
+    public async Task CreateFromManifestAsync_WithAiAgent_PersistsAgentOntoExecutionBlock()
+    {
+        // #1683: the manifest's `ai.agent` field is the agent-runtime
+        // registry id. UnitCreationService must forward it into the
+        // execution block's `agent` slot so the validation scheduler
+        // (which now reads `defaults.Agent` first) can compose a
+        // workflow input keyed to a real registered runtime instead of
+        // the container-runtime selector value (`docker` / `podman`).
+        var actorGuid = Guid.NewGuid();
+        var (service, scopeFactory) = BuildService("sv-oss-issue-1683", actorGuid);
+
+        var manifest = new UnitManifest
+        {
+            Name = "sv-oss-issue-1683",
+            Description = "regression #1683 — agent-runtime id must persist",
+            Ai = new AiManifest
+            {
+                Agent = "claude",
+                Model = "claude-sonnet-4",
+            },
+            Execution = new ExecutionManifest
+            {
+                Image = "ghcr.io/cvoya/sv-oss-issue-1683:latest",
+                Runtime = "podman",
+                Tool = "claude-code",
+            },
+        };
+
+        await service.CreateFromManifestAsync(
+            manifest,
+            new UnitCreationOverrides(IsTopLevel: true, ActorId: actorGuid),
+            TestContext.Current.CancellationToken);
+
+        using var verifyScope = scopeFactory.CreateScope();
+        var verifyDb = verifyScope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        var persisted = await verifyDb.UnitDefinitions.FirstAsync(
+            u => u.Id == actorGuid,
+            TestContext.Current.CancellationToken);
+
+        persisted.Definition.ShouldNotBeNull();
+        var json = persisted.Definition!.Value;
+        json.TryGetProperty("execution", out var execution).ShouldBeTrue();
+        execution.GetProperty("agent").GetString().ShouldBe("claude");
+        // The runtime slot remains the container-runtime selector — not
+        // overwritten with the agent-runtime id.
+        execution.GetProperty("runtime").GetString().ShouldBe("podman");
+    }
+
+    [Fact]
+    public async Task CreateFromManifestAsync_WithOnlyAiAgent_PersistsAgentBlockAlone()
+    {
+        // The manifest may declare `ai.agent` without an explicit
+        // `execution:` block. In that case PersistUnitExecutionAsync
+        // still fires (the agent slot alone is enough to make the
+        // execution block non-empty) so the validator can later read
+        // back the runtime id.
+        var actorGuid = Guid.NewGuid();
+        var (service, scopeFactory) = BuildService("sv-oss-1683-thin", actorGuid);
+
+        var manifest = new UnitManifest
+        {
+            Name = "sv-oss-1683-thin",
+            Description = "agent-only manifest",
+            Ai = new AiManifest
+            {
+                Agent = "openai",
+            },
+        };
+
+        await service.CreateFromManifestAsync(
+            manifest,
+            new UnitCreationOverrides(IsTopLevel: true, ActorId: actorGuid),
+            TestContext.Current.CancellationToken);
+
+        using var verifyScope = scopeFactory.CreateScope();
+        var verifyDb = verifyScope.ServiceProvider.GetRequiredService<SpringDbContext>();
+        var persisted = await verifyDb.UnitDefinitions.FirstAsync(
+            u => u.Id == actorGuid,
+            TestContext.Current.CancellationToken);
+
+        persisted.Definition.ShouldNotBeNull();
+        var json = persisted.Definition!.Value;
+        json.TryGetProperty("execution", out var execution).ShouldBeTrue();
+        execution.GetProperty("agent").GetString().ShouldBe("openai");
+    }
+
     private static (UnitCreationService Service, IServiceScopeFactory ScopeFactory) BuildService(
         string displayName, Guid actorGuid)
     {

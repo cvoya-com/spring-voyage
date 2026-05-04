@@ -9,7 +9,7 @@ agent:
     tool: claude-code
     environment:
       image: localhost/spring-voyage-agent-claude-code:latest
-      runtime: docker
+      runtime: podman
   instructions: |
     You are a product manager. You triage incoming requests, maintain the
     product roadmap, plan sprints, and turn customer and stakeholder input

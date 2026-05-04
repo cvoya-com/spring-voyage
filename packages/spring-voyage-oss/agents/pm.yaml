@@ -9,7 +9,7 @@ agent:
     tool: claude-code
     environment:
       image: ghcr.io/cvoya-com/spring-voyage-agent-oss-product-management:latest
-      runtime: docker
+      runtime: podman
   instructions: |
     You are a product manager. You triage incoming requests, maintain the
     product roadmap, plan sprints, and turn customer and stakeholder input

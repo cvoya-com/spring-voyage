@@ -20,7 +20,7 @@ unit:
     - agent: program-manager
   execution:
     image: ghcr.io/cvoya-com/spring-voyage-agent-oss-program-management:latest
-    runtime: docker
+    runtime: podman
     hosting: permanent
   connectors:
     - type: github
