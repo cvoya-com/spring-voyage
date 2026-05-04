@@ -52,7 +52,7 @@ spring conversation list
 spring conversation list --unit engineering-team
 spring conversation list --agent ada
 spring conversation list --status active
-spring conversation list --participant human://savasp
+spring conversation list --participant human:f47ac10b58cc4372a5670e02b2c3d479
 spring conversation show <conversation-id>
 ```
 
@@ -63,8 +63,8 @@ spring conversation show <conversation-id>
 To post a new message into a thread the agent is already working on — without starting a new conversation — use either of the equivalent forms:
 
 ```
-spring conversation send --conversation <id> agent://engineering-team/ada "Looks good — ship it."
-spring message send agent://engineering-team/ada "Looks good — ship it." --conversation <id>
+spring conversation send --conversation <id> agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7 "Looks good — ship it."
+spring message send agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7 "Looks good — ship it." --conversation <id>
 ```
 
 Both resolve to the same server endpoint; pick whichever reads better in the surrounding script.
@@ -82,13 +82,13 @@ The platform cancels any in-flight dispatch on every participating agent, remove
 
 ### Inbox: Things Awaiting You
 
-The inbox is the human-facing "things pointed at me that I have not responded to" surface. A conversation shows up here when an agent (or unit) has delivered a message to your `human://` address and no other participant has observed a follow-up message after that point; it drops off as soon as you respond. Trailing observability events on the conversation (state changes from dispatch teardown, cost emissions) do not affect the inbox.
+The inbox is the human-facing "things pointed at me that I have not responded to" surface. A conversation shows up here when an agent (or unit) has delivered a message to your `human:` address and no other participant has observed a follow-up message after that point; it drops off as soon as you respond. Trailing observability events on the conversation (state changes from dispatch teardown, cost emissions) do not affect the inbox.
 
 ```
 spring inbox list                              # conversations awaiting a reply from you
 spring inbox show <conversation-id>            # open the pending thread
 spring inbox respond <conversation-id> "Approved — proceed."
-spring inbox respond <conversation-id> --to agent://engineering-team/ada "Redirect the reply."
+spring inbox respond <conversation-id> --to agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7 "Redirect the reply."
 ```
 
 `respond` is a thin wrapper over `spring conversation send --conversation <id>` — it resolves the pending ask's sender automatically so the common case ("reply to whoever asked") needs no address.

@@ -6,11 +6,11 @@
 
 the platform is **tenant-scoped end-to-end** and turns AI "providers + execution tools" into a single unified **Agent Runtime** plugin concept, parallel to the existing **Connector** plugin. Every business-data row carries a `tenant_id`; every plugin registers in DI and becomes _available_ to the host; per-tenant install tables decide which plugins are _visible_ to a given tenant's workflows. A shared credential-health store tracks whether each tenant's stored credentials currently work.
 
-The OSS core ships single-tenant at runtime (the literal `"default"` tenant is materialised by a first-start bootstrap). The private cloud repo swaps in a request-scoped `ITenantContext` to turn the same schema into a multi-tenant deployment without forking.
+The OSS core ships single-tenant at runtime — every fresh-install tenant-scoped row is owned by `Cvoya.Spring.Core.Tenancy.OssTenantIds.Default`, the deterministic v5 UUID materialised by a first-start bootstrap. The private cloud repo swaps in a request-scoped `ITenantContext` to turn the same schema into a multi-tenant deployment without forking. See [Identifiers § 5](identifiers.md#5-the-oss-default-tenant-id) for the constant and its derivation.
 
 ## Tenant scoping model
 
-Every business-data entity implements `Cvoya.Spring.Core.Tenancy.ITenantScopedEntity`. The contract is one column — `string TenantId { get; }` — plus a convention that every `IEntityTypeConfiguration<T>` pairs the entity with a query filter:
+Every business-data entity implements `Cvoya.Spring.Core.Tenancy.ITenantScopedEntity`. The contract is one column — `Guid TenantId { get; }` — plus a convention that every `IEntityTypeConfiguration<T>` pairs the entity with a query filter:
 
 ```csharp
 modelBuilder.Entity<SomeEntity>()

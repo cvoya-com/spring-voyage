@@ -13,7 +13,7 @@ An open protocol for cross-framework agent communication. Enables Spring agents 
 What causes an agent to wake up and act. Activation triggers include direct messages, pub/sub subscriptions, scheduled reminders, volatile timers, external events (via bindings), workflow steps, and initiative.
 
 **Address**
-A globally unique routable identity for any addressable entity. Comes in two forms: path addresses (human-readable, reflecting organizational hierarchy) and direct addresses (UUID-based, stable across moves).
+A globally unique routable identity for any addressable entity. Shape: `(Scheme, Guid)` — a scheme like `agent`, `unit`, `human`, or `connector` plus the addressed actor's stable `Guid` identity. Canonical wire form: `scheme:<32-hex-no-dash>` (e.g. `agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7`). Parsers are lenient (the dashed Guid form is accepted everywhere); the emit form is uniform. There is no path-shaped address, no `@<uuid>` form, and no namespace+name pair — identity is the `Guid`. The membership graph is the addressing fabric (a unit's members are reached by walking the graph from the addressed actor toward the tenant root); presentation rendering uses `display_name` resolved at read time and never participates in routing. See [Identifiers](architecture/identifiers.md), [ADR-0036](decisions/0036-single-identity-model.md), and the `display_name` validator in `Cvoya.Spring.Core.Validation.DisplayNameValidator`.
 
 **Agent**
 An autonomous AI-powered entity. The fundamental building block of the platform. Can be a worker, observer, advisor, monitor, researcher, or any other role. Every agent has an identity, can receive messages, and can reason about how to respond.
@@ -63,6 +63,9 @@ An execution pattern where the agent actor dispatches work to an isolated execut
 **Directory**
 A registry of agent expertise, queryable within and across units. Each unit maintains its members' expertise profiles. Directories compose recursively through the unit hierarchy.
 
+**display_name**
+The human-facing label for an actor (unit, agent, human, connector, tenant) used in wizard listings, activity-log narrative, drawer panels, and CLI table output. Not unique, not addressable, not a foreign-key target. The platform rejects any `display_name` that round-trips through `Guid.TryParseExact` for any standard form, so a token that looks Guid-shaped is unambiguously identity, not a name. CLI surfaces accept `display_name` as **search input** (returning 0/1/n results); they never accept it as a routed lookup. See [Identifiers](architecture/identifiers.md), [ADR-0036 § 2](decisions/0036-single-identity-model.md), and `Cvoya.Spring.Core.Validation.DisplayNameValidator`.
+
 **Domain Package**
 See Package.
 
@@ -102,6 +105,9 @@ A typed communication between addressable entities. Contains an ID, sender, reci
 **Observation Channel**
 A partition of the agent's mailbox for events from subscriptions, timers, and observed agents. Processed in batch by the initiative cognition loop.
 
+**OssTenantIds.Default**
+The deterministic v5 UUID owning every tenant-scoped row in a fresh OSS install: `dd55c4ea-8d72-5e43-a9df-88d07af02b69` (no-dash form: `dd55c4ea8d725e43a9df88d07af02b69`). Computed once over namespace `00000000-0000-0000-0000-000000000000` and label `cvoya/tenant/oss-default`, pinned as a literal in `src/Cvoya.Spring.Core/Tenancy/OssTenantIds.cs`. Recomputable from outside the platform via any v5 implementation. The class also exposes `DefaultDashed` and `DefaultNoDash` `const string` literals for grep-ability across configuration files, dashboards, and audit logs. See [Identifiers § 5](architecture/identifiers.md#5-the-oss-default-tenant-id) and [ADR-0036 § 8](decisions/0036-single-identity-model.md).
+
 **Observer**
 An agent that subscribes to another agent's activity stream (with permission).
 
@@ -133,7 +139,7 @@ Per-thread policy that sets the default `threadOnly` attribute for memory entrie
 The ordered, timestamped record of all artifacts within a thread: messages (user / agent / initiative), task lifecycle events, **ParticipantStateChanged** events, retractions, and system events. Append-only at the platform level; corrections and retractions are new Timeline events that reference prior artifacts, not in-place mutations. Per-thread FIFO is the ordering invariant. See `docs/architecture/thread-model.md` § Q7.
 
 **Topic**
-A named pub/sub channel for event distribution. Namespaced by unit.
+A named pub/sub channel for event distribution. Topic names are namespaced by tenant + owner Guid + topic name (`{tenant-id}/{owner-id}/{topic}`); system topics use the `system/` prefix.
 
 **Unit**
 A group of agents — and the humans who work with them — performing together. A unit IS an agent (composite pattern) -- it implements the same interfaces and can contain agents and/or other units recursively. Each unit picks an orchestration strategy that decides how it routes work across its members; humans participate as Owners, Operators, or Viewers via the unit's permission model.

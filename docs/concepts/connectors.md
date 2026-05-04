@@ -23,7 +23,7 @@ Every connector provides two things:
 
 ## How Connectors Participate
 
-Connectors are addressable entities -- they have an address (e.g., `connector://engineering-team/github`), can receive messages, and emit an activity stream. They are implemented as Dapr actors, just like agents and units.
+Connectors are addressable entities -- they have an address of the form `connector:<32-hex-no-dash>` (e.g., `connector:a1b2c3d4e5f6789012345678901234ab`), can receive messages, and emit an activity stream. They are implemented as Dapr actors, just like agents and units.
 
 When a connector is attached to a unit, it:
 

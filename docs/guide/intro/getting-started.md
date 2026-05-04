@@ -123,10 +123,17 @@ The unit and its agents are now active and ready to receive messages.
 
 ## Your First Interaction
 
-Send a message to an agent:
+Look up Ada's `Guid` (display-name search inside her unit):
 
 ```
-spring message send agent://engineering-team/ada "Review the README and suggest improvements"
+spring agent show ada --unit engineering-team
+# prints the canonical 32-hex Guid
+```
+
+Then send a message to that id:
+
+```
+spring message send agent:<id> "Review the README and suggest improvements"
 ```
 
 Watch the activity in real-time:
@@ -149,7 +156,7 @@ Each step above has a matching end-to-end scenario you can read or run. Scenario
 - [`cli-meta/cli-version-and-help.sh`](../../../tests/cli-scenarios/scenarios/cli-meta/cli-version-and-help.sh) — verifies that `spring --help` starts cleanly and exposes the expected subcommands (`unit`, `apply`, …). Run this to confirm the CLI is wired correctly.
 - [`units/unit-create-scratch.sh`](../../../tests/cli-scenarios/scenarios/units/unit-create-scratch.sh) — creates a minimal unit via `spring unit create` and asserts it shows up in `spring unit list`. This matches the "Creating Your First Unit" walkthrough above.
 - [`units/unit-create-and-start.sh`](../../../tests/cli-scenarios/scenarios/units/unit-create-and-start.sh) — creates a unit and transitions it to `Running` with `spring unit start`, mirroring "Starting the Unit" above.
-- [`messaging/message-human-to-agent.sh`](../../../tests/cli-scenarios/scenarios/messaging/message-human-to-agent.sh) — (`pool: llm`, requires Ollama) sends a human-authored message to an agent via `spring message send agent://…`, matching "Your First Interaction".
+- [`messaging/message-human-to-agent.sh`](../../../tests/cli-scenarios/scenarios/messaging/message-human-to-agent.sh) — (`pool: llm`, requires Ollama) sends a human-authored message to an agent via `spring message send agent:<id>`, matching "Your First Interaction".
 
 ## What's Next
 

@@ -210,8 +210,9 @@ spring build packages/my-domain
 # Apply the package
 spring apply -f packages/my-domain/units/research-cell.yaml
 
-# Test with a message
-spring message send agent://research-cell "Analyze this paper: ..."
+# Test with a message — resolve the unit's id, then send to it
+spring unit show research-cell                       # prints the canonical Guid
+spring message send unit:<id> "Analyze this paper: ..."
 ```
 
 ## Phase 6: Formal Package Distribution

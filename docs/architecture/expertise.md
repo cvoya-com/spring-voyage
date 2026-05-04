@@ -12,7 +12,7 @@ Each agent has an expertise profile — seeded from config, optionally evolved t
 
 ```yaml
 ExpertiseProfile:
-  agent: agent://acme/engineering-team/ada
+  agent: agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7
   domains:
     - name: python/fastapi
       level: expert
@@ -42,7 +42,7 @@ Each contributed capability is preserved with:
 | Field | Meaning |
 |-------|---------|
 | `Domain` | The name, description, and optional level (`beginner | intermediate | advanced | expert`). |
-| `Origin` | Address of the contributor (`agent://id` for leaves, `unit://id` when a nested unit advertises its own domain). |
+| `Origin` | Address of the contributor (`agent:<id>` for leaves, `unit:<id>` when a nested unit advertises its own domain). |
 | `Path` | Ordered addresses from the aggregating unit down to `Origin`. Length − 1 is the depth. |
 
 The origin chain lets peer-lookup callers tell **where** a capability came from so they can route work to the leaf, and lets permission checks (#414) decide whether the requester is allowed to traverse into that origin. The path is what the boundary layer (#413) consumes when it decides to project, filter, or synthesize.

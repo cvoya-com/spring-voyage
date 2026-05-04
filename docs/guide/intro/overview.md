@@ -38,8 +38,9 @@ spring agent create my-agent \
     --tool claude-code \
     --image ghcr.io/cvoya-com/spring-agent:latest
 
-# Send a message
-spring message send agent://my-team/my-agent "Hello, what can you do?"
+# Look up the agent's id (display-name search), then send a message
+spring agent show my-agent --unit my-team           # prints the canonical Guid
+spring message send agent:<id> "Hello, what can you do?"
 
 # Watch the activity feed (no live-stream verb yet — re-run as needed)
 spring activity list --source unit:my-team --limit 20

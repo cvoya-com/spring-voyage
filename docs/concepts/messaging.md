@@ -4,50 +4,29 @@ Communication in Spring Voyage is built on two primitives: **addresses** (how en
 
 ## Addressable Entities
 
-Everything that can send or receive a message is **addressable**. There are four types of addressable entities:
+Everything that can send or receive a message is **addressable**. The four types of addressable entities are:
 
 | Entity | Description |
 |--------|-------------|
 | **Agent** | An autonomous AI entity (or a unit acting as one) |
+| **Unit** | A composite agent — group of agents that appears as one to the outside |
 | **Human** | A human participant in a unit |
 | **Connector** | A bridge to an external system (GitHub, Slack, etc.) |
-| **Topic** | A named pub/sub channel for event distribution |
 
-## Address Formats
+A pub/sub **topic** is a separate primitive (see [Pub/Sub Topics](#pubsub-topics) below); it is not an addressable actor.
 
-Every addressable entity has two address forms that resolve to the same underlying identity.
+## Addresses
 
-### Path Addresses
+Every addressable entity has a stable `Guid` identity. An address is the pair `(scheme, Guid)` and renders on the wire as `scheme:<32-hex-no-dash>`:
 
-Human-readable addresses that reflect organizational structure:
+- `agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7` -- a specific agent
+- `unit:dd55c4ea8d725e43a9df88d07af02b69` -- a unit (also reachable via `agent:<id>` because a unit IS an agent)
+- `human:f47ac10b58cc4372a5670e02b2c3d479` -- a human participant
+- `connector:a1b2c3d4e5f6789012345678901234ab` -- a connector
 
-- `agent://engineering-team/ada` -- an agent named "ada" in the engineering team
-- `agent://engineering-team/backend-team/ada` -- a nested agent
-- `agent://engineering-team` -- the unit itself (a unit IS an agent)
-- `human://engineering-team/savasp` -- a human participant
-- `connector://engineering-team/github` -- a connector
-- `role://engineering-team/backend-engineer` -- multicast to all agents with that role
-- `topic://engineering-team/pr-reviews` -- a pub/sub topic
+There is no path-shaped address, no `@<uuid>` form, no namespace+name pair. The membership graph (which units a particular agent belongs to, which sub-units a unit contains, what tenant owns what) is walked at routing time inside the directory; it does not appear in the address string.
 
-Within a tenant, the tenant prefix is implicit. Cross-tenant addressing adds the tenant name: `agent://acme/engineering-team/ada`.
-
-### Direct Addresses (UUID)
-
-Stable addresses using the entity's globally unique identifier:
-
-- `agent://@f47ac10b-58cc-4372-a567-0e02b2c3d479`
-
-Direct addresses are useful when the hierarchy is deep, when an agent moves between units (UUID is stable, path changes), or for programmatic references.
-
-Both forms are interchangeable in messages.
-
-### System Addresses
-
-Platform-level services have special addresses:
-
-- `system://root` -- the tenant root unit
-- `system://directory` -- the tenant root directory
-- `system://package-registry` -- the package registry
+Parsers are lenient — addresses carrying the dashed Guid form (`agent:8c5fab2a-8e7e-4b9c-92f1-d8a3b4c5d6e7`) parse just as well — but the canonical render always uses the no-dash form. Identifier conventions, the JSON-vs-URL split, manifest grammar, and CLI semantics are documented in [Identifiers](../architecture/identifiers.md).
 
 ## Messages
 
@@ -92,18 +71,18 @@ No sender can escalate their own message priority. The platform is the sole auth
 
 ## How Routing Works
 
-All actors have flat, globally unique identifiers. Path addresses are resolved to actor IDs through directory lookups -- there is no multi-hop forwarding through each unit in the path.
+All actors have flat, globally unique Dapr actor ids derived from their `Guid`. The directory resolves an address to an actor id in a single lookup; messages dispatch directly to that actor. There is no multi-hop forwarding through a chain of units.
 
-Each unit maintains a local directory cache mapping member paths to actor IDs. The root unit maintains the tenant-wide directory. Path resolution is a single lookup.
+**Permission enforcement** happens at resolution time. The directory walks the membership graph from the addressed actor toward the tenant root and at each boundary edge evaluates the permission rule against the sender; the walk returns either an actor id (permitted) or a structured deny (rejected). This is one synchronous check whose cost is O(membership depth), not per-hop forwarding.
 
-**Permission enforcement** happens at resolution time: when the directory resolves a path, it checks the sender's permissions against each boundary along the path and either returns the actor ID or rejects the message.
+When the addressed actor is a unit (rather than a specific member), the unit applies its boundary filtering and delegates to its orchestration strategy, which picks a member to handle the message.
 
 ## Pub/Sub Topics
 
-Topics provide event distribution. An agent subscribes to a topic and receives all messages published to it. Topics are namespaced by unit: `engineering-team/pr-reviews`, `research-team/papers/new-arxiv`.
+Topics provide event distribution. An agent subscribes to a topic and receives all messages published to it. Topics are namespaced by tenant + owner Guid + topic name (e.g. `dd55c4ea8d725e43a9df88d07af02b69/8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7/pr-reviews`); system topics use the literal `system/` prefix.
 
 The pub/sub infrastructure is broker-agnostic -- Redis for development, Kafka or Azure Event Hubs for production. The choice is configuration, not code.
 
-## Multicast via Roles
+## Multicast
 
-Addressing a role (e.g., `role://engineering-team/backend-engineer`) sends the message to all agents with that role. This is useful for broadcast queries ("who can help with this Python issue?") or role-based work distribution.
+A multicast send dispatches a single domain message to every actor that matches a routing pattern (for example, all members of a unit advertising a given role). The multicast resolver above the directory expands the pattern into a set of `(scheme, Guid)` addresses, each routed individually. Multicast is useful for broadcast queries ("who can help with this Python issue?") or role-based work distribution.

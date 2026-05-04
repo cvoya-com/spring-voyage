@@ -44,11 +44,14 @@ The `Spring.Cli` project produces the `spring` command-line tool:
 
 ```
 spring unit list
+spring unit show engineering-team                          # name search; exits non-zero on n-match with a disambiguation table
+spring unit show dd55c4ea8d725e43a9df88d07af02b69          # direct lookup by Guid
+spring agent show ada --unit engineering-team              # name search inside a unit
 spring agent status ada
-spring message send agent://engineering-team/ada "Review PR #42"
+spring message send agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7 "Review PR #42"
 spring conversation list --unit engineering-team
 spring conversation show c-1834
-spring conversation send --conversation c-1834 agent://engineering-team/ada "Ship it."
+spring conversation send --conversation c-1834 agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7 "Ship it."
 spring inbox list
 spring inbox respond c-1834 "Approved"
 spring activity stream --unit engineering-team
@@ -111,7 +114,7 @@ The `spring directory` family mirrors the portal's `/directory` surface over the
 | `spring directory show <slug>` | Render a single entry — slug, domain, owner + display name, aggregating unit, ancestor chain breadcrumb, typed-contract flag, match reason, score, and the `projection/{slug}` path set. | Click a row on `/directory`. |
 | `spring directory search "<text>"` | Free-text query matched against slug, display name, description, and tags; ranks exact slug > exact domain > text relevance > aggregated-coverage. | The search box on `/directory`. |
 
-`show` carries the full owner-chain + projection-path detail (#553): the ancestor chain renders as a `unit://mid -> unit://root` breadcrumb reading from the closest projecting ancestor up to the highest, and each `projection/{slug}` path listed under "Projected via" identifies one surfacing ancestor. A direct hit renders both as `(direct)` with no "Projected via" block.
+`show` carries the full owner-chain + projection-path detail (#553): the ancestor chain renders as a `unit:<mid-id> -> unit:<root-id>` breadcrumb reading from the closest projecting ancestor up to the highest, and each `projection/{slug}` path listed under "Projected via" identifies one surfacing ancestor. A direct hit renders both as `(direct)` with no "Projected via" block.
 
 ### Provider + Model flag validation (#598, relaxed by #644)
 

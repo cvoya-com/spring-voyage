@@ -30,7 +30,7 @@ Path 1 is the default. Pick path 2 when you can't use the recommended base. Pick
 
 ## Background: how the dispatcher launches your image
 
-When a turn arrives for an `agent://<path>` whose `execution.tool` matches your launcher (or one of the built-in launchers — Claude Code uses path 1, Dapr Agent uses path 3), the dispatcher executes the unified path documented in [ADR 0025](../../decisions/0025-unified-agent-launch-contract.md):
+When a turn arrives for an `agent:<id>` address whose `execution.tool` matches your launcher (or one of the built-in launchers — Claude Code uses path 1, Dapr Agent uses path 3), the dispatcher executes the unified path documented in [ADR 0025](../../decisions/0025-unified-agent-launch-contract.md):
 
 ```text
 A2AExecutionDispatcher.DispatchAsync(message, context)

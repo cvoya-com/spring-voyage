@@ -6,51 +6,54 @@ For the internals — mailbox partitioning, cancellation semantics, pub/sub stre
 
 ## Concepts at a glance
 
-Spring Voyage models every addressable participant — a named agent, a composite unit, a human operator, a connector — as an **actor** with a unique address. A **message** travels from a `From` address to a `To` address, optionally carrying a **conversation id** so the receiving actor knows whether to treat the incoming text as the start of new work or as a follow-up to work already in flight.
+Spring Voyage models every addressable participant — a named agent, a composite unit, a human operator, a connector — as an **actor** with a stable `Guid` identity. A **message** travels from a `From` address to a `To` address, optionally carrying a **thread id** so the receiving actor knows whether to treat the incoming text as the start of new work or as a follow-up to work already in flight.
 
-The platform does not inspect message content to decide routing; it reads the `To` scheme and path, looks the actor up in the directory, and delivers the message once. The actor on the receiving end — an `AgentActor`, `UnitActor`, `HumanActor`, or connector — is responsible for turning the payload into work.
+An address is the pair `(scheme, Guid)` and renders on the wire as `scheme:<32-hex-no-dash>` — for example `agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7`. There is no path-shaped address; identity is the `Guid`. The platform does not inspect message content to decide routing; it reads the `To` scheme and id, looks the actor up in the directory, and delivers the message once. The actor on the receiving end — an `AgentActor`, `UnitActor`, `HumanActor`, or connector — is responsible for turning the payload into work.
 
-See [Messaging architecture — Addressing](../../architecture/messaging.md#addressing) for the full routing model and [Messaging architecture — Agent Mailbox & Message Processing](../../architecture/messaging.md#agent-mailbox--message-processing) for how an agent actually processes what it receives.
+See [Identifiers](../../architecture/identifiers.md) for the full identifier model (wire forms, parser rules, OSS default tenant id, manifest grammar, CLI search-with-context), and [Messaging architecture — Addressing](../../architecture/messaging.md#addressing) for the routing surface.
 
 ## Sending a message from the CLI
 
 The CLI exposes a single command for sending messages:
 
 ```
-spring message send <address> "<text>" [--conversation <id>]
+spring message send <address> "<text>" [--thread <id>]
 ```
 
-The address is any scheme Spring Voyage recognises: `agent://`, `unit://`, `human://`, `connector://`, or `role://` (multicast). The text is wrapped in a domain message and delivered to the destination actor. A new conversation is started when `--conversation` is omitted; passing an existing conversation id appends the message to that conversation.
+The address is `scheme:<32-hex-no-dash>` for one of `agent`, `unit`, `human`, or `connector`. The text is wrapped in a domain message and delivered to the destination actor. A new thread is started when `--thread` is omitted; passing an existing thread id appends the message to that thread.
 
-Every `spring message send` call prints the generated message id so scripts can correlate follow-ups.
+Every `spring message send` call prints the generated message id and thread id so scripts can correlate follow-ups.
 
 ### Example: human talks to an agent
 
+Start by resolving the agent's `Guid` — `spring agent show <name>` accepts a display-name search and prints the canonical id (and walks the operator through disambiguation when more than one agent matches):
+
 ```bash
-spring message send agent://engineering-team/ada "Review the README and suggest improvements"
+spring agent show ada --unit engineering-team
+# → ada   Guid: 8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7  …
 ```
 
-The CLI resolves `agent://engineering-team/ada` via the platform directory, hands the domain message to the agent actor, and prints `Message sent to agent://engineering-team/ada. (id: <uuid>)`. The agent picks it up on its next turn, creates a conversation channel keyed off the message's conversation id, and starts working.
+Then address the agent by id:
+
+```bash
+spring message send agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7 "Review the README and suggest improvements"
+```
+
+The CLI resolves the address via the platform directory, hands the domain message to the agent actor, and prints the generated message id. The agent picks it up on its next turn and starts working.
 
 ### Example: address a whole unit
 
 When the sender does not know (or does not want to pick) which member should handle the work, target the unit itself and let its orchestration strategy decide:
 
 ```bash
-spring message send unit://engineering-team "Implement the login feature described in issue #15"
+spring message send unit:dd55c4ea8d725e43a9df88d07af02b69 "Implement the login feature described in issue #15"
 ```
 
-The unit actor receives the message, applies boundary filtering, and dispatches to a member according to the orchestration strategy configured for that unit. Responses flow back through the same conversation id.
+The unit actor receives the message, applies boundary filtering, and dispatches to a member according to the orchestration strategy configured for that unit. Responses flow back through the same thread.
 
-### Example: broadcast to a role
+### Example: multicast
 
-`role://` is a multicast scheme: every addressable entity that advertises the matching role receives a copy of the message, and responses are aggregated into a single reply payload when the router returns to the sender.
-
-```bash
-spring message send role://engineering-team/backend-engineer "New coding standards are in effect — please skim the doc."
-```
-
-The router fans out to every actor registered under the `backend-engineer` role inside `engineering-team` and collects their acknowledgements. If no matching actor is found the call fails with an address-not-found error rather than silently succeeding.
+A multicast send dispatches a single domain message to every actor that matches a routing pattern (for example, all members of a unit advertising a given role). Multicast resolution expands the pattern into a set of addresses, each routed individually; responses are aggregated and returned to the sender.
 
 ## Conversations
 
@@ -115,39 +118,34 @@ See [Observing Activity](observing.md#conversations-and-inbox) for more examples
 
 ## Addressing scheme — when to use each
 
-| Scheme        | Shape                                          | When to use                                                                                          |
-| ------------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `agent://`    | `agent://<unit-path>/<name>` or `agent://@<uuid>` | You know exactly which member should handle the work (e.g. `agent://engineering-team/ada`).        |
-| `unit://`     | `unit://<unit-path>`                           | You want the unit's orchestration strategy to pick a member (or the message is for the unit itself). |
-| `human://`    | `human://<unit-path>/<identity>`              | You want to route a message to a human participant (notifications, approvals, escalations).         |
-| `connector://` | `connector://<unit-path>/<type>`             | You want to invoke a connector (e.g. a GitHub connector) as if it were a peer actor.                |
-| `role://`     | `role://<unit-path>/<role-name>`              | You want to multicast to every addressable entity with that role inside a unit.                     |
+| Scheme        | Shape                          | When to use                                                                                          |
+| ------------- | ------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| `agent`       | `agent:<32-hex-no-dash>`       | You know exactly which member should handle the work.                                                |
+| `unit`        | `unit:<32-hex-no-dash>`        | You want the unit's orchestration strategy to pick a member (or the message is for the unit itself). |
+| `human`       | `human:<32-hex-no-dash>`       | You want to route a message to a human participant (notifications, approvals, escalations).         |
+| `connector`   | `connector:<32-hex-no-dash>`   | You want to invoke a connector (e.g. a GitHub connector) as if it were a peer actor.                |
 
-Two shapes are supported for the path portion:
+Address parsers are lenient: the dashed Guid form (`agent:8c5fab2a-8e7e-4b9c-92f1-d8a3b4c5d6e7`) is accepted everywhere, but the canonical render uses the no-dash form. `display_name` is presentation-only — never an addressable handle. Use `spring agent show <name>` / `spring unit show <name>` to look up the canonical id when you only know a name.
 
-- **Path addresses** — human-readable, reflect the organisation's unit hierarchy (`agent://engineering-team/ada`, `agent://engineering-team/backend-team/ada`). Resolved via the directory. Permission checks are applied along the unit path.
-- **Direct addresses (`@<uuid>`)** — stable, independent of the agent's current unit (e.g. `agent://@f47ac10b-58cc-4372-a567-0e02b2c3d479`). Useful when scripts persist references and cannot tolerate hierarchy changes.
-
-See [Messaging architecture — Addressing](../../architecture/messaging.md#addressing) for the resolution algorithm and permission model.
+See [Identifiers](../../architecture/identifiers.md) for the wire-form rules and [Messaging architecture — Addressing](../../architecture/messaging.md#addressing) for the resolution algorithm and permission model.
 
 ## Cross-unit messaging
 
-A sender in one unit can target an actor in a different unit by supplying the full path. The router resolves the destination path in a single directory lookup and enforces the sender's permissions at each unit boundary along the way — cross-unit delivery is one synchronous permission check per boundary, not a forwarded hop through each unit's actor.
+A sender in one unit can target an actor in a different unit by supplying the actor's `Guid`. The router resolves the destination in a single directory lookup and enforces the sender's permissions at each membership-graph edge from the addressed actor toward the tenant root — cross-unit delivery is one synchronous permission check per edge, not a forwarded hop through each unit's actor.
 
 ```bash
-# Ada in engineering-team asks research-team for a design review.
-spring message send agent://research-team/kay "Please review the API design in PR #73 when you have a moment."
+# Ada in engineering-team asks Kay (in research-team) for a design review.
+spring message send agent:f47ac10b58cc4372a5670e02b2c3d479 \
+  "Please review the API design in PR #73 when you have a moment."
 ```
 
-If `engineering-team` does not have permission to reach `agent://research-team/kay` (the receiving unit denies deep access, or the addressed member is private to its unit), the send returns a permission-denied error and the message never reaches the destination actor.
-
-See [Messaging architecture — Routing Mechanism](../../architecture/messaging.md#routing-mechanism) for the boundary-resolution semantics.
+If the sender lacks permission to reach the addressed agent (the receiving unit denies deep access, or the addressed member is private to its unit), the send returns a permission-denied error and the message never reaches the destination actor.
 
 ## Tips
 
-- **Let the unit route when in doubt.** Addressing `unit://engineering-team` and letting the orchestration strategy pick a member is usually the right default for cross-team requests. Pin to a specific `agent://` address only when the work genuinely needs that specific agent.
-- **Hold on to conversation ids.** Pass the same `--conversation <id>` on follow-ups so the agent's mailbox threads your messages together. Without it, each send creates a fresh pending conversation — noisier and harder to follow.
-- **Multicast is an aggregator, not a fan-out trigger.** `role://` waits for every matching actor to respond before returning an aggregate payload to the sender. Use it to broadcast announcements; avoid it for long-running work where you want the first responder to win.
+- **Let the unit route when in doubt.** Addressing the unit (`unit:<id>`) and letting the orchestration strategy pick a member is usually the right default for cross-team requests. Pin to a specific `agent:<id>` only when the work genuinely needs that specific agent.
+- **Hold on to thread ids.** Pass the same `--thread <id>` on follow-ups so the agent's mailbox threads your messages together. Without it, each send creates a fresh thread — noisier and harder to follow.
+- **Multicast is an aggregator, not a fan-out trigger.** A multicast send waits for every matching actor to respond before returning an aggregate payload to the sender. Use it to broadcast announcements; avoid it for long-running work where you want the first responder to win.
 - **The web portal shows the same traffic.** The portal's unit and agent pages display activity events (messages, checkpoints, completions) for any work you drive from the CLI. CLI and portal stay in lock-step — either surface is a valid operator entry point.
 
 ## See it in action

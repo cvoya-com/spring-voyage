@@ -8,7 +8,7 @@ Agents are not limited to "workers" -- an agent can be an observer, advisor, mon
 
 Every agent has:
 
-- **Identity** -- a globally unique address within the platform (e.g., `agent://engineering-team/ada`)
+- **Identity** -- a stable `Guid` and a `display_name`. Addressable as `agent:<32-hex-no-dash>` (e.g. `agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7`). See [Identifiers](../architecture/identifiers.md).
 - **Role** -- a label signaling what kind of work the agent does (e.g., `backend-engineer`, `qa-engineer`, `researcher`)
 - **Capabilities** -- tags describing what the agent can do (e.g., `csharp`, `python`, `postgresql`)
 - **Instructions** -- the system prompt that guides the agent's behavior, personality, and domain knowledge

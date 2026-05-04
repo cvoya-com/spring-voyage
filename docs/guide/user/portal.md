@@ -318,7 +318,7 @@ Tenant-wide agent roster. Filter bar:
 | Enabled status | `spring agent list` |
 | Expertise | `spring directory search <text>` |
 
-Cards carry two quick actions: **Conversation** (deep-links to `/conversations?participant=agent://<name>`) and **Deployment** (deep-links to the agent's lifecycle anchor).
+Cards carry two quick actions: **Conversation** (deep-links to `/conversations?participant=agent:<id>`) and **Deployment** (deep-links to the agent's lifecycle anchor).
 
 ## Agent detail (`/agents/{id}`)
 
@@ -361,7 +361,7 @@ Tenant-wide expertise index. Filters: free-text search, level, owner (agent / un
 | Browse | `spring directory list` |
 | Open by slug | `spring directory show <slug>` |
 | Search | `spring directory search "<query>"` |
-| Filter | `spring directory list --domain <name> --owner <scheme://path>` |
+| Filter | `spring directory list --domain <name> --owner <scheme:<32-hex>>` |
 
 ## Activity (`/activity`)
 
@@ -407,7 +407,7 @@ spring conversation list --unit engineering-team --status active
 |--------|--------|-----|
 | List engagements | `/conversations` | `spring conversation list` |
 | Filter by unit | `?unit=…` | `--unit …` |
-| Filter by participant | `?participant=scheme://path` | `--participant scheme://path` |
+| Filter by participant | `?participant=scheme:<32-hex>` | `--participant scheme:<32-hex>` |
 | Filter by status | `?status=active\|completed` | `--status active\|completed` |
 
 ### Thread view (`/conversations/{id}`)
@@ -415,7 +415,7 @@ spring conversation list --unit engineering-team --status active
 The thread view is the per-engagement workspace — the collaboration surface.
 
 - **Header** — thread id, status, participants, and a "View activity" pivot.
-- **Thread** — one bubble per event, role-attributed by sender scheme (`human://` right-aligned, `agent://` / `unit://` / `system://` left-aligned). `DecisionMade`, `StateChanged`, `WorkflowStepCompleted`, and `ReflectionCompleted` events collapse by default.
+- **Thread** — one bubble per event, role-attributed by sender scheme (`human:` right-aligned, `agent:` / `unit:` / `system:` left-aligned). `DecisionMade`, `StateChanged`, `WorkflowStepCompleted`, and `ReflectionCompleted` events collapse by default.
 - **Composer** — textarea + recipient field. Submit on click or `⌘/Ctrl+Enter`. POSTs to `/api/v1/conversations/{id}/messages`.
 - **Live updates** — subscribes to the SSE stream filtered by `correlationId`.
 

@@ -11,7 +11,9 @@ A tenant is the top-level boundary for:
 - **Budgeting** -- cost tracking and budget limits apply per tenant
 - **Policy** -- tenant-wide defaults govern all units within
 
-Every tenant has a **root unit** -- the implicit top-level container that holds all units and standalone agents.
+A tenant has a stable `Guid` identity and a `display_name`. The tenant row itself anchors the membership graph: top-level units appear as membership rows whose parent is the tenant, and the membership graph rooted there is the addressing fabric for the whole deployment. There is no separate "root unit" entity.
+
+The OSS deployment runs functionally single-tenant. Every fresh-install row is owned by the deterministic v5 UUID `OssTenantIds.Default` (`dd55c4ea-8d72-5e43-a9df-88d07af02b69`); see [Identifiers § 5](../architecture/identifiers.md#5-the-oss-default-tenant-id).
 
 ## User Roles
 

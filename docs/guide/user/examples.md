@@ -37,7 +37,7 @@ Opt in with `./run.sh --llm` (or `--all`). Each of these self-skips cleanly when
 
 | Scenario | What it demonstrates |
 |----------|----------------------|
-| [`messaging/message-human-to-agent.sh`](../../../tests/cli-scenarios/scenarios/messaging/message-human-to-agent.sh) | Human-to-agent round-trip — create unit + agent + membership, then `spring message send agent://<agent>` with a conversation id. Asserts the send succeeds and a `messageId` is returned. |
+| [`messaging/message-human-to-agent.sh`](../../../tests/cli-scenarios/scenarios/messaging/message-human-to-agent.sh) | Human-to-agent round-trip — create unit + agent + membership, then `spring message send agent:<id>` with a thread id. Asserts the send succeeds and a `messageId` is returned. |
 | [`policy/policy-block-at-turn-time.sh`](../../../tests/cli-scenarios/scenarios/policy/policy-block-at-turn-time.sh) | Policy enforcement at turn time — dispatches a message that would otherwise exercise a blocked tool, proving the server doesn't 5xx when a policy denies the action server-side. |
 | [`agents/dapr-agent-turn.sh`](../../../tests/cli-scenarios/scenarios/agents/dapr-agent-turn.sh) | Dapr Agent via A2A — creates an agent with `--tool dapr-agent`, dispatches a turn, and confirms the DaprAgentLauncher + Python Dapr Agent container can receive a task and return a response. |
 

@@ -315,7 +315,7 @@ Dapr provides pluggable resiliency policies (retries, timeouts, circuit breakers
 
 ## Default tenant bootstrap (#676)
 
-The OSS schema treats tenant identity as a value (`tenant_id` on every `ITenantScopedEntity`) rather than a row in a `tenants` table. The literal `"default"` is therefore materialised the moment the first tenant-scoped row lands. The `DefaultTenantBootstrapService` hosted service in `Cvoya.Spring.Dapr.Tenancy` exists to give the platform a uniform place to drive that first write per subsystem, and to surface a single audit log per startup that names every contributor.
+The OSS schema treats tenant identity as a value (`tenant_id` on every `ITenantScopedEntity`) rather than a row in a `tenants` table. The OSS default tenant id — `Cvoya.Spring.Core.Tenancy.OssTenantIds.Default`, a deterministic v5 UUID — is materialised the moment the first tenant-scoped row lands. The `DefaultTenantBootstrapService` hosted service in `Cvoya.Spring.Dapr.Tenancy` exists to give the platform a uniform place to drive that first write per subsystem, and to surface a single audit log per startup that names every contributor. See [Identifiers § 5](identifiers.md#5-the-oss-default-tenant-id) for the constant and its derivation.
 
 **Lifecycle.** Mirrors `DatabaseMigrator`: runs once during `IHostedService.StartAsync`, no-ops in `StopAsync`, registered in **exactly one** host per deployment via the explicit `services.AddCvoyaSpringDefaultTenantBootstrap()` extension. The OSS Worker owns the registration. Gated by `Tenancy:BootstrapDefaultTenant` (default `true`); set the flag to `false` to make the service a strict no-op (used by integration test harnesses that pre-seed and by private-cloud topologies that drive tenant provisioning out-of-band).
 

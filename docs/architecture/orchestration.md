@@ -100,7 +100,7 @@ When a unit participates as a member of a parent, its **boundary** controls what
 - **Synthesis** — Create new virtual capabilities by combining members. E.g., "full-stack implementation" is not a capability of any single member but emerges from the combination of backend + frontend + QA agents.
 - **Aggregation** — Expertise profiles are aggregated from all members. Activity streams are merged and optionally filtered before exposing to the parent.
 
-**Deep access with permissions:** Despite encapsulation, a human or agent with appropriate permissions can address any agent at arbitrary depth. The boundary is a default, not a wall. Permission-based deep access uses the full address path (e.g., `agent://acme/engineering-team/backend-team/ada`). The boundary checks the requester's permissions before routing.
+**Deep access with permissions:** Despite encapsulation, a human or agent with appropriate permissions can address any agent at arbitrary depth. The boundary is a default, not a wall. Permission-based deep access uses the actor's `Guid` directly (e.g., `agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7`); the directory walks the membership graph from the addressed actor toward the tenant root and checks the requester's permissions at each boundary edge before routing.
 
 **Hierarchy-aware permission resolution (#414).** Permission checks walk up the parent chain by default — a human who is `Owner` or `Operator` on a parent unit is treated as having at least that permission on every descendant unit unless something along the path blocks the walk. Each unit carries a `UnitPermissionInheritance` flag (`Inherit` by default, `Isolated` to opt out). An isolated unit is the permission-layer analogue of an opaque boundary: ancestor authority does not flow through it, but direct grants on the unit and its descendants still work normally. Direct grants always override inheritance — a child that explicitly grants `Viewer` is never silently promoted to `Owner` by a higher ancestor grant. See [Security § Hierarchy-aware permission resolution](security.md#hierarchy-aware-permission-resolution-414) for the full rules.
 
@@ -130,7 +130,7 @@ The boundary is a declarative record attached to the unit and stored on the unit
 | `Projections` | `BoundaryProjectionRule(DomainPattern?, OriginPattern?, RenameTo?, Retag?, OverrideLevel?)` | Matching entries are rewritten (new name / description / level). First matching rule wins. Origin and path are preserved so permission checks (#414) still see the true contributor. |
 | `Syntheses` | `BoundarySynthesisRule(Name, DomainPattern?, OriginPattern?, Description?, Level?)` | Matching entries are removed and replaced with a single synthesised entry attributed to the unit (`Origin = unit`, `Path = [unit]`). When no member matches the rule, the synthesised capability is **not** fabricated. |
 
-**Matching patterns** are case-insensitive and support a single trailing `*` (prefix match). `OriginPattern` matches against `scheme://path` so both `agent://internal-*` and `unit://core-team` are valid forms.
+**Matching patterns** are case-insensitive and support a single trailing `*` (prefix match). `OriginPattern` matches against an entry's `Origin` field, which is the contributor's address in `scheme:<id>` form (e.g. `agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7`); patterns may target a specific id (`agent:8c5fab2a*`) or any id of a given scheme (`agent:*`).
 
 **Rule precedence.** Opacity wins over projection and synthesis — a matched opaque entry is gone, not rewritten. Synthesis runs before projection so the raw entries consumed by a synthesis rule never flow through the projection stage.
 
@@ -156,7 +156,7 @@ unit:
   boundary:
     opacities:
       - domain_pattern: internal-*
-      - origin_pattern: agent://secret-*
+      - origin_pattern: agent:*                # all agent-scheme contributors
     projections:
       - domain_pattern: backend-*
         rename_to: engineering

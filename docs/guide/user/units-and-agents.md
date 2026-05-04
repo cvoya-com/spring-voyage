@@ -117,7 +117,7 @@ spring unit members remove <unit> --unit <child>
 spring unit members list <unit>
 ```
 
-`--agent` and `--unit` are mutually exclusive; supply exactly one. Removing the last parent of a non-top-level child returns 409. `--output json` returns a unified `member` field with the scheme-prefixed canonical address (`agent://<path>` or `unit://<path>`).
+`--agent` and `--unit` are mutually exclusive; supply exactly one. Removing the last parent of a non-top-level child returns 409. `--output json` returns a unified `member` field with the scheme-prefixed canonical address (`agent:<32-hex>` or `unit:<32-hex>`).
 
 ### Managing Humans
 

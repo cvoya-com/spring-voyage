@@ -143,7 +143,7 @@ The enum above tells the lifecycle workflow which memory shape to use for a sing
 
 Role serves two purposes:
 
-1. **Multicast addressing** — `role://engineering-team/backend-engineer` routes to all agents with that role
+1. **Multicast routing input** — a multicast send can target every agent in a unit advertising a given role; the multicast resolver expands the (unit, role) pair into a set of `agent:<id>` addresses, each routed individually
 2. **Capability signal** — other agents reason about delegation based on role
 
 ### Prompt Assembly & Platform Tools
@@ -205,15 +205,15 @@ Additional tools are injected based on the agent's tool manifest and the unit's 
         "id": {
           "type": "string",
           "pattern": "^[a-z][a-z0-9-]*$",
-          "description": "Unique identifier for the agent within its unit."
+          "description": "Local symbol for the agent inside this manifest file. Mapped to a fresh Guid by the install pipeline and never persisted as the agent's identity. The agent's stable identifier is the Guid; `display_name` (presentation-only, not unique) is set separately."
         },
         "name": {
           "type": "string",
-          "description": "Human-readable display name."
+          "description": "Display name (presentation-only). Not unique, not addressable, validated to reject Guid-shaped values."
         },
         "role": {
           "type": "string",
-          "description": "Role identifier. Used for multicast addressing and capability signaling."
+          "description": "Role identifier. Used as input to multicast routing and as a capability signal."
         },
         "capabilities": {
           "type": "array",

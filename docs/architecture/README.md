@@ -76,7 +76,7 @@ Each goal directly addresses a v1 limitation:
 | **Unit**                  | A group of agents performing together. A unit IS an agent (composite pattern). Contains agents and/or other units.           |
 | **Connector**             | A pluggable adapter bridging an external system (GitHub, Slack, Figma, etc.) to the unit.                                    |
 | **Message**               | A typed communication between addressable entities.                                                                          |
-| **Address**               | A globally-unique routable identity (namespaced by tenant + unit path).                                                      |
+| **Address**               | A globally-unique routable identity. Shape: `(Scheme, Guid)`; canonical wire form `scheme:<32-hex-no-dash>`. See [Identifiers](identifiers.md). |
 | **Topic**                 | A named pub/sub channel for event distribution.                                                                              |
 | **Package**               | An installable bundle of skills, connectors, workflows, templates, or config.                                                |
 | **Activation**            | What causes an agent to wake up and act.                                                                                     |
@@ -93,6 +93,7 @@ Each goal directly addresses a v1 limitation:
 | Document | Topics |
 | --- | --- |
 | [Infrastructure](infrastructure.md) | Dapr building blocks, actor model, IAddressable, data persistence |
+| [Identifiers](identifiers.md) | Single-identity model: Guid identity, wire forms (no-dash hex / dashed JSON), `Address` shape, OSS default tenant id, manifest grammar, CLI search-with-context |
 | [Messaging](messaging.md) | Mailbox, message processing, addressing, activation model |
 | [Units & Agents](units.md) | Unit entity model (identity, membership, nested units, composite pattern); entry point to the units-and-agents cluster |
 | [Agents](agents.md) | Agent model, execution pattern, cloning policies, role, prompt assembly, platform tools |

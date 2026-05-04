@@ -195,66 +195,40 @@ This is standard Dapr pub/sub with multiple subscribers — no special bypass me
 
 ## Addressing
 
-Every addressable entity has a globally unique UUID assigned at creation. Addresses support two forms:
+Every addressable entity (agent, unit, human, connector) has a stable `Guid` identity assigned at creation. The `Address` record carries that identity plus a scheme: `(Scheme, Guid)`. The canonical wire form is `scheme:<32-hex-no-dash>` — for example `agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7`.
 
-### Path Addresses
+Full identifier conventions — wire forms, parser rules, the asymmetric "emit one form, parse many" contract, the JSON-vs-URL split, manifest local symbols, and the `OssTenantIds.Default` constant — live in [Identifiers](identifiers.md). The summary below covers what the messaging layer specifically does with addresses.
 
-Human-readable, reflect organizational structure. Namespaced by **unit path**.
+### Address shape
 
-**Scheme:** `{scheme}://{unit-path}/{name}`
+`Address` is a record with two fields: `Scheme` (e.g. `agent`, `unit`, `human`, `connector`) and `Id` (`Guid`). Examples:
 
-Since a unit IS an agent, both agents and units use the `agent://` scheme.
+- `agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7`
+- `unit:dd55c4ea8d725e43a9df88d07af02b69`
+- `human:f47ac10b58cc4372a5670e02b2c3d479`
+- `connector:a1b2c3d4e5f6789012345678901234ab`
 
-**Within-tenant path addresses:**
+Since a unit IS an agent (composite pattern; see [Units](units.md)), `unit:<id>` and `agent:<id>` both reach the same actor when `<id>` belongs to a unit; the `unit:` scheme is used when the caller wants to reason about the unit-as-an-orchestrator, the `agent:` scheme when the caller wants to treat it as an opaque agent. The directory resolves both to the same actor.
 
-- `agent://engineering-team/ada`
-- `agent://engineering-team/backend-team/ada` (nested)
-- `agent://engineering-team` (the unit itself — it's an agent)
-- `human://engineering-team/savasp`
-- `connector://engineering-team/github`
-- `role://engineering-team/backend-engineer` (multicast)
-- `topic://engineering-team/pr-reviews`
+There is no path form (`agent://team/ada` does not parse), no navigation form, no `@<uuid>` form. The shape is uniform: scheme + id.
 
-**System-level addresses:**
+`Address.Path` is a convenience accessor that returns the no-dash hex on its own (Dapr `ActorId` construction, log correlation, dictionary keys). The canonical render is `Address.ToString()` → `scheme:<id>`.
 
-- `system://root` — tenant root unit
-- `system://directory` — tenant root directory
-- `system://package-registry`
+### Routing
 
-### Direct Addresses (UUID)
+All actors have **flat, globally-unique Dapr actor ids** derived from their `Guid`. The directory resolves an `Address` to an actor id in a single lookup; messages dispatch directly to that actor. There is no multi-hop forwarding through a chain of units.
 
-Short, stable, independent of hierarchy depth. Use the entity's UUID directly.
+The directory is the source of truth for what `Guid` belongs to which scheme. Each unit caches the (id → actor) mappings it dispatches against; directory mutation events keep caches fresh with millisecond-grade consistency. When membership changes (an agent joins or leaves a unit, a unit is restructured) the unit publishes a directory-change event to a system topic; subscribers refresh their caches.
 
-**Scheme:** `{scheme}://@{uuid}`
+`human:` short-circuits the directory by design. Humans are addressed 1:1 by identity — the `Guid` is the human's actor id, so there is no routing indirection a directory lookup could add. The platform has no general flow that registers humans in the directory, so insisting on a directory hit would either force an artificial registration step or break legitimate scenarios such as the LocalDev worker routing an agent's response back to a local human. `MessageRouter` short-circuits `human:` resolution; `agent:`, `unit:`, and `connector:` schemes consult the directory.
 
-- `agent://@f47ac10b-58cc-4372-a567-0e02b2c3d479`
-- `human://@a1b2c3d4-...`
-- `connector://@e5f6a7b8-...`
+**Permission enforcement** happens at resolution time, not delivery time. The directory walks the membership graph from the addressed actor toward the tenant root — the membership graph IS the addressing fabric (see [Units — Nested Units](units.md#nested-units-units-as-members-of-units)) — and at each membership edge evaluates the boundary's `deep_access` policy against the sender's permissions. The walk returns either an actor id (permitted) or a structured deny (rejected). This is one synchronous check whose cost is O(membership depth), not per-hop forwarding.
 
-Direct addresses are useful when:
+**Addressing a unit** (rather than a specific member) sends the message to the unit actor. The unit applies its boundary filtering and delegates to its orchestration strategy, which picks a member to handle the message.
 
-- The hierarchy is deep and path addresses become unwieldy
-- An agent moves between units (UUID is stable, path changes)
-- Programmatic references (APIs, stored state) need a stable identifier
-- Cross-unit messaging where the sender knows the UUID
+**Nested dispatch.** A unit's members may themselves be units. Because `IUnitActor` inherits the shared `IAgent` mailbox contract, a parent unit's strategy may pick a sub-unit and forward the message through `IUnitContext.SendAsync` without branching on scheme — `IAgentProxyResolver` maps the scheme to the right actor type and the sub-unit runs its own orchestration turn. Membership-graph depth is bounded to 64 levels; see [Units — Nested Units](units.md#nested-units-units-as-members-of-units) for membership invariants and cycle-detection semantics.
 
-Path and direct addresses resolve to the same entity. Both forms are interchangeable in the `From` and `To` fields of a `Message`.
-
-### Routing Mechanism
-
-All actors have **flat, globally-unique Dapr actor IDs** derived from their UUID. Both address forms resolve to the same actor ID — path addresses are looked up in the directory, direct addresses map to actor IDs directly. There is no multi-hop forwarding through each unit in the path.
-
-**Resolution:** Each unit actor maintains a **local directory cache** mapping member paths to actor IDs. The root unit maintains the platform-wide directory. Path resolution is a single lookup: the sender's unit (or root unit for cross-unit messages) resolves the full path to an actor ID in one step. Direct addresses (`@uuid`) map to actor IDs without any lookup.
-
-**`human://` skips the directory by design.** Humans are addressed 1:1 by their identifier — the path IS the human actor id, so there is no routing indirection that a directory lookup could add. The platform has no general flow that registers humans in the directory, so insisting on a directory hit (as the router did before #1037) would either force an artificial registration step or break legitimate scenarios such as the LocalDev worker routing an agent's response back to `human://local-dev-user`. `MessageRouter` therefore short-circuits `human://` resolution alongside the existing `@uuid` short-circuit; only `agent://`, `unit://`, and `connector://` paths consult the directory.
-
-**Cache invalidation:** When membership changes (agent joins/leaves a unit, unit restructured), the unit publishes a directory-change event to a system topic. Parent units subscribe and update their caches. This is eventually consistent (milliseconds) but avoids per-message directory lookups.
-
-**Permission enforcement** happens at resolution time, not delivery time. When the directory resolves a path like `agent://engineering-team/backend-team/ada`, it evaluates each boundary along the path (engineering-team → backend-team → ada), checks the sender's permissions against each boundary's `deep_access` policy, and either returns the actor ID (permitted) or rejects the message (denied). This is one synchronous check — O(path depth) — not per-hop forwarding.
-
-**Addressing a unit** (not a specific member) sends the message to the unit actor. The unit applies its boundary filtering and delegates to its orchestration strategy, which decides how to route the message to members.
-
-**Nested dispatch.** A unit's members may themselves be units (`unit://`). Because `IUnitActor` inherits the shared `IAgent` mailbox contract, a parent unit's strategy may pick a sub-unit and forward the message through `IUnitContext.SendAsync` without branching on scheme — `IAgentProxyResolver` maps the scheme to the right actor type and the sub-unit runs its own orchestration turn. Depth is bounded to 64 levels; see [Units & Agents — Nested Units](units.md#nested-units-units-as-members-of-units) for membership invariants and cycle-detection semantics.
+**Multicast addressing** continues to dispatch a single domain message to every actor that matches a routing pattern (e.g. all members of a unit advertising a given role); the multicast resolution itself happens above the directory and ultimately produces a set of `(scheme, Guid)` addresses, each routed individually.
 
 ---
 
@@ -274,7 +248,7 @@ All actors have **flat, globally-unique Dapr actor IDs** derived from their UUID
 
 ### Pub/Sub
 
-Topics are namespaced by unit: `engineering-team/pr-reviews`, `research-team/papers/new-arxiv`.
+Topics are namespaced by tenant + owner Guid + topic name: `{tenant-id-no-dash}/{owner-id-no-dash}/{topic}`. The owner is the unit (or other addressable) that anchors the topic. System topics use the literal prefix `system/` — `system/directory-changed`, `system/activity`. Topic names are case-insensitive, lowercase by convention; the platform does not validate topic content beyond its routing role.
 
 Dapr pub/sub is broker-agnostic — Redis for development, Kafka or Azure Event Hubs for production, swapped via YAML.
 

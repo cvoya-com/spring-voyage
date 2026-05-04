@@ -166,7 +166,7 @@ Tracked by [#443](https://github.com/cvoya-com/spring-voyage/issues/443).
 
 ### 3.4 Inbox: the human-facing "awaiting me" surface
 
-Humans participate in Spring Voyage as first-class actors (`human://<unit>/<identity>`). They send work, they receive work, and — critically — agents frequently **wait on them**: approvals, clarifications, go/no-go decisions, escalations. Today the portal has no surface for "things pointed at me that I have not responded to". An operator opening the app has to know which unit / agent / conversation to drill into. That is a gap for the hosted story especially (many tenants, many concurrent asks) but it applies to standalone too.
+Humans participate in Spring Voyage as first-class actors (`human:<32-hex-no-dash>`). They send work, they receive work, and — critically — agents frequently **wait on them**: approvals, clarifications, go/no-go decisions, escalations. Today the portal has no surface for "things pointed at me that I have not responded to". An operator opening the app has to know which unit / agent / conversation to drill into. That is a gap for the hosted story especially (many tenants, many concurrent asks) but it applies to standalone too.
 
 **The Inbox is its own top-level surface, distinct from Conversations** (tracked by [#447](https://github.com/cvoya-com/spring-voyage/issues/447)).
 
@@ -175,7 +175,7 @@ Humans participate in Spring Voyage as first-class actors (`human://<unit>/<iden
 
 One is a task queue; the other is an archive. They share the Conversation primitive (each Inbox row links to its parent conversation), but treating them as the same page conflates a blocker list with a journal and we lose the "what do I need to do right now" clarity.
 
-**Smallest coherent v1:** Inbox page lists conversations where the latest event is a `MessageReceived` targeting the current `human://` address *and* no subsequent message from that human has shipped. Click → open the conversation with the reply box focused. Completion deletes the row.
+**Smallest coherent v1:** Inbox page lists conversations where the latest event is a `MessageReceived` targeting the current `human:` address *and* no subsequent message from that human has shipped. Click → open the conversation with the reply box focused. Completion deletes the row.
 
 **Hosted additions:** delegation ("assign this to another human in the tenant") and SLA badges ("waiting 4h"). Both layer cleanly once the base exists.
 
@@ -197,7 +197,7 @@ Initial subsections:
 
 - **Costs** — what today's `/budgets` page is, promoted. Totals, breakdown by agent/unit/model/source, budget utilization, sparklines. Budget configuration lives here.
 - **Throughput** — interaction counts over time: messages per agent, conversations per unit, turns per model. A single stacked chart per dimension.
-- **Wait times** — time-in-state rollups derived from the `StateChanged` activity events the platform already emits. Idle time, busy time, waiting-on-human time (from conversations where the latest event awaits a `human://` address). This is where the inbox-style SLA metrics roll up.
+- **Wait times** — time-in-state rollups derived from the `StateChanged` activity events the platform already emits. Idle time, busy time, waiting-on-human time (from conversations where the latest event awaits a `human:` address). This is where the inbox-style SLA metrics roll up.
 
 Each analytics subsection is a filtered roll-up over the same activity event stream that feeds §3.2 Activity. That keeps implementation bounded — one query layer, many lenses — and the surface can grow (capacity, failure rates, policy-denial rates, connector-call rates) without adding new pipelines.
 

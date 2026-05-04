@@ -60,6 +60,17 @@ using Microsoft.Extensions.Logging;
 | Constants | PascalCase | `StateKeys.ActiveConversation` |
 | Private fields | `_camelCase` | `_stateManager`, `_logger` |
 
+### Identifiers
+
+Every actor (unit, agent, human, connector, tenant) has exactly one stable identifier: a `Guid`. There is no parallel string identifier (no slug, no scoped handle, no namespaced name). `display_name` is presentation-only — never unique, never addressable, never a foreign-key target. See [`docs/architecture/identifiers.md`](docs/architecture/identifiers.md) and [ADR-0036](docs/decisions/0036-single-identity-model.md) for the durable decision.
+
+- **Type.** Repository signatures, DTO ids, route parameters, and method parameters that take an actor identifier are typed `Guid`. Never `string`.
+- **Wire form on URLs, address strings, manifest references, CLI output, log lines.** 32-char lowercase no-dash hex (`Guid.ToString("N")`). One helper: `Cvoya.Spring.Core.Identifiers.GuidFormatter.Format`.
+- **Wire form in JSON DTO bodies.** Standard dashed `8-4-4-4-12`. Kiota's `GetGuidValue()` and STJ's default `Utf8JsonReader.GetGuid()` accept the dashed form natively; the OSS host registers `Cvoya.Spring.Host.Api.Serialization.NoDashGuidJsonConverter` so the no-dash form deserialises too.
+- **Parse is lenient on every surface.** `GuidFormatter.TryParse`, `Address.TryParse`, ASP.NET Core's `{id:guid}` route binder, the `NoDashGuidJsonConverter`, and the CLI's `CliResolver.TryParseGuid` all accept both no-dash and dashed forms (and any other shape `Guid.TryParse` recognises). Emit asymmetry — emit one form per surface, parse many — keeps copy-paste workflows working.
+- **`Address` shape.** `Address` is a record with `Scheme` (string) and `Id` (`Guid`). The canonical render is `scheme:<32-hex-no-dash>` (e.g. `agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7`). There is no path form, no `@<uuid>` form. Use the scheme constants on `Address` (`AgentScheme`, `UnitScheme`, `HumanScheme`).
+- **`display_name`.** Validated by `Cvoya.Spring.Core.Validation.DisplayNameValidator` on every write surface; values that round-trip through `Guid.TryParseExact` for any standard form are rejected with structured `code = display_name_is_guid_shape`. CLI verbs accept `display_name` only as **search input** (`spring agent show <id-or-name>` short-circuits to a direct lookup when the argument parses as a Guid; otherwise it runs a name search returning 0/1/n).
+
 ## 3. Error Handling
 
 ```csharp
@@ -174,10 +185,11 @@ public static class StateKeys
 }
 ```
 
-**Pub/sub topic naming:** `{tenant}/{unit-path}/{topic}`
+**Pub/sub topic naming:** `{tenant-id}/{owner-id}/{topic}`
 
-- Example: `acme/engineering-team/pr-reviews`
-- System topics: `system/directory-changed`, `system/activity`
+- Both `{tenant-id}` and `{owner-id}` are 32-char no-dash hex Guids. The owner is the unit (or other addressable) that anchors the topic; the canonical wire form is what `GuidFormatter.Format` emits.
+- Example: `dd55c4ea8d725e43a9df88d07af02b69/8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7/pr-reviews`
+- System topics use the literal `system/` prefix: `system/directory-changed`, `system/activity`.
 
 **All Dapr interactions** go through `Cvoya.Spring.Core` abstractions, implemented in `Cvoya.Spring.Dapr`. No direct Dapr SDK calls from actors — actors use injected interfaces.
 
@@ -193,16 +205,16 @@ public abstract class ActorTestBase<TActor> where TActor : class
 
     protected Message CreateMessage(
         MessageType type = MessageType.Domain,
-        string? conversationId = null,
+        string? threadId = null,
         JsonElement? payload = null)
     {
         return new Message
         {
             Id = Guid.NewGuid(),
-            From = new Address("agent", "test-sender"),
-            To = new Address("agent", "test-receiver"),
+            From = new Address(Address.AgentScheme, Guid.NewGuid()),
+            To = new Address(Address.AgentScheme, Guid.NewGuid()),
             Type = type,
-            ConversationId = conversationId ?? Guid.NewGuid().ToString(),
+            ThreadId = threadId ?? Guid.NewGuid().ToString(),
             Payload = payload ?? default,
             Timestamp = DateTimeOffset.UtcNow
         };
@@ -324,7 +336,7 @@ Central package management via `Directory.Packages.props` — all NuGet versions
 
 General extensibility rules (`TryAdd*`, no-seal, visibility, virtual hooks, no tenant assumptions, no statics) live in [`AGENTS.md`](AGENTS.md) § "Open-source platform and extensibility". The conventions below are the tenancy-specific rules that belong with code patterns.
 
-**Multi-tenancy (business-data entities):** every new business-data entity implements `Cvoya.Spring.Core.Tenancy.ITenantScopedEntity`, and its `IEntityTypeConfiguration` adds the combined tenant + soft-delete query filter — `HasQueryFilter(e => e.TenantId == tenantContext.CurrentTenantId && e.DeletedAt == null)` — dropping the soft-delete clause only for entities without a `DeletedAt` column. The DbContext auto-populates `TenantId` from the injected `ITenantContext` on insert; write sites do not set it explicitly. System/ops tables (migrations history, startup config) stay global.
+**Multi-tenancy (business-data entities):** every new business-data entity implements `Cvoya.Spring.Core.Tenancy.ITenantScopedEntity` with a `Guid TenantId` column, and its `IEntityTypeConfiguration` adds the combined tenant + soft-delete query filter — `HasQueryFilter(e => e.TenantId == tenantContext.CurrentTenantId && e.DeletedAt == null)` — dropping the soft-delete clause only for entities without a `DeletedAt` column. The DbContext auto-populates `TenantId` from the injected `ITenantContext` on insert; write sites do not set it explicitly. The OSS deployment runs functionally single-tenant; every fresh-install row is owned by `Cvoya.Spring.Core.Tenancy.OssTenantIds.Default` (the deterministic v5 UUID `dd55c4ea-8d72-5e43-a9df-88d07af02b69`; `OssTenantIds.DefaultDashed` and `OssTenantIds.DefaultNoDash` expose the literal string forms for configs, dashboards, and audit-log greps). Never hardcode a string `"default"` — the tenant id is a `Guid`. System/ops tables (migrations history, startup config) stay global.
 
 **Cross-tenant reads and writes go through `ITenantScopeBypass`.** The EF Core query filter restricts reads and writes to the current tenant. A small set of operations legitimately need to cross that boundary — `DatabaseMigrator`, platform-wide analytics, system administration. Those call sites wrap the work in `ITenantScopeBypass.BeginBypass(reason)` so the bypass is auditable (structured log on open and close, with caller context and duration) and so the cloud overlay can swap the default for a permission-checked variant. Never call `IgnoreQueryFilters()` directly in business code.
 

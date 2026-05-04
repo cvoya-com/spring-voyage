@@ -7,7 +7,7 @@
 > The implementation-neutral contract that downstream agent runtimes (in any language) implement is specified in [`docs/specs/agent-runtime-boundary.md`](../specs/agent-runtime-boundary.md). This document describes the Spring Voyage platform's implementation of that contract; an SDK in another language follows the spec, not this doc.
 
 This document describes how the platform turns a single inbound message to an
-`agent://` address into an actual agent turn. The layers, in order of
+`agent:<id>` address into an actual agent turn. The layers, in order of
 appearance on the dispatch path, are:
 
 1. **`A2AExecutionDispatcher`** — the single entry point invoked by the
@@ -233,7 +233,7 @@ agent roster. Concretely:
    entry (free-form advice, no structured request shape) leaves the schema
    null and stays message-only.
 3. **Boundary projection.** External callers see only unit-projected entries
-   (`origin = unit://…`). Agent-level expertise inside a unit that isn't
+   (`origin = unit:<id>`). Agent-level expertise inside a unit that isn't
    covered by a projection is hidden from the outside and visible only to
    callers already inside the boundary. The catalog applies the boundary in
    two ways: by asking the aggregator for the caller-aware view, and by

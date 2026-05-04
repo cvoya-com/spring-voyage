@@ -12,7 +12,7 @@ This means units compose recursively. A unit can contain other units, which cont
 
 Every unit manages:
 
-- **Identity** -- an address, just like any agent (e.g., `agent://engineering-team`)
+- **Identity** -- a stable `Guid` and a `display_name`, addressable as `unit:<guid>` (also reachable via `agent:<guid>` because a unit IS an agent)
 - **Membership** -- which agents and sub-units belong to this unit
 - **Boundary** -- what is visible to the parent unit (see below)
 - **Activity stream** -- aggregated activity from all members
@@ -62,7 +62,7 @@ When a unit participates as a member of a parent unit, its **boundary** controls
 
 ### Deep Access
 
-Despite encapsulation, a human or agent with appropriate permissions can address any agent at arbitrary depth using the full address path (e.g., `agent://acme/engineering-team/backend-team/ada`). The boundary is a default, not a wall -- permission-based deep access is always available.
+Despite encapsulation, a human or agent with appropriate permissions can address any agent at arbitrary depth using its `Guid` (e.g., `agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7`). The directory resolves the address; the permission walk traverses the membership graph from that actor toward the tenant root and evaluates each boundary's `deep_access` policy against the sender. The boundary is a default, not a wall -- permission-based deep access is always available.
 
 ## Organizational Patterns
 
@@ -80,9 +80,9 @@ Units can model any organizational structure:
 
 These patterns are illustrative -- any structure can be modeled through unit composition, boundary configuration, and orchestration strategy selection.
 
-## The Root Unit
+## The Tenant as Root
 
-Every tenant has an implicit **root unit** -- the top-level container. All units and standalone agents exist within the root unit. It provides tenant-wide directory services, addressing, cross-unit routing, and default policies.
+The tenant row itself is the root of the membership graph. Top-level units appear as membership rows whose parent is the tenant; standalone agents are members of those top-level units. Tenant-wide directory services, addressing, cross-unit routing, and default policies are anchored at the tenant. There is no separate "root unit" entity — the tenant fills that role.
 
 ## Human Participation
 
