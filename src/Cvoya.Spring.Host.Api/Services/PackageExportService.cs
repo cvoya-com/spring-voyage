@@ -56,15 +56,19 @@ public sealed class PackageExportService : IPackageExportService
         ArgumentNullException.ThrowIfNull(unitName);
 
         // Verify the unit (or agent) exists in the current tenant's directory.
-        // The directory service is already tenant-scoped.
-        var entry = await _directoryService.ResolveAsync(
-            Address.For("unit", unitName), cancellationToken);
+        // Manifests carry display names (not Guids), so look up by display
+        // name through ListAllAsync rather than Address.For (Guid-only post-#1629).
+        var allEntries = await _directoryService.ListAllAsync(cancellationToken);
+        var entry = allEntries.FirstOrDefault(
+            e => string.Equals(e.Address.Scheme, "unit", StringComparison.OrdinalIgnoreCase)
+                 && string.Equals(e.DisplayName, unitName, StringComparison.Ordinal));
 
         if (entry is null)
         {
             // Try agent scheme — a package may install an agent rather than a unit.
-            entry = await _directoryService.ResolveAsync(
-                Address.For("agent", unitName), cancellationToken);
+            entry = allEntries.FirstOrDefault(
+                e => string.Equals(e.Address.Scheme, "agent", StringComparison.OrdinalIgnoreCase)
+                     && string.Equals(e.DisplayName, unitName, StringComparison.Ordinal));
         }
 
         if (entry is null)

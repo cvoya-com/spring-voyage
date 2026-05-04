@@ -103,7 +103,8 @@ public class PackageExportServiceTests
         var dbName = $"pkg-export-{Guid.NewGuid():N}";
         var services = new ServiceCollection();
 
-        services.AddSingleton<ITenantContext>(new StaticTenantContext(tenantId));
+        var resolvedTenantId = tenantId == default ? Cvoya.Spring.Core.Tenancy.OssTenantIds.Default : tenantId;
+        services.AddSingleton<ITenantContext>(new StaticTenantContext(resolvedTenantId));
         services.AddScoped<SpringDbContext>(sp =>
         {
             var opts = new DbContextOptionsBuilder<SpringDbContext>()
