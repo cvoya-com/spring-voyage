@@ -19,6 +19,15 @@ using Xunit;
 
 public class CostEndpointsTests : IClassFixture<CustomWebApplicationFactory>
 {
+    // Post-#1629 the cost endpoints take {id} as a Guid hex; deterministic
+    // ids let the seed and query agree.
+    private static readonly Guid CostAgent1_Id = TestSlugIds.For("cost-agent-1");
+    private static readonly Guid SplitAgent_Id = TestSlugIds.For("split-agent");
+    private static readonly Guid CostUnit1_Id = TestSlugIds.For("cost-unit-1");
+    private static readonly Guid Unit1_Id = TestSlugIds.For("unit-1");
+    private static readonly Guid AgentX_Id = TestSlugIds.For("agent-x");
+    private static readonly Guid AgentY_Id = TestSlugIds.For("agent-y");
+
     private readonly CustomWebApplicationFactory _factory;
     private readonly HttpClient _client;
 
@@ -37,14 +46,14 @@ public class CostEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
         db.CostRecords.AddRange(
-            CreateRecord("cost-agent-1", "unit-1", Cvoya.Spring.Core.Tenancy.OssTenantIds.Default, 0.10m, 200, 100, now),
-            CreateRecord("cost-agent-1", "unit-1", Cvoya.Spring.Core.Tenancy.OssTenantIds.Default, 0.20m, 300, 150, now));
+            CreateRecord(CostAgent1_Id, Unit1_Id, Cvoya.Spring.Core.Tenancy.OssTenantIds.Default, 0.10m, 200, 100, now),
+            CreateRecord(CostAgent1_Id, Unit1_Id, Cvoya.Spring.Core.Tenancy.OssTenantIds.Default, 0.20m, 300, 150, now));
         await db.SaveChangesAsync(ct);
 
         var from = Uri.EscapeDataString(now.AddHours(-1).ToString("O"));
         var to = Uri.EscapeDataString(now.AddHours(1).ToString("O"));
         var response = await _client.GetAsync(
-            $"/api/v1/tenant/cost/agents/cost-agent-1?from={from}&to={to}", ct);
+            $"/api/v1/tenant/cost/agents/{CostAgent1_Id:N}?from={from}&to={to}", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
@@ -65,7 +74,7 @@ public class CostEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         var from = Uri.EscapeDataString(now.AddHours(-1).ToString("O"));
         var to = Uri.EscapeDataString(now.AddHours(1).ToString("O"));
         var response = await _client.GetAsync(
-            $"/api/v1/tenant/cost/agents/nonexistent-agent?from={from}&to={to}", ct);
+            $"/api/v1/tenant/cost/agents/{Guid.NewGuid():N}?from={from}&to={to}", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
@@ -84,15 +93,15 @@ public class CostEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
         db.CostRecords.AddRange(
-            CreateRecord("split-agent", "unit-1", Cvoya.Spring.Core.Tenancy.OssTenantIds.Default, 0.08m, 100, 50, now, CostSource.Work),
-            CreateRecord("split-agent", "unit-1", Cvoya.Spring.Core.Tenancy.OssTenantIds.Default, 0.04m, 100, 50, now, CostSource.Work),
-            CreateRecord("split-agent", "unit-1", Cvoya.Spring.Core.Tenancy.OssTenantIds.Default, 0.03m, 100, 50, now, CostSource.Initiative));
+            CreateRecord(SplitAgent_Id, Unit1_Id, Cvoya.Spring.Core.Tenancy.OssTenantIds.Default, 0.08m, 100, 50, now, CostSource.Work),
+            CreateRecord(SplitAgent_Id, Unit1_Id, Cvoya.Spring.Core.Tenancy.OssTenantIds.Default, 0.04m, 100, 50, now, CostSource.Work),
+            CreateRecord(SplitAgent_Id, Unit1_Id, Cvoya.Spring.Core.Tenancy.OssTenantIds.Default, 0.03m, 100, 50, now, CostSource.Initiative));
         await db.SaveChangesAsync(ct);
 
         var from = Uri.EscapeDataString(now.AddHours(-1).ToString("O"));
         var to = Uri.EscapeDataString(now.AddHours(1).ToString("O"));
         var response = await _client.GetAsync(
-            $"/api/v1/tenant/cost/agents/split-agent?from={from}&to={to}", ct);
+            $"/api/v1/tenant/cost/agents/{SplitAgent_Id:N}?from={from}&to={to}", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
@@ -112,14 +121,14 @@ public class CostEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
         db.CostRecords.AddRange(
-            CreateRecord("agent-x", "cost-unit-1", Cvoya.Spring.Core.Tenancy.OssTenantIds.Default, 0.15m, 100, 50, now),
-            CreateRecord("agent-y", "cost-unit-1", Cvoya.Spring.Core.Tenancy.OssTenantIds.Default, 0.25m, 200, 100, now));
+            CreateRecord(AgentX_Id, CostUnit1_Id, Cvoya.Spring.Core.Tenancy.OssTenantIds.Default, 0.15m, 100, 50, now),
+            CreateRecord(AgentY_Id, CostUnit1_Id, Cvoya.Spring.Core.Tenancy.OssTenantIds.Default, 0.25m, 200, 100, now));
         await db.SaveChangesAsync(ct);
 
         var from = Uri.EscapeDataString(now.AddHours(-1).ToString("O"));
         var to = Uri.EscapeDataString(now.AddHours(1).ToString("O"));
         var response = await _client.GetAsync(
-            $"/api/v1/tenant/cost/units/cost-unit-1?from={from}&to={to}", ct);
+            $"/api/v1/tenant/cost/units/{CostUnit1_Id:N}?from={from}&to={to}", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
@@ -146,8 +155,8 @@ public class CostEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
         db.CostRecords.AddRange(
-            CreateRecord("agent-a", "unit-a", Cvoya.Spring.Core.Tenancy.OssTenantIds.Default, 0.50m, 500, 250, testWindow),
-            CreateRecord("agent-b", "unit-b", Cvoya.Spring.Core.Tenancy.OssTenantIds.Default, 0.30m, 300, 150, testWindow));
+            CreateRecord(TestSlugIds.For("agent-a"), TestSlugIds.For("unit-a"), Cvoya.Spring.Core.Tenancy.OssTenantIds.Default, 0.50m, 500, 250, testWindow),
+            CreateRecord(TestSlugIds.For("agent-b"), TestSlugIds.For("unit-b"), Cvoya.Spring.Core.Tenancy.OssTenantIds.Default, 0.30m, 300, 150, testWindow));
         await db.SaveChangesAsync(ct);
 
         var from = Uri.EscapeDataString(testWindow.AddHours(-1).ToString("O"));
@@ -165,8 +174,8 @@ public class CostEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     private static CostRecord CreateRecord(
-        string agentId,
-        string unitId,
+        Guid agentId,
+        Guid unitId,
         Guid tenantId,
         decimal cost,
         int inputTokens,
@@ -178,6 +187,8 @@ public class CostEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         {
             Id = Guid.NewGuid(),
             TenantId = tenantId,
+            AgentId = agentId,
+            UnitId = unitId,
             Model = "claude-3-opus",
             Cost = cost,
             InputTokens = inputTokens,
