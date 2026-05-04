@@ -105,11 +105,15 @@ public class TenantTreeEndpointTests : IClassFixture<CustomWebApplicationFactory
         var tenant = body!.Tree;
         tenant.Children!.Count.ShouldBe(2);
 
-        var engineering = tenant.Children!.Single(u => u.Id == "engineering");
-        var marketing = tenant.Children!.Single(u => u.Id == "marketing");
+        var engId = _entryUuids["unit:engineering"].ToString("N");
+        var marketingId = _entryUuids["unit:marketing"].ToString("N");
+        var adaId = _entryUuids["agent:ada"].ToString("N");
 
-        engineering.Children!.Single(a => a.Id == "ada").PrimaryParentId.ShouldBe("engineering");
-        marketing.Children!.Single(a => a.Id == "ada").PrimaryParentId.ShouldBe("engineering");
+        var engineering = tenant.Children!.Single(u => u.Id == engId);
+        var marketing = tenant.Children!.Single(u => u.Id == marketingId);
+
+        engineering.Children!.Single(a => a.Id == adaId).PrimaryParentId.ShouldBe(engId);
+        marketing.Children!.Single(a => a.Id == adaId).PrimaryParentId.ShouldBe(engId);
     }
 
     [Fact]
@@ -125,8 +129,10 @@ public class TenantTreeEndpointTests : IClassFixture<CustomWebApplicationFactory
         await UpsertMembershipAsync("engineering", "hopper", enabled: false);
 
         var body = await FetchTreeAsync(ct);
-        var engineering = body!.Tree.Children!.Single(u => u.Id == "engineering");
-        engineering.Children!.Select(a => a.Id).ShouldBe(["ada"]);
+        var engId = _entryUuids["unit:engineering"].ToString("N");
+        var adaId = _entryUuids["agent:ada"].ToString("N");
+        var engineering = body!.Tree.Children!.Single(u => u.Id == engId);
+        engineering.Children!.Select(a => a.Id).ShouldBe([adaId]);
     }
 
     [Fact]
@@ -142,7 +148,8 @@ public class TenantTreeEndpointTests : IClassFixture<CustomWebApplicationFactory
         await UpsertMembershipAsync("engineering", "ghost-agent");
 
         var body = await FetchTreeAsync(ct);
-        var engineering = body!.Tree.Children!.Single(u => u.Id == "engineering");
+        var engId = _entryUuids["unit:engineering"].ToString("N");
+        var engineering = body!.Tree.Children!.Single(u => u.Id == engId);
         (engineering.Children ?? []).ShouldBeEmpty();
     }
 
@@ -166,16 +173,20 @@ public class TenantTreeEndpointTests : IClassFixture<CustomWebApplicationFactory
 
         // ArrangeDirectoryEntries now assigns UUID actorIds; retrieve them
         // for wiring the actor-proxy stubs.
-        ArrangeUnitStatus(_entryUuids["unit:draft-unit"].ToString(), UnitStatus.Draft);
-        ArrangeUnitStatus(_entryUuids["unit:running-unit"].ToString(), UnitStatus.Running);
-        ArrangeUnitStatus(_entryUuids["unit:error-unit"].ToString(), UnitStatus.Error);
+        ArrangeUnitStatus(_entryUuids["unit:draft-unit"].ToString("N"), UnitStatus.Draft);
+        ArrangeUnitStatus(_entryUuids["unit:running-unit"].ToString("N"), UnitStatus.Running);
+        ArrangeUnitStatus(_entryUuids["unit:error-unit"].ToString("N"), UnitStatus.Error);
 
         var body = await FetchTreeAsync(ct);
         var tenant = body!.Tree;
 
-        tenant.Children!.Single(u => u.Id == "draft-unit").Status.ShouldBe("draft");
-        tenant.Children!.Single(u => u.Id == "running-unit").Status.ShouldBe("running");
-        tenant.Children!.Single(u => u.Id == "error-unit").Status.ShouldBe("error");
+        var draftId = _entryUuids["unit:draft-unit"].ToString("N");
+        var runningId = _entryUuids["unit:running-unit"].ToString("N");
+        var errorId = _entryUuids["unit:error-unit"].ToString("N");
+
+        tenant.Children!.Single(u => u.Id == draftId).Status.ShouldBe("draft");
+        tenant.Children!.Single(u => u.Id == runningId).Status.ShouldBe("running");
+        tenant.Children!.Single(u => u.Id == errorId).Status.ShouldBe("error");
     }
 
     [Fact]
@@ -188,10 +199,11 @@ public class TenantTreeEndpointTests : IClassFixture<CustomWebApplicationFactory
         var ct = TestContext.Current.CancellationToken;
         ClearMemberships();
         ArrangeDirectoryEntries(units: [("flaky", "Flaky Unit")]);
-        ArrangeUnitStatusThrows(_entryUuids["unit:flaky"].ToString());
+        ArrangeUnitStatusThrows(_entryUuids["unit:flaky"].ToString("N"));
 
         var body = await FetchTreeAsync(ct);
-        body!.Tree.Children!.Single(u => u.Id == "flaky").Status.ShouldBe("draft");
+        var flakyId = _entryUuids["unit:flaky"].ToString("N");
+        body!.Tree.Children!.Single(u => u.Id == flakyId).Status.ShouldBe("draft");
     }
 
     [Fact]
@@ -205,8 +217,10 @@ public class TenantTreeEndpointTests : IClassFixture<CustomWebApplicationFactory
         await UpsertMembershipAsync("engineering", "ada");
 
         var body = await FetchTreeAsync(ct);
-        var engineering = body!.Tree.Children!.Single(u => u.Id == "engineering");
-        var ada = engineering.Children!.Single(a => a.Id == "ada");
+        var engId = _entryUuids["unit:engineering"].ToString("N");
+        var adaId = _entryUuids["agent:ada"].ToString("N");
+        var engineering = body!.Tree.Children!.Single(u => u.Id == engId);
+        var ada = engineering.Children!.Single(a => a.Id == adaId);
         ada.Role.ShouldBe("reviewer");
         ada.Name.ShouldBe("Ada Lovelace");
     }
