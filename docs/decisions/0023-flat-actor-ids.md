@@ -1,6 +1,16 @@
 # 0023 — Flat actor ids; single-hop routing with directory resolution
 
-- **Status:** Accepted — every actor has a flat globally-unique Dapr actor id; path addresses (`agent://team/sub/agent`) resolve to that id in one directory lookup; messages do not forward hop-by-hop through each unit in the path.
+> **Amendment (2026-05-03):** [ADR 0036](0036-single-identity-model.md) (Single-identity
+> model) supersedes the type wording in this ADR — actor ids are now `Guid`-typed
+> end-to-end, with the canonical wire form `scheme:<32-hex-no-dash>` (e.g.
+> `agent:8c5fab2a8e7e4b9c92f1d8a3b4c5d6e7`); the path-shaped form
+> `agent://team/sub/agent` no longer exists at any layer. The single-hop routing
+> decision in this ADR — flat resolution + single dispatch hop with the permission
+> walk done at resolution time over the membership graph — is unchanged. Only the
+> identifier *type* (string → `Guid`) and the *wire form* (path → `scheme:id`) are
+> tightened.
+
+- **Status:** Accepted — every actor has a flat globally-unique Dapr actor id; addresses (canonical wire form `scheme:<32-hex-no-dash>` per [ADR 0036](0036-single-identity-model.md); originally specified as path addresses `agent://team/sub/agent` — see Amendment above) resolve to that id in one directory lookup; messages do not forward hop-by-hop through each unit in the path.
 - **Date:** 2026-04-21
 - **Related code:** `src/Cvoya.Spring.Core/IAddressable.cs`, `src/Cvoya.Spring.Dapr/Routing/`, `src/Cvoya.Spring.Dapr/Actors/UnitActor.cs` (member resolution).
 - **Related docs:** [`docs/architecture/messaging.md`](../architecture/messaging.md), [`docs/architecture/units.md`](../architecture/units.md), [ADR 0017](0017-unit-is-an-agent-composite.md), [ADR 0008](0008-unit-boundary-decorator.md), [ADR 0013](0013-hierarchy-aware-permission-resolution.md).

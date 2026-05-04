@@ -36,7 +36,7 @@ For open design questions that have **not** yet been decided, see [`../architect
 | [0020](0020-tiered-cognition-for-initiative.md) | Two-tier cognition model for initiative | Accepted — Tier 1 screens, Tier 2 reflects only on `Act` verdicts |
 | [0021](0021-spring-voyage-is-not-an-agent-runtime.md) | Spring Voyage is not an agent runtime | Accepted — coordinate external runtimes, no in-platform tool-use loop |
 | [0022](0022-postgres-as-primary-store.md) | PostgreSQL as primary store; Dapr state store for actor runtime state | Accepted — relational data via EF Core; actor state via Dapr abstraction |
-| [0023](0023-flat-actor-ids.md) | Flat actor ids; single-hop routing with directory resolution | Accepted — O(path) permission walk, single dispatch hop |
+| [0023](0023-flat-actor-ids.md) | Flat actor ids; single-hop routing with directory resolution | Accepted — O(path) permission walk, single dispatch hop. Amended by [0036](0036-single-identity-model.md) (id type → `Guid`; wire form → `scheme:<32-hex>`) |
 | [0024](0024-unit-validation-as-dapr-workflow.md) | Unit validation runs as a Dapr Workflow, not as an actor | Accepted — `UnitValidationWorkflow` + in-container probe activities ship in #941 |
 | [0025](0025-unified-agent-launch-contract.md) | Unified agent launch contract (single dispatch path, response-capture as a property) | Accepted — `AgentLaunchSpec` + single A2A path; ephemeral is a retention policy |
 | [0026](0026-per-agent-container-scope.md) | Per-agent container scope (one container per agent, not per unit) | Accepted — `Pooled` reserved for [#362](https://github.com/cvoya-com/spring-voyage/issues/362) |
@@ -47,6 +47,7 @@ For open design questions that have **not** yet been decided, see [`../architect
 | [0033](0033-two-portal-architecture.md) | Two-portal architecture (Management Portal + Engagement Portal over the same Web API) | Accepted — separate parent routes, shared session + API client, no portal-private API, CLI parity mandatory |
 | [0034](0034-oss-dogfooding-unit.md) | Spring Voyage OSS dogfooding unit (role decomposition, image strategy, hosting, identity) | Accepted — four role sub-units, omnibus-derivative images, `permanent` hosting, atomic GitHub-App binding |
 | [0035](0035-package-as-bundling-unit.md) | Package as the unit of bundling, installation, and export | Accepted — one concept, two-phase atomic install, uniform cross-package composition, global catalog / tenant-scoped installs, multi-package batch |
+| [0036](0036-single-identity-model.md) | Single-identity model: Guid identity, display_name as presentation only | Accepted — Guid end-to-end, no slugs, membership graph as addressing fabric, `scheme:<32-hex>` wire form, v5 UUID for OSS default tenant |
 
 ## Format
 
