@@ -124,6 +124,7 @@ public static class ActorTestHost
             initiativeEngine,
             reflectionRegistry,
             router,
+            definitionProvider,
             Substitute.For<ILogger<Cvoya.Spring.Dapr.Initiative.AgentObservationCoordinator>>());
 
         var actor = new AgentActor(

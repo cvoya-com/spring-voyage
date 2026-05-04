@@ -7,6 +7,7 @@ using System.Text.Json;
 
 using Cvoya.Spring.Core;
 using Cvoya.Spring.Core.Capabilities;
+using Cvoya.Spring.Core.Execution;
 using Cvoya.Spring.Core.Initiative;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Core.Policies;
@@ -32,6 +33,7 @@ public class AgentObservationCoordinator(
     IInitiativeEngine initiativeEngine,
     IReflectionActionHandlerRegistry reflectionActionHandlers,
     IMessageRouter messageRouter,
+    IAgentDefinitionProvider agentDefinitionProvider,
     ILogger<AgentObservationCoordinator> logger) : IAgentObservationCoordinator
 {
     /// <summary>
@@ -91,10 +93,35 @@ public class AgentObservationCoordinator(
             return;
         }
 
+        // Resolve the agent's real instructions from the canonical
+        // AgentDefinition store. Plumbed through so the engine's
+        // screening / reflection contexts reason against the agent's
+        // actual role description rather than a synthesised stand-in
+        // (#1617). A definition lookup failure is non-fatal: the engine
+        // substitutes a documented fallback string for missing
+        // instructions.
+        string? agentInstructions = null;
+        try
+        {
+            var definition = await agentDefinitionProvider.GetByIdAsync(agentId, cancellationToken);
+            agentInstructions = definition?.Instructions;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex,
+                "Failed to resolve agent definition for {AgentId}; engine will use fallback instructions.",
+                agentId);
+        }
+
         ReflectionOutcome? outcome;
         try
         {
-            outcome = await initiativeEngine.ProcessObservationsAsync(agentId, observations, cancellationToken);
+            outcome = await initiativeEngine.ProcessObservationsAsync(
+                agentId, observations, agentInstructions, cancellationToken);
         }
         catch (OperationCanceledException)
         {

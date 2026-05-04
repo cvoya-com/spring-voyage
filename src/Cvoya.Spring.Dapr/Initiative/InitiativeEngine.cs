@@ -30,6 +30,16 @@ public class InitiativeEngine : IInitiativeEngine
     /// </summary>
     public const decimal Tier2EstimatedCost = 0.10m;
 
+    /// <summary>
+    /// Documented fallback used for the screening / reflection contexts when the
+    /// agent has no <c>Instructions</c> configured on its definition. Distinct
+    /// from any historical placeholder so an operator inspecting prompts can
+    /// tell that the engine is falling back rather than that the agent has a
+    /// degenerate one-line "Allowed actions:" prompt.
+    /// </summary>
+    internal const string MissingInstructionsFallback =
+        "(no agent instructions configured)";
+
     private readonly ICognitionProvider _tier1;
     private readonly ICognitionProvider _tier2;
     private readonly IAgentPolicyStore _policyStore;
@@ -62,6 +72,7 @@ public class InitiativeEngine : IInitiativeEngine
     public async Task<ReflectionOutcome?> ProcessObservationsAsync(
         string agentId,
         IReadOnlyList<JsonElement> observations,
+        string? agentInstructions,
         CancellationToken cancellationToken)
     {
         var policy = await _policyStore.GetPolicyAsync(agentId, cancellationToken);
@@ -77,10 +88,9 @@ public class InitiativeEngine : IInitiativeEngine
             return null;
         }
 
-        // TODO: When AgentActor wires this engine up, plumb the agent's real instructions
-        // (from AgentDefinition) through ScreeningContext/ReflectionContext rather than
-        // falling back to the AllowedActions list as a placeholder.
-        var agentInstructions = BuildInstructionsPlaceholder(policy);
+        var resolvedInstructions = string.IsNullOrWhiteSpace(agentInstructions)
+            ? MissingInstructionsFallback
+            : agentInstructions;
         var allowedActions = policy.AllowedActions ?? Array.Empty<string>();
 
         var queued = new List<JsonElement>(observations.Count);
@@ -92,7 +102,7 @@ public class InitiativeEngine : IInitiativeEngine
 
             var screeningContext = new ScreeningContext(
                 AgentId: agentId,
-                AgentInstructions: agentInstructions,
+                AgentInstructions: resolvedInstructions,
                 InitiativeLevel: policy.MaxLevel,
                 EventSummary: SummarizeObservation(observation),
                 EventPayload: observation);
@@ -143,7 +153,7 @@ public class InitiativeEngine : IInitiativeEngine
 
         var reflectionContext = new ReflectionContext(
             AgentId: agentId,
-            AgentInstructions: agentInstructions,
+            AgentInstructions: resolvedInstructions,
             InitiativeLevel: policy.MaxLevel,
             Observations: queued,
             AllowedActions: allowedActions);
@@ -214,18 +224,6 @@ public class InitiativeEngine : IInitiativeEngine
         }
 
         return outcome;
-    }
-
-    private static string BuildInstructionsPlaceholder(InitiativePolicy policy)
-    {
-        // TODO: Replace with real agent instructions once AgentActor integration lands.
-        var allowed = policy.AllowedActions;
-        if (allowed is null || allowed.Count == 0)
-        {
-            return "(no specific allowed actions configured)";
-        }
-
-        return "Allowed actions: " + string.Join(", ", allowed);
     }
 
     private static string SummarizeObservation(JsonElement observation)

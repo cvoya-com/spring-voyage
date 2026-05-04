@@ -21,11 +21,20 @@ public interface IInitiativeEngine
     /// </summary>
     /// <param name="agentId">The agent whose observations are being processed.</param>
     /// <param name="observations">The observation events to evaluate.</param>
+    /// <param name="agentInstructions">
+    /// The agent's configured instructions / system prompt sourced from the agent's
+    /// definition. Plumbed through to the screening and reflection contexts so the
+    /// cognition providers reason against the agent's real role description rather
+    /// than a synthesised stand-in. <c>null</c> or empty when the agent has no
+    /// instructions configured; the engine substitutes a small documented fallback
+    /// in that case.
+    /// </param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     /// <returns>The reflection outcome, if Tier 2 was invoked; otherwise <c>null</c>.</returns>
     Task<ReflectionOutcome?> ProcessObservationsAsync(
         string agentId,
         IReadOnlyList<JsonElement> observations,
+        string? agentInstructions,
         CancellationToken cancellationToken);
 
     /// <summary>

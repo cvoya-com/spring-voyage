@@ -106,6 +106,7 @@ public class AgentActorReflectionDispatchTests
             _initiativeEngine,
             _registry,
             _router,
+            _definitionProvider,
             Substitute.For<ILogger<AgentObservationCoordinator>>());
 
         _actor = new AgentActor(
@@ -152,7 +153,11 @@ public class AgentActorReflectionDispatchTests
     private void ArrangeOutcome(ReflectionOutcome outcome)
     {
         _initiativeEngine
-            .ProcessObservationsAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<JsonElement>>(), Arg.Any<CancellationToken>())
+            .ProcessObservationsAsync(
+                Arg.Any<string>(),
+                Arg.Any<IReadOnlyList<JsonElement>>(),
+                Arg.Any<string?>(),
+                Arg.Any<CancellationToken>())
             .Returns(outcome);
     }
 
@@ -417,6 +422,79 @@ public class AgentActorReflectionDispatchTests
         await _router.DidNotReceive().RouteAsync(Arg.Any<Message>(), Arg.Any<CancellationToken>());
         await _activityEventBus.Received().PublishAsync(
             Arg.Is<ActivityEvent>(e => e.EventType == ActivityEventType.ReflectionActionSkipped),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Reflection_PlumbsAgentInstructionsFromDefinitionToEngine()
+    {
+        // #1617 acceptance: when the actor's reminder fires, the observation
+        // coordinator must resolve the agent's real instructions from
+        // IAgentDefinitionProvider and pass them to InitiativeEngine — not a
+        // synthesised stand-in.
+        const string instructions = "You are a release-engineering agent. Triage build failures.";
+        _definitionProvider
+            .GetByIdAsync(AgentIdHex, Arg.Any<CancellationToken>())
+            .Returns(new AgentDefinition(
+                AgentId: AgentIdHex,
+                Name: "Release Engineer",
+                Instructions: instructions,
+                Execution: null));
+
+        var outcome = new ReflectionOutcome(false);
+        ArrangeOutcome(outcome);
+
+        await _actor.ReceiveReminderAsync(AgentActor.InitiativeReminderName, Array.Empty<byte>(), TimeSpan.Zero, TimeSpan.FromHours(1));
+
+        await _initiativeEngine.Received(1).ProcessObservationsAsync(
+            AgentIdHex,
+            Arg.Any<IReadOnlyList<JsonElement>>(),
+            instructions,
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Reflection_NoAgentDefinition_PassesNullInstructionsToEngine()
+    {
+        // When the definition provider returns null (agent has no
+        // configured definition row), the coordinator should still call the
+        // engine — passing null lets the engine substitute its documented
+        // fallback rather than the call site inventing a stand-in.
+        _definitionProvider
+            .GetByIdAsync(AgentIdHex, Arg.Any<CancellationToken>())
+            .Returns((AgentDefinition?)null);
+
+        var outcome = new ReflectionOutcome(false);
+        ArrangeOutcome(outcome);
+
+        await _actor.ReceiveReminderAsync(AgentActor.InitiativeReminderName, Array.Empty<byte>(), TimeSpan.Zero, TimeSpan.FromHours(1));
+
+        await _initiativeEngine.Received(1).ProcessObservationsAsync(
+            AgentIdHex,
+            Arg.Any<IReadOnlyList<JsonElement>>(),
+            (string?)null,
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Reflection_DefinitionProviderThrows_StillCallsEngineWithNullInstructions()
+    {
+        // A lookup failure in IAgentDefinitionProvider must not stop the
+        // initiative tick: the engine is still invoked with null
+        // instructions so it can apply its missing-instructions fallback.
+        _definitionProvider
+            .GetByIdAsync(AgentIdHex, Arg.Any<CancellationToken>())
+            .Returns<AgentDefinition?>(_ => throw new InvalidOperationException("db down"));
+
+        var outcome = new ReflectionOutcome(false);
+        ArrangeOutcome(outcome);
+
+        await _actor.ReceiveReminderAsync(AgentActor.InitiativeReminderName, Array.Empty<byte>(), TimeSpan.Zero, TimeSpan.FromHours(1));
+
+        await _initiativeEngine.Received(1).ProcessObservationsAsync(
+            AgentIdHex,
+            Arg.Any<IReadOnlyList<JsonElement>>(),
+            (string?)null,
             Arg.Any<CancellationToken>());
     }
 }
