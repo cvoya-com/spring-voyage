@@ -45,7 +45,7 @@ describe("UnitExplorer (foundation scaffold)", () => {
     expect(screen.getByTestId("unit-detail-pane")).toBeInTheDocument();
   });
 
-  it("ships a search affordance even though filtering is wired by EXP-search", () => {
+  it("ships a search affordance", () => {
     render(<UnitExplorer tree={tree} />);
     expect(
       screen.getByTestId("unit-explorer-search"),
@@ -253,6 +253,136 @@ describe("UnitExplorer (foundation scaffold)", () => {
         key: "End",
       });
       expect(onTabChange).toHaveBeenCalledWith("tenant-acme", "Memory");
+    });
+  });
+
+  describe("search filter (#1624)", () => {
+    // Richer fixture so we can assert ancestor-preservation: tenant root
+    // → two siblings (Engineering, Marketing) → Engineering hosts Alice
+    // and a nested Backend unit holding Bob; Marketing hosts Carol.
+    const filterFixture: TreeNode = {
+      id: "tenant-acme",
+      name: "Acme",
+      kind: "Tenant",
+      status: "running",
+      children: [
+        {
+          id: "unit-eng",
+          name: "Engineering",
+          kind: "Unit",
+          status: "running",
+          children: [
+            { id: "agent-alice", name: "Alice", kind: "Agent", status: "running" },
+            {
+              id: "unit-backend",
+              name: "Backend",
+              kind: "Unit",
+              status: "running",
+              children: [
+                { id: "agent-bob", name: "Bob", kind: "Agent", status: "running" },
+              ],
+            },
+          ],
+        },
+        {
+          id: "unit-marketing",
+          name: "Marketing",
+          kind: "Unit",
+          status: "running",
+          children: [
+            { id: "agent-carol", name: "Carol", kind: "Agent", status: "running" },
+          ],
+        },
+      ],
+    };
+
+    it("shows every node when the query is empty", () => {
+      render(<UnitExplorer tree={filterFixture} />);
+      // The tree's `defaultExpanded` only opens the root, so deeper rows
+      // aren't rendered until expanded — assert the top-level rows are
+      // there and the no-matches affordance is absent.
+      expect(screen.getByTestId("tree-row-tenant-acme")).toBeInTheDocument();
+      expect(screen.getByTestId("tree-row-unit-eng")).toBeInTheDocument();
+      expect(screen.getByTestId("tree-row-unit-marketing")).toBeInTheDocument();
+      expect(
+        screen.queryByTestId("unit-explorer-no-matches"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("narrows to a leaf agent and its ancestors when the query matches that agent", () => {
+      render(<UnitExplorer tree={filterFixture} />);
+      fireEvent.change(screen.getByTestId("unit-explorer-search"), {
+        target: { value: "alice" },
+      });
+      // Ancestors of the match remain visible (and auto-expanded).
+      expect(screen.getByTestId("tree-row-tenant-acme")).toBeInTheDocument();
+      expect(screen.getByTestId("tree-row-unit-eng")).toBeInTheDocument();
+      expect(screen.getByTestId("tree-row-agent-alice")).toBeInTheDocument();
+      // Sibling branches that hold no match are pruned out.
+      expect(screen.queryByTestId("tree-row-unit-marketing")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("tree-row-agent-carol")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("tree-row-unit-backend")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("tree-row-agent-bob")).not.toBeInTheDocument();
+    });
+
+    it("keeps every descendant of an ancestor whose own name matches", () => {
+      render(<UnitExplorer tree={filterFixture} />);
+      fireEvent.change(screen.getByTestId("unit-explorer-search"), {
+        target: { value: "engineering" },
+      });
+      // The matching ancestor and every descendant survive — operators
+      // can drill into the surviving branch without the filter hiding
+      // the children that prompted the search.
+      expect(screen.getByTestId("tree-row-tenant-acme")).toBeInTheDocument();
+      expect(screen.getByTestId("tree-row-unit-eng")).toBeInTheDocument();
+      expect(screen.getByTestId("tree-row-agent-alice")).toBeInTheDocument();
+      expect(screen.getByTestId("tree-row-unit-backend")).toBeInTheDocument();
+      expect(screen.getByTestId("tree-row-agent-bob")).toBeInTheDocument();
+      // The Marketing sibling drops out — no descendant matches there.
+      expect(screen.queryByTestId("tree-row-unit-marketing")).not.toBeInTheDocument();
+    });
+
+    it("matches case-insensitively over agent names too, surfacing the parent unit chain", () => {
+      render(<UnitExplorer tree={filterFixture} />);
+      fireEvent.change(screen.getByTestId("unit-explorer-search"), {
+        target: { value: "BOB" },
+      });
+      // Bob lives under Engineering → Backend; both must auto-expand.
+      expect(screen.getByTestId("tree-row-tenant-acme")).toBeInTheDocument();
+      expect(screen.getByTestId("tree-row-unit-eng")).toBeInTheDocument();
+      expect(screen.getByTestId("tree-row-unit-backend")).toBeInTheDocument();
+      expect(screen.getByTestId("tree-row-agent-bob")).toBeInTheDocument();
+      // Bob's sibling Alice does *not* survive — only ancestors of a
+      // match are preserved, not siblings.
+      expect(screen.queryByTestId("tree-row-agent-alice")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("tree-row-unit-marketing")).not.toBeInTheDocument();
+    });
+
+    it("renders the no-matches affordance when the query matches nothing", () => {
+      render(<UnitExplorer tree={filterFixture} />);
+      fireEvent.change(screen.getByTestId("unit-explorer-search"), {
+        target: { value: "nonexistent-zzz" },
+      });
+      // The tree is gone; the empty-state takes its place. The detail
+      // pane is unaffected — the previously-selected node still
+      // renders on the right so a stray search doesn't clear context.
+      expect(screen.queryByTestId("unit-tree")).not.toBeInTheDocument();
+      expect(screen.getByTestId("unit-explorer-no-matches")).toBeInTheDocument();
+      expect(screen.getByTestId("unit-explorer-no-matches")).toHaveTextContent(
+        "No units or agents match",
+      );
+    });
+
+    it("restores the full tree when the query is cleared", () => {
+      render(<UnitExplorer tree={filterFixture} />);
+      const input = screen.getByTestId("unit-explorer-search");
+      fireEvent.change(input, { target: { value: "alice" } });
+      expect(screen.queryByTestId("tree-row-unit-marketing")).not.toBeInTheDocument();
+      fireEvent.change(input, { target: { value: "" } });
+      expect(screen.getByTestId("tree-row-unit-marketing")).toBeInTheDocument();
+      expect(
+        screen.queryByTestId("unit-explorer-no-matches"),
+      ).not.toBeInTheDocument();
     });
   });
 });

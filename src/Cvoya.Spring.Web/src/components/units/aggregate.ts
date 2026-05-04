@@ -161,6 +161,100 @@ export function findIndex(tree: TreeNode): {
 }
 
 /**
+ * Substring filter over a node tree. Returns a *new* tree containing only
+ * matching nodes, the ancestors that lead to them, **and** every
+ * descendant of any node whose own name matched, plus the set of
+ * matching node ids so callers can paint hits or auto-expand branches.
+ *
+ * Filter shape: **case-insensitive substring** on `name`. Picked over fuzzy
+ * matching for v0.1 — predictable, dependency-free, easy to upgrade later
+ * (a fuzzy library can replace `nodeMatches` without changing this
+ * function's shape). Matches both units *and* agents (the search input is
+ * placeholdered "Search units & agents…").
+ *
+ * Three pruning rules combine to give operators a navigable mid-search
+ * tree:
+ *
+ * 1. A node whose own name matches is kept along with **its entire
+ *    subtree** — searching "engineering" surfaces every agent / sub-unit
+ *    inside Engineering so operators can drill into the branch the hit
+ *    pointed them at.
+ * 2. A node whose own name does *not* match is kept iff at least one
+ *    descendant matches — matching ancestors stay visible so the path
+ *    to every hit is intact.
+ * 3. A node with neither a self-match nor a matching descendant is
+ *    dropped.
+ *
+ * Empty / whitespace-only `query` is a no-op — the original tree is
+ * returned and `matches` is empty so callers can short-circuit.
+ *
+ * Pure function — call sites should memoise on `(tree, query)`.
+ */
+export interface FilterResult {
+  /**
+   * Pruned tree, or `null` when nothing in the subtree (including the
+   * node itself) matches. The top-level call returns `null` to mean
+   * "no nodes match the query" so the caller can render an empty-state.
+   */
+  tree: TreeNode | null;
+  /** Ids of every node whose own `name` matched the query. */
+  matches: Set<string>;
+}
+
+export function filterTree(tree: TreeNode, query: string): FilterResult {
+  const trimmed = query.trim();
+  if (trimmed.length === 0) {
+    return { tree, matches: new Set() };
+  }
+  const needle = trimmed.toLowerCase();
+  const matches = new Set<string>();
+
+  function nodeMatches(node: TreeNode): boolean {
+    return node.name.toLowerCase().includes(needle);
+  }
+
+  function walk(node: TreeNode): TreeNode | null {
+    const selfMatches = nodeMatches(node);
+    if (selfMatches) matches.add(node.id);
+
+    // When the node itself matches, its whole subtree stays — operators
+    // expect "search engineering" to surface every agent / sub-unit
+    // inside Engineering, not just the row labelled "Engineering". Still
+    // walk descendants so their match ids land in `matches`.
+    if (selfMatches) {
+      for (const child of childrenOf(node)) walk(child);
+      return node;
+    }
+
+    const filteredChildren: TreeNode[] = [];
+    for (const child of childrenOf(node)) {
+      const kept = walk(child);
+      if (kept) filteredChildren.push(kept);
+    }
+
+    if (filteredChildren.length === 0) {
+      return null;
+    }
+
+    // Reattach the filtered children. Only Tenant / Unit reach this
+    // branch: agents have no children, so `filteredChildren` is empty
+    // for them and we exited above. The narrowing dance keeps TS happy
+    // about the discriminated-union shape — a plain `{ ...node,
+    // children: filteredChildren }` is rejected because the compiler
+    // doesn't fold "agents have no children" through the early-return.
+    if (node.kind === "Tenant") {
+      return { ...node, children: filteredChildren };
+    }
+    if (node.kind === "Unit") {
+      return { ...node, children: filteredChildren };
+    }
+    return node;
+  }
+
+  return { tree: walk(tree), matches };
+}
+
+/**
  * Tab catalogs by node kind. Each catalog is split into `visible` (the
  * primary tab strip) and `overflow` (tabs that render through a secondary
  * affordance — e.g. a trailing separator + strip, or a "more" popover).

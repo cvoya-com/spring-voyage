@@ -6,7 +6,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 
 import {
+  childrenOf,
+  filterTree,
   findIndex,
+  flattenTree,
   tabsFor,
   type TabName,
   type TreeNode,
@@ -100,11 +103,32 @@ export function UnitExplorer({
     [selectedId, onTabChange],
   );
 
-  // Search input lives in component state for now — the affordance is
-  // wired but the filter itself is not yet connected. The eventual
-  // fuzzy-match filter will hide non-matching nodes while keeping
-  // ancestors visible so the tree stays navigable mid-search.
+  // Case-insensitive substring filter over `name`. Picked over fuzzy
+  // matching for v0.1 — predictable, dependency-free, easy to upgrade
+  // later (#1624). Matches against both units and agents (the input
+  // placeholder says "Search units & agents…"). The filter is purely
+  // client-side over already-fetched data; the API isn't involved.
   const [query, setQuery] = useState("");
+  const trimmedQuery = query.trim();
+  const isFiltering = trimmedQuery.length > 0;
+
+  const { filteredTree, expandedForFilter } = useMemo(() => {
+    if (!isFiltering) {
+      return { filteredTree: tree, expandedForFilter: undefined };
+    }
+    const { tree: pruned } = filterTree(tree, trimmedQuery);
+    if (!pruned) {
+      return { filteredTree: null, expandedForFilter: undefined };
+    }
+    // Force every surviving branch open so ancestors of matches are
+    // immediately visible — the whole point of the ancestor-preservation
+    // pass is that operators see the path to a hit without clicking.
+    const expanded: Record<string, boolean> = {};
+    for (const { node } of flattenTree(pruned)) {
+      if (childrenOf(node).length > 0) expanded[node.id] = true;
+    }
+    return { filteredTree: pruned, expandedForFilter: expanded };
+  }, [tree, trimmedQuery, isFiltering]);
 
   return (
     <div
@@ -136,11 +160,28 @@ export function UnitExplorer({
           </div>
         </div>
         <div className="flex-1 overflow-auto p-1">
-          <UnitTree
-            tree={tree}
-            selectedId={selectedId}
-            onSelect={setSelected}
-          />
+          {filteredTree ? (
+            <UnitTree
+              // Remount when the filter shape changes so the tree's
+              // internal `expanded` state picks up the freshly-computed
+              // `defaultExpanded`. Without this, switching between
+              // queries would leave stale collapse state from a prior
+              // pass — operators would see a hit but not the branch
+              // that holds it.
+              key={isFiltering ? `filter:${trimmedQuery}` : "no-filter"}
+              tree={filteredTree}
+              selectedId={selectedId}
+              onSelect={setSelected}
+              defaultExpanded={expandedForFilter}
+            />
+          ) : (
+            <p
+              data-testid="unit-explorer-no-matches"
+              className="px-2 py-3 text-xs text-muted-foreground"
+            >
+              No units or agents match &ldquo;{trimmedQuery}&rdquo;.
+            </p>
+          )}
         </div>
       </aside>
       <DetailPane

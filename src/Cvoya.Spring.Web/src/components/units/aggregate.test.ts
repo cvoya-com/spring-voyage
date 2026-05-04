@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   aggregate,
   AGENT_TABS,
+  filterTree,
   findIndex,
   flattenTree,
   overflowTabsFor,
@@ -276,5 +277,75 @@ describe("visibleTabsFor / overflowTabsFor", () => {
         ...overflowTabsFor(kind),
       ]);
     }
+  });
+});
+
+describe("filterTree", () => {
+  it("returns the tree verbatim and an empty match set for an empty query", () => {
+    const result = filterTree(sampleTree, "");
+    expect(result.tree).toBe(sampleTree);
+    expect(result.matches.size).toBe(0);
+  });
+
+  it("treats whitespace-only queries as empty", () => {
+    const result = filterTree(sampleTree, "   \t  ");
+    expect(result.tree).toBe(sampleTree);
+    expect(result.matches.size).toBe(0);
+  });
+
+  it("matches case-insensitively as a substring of `name`", () => {
+    // "AD" in upper-case must still match "Ada" — the comparison
+    // lower-cases both sides.
+    const result = filterTree(sampleTree, "AD");
+    expect(result.tree).not.toBeNull();
+    expect(result.matches.has("agent-ada")).toBe(true);
+    // Margaret / Grace don't contain "ad" anywhere.
+    expect(result.matches.has("agent-margaret")).toBe(false);
+    expect(result.matches.has("agent-grace")).toBe(false);
+  });
+
+  it("preserves ancestors of matching nodes", () => {
+    const result = filterTree(sampleTree, "grace");
+    // Tenant → Engineering → Platform → Grace must all survive.
+    const ids = new Set<string>();
+    if (result.tree) {
+      for (const { node } of flattenTree(result.tree)) ids.add(node.id);
+    }
+    expect(ids.has("tenant-acme")).toBe(true);
+    expect(ids.has("unit-eng")).toBe(true);
+    expect(ids.has("unit-platform")).toBe(true);
+    expect(ids.has("agent-grace")).toBe(true);
+    // Siblings of the match (Ada, Margaret) are pruned out — only the
+    // ancestor chain is preserved, not unrelated branches.
+    expect(ids.has("agent-ada")).toBe(false);
+    expect(ids.has("agent-margaret")).toBe(false);
+  });
+
+  it("keeps every descendant when an ancestor's own name matches", () => {
+    const result = filterTree(sampleTree, "engineering");
+    expect(result.tree).not.toBeNull();
+    const ids = new Set<string>();
+    if (result.tree) {
+      for (const { node } of flattenTree(result.tree)) ids.add(node.id);
+    }
+    // Engineering matches → every descendant survives so operators can
+    // still drill into the branch that prompted the search.
+    expect(ids.has("unit-eng")).toBe(true);
+    expect(ids.has("agent-ada")).toBe(true);
+    expect(ids.has("agent-margaret")).toBe(true);
+    expect(ids.has("unit-platform")).toBe(true);
+    expect(ids.has("agent-grace")).toBe(true);
+  });
+
+  it("returns a null tree when nothing matches", () => {
+    const result = filterTree(sampleTree, "no-such-node");
+    expect(result.tree).toBeNull();
+    expect(result.matches.size).toBe(0);
+  });
+
+  it("does not mutate the source tree", () => {
+    const before = JSON.stringify(sampleTree);
+    filterTree(sampleTree, "ada");
+    expect(JSON.stringify(sampleTree)).toBe(before);
   });
 });
