@@ -1,7 +1,8 @@
 // Tests for `ThreadEventCard` and the `shouldRenderAsCard` heuristic
-// (#1630). The card is the observer-view fallback for non-message
-// events; it must never leak raw GUIDs in its compact-state copy and
-// must reveal the technical details only when the user clicks expand.
+// (#1630). The card is the renderer for non-message events in a thread
+// timeline; the compact state shows a friendly label / summary, and the
+// expand panel surfaces technical details (raw IDs, addresses, severity)
+// for diagnostic use.
 
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -38,26 +39,6 @@ describe("ThreadEventCard", () => {
     expect(
       screen.getByTestId("conversation-event-card-source-name"),
     ).toHaveTextContent("ada");
-  });
-
-  it("does NOT leak a raw GUID in the compact state", () => {
-    const id = "d4ce4258-ab40-4c10-be06-407cc5ec9139";
-    render(
-      <ThreadEventCard
-        event={makeEvent({
-          id,
-          summary: `Received Domain message ${id} from human:id:${id}`,
-        })}
-      />,
-    );
-    // Card visible state must show the friendly label, not the GUID.
-    const card = screen.getByTestId(`conversation-event-card-${id}`);
-    expect(card).toBeInTheDocument();
-    expect(card).not.toHaveTextContent(id);
-    // Friendly label takes over because the summary matched the
-    // "Received Domain message …" envelope template.
-    const summary = screen.getByTestId("conversation-event-card-summary");
-    expect(summary).toHaveTextContent("State changed");
   });
 
   it("expands to reveal the raw envelope details on click", () => {
@@ -104,34 +85,43 @@ describe("ThreadEventCard", () => {
     ).toHaveTextContent("ada");
   });
 
-  it("shows the message body verbatim when present", () => {
+  it("prefers event.body over event.summary when both are present", () => {
     render(
       <ThreadEventCard
         event={makeEvent({
-          eventType: "MessageReceived",
           body: "Hello savas!",
-          summary: "envelope summary",
+          summary: "engine summary line",
         })}
       />,
     );
     expect(screen.getByText("Hello savas!")).toBeInTheDocument();
-    expect(screen.queryByText("envelope summary")).toBeNull();
+    expect(screen.queryByText("engine summary line")).toBeNull();
   });
 
-  it("strips the 'Received Domain message <uuid> …' envelope template", () => {
-    const id = "d4ce4258-ab40-4c10-be06-407cc5ec9139";
+  it("falls back to event.summary when body is absent", () => {
     render(
       <ThreadEventCard
         event={makeEvent({
-          eventType: "MessageReceived",
-          summary: `Received Domain message ${id} from human:id:${id}`,
+          body: undefined,
+          summary: "agent finished its current step",
         })}
       />,
     );
     const summary = screen.getByTestId("conversation-event-card-summary");
-    // Falls back to the friendly label rather than leaking the GUID.
-    expect(summary).toHaveTextContent("Message");
-    expect(summary).not.toHaveTextContent(id);
+    expect(summary).toHaveTextContent("agent finished its current step");
+  });
+
+  it("falls back to the friendly event-type label when both body and summary are absent", () => {
+    render(
+      <ThreadEventCard
+        event={makeEvent({
+          body: undefined,
+          summary: undefined,
+        })}
+      />,
+    );
+    const summary = screen.getByTestId("conversation-event-card-summary");
+    expect(summary).toHaveTextContent("State changed");
   });
 
   it("escalates tone to destructive for severity=Error events", () => {
@@ -165,17 +155,24 @@ describe("shouldRenderAsCard", () => {
     );
   });
 
-  it("treats MessageReceived with a body as a bubble (not a card)", () => {
+  it("treats MessageReceived as a bubble (never a card)", () => {
     expect(
       shouldRenderAsCard(
         makeEvent({ eventType: "MessageReceived", body: "hi" }),
       ),
     ).toBe(false);
-  });
-
-  it("treats body-less MessageReceived as a card (#1630 envelope-leak case)", () => {
+    // Body-less message events still take the bubble path — the
+    // platform now guarantees a usable summary upstream (#1641).
     expect(
       shouldRenderAsCard(makeEvent({ eventType: "MessageReceived" })),
-    ).toBe(true);
+    ).toBe(false);
+  });
+
+  it("treats MessageSent as a bubble (never a card)", () => {
+    expect(
+      shouldRenderAsCard(
+        makeEvent({ eventType: "MessageSent", body: "hi" }),
+      ),
+    ).toBe(false);
   });
 });

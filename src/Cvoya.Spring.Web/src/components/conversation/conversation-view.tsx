@@ -389,10 +389,11 @@ export function ConversationView({
               );
             }
             // Dialog mode (default participant view). Non-message events
-            // that lack a body still render as cards rather than leaking
-            // raw envelope summaries through the generic bubble path
-            // (#1630 — see ThreadEventCard for the template-strip).
-            if (shouldRenderAsCard(event) && !event.body) {
+            // render as cards regardless of body — message events take
+            // the bubble path. Upstream guarantees a usable body /
+            // summary, so the bubble path no longer needs a body-less
+            // card escape hatch (#1641 / #1639).
+            if (shouldRenderAsCard(event)) {
               return (
                 <ThreadEventCard
                   key={event.id}

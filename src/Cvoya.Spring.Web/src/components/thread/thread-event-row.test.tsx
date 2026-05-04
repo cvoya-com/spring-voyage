@@ -23,7 +23,7 @@ function makeEvent(overrides: Partial<ThreadEvent> = {}): ThreadEvent {
     source: { address: "agent://ada", displayName: "ada" },
     eventType: "MessageReceived",
     severity: "Info",
-    summary: "Received Domain message X from human://savas",
+    summary: "human reply placeholder",
     ...overrides,
   };
 }
@@ -38,8 +38,7 @@ describe("ThreadEventRow", () => {
 
     expect(screen.getByText("Hello, ada!")).toBeTruthy();
     // Falls through summary — but body wins for the visible bubble text.
-    expect(screen.queryByText("Received Domain message X from human://savas"))
-      .toBeNull();
+    expect(screen.queryByText("human reply placeholder")).toBeNull();
   });
 
   it("falls back to the summary line when no body is present", () => {
@@ -47,9 +46,7 @@ describe("ThreadEventRow", () => {
       <ThreadEventRow event={makeEvent()} />,
     );
 
-    expect(
-      screen.getByText("Received Domain message X from human://savas"),
-    ).toBeTruthy();
+    expect(screen.getByText("human reply placeholder")).toBeTruthy();
   });
 
   it("ignores body on non-MessageReceived events", () => {
