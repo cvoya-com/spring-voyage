@@ -29,6 +29,15 @@ using Xunit;
 /// </summary>
 public class AnalyticsContractTests : IClassFixture<CustomWebApplicationFactory>
 {
+    // Post-#1629 the {id} URL segment must parse as a Guid hex.
+    private static readonly Guid TsAgent_Id = TestSlugIds.For("contract-ts-agent");
+    private static readonly Guid TsUnit_Id = TestSlugIds.For("contract-ts-unit");
+    private static readonly Guid NoDataAgent_Id = TestSlugIds.For("no-data-agent");
+    private static readonly Guid NoDataUnit_Id = TestSlugIds.For("no-data-unit");
+    private static readonly Guid BdAgent_Id = TestSlugIds.For("contract-bd-agent");
+    private static readonly Guid Bd2Agent_Id = TestSlugIds.For("contract-bd2-agent");
+    private static readonly Guid NoDataBdAgent_Id = TestSlugIds.For("no-data-bd-agent");
+
     private readonly CustomWebApplicationFactory _factory;
     private readonly HttpClient _client;
 
@@ -45,10 +54,10 @@ public class AnalyticsContractTests : IClassFixture<CustomWebApplicationFactory>
     {
         var ct = TestContext.Current.CancellationToken;
 
-        await SeedCostRecordAsync("contract-ts-agent", unitId: null, cost: 0.05m, ct: ct);
+        await SeedCostRecordAsync(TsAgent_Id, unitId: null, cost: 0.05m, ct: ct);
 
         var response = await _client.GetAsync(
-            "/api/v1/tenant/analytics/agents/contract-ts-agent/cost-timeseries?window=7d&bucket=1d", ct);
+            $"/api/v1/tenant/analytics/agents/{TsAgent_Id:N}/cost-timeseries?window=7d&bucket=1d", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content.ReadAsStringAsync(ct);
@@ -62,14 +71,14 @@ public class AnalyticsContractTests : IClassFixture<CustomWebApplicationFactory>
         var ct = TestContext.Current.CancellationToken;
 
         var response = await _client.GetAsync(
-            "/api/v1/tenant/analytics/agents/no-data-agent/cost-timeseries?window=7d&bucket=1d", ct);
+            $"/api/v1/tenant/analytics/agents/{NoDataAgent_Id:N}/cost-timeseries?window=7d&bucket=1d", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var dto = await response.Content.ReadFromJsonAsync<AnalyticsCostTimeseriesResponse>(ct);
         dto.ShouldNotBeNull();
         dto!.Scope.ShouldBe("agents");
-        dto.Id.ShouldBe("no-data-agent");
+        dto.Id.ShouldBe(NoDataAgent_Id.ToString("N"));
         dto.Bucket.ShouldBe("1d");
         dto.Points.Count.ShouldBe(7);
         dto.Points.ShouldAllBe(p => p.CostUsd >= 0m);
@@ -81,7 +90,7 @@ public class AnalyticsContractTests : IClassFixture<CustomWebApplicationFactory>
         var ct = TestContext.Current.CancellationToken;
 
         var response = await _client.GetAsync(
-            "/api/v1/tenant/analytics/agents/x/cost-timeseries?bucket=3d", ct);
+            $"/api/v1/tenant/analytics/agents/{Guid.NewGuid():N}/cost-timeseries?bucket=3d", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }
@@ -93,10 +102,10 @@ public class AnalyticsContractTests : IClassFixture<CustomWebApplicationFactory>
     {
         var ct = TestContext.Current.CancellationToken;
 
-        await SeedCostRecordAsync("contract-ts-agent", unitId: "contract-ts-unit", cost: 0.10m, ct: ct);
+        await SeedCostRecordAsync(TsAgent_Id, unitId: TsUnit_Id, cost: 0.10m, ct: ct);
 
         var response = await _client.GetAsync(
-            "/api/v1/tenant/analytics/units/contract-ts-unit/cost-timeseries?window=7d&bucket=1d", ct);
+            $"/api/v1/tenant/analytics/units/{TsUnit_Id:N}/cost-timeseries?window=7d&bucket=1d", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content.ReadAsStringAsync(ct);
@@ -110,14 +119,14 @@ public class AnalyticsContractTests : IClassFixture<CustomWebApplicationFactory>
         var ct = TestContext.Current.CancellationToken;
 
         var response = await _client.GetAsync(
-            "/api/v1/tenant/analytics/units/no-data-unit/cost-timeseries?window=7d&bucket=1d", ct);
+            $"/api/v1/tenant/analytics/units/{NoDataUnit_Id:N}/cost-timeseries?window=7d&bucket=1d", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var dto = await response.Content.ReadFromJsonAsync<AnalyticsCostTimeseriesResponse>(ct);
         dto.ShouldNotBeNull();
         dto!.Scope.ShouldBe("units");
-        dto.Id.ShouldBe("no-data-unit");
+        dto.Id.ShouldBe(NoDataUnit_Id.ToString("N"));
         dto.Bucket.ShouldBe("1d");
         dto.Points.Count.ShouldBe(7);
     }
@@ -129,11 +138,11 @@ public class AnalyticsContractTests : IClassFixture<CustomWebApplicationFactory>
     {
         var ct = TestContext.Current.CancellationToken;
 
-        await SeedCostRecordAsync("contract-bd-agent", unitId: null, cost: 0.20m, model: "claude-3-5-sonnet", ct: ct);
-        await SeedCostRecordAsync("contract-bd-agent", unitId: null, cost: 0.05m, model: "claude-3-haiku", ct: ct);
+        await SeedCostRecordAsync(BdAgent_Id, unitId: null, cost: 0.20m, model: "claude-3-5-sonnet", ct: ct);
+        await SeedCostRecordAsync(BdAgent_Id, unitId: null, cost: 0.05m, model: "claude-3-haiku", ct: ct);
 
         var response = await _client.GetAsync(
-            "/api/v1/tenant/cost/agents/contract-bd-agent/breakdown", ct);
+            $"/api/v1/tenant/cost/agents/{BdAgent_Id:N}/breakdown", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content.ReadAsStringAsync(ct);
@@ -146,16 +155,16 @@ public class AnalyticsContractTests : IClassFixture<CustomWebApplicationFactory>
     {
         var ct = TestContext.Current.CancellationToken;
 
-        await SeedCostRecordAsync("contract-bd2-agent", unitId: null, cost: 0.15m, model: "gpt-4o", ct: ct);
+        await SeedCostRecordAsync(Bd2Agent_Id, unitId: null, cost: 0.15m, model: "gpt-4o", ct: ct);
 
         var response = await _client.GetAsync(
-            "/api/v1/tenant/cost/agents/contract-bd2-agent/breakdown", ct);
+            $"/api/v1/tenant/cost/agents/{Bd2Agent_Id:N}/breakdown", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var dto = await response.Content.ReadFromJsonAsync<CostBreakdownResponse>(ct);
         dto.ShouldNotBeNull();
-        dto!.AgentId.ShouldBe("contract-bd2-agent");
+        dto!.AgentId.ShouldBe(Bd2Agent_Id.ToString("N"));
         dto.Entries.ShouldNotBeEmpty();
 
         var entry = dto.Entries[0];
@@ -171,21 +180,21 @@ public class AnalyticsContractTests : IClassFixture<CustomWebApplicationFactory>
         var ct = TestContext.Current.CancellationToken;
 
         var response = await _client.GetAsync(
-            "/api/v1/tenant/cost/agents/no-data-bd-agent/breakdown", ct);
+            $"/api/v1/tenant/cost/agents/{NoDataBdAgent_Id:N}/breakdown", ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var dto = await response.Content.ReadFromJsonAsync<CostBreakdownResponse>(ct);
         dto.ShouldNotBeNull();
-        dto!.AgentId.ShouldBe("no-data-bd-agent");
+        dto!.AgentId.ShouldBe(NoDataBdAgent_Id.ToString("N"));
         dto.Entries.ShouldBeEmpty();
     }
 
     // Helpers
 
     private async Task SeedCostRecordAsync(
-        string agentId,
-        string? unitId,
+        Guid agentId,
+        Guid? unitId,
         decimal cost,
         string model = "claude-3-opus",
         CancellationToken ct = default)
@@ -196,6 +205,8 @@ public class AnalyticsContractTests : IClassFixture<CustomWebApplicationFactory>
         {
             Id = Guid.NewGuid(),
             TenantId = Cvoya.Spring.Core.Tenancy.OssTenantIds.Default,
+            AgentId = agentId,
+            UnitId = unitId,
             Model = model,
             Cost = cost,
             InputTokens = 100,
