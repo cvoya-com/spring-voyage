@@ -22,9 +22,11 @@ using Microsoft.Extensions.Logging;
 /// rows; nothing materialised the tenant as a first-class record.
 /// Now that <c>/api/v1/platform/tenants</c> lists tenants from the new
 /// table, the bootstrap must seed the default row so the listing is
-/// non-empty on a fresh OSS host. The provider is idempotent — it
-/// inserts the row only when missing, and never overwrites operator
-/// edits to <c>display_name</c>.
+/// non-empty on a fresh OSS host. The seeded <c>display_name</c> is the
+/// human-readable literal <c>"Default Tenant"</c> — operators can rename
+/// it later (via SQL today, future portal/CLI surface). The provider is
+/// idempotent: it inserts the row only when missing and never overwrites
+/// operator edits to <c>display_name</c>.
 /// </para>
 /// <para>
 /// Runs at priority 5 — well before the other infrastructure seeders
@@ -37,6 +39,13 @@ public sealed class DefaultTenantRecordSeedProvider(
     IServiceScopeFactory scopeFactory,
     ILogger<DefaultTenantRecordSeedProvider> logger) : ITenantSeedProvider
 {
+    /// <summary>
+    /// The human-readable display name seeded for the OSS bootstrap tenant.
+    /// Exposed so callers (and tests) can reference the canonical literal
+    /// without depending on the value text.
+    /// </summary>
+    public const string DefaultDisplayName = "Default Tenant";
+
     /// <inheritdoc />
     public string Id => "tenants";
 
@@ -70,11 +79,13 @@ public sealed class DefaultTenantRecordSeedProvider(
         }
 
         var now = DateTimeOffset.UtcNow;
-        var displayName = Cvoya.Spring.Core.Identifiers.GuidFormatter.Format(tenantId);
+        // #1661: seed a human-readable literal — the GUID-hex form previously
+        // used here surfaced as a 32-char hash in the portal Explorer. Operators
+        // can rename via SQL until a portal/CLI rename surface lands.
         dbContext.Tenants.Add(new TenantRecordEntity
         {
             Id = tenantId,
-            DisplayName = displayName,
+            DisplayName = DefaultDisplayName,
             State = TenantState.Active,
             CreatedAt = now,
             UpdatedAt = now,
