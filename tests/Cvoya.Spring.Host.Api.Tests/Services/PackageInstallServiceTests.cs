@@ -46,10 +46,10 @@ public class PackageInstallServiceTests
     // A minimal valid UnitPackage YAML with no inputs. {0} = package name.
     private const string MinimalPackageYaml = """
         apiVersion: spring.voyage/v1
-        kind: UnitPackage
         metadata:
           name: {0}
-        unit: main
+        content:
+          - unit: main
         """;
 
     private const string MinimalUnitYaml = """
@@ -60,12 +60,12 @@ public class PackageInstallServiceTests
     private const string YamlWithComments = """
         # This comment should be preserved
         apiVersion: spring.voyage/v1
-        kind: UnitPackage
         metadata:
           name: my-package
           # description follows
           description: test package
-        unit: main
+        content:
+          - unit: main
         """;
 
     // ── Fixture helpers ────────────────────────────────────────────────────
@@ -124,6 +124,7 @@ public class PackageInstallServiceTests
         a.ActivateAsync(
                 Arg.Any<string>(), Arg.Any<ResolvedArtefact>(),
                 Arg.Any<Guid>(), Arg.Any<LocalSymbolMap>(),
+                Arg.Any<IReadOnlyDictionary<string, ConnectorBinding>?>(),
                 Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
         return a;
@@ -166,7 +167,7 @@ public class PackageInstallServiceTests
         var activator = Substitute.For<IPackageArtefactActivator>();
         activator.ActivateAsync(
                 Arg.Any<string>(), Arg.Any<ResolvedArtefact>(),
-                Arg.Any<Guid>(), Arg.Any<LocalSymbolMap>(), Arg.Any<CancellationToken>())
+                Arg.Any<Guid>(), Arg.Any<LocalSymbolMap>(), Arg.Any<IReadOnlyDictionary<string, ConnectorBinding>?>(), Arg.Any<CancellationToken>())
             .Throws(new InvalidOperationException("Simulated mid-Phase-2 failure"));
 
         var (svc, scopeFactory) = BuildService(activator: activator);
@@ -190,7 +191,7 @@ public class PackageInstallServiceTests
         var activator = Substitute.For<IPackageArtefactActivator>();
         activator.ActivateAsync(
                 Arg.Any<string>(), Arg.Any<ResolvedArtefact>(),
-                Arg.Any<Guid>(), Arg.Any<LocalSymbolMap>(), Arg.Any<CancellationToken>())
+                Arg.Any<Guid>(), Arg.Any<LocalSymbolMap>(), Arg.Any<IReadOnlyDictionary<string, ConnectorBinding>?>(), Arg.Any<CancellationToken>())
             .Throws(new InvalidOperationException("Phase-2 failure"));
 
         var (svc, scopeFactory) = BuildService(activator: activator);
@@ -227,7 +228,7 @@ public class PackageInstallServiceTests
         var activator = Substitute.For<IPackageArtefactActivator>();
         activator.ActivateAsync(
                 Arg.Any<string>(), Arg.Any<ResolvedArtefact>(),
-                Arg.Any<Guid>(), Arg.Any<LocalSymbolMap>(), Arg.Any<CancellationToken>())
+                Arg.Any<Guid>(), Arg.Any<LocalSymbolMap>(), Arg.Any<IReadOnlyDictionary<string, ConnectorBinding>?>(), Arg.Any<CancellationToken>())
             .Returns(_ =>
             {
                 if (failCount++ == 0)
@@ -265,7 +266,7 @@ public class PackageInstallServiceTests
         var activator = Substitute.For<IPackageArtefactActivator>();
         activator.ActivateAsync(
                 Arg.Any<string>(), Arg.Any<ResolvedArtefact>(),
-                Arg.Any<Guid>(), Arg.Any<LocalSymbolMap>(), Arg.Any<CancellationToken>())
+                Arg.Any<Guid>(), Arg.Any<LocalSymbolMap>(), Arg.Any<IReadOnlyDictionary<string, ConnectorBinding>?>(), Arg.Any<CancellationToken>())
             .Throws(new InvalidOperationException("Activation fails"));
 
         var (svc, scopeFactory) = BuildService(activator: activator);
@@ -308,6 +309,7 @@ public class PackageInstallServiceTests
                 Arg.Any<ResolvedArtefact>(),
                 Arg.Any<Guid>(),
                 Arg.Do<LocalSymbolMap>(m => capturedMap = m),
+                Arg.Any<IReadOnlyDictionary<string, ConnectorBinding>?>(),
                 Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
 
@@ -386,10 +388,10 @@ public class PackageInstallServiceTests
         var rootA = CreatePackageDir();
         var aYaml = """
             apiVersion: spring.voyage/v1
-            kind: UnitPackage
             metadata:
               name: pkg-a
-            unit: pkg-b/main
+            content:
+              - unit: pkg-b/main
             """;
 
         var targetA = new InstallTarget(

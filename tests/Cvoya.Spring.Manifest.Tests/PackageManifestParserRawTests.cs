@@ -18,22 +18,27 @@ public class PackageManifestParserRawTests
     [Fact]
     public void ParseRaw_MinimalUnitPackage_Succeeds()
     {
+        // #1718 item 1: no `kind:` field — package kind is inferred at
+        // resolve time from the content list. Item 2: bundled artefacts
+        // declared under `content:` instead of flat `unit:` / `subUnits:` /
+        // `skills:` / `workflows:` lists.
         var yaml = """
             apiVersion: spring.voyage/v1
-            kind: UnitPackage
             metadata:
               name: my-package
-            unit: root-unit
+            content:
+              - unit: root-unit
             """;
 
         var manifest = PackageManifestParser.ParseRaw(yaml);
 
-        manifest.Kind.ShouldBe("UnitPackage");
         manifest.Metadata.ShouldNotBeNull();
         manifest.Metadata!.Name.ShouldBe("my-package");
-        manifest.Unit.ShouldNotBeNull();
-        manifest.Unit!.IsInline.ShouldBeFalse();
-        manifest.Unit.Reference.ShouldBe("root-unit");
+        manifest.Content.ShouldNotBeNull();
+        manifest.Content!.Count.ShouldBe(1);
+        manifest.Content[0].Kind.ShouldBe(ArtefactKind.Unit);
+        manifest.Content[0].Definition.IsInline.ShouldBeFalse();
+        manifest.Content[0].Definition.Reference.ShouldBe("root-unit");
         manifest.Inputs.ShouldBeNull();
     }
 
@@ -42,21 +47,22 @@ public class PackageManifestParserRawTests
     {
         var yaml = """
             apiVersion: spring.voyage/v1
-            kind: AgentPackage
             metadata:
               name: agent-pkg
               description: An agent package.
-            agent: my-agent
+            content:
+              - agent: my-agent
             """;
 
         var manifest = PackageManifestParser.ParseRaw(yaml);
 
-        manifest.Kind.ShouldBe("AgentPackage");
         manifest.Metadata!.Name.ShouldBe("agent-pkg");
         manifest.Metadata.Description.ShouldBe("An agent package.");
-        manifest.Agent.ShouldNotBeNull();
-        manifest.Agent!.IsInline.ShouldBeFalse();
-        manifest.Agent.Reference.ShouldBe("my-agent");
+        manifest.Content.ShouldNotBeNull();
+        manifest.Content!.Count.ShouldBe(1);
+        manifest.Content[0].Kind.ShouldBe(ArtefactKind.Agent);
+        manifest.Content[0].Definition.IsInline.ShouldBeFalse();
+        manifest.Content[0].Definition.Reference.ShouldBe("my-agent");
     }
 
     [Fact]
@@ -64,7 +70,6 @@ public class PackageManifestParserRawTests
     {
         var yaml = """
             apiVersion: spring.voyage/v1
-            kind: UnitPackage
             metadata:
               name: full-pkg
               description: Full package.
@@ -82,19 +87,16 @@ public class PackageManifestParserRawTests
                 type: string
                 secret: true
                 required: false
-            unit: root-unit
-            subUnits:
-              - sub-unit-a
-              - other-pkg/shared-unit
-            skills:
-              - code-review
-            workflows:
-              - ci-workflow
+            content:
+              - unit: root-unit
+              - unit: sub-unit-a
+              - unit: other-pkg/shared-unit
+              - skill: code-review
+              - workflow: ci-workflow
             """;
 
         var manifest = PackageManifestParser.ParseRaw(yaml);
 
-        manifest.Kind.ShouldBe("UnitPackage");
         manifest.Metadata!.DisplayName.ShouldBe("Full Package");
 
         manifest.Inputs.ShouldNotBeNull();
@@ -113,63 +115,150 @@ public class PackageManifestParserRawTests
         manifest.Inputs[2].Name.ShouldBe("api_key");
         manifest.Inputs[2].Secret.ShouldBeTrue();
 
-        manifest.Unit.ShouldNotBeNull();
-        manifest.Unit!.Reference.ShouldBe("root-unit");
-        manifest.SubUnits.ShouldNotBeNull();
-        manifest.SubUnits!.Count.ShouldBe(2);
-        manifest.SubUnits[0].ShouldBe("sub-unit-a");
-        manifest.SubUnits[1].ShouldBe("other-pkg/shared-unit");
+        manifest.Content.ShouldNotBeNull();
+        manifest.Content!.Count.ShouldBe(5);
+        manifest.Content[0].Kind.ShouldBe(ArtefactKind.Unit);
+        manifest.Content[0].Definition.Reference.ShouldBe("root-unit");
+        manifest.Content[1].Kind.ShouldBe(ArtefactKind.Unit);
+        manifest.Content[1].Definition.Reference.ShouldBe("sub-unit-a");
+        manifest.Content[2].Kind.ShouldBe(ArtefactKind.Unit);
+        manifest.Content[2].Definition.Reference.ShouldBe("other-pkg/shared-unit");
+        manifest.Content[3].Kind.ShouldBe(ArtefactKind.Skill);
+        manifest.Content[3].Definition.Reference.ShouldBe("code-review");
+        manifest.Content[4].Kind.ShouldBe(ArtefactKind.Workflow);
+        manifest.Content[4].Definition.Reference.ShouldBe("ci-workflow");
+    }
 
-        manifest.Skills!.Count.ShouldBe(1);
-        manifest.Skills[0].ShouldBe("code-review");
+    // ---- #1718 item 1: kind: removed ------------------------------------
 
-        manifest.Workflows!.Count.ShouldBe(1);
-        manifest.Workflows[0].ShouldBe("ci-workflow");
+    [Fact]
+    public void ParseRaw_NoKindField_PackageStillParses()
+    {
+        // The defining acceptance criterion for #1718 item 1: a manifest
+        // with no `kind:` parses cleanly. Discrimination happens at resolve
+        // time off the content list.
+        var yaml = """
+            apiVersion: spring.voyage/v1
+            metadata:
+              name: noKind
+            content:
+              - unit: u
+            """;
+
+        var manifest = PackageManifestParser.ParseRaw(yaml);
+        manifest.Metadata!.Name.ShouldBe("noKind");
+        manifest.Content.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void ParseRaw_LegacyKindField_RejectsWithMigrationMessage()
+    {
+        // #1718 item 1: a manifest still carrying `kind:` is rejected with
+        // an actionable message rather than silently ignored. v0.1 is a
+        // clean break — there are no external consumers to migrate.
+        var yaml = """
+            apiVersion: spring.voyage/v1
+            kind: UnitPackage
+            metadata:
+              name: legacy
+            content:
+              - unit: u
+            """;
+
+        var ex = Should.Throw<PackageParseException>(
+            () => PackageManifestParser.ParseRaw(yaml));
+
+        ex.Message.ShouldContain("kind");
+        ex.Message.ShouldContain("#1718");
+    }
+
+    [Fact]
+    public void ParseRaw_LegacyTopLevelUnitField_RejectsWithMigrationMessage()
+    {
+        var yaml = """
+            apiVersion: spring.voyage/v1
+            metadata:
+              name: legacy
+            unit: u
+            """;
+
+        var ex = Should.Throw<PackageParseException>(
+            () => PackageManifestParser.ParseRaw(yaml));
+
+        ex.Message.ShouldContain("'unit:'");
+        ex.Message.ShouldContain("content");
+    }
+
+    [Fact]
+    public void ParseRaw_LegacyTopLevelSubUnitsField_RejectsWithMigrationMessage()
+    {
+        var yaml = """
+            apiVersion: spring.voyage/v1
+            metadata:
+              name: legacy
+            content:
+              - unit: root
+            subUnits:
+              - sub
+            """;
+
+        var ex = Should.Throw<PackageParseException>(
+            () => PackageManifestParser.ParseRaw(yaml));
+
+        ex.Message.ShouldContain("'subUnits:'");
+        ex.Message.ShouldContain("members");
+    }
+
+    [Fact]
+    public void ParseRaw_LegacyTopLevelSkillsField_RejectsWithMigrationMessage()
+    {
+        var yaml = """
+            apiVersion: spring.voyage/v1
+            metadata:
+              name: legacy
+            content:
+              - unit: root
+            skills:
+              - my-skill
+            """;
+
+        var ex = Should.Throw<PackageParseException>(
+            () => PackageManifestParser.ParseRaw(yaml));
+
+        ex.Message.ShouldContain("'skills:'");
+        ex.Message.ShouldContain("- skill: <name>");
+    }
+
+    [Fact]
+    public void ParseRaw_LegacyTopLevelWorkflowsField_RejectsWithMigrationMessage()
+    {
+        var yaml = """
+            apiVersion: spring.voyage/v1
+            metadata:
+              name: legacy
+            content:
+              - unit: root
+            workflows:
+              - my-workflow
+            """;
+
+        var ex = Should.Throw<PackageParseException>(
+            () => PackageManifestParser.ParseRaw(yaml));
+
+        ex.Message.ShouldContain("'workflows:'");
     }
 
     // ---- Required-field failures ----------------------------------------
-
-    [Fact]
-    public void ParseRaw_MissingKind_Throws()
-    {
-        var yaml = """
-            apiVersion: spring.voyage/v1
-            metadata:
-              name: pkg
-            unit: root
-            """;
-
-        var act = () => PackageManifestParser.ParseRaw(yaml);
-
-        Should.Throw<PackageParseException>(act)
-            .Message.ShouldContain("kind");
-    }
-
-    [Fact]
-    public void ParseRaw_UnknownKind_Throws()
-    {
-        var yaml = """
-            apiVersion: spring.voyage/v1
-            kind: BadKind
-            metadata:
-              name: pkg
-            """;
-
-        var act = () => PackageManifestParser.ParseRaw(yaml);
-
-        Should.Throw<PackageParseException>(act)
-            .Message.ShouldContain("BadKind");
-    }
 
     [Fact]
     public void ParseRaw_MissingMetadataName_Throws()
     {
         var yaml = """
             apiVersion: spring.voyage/v1
-            kind: UnitPackage
             metadata:
               description: no name here
-            unit: root
+            content:
+              - unit: root
             """;
 
         var act = () => PackageManifestParser.ParseRaw(yaml);
@@ -183,8 +272,8 @@ public class PackageManifestParserRawTests
     {
         var yaml = """
             apiVersion: spring.voyage/v1
-            kind: UnitPackage
-            unit: root
+            content:
+              - unit: root
             """;
 
         var act = () => PackageManifestParser.ParseRaw(yaml);
@@ -204,12 +293,124 @@ public class PackageManifestParserRawTests
     [Fact]
     public void ParseRaw_InvalidYaml_Throws()
     {
-        var yaml = "kind: [\nbroken: yaml: here";
+        var yaml = "metadata: [\nbroken: yaml: here";
 
         var act = () => PackageManifestParser.ParseRaw(yaml);
 
         Should.Throw<PackageParseException>(act)
             .Message.ShouldContain("YAML");
+    }
+
+    // ---- Connector block (#1670) ---------------------------------------
+
+    [Fact]
+    public void ParseRaw_ConnectorsDefaultInheritAll_ParsesAndDefaults()
+    {
+        var yaml = """
+            apiVersion: spring.voyage/v1
+            metadata:
+              name: my-pkg
+            connectors:
+              - type: github
+                required: true
+            content:
+              - unit: root-unit
+            """;
+
+        var manifest = PackageManifestParser.ParseRaw(yaml);
+
+        manifest.Connectors.ShouldNotBeNull();
+        manifest.Connectors!.Count.ShouldBe(1);
+        var entry = manifest.Connectors[0];
+        entry.Type.ShouldBe("github");
+        entry.Required.ShouldBeTrue();
+        entry.InheritAll.ShouldBeTrue();
+        entry.InheritUnits.ShouldBeNull();
+    }
+
+    [Fact]
+    public void ParseRaw_ConnectorsInheritList_ParsesUnitNames()
+    {
+        var yaml = """
+            apiVersion: spring.voyage/v1
+            metadata:
+              name: my-pkg
+            connectors:
+              - type: github
+                inherit:
+                  - sv-oss-software-engineering
+                  - sv-oss-design
+            content:
+              - unit: root-unit
+            """;
+
+        var manifest = PackageManifestParser.ParseRaw(yaml);
+
+        var entry = manifest.Connectors!.Single();
+        entry.InheritAll.ShouldBeFalse();
+        entry.InheritUnits.ShouldNotBeNull();
+        entry.InheritUnits!.Count.ShouldBe(2);
+        entry.InheritUnits.ShouldContain("sv-oss-software-engineering");
+    }
+
+    [Fact]
+    public void ParseRaw_ConnectorsInheritAllScalar_DefaultsToInheritAll()
+    {
+        var yaml = """
+            apiVersion: spring.voyage/v1
+            metadata:
+              name: my-pkg
+            connectors:
+              - type: github
+                inherit: all
+            content:
+              - unit: root-unit
+            """;
+
+        var manifest = PackageManifestParser.ParseRaw(yaml);
+
+        var entry = manifest.Connectors!.Single();
+        entry.InheritAll.ShouldBeTrue();
+        entry.InheritUnits.ShouldBeNull();
+    }
+
+    [Fact]
+    public void ParseRaw_ConnectorsBadInheritScalar_Throws()
+    {
+        var yaml = """
+            apiVersion: spring.voyage/v1
+            metadata:
+              name: my-pkg
+            connectors:
+              - type: github
+                inherit: nonsense
+            content:
+              - unit: root-unit
+            """;
+
+        var act = () => PackageManifestParser.ParseRaw(yaml);
+
+        Should.Throw<PackageParseException>(act)
+            .Message.ShouldContain("inherit");
+    }
+
+    [Fact]
+    public void ParseRaw_ConnectorsMissingType_Throws()
+    {
+        var yaml = """
+            apiVersion: spring.voyage/v1
+            metadata:
+              name: my-pkg
+            connectors:
+              - required: true
+            content:
+              - unit: root-unit
+            """;
+
+        var act = () => PackageManifestParser.ParseRaw(yaml);
+
+        Should.Throw<PackageParseException>(act)
+            .Message.ShouldContain("type");
     }
 
     // ---- Backward compatibility: old single-unit YAML still parses via ManifestParser ----------

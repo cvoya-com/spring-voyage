@@ -336,6 +336,38 @@ public static class PackageInstallEndpoints
         {
             result = await installService.InstallAsync(targets, cancellationToken);
         }
+        catch (ConnectorBindingsMissingException ex)
+        {
+            // #1671: structured 400 — the wizard / CLI render one row per
+            // missing slug rather than parsing the prose detail string.
+            return Results.Problem(
+                detail: ex.Message,
+                statusCode: StatusCodes.Status400BadRequest,
+                type: "https://cvoya.com/problems/connector-binding-missing",
+                extensions: new Dictionary<string, object?>
+                {
+                    ["code"] = "ConnectorBindingMissing",
+                    ["missing"] = ex.Missing
+                        .Select(m => new ConnectorBindingMissingDetail(m.Slug, m.Scope, m.UnitName))
+                        .ToList(),
+                });
+        }
+        catch (UnknownConnectorSlugException ex)
+        {
+            // #1671: a binding was supplied for a slug the package does not
+            // declare. Structurally invalid; surface as 400 with the slug.
+            return Results.Problem(
+                detail: ex.Message,
+                statusCode: StatusCodes.Status400BadRequest,
+                type: "https://cvoya.com/problems/unknown-connector-slug",
+                extensions: new Dictionary<string, object?>
+                {
+                    ["code"] = "UnknownConnectorSlug",
+                    ["slug"] = ex.Slug,
+                    ["scope"] = ex.Scope,
+                    ["unitName"] = ex.UnitName,
+                });
+        }
         catch (PackageDepGraphException ex)
         {
             // ADR-0035 decision 14: dep-graph closure violations carry the
@@ -431,14 +463,62 @@ public static class PackageInstallEndpoints
                 ? null
                 : System.IO.Path.Combine(catalogOptions.Root, t.PackageName);
 
+            // #1671: project the wire connector-binding payload into the
+            // service-layer ConnectorBinding shape.
+            var (pkgBindings, unitBindings) = ProjectConnectorBindings(t.ConnectorBindings);
+
             result.Add(new InstallTarget(
                 PackageName: t.PackageName,
                 Inputs: t.Inputs ?? new Dictionary<string, string>(),
                 OriginalYaml: yaml,
-                PackageRoot: packageRoot));
+                PackageRoot: packageRoot,
+                PackageBindings: pkgBindings,
+                UnitBindings: unitBindings));
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Projects the wire connector-binding payload (#1671) into the
+    /// service-layer <see cref="Cvoya.Spring.Manifest.ConnectorBinding"/>
+    /// shape consumed by <see cref="IPackageInstallService"/>.
+    /// </summary>
+    private static (
+        IReadOnlyDictionary<string, Cvoya.Spring.Manifest.ConnectorBinding>? Package,
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, Cvoya.Spring.Manifest.ConnectorBinding>>? Units
+    ) ProjectConnectorBindings(PackageConnectorBindings? bindings)
+    {
+        if (bindings is null)
+        {
+            return (null, null);
+        }
+
+        Dictionary<string, Cvoya.Spring.Manifest.ConnectorBinding>? pkg = null;
+        if (bindings.Package is { Count: > 0 } pkgIn)
+        {
+            pkg = new Dictionary<string, Cvoya.Spring.Manifest.ConnectorBinding>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (slug, payload) in pkgIn)
+            {
+                pkg[slug] = new Cvoya.Spring.Manifest.ConnectorBinding(slug, payload.Config);
+            }
+        }
+
+        Dictionary<string, IReadOnlyDictionary<string, Cvoya.Spring.Manifest.ConnectorBinding>>? units = null;
+        if (bindings.Units is { Count: > 0 } unitsIn)
+        {
+            units = new Dictionary<string, IReadOnlyDictionary<string, Cvoya.Spring.Manifest.ConnectorBinding>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (unitName, perUnit) in unitsIn)
+            {
+                var inner = new Dictionary<string, Cvoya.Spring.Manifest.ConnectorBinding>(StringComparer.OrdinalIgnoreCase);
+                foreach (var (slug, payload) in perUnit)
+                {
+                    inner[slug] = new Cvoya.Spring.Manifest.ConnectorBinding(slug, payload.Config);
+                }
+                units[unitName] = inner;
+            }
+        }
+        return (pkg, units);
     }
 
     /// <summary>

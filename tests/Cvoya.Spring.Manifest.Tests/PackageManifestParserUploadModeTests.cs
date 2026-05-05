@@ -34,10 +34,10 @@ public class PackageManifestParserUploadModeTests
 
         const string Yaml = """
             apiVersion: spring.voyage/v1
-            kind: AgentPackage
             metadata:
               name: my-agent-pkg
-            agent: spring-voyage-oss/architect
+            content:
+              - agent: spring-voyage-oss/architect
             """;
 
         var result = await PackageManifestParser.ParseAndResolveAsync(
@@ -59,7 +59,6 @@ public class PackageManifestParserUploadModeTests
 
         const string Yaml = """
             apiVersion: spring.voyage/v1
-            kind: UnitPackage
             metadata:
               name: minimal-pkg
               description: A package with no artefact references.
@@ -75,21 +74,20 @@ public class PackageManifestParserUploadModeTests
         result.Workflows.Count.ShouldBe(0);
     }
 
-    // ---- Test 3: UnitPackage with bare subUnit ref raises exception --------
+    // ---- Test 3: UnitPackage with bare unit ref raises exception --------
 
     [Fact]
-    public async Task ParseAndResolve_NullPackageRoot_LocalSubUnitRef_ThrowsUploadException()
+    public async Task ParseAndResolve_NullPackageRoot_LocalUnitRef_ThrowsUploadException()
     {
         var ct = TestContext.Current.CancellationToken;
 
         const string Yaml = """
             apiVersion: spring.voyage/v1
-            kind: UnitPackage
             metadata:
               name: multi-file-pkg
-            unit: root-unit
-            subUnits:
-              - child-unit
+            content:
+              - unit: root-unit
+              - unit: child-unit
             """;
 
         var ex = await Should.ThrowAsync<PackageUploadHasLocalRefException>(
@@ -113,10 +111,10 @@ public class PackageManifestParserUploadModeTests
 
         const string Yaml = """
             apiVersion: spring.voyage/v1
-            kind: UnitPackage
             metadata:
               name: needs-local-unit
-            unit: my-local-unit
+            content:
+              - unit: my-local-unit
             """;
 
         var ex = await Should.ThrowAsync<PackageUploadHasLocalRefException>(
@@ -136,12 +134,11 @@ public class PackageManifestParserUploadModeTests
 
         const string Yaml = """
             apiVersion: spring.voyage/v1
-            kind: UnitPackage
             metadata:
               name: multi-kind-pkg
-            unit: my-unit
-            skills:
-              - my-skill
+            content:
+              - unit: my-unit
+              - skill: my-skill
             """;
 
         var ex = await Should.ThrowAsync<PackageUploadHasLocalRefException>(
@@ -162,10 +159,10 @@ public class PackageManifestParserUploadModeTests
 
         const string Yaml = """
             apiVersion: spring.voyage/v1
-            kind: UnitPackage
             metadata:
               name: empty-root-pkg
-            unit: local-unit
+            content:
+              - unit: local-unit
             """;
 
         var exNull = await Should.ThrowAsync<PackageUploadHasLocalRefException>(
@@ -193,10 +190,10 @@ public class PackageManifestParserUploadModeTests
 
         const string Yaml = """
             apiVersion: spring.voyage/v1
-            kind: UnitPackage
             metadata:
               name: consumer-pkg
-            unit: shared-pkg/shared-unit
+            content:
+              - unit: shared-pkg/shared-unit
             """;
 
         var result = await PackageManifestParser.ParseAndResolveAsync(
@@ -217,10 +214,10 @@ public class PackageManifestParserUploadModeTests
 
         const string Yaml = """
             apiVersion: spring.voyage/v1
-            kind: UnitPackage
             metadata:
               name: local-pkg
-            unit: some-unit
+            content:
+              - unit: some-unit
             """;
 
         var ex = await Should.ThrowAsync<PackageUploadHasLocalRefException>(
@@ -243,12 +240,12 @@ public class PackageManifestParserUploadModeTests
         // self-contained, so upload-mode rejection must NOT fire.
         const string Yaml = """
             apiVersion: spring.voyage/v1
-            kind: UnitPackage
             metadata:
               name: my-inline-unit-pkg
-            unit:
-              name: my-inline-unit
-              description: Inline unit body authored by the wizard.
+            content:
+              - unit:
+                  name: my-inline-unit
+                  description: Inline unit body authored by the wizard.
             """;
 
         var result = await PackageManifestParser.ParseAndResolveAsync(
@@ -272,25 +269,24 @@ public class PackageManifestParserUploadModeTests
         unit.Content.ShouldContain("description: Inline unit body authored by the wizard.");
     }
 
-    // ---- Test 10: inline unit + bare local subUnit ref still rejects -------
+    // ---- Test 10: inline unit + bare local content entry still rejects -------
 
     [Fact]
-    public async Task ParseAndResolve_NullPackageRoot_InlineUnitWithBareLocalSubUnit_RejectsBareRef()
+    public async Task ParseAndResolve_NullPackageRoot_InlineUnitWithBareLocalEntry_RejectsBareRef()
     {
         var ct = TestContext.Current.CancellationToken;
 
-        // Inline unit is self-contained, but the bare local subUnit ref
+        // Inline unit is self-contained, but the bare local content entry
         // requires a package directory — must still raise.
         const string Yaml = """
             apiVersion: spring.voyage/v1
-            kind: UnitPackage
             metadata:
               name: mixed-pkg
-            unit:
-              name: my-inline-unit
-              description: Inline parent.
-            subUnits:
-              - bare-local-child
+            content:
+              - unit:
+                  name: my-inline-unit
+                  description: Inline parent.
+              - unit: bare-local-child
             """;
 
         var ex = await Should.ThrowAsync<PackageUploadHasLocalRefException>(
@@ -314,15 +310,15 @@ public class PackageManifestParserUploadModeTests
         // Mirrors the new-agent wizard's package.yaml (ADR-0035 decision 6).
         const string Yaml = """
             apiVersion: spring.voyage/v1
-            kind: AgentPackage
             metadata:
               name: my-inline-agent-pkg
-            agent:
-              id: my-agent
-              name: My Agent
-              role: architect
-              execution:
-                runtime: podman
+            content:
+              - agent:
+                  id: my-agent
+                  name: My Agent
+                  role: architect
+                  execution:
+                    runtime: podman
             """;
 
         var result = await PackageManifestParser.ParseAndResolveAsync(
@@ -342,23 +338,22 @@ public class PackageManifestParserUploadModeTests
         agent.Content.ShouldContain("runtime: podman");
     }
 
-    // ---- Test 12: inline agent + bare local subUnit ref still rejects -------
+    // ---- Test 12: inline agent + bare local content entry still rejects -------
 
     [Fact]
-    public async Task ParseAndResolve_NullPackageRoot_InlineAgentWithBareLocalSubUnit_RejectsBareRef()
+    public async Task ParseAndResolve_NullPackageRoot_InlineAgentWithBareLocalEntry_RejectsBareRef()
     {
         var ct = TestContext.Current.CancellationToken;
 
         const string Yaml = """
             apiVersion: spring.voyage/v1
-            kind: AgentPackage
             metadata:
               name: mixed-agent-pkg
-            agent:
-              id: my-agent
-              name: My Agent
-            subUnits:
-              - bare-local-unit
+            content:
+              - agent:
+                  id: my-agent
+                  name: My Agent
+              - unit: bare-local-unit
             """;
 
         var ex = await Should.ThrowAsync<PackageUploadHasLocalRefException>(

@@ -293,7 +293,10 @@ describe("CreateAgentPage", () => {
       unitIds: ["alpha"],
     });
 
-    expect(yaml).toContain("kind: AgentPackage");
+    // #1718 items 1+2: no `kind:`; agent body lives under content[].agent.
+    expect(yaml).not.toContain("kind:");
+    expect(yaml).toContain("content:");
+    expect(yaml).toContain("- agent:");
     expect(yaml).toContain("name: ada");
     expect(yaml).toContain("id: ada");
     expect(yaml).toContain("Ada Lovelace");
@@ -312,7 +315,9 @@ describe("CreateAgentPage", () => {
       unitIds: [],
     });
 
-    expect(yaml).toContain("kind: AgentPackage");
+    expect(yaml).not.toContain("kind:");
+    expect(yaml).toContain("content:");
+    expect(yaml).toContain("- agent:");
     expect(yaml).toContain("name: ada");
     expect(yaml).not.toContain("role:");
     expect(yaml).not.toContain("description:");
@@ -349,7 +354,8 @@ describe("CreateAgentPage", () => {
     });
 
     const yaml = installPackageFile.mock.calls[0][0] as string;
-    expect(yaml).toContain("kind: AgentPackage");
+    expect(yaml).toContain("content:");
+    expect(yaml).toContain("- agent:");
     expect(yaml).toContain("name: ada");
     expect(yaml).toContain("Ada Lovelace");
     expect(yaml).toContain("role: reviewer");
@@ -364,7 +370,7 @@ describe("CreateAgentPage", () => {
     });
   });
 
-  it("calls the install endpoint with kind: AgentPackage in the YAML body", async () => {
+  it("calls the install endpoint with an agent content entry in the YAML body", async () => {
     renderPage();
     await waitFor(() => {
       expect(screen.getByLabelText(/assign to alpha/i)).toBeInTheDocument();
@@ -383,7 +389,8 @@ describe("CreateAgentPage", () => {
     });
 
     const yaml = installPackageFile.mock.calls[0][0] as string;
-    expect(yaml).toMatch(/kind:\s*AgentPackage/);
+    expect(yaml).toMatch(/content:\s*\n\s*- agent:/);
+    expect(yaml).not.toMatch(/^kind:/m);
   });
 
   // ── Multi-unit assignment ──────────────────────────────────────────────

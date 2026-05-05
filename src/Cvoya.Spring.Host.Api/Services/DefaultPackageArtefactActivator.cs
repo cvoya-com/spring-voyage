@@ -74,6 +74,7 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
         ResolvedArtefact artefact,
         Guid installId,
         LocalSymbolMap symbolMap,
+        IReadOnlyDictionary<string, ConnectorBinding>? connectorBindings = null,
         CancellationToken cancellationToken = default)
     {
         if (artefact.Content is null)
@@ -86,7 +87,7 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
         switch (artefact.Kind)
         {
             case ArtefactKind.Unit:
-                await ActivateUnitAsync(artefact, symbolMap, cancellationToken);
+                await ActivateUnitAsync(artefact, symbolMap, connectorBindings, cancellationToken);
                 break;
 
             case ArtefactKind.Agent:
@@ -113,6 +114,7 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
     private async Task ActivateUnitAsync(
         ResolvedArtefact artefact,
         LocalSymbolMap symbolMap,
+        IReadOnlyDictionary<string, ConnectorBinding>? connectorBindings,
         CancellationToken ct)
     {
         var manifest = ManifestParser.Parse(artefact.Content!);
@@ -147,7 +149,24 @@ public class DefaultPackageArtefactActivator : IPackageArtefactActivator
         }
 
         var overrides = new UnitCreationOverrides(IsTopLevel: true, ActorId: actorId);
-        await _unitCreationService.CreateFromManifestAsync(manifest, overrides, ct);
+
+        // #1671: forward the resolved per-unit connector binding to
+        // IUnitCreationService through the existing UnitConnectorBindingRequest
+        // parameter. v0.1 has at most one connector per unit (only github
+        // exists), so we project the first slug. The store contract is
+        // single-binding-per-unit; multi-slug-per-unit lands when a second
+        // connector type with overlapping unit scope arrives.
+        Models.UnitConnectorBindingRequest? bindingRequest = null;
+        if (connectorBindings is { Count: > 0 })
+        {
+            var (slug, binding) = connectorBindings.First();
+            bindingRequest = new Models.UnitConnectorBindingRequest(
+                TypeId: Guid.Empty,
+                TypeSlug: slug,
+                Config: binding.Config);
+        }
+
+        await _unitCreationService.CreateFromManifestAsync(manifest, overrides, ct, bindingRequest);
     }
 
     /// <summary>

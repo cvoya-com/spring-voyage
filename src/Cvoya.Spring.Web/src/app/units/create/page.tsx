@@ -63,6 +63,7 @@ import type { ValidatedTenantTreeNode } from "@/lib/api/validate-tenant-tree";
 import type {
   InstalledAgentRuntimeResponse,
   InstallStatusResponse,
+  PackageConnectorBindings,
   PackageInputSummary,
   UnitConnectorBindingRequest,
   UnitStatus,
@@ -800,73 +801,15 @@ export default function CreateUnitPage() {
         : String(selectedPackageQuery.error)
       : null;
 
-  // #1615: pre-fill values derived from the wizard's GitHub connector
-  // step. When a declared input name matches one of the conventional
-  // GitHub connector keys, seed `catalogInputs` with the connector
-  // config value so the operator sees the field already filled rather
-  // than having to retype it. The pre-fill only writes when the slot is
-  // currently empty, so an explicit edit by the operator is preserved
-  // even when the connector config changes underneath. Removing the
-  // shim that derived these values silently at install-time (PR #1616);
-  // the new behaviour is observable and overridable.
-  const githubPrefill = useMemo<Record<string, string>>(() => {
-    if (form.connectorSlug !== "github" || form.connectorConfig === null) {
-      return {};
-    }
-    const cfg = form.connectorConfig as {
-      owner?: unknown;
-      repo?: unknown;
-      appInstallationId?: unknown;
-    };
-    const out: Record<string, string> = {};
-    if (typeof cfg.owner === "string" && cfg.owner.trim() !== "") {
-      out.github_owner = cfg.owner;
-    }
-    if (typeof cfg.repo === "string" && cfg.repo.trim() !== "") {
-      out.github_repo = cfg.repo;
-    }
-    if (
-      typeof cfg.appInstallationId === "number" &&
-      Number.isFinite(cfg.appInstallationId)
-    ) {
-      out.github_installation_id = String(cfg.appInstallationId);
-    }
-    return out;
-  }, [form.connectorSlug, form.connectorConfig]);
-
-  // Whenever the package input schema or the GitHub pre-fill changes,
-  // seed any input slot whose name matches a pre-fill key AND whose
-  // value is currently empty. We never overwrite a value the operator
-  // has typed — the merge order is "current value wins".
-  useEffect(() => {
-    if (form.source !== "catalog" || form.catalogPackageName === null) {
-      return;
-    }
-    if (selectedPackageInputs.length === 0) {
-      return;
-    }
-    setForm((prev) => {
-      let changed = false;
-      const next = { ...prev.catalogInputs };
-      for (const def of selectedPackageInputs) {
-        const name = def.name;
-        if (!name) continue;
-        if (typeof next[name] === "string" && next[name] !== "") continue;
-        const candidate = githubPrefill[name];
-        if (candidate !== undefined && candidate !== "") {
-          next[name] = candidate;
-          changed = true;
-        }
-      }
-      return changed ? { ...prev, catalogInputs: next } : prev;
-    });
-    // setForm is stable; we only react to schema and connector changes.
-  }, [
-    form.source,
-    form.catalogPackageName,
-    selectedPackageInputs,
-    githubPrefill,
-  ]);
+  // #1672: the legacy `githubPrefill` shim has been removed. The catalog
+  // package now declares its connector dependency through the manifest's
+  // `connectors:` block (#1670) and the install request carries the
+  // operator-supplied binding through `connectorBindings.package.<slug>`
+  // — see `buildConnectorBindings()` and the install mutation below.
+  // Connector outputs (owner, repo, installation-id) no longer flow
+  // through the package-inputs map; an OSS package whose member units
+  // used to ask the operator to retype `${{ inputs.github_* }}` is
+  // expected to migrate to the `connectors:` declaration instead.
 
   // #1615: which declared required inputs are still unsatisfied? An
   // input is satisfied when it has a non-empty value OR the package
@@ -1328,6 +1271,32 @@ export default function CreateUnitPage() {
     };
   };
 
+  // #1672: project the connector wizard's output into the package-install
+  // `connectorBindings` shape. We only emit a `package.<slug>` entry today
+  // — per-unit overrides land via the same channel when the package's
+  // manifest declares `inherit: false` on member units (followed-up by
+  // the planned multi-step wizard for package-level overrides). Returns
+  // `undefined` so the field is omitted from the request body when no
+  // connector is configured.
+  const buildCatalogConnectorBindings = ():
+    | PackageConnectorBindings
+    | undefined => {
+    if (!form.connectorSlug || form.connectorConfig === null) {
+      return undefined;
+    }
+    return {
+      package: {
+        [form.connectorSlug]: {
+          config: form.connectorConfig,
+        },
+      },
+      // Per-unit overrides are not yet surfaced in the wizard for v0.1; the
+      // OSS package post-migration relies on package-level inheritance for
+      // every member unit.
+      units: null,
+    };
+  };
+
   // Build the connector-binding payload the server expects. Returns `null`
   // when the user skipped the Connector step OR filled it out partially
   // (the wizard-step component pushes `null` up until the form is valid).
@@ -1363,10 +1332,17 @@ export default function CreateUnitPage() {
         if (!form.catalogPackageName) {
           throw new Error("No package selected.");
         }
+        // #1672: attach the connector-binding payload sourced from the
+        // forced connector step. Empty when the package declares no
+        // required connectors. The wire shape is `connectorBindings`
+        // — package-scope inheritance lands every member unit on the
+        // same binding unless the unit's manifest opts out.
+        const bindings = buildCatalogConnectorBindings();
         return api.installPackages([
           {
             packageName: form.catalogPackageName,
             inputs: form.catalogInputs,
+            connectorBindings: bindings,
           },
         ]);
       }

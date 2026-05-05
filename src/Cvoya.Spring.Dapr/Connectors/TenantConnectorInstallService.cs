@@ -40,10 +40,17 @@ public sealed class TenantConnectorInstallService(
         var tenantId = tenantContext.CurrentTenantId;
         var now = DateTimeOffset.UtcNow;
 
+        // #1671: tenant-level rows are the ones where both discriminator
+        // columns are null. Package-scope and unit-scope rows live in the
+        // same table but are owned by the install pipeline and never
+        // surfaced through this service.
         var existing = await dbContext.TenantConnectorInstalls
             .IgnoreQueryFilters()
             .FirstOrDefaultAsync(
-                e => e.TenantId == tenantId && e.ConnectorId == type.Slug,
+                e => e.TenantId == tenantId
+                    && e.ConnectorId == type.Slug
+                    && e.PackageInstallId == null
+                    && e.UnitId == null,
                 cancellationToken)
             .ConfigureAwait(false);
 
@@ -52,6 +59,7 @@ public sealed class TenantConnectorInstallService(
             var resolved = config ?? ConnectorInstallConfig.Empty;
             var entity = new TenantConnectorInstallEntity
             {
+                Id = Guid.NewGuid(),
                 TenantId = tenantId,
                 ConnectorId = type.Slug,
                 ConfigJson = resolved.Config,
@@ -101,7 +109,10 @@ public sealed class TenantConnectorInstallService(
         var tenantId = tenantContext.CurrentTenantId;
         var existing = await dbContext.TenantConnectorInstalls
             .FirstOrDefaultAsync(
-                e => e.TenantId == tenantId && e.ConnectorId == type.Slug,
+                e => e.TenantId == tenantId
+                    && e.ConnectorId == type.Slug
+                    && e.PackageInstallId == null
+                    && e.UnitId == null,
                 cancellationToken)
             .ConfigureAwait(false);
 
@@ -120,7 +131,9 @@ public sealed class TenantConnectorInstallService(
     /// <inheritdoc />
     public async Task<IReadOnlyList<InstalledConnector>> ListAsync(CancellationToken cancellationToken = default)
     {
+        // #1671: surface only tenant-level rows.
         var rows = await dbContext.TenantConnectorInstalls
+            .Where(e => e.PackageInstallId == null && e.UnitId == null)
             .OrderBy(e => e.ConnectorId)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
@@ -142,7 +155,9 @@ public sealed class TenantConnectorInstallService(
 
         var row = await dbContext.TenantConnectorInstalls
             .FirstOrDefaultAsync(
-                e => e.ConnectorId == type.Slug,
+                e => e.ConnectorId == type.Slug
+                    && e.PackageInstallId == null
+                    && e.UnitId == null,
                 cancellationToken)
             .ConfigureAwait(false);
         return row is null
@@ -163,7 +178,9 @@ public sealed class TenantConnectorInstallService(
         var tenantId = tenantContext.CurrentTenantId;
         var row = await dbContext.TenantConnectorInstalls
             .FirstOrDefaultAsync(
-                e => e.ConnectorId == type.Slug,
+                e => e.ConnectorId == type.Slug
+                    && e.PackageInstallId == null
+                    && e.UnitId == null,
                 cancellationToken)
             .ConfigureAwait(false)
             ?? throw new InvalidOperationException(

@@ -2604,7 +2604,32 @@ public class SpringApiClient
     /// </summary>
     public sealed record PackageInstallTargetRequest(
         string PackageName,
-        IReadOnlyDictionary<string, string>? Inputs);
+        IReadOnlyDictionary<string, string>? Inputs,
+        PackageConnectorBindingsRequest? ConnectorBindings = null);
+
+    /// <summary>
+    /// Wire shape for the install request's <c>connectorBindings</c>
+    /// payload (#1671). Two scopes:
+    /// <list type="bullet">
+    ///   <item><description>
+    ///     <c>package.&lt;slug&gt;</c> — package-scope binding inherited
+    ///     by every member unit unless its manifest opts out.
+    ///   </description></item>
+    ///   <item><description>
+    ///     <c>units.&lt;unit-name&gt;.&lt;slug&gt;</c> — per-unit override.
+    ///   </description></item>
+    /// </list>
+    /// </summary>
+    public sealed record PackageConnectorBindingsRequest(
+        IReadOnlyDictionary<string, ConnectorBindingPayloadRequest>? Package,
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, ConnectorBindingPayloadRequest>>? Units);
+
+    /// <summary>
+    /// Wire shape for one connector binding. The <c>config</c> object is
+    /// connector-typed; the install pipeline forwards it verbatim.
+    /// </summary>
+    public sealed record ConnectorBindingPayloadRequest(
+        IReadOnlyDictionary<string, object> Config);
 
     /// <summary>
     /// Response from the install/status/retry endpoints — maps the server's

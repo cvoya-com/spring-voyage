@@ -9314,6 +9314,17 @@
           "Invalid"
         ]
       },
+      "ConnectorBindingPayload": {
+        "required": [
+          "config"
+        ],
+        "type": "object",
+        "properties": {
+          "config": {
+            "$ref": "#/components/schemas/JsonElement"
+          }
+        }
+      },
       "ConnectorInstallConfig": {
         "required": [
           "config"
@@ -11002,6 +11013,51 @@
           }
         }
       },
+      "PackageConnectorBindings": {
+        "required": [
+          "package",
+          "units"
+        ],
+        "type": "object",
+        "properties": {
+          "package": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ConnectorBindingPayload"
+            }
+          },
+          "units": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/components/schemas/ConnectorBindingPayload"
+              }
+            }
+          }
+        }
+      },
+      "PackageContentEntry": {
+        "required": [
+          "kind",
+          "name"
+        ],
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
       "PackageDetail": {
         "required": [
           "name",
@@ -11012,7 +11068,9 @@
           "agentTemplates",
           "skills",
           "connectors",
-          "workflows"
+          "workflows",
+          "connectorDeclarations",
+          "content"
         ],
         "type": "object",
         "properties": {
@@ -11065,6 +11123,18 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/WorkflowSummary"
+            }
+          },
+          "connectorDeclarations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RequiredConnectorSummary"
+            }
+          },
+          "content": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PackageContentEntry"
             }
           }
         }
@@ -11159,6 +11229,16 @@
             "additionalProperties": {
               "type": "string"
             }
+          },
+          "connectorBindings": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PackageConnectorBindings"
+              }
+            ]
           }
         }
       },
@@ -11468,6 +11548,35 @@
           "pruned": {
             "type": "integer",
             "format": "int32"
+          }
+        }
+      },
+      "RequiredConnectorSummary": {
+        "required": [
+          "type",
+          "required",
+          "inheritAll",
+          "inheritUnits"
+        ],
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "inheritAll": {
+            "type": "boolean"
+          },
+          "inheritUnits": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
           }
         }
       },

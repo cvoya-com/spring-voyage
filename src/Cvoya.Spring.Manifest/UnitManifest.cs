@@ -308,6 +308,18 @@ public class ConnectorManifest
     /// <summary>Free-form connector configuration.</summary>
     [YamlMember(Alias = "config")]
     public Dictionary<string, object>? Config { get; set; }
+
+    /// <summary>
+    /// Per-unit inheritance opt-out for the package-level connector
+    /// declaration of the same <see cref="Type"/> (#1670). Defaults to
+    /// <c>true</c> — the unit inherits the package-level binding. Setting
+    /// this to <c>false</c> requires the install caller to supply a
+    /// <c>units.&lt;name&gt;.&lt;slug&gt;</c> binding for this unit; the
+    /// pre-flight validator rejects the install with
+    /// <c>ConnectorBindingMissing</c> otherwise.
+    /// </summary>
+    [YamlMember(Alias = "inherit")]
+    public bool Inherit { get; set; } = true;
 }
 
 /// <summary>

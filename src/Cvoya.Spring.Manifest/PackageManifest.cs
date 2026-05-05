@@ -8,9 +8,20 @@ using System.Collections.Generic;
 using YamlDotNet.Serialization;
 
 /// <summary>
-/// Discriminates the kind of package declared in a <c>package.yaml</c>.
-/// Matches the <c>kind:</c> scalar on the root document.
+/// Discriminates the kind of package post-resolve. Computed by
+/// <see cref="PackageManifestParser"/> from the parsed
+/// <see cref="PackageManifest.Content"/> entries — there is no
+/// <c>kind:</c> field in the YAML schema (#1718 item 1).
 /// </summary>
+/// <remarks>
+/// A package whose <see cref="PackageManifest.Content"/> entries are all
+/// agents (and which has no top-level units) resolves as
+/// <see cref="AgentPackage"/>. Every other shape — including the empty
+/// shape used by upload-mode minimal packages — resolves as
+/// <see cref="UnitPackage"/>. The discriminator is purely a downstream
+/// convenience for the install-pipeline tests; production code keys off
+/// the per-artefact <see cref="ArtefactKind"/> instead.
+/// </remarks>
 public enum PackageKind
 {
     /// <summary>The package bundles a unit (a composite of agents and/or sub-units).</summary>
@@ -22,16 +33,17 @@ public enum PackageKind
 
 /// <summary>
 /// Root document for a <c>package.yaml</c> manifest. Parsed by
-/// <see cref="PackageManifestParser"/>. A package declares its kind,
-/// metadata, inputs schema, and the root artefact it wraps.
+/// <see cref="PackageManifestParser"/>. A package declares its metadata,
+/// inputs schema, the artefacts it bundles (<see cref="Content"/>), and any
+/// connector dependencies.
 /// </summary>
 /// <remarks>
 /// <para>
-/// The package YAML shape (decision 2 in ADR-0035, refined by #1629 PR7):
+/// The package YAML shape (decision 2 in ADR-0035, refined by #1629 PR7
+/// and #1718 items 1+2):
 /// </para>
 /// <code>
 /// apiVersion: spring.voyage/v1
-/// kind: UnitPackage            # or AgentPackage
 /// metadata:
 ///   name: my-package
 ///   description: ...
@@ -39,9 +51,30 @@ public enum PackageKind
 ///   - name: team_name
 ///     type: string
 ///     required: true
-/// unit: sv-oss-design          # bare = local symbol → ./units/sv-oss-design.yaml
-///                              # qualified = cross-package = other-pkg/sv-oss-design
+/// content:
+///   - unit: sv-oss-design          # bare = local symbol → ./units/sv-oss-design.yaml
+///   - agent: standalone-agent      # standalone agent (resolves to ./agents/standalone-agent.yaml)
+///   - unit: other-pkg/shared-unit  # qualified = cross-package
 /// </code>
+/// <para>
+/// <b>#1718 item 1:</b> the historical <c>kind:</c> top-level scalar is
+/// gone. The parser infers the package kind from
+/// <see cref="Content"/> at resolve time (a package whose top-level
+/// content is exclusively agents resolves as
+/// <see cref="PackageKind.AgentPackage"/>; everything else is
+/// <see cref="PackageKind.UnitPackage"/>). A manifest that still carries
+/// <c>kind:</c> is rejected with an actionable message — there are no
+/// external v0.1 consumers, so the migration is a clean break.
+/// </para>
+/// <para>
+/// <b>#1718 item 2:</b> the historical flat artefact lists
+/// (<c>unit:</c>, <c>agent:</c>, <c>subUnits:</c>, <c>skills:</c>,
+/// <c>workflows:</c>) are replaced by a single <see cref="Content"/>
+/// list of top-level entries. Descendants — sub-units of an umbrella
+/// unit — are discovered recursively from each top-level unit's
+/// <c>members:</c> list, removing the <c>subUnits:</c> duplication that
+/// previously shadowed the umbrella's own member graph.
+/// </para>
 /// <para>
 /// <b>Reference grammar (#1629 PR7):</b> within a manifest, references
 /// between artefacts use IaC-style local symbols (the bare-name form
@@ -58,7 +91,13 @@ public class PackageManifest
     [YamlMember(Alias = "apiVersion")]
     public string? ApiVersion { get; set; }
 
-    /// <summary>Package kind. Must be <c>UnitPackage</c> or <c>AgentPackage</c>.</summary>
+    /// <summary>
+    /// Captured raw <c>kind:</c> value (only present so the parser can
+    /// surface an actionable error when an old-shape manifest still
+    /// declares it — #1718 item 1). Dropped from the public schema:
+    /// every consumer keys off <see cref="PackageKind"/> derived from
+    /// <see cref="Content"/>, not this field.
+    /// </summary>
     [YamlMember(Alias = "kind")]
     public string? Kind { get; set; }
 
@@ -75,48 +114,138 @@ public class PackageManifest
     public List<PackageInputDefinition>? Inputs { get; set; }
 
     /// <summary>
-    /// The root unit slot (used when <see cref="Kind"/> is
-    /// <c>UnitPackage</c>). Accepts either a bare/qualified reference string
-    /// (bare resolves to <c>./units/&lt;name&gt;.yaml</c>; <c>pkg/name</c>
-    /// resolves via the catalog) or an inline unit body — see
-    /// <see cref="InlineArtefactDefinition"/>. Inline bodies enable the
-    /// wizard's single-artefact "scratch" path (ADR-0035 decision 6) without
-    /// reintroducing the dual-pipeline divergence ADR-0035 explicitly rejected.
+    /// Top-level artefacts bundled in the package (#1718 item 2). Each
+    /// entry is a single-key map keyed by artefact kind (<c>unit:</c>,
+    /// <c>agent:</c>, <c>skill:</c>, or <c>workflow:</c>) whose value is
+    /// either a bare/qualified reference string or — for <c>unit:</c> /
+    /// <c>agent:</c> only — an inline body. Descendants of umbrella units
+    /// (their <c>members:</c> list) are discovered recursively at resolve
+    /// time and do not need to appear here.
     /// </summary>
-    [YamlMember(Alias = "unit")]
-    public InlineArtefactDefinition? Unit { get; set; }
+    /// <remarks>
+    /// The legacy flat lists (<c>unit:</c>, <c>agent:</c>,
+    /// <c>subUnits:</c>, <c>skills:</c>, <c>workflows:</c>) are gone.
+    /// Manifests that still declare them are rejected by the parser with
+    /// an actionable message pointing at this field.
+    /// </remarks>
+    [YamlMember(Alias = "content")]
+    public List<ContentEntry>? Content { get; set; }
 
     /// <summary>
-    /// The root agent slot (used when <see cref="Kind"/> is
-    /// <c>AgentPackage</c>). Accepts either a bare/qualified reference string
-    /// (bare resolves to <c>./agents/&lt;name&gt;.yaml</c>; <c>pkg/name</c>
-    /// resolves via the catalog) or an inline agent body — see
-    /// <see cref="InlineArtefactDefinition"/>.
+    /// Declarative connectors block (#1670). Lists each connector type the
+    /// package depends on, whether it is required at install time, and how
+    /// its binding inherits to member units. Operators configure each
+    /// declared connector once at install time; the resolved binding is
+    /// inherited by every member unit unless the unit's own
+    /// <c>connectors:</c> block opts out via <c>inherit: false</c>.
     /// </summary>
-    [YamlMember(Alias = "agent")]
-    public InlineArtefactDefinition? Agent { get; set; }
+    /// <remarks>
+    /// <para>
+    /// Inheritance forms accepted on each entry's <c>inherit</c> slot:
+    /// </para>
+    /// <list type="bullet">
+    ///   <item><description><c>all</c> (default) — every member unit inherits.</description></item>
+    ///   <item><description><c>[unit-a, unit-b]</c> — only the named members inherit.</description></item>
+    /// </list>
+    /// <para>
+    /// Per-unit opt-out is expressed in the unit YAML by declaring the
+    /// connector slug in the unit's <c>connectors:</c> block with
+    /// <c>inherit: false</c>.
+    /// </para>
+    /// </remarks>
+    [YamlMember(Alias = "connectors")]
+    public List<RequiredConnector>? Connectors { get; set; }
+}
+
+/// <summary>
+/// One top-level entry in a <see cref="PackageManifest.Content"/> list
+/// (#1718 item 2). Each entry is a single-key YAML mapping whose key is
+/// the artefact kind (<c>unit</c>, <c>agent</c>, <c>skill</c>,
+/// <c>workflow</c>) and whose value is either a bare/qualified reference
+/// string or — for <c>unit</c> / <c>agent</c> only — an inline artefact
+/// body. The parser surfaces the discriminator on
+/// <see cref="Kind"/> and the reference / inline body on
+/// <see cref="Definition"/>.
+/// </summary>
+public sealed class ContentEntry
+{
+    /// <summary>
+    /// The artefact kind this entry declares, e.g.
+    /// <see cref="ArtefactKind.Unit"/>. The YAML key (<c>unit</c>,
+    /// <c>agent</c>, <c>skill</c>, <c>workflow</c>) is reflected onto this
+    /// property by the parser; it is never present as a separate scalar
+    /// on the YAML side.
+    /// </summary>
+    public ArtefactKind Kind { get; init; }
 
     /// <summary>
-    /// Additional sub-unit references. Each entry resolves the same way as
-    /// <see cref="Unit"/>. These represent artefacts bundled alongside the
-    /// root unit in a <c>UnitPackage</c>.
+    /// The reference string or inline body declared for this entry.
+    /// Bare reference resolves to <c>./units/&lt;name&gt;.yaml</c> /
+    /// <c>./agents/&lt;name&gt;.yaml</c> / <c>./skills/&lt;name&gt;.md</c>
+    /// / <c>./workflows/&lt;name&gt;/</c> per the artefact kind. A
+    /// qualified reference (<c>pkg/name</c>) resolves via the catalog.
+    /// Inline bodies are accepted only for <see cref="ArtefactKind.Unit"/>
+    /// and <see cref="ArtefactKind.Agent"/>; skill / workflow entries
+    /// must be a scalar reference.
     /// </summary>
-    [YamlMember(Alias = "subUnits")]
-    public List<string>? SubUnits { get; set; }
+    public InlineArtefactDefinition Definition { get; init; } = default!;
+}
+
+/// <summary>
+/// One entry in a package's <c>connectors:</c> block (#1670). Declares
+/// the connector type the package depends on plus how its binding
+/// inherits to member units.
+/// </summary>
+public class RequiredConnector
+{
+    /// <summary>
+    /// The connector type slug (matches
+    /// <c>Cvoya.Spring.Connectors.IConnectorType.Slug</c>) — e.g.
+    /// <c>github</c>. The manifest parser validates the slug against the
+    /// connector registry at install time; an unknown slug is a parse error.
+    /// </summary>
+    [YamlMember(Alias = "type")]
+    public string? Type { get; set; }
 
     /// <summary>
-    /// Skill references bundled in the package. Bare name resolves to
-    /// <c>./skills/&lt;name&gt;.md</c>.
+    /// When <c>true</c>, the install pipeline rejects the request with a
+    /// <c>ConnectorBindingMissing</c> 400 if the operator has not supplied
+    /// a binding for this connector at install time. Defaults to <c>true</c>
+    /// — a connector is declared because it is needed.
     /// </summary>
-    [YamlMember(Alias = "skills")]
-    public List<string>? Skills { get; set; }
+    [YamlMember(Alias = "required")]
+    public bool Required { get; set; } = true;
 
     /// <summary>
-    /// Workflow references bundled in the package. Bare name resolves to
-    /// <c>./workflows/&lt;name&gt;/</c>.
+    /// Inheritance scope. Accepts the literal string <c>all</c> (every
+    /// member unit inherits — the default) or a YAML sequence of member
+    /// unit names (only the named members inherit). The two shapes are
+    /// surfaced through <see cref="InheritAll"/> and
+    /// <see cref="InheritUnits"/> after parsing — the raw YAML node lives
+    /// on <see cref="InheritRaw"/> so the parser can distinguish "absent"
+    /// from "explicitly set to all".
     /// </summary>
-    [YamlMember(Alias = "workflows")]
-    public List<string>? Workflows { get; set; }
+    /// <remarks>
+    /// Per-unit opt-out (<c>inherit: false</c>) is expressed on the unit
+    /// side, not here — see <see cref="ConnectorManifest.Inherit"/>.
+    /// </remarks>
+    [YamlMember(Alias = "inherit")]
+    public object? InheritRaw { get; set; }
+
+    /// <summary>
+    /// True when <see cref="InheritRaw"/> is absent or the literal string
+    /// <c>all</c>. Set by the parser after reading the raw YAML.
+    /// </summary>
+    [YamlIgnore]
+    public bool InheritAll { get; set; } = true;
+
+    /// <summary>
+    /// When non-null, the explicit list of member unit names that inherit
+    /// the package-level binding. <c>null</c> when <see cref="InheritAll"/>
+    /// is <c>true</c>. Set by the parser after reading the raw YAML.
+    /// </summary>
+    [YamlIgnore]
+    public IReadOnlyList<string>? InheritUnits { get; set; }
 }
 
 /// <summary>

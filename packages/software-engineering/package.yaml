@@ -1,5 +1,4 @@
 apiVersion: spring.voyage/v1
-kind: UnitPackage
 metadata:
   name: software-engineering
   description: A software engineering team — tech lead, backend engineer, and QA — wired up with triage / PR-review skills and a GitHub connector.
@@ -18,4 +17,5 @@ inputs:
     required: true
     description: GitHub App installation ID for the Spring Voyage App on the target repository.
 
-unit: engineering-team
+content:
+  - unit: engineering-team

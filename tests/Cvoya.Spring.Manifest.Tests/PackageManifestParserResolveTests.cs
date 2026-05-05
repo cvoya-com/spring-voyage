@@ -95,10 +95,10 @@ public class PackageManifestParserResolveTests
 
         var yaml = """
             apiVersion: spring.voyage/v1
-            kind: UnitPackage
             metadata:
               name: consumer-pkg
-            unit: other-pkg/shared-unit
+            content:
+              - unit: other-pkg/shared-unit
             """;
 
         var result = await PackageManifestParser.ParseAndResolveAsync(
@@ -129,10 +129,10 @@ public class PackageManifestParserResolveTests
 
         var agentPackageYaml = """
             apiVersion: spring.voyage/v1
-            kind: AgentPackage
             metadata:
               name: consumer-pkg
-            agent: spring-voyage-oss/architect
+            content:
+              - agent: spring-voyage-oss/architect
             """;
 
         var result = await PackageManifestParser.ParseAndResolveAsync(
@@ -160,12 +160,11 @@ public class PackageManifestParserResolveTests
 
         var yaml = """
             apiVersion: spring.voyage/v1
-            kind: UnitPackage
             metadata:
               name: consumer-pkg
-            unit: root
-            skills:
-              - research-pkg/literature-review
+            content:
+              - unit: root
+              - skill: research-pkg/literature-review
             """;
 
         var result = await PackageManifestParser.ParseAndResolveAsync(
@@ -193,12 +192,11 @@ public class PackageManifestParserResolveTests
 
         var yaml = """
             apiVersion: spring.voyage/v1
-            kind: UnitPackage
             metadata:
               name: consumer-pkg
-            unit: root
-            workflows:
-              - analytics-pkg/ci-pipeline
+            content:
+              - unit: root
+              - workflow: analytics-pkg/ci-pipeline
             """;
 
         var result = await PackageManifestParser.ParseAndResolveAsync(
@@ -220,10 +218,10 @@ public class PackageManifestParserResolveTests
 
         var yaml = """
             apiVersion: spring.voyage/v1
-            kind: UnitPackage
             metadata:
               name: consumer-pkg
-            unit: missing-pkg/some-unit
+            content:
+              - unit: missing-pkg/some-unit
             """;
 
         var ex = await Should.ThrowAsync<PackageReferenceNotFoundException>(
@@ -247,10 +245,10 @@ public class PackageManifestParserResolveTests
 
         var yaml = """
             apiVersion: spring.voyage/v1
-            kind: UnitPackage
             metadata:
               name: consumer-pkg
-            unit: known-pkg/nonexistent-unit
+            content:
+              - unit: known-pkg/nonexistent-unit
             """;
 
         var ex = await Should.ThrowAsync<PackageReferenceNotFoundException>(
@@ -385,7 +383,6 @@ public class PackageManifestParserResolveTests
         // parse → re-emit → re-parse cycle.
         var original = """
             apiVersion: spring.voyage/v1
-            kind: UnitPackage
             metadata:
               name: round-trip-pkg
               description: A test package.
@@ -393,36 +390,41 @@ public class PackageManifestParserResolveTests
               - name: team_name
                 type: string
                 required: true
-            unit: root-unit
-            subUnits:
-              - sub-unit
-            skills:
-              - my-skill
+            content:
+              - unit: root-unit
+              - unit: sub-unit
+              - skill: my-skill
             """;
 
         var firstParse = PackageManifestParser.ParseRaw(original);
 
         // Re-emit as YAML using YamlDotNet's serializer. Register the same
-        // type converter the parser uses so InlineArtefactDefinition slots
-        // (unit / agent) round-trip as scalars (bare refs) or inline mappings.
+        // type converters the parser uses so ContentEntry / InlineArtefact-
+        // Definition slots round-trip via the same writer.
         var serializer = new YamlDotNet.Serialization.SerializerBuilder()
             .WithNamingConvention(YamlDotNet.Serialization.NamingConventions.CamelCaseNamingConvention.Instance)
+            .WithTypeConverter(new Cvoya.Spring.Manifest.ContentEntryYamlConverter())
             .WithTypeConverter(new Cvoya.Spring.Manifest.InlineArtefactDefinitionYamlConverter())
             .Build();
         var emitted = serializer.Serialize(firstParse);
 
         var secondParse = PackageManifestParser.ParseRaw(emitted);
 
-        secondParse.Kind.ShouldBe(firstParse.Kind);
         secondParse.Metadata!.Name.ShouldBe(firstParse.Metadata!.Name);
         secondParse.Metadata.Description.ShouldBe(firstParse.Metadata.Description);
-        secondParse.Unit.ShouldNotBeNull();
-        firstParse.Unit.ShouldNotBeNull();
-        secondParse.Unit!.Reference.ShouldBe(firstParse.Unit!.Reference);
-        secondParse.Unit.IsInline.ShouldBe(firstParse.Unit.IsInline);
-        secondParse.SubUnits.ShouldNotBeNull();
-        secondParse.SubUnits!.Count.ShouldBe(firstParse.SubUnits!.Count);
-        secondParse.Skills!.Count.ShouldBe(firstParse.Skills!.Count);
+
+        secondParse.Content.ShouldNotBeNull();
+        firstParse.Content.ShouldNotBeNull();
+        secondParse.Content!.Count.ShouldBe(firstParse.Content!.Count);
+        for (var i = 0; i < firstParse.Content.Count; i++)
+        {
+            secondParse.Content[i].Kind.ShouldBe(firstParse.Content[i].Kind);
+            secondParse.Content[i].Definition.Reference.ShouldBe(
+                firstParse.Content[i].Definition.Reference);
+            secondParse.Content[i].Definition.IsInline.ShouldBe(
+                firstParse.Content[i].Definition.IsInline);
+        }
+
         secondParse.Inputs!.Count.ShouldBe(firstParse.Inputs!.Count);
         secondParse.Inputs[0].Name.ShouldBe(firstParse.Inputs[0].Name);
         secondParse.Inputs[0].Required.ShouldBe(firstParse.Inputs[0].Required);
@@ -431,25 +433,26 @@ public class PackageManifestParserResolveTests
     // ---- Test 10: Name uniqueness ---------------------------------------
 
     [Fact]
-    public async Task ParseAndResolveAsync_DuplicateSubUnitName_Throws()
+    public async Task ParseAndResolveAsync_DuplicateContentEntry_Throws()
     {
         var ct = TestContext.Current.CancellationToken;
         using var tmpDir = new TempDirectory();
         Directory.CreateDirectory(Path.Combine(tmpDir.Path, "units"));
 
-        // unit-a appears twice — as root unit and in subUnits.
+        // #1718 item 2: post-content: schema, the duplicate-entry case is a
+        // unit declared twice in the content list — name uniqueness is
+        // enforced at the top level so authors notice the mistake.
         await File.WriteAllTextAsync(
             Path.Combine(tmpDir.Path, "units", "unit-a.yaml"),
             "unit:\n  name: unit-a\n", ct);
 
         var yaml = """
             apiVersion: spring.voyage/v1
-            kind: UnitPackage
             metadata:
               name: collision-pkg
-            unit: unit-a
-            subUnits:
-              - unit-a
+            content:
+              - unit: unit-a
+              - unit: unit-a
             """;
 
         var ex = await Should.ThrowAsync<PackageParseException>(
@@ -515,14 +518,14 @@ public class PackageManifestParserResolveTests
 
         var yaml = """
             apiVersion: spring.voyage/v1
-            kind: UnitPackage
             metadata:
               name: bad-pkg
             inputs:
               - name: my_input
                 type: string
                 required: true
-            unit: root-unit
+            content:
+              - unit: root-unit
             """;
 
         var inputValues = new Dictionary<string, string> { ["my_input"] = "value" };
@@ -557,14 +560,14 @@ public class PackageManifestParserResolveTests
 
         var yaml = """
             apiVersion: spring.voyage/v1
-            kind: UnitPackage
             metadata:
               name: pkg-a
             inputs:
               - name: bar
                 type: string
                 required: true
-            unit: pkg-b/shared-unit
+            content:
+              - unit: pkg-b/shared-unit
             """;
 
         var inputValues = new Dictionary<string, string> { ["bar"] = "baz" };
@@ -597,14 +600,14 @@ public class PackageManifestParserResolveTests
 
         var yaml = """
             apiVersion: spring.voyage/v1
-            kind: UnitPackage
             metadata:
               name: pkg-a
             inputs:
               - name: bar
                 type: string
                 required: true
-            unit: pkg-b/shared-unit
+            content:
+              - unit: pkg-b/shared-unit
             """;
 
         var inputValues = new Dictionary<string, string> { ["bar"] = "baz" };

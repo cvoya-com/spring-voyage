@@ -1,5 +1,4 @@
 apiVersion: spring.voyage/v1
-kind: UnitPackage
 metadata:
   name: product-management
   description: Product squad — product management and design shaping and prioritising work.
@@ -18,4 +17,5 @@ inputs:
     required: true
     description: GitHub App installation ID for the Spring Voyage App on the target repository.
 
-unit: product-squad
+content:
+  - unit: product-squad

@@ -84,6 +84,36 @@ public static class PackageCommand
     };
 
     /// <summary>
+    /// Columns for the <c>connectorDeclarations:</c> block surfaced by
+    /// <c>spring package show</c> (#1673). Operators read this to discover
+    /// which <c>--connector</c> flags they need at install time.
+    /// </summary>
+    private static readonly OutputFormatter.Column<RequiredConnectorSummary>[] RequiredConnectorColumns =
+    {
+        new("type", c => c.Type),
+        new("required", c => c.Required == true ? "yes" : "no"),
+        new("inherit", c => c.InheritAll == true
+            ? "all"
+            : (c.InheritUnits is { Count: > 0 } list
+                ? string.Join(",", list)
+                : "none")),
+    };
+
+    /// <summary>
+    /// Columns for the manifest's <c>content:</c> list surfaced by
+    /// <c>spring package show</c> (#1718 item 2). Replaces the old
+    /// per-kind sections (unit templates, agent templates, skills,
+    /// workflows) that the manifest no longer enumerates as flat lists —
+    /// the wizard / operator now sees a single ordered "what gets
+    /// installed" list with the artefact discriminator.
+    /// </summary>
+    private static readonly OutputFormatter.Column<PackageContentEntry>[] ContentColumns =
+    {
+        new("kind", c => c.Kind),
+        new("name", c => c.Name),
+    };
+
+    /// <summary>
     /// Creates the <c>package</c> command root with all subcommands.
     /// </summary>
     public static Command Create(Option<string> outputOption)
@@ -156,6 +186,28 @@ public static class PackageCommand
                 "and each nested map's keys are input names.",
         };
 
+        // #1673: --connector flag — repeatable. Two forms:
+        //   short:  github=owner/repo@installation-id           (binds at package scope)
+        //           github:unit-name=other-org/other-repo@id    (per-unit override)
+        //   long:   github.installation-id=12345                (long-form key=value)
+        //           github.owner=acme                            (multiple invocations
+        //           github.repo=spring-voyage                    build the same payload)
+        // The flag binds to the single in-flight package by default; multi-
+        // target installs use the same `<pkg>.connector=...` namespacing as
+        // --input.
+        var connectorOption = new Option<string[]>("--connector")
+        {
+            Description =
+                "Connector binding for a required package connector, repeatable. " +
+                "Short form (github only today): --connector github=owner/repo@installation-id. " +
+                "Per-unit override: --connector github:unit-name=owner/repo@installation-id. " +
+                "Long form (any connector): --connector github.installation-id=12345 " +
+                "--connector github.owner=acme. " +
+                "For multi-target installs, namespace by package: " +
+                "--connector <pkg>.<slug>=... or <pkg>.<slug>.<key>=value.",
+            AllowMultipleArgumentsPerToken = false,
+        };
+
         var command = new Command(
             "install",
             "Install one or more packages from the catalog (spring package install <name> [<name>...]) " +
@@ -163,11 +215,15 @@ public static class PackageCommand
             "For single-target installs, supply inputs as bare key=value pairs: --input github_owner=acme.\n" +
             "For multi-target installs, namespace inputs by package: --input <pkg>.key=value.\n" +
             "Alternatively supply a YAML file via --input-file.\n\n" +
+            "Required connectors (#1673): supply with --connector <slug>=<owner>/<repo>@<installation-id> " +
+            "(github short form) or --connector <slug>.<key>=<value> (long form, generic). " +
+            "Per-unit override: --connector <slug>:<unit-name>=...\n\n" +
             "Exit codes: 0 = success, 2 = bad request / dep-graph error, 4 = name collision, 1 = server error.");
         command.Arguments.Add(nameArg);
         command.Options.Add(fileOption);
         command.Options.Add(inputOption);
         command.Options.Add(inputFileOption);
+        command.Options.Add(connectorOption);
 
         command.SetAction(async (ParseResult parseResult, CancellationToken ct) =>
         {
@@ -175,6 +231,7 @@ public static class PackageCommand
             var file = parseResult.GetValue(fileOption);
             var inputs = parseResult.GetValue(inputOption) ?? Array.Empty<string>();
             var inputFile = parseResult.GetValue(inputFileOption);
+            var connectorTokens = parseResult.GetValue(connectorOption) ?? Array.Empty<string>();
             var output = parseResult.GetValue(outputOption) ?? "table";
 
             var client = ClientFactory.Create();
@@ -243,10 +300,28 @@ public static class PackageCommand
                 return;
             }
 
+            // #1673: parse --connector flags into the wire connectorBindings
+            // shape. Validation of slugs against the connector registry
+            // happens server-side; the CLI only enforces well-formedness so
+            // a quick local typo surfaces before the round-trip.
+            Dictionary<string, SpringApiClient.PackageConnectorBindingsRequest>? perPackageBindings;
+            try
+            {
+                perPackageBindings = ParseConnectorTokens(connectorTokens, names);
+            }
+            catch (ArgumentException ex)
+            {
+                await Console.Error.WriteLineAsync(ex.Message);
+                Environment.Exit(2);
+                return;
+            }
+
             var targets = names
                 .Select(n => new SpringApiClient.PackageInstallTargetRequest(
                     PackageName: n,
-                    Inputs: perPackageInputs.TryGetValue(n, out var m) ? m : new Dictionary<string, string>()))
+                    Inputs: perPackageInputs.TryGetValue(n, out var m) ? m : new Dictionary<string, string>(),
+                    ConnectorBindings: perPackageBindings is not null
+                        && perPackageBindings.TryGetValue(n, out var b) ? b : null))
                 .ToList();
 
             SpringApiClient.PackageInstallResponse catalogResult;
@@ -531,6 +606,13 @@ public static class PackageCommand
             }
 
             WriteSection("Inputs", detail.Inputs, InputColumns);
+            WriteSection("Required connectors", detail.ConnectorDeclarations, RequiredConnectorColumns);
+            // #1718 item 2: the manifest's `content:` list is the
+            // canonical "what gets installed" view. Render it first so
+            // operators see the install footprint before the on-disk
+            // template browse (which lists everything in units/ /
+            // agents/ / skills/ / etc., not just what's declared).
+            WriteSection("Content", detail.Content, ContentColumns);
             WriteSection("Unit templates", detail.UnitTemplates, UnitTemplateColumns);
             WriteSection("Agent templates", detail.AgentTemplates, AgentTemplateColumns);
             WriteSection("Skills", detail.Skills, SkillColumns);
@@ -746,6 +828,253 @@ public static class PackageCommand
             }
         }
         return false;
+    }
+
+    /// <summary>
+    /// Parses <c>--connector</c> tokens into a per-package connector-binding
+    /// payload (#1673). Forms accepted:
+    /// <list type="bullet">
+    ///   <item>
+    ///     Short github form: <c>github=owner/repo@installation-id</c> binds at
+    ///     package scope; <c>github:unit-name=owner/repo@installation-id</c>
+    ///     binds at unit scope.
+    ///   </item>
+    ///   <item>
+    ///     Long form: <c>slug.key=value</c> — multiple invocations build the
+    ///     same payload. <c>slug:unit.key=value</c> for unit-scope long form.
+    ///   </item>
+    ///   <item>
+    ///     Multi-target prefix: <c>&lt;pkg&gt;.&lt;slug&gt;=...</c> or
+    ///     <c>&lt;pkg&gt;.&lt;slug&gt;.&lt;key&gt;=value</c>.
+    ///   </item>
+    /// </list>
+    /// Returns <c>null</c> when no tokens were supplied.
+    /// </summary>
+    public static Dictionary<string, SpringApiClient.PackageConnectorBindingsRequest>? ParseConnectorTokens(
+        IReadOnlyList<string> tokens,
+        IReadOnlyList<string> packageNames)
+    {
+        if (tokens.Count == 0)
+        {
+            return null;
+        }
+
+        // Per-package working state. Keys: pkg → slug → (config dict, unitName?).
+        // For unit-scope, we collect into a separate map per (pkg, unit, slug).
+        // The wire shape we emit at the end is package + units.
+        var perPkg = new Dictionary<string, Dictionary<string, Dictionary<string, object>>>(StringComparer.Ordinal);
+        var perPkgUnit = new Dictionary<string, Dictionary<string, Dictionary<string, Dictionary<string, object>>>>(StringComparer.Ordinal);
+
+        foreach (var raw in tokens)
+        {
+            var token = raw;
+            string? pkg = null;
+
+            // Multi-target: peel off the package prefix when it matches.
+            if (packageNames.Count > 1 || (packageNames.Count == 1
+                && token.StartsWith(packageNames[0] + ".", StringComparison.Ordinal)
+                && IsLikelyPackagePrefixed(token, packageNames)))
+            {
+                foreach (var p in packageNames)
+                {
+                    if (token.StartsWith(p + ".", StringComparison.Ordinal))
+                    {
+                        pkg = p;
+                        token = token.Substring(p.Length + 1);
+                        break;
+                    }
+                }
+                if (pkg is null && packageNames.Count > 1)
+                {
+                    throw new ArgumentException(
+                        $"--connector '{raw}': the package prefix does not match any package in the install batch. " +
+                        $"Available packages: {string.Join(", ", packageNames)}");
+                }
+            }
+            pkg ??= packageNames.Count > 0 ? packageNames[0] : string.Empty;
+
+            // Split key=value.
+            var eqIdx = token.IndexOf('=');
+            if (eqIdx <= 0)
+            {
+                throw new ArgumentException(
+                    $"--connector '{raw}' is not in <slug>[:<unit>][.<key>]=<value> form.");
+            }
+            var keyPart = token.Substring(0, eqIdx);
+            var valuePart = token.Substring(eqIdx + 1);
+
+            // Identify slug, optional unit, optional key path.
+            // <slug>:<unit>(.<key>)? or <slug>(.<key>)?
+            string slug;
+            string? unitName = null;
+            string? configKey = null;
+
+            var dotIdx = keyPart.IndexOf('.');
+            string slugPart = dotIdx > 0 ? keyPart.Substring(0, dotIdx) : keyPart;
+            if (dotIdx > 0)
+            {
+                configKey = keyPart.Substring(dotIdx + 1);
+            }
+
+            var colonIdx = slugPart.IndexOf(':');
+            if (colonIdx > 0)
+            {
+                slug = slugPart.Substring(0, colonIdx);
+                unitName = slugPart.Substring(colonIdx + 1);
+            }
+            else
+            {
+                slug = slugPart;
+            }
+
+            if (string.IsNullOrWhiteSpace(slug))
+            {
+                throw new ArgumentException(
+                    $"--connector '{raw}': missing connector slug.");
+            }
+
+            // Resolve the destination config dictionary.
+            Dictionary<string, object> targetConfig;
+            if (unitName is null)
+            {
+                if (!perPkg.TryGetValue(pkg, out var bySlug))
+                {
+                    bySlug = new Dictionary<string, Dictionary<string, object>>(StringComparer.OrdinalIgnoreCase);
+                    perPkg[pkg] = bySlug;
+                }
+                if (!bySlug.TryGetValue(slug, out targetConfig!))
+                {
+                    targetConfig = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+                    bySlug[slug] = targetConfig;
+                }
+            }
+            else
+            {
+                if (!perPkgUnit.TryGetValue(pkg, out var byUnit))
+                {
+                    byUnit = new Dictionary<string, Dictionary<string, Dictionary<string, object>>>(StringComparer.OrdinalIgnoreCase);
+                    perPkgUnit[pkg] = byUnit;
+                }
+                if (!byUnit.TryGetValue(unitName, out var bySlug))
+                {
+                    bySlug = new Dictionary<string, Dictionary<string, object>>(StringComparer.OrdinalIgnoreCase);
+                    byUnit[unitName] = bySlug;
+                }
+                if (!bySlug.TryGetValue(slug, out targetConfig!))
+                {
+                    targetConfig = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+                    bySlug[slug] = targetConfig;
+                }
+            }
+
+            if (configKey is null)
+            {
+                // Short-form value. Today only github is recognised; fall
+                // through to long form for any other slug to keep the parser
+                // generic.
+                if (string.Equals(slug, "github", StringComparison.OrdinalIgnoreCase))
+                {
+                    ParseGithubShortForm(valuePart, targetConfig, raw);
+                }
+                else
+                {
+                    throw new ArgumentException(
+                        $"--connector '{raw}': short form is only defined for 'github'. Use --connector {slug}.<key>=<value> for other connectors.");
+                }
+            }
+            else
+            {
+                // Long form: slug.key=value (or slug.key.subkey=...). Today
+                // we treat the remainder as a flat key. Numbers convert to
+                // long when parseable (so installation-id stays numeric in
+                // the JSON payload).
+                targetConfig[configKey] = ParseScalar(valuePart);
+            }
+        }
+
+        // Project to the wire shape.
+        var result = new Dictionary<string, SpringApiClient.PackageConnectorBindingsRequest>(StringComparer.Ordinal);
+        var allPkgs = new HashSet<string>(perPkg.Keys, StringComparer.Ordinal);
+        allPkgs.UnionWith(perPkgUnit.Keys);
+
+        foreach (var p in allPkgs)
+        {
+            Dictionary<string, SpringApiClient.ConnectorBindingPayloadRequest>? pkgScope = null;
+            if (perPkg.TryGetValue(p, out var bySlug))
+            {
+                pkgScope = bySlug.ToDictionary(
+                    kv => kv.Key,
+                    kv => new SpringApiClient.ConnectorBindingPayloadRequest(kv.Value),
+                    StringComparer.Ordinal);
+            }
+
+            Dictionary<string, IReadOnlyDictionary<string, SpringApiClient.ConnectorBindingPayloadRequest>>? unitScope = null;
+            if (perPkgUnit.TryGetValue(p, out var byUnit))
+            {
+                unitScope = byUnit.ToDictionary(
+                    kv => kv.Key,
+                    kv => (IReadOnlyDictionary<string, SpringApiClient.ConnectorBindingPayloadRequest>)kv.Value.ToDictionary(
+                        s => s.Key,
+                        s => new SpringApiClient.ConnectorBindingPayloadRequest(s.Value),
+                        StringComparer.Ordinal),
+                    StringComparer.Ordinal);
+            }
+
+            result[p] = new SpringApiClient.PackageConnectorBindingsRequest(pkgScope, unitScope);
+        }
+
+        return result;
+    }
+
+    private static bool IsLikelyPackagePrefixed(string token, IReadOnlyList<string> packageNames)
+    {
+        foreach (var p in packageNames)
+        {
+            if (token.StartsWith(p + ".", StringComparison.Ordinal)) return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Parses the short github form <c>owner/repo@installation-id</c> into
+    /// the canonical config keys (<c>owner</c>, <c>repo</c>,
+    /// <c>installation-id</c>). Operators using the long form
+    /// (<c>--connector github.owner=...</c>) get the same payload.
+    /// </summary>
+    private static void ParseGithubShortForm(
+        string value,
+        Dictionary<string, object> config,
+        string rawToken)
+    {
+        var atIdx = value.LastIndexOf('@');
+        if (atIdx <= 0)
+        {
+            throw new ArgumentException(
+                $"--connector '{rawToken}': github short form is owner/repo@installation-id.");
+        }
+        var ownerRepo = value.Substring(0, atIdx);
+        var idStr = value.Substring(atIdx + 1);
+        var slashIdx = ownerRepo.IndexOf('/');
+        if (slashIdx <= 0)
+        {
+            throw new ArgumentException(
+                $"--connector '{rawToken}': github short form requires owner/repo.");
+        }
+        config["owner"] = ownerRepo.Substring(0, slashIdx);
+        config["repo"] = ownerRepo.Substring(slashIdx + 1);
+        if (!long.TryParse(idStr, out var id))
+        {
+            throw new ArgumentException(
+                $"--connector '{rawToken}': installation-id '{idStr}' is not numeric.");
+        }
+        config["installation-id"] = id;
+    }
+
+    private static object ParseScalar(string value)
+    {
+        if (long.TryParse(value, out var l)) return l;
+        if (bool.TryParse(value, out var b)) return b;
+        return value;
     }
 
     private static (string key, string value) SplitKeyValue(string token, string originalToken)

@@ -3,6 +3,7 @@
 
 namespace Cvoya.Spring.Host.Api.Services;
 
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -32,11 +33,19 @@ public interface IPackageArtefactActivator
     /// member-list entry references against peer artefacts in the same
     /// package.
     /// </param>
+    /// <param name="connectorBindings">
+    /// Resolved connector bindings for this artefact when it is a unit
+    /// (#1671). Keyed by connector slug. Empty when the unit declares no
+    /// connectors. Forwarded to <see cref="IUnitCreationService.CreateFromManifestAsync"/>
+    /// so the unit-creation pipeline can write each binding into the
+    /// existing per-unit store atomically with the unit itself.
+    /// </param>
     /// <param name="cancellationToken">A cancellation token.</param>
     Task ActivateAsync(
         string packageName,
         ResolvedArtefact artefact,
         System.Guid installId,
         LocalSymbolMap symbolMap,
+        IReadOnlyDictionary<string, ConnectorBinding>? connectorBindings = null,
         CancellationToken cancellationToken = default);
 }

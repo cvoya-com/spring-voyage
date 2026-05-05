@@ -148,6 +148,19 @@ export type PackageDetail = Schemas["PackageDetail"];
  */
 export type PackageInputSummary = Schemas["PackageInputSummary"];
 
+/**
+ * Wire shape for the connector-binding payload supplied at install time
+ * (#1671). The wizard emits this on the install request body's
+ * <c>connectorBindings</c> field instead of stuffing connector outputs
+ * into <c>catalogInputs</c>.
+ *
+ * The per-binding payload and per-package-required-connector summary are
+ * reachable via property access (`PackageConnectorBindings["package"][string]`,
+ * `PackageDetail["connectorDeclarations"][number]`); not re-exported
+ * standalone to keep the surface narrow (knip).
+ */
+export type PackageConnectorBindings = Schemas["PackageConnectorBindings"];
+
 /** GET /api/v1/costs/agents/{id} or /units/{id} response. */
 export type CostSummaryResponse = Schemas["CostSummaryResponse"];
 

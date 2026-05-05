@@ -18,13 +18,8 @@ unit:
   execution:
     image: ghcr.io/cvoya-com/spring-voyage-agent-oss-design:latest
     hosting: permanent
-  connectors:
-    - type: github
-      config:
-        owner: ${{ inputs.github_owner }}
-        repo: ${{ inputs.github_repo }}
-        installation_id: ${{ inputs.github_installation_id }}
-        events: ["issues", "issue_comment", "pull_request", "pull_request_review"]
+  # #1670: github connector inherited from package.yaml — operator configures
+  # it once at install time and every member unit picks it up.
   policies:
     communication: through-unit
     work_assignment: capability-match

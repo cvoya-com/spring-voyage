@@ -93,7 +93,7 @@ public class DefaultPackageArtefactActivatorMemberResolutionTests
             },
             Guid.NewGuid(),
             symbolMap,
-            TestContext.Current.CancellationToken);
+            cancellationToken: TestContext.Current.CancellationToken);
 
         // The creation service receives the manifest with members rewritten
         // to canonical Guid form — that is the wire shape the bug fix
@@ -145,7 +145,7 @@ public class DefaultPackageArtefactActivatorMemberResolutionTests
             },
             Guid.NewGuid(),
             symbolMap,
-            TestContext.Current.CancellationToken);
+            cancellationToken: TestContext.Current.CancellationToken);
 
         fixture.CapturedManifest.ShouldNotBeNull();
         fixture.CapturedManifest!.Members![0].Unit
@@ -181,7 +181,7 @@ public class DefaultPackageArtefactActivatorMemberResolutionTests
                 },
                 Guid.NewGuid(),
                 symbolMap,
-                TestContext.Current.CancellationToken));
+                cancellationToken: TestContext.Current.CancellationToken));
 
         ex.Reference.ShouldBe("ghost-member");
         ex.Scheme.ShouldBe("unit");
@@ -217,7 +217,7 @@ public class DefaultPackageArtefactActivatorMemberResolutionTests
             },
             Guid.NewGuid(),
             symbolMap,
-            TestContext.Current.CancellationToken);
+            cancellationToken: TestContext.Current.CancellationToken);
 
         fixture.CapturedManifest.ShouldNotBeNull();
         fixture.CapturedManifest!.Members!.Count.ShouldBe(2);
@@ -257,7 +257,7 @@ public class DefaultPackageArtefactActivatorMemberResolutionTests
             },
             Guid.NewGuid(),
             symbolMap,
-            TestContext.Current.CancellationToken);
+            cancellationToken: TestContext.Current.CancellationToken);
 
         fixture.CapturedManifest!.Members![0].Agent
             .ShouldBe(GuidFormatter.Format(architectGuid));
@@ -337,14 +337,20 @@ public class DefaultPackageArtefactActivatorMemberResolutionTests
             scopeFactory, directory, activator,
             NullLogger<PackageInstallService>.Instance);
 
-        var inputs = new Dictionary<string, string>
+        // #1670: github_* inputs migrated to a `connectors:` declaration on
+        // the package manifest. The install target now passes the operator-
+        // supplied package-scope connector binding instead of typed inputs.
+        var inputs = new Dictionary<string, string>();
+        var pkgBindings = new Dictionary<string, ConnectorBinding>(StringComparer.OrdinalIgnoreCase)
         {
-            ["github_owner"] = "cvoya-com",
-            ["github_repo"] = "spring-voyage-oss",
-            ["github_installation_id"] = "12345",
+            ["github"] = new ConnectorBinding(
+                "github",
+                System.Text.Json.JsonDocument.Parse(
+                    "{\"owner\":\"cvoya-com\",\"repo\":\"spring-voyage-oss\",\"installation-id\":12345}").RootElement),
         };
         var target = new InstallTarget(
-            "spring-voyage-oss", inputs, packageYaml, packageRoot);
+            "spring-voyage-oss", inputs, packageYaml, packageRoot,
+            PackageBindings: pkgBindings);
 
         var result = await installer.InstallAsync(
             new[] { target }, TestContext.Current.CancellationToken);
@@ -434,7 +440,7 @@ public class DefaultPackageArtefactActivatorMemberResolutionTests
             },
             Guid.NewGuid(),
             symbolMap,
-            TestContext.Current.CancellationToken);
+            cancellationToken: TestContext.Current.CancellationToken);
 
         await fixture.Directory.DidNotReceive()
             .ListAllAsync(Arg.Any<CancellationToken>());

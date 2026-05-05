@@ -10,6 +10,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
+using Cvoya.Spring.Connectors;
 using Cvoya.Spring.Core.Directory;
 using Cvoya.Spring.Core.Messaging;
 using Cvoya.Spring.Dapr.Data;
@@ -63,6 +64,8 @@ public class PackageInstallService : IPackageInstallService
         }
 
         var installId = Guid.NewGuid();
+        var resolvedBindings = new Dictionary<string, IReadOnlyDictionary<string, IReadOnlyDictionary<string, ConnectorBinding>>>(
+            StringComparer.OrdinalIgnoreCase);
 
         // ── Phase 1 ────────────────────────────────────────────────────────
         // Parse + resolve all packages, validate dep-graph closure, collision
@@ -81,6 +84,35 @@ public class PackageInstallService : IPackageInstallService
         catch (PackageNameCollisionException)
         {
             throw;
+        }
+
+        // #1671: connector-binding pre-flight before any DB writes. Aggregate
+        // every gap across every package in the batch into a single
+        // ConnectorBindingsMissingException so the operator sees the full
+        // list at once. UnknownSlugs (binding supplied for a slug the
+        // package doesn't declare) becomes UnknownConnectorSlugException —
+        // the install request was structurally wrong, not just incomplete.
+        var allMissing = new List<ConnectorBindingMissing>();
+        UnknownConnectorBindingEntry? firstUnknown = null;
+        foreach (var (target, pkg) in resolvedTargets)
+        {
+            var resolution = ConnectorBindingResolver.Resolve(
+                pkg, target.PackageBindings, target.UnitBindings);
+            if (resolution.UnknownSlugs.Count > 0 && firstUnknown is null)
+            {
+                firstUnknown = resolution.UnknownSlugs[0];
+            }
+            allMissing.AddRange(resolution.Missing);
+            resolvedBindings[pkg.Name] = resolution.Bindings;
+        }
+        if (firstUnknown is not null)
+        {
+            throw new UnknownConnectorSlugException(
+                firstUnknown.Slug, firstUnknown.Scope, firstUnknown.UnitName);
+        }
+        if (allMissing.Count > 0)
+        {
+            throw new ConnectorBindingsMissingException(allMissing);
         }
 
         // Topological sort of packages by cross-package reference order.
@@ -178,6 +210,27 @@ public class PackageInstallService : IPackageInstallService
                 // Agent staging rows in unit_definitions for tracking:
                 // (The actual agent_definitions row is created in Phase 2 via
                 //  directory service, consistent with existing agent-creation path.)
+
+                // #1671: persist the package-scope connector bindings as
+                // tenant_connector_installs rows scoped to this install. Unit-
+                // scope bindings ride through with the unit creation activator
+                // and land on the unit's connector_definitions row, mirroring
+                // the existing single-binding-per-unit shape.
+                if (target.PackageBindings is { Count: > 0 } pkgBindings)
+                {
+                    foreach (var (slug, binding) in pkgBindings)
+                    {
+                        db.TenantConnectorInstalls.Add(new TenantConnectorInstallEntity
+                        {
+                            Id = Guid.NewGuid(),
+                            ConnectorId = slug,
+                            ConfigJson = binding.Config,
+                            InstalledAt = now,
+                            UpdatedAt = now,
+                            PackageInstallId = installId,
+                        });
+                    }
+                }
             }
 
             await db.SaveChangesAsync(cancellationToken);
@@ -194,8 +247,11 @@ public class PackageInstallService : IPackageInstallService
         var packageResults = new List<PackageInstallResult>();
         foreach (var (target, pkg) in sorted)
         {
+            var pkgBindings = resolvedBindings.TryGetValue(pkg.Name, out var rb)
+                ? rb
+                : null;
             var (outcome, error) = await ActivatePackageAsync(
-                pkg, installId, symbolMap[pkg.Name], cancellationToken);
+                pkg, installId, symbolMap[pkg.Name], pkgBindings, cancellationToken);
             packageResults.Add(new PackageInstallResult(pkg.Name, outcome, error));
 
             // Update the package_installs row for this package.
@@ -303,7 +359,17 @@ public class PackageInstallService : IPackageInstallService
             // its previously-minted id rather than getting a fresh one.
             var retryMap = await BuildSymbolMapFromStagingAsync(pkg, installId, cancellationToken);
 
-            var (outcome, error) = await ActivatePackageAsync(pkg, installId, retryMap, cancellationToken);
+            // #1671: rehydrate the package-scope bindings from
+            // tenant_connector_installs so retry resolves the same per-unit
+            // bindings the original install computed. Unit-scope overrides
+            // (which land on the per-unit connector store via Phase 2) do
+            // not need rehydration here — they are already on the unit row.
+            var rehydratedPackageBindings = await LoadPackageScopeBindingsAsync(installId, cancellationToken);
+            var rehydratedResolution = ConnectorBindingResolver.Resolve(
+                pkg, rehydratedPackageBindings, unitBindings: null);
+
+            var (outcome, error) = await ActivatePackageAsync(
+                pkg, installId, retryMap, rehydratedResolution.Bindings, cancellationToken);
             packageResults.Add(new PackageInstallResult(row.PackageName, outcome, error));
 
             await UpdatePackageInstallRowAsync(installId, row.PackageName,
@@ -347,6 +413,16 @@ public class PackageInstallService : IPackageInstallService
                 .Where(b => b.InstallId == installId)
                 .ToListAsync(cancellationToken);
             db.TenantSkillBundleBindings.RemoveRange(bundleRows);
+
+            // #1671: drop the package-scope and unit-scope connector binding
+            // rows owned by this install. Tenant-level rows (no
+            // package_install_id) are left intact — they predate / outlive
+            // the install.
+            var bindingRows = await db.TenantConnectorInstalls
+                .IgnoreQueryFilters()
+                .Where(b => b.PackageInstallId == installId)
+                .ToListAsync(cancellationToken);
+            db.TenantConnectorInstalls.RemoveRange(bindingRows);
 
             // Delete package_installs rows.
             var installRows = await db.PackageInstalls
@@ -634,12 +710,40 @@ public class PackageInstallService : IPackageInstallService
         return map;
     }
 
+    /// <summary>
+    /// Reloads the package-scope connector bindings persisted by Phase 1
+    /// for the given install. Used by <see cref="RetryAsync"/> so a retry
+    /// recomputes per-unit inheritance against the same operator-supplied
+    /// bindings (the request body is not retained server-side).
+    /// </summary>
+    private async Task<IReadOnlyDictionary<string, ConnectorBinding>> LoadPackageScopeBindingsAsync(
+        Guid installId,
+        CancellationToken cancellationToken)
+    {
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<SpringDbContext>();
+
+        var rows = await db.TenantConnectorInstalls
+            .IgnoreQueryFilters()
+            .Where(e => e.PackageInstallId == installId && e.UnitId == null)
+            .ToListAsync(cancellationToken);
+
+        var result = new Dictionary<string, ConnectorBinding>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in rows)
+        {
+            var config = row.ConfigJson ?? JsonDocument.Parse("{}").RootElement;
+            result[row.ConnectorId] = new ConnectorBinding(row.ConnectorId, config);
+        }
+        return result;
+    }
+
     // ── Phase 2 helpers ────────────────────────────────────────────────────
 
     private async Task<(PackageInstallOutcome Outcome, string? Error)> ActivatePackageAsync(
         ResolvedPackage pkg,
         Guid installId,
         LocalSymbolMap symbolMap,
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, ConnectorBinding>>? perUnitBindings,
         CancellationToken cancellationToken)
     {
         string? firstError = null;
@@ -651,9 +755,18 @@ public class PackageInstallService : IPackageInstallService
         foreach (var artefact in pkg.Units.Concat(pkg.Agents)
             .Where(a => !a.IsCrossPackage))
         {
+            IReadOnlyDictionary<string, ConnectorBinding>? unitBindings = null;
+            if (artefact.Kind == ArtefactKind.Unit
+                && perUnitBindings is not null
+                && perUnitBindings.TryGetValue(artefact.Name, out var b))
+            {
+                unitBindings = b;
+            }
+
             try
             {
-                await _activator.ActivateAsync(pkg.Name, artefact, installId, symbolMap, cancellationToken);
+                await _activator.ActivateAsync(
+                    pkg.Name, artefact, installId, symbolMap, unitBindings, cancellationToken);
                 await FlipArtefactStateToActiveAsync(artefact, installId, cancellationToken);
             }
             catch (OperationCanceledException)

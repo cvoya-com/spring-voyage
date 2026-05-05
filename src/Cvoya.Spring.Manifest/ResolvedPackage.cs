@@ -40,6 +40,23 @@ public class ResolvedPackage
 
     /// <summary>Resolved workflow artefacts, in declaration order.</summary>
     public required IReadOnlyList<ResolvedArtefact> Workflows { get; init; }
+
+    /// <summary>
+    /// Package-level connector declarations (#1670), normalised so the
+    /// install pipeline can compute per-unit inheritance without re-walking
+    /// the raw YAML. Empty when the package declares no connectors.
+    /// </summary>
+    public IReadOnlyList<RequiredConnector> Connectors { get; init; } =
+        System.Array.Empty<RequiredConnector>();
+
+    /// <summary>
+    /// Non-fatal warnings produced during parse / resolve. Used today by the
+    /// connector-block validator to surface "unit's connectors entry is
+    /// identical to the inherited one" so an operator notices a redundant
+    /// override without failing the install.
+    /// </summary>
+    public IReadOnlyList<string> Warnings { get; init; } =
+        System.Array.Empty<string>();
 }
 
 /// <summary>

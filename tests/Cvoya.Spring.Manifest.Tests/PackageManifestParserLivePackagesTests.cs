@@ -113,16 +113,12 @@ public class PackageManifestParserLivePackagesTests
         var root = LivePackageRoot("spring-voyage-oss");
         var yaml = await File.ReadAllTextAsync(Path.Combine(root, "package.yaml"), ct);
 
-        // Provide all required inputs so substitution succeeds.
-        var inputs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["github_owner"] = "cvoya-com",
-            ["github_repo"] = "spring-voyage",
-            ["github_installation_id"] = "12345678",
-        };
-
+        // #1670: github_* inputs migrated to a declarative `connectors:`
+        // block on the package manifest. The package now parses with no
+        // inputs supplied; the operator-supplied connector binding lands
+        // through the install pipeline instead.
         var result = await PackageManifestParser.ParseAndResolveAsync(
-            yaml, root, inputValues: inputs, cancellationToken: ct);
+            yaml, root, cancellationToken: ct);
 
         result.Name.ShouldBe("spring-voyage-oss");
         result.Kind.ShouldBe(PackageKind.UnitPackage);
@@ -137,35 +133,31 @@ public class PackageManifestParserLivePackagesTests
         result.Units.ShouldAllBe(u => !u.IsCrossPackage);
         result.Units.ShouldAllBe(u => u.Content != null);
 
-        // Sub-unit connector configs must carry substituted values — no literal
-        // ${{ expressions should survive into the resolved artefact content.
+        // Sub-unit YAMLs no longer reference ${{ inputs.github_* }} since
+        // every member unit inherits the package-level binding.
         result.Units.ShouldAllBe(u => !u.Content!.Contains("${{"));
 
-        // The three connector-bearing sub-units must have concrete values.
-        var connectorUnits = result.Units
-            .Where(u => u.Name != "spring-voyage-oss")  // root unit has no connectors
-            .ToList();
-        connectorUnits.ShouldAllBe(u => u.Content!.Contains("cvoya-com"));
-        connectorUnits.ShouldAllBe(u => u.Content!.Contains("spring-voyage"));
-        connectorUnits.ShouldAllBe(u => u.Content!.Contains("12345678"));
+        // Connector declaration: github, required, inherits all member units.
+        result.Connectors.Count.ShouldBe(1);
+        result.Connectors[0].Type.ShouldBe("github");
+        result.Connectors[0].Required.ShouldBeTrue();
+        result.Connectors[0].InheritAll.ShouldBeTrue();
 
-        // Three required inputs resolved.
-        result.InputValues.Count.ShouldBe(3);
-        result.InputValues["github_owner"].ShouldBe("cvoya-com");
-        result.InputValues["github_repo"].ShouldBe("spring-voyage");
-        result.InputValues["github_installation_id"].ShouldBe("12345678");
+        // No legacy github_* inputs remain.
+        result.InputValues.ShouldBeEmpty();
     }
 
     [Fact]
-    public async Task ParseSpringVoyageOssPackage_MissingRequiredInput_ThrowsValidationException()
+    public async Task ParseSpringVoyageOssPackage_NoInputsRequired()
     {
         var ct = TestContext.Current.CancellationToken;
         var root = LivePackageRoot("spring-voyage-oss");
         var yaml = await File.ReadAllTextAsync(Path.Combine(root, "package.yaml"), ct);
 
-        // Supply no inputs — all three are required.
-        await Should.ThrowAsync<PackageInputValidationException>(
-            () => PackageManifestParser.ParseAndResolveAsync(
-                yaml, root, cancellationToken: ct));
+        // #1670: post-migration the OSS package has no required inputs
+        // (the github_* trio is gone). Parse must succeed with no inputs.
+        var result = await PackageManifestParser.ParseAndResolveAsync(
+            yaml, root, cancellationToken: ct);
+        result.InputValues.ShouldBeEmpty();
     }
 }

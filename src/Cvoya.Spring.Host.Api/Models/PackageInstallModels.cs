@@ -5,6 +5,7 @@ namespace Cvoya.Spring.Host.Api.Models;
 
 using System;
 using System.Collections.Generic;
+using System.Text.Json;
 
 /// <summary>
 /// Request body for <c>POST /api/v1/packages/install</c>.
@@ -35,9 +36,60 @@ public sealed record PackageInstallRequest(
 /// inputs must already be in <c>secret://</c> reference form. Null is
 /// treated as an empty map.
 /// </param>
+/// <param name="ConnectorBindings">
+/// Optional connector binding payload (#1671). Carries the operator-
+/// supplied configuration for each connector the package declares in its
+/// <c>connectors:</c> block. Empty when the package declares no
+/// connectors. The pre-flight validator returns 400 with a structured
+/// list of <see cref="ConnectorBindingMissingDetail"/> entries when a
+/// required connector has no binding.
+/// </param>
 public sealed record PackageInstallTarget(
     string PackageName,
-    IReadOnlyDictionary<string, string>? Inputs);
+    IReadOnlyDictionary<string, string>? Inputs,
+    PackageConnectorBindings? ConnectorBindings = null);
+
+/// <summary>
+/// Operator-supplied connector bindings for a single package install
+/// target (#1671). Two scopes:
+/// <list type="bullet">
+///   <item><description>
+///     <c>package.&lt;slug&gt;</c> — package-scope binding inherited by
+///     every member unit unless the unit's manifest opts out.
+///   </description></item>
+///   <item><description>
+///     <c>units.&lt;unit-name&gt;.&lt;slug&gt;</c> — per-unit override
+///     binding.
+///   </description></item>
+/// </list>
+/// </summary>
+/// <param name="Package">Package-scope bindings keyed by connector slug.</param>
+/// <param name="Units">Unit-scope bindings keyed by unit name then slug.</param>
+public sealed record PackageConnectorBindings(
+    IReadOnlyDictionary<string, ConnectorBindingPayload>? Package,
+    IReadOnlyDictionary<string, IReadOnlyDictionary<string, ConnectorBindingPayload>>? Units);
+
+/// <summary>
+/// Wire shape for one connector binding. The <c>config</c> payload is
+/// opaque to the install pipeline — its schema is dictated by the
+/// connector's <c>ConfigType</c>.
+/// </summary>
+/// <param name="Config">Connector-typed config payload.</param>
+public sealed record ConnectorBindingPayload(JsonElement Config);
+
+/// <summary>
+/// One missing connector binding surfaced through the
+/// <c>ConnectorBindingMissing</c> 400 (#1671). Carried in the response's
+/// <c>extensions["missing"]</c> array so the wizard / CLI can render a
+/// precise per-slug error rather than free-text.
+/// </summary>
+/// <param name="Slug">The connector slug the binding is missing for.</param>
+/// <param name="Scope">"package" or "unit".</param>
+/// <param name="UnitName">Member unit name when <see cref="Scope"/> is "unit"; <c>null</c> otherwise.</param>
+public sealed record ConnectorBindingMissingDetail(
+    string Slug,
+    string Scope,
+    string? UnitName);
 
 /// <summary>
 /// Response body for <c>POST /api/v1/packages/install</c>,

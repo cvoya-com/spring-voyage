@@ -50,6 +50,23 @@ public record PackageSummary(
 /// <param name="Skills">Skill bundles offered by the package.</param>
 /// <param name="Connectors">Connector assets shipped with the package.</param>
 /// <param name="Workflows">Workflow bundles shipped with the package.</param>
+/// <param name="ConnectorDeclarations">
+/// Declarative connector dependencies (#1670). Each entry mirrors one
+/// row of the <c>connectors:</c> block in the package's <c>package.yaml</c>:
+/// the connector slug, whether it is required at install time, and how
+/// its binding inherits to member units. Empty when the package declares
+/// no connectors.
+/// </param>
+/// <param name="Content">
+/// Top-level artefacts declared in the manifest's <c>content:</c> list
+/// (#1718 item 2). Each entry carries the artefact discriminator
+/// (<c>unit</c>, <c>agent</c>, <c>skill</c>, <c>workflow</c>) and the
+/// reference value the manifest declares. Surfaces the parser's view
+/// of "what the package installs" so the wizard / CLI can decide which
+/// install steps to render alongside connector configuration. Empty
+/// when the manifest declares no content (e.g. an inputs-only package
+/// in upload mode).
+/// </param>
 public record PackageDetail(
     string Name,
     string? Description,
@@ -59,7 +76,51 @@ public record PackageDetail(
     IReadOnlyList<AgentTemplateSummary> AgentTemplates,
     IReadOnlyList<SkillSummary> Skills,
     IReadOnlyList<ConnectorSummary> Connectors,
-    IReadOnlyList<WorkflowSummary> Workflows);
+    IReadOnlyList<WorkflowSummary> Workflows,
+    IReadOnlyList<RequiredConnectorSummary> ConnectorDeclarations,
+    IReadOnlyList<PackageContentEntry> Content);
+
+/// <summary>
+/// Wire-shape for one entry in <see cref="PackageDetail.Content"/> —
+/// the parsed <c>content:</c> list on the package manifest (#1718 item 2).
+/// </summary>
+/// <param name="Kind">
+/// Artefact discriminator: <c>unit</c>, <c>agent</c>, <c>skill</c>, or
+/// <c>workflow</c>. Lower-cased to match the YAML key the manifest
+/// declares.
+/// </param>
+/// <param name="Name">
+/// The reference string declared in the manifest. For inline bodies
+/// this is the inline artefact's <c>id</c> / <c>name</c>; for bare
+/// references it's the bare name (<c>my-unit</c>); for cross-package
+/// references it's the qualified <c>pkg/name</c> form.
+/// </param>
+public record PackageContentEntry(
+    string Kind,
+    string Name);
+
+/// <summary>
+/// Wire shape for one entry in <see cref="PackageDetail.ConnectorDeclarations"/>
+/// — the parsed <c>connectors:</c> block on the package manifest (#1670).
+/// Surfaces the inheritance shape so the wizard / CLI can decide which
+/// connector configuration steps to render before the package-inputs step.
+/// </summary>
+/// <param name="Type">The connector slug (matches <c>IConnectorType.Slug</c>).</param>
+/// <param name="Required">When true, install fails if no binding is supplied.</param>
+/// <param name="InheritAll">
+/// True when the binding inherits to every member unit unless that unit
+/// opts out via its own <c>connectors:</c> block.
+/// </param>
+/// <param name="InheritUnits">
+/// When non-null, the explicit list of member-unit names that inherit
+/// the package-level binding. <c>null</c> when <see cref="InheritAll"/>
+/// is true.
+/// </param>
+public record RequiredConnectorSummary(
+    string Type,
+    bool Required,
+    bool InheritAll,
+    IReadOnlyList<string>? InheritUnits);
 
 /// <summary>
 /// Wire-shape for a single declared input on a <see cref="PackageDetail"/>.

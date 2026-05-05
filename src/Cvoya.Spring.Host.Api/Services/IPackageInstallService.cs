@@ -8,6 +8,8 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
+using Cvoya.Spring.Manifest;
+
 /// <summary>
 /// Two-phase package install service (ADR-0035 decision 11).
 /// Supports atomic multi-unit installation and atomic multi-package batch
@@ -82,11 +84,24 @@ public interface IPackageInstallService
 /// May be <c>null</c> when the package is catalog-sourced and the catalog
 /// provider resolves all references without a local root.
 /// </param>
+/// <param name="PackageBindings">
+/// Connector bindings supplied at install time, keyed by connector slug
+/// (#1671). Inherited by every member unit unless the unit's manifest
+/// declares <c>inherit: false</c> on that slug. Empty when the package
+/// declares no connectors.
+/// </param>
+/// <param name="UnitBindings">
+/// Per-unit connector binding overrides, keyed first by unit name and then
+/// by connector slug (#1671). Wins over the package-scope inherited
+/// binding. Empty when no unit-scope overrides are supplied.
+/// </param>
 public record InstallTarget(
     string PackageName,
     IReadOnlyDictionary<string, string> Inputs,
     string OriginalYaml,
-    string? PackageRoot = null);
+    string? PackageRoot = null,
+    IReadOnlyDictionary<string, ConnectorBinding>? PackageBindings = null,
+    IReadOnlyDictionary<string, IReadOnlyDictionary<string, ConnectorBinding>>? UnitBindings = null);
 
 /// <summary>
 /// Outcome of a single <c>IPackageInstallService.InstallAsync</c> call.
